@@ -12,6 +12,8 @@ import { resolveSession } from '../engine.resolve-session'
  * which is how the two came to disagree unnoticed.
  */
 const LIVE: Identities.Me = {
+  createdBy: null,
+  updatedBy: null,
   id: 'i1',
   profile: { email: 'a@b.test', username: 'a' },
   providers: [],
@@ -20,6 +22,7 @@ const LIVE: Identities.Me = {
   createdAt: new Date(0),
   updatedAt: new Date(0),
   deletedAt: null,
+  deletedBy: null,
 }
 
 const session = (identityId: string | null, tenantId: string | null = null): Sessions.Me => ({

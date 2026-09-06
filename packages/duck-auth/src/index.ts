@@ -9,6 +9,7 @@
  * and the narrow runtime surface above is unchanged.
  */
 export type {
+  ActorContext,
   Anomaly,
   Batch,
   Bound,
@@ -31,6 +32,7 @@ export type {
   TenantContext,
   Transport,
 } from './core'
+export { actorId, currentActor, resolveActor, setDefaultActorResolver, withActor } from './core/actor'
 export { AuthEngine, authEngine } from './core/engine'
 export { AuthError, rethrowAuthError, throwAuthError } from './core/errors'
 export {

@@ -4,6 +4,8 @@ import { AuthSesChannel } from '../index'
 
 function makeIdentity(email: string | undefined): Identities.Me {
   return {
+    createdBy: null,
+    updatedBy: null,
     id: 'ident-1',
     // Empty email string models the "no deliverable address" case; the channel
     // reads it via getProfileString, which treats '' as absent (returns ok:false).
@@ -14,6 +16,7 @@ function makeIdentity(email: string | undefined): Identities.Me {
     createdAt: new Date(Date.now()),
     updatedAt: new Date(Date.now()),
     deletedAt: null,
+    deletedBy: null,
   }
 }
 

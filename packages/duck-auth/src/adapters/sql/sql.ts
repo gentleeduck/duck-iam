@@ -1,3 +1,4 @@
+import { actorId } from '~/core/actor'
 import { type Batch, batchResult } from '~/core/batch'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { authUlid } from '~/core/crypto'
@@ -68,6 +69,103 @@ export function assertRestorable(row: { deletedAt: Date | null }): void {
  */
 export function assertEmailFree(email: string | undefined, taken: boolean): void {
   if (email !== undefined && taken) throw new AuthError('AUTH_EMAIL_TAKEN')
+}
+
+/**
+ * The same rule as {@link assertEmailFree}, for provider logins.
+ *
+ * `findByProviderSub` skips soft-deleted rows, so while a row is hidden its
+ * `(providerId, providerSub)` pairs are free for someone else to claim - and
+ * nothing stops them, because the providers array is JSON with no unique index
+ * behind it. Restoring without this check produces two live rows answering to
+ * one provider identity, and `findByProviderSub` then returns whichever the
+ * dialect happened to order first: the deleted account silently takes over the
+ * new one's Google login, or the reverse, depending on the query plan.
+ */
+export function assertProviderSubFree(clash: { providerId: string } | undefined): void {
+  if (clash !== undefined) throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: clash.providerId })
+}
+
+/**
+ * The unique indexes behind email and username, by the name every dialect
+ * reports when one is violated.
+ *
+ * The pre-checks above are read-then-write and so are racy by construction: two
+ * concurrent signups both read a free address, both insert, and the index
+ * refuses the loser. That refusal is correct - it is the only thing that makes
+ * the address unique at all - but it arrived as a raw driver error, so the same
+ * conflict surfaced as `AUTH_EMAIL_TAKEN` when the pre-check caught it and as a
+ * 500 when the index did. The database is the authority here; this just gives
+ * its answer the same name the pre-check uses.
+ */
+const UNIQUE_INDEX_ERRORS = [
+  { code: 'AUTH_EMAIL_TAKEN', index: 'uq_auth_identities_email' },
+  { code: 'AUTH_USERNAME_TAKEN', index: 'uq_auth_identities_username' },
+] as const
+
+/**
+ * Everything a driver might have written the index name into. pg puts it on
+ * `constraint`, mysql2 and sqlite only in the message, and a driver is free to
+ * nest the real error under `cause` - so all of them are searched rather than
+ * betting on one shape.
+ */
+function errorText(err: unknown): string {
+  if (typeof err === 'string') return err
+  if (err === null || typeof err !== 'object') return ''
+  const parts: string[] = []
+  for (const key of ['message', 'constraint', 'detail', 'sqlMessage'] as const) {
+    const value = Reflect.get(err, key)
+    if (typeof value === 'string') parts.push(value)
+  }
+  const cause = Reflect.get(err, 'cause')
+  if (cause !== undefined && cause !== err) parts.push(errorText(cause))
+  return parts.join(' ')
+}
+
+/**
+ * Run a write, and rename a unique-index violation to the typed error for that
+ * index. Anything else propagates untouched: a driver error that is not one of
+ * these is a real failure and must not be dressed up as a conflict.
+ */
+export async function mapUniqueViolations<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write()
+  } catch (err) {
+    if (err instanceof AuthError) throw err
+    const text = errorText(err)
+    const hit = UNIQUE_INDEX_ERRORS.find((candidate) => text.includes(candidate.index))
+    if (hit === undefined) throw err
+    const typed = new AuthError(hit.code)
+    // The driver error stays reachable for logs; the typed code is what callers match on.
+    typed.cause = err
+    throw typed
+  }
+}
+
+/**
+ * Set key for one provider claim. `\u0000` cannot occur in either half of a
+ * real pair, so it cannot be forged by a provider id that merely contains the
+ * separator.
+ */
+export function providerSubKey(claim: { providerId: string; providerSub: string }): string {
+  return `${claim.providerId}\u0000${claim.providerSub}`
+}
+
+/**
+ * The pairs a restoring row would re-claim. Empty for a row with no provider
+ * logins, or one whose links carry no `providerSub` - a null sub identifies
+ * nobody and so can never clash.
+ */
+export function claimedProviderSubs(row: {
+  providers: readonly { providerId: string; providerSub: string | null }[]
+}): { providerId: string; providerSub: string }[] {
+  const out: { providerId: string; providerSub: string }[] = []
+  for (const link of row.providers) {
+    if (typeof link.providerSub === 'string' && link.providerSub.length > 0) {
+      out.push({ providerId: link.providerId, providerSub: link.providerSub })
+    }
+  }
+  return out
 }
 
 export function createSqlStores<Profile extends Identities.ProfileMetadataBase>(
@@ -244,23 +342,32 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
+        deletedBy: null,
+        // Both, not just `createdBy`: `updatedAt` is also `now` on an insert,
+        // so the row's last writer is its creator.
+        createdBy: actorId(),
+        updatedBy: actorId(),
       }
-      await bridge.insert(row)
+      await mapUniqueViolations(() => bridge.insert(row))
       return row
     },
     update: async (id, patch, expectedVersion) => {
       const sqlPatch = {
         ...stripUndefined(patch),
         updatedAt: new Date(),
+        updatedBy: actorId(),
         version: expectedVersion + 1,
       }
-      const next = await bridge.updateConditional(id, sqlPatch, expectedVersion)
+      const next = await mapUniqueViolations(() => bridge.updateConditional(id, sqlPatch, expectedVersion))
       if (!next) throw new AuthError('AUTH_STALE_WRITE', { expected: expectedVersion, actual: -1 })
       return reviveIdentity(next)
     },
     softDelete: async (id, gracePeriodMs) =>
-      reviveIdentityOrNull(await bridge.softDelete(id, new Date(Date.now() + gracePeriodMs))),
-    restore: async (id) => reviveIdentityOrNull(await bridge.restore(id)),
+      reviveIdentityOrNull(await bridge.softDelete(id, new Date(Date.now() + gracePeriodMs), actorId())),
+    // The pre-checks inside a dialect's `restore` are the typed path; this
+    // catches the same clash when a concurrent write wins the race between them
+    // and the UPDATE, which no amount of checking first can close.
+    restore: async (id) => reviveIdentityOrNull(await mapUniqueViolations(() => bridge.restore(id))),
     erase: async (id) => reviveIdentityOrNull(await bridge.erase(id)),
     link: async (identityId, link) =>
       reviveIdentityOrNull(
@@ -272,7 +379,10 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
 
     ...(softDeleteManyReturningIds && {
       softDeleteMany: async (ids: readonly string[], gracePeriodMs: number) =>
-        outcomesFromAffected(ids, await softDeleteManyReturningIds(ids, new Date(Date.now() + gracePeriodMs))),
+        outcomesFromAffected(
+          ids,
+          await softDeleteManyReturningIds(ids, new Date(Date.now() + gracePeriodMs), actorId()),
+        ),
     }),
 
     ...(eraseManyReturningIds && {
@@ -281,9 +391,10 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
 
     ...(restoreManyReturning && {
       restoreMany: async (ids: readonly string[]) => {
-        const { candidates, restored } = await restoreManyReturning(ids)
+        const { candidates, refused, restored } = await restoreManyReturning(ids)
         const seen = new Map(candidates.map((row) => [row.id, row]))
         const byId = new Map(restored.map((row) => [row.id, row]))
+        const why = new Map((refused ?? []).map((r) => [r.id, r.reason]))
         return batchResult(
           ids.map((id) => {
             const row = byId.get(id)
@@ -292,11 +403,12 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
             // The id matched nothing at all - the only case that is really absent.
             if (!candidate) return { id, ok: false as const, reason: 'not-found' as const }
             if (!isRestorable(candidate)) return { id, ok: false as const, reason: 'grace-expired' as const }
-            // Still inside its window and still refused leaves exactly one rule
-            // it can have failed: a live row now answers to its address. A
-            // dialect that grows a third refusal must be classified here too,
-            // or it will be reported as this one.
-            return { id, ok: false as const, reason: 'email-taken' as const }
+            // Inside its window and still refused means a clash, and the
+            // dialect ran both clash queries so it is the one that can say
+            // which. `email-taken` is the fallback for a custom bridge that
+            // does not report reasons - it was the only clash before provider
+            // subs were guarded, so it stays the more conservative guess.
+            return { id, ok: false as const, reason: why.get(id) ?? ('email-taken' as const) }
           }),
         )
       },
@@ -304,12 +416,25 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
 
     ...(updateProfileManyReturning && {
       updateProfileMany: async (rows: readonly { id: string; profile: Profile; expectedVersion: number }[]) => {
-        const updated = await updateProfileManyReturning(
-          rows.map((r) => ({
-            expectedVersion: r.expectedVersion,
-            id: r.id,
-            patch: { profile: r.profile, updatedAt: new Date(), version: r.expectedVersion + 1 },
-          })),
+        // One statement for the whole batch, so a unique violation fails all of
+        // it - but as `AUTH_EMAIL_TAKEN`, which `toSoftReason` knows, rather
+        // than a raw driver error the caller cannot classify.
+        const updated = await mapUniqueViolations(() =>
+          updateProfileManyReturning(
+            rows.map((r) => ({
+              expectedVersion: r.expectedVersion,
+              id: r.id,
+              // `updatedBy` travels with `updatedAt`: a batch that moves the
+              // timestamp without moving the writer would leave the row claiming
+              // its previous author made this change.
+              patch: {
+                profile: r.profile,
+                updatedAt: new Date(),
+                updatedBy: actorId(),
+                version: r.expectedVersion + 1,
+              },
+            })),
+          ),
         )
         const byId = new Map(updated.map((row) => [row.id, row]))
         // A requested id missing from the response is `stale-write`, not
@@ -361,6 +486,8 @@ function buildCredentials(bridge: SqlBridge.Credential<Credential.Me>): Credenti
     findByHashedSecret: (secretHash, kind, ctx) => bridge.findByHashedSecret(secretHash, kind, ctx.tenantId),
     upsert: async (input, ctx) => {
       const row: Credential.Me = {
+        createdBy: actorId(),
+        updatedBy: actorId(),
         id: authUlid(),
         identityId: input.identityId,
         tenantId: input.tenantId ?? ctx.tenantId ?? null,

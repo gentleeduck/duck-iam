@@ -33,6 +33,7 @@ export const authIdentities = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: text('deleted_by'),
   },
   (t) => [
     check('chk_auth_identities_profile_shape', sql`profile ? 'username' AND profile ? 'email'`),
@@ -102,8 +103,6 @@ export const authSessions = pgTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     fingerprint: text('fingerprint'),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
@@ -152,6 +151,12 @@ export const authEvents = pgTable(
     method: text('method'),
     ip: text('ip'),
     userAgent: text('user_agent'),
+    /**
+     * Who performed the action, when that differs from `identity_id` - an admin
+     * revoking someone else's session, a support agent resetting a password.
+     * `identity_id` is the subject; this is the operator.
+     */
+    actorId: text('actor_id'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -160,6 +165,10 @@ export const authEvents = pgTable(
     // Primary query paths: "all events for identity" and "all events in tenant window"
     index('auth_events_identity_created').on(t.identityId, t.createdAt),
     index('auth_events_tenant_created').on(t.tenantId, t.createdAt),
+    // "Everything operator X did, newest first" - the question `actor_id`
+    // exists to answer. `auth_events` is append-only and unbounded, so without
+    // this the one query the column was added for is a full scan of the log.
+    index('auth_events_actor_created').on(t.actorId, t.createdAt),
     // GC / retention scans
     index('auth_events_created').on(t.createdAt),
     check(

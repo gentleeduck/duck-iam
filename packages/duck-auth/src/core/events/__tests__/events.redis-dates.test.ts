@@ -135,8 +135,11 @@ describe('RedisEvents payload dates survive the fan-out', () => {
 
     await local.emit('signup.completed', {
       identity: {
+        createdBy: null,
+        updatedBy: null,
         createdAt: new Date(),
         deletedAt: null,
+        deletedBy: null,
         emailVerified: false,
         id: 'i1',
         profile: {
@@ -168,8 +171,11 @@ describe('RedisEvents payload dates survive the fan-out', () => {
 
     await local.emit('signup.completed', {
       identity: {
+        createdBy: null,
+        updatedBy: null,
         createdAt: new Date(),
         deletedAt: null,
+        deletedBy: null,
         emailVerified: false,
         id: 'i1',
         profile: { email: 'a@x.com', username: 'a' },

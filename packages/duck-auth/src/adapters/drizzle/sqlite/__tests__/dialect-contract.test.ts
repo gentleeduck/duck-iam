@@ -11,40 +11,32 @@
  * are covered by their own e2e suites.
  */
 
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createSqlStores } from '~/adapters/sql/sql'
 import type { Sessions } from '~/core/sessions/sessions.types'
+import { SQLITE_DDL as DDL } from '~/test/sqlite-schema'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
 import { createDrizzleSqliteBridge } from '../sqlite'
-
-const DDL = `
-CREATE TABLE auth_identities (
-  id TEXT PRIMARY KEY, tenant_id TEXT, profile TEXT NOT NULL,
-  providers TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 1,
-  email_verified INTEGER NOT NULL DEFAULT 0, created_by TEXT, updated_by TEXT,
-  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
-CREATE TABLE auth_credentials (
-  id TEXT PRIMARY KEY, identity_id TEXT NOT NULL, tenant_id TEXT, kind TEXT NOT NULL,
-  secret TEXT NOT NULL, metadata TEXT, version INTEGER NOT NULL DEFAULT 1, created_by TEXT,
-  updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  last_used_at INTEGER, expires_at INTEGER, revoked_at INTEGER);
-CREATE TABLE auth_sessions (
-  id TEXT PRIMARY KEY, identity_id TEXT, tenant_id TEXT, kind TEXT NOT NULL, aal INTEGER NOT NULL,
-  factors TEXT NOT NULL DEFAULT '[]', csrf_hash TEXT, ip TEXT, user_agent TEXT, fingerprint TEXT,
-  created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  rotated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-  absolute_expires_at INTEGER NOT NULL, fresh INTEGER NOT NULL, acting_as TEXT);
-`
 
 type Profile = { username: string; email: string }
 
 const OWNER = 'identity-under-test'
+
+/** `chk_auth_sessions_id_length` demands exactly 64 chars, as every real sid is. */
+const sessionId = (label: string) => createHash('sha256').update(label).digest('hex')
 
 async function makeStores(): Promise<ReturnType<typeof createSqlStores<Profile>>> {
   const { default: Database } = await import('better-sqlite3')
   const { drizzle } = await import('drizzle-orm/better-sqlite3')
   const sqlite = new Database(':memory:')
   sqlite.exec(DDL)
+  // Sessions and credentials below carry a foreign key to this row; the tests
+  // plant the id rather than creating the identity, so it is seeded here.
+  sqlite.exec(
+    `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
+     VALUES ('${OWNER}', '{"email":"owner@fk.local","username":"owner"}', '[]', 1, 1, 0, 0)`,
+  )
   // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
   return createSqlStores<Profile>(createDrizzleSqliteBridge(drizzle(sqlite as any)))
 }
@@ -56,6 +48,69 @@ describe('DrizzleSqlite store-contract divergences', () => {
 
   beforeEach(async () => {
     stores = await makeStores()
+  })
+
+  /**
+   * The store's own pre-checks are read-then-write, so under concurrency the
+   * unique index is what actually decides. Inserting straight past the
+   * pre-check is how a test reaches that decision deterministically.
+   */
+  describe('unique index violations arrive typed', () => {
+    it('a duplicate email is AUTH_EMAIL_TAKEN, not a raw driver error', async () => {
+      await stores.identities.create(identityInput({ profile: { email: 'dup@x.com', username: 'first' } }))
+      await expect(
+        stores.identities.create(identityInput({ profile: { email: 'DUP@x.com', username: 'second' } })),
+      ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN', status: 409 })
+    })
+
+    it('a duplicate username is AUTH_USERNAME_TAKEN, told apart from the email clash', async () => {
+      await stores.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'taken' } }))
+      // Distinct address, same handle: the two indexes must not be reported as
+      // each other, or "change your email" is the advice for a username clash.
+      await expect(
+        stores.identities.create(identityInput({ profile: { email: 'b@x.com', username: 'TAKEN' } })),
+      ).rejects.toMatchObject({ code: 'AUTH_USERNAME_TAKEN', status: 409 })
+    })
+
+    it('a soft-deleted row frees its address, and update surfaces the clash typed', async () => {
+      const first = await stores.identities.create(identityInput({ profile: profile('holder') }))
+      const second = await stores.identities.create(identityInput({ profile: profile('other') }))
+      // Control: the indexes are partial on deletedAt, so hiding one must let
+      // the address be reused - otherwise the refusals above prove nothing more
+      // than that the column is unique unconditionally.
+      await stores.identities.softDelete(first.id, 60_000)
+      await expect(stores.identities.create(identityInput({ profile: profile('holder') }))).resolves.toBeDefined()
+      // Only the address collides - `profile('holder')` would trip the username
+      // index too, and which of the two a dialect reports first is its own
+      // business, not something to pin.
+      await expect(
+        stores.identities.update(second.id, { profile: { email: 'holder@x.com', username: 'other' } }, second.version),
+      ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+    })
+
+    it('a driver error that is not a unique violation is not dressed up as one', async () => {
+      // `chk_auth_sessions_id_length` fails on a short id. It must propagate as
+      // itself: renaming every write failure to a conflict would turn real bugs
+      // into 409s the caller retries forever.
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      await expect(
+        stores.sessions.create(
+          sessionInput({
+            aal: 1,
+            absoluteExpiresAt: exp,
+            createdAt: now,
+            expiresAt: exp,
+            factors: [],
+            fresh: true,
+            id: 'too-short',
+            identityId: OWNER,
+            kind: 'user',
+            rotatedAt: now,
+          }),
+        ),
+      ).rejects.not.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+    })
   })
 
   describe('identities.link', () => {
@@ -204,7 +259,7 @@ describe('DrizzleSqlite store-contract divergences', () => {
           ...base,
           absoluteExpiresAt: new Date(nowMs + 60_000),
           expiresAt: new Date(nowMs - 1),
-          id: 'idle-expired',
+          id: sessionId('idle-expired'),
         }),
       )
       await stores.sessions.create(
@@ -212,13 +267,13 @@ describe('DrizzleSqlite store-contract divergences', () => {
           ...base,
           absoluteExpiresAt: new Date(nowMs + 60_000),
           expiresAt: new Date(nowMs + 60_000),
-          id: 'live',
+          id: sessionId('live'),
         }),
       )
 
       expect((await stores.sessions.gc(nowMs)).deleted).toBe(1)
-      expect(await stores.sessions.getByHash('idle-expired')).toBeNull()
-      expect(await stores.sessions.getByHash('live')).not.toBeNull()
+      expect(await stores.sessions.getByHash(sessionId('idle-expired'))).toBeNull()
+      expect(await stores.sessions.getByHash(sessionId('live'))).not.toBeNull()
     })
   })
 

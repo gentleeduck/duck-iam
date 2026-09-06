@@ -22,6 +22,13 @@ export namespace Events {
   export interface Envelope {
     /** When the session is impersonating, real subject is recorded on every event. */
     actingAs?: Sessions.ActingAs
+    /**
+     * Who performed the action, from the ambient actor context. The payload's
+     * own `identityId` is the *subject*; this is the *operator*, and the two
+     * differ exactly when someone acts on another account - an admin revoking
+     * a session, support resetting a password. Absent when no actor was bound.
+     */
+    actorId?: string
     /** Optional iam decision id when an action was authorized via iam-auth-bridge. */
     iamDecisionId?: string
   }

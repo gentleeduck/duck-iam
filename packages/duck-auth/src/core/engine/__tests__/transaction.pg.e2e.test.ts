@@ -252,10 +252,15 @@ suite('E2E withTransaction on real Postgres', () => {
 
     // Pinned to the constraint, so the case cannot start passing on some
     // unrelated throw - a cap check, a typo'd id - and quietly stop testing
-    // atomicity. drizzle reports the statement and hangs the driver's own
-    // message off `cause`, so both halves are searched.
-    expect(failure).toBeInstanceOf(Error)
-    const detail = failure instanceof Error ? `${failure.message} ${String(failure.cause)}` : String(failure)
+    // atomicity. The index violation now arrives as the typed error rather than
+    // a raw driver one, and it still aborts: a hard failure, not a per-row miss.
+    expect(failure).toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+    // The driver's own message stays reachable underneath, so the typed code is
+    // a rename and not a swallow. It sits two levels down - drizzle wraps the
+    // pg error in its own "Failed query" one - which is why the mapping walks
+    // the whole chain rather than reading `cause` once.
+    let detail = ''
+    for (let err: unknown = failure; err instanceof Error; err = err.cause) detail += ` ${err.message}`
     expect(detail).toMatch(/duplicate key|unique/i)
 
     // The good row from the same batch is gone too - that is what atomic means.

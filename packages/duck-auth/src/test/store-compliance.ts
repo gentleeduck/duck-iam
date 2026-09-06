@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
+import { withActor } from '~/core/actor'
 import type { Credential } from '~/core/credentials/credentials.types'
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
@@ -176,6 +177,141 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       expect(await store.erase(gone)).toBeNull()
     })
 
+    /**
+     * `created_by` and `updated_by` have been columns on `auth_identities`
+     * since 5.x with nothing in the package able to write them, so every row
+     * carried NULL provenance no matter who did the write. These pin that an
+     * ambient actor now reaches the column, and - just as important - that
+     * `createdBy` is written once and never re-stamped by a later writer.
+     */
+    it('a write under an ambient actor stamps provenance, and an update moves only updatedBy', async () => {
+      const store = factory()
+      const created = await withActor('op-1', () =>
+        store.create(identityInput({ profile: { email: 'prov@x', username: 'prov' } as unknown as P })),
+      )
+      expect(created.createdBy).toBe('op-1')
+      expect(created.updatedBy).toBe('op-1')
+
+      const updated = await withActor('op-2', () =>
+        store.update(created.id, { profile: { email: 'prov2@x', username: 'prov' } as unknown as P }, created.version),
+      )
+      // Who made the row is not who last touched it.
+      expect(updated?.createdBy).toBe('op-1')
+      expect(updated?.updatedBy).toBe('op-2')
+    })
+
+    it('the batch update path carries provenance the same way the single one does', async (ctx) => {
+      const store = factory()
+      if (!store.updateProfileMany) return ctx.skip()
+      const i = await withActor('op-1', () =>
+        store.create(identityInput({ profile: { email: 'bprov@x', username: 'bprov' } as unknown as P })),
+      )
+
+      const out = await withActor('op-2', () =>
+        // biome-ignore lint/style/noNonNullAssertion: guarded by the skip above
+        store.updateProfileMany!([
+          { expectedVersion: i.version, id: i.id, profile: { email: 'bprov2@x', username: 'bprov' } as unknown as P },
+        ]),
+      )
+
+      // Postgres builds this statement by hand rather than passing the patch
+      // through, so a column added to the single-row path can silently miss the
+      // batch one and leave the row crediting its previous writer.
+      const [row] = out.outcomes
+      expect(row?.ok === true && row.value.updatedBy).toBe('op-2')
+      expect(row?.ok === true && row.value.createdBy).toBe('op-1')
+    })
+
+    it('a write with no actor bound records null, not a placeholder', async () => {
+      const store = factory()
+      const created = await store.create(identityInput({ profile: { email: 'anon@x', username: 'anon' } as unknown as P }))
+
+      // NULL here means "nothing was in scope", which is a true statement. A
+      // stand-in like 'system' would assert an actor that never existed.
+      expect(created.createdBy).toBeNull()
+      expect(created.updatedBy).toBeNull()
+    })
+
+    it('a soft delete records who did it, and a restore clears the claim', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: { email: 'del@x', username: 'del' } as unknown as P }))
+      expect(i.deletedBy).toBeNull()
+
+      const hidden = await withActor('op-5', () => store.softDelete(i.id, 60_000))
+      // "Who deleted this account" is the audit question that actually gets
+      // asked, and `deleted_at` alone cannot answer it.
+      expect(hidden?.deletedBy).toBe('op-5')
+
+      const back = await store.restore(i.id)
+      // A live row names no deleter: leaving `deletedBy` set would accuse an
+      // operator of a deletion that is no longer in effect.
+      expect(back?.deletedAt).toBeNull()
+      expect(back?.deletedBy).toBeNull()
+    })
+
+    it('restore refuses when a live row has since claimed the provider login', async () => {
+      const store = factory()
+      const a = await store.create(identityInput({ profile: { email: 'pa@x', username: 'pa' } as unknown as P }))
+      await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-shared' })
+      await store.softDelete(a.id, 60_000)
+
+      // Legitimate while A is hidden: `findByProviderSub` cannot see A, so the
+      // sub genuinely is free.
+      const b = await store.create(identityInput({ profile: { email: 'pb@x', username: 'pb' } as unknown as P }))
+      await store.link(b.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-shared' })
+
+      // Without this guard both rows go live holding one Google account, and
+      // `findByProviderSub` returns whichever the query plan orders first.
+      await expect(store.restore(a.id)).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+      expect((await store.findByProviderSub('google', 'sub-shared'))?.id).toBe(b.id)
+    })
+
+    it('restore still succeeds when the provider login is genuinely free', async () => {
+      const store = factory()
+      const a = await store.create(identityInput({ profile: { email: 'pc@x', username: 'pc' } as unknown as P }))
+      await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-solo' })
+      await store.softDelete(a.id, 60_000)
+
+      // Without this the refusal above would also pass against a restore that
+      // was simply broken for every row carrying a provider link.
+      expect((await store.restore(a.id))?.id).toBe(a.id)
+      expect((await store.findByProviderSub('google', 'sub-solo'))?.id).toBe(a.id)
+    })
+
+    it('restoreMany refuses a provider clash and names it as one', async (ctx) => {
+      const store = factory()
+      if (!store.restoreMany) return ctx.skip()
+      const a = await store.create(identityInput({ profile: { email: 'ba@x', username: 'ba' } as unknown as P }))
+      await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'batch-shared' })
+      await store.softDelete(a.id, 60_000)
+      const b = await store.create(identityInput({ profile: { email: 'bb@x', username: 'bb' } as unknown as P }))
+      await store.link(b.id, { addedAt: new Date(), providerId: 'google', providerSub: 'batch-shared' })
+
+      // biome-ignore lint/style/noNonNullAssertion: guarded by the skip above
+      const out = await store.restoreMany!([a.id])
+
+      // Reported as `provider-taken`, not `email-taken`: the address was never
+      // the problem, and a caller that resolves the wrong clash gets nowhere.
+      const [row] = out.outcomes
+      expect(row?.ok).toBe(false)
+      expect(row?.ok === false && row.reason).toBe('provider-taken')
+      expect((await store.findByProviderSub('google', 'batch-shared'))?.id).toBe(b.id)
+    })
+
+    it('restoreMany still restores a row whose provider login is free', async (ctx) => {
+      const store = factory()
+      if (!store.restoreMany) return ctx.skip()
+      const a = await store.create(identityInput({ profile: { email: 'bc@x', username: 'bc' } as unknown as P }))
+      await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'batch-solo' })
+      await store.softDelete(a.id, 60_000)
+
+      // Without this the refusal above would also pass against a batch restore
+      // broken for every row that carries a provider link.
+      // biome-ignore lint/style/noNonNullAssertion: guarded by the skip above
+      const [row] = (await store.restoreMany!([a.id])).outcomes
+      expect(row?.ok).toBe(true)
+    })
+
     it('a batch over an empty list is a no-op', async (ctx) => {
       const store = factory()
       if (!store.softDeleteMany) return ctx.skip()
@@ -291,6 +427,67 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       expect(await store.findById(i.id)).toBeNull()
       // The live claimant is untouched: the refusal costs the innocent row nothing.
       expect((await store.findById(claimant.id))?.id).toBe(claimant.id)
+    })
+
+    /**
+     * Every dialect declares partial unique indexes on the live rows' email and
+     * username. A store that admits a duplicate is holding state Postgres will
+     * not, and every test that runs on it is asserting behaviour the real
+     * adapters do not have - so the rule belongs to the contract, not to one
+     * adapter's implementation of it.
+     */
+    it('create refuses a second live row with the same email', async () => {
+      const store = factory()
+      await store.create(identityInput({ profile: { email: 'dup@x', username: 'one' } as unknown as P }))
+      // A different handle, so this pins the email index rather than the other.
+      await expect(
+        store.create(identityInput({ profile: { email: 'DUP@x', username: 'two' } as unknown as P })),
+      ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+    })
+
+    it('create refuses a second live row with the same username', async () => {
+      const store = factory()
+      await store.create(identityInput({ profile: { email: 'one@x', username: 'dup' } as unknown as P }))
+      // Distinct address, same handle: reporting this as the email clash would
+      // send the caller off to change a field that is not the problem.
+      await expect(
+        store.create(identityInput({ profile: { email: 'two@x', username: 'DUP' } as unknown as P })),
+      ).rejects.toMatchObject({ code: 'AUTH_USERNAME_TAKEN' })
+    })
+
+    it('a soft-deleted row frees its email and username for someone else', async () => {
+      const store = factory()
+      const first = await store.create(identityInput({ profile: { email: 'g@x', username: 'g' } as unknown as P }))
+      await store.softDelete(first.id, 60_000)
+
+      // The control for the two refusals above: both indexes are partial on
+      // `deletedAt`, so without this they would also pass against a store that
+      // refused duplicates unconditionally and broke the grace window.
+      await expect(
+        store.create(identityInput({ profile: { email: 'g@x', username: 'g' } as unknown as P })),
+      ).resolves.toBeDefined()
+    })
+
+    it('update refuses moving onto another live row profile', async () => {
+      const store = factory()
+      const holder = await store.create(identityInput({ profile: { email: 'h@x', username: 'h' } as unknown as P }))
+      const mover = await store.create(identityInput({ profile: { email: 'm@x', username: 'm' } as unknown as P }))
+
+      await expect(
+        store.update(mover.id, { profile: { email: 'h@x', username: 'm' } as unknown as P }, mover.version),
+      ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+      // Refused, not half-applied: the row keeps the address it had.
+      expect((await store.findById(mover.id))?.profile).toMatchObject({ email: 'm@x' })
+      expect((await store.findById(holder.id))?.id).toBe(holder.id)
+    })
+
+    it('update leaves a row its own profile without tripping the indexes', async () => {
+      const store = factory()
+      const row = await store.create(identityInput({ profile: { email: 's@x', username: 's' } as unknown as P }))
+      // The refusal above must exclude the row being updated, or no identity
+      // could ever be patched without also changing its email.
+      const next = await store.update(row.id, { emailVerified: true }, row.version)
+      expect(next.emailVerified).toBe(true)
     })
 
     it('link / unlink mutate providers; findByProviderSub locates linked identities', async () => {
@@ -874,6 +1071,18 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       expect(c.version).toBe(1)
       const got = await store.findById(c.id, {})
       expect(got?.secret).toBe('hashed-pw')
+    })
+
+    it('a credential row records who wrote it, from the ambient actor', async () => {
+      const store = factory()
+      const c = await withActor('op-4', () =>
+        store.upsert(credentialInput({ identityId: OWNER, kind: 'password', metadata: {}, secret: 'hashed-pw' }), {}),
+      )
+
+      // `auth_credentials` declares the same two columns as the other tables;
+      // a password row that cannot say who set it is the case that matters most.
+      expect(c.createdBy).toBe('op-4')
+      expect(c.updatedBy).toBe('op-4')
     })
 
     it('findByHashedSecret returns the freshest live row before falling back to revoked', async () => {

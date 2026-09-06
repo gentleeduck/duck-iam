@@ -34,6 +34,7 @@ CREATE TABLE `auth_events` (
 	`method` varchar(32),
 	`ip` varchar(45),
 	`user_agent` text,
+	`actor_id` varchar(191),
 	`metadata` json,
 	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	CONSTRAINT `auth_events_id` PRIMARY KEY(`id`),
@@ -42,7 +43,6 @@ CREATE TABLE `auth_events` (
 
 CREATE TABLE `auth_identities` (
 	`id` varchar(64) NOT NULL,
-	`tenant_id` varchar(64),
 	`profile` json NOT NULL,
 	`providers` json NOT NULL DEFAULT ('[]'),
 	`version` int NOT NULL DEFAULT 1,
@@ -52,7 +52,13 @@ CREATE TABLE `auth_identities` (
 	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`deleted_at` datetime(3),
+	`deleted_by` varchar(191),
+	`email_norm` varchar(320) GENERATED ALWAYS AS ((if(deleted_at is null, lower(profile ->> '$.email'), null))) STORED,
+	`username_norm` varchar(191) GENERATED ALWAYS AS ((if(deleted_at is null, lower(profile ->> '$.username'), null))) STORED,
 	CONSTRAINT `auth_identities_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_auth_identities_email` UNIQUE(`email_norm`),
+	CONSTRAINT `uq_auth_identities_username` UNIQUE(`username_norm`),
+	CONSTRAINT `chk_auth_identities_profile_shape` CHECK(profile is null or (profile ->> '$.username' is not null and profile ->> '$.email' is not null)),
 	CONSTRAINT `chk_auth_identities_version` CHECK(version >= 1)
 );
 
@@ -67,8 +73,6 @@ CREATE TABLE `auth_sessions` (
 	`ip` varchar(45),
 	`user_agent` text,
 	`fingerprint` varchar(128),
-	`created_by` varchar(191),
-	`updated_by` varchar(191),
 	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`rotated_at` datetime(3) NOT NULL,
@@ -94,8 +98,8 @@ CREATE INDEX `auth_credentials_tenant` ON `auth_credentials` (`tenant_id`);
 CREATE INDEX `auth_credentials_expires_at` ON `auth_credentials` (`expires_at`);
 CREATE INDEX `auth_events_identity_created` ON `auth_events` (`identity_id`,`created_at`);
 CREATE INDEX `auth_events_tenant_created` ON `auth_events` (`tenant_id`,`created_at`);
+CREATE INDEX `auth_events_actor_created` ON `auth_events` (`actor_id`,`created_at`);
 CREATE INDEX `auth_events_created` ON `auth_events` (`created_at`);
-CREATE INDEX `auth_identities_tenant` ON `auth_identities` (`tenant_id`);
 CREATE INDEX `auth_identities_deleted_at` ON `auth_identities` (`deleted_at`);
 CREATE INDEX `auth_sessions_identity` ON `auth_sessions` (`identity_id`);
 CREATE INDEX `auth_sessions_identity_expires` ON `auth_sessions` (`identity_id`,`expires_at`);

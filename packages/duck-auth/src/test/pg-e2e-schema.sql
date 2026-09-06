@@ -33,6 +33,7 @@ CREATE TABLE "auth_events" (
 	"method" text,
 	"ip" text,
 	"user_agent" text,
+	"actor_id" text,
 	"metadata" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "chk_auth_events_method" CHECK (method IS NULL OR method IN ('password', 'passkey', 'webauthn-mfa', 'oauth', 'magic-link', 'totp', 'recovery', 'api-key'))
@@ -49,6 +50,7 @@ CREATE TABLE "auth_identities" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"deleted_at" timestamp with time zone,
+	"deleted_by" text,
 	CONSTRAINT "chk_auth_identities_profile_shape" CHECK (profile ? 'username' AND profile ? 'email'),
 	CONSTRAINT "chk_auth_identities_version" CHECK (version >= 1)
 );
@@ -64,8 +66,6 @@ CREATE TABLE "auth_sessions" (
 	"ip" text,
 	"user_agent" text,
 	"fingerprint" text,
-	"created_by" text,
-	"updated_by" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"rotated_at" timestamp with time zone NOT NULL,

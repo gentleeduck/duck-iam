@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { actorId } from '../actor'
 import type { Sessions } from '../sessions/sessions.types'
 import type { Events } from './events.types'
 
@@ -59,8 +60,14 @@ function stamp<K extends Events.EventName>(event: K, payload: Events.EventMap[K]
   if (p.audit !== undefined) return payload
   // Ambient describes the request; the session fallback catches lifecycle events emitted
   // outside any wrap, which is how `impersonate-start` itself arrives.
-  const envelope = currentAuditEnvelope() ?? (p.session?.actingAs ? { actingAs: p.session.actingAs } : undefined)
-  if (envelope === undefined) return payload
+  const ambient = currentAuditEnvelope() ?? (p.session?.actingAs ? { actingAs: p.session.actingAs } : undefined)
+  // An envelope that named the operator explicitly keeps its own answer; otherwise
+  // the actor context supplies it. Without this an audited event records only the
+  // subject, so "admin X revoked user Y's session" arrives indistinguishable from
+  // "user Y revoked their own".
+  const actor = ambient?.actorId ?? actorId() ?? undefined
+  if (ambient === undefined && actor === undefined) return payload
+  const envelope: Events.Envelope = { ...ambient, ...(actor !== undefined && { actorId: actor }) }
   return { ...payload, audit: envelope }
 }
 

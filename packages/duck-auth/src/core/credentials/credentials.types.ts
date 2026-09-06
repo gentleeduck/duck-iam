@@ -35,6 +35,14 @@ export namespace Credential {
     lastUsedAt: Date | null
     expiresAt: Date | null
     revokedAt: Date | null
+    /**
+     * Who created / last wrote this row, from the ambient {@link ActorContext}
+     * at write time. `null` when no actor was bound - the schema has declared
+     * these columns since 5.x and nothing could fill them, so a NULL now means
+     * "no actor was in scope" rather than "the library cannot say".
+     */
+    createdBy: string | null
+    updatedBy: string | null
   }
 
   /**

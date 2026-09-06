@@ -31,6 +31,22 @@ export namespace Identities {
     updatedAt: Date
     /** Soft-delete grace; identity hidden from queries when set, hard-purged after window. */
     deletedAt: Date | null
+    /**
+     * Who soft-deleted the row, from the ambient {@link ActorContext}. Set
+     * alongside `deletedAt` and cleared by `restore`, so the two always agree:
+     * a `deletedBy` on a live row would name someone for a deletion that is no
+     * longer in effect. `null` on a live row, and on a deletion no actor was
+     * bound for.
+     */
+    deletedBy: string | null
+    /**
+     * Who created / last wrote this row, from the ambient {@link ActorContext}
+     * at write time. `null` when no actor was bound - the schema has declared
+     * these columns since 5.x and nothing could fill them, so a NULL now means
+     * "no actor was in scope" rather than "the library cannot say".
+     */
+    createdBy: string | null
+    updatedBy: string | null
   }
 
   /**

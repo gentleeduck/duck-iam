@@ -56,7 +56,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     return Math.max(1, Math.min(this._maxTtlSec, remainingSec))
   }
 
-  async create(s: Sessions.Me): Promise<void> {
+  async create(s: Sessions.CreateInput): Promise<void> {
     if (!s.id) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'RedisSessionStore.create requires session.id to be set (sha-256 of sid)',

@@ -56,5 +56,7 @@ export function toSoftReason(err: unknown): Batch.FailureReason | null {
   // able to act on it once the clash is resolved.
   if (err.code === 'AUTH_GRACE_EXPIRED') return 'grace-expired'
   if (err.code === 'AUTH_EMAIL_TAKEN') return 'email-taken'
+  if (err.code === 'AUTH_USERNAME_TAKEN') return 'username-taken'
+  if (err.code === 'AUTH_PROVIDER_TAKEN') return 'provider-taken'
   return null
 }

@@ -6,16 +6,19 @@
  */
 
 import { createRequire } from 'node:module'
-import { and, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm'
+import { and, eq, getTableColumns, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm'
 import type { MySqlColumn } from 'drizzle-orm/mysql-core'
 import type { MySql2Database } from 'drizzle-orm/mysql2'
 import {
   assertEmailFree,
+  assertProviderSubFree,
   assertRestorable,
+  claimedProviderSubs,
   createSqlStores,
   isRestorable,
   pickFreshestCredential,
   profileEmail,
+  providerSubKey,
 } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
 import { AuthError } from '~/core/errors'
@@ -82,9 +85,16 @@ export function createDrizzleMysqlBridge<
     return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
   }
 
+  /**
+   * The row contract's columns: everything on the table except the two
+   * generated index carriers. A bare `select()` would return those too, and
+   * they would ride out to consumers as fields of `Identities.Me`.
+   */
+  const { emailNorm: _emailNorm, usernameNorm: _usernameNorm, ...identityColumns } = getTableColumns(authIdentities)
+
   /** MySQL has no RETURNING, so re-select a row by primary key after a mutation. */
   async function reselectIdentity(id: string) {
-    const rows = await db.select().from(authIdentities).where(eq(authIdentities.id, id)).limit(1)
+    const rows = await db.select(identityColumns).from(authIdentities).where(eq(authIdentities.id, id)).limit(1)
     return rows[0] ?? null
   }
   async function reselectCredential(id: string) {
@@ -101,7 +111,7 @@ export function createDrizzleMysqlBridge<
     identities: {
       findById: async (id) => {
         const rows = await db
-          .select()
+          .select(identityColumns)
           .from(authIdentities)
           .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
           .limit(1)
@@ -111,7 +121,7 @@ export function createDrizzleMysqlBridge<
       },
       findByEmail: async (email) => {
         const rows = await db
-          .select()
+          .select(identityColumns)
           .from(authIdentities)
           .where(
             and(sql`lower(${authIdentities.profile}->>'$.email') = lower(${email})`, isNull(authIdentities.deletedAt)),
@@ -123,7 +133,7 @@ export function createDrizzleMysqlBridge<
         // JSON_CONTAINS(target, candidate); needle is bound as a parameter, never interpolated.
         const needle = JSON.stringify({ providerId, providerSub: sub })
         const rows = await db
-          .select()
+          .select(identityColumns)
           .from(authIdentities)
           .where(and(sql`json_contains(${authIdentities.providers}, ${needle})`, isNull(authIdentities.deletedAt)))
           .limit(1)
@@ -140,7 +150,7 @@ export function createDrizzleMysqlBridge<
         if (result[0].affectedRows === 0) return null
         return reselectIdentity(id)
       },
-      softDelete: async (id, deletedAt) => {
+      softDelete: async (id, deletedAt, deletedBy) => {
         // `emailVerified` goes with it: the partial unique index and `findByEmail`
         // both ignore soft-deleted rows, so the address is free to be claimed by
         // someone else during the grace window. Restoring must not hand back a
@@ -152,7 +162,7 @@ export function createDrizzleMysqlBridge<
         // repeating a delete that has nothing left to delete.
         const result = await db
           .update(authIdentities)
-          .set({ deletedAt, emailVerified: false })
+          .set({ deletedAt, deletedBy, emailVerified: false })
           .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
         if (result[0].affectedRows === 0) return null
         return reselectIdentity(id)
@@ -181,6 +191,22 @@ export function createDrizzleMysqlBridge<
             .limit(1)
           assertEmailFree(email, clash.length > 0)
         }
+        // A hidden row's provider logins were free to be claimed the whole time it
+        // was invisible, exactly like its email address. `isNull(deletedAt)` also
+        // excludes the row being restored, so this only ever finds someone else.
+        for (const claim of claimedProviderSubs(row)) {
+          const taken = await db
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(
+              and(
+                sql`json_contains(${authIdentities.providers}, ${JSON.stringify({ providerId: claim.providerId, providerSub: claim.providerSub })})`,
+                isNull(authIdentities.deletedAt),
+              ),
+            )
+            .limit(1)
+          if (taken.length > 0) assertProviderSubFree({ providerId: claim.providerId })
+        }
         // `assertRestorable` has already refused a null; naming the value is
         // what lets the write below pin itself to the row the checks were made
         // against, rather than to whatever the row has become since.
@@ -188,7 +214,7 @@ export function createDrizzleMysqlBridge<
         if (closesAt === null) throw staleWrite()
         const result = await db
           .update(authIdentities)
-          .set({ deletedAt: null })
+          .set({ deletedAt: null, deletedBy: null })
           .where(and(eq(authIdentities.id, id), eq(authIdentities.deletedAt, closesAt)))
         if (result[0].affectedRows === 0) throw staleWrite()
         return reselectIdentity(id)
@@ -280,7 +306,7 @@ export function createDrizzleMysqlBridge<
        * connection - inside the caller's transaction when there is one - so the
        * read cannot race the write it is describing.
        */
-      softDeleteManyReturningIds: async (ids, deletedAt) => {
+      softDeleteManyReturningIds: async (ids, deletedAt, deletedBy) => {
         const live = await db
           .select({ id: authIdentities.id })
           .from(authIdentities)
@@ -293,7 +319,7 @@ export function createDrizzleMysqlBridge<
         // not. The re-read names the rows actually carrying this stamp.
         await db
           .update(authIdentities)
-          .set({ deletedAt, emailVerified: false })
+          .set({ deletedAt, deletedBy, emailVerified: false })
           .where(and(inArray(authIdentities.id, hit), isNull(authIdentities.deletedAt)))
         const stamped = await db
           .select({ id: authIdentities.id })
@@ -332,7 +358,7 @@ export function createDrizzleMysqlBridge<
       restoreManyReturning: async (ids) => {
         const list = [...ids]
         if (list.length === 0) return { candidates: [], restored: [] }
-        const candidates = await db.select().from(authIdentities).where(inArray(authIdentities.id, list))
+        const candidates = await db.select(identityColumns).from(authIdentities).where(inArray(authIdentities.id, list))
         const restorable = candidates.filter(isRestorable)
         const emails = new Map<string, string>()
         for (const row of restorable) {
@@ -358,28 +384,71 @@ export function createDrizzleMysqlBridge<
         // Two hidden rows in one batch can also answer to the same address -
         // nothing kept them apart while both were invisible - so an address
         // claimed by an earlier row in this batch is taken for the rest of it.
+        // Provider logins clash the same way addresses do, and the batch has to catch
+        // it for the same reason the single-row path does: `findByProviderSub` skips
+        // hidden rows, so every sub a candidate holds was free to be taken while it
+        // was gone.
+        const claims = new Map<string, string[]>()
+        const allClaims: { providerId: string; providerSub: string }[] = []
+        for (const row of restorable) {
+          const pairs = claimedProviderSubs(row)
+          if (pairs.length === 0) continue
+          claims.set(row.id, pairs.map(providerSubKey))
+          allClaims.push(...pairs)
+        }
+        const takenSubs = new Set<string>()
+        if (allClaims.length > 0) {
+          const holders = await db
+            .select({ providers: authIdentities.providers })
+            .from(authIdentities)
+            .where(
+              and(
+                or(
+                  ...allClaims.map(
+                    (claim) => sql`json_contains(${authIdentities.providers}, ${JSON.stringify(claim)})`,
+                  ),
+                ),
+                isNull(authIdentities.deletedAt),
+              ),
+            )
+          // Every sub a matched live row holds, not just the one that matched: they
+          // are all genuinely spoken for by a row that is visible right now.
+          for (const holder of holders) {
+            for (const pair of claimedProviderSubs(holder)) takenSubs.add(providerSubKey(pair))
+          }
+        }
         const okIds: string[] = []
+        const refused: { id: string; reason: 'email-taken' | 'provider-taken' }[] = []
         for (const row of restorable) {
           const email = emails.get(row.id)
-          if (email !== undefined) {
-            if (taken.has(email)) continue
-            taken.add(email)
+          const keys = claims.get(row.id)
+          // Both checks before either commit: a row refused for its address must not
+          // go on to reserve its provider subs against later rows.
+          if (email !== undefined && taken.has(email)) {
+            refused.push({ id: row.id, reason: 'email-taken' })
+            continue
           }
+          if (keys?.some((key) => takenSubs.has(key))) {
+            refused.push({ id: row.id, reason: 'provider-taken' })
+            continue
+          }
+          if (email !== undefined) taken.add(email)
+          if (keys !== undefined) for (const key of keys) takenSubs.add(key)
           okIds.push(row.id)
         }
-        if (okIds.length === 0) return { candidates, restored: [] }
+        if (okIds.length === 0) return { candidates, refused, restored: [] }
         // Still-hidden rows only: a row restored by someone else between the
         // read and this write is not one this batch restored, and the re-read
         // below would otherwise claim it.
         await db
           .update(authIdentities)
-          .set({ deletedAt: null })
+          .set({ deletedAt: null, deletedBy: null })
           .where(and(inArray(authIdentities.id, okIds), isNotNull(authIdentities.deletedAt)))
         const restored = await db
-          .select()
+          .select(identityColumns)
           .from(authIdentities)
           .where(and(inArray(authIdentities.id, okIds), isNull(authIdentities.deletedAt)))
-        return { candidates, restored }
+        return { candidates, refused, restored }
       },
 
       /**
@@ -399,7 +468,7 @@ export function createDrizzleMysqlBridge<
           if (result[0].affectedRows > 0) updated.push(r.id)
         }
         if (updated.length === 0) return []
-        return db.select().from(authIdentities).where(inArray(authIdentities.id, updated))
+        return db.select(identityColumns).from(authIdentities).where(inArray(authIdentities.id, updated))
       },
 
       merge: async (survivorId, dupId) => {
