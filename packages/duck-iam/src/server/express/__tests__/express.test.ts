@@ -728,9 +728,28 @@ describe('iamAdminRouter validates the fields it used to cast', () => {
     await handlers['POST /subjects/:id/roles']!({ body, params } as never, res as never)
     return {
       onError,
+      res,
       roles: await adapter.getSubjectRoles('user-1'),
       scoped: await adapter.getSubjectScopedRoles('user-1'),
     }
+  }
+
+  /**
+   * Two things are asserted of every refusal below, and the second is the one
+   * that changed.
+   *
+   * Nothing is written - that was always true. And the caller is told it sent
+   * something wrong, with **400**, not told the server broke, with 500. These
+   * validators threw a bare `Error`, which every adapter's generic `catch`
+   * routes to `onError`, so a body missing `roleId` was a 500 on express, next
+   * and nest, and a 400 on hono alone, which hand-rolled the same checks
+   * inline. `onError` is now asserted *not* to fire: a 500 here would page an
+   * operator for a client's typo, and a client that retries a 500 will retry
+   * this forever.
+   */
+  function expectRefusedAsBadRequest(res: MockRes, onError: ReturnType<typeof vi.fn>): void {
+    expect(res.statusCode).toBe(400)
+    expect(onError).not.toHaveBeenCalled()
   }
 
   // Control: the well-formed call still works, so the assertions below are not
@@ -751,36 +770,97 @@ describe('iamAdminRouter validates the fields it used to cast', () => {
     ['a non-object body', 'editor'],
     ['an array body', ['editor']],
   ])('refuses %s without assigning anything', async (_label, body) => {
-    const { onError, roles } = await assign(body)
-    expect(onError).toHaveBeenCalledOnce()
+    const { onError, res, roles } = await assign(body)
+    expectRefusedAsBadRequest(res, onError)
     expect(roles).toEqual([])
   })
 
-  // A bad scope must not be silently dropped: that widens the grant.
-  it('refuses a non-string scope rather than granting globally', async () => {
-    const { onError, roles, scoped } = await assign({ roleId: 'editor', scope: 7 })
-    expect(onError).toHaveBeenCalledOnce()
+  it('refuses a blank roleId rather than granting a role nobody can name', async () => {
+    // `'   '` is not `''`, so every `length === 0` check passed it through and
+    // a real grant landed on a role id that renders as nothing at all.
+    const { onError, res, roles, scoped } = await assign({ roleId: '   ' })
+    expectRefusedAsBadRequest(res, onError)
     expect(roles).toEqual([])
     expect(scoped).toEqual([])
   })
 
-  it('treats an absent or null scope as unscoped', async () => {
+  it('refuses a blank scope rather than making the grant global', async () => {
+    // The dangerous direction: a blank scope that reached the adapter would be
+    // stored as a scope nobody can select, or dropped into a tenant-wide grant.
+    const { onError, res, roles, scoped } = await assign({ roleId: 'editor', scope: ' ' })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+    expect(scoped).toEqual([])
+  })
+
+  it("refuses a roleId past the engine's own 1024-char cap", async () => {
+    const { onError, res, roles } = await assign({ roleId: 'e'.repeat(1025) })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+  })
+
+  it('accepts a roleId of exactly the cap - the boundary is not off by one', async () => {
+    const atCap = 'e'.repeat(1024)
+    const { onError, res } = await assign({ roleId: atCap })
+    // Not a known role, so the engine refuses it on its own terms; what matters
+    // is that the *length* check did not fire.
+    expect(res.body).not.toEqual(expect.objectContaining({ error: 'Invalid request' }))
+    expect(String(onError.mock.calls[0]?.[0] ?? '')).not.toContain('1024-char cap')
+  })
+
+  // A bad scope must not be silently dropped: that widens the grant.
+  it('refuses a non-string scope rather than granting globally', async () => {
+    const { onError, res, roles, scoped } = await assign({ roleId: 'editor', scope: 7 })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+    expect(scoped).toEqual([])
+  })
+
+  it('treats an absent scope as unscoped', async () => {
     const absent = await assign({ roleId: 'editor' })
     expect(absent.onError).not.toHaveBeenCalled()
     expect(absent.roles).toEqual(['editor'])
-    const explicitNull = await assign({ roleId: 'editor', scope: null })
-    expect(explicitNull.onError).not.toHaveBeenCalled()
-    expect(explicitNull.roles).toEqual(['editor'])
+  })
+
+  /**
+   * This used to assert the opposite, in the same test as the absent case.
+   * "No scope" is a tenant-wide grant, so reading a client's explicit `null`
+   * as absent made express the only integration that widened a grant on a body
+   * the other three refused: hono answers 400, and next and nest hand it to the
+   * engine, which rejects `null` by name. A client written against any of those
+   * that spells "unset" as `scope: null` would have silently started making
+   * global grants the day its deployment moved to express.
+   */
+  it('refuses an explicit null scope rather than granting globally', async () => {
+    const { onError, res, roles, scoped } = await assign({ roleId: 'editor', scope: null })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+    expect(scoped).toEqual([])
+  })
+
+  it('says how to spell "unset" in the refusal', async () => {
+    // The message has to name the fix, or the change reads as a bug to whoever
+    // hits it.
+    // Read off the *response*, not off `onError`: the client is who needs to
+    // know, and the operator hook no longer fires for a caller's mistake.
+    const { res } = await assign({ roleId: 'editor', scope: null })
+    expect(JSON.stringify(res.body)).toContain('omit the field')
   })
 
   it('refuses a missing path parameter', async () => {
-    const { onError } = await assign({ roleId: 'editor' }, {})
-    expect(onError).toHaveBeenCalledOnce()
+    const { onError, res } = await assign({ roleId: 'editor' }, {})
+    expectRefusedAsBadRequest(res, onError)
+  })
+
+  it('refuses a blank path parameter', async () => {
+    const { onError, res, roles } = await assign({ roleId: 'editor' }, { id: '  ' })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
   })
 
   it('refuses a missing roleId path parameter on revoke', async () => {
     const { handlers, onError, res } = mount()
     await handlers['DELETE /subjects/:id/roles/:roleId']!({ params: { id: 'user-1' } } as never, res as never)
-    expect(onError).toHaveBeenCalledOnce()
+    expectRefusedAsBadRequest(res, onError)
   })
 })

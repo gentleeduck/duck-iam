@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../adapters/memory'
 import { IamEngine } from '../../core/engine'
 import type { IamRequest } from '../../core/types'
-import { iamAccessMiddleware as expressMiddleware } from '../express'
-import { IAM_UNKNOWN_RESOURCE, iamActionForMethod, iamDefaultResource } from '../generic'
+import { iamGuard as expressGuard, iamAccessMiddleware as expressMiddleware } from '../express'
+import { IAM_UNKNOWN_RESOURCE, iamActionForMethod, iamDefaultResource, iamIsSubjectId } from '../generic'
 import { iamGuard as honoGuard, iamAccessMiddleware as honoMiddleware } from '../hono'
 import { IamAuthorize, iamNestAccessGuard, type NestRequest } from '../nest'
 import { createIamNextMiddleware, withIamAccess } from '../next'
@@ -398,5 +398,112 @@ describe('createIamNextMiddleware answers through its hooks', () => {
     })
     expect((await mw(new Request('https://example.com/posts/%252e%252e/admin')))?.status).toBe(418)
     expect(onDenied).toHaveBeenCalledOnce()
+  })
+})
+
+/**
+ * `iamIsSubjectId` is `typeof value === 'string' && value.trim().length > 0`,
+ * and it is the only layer that refuses a blank or non-string subject id -
+ * `engine.can` guards `length === 0`, not `trim()`, so `'   '` is a perfectly
+ * good key to it and any assignment stored under that key grants its
+ * permissions.
+ *
+ * Six of the seven call sites were pinned by nothing: mutating `!iamIsSubjectId(userId)`
+ * to `userId == null` at all of them survived the suite, and only express's
+ * middleware had a test. The predicate itself had no direct test either. This
+ * drives every entry point through the same table so one weakened guard cannot
+ * hide behind the others.
+ *
+ * The `null`/`undefined` rows do not discriminate on their own - `== null`
+ * catches those too. The blank strings and the non-strings are the half that
+ * fails under the mutant, and they are also the half a real `getUserId` returns
+ * by accident: a header that arrived as spaces, or a numeric id from a JWT.
+ */
+describe('no integration lets a blank or non-string subject id reach the engine', () => {
+  const REFUSED: readonly [string, unknown][] = [
+    ['a whitespace-only string', '   '],
+    ['the empty string', ''],
+    ['a tab and a newline', '\t\n'],
+    ['a number', 42],
+    ['a boolean', true],
+    ['an object', {}],
+    ['an array', []],
+    ['null', null],
+    ['undefined', undefined],
+  ]
+
+  // `unknown`, not `Promise<unknown>`: express's middleware and guard return
+  // `void` while the other five return a promise. `await` handles both.
+  const ENTRY_POINTS: readonly [string, (engine: RecordingEngine, getUserId: () => never) => unknown][] = [
+    [
+      'express middleware',
+      (e, g) => expressMiddleware(e, { getUserId: g })({ method: 'GET', path: '/posts/42' }, expressRes(), vi.fn()),
+    ],
+    [
+      'express guard',
+      (e, g) =>
+        expressGuard(e, 'read', 'posts', { getUserId: g })(
+          { method: 'GET', params: {}, path: '/posts/42' },
+          expressRes(),
+          vi.fn(),
+        ),
+    ],
+    [
+      'hono middleware',
+      (e, g) => honoMiddleware(e, { getUserId: g })(honoCtx('/posts/42', 'GET'), async () => undefined),
+    ],
+    [
+      'hono guard',
+      (e, g) => honoGuard(e, 'read', 'posts', { getUserId: g })(honoCtx('/posts/42', 'GET'), async () => undefined),
+    ],
+    [
+      'nest guard',
+      (e, g) =>
+        iamNestAccessGuard(e, { getUserId: g })(
+          nestCtx({ method: 'GET', params: {}, path: '/posts/42' }, inferringHandler()),
+        ),
+    ],
+    [
+      'next withIamAccess',
+      (e, g) =>
+        withIamAccess(e, 'read', 'posts', async () => new Response('ok'), { getUserId: g })(
+          new Request('https://example.com/posts/42'),
+          { params: { id: '42' } },
+        ),
+    ],
+    [
+      'next middleware',
+      (e, g) =>
+        createIamNextMiddleware(e, { getUserId: g, rules: [{ pattern: '/posts', resource: 'posts' }] })(
+          new Request('https://example.com/posts/42'),
+        ),
+    ],
+  ]
+
+  for (const [entry, run] of ENTRY_POINTS) {
+    for (const [label, value] of REFUSED) {
+      it(`${entry} refuses ${label} without asking the engine`, async () => {
+        const engine = new RecordingEngine()
+        await run(engine, (() => value) as never)
+        expect(engine.calls).toEqual([])
+      })
+    }
+
+    it(`${entry} still asks the engine for a real subject id`, async () => {
+      // Positive control per entry point: an integration that refused every
+      // request would satisfy every row above.
+      const engine = new RecordingEngine()
+      await run(engine, (() => USER) as never)
+      expect(engine.calls.map((c) => c.subjectId)).toEqual([USER])
+    })
+  }
+})
+
+describe('iamIsSubjectId itself', () => {
+  it('accepts a non-blank string and nothing else', () => {
+    for (const ok of ['u1', ' u1 ', '0', 'false']) expect(iamIsSubjectId(ok)).toBe(true)
+    for (const bad of ['', '   ', '\t\n', 42, 0, true, false, null, undefined, {}, [], ['u1']]) {
+      expect(iamIsSubjectId(bad)).toBe(false)
+    }
   })
 })

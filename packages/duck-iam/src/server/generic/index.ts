@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamClient, IamRequest } from '../../core/types'
+import { IamValidationError } from '../../shared/errors'
 import { IAM_RESERVED_REFUSAL } from '../../shared/reserved'
 
 /**
@@ -279,6 +280,56 @@ export function iamDefaultCsrfCheck(req: unknown): boolean {
  * @param ctx - Audit payload + hooks shared across framework adapters.
  * @param handler - The actual mutation function (e.g. `engine.admin.savePolicy`).
  */
+/**
+ * The `id` of a policy or role document, for an admin audit event's `targetId`.
+ *
+ * `PUT /policies` and `PUT /roles` carry the id in the body, and the audit
+ * event is built before the body is parsed, so express filled the field in
+ * from its own already-parsed body and hono and next recorded `undefined` -
+ * a trail saying a policy was replaced, but not which one. That is the single
+ * fact the event exists to record.
+ *
+ * Reads the raw parsed body rather than the declared document type: at this
+ * point it is whatever JSON arrived, and a body with no usable id simply has
+ * no target rather than an invented one. The validator, not this, decides
+ * whether the document is acceptable.
+ *
+ * @param body - The parsed request body.
+ * @returns The id when it is a non-empty string, else `undefined`.
+ */
+export function iamAuditIdOf(body: unknown): string | undefined {
+  if (body === null || typeof body !== 'object') return undefined
+  const id: unknown = Reflect.get(body, 'id')
+  return typeof id === 'string' && id.length > 0 ? id : undefined
+}
+
+/**
+ * Did the handler answer with an HTTP refusal instead of throwing?
+ *
+ * `iamWithAdminAudit` recorded `success: true` for anything that returned
+ * normally, which is right for express - it writes to `res` and its own
+ * validation helpers throw - and wrong for hono and next, which *return* a
+ * `Response`. Hono's inline body checks answer `c.json({error: 'invalid
+ * roleId'}, 400)`, so a refused role assignment was written into the admin
+ * audit trail as a successful mutation. An audit trail that reports refused
+ * writes as successful is worse than one that omits them: it invents grants
+ * that were never made.
+ *
+ * Duck-typed on a numeric `status` rather than `instanceof Response`, because
+ * hono's context, next's WHATWG `Response` and a test double are three
+ * different classes across realms. `2xx`/`3xx` stay successful; only `>= 400`
+ * is a refusal.
+ *
+ * @param value - Whatever the handler returned.
+ * @returns The refusing status, or `undefined` when this is not a refusal.
+ */
+function refusalStatus(value: unknown): number | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const status: unknown = Reflect.get(value, 'status')
+  if (typeof status !== 'number' || !Number.isFinite(status) || status < 400) return undefined
+  return status
+}
+
 export async function iamWithAdminAudit<T>(
   ctx: {
     actor: unknown
@@ -298,7 +349,10 @@ export async function iamWithAdminAudit<T>(
   let errorMessage: string | undefined
   try {
     const out = await handler()
-    success = true
+    // Returning normally is not the same as succeeding - see `refusalStatus`.
+    const refused = refusalStatus(out)
+    success = refused === undefined
+    if (refused !== undefined) errorMessage = `HTTP ${refused}`
     return out
   } catch (err) {
     errorMessage = iamErrorToAuditString(err, ctx.includeErrorMessage)
@@ -881,6 +935,95 @@ export const IAM_METHOD_ACTION_MAP: Readonly<Record<string, string>> = {
 }
 
 /**
+ * The longest an admin-supplied id may be.
+ *
+ * Matched to the engine's own cap (`assertNonEmptyStringParam`), deliberately.
+ * Hono used to cap role ids and scopes at 128 inline while express, next and
+ * nest applied no cap at all and let the engine's 1024 decide - so the same
+ * request was a 400 on one adapter, a 500 on two, and a write on none. Picking
+ * the engine's number means no id the engine would accept is refused at the
+ * edge, and the refusal now happens in one place for all four.
+ */
+export const IAM_MAX_ADMIN_FIELD_LENGTH = 1024
+
+function assertJsonObjectBody(source: unknown, field: string): asserts source is object {
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+    throw fieldError('NOT_AN_OBJECT', field, 'cannot be read: the request body is not a JSON object')
+  }
+}
+
+/**
+ * The one place an admin-supplied id is checked.
+ *
+ * Blank is refused rather than trimmed. `iamIsNameableActor` already required
+ * `.trim().length > 0` of an actor name while these took `length === 0`, so
+ * `{"roleId": "   "}` wrote a real grant to a role nobody can name - it is not
+ * `""`, so nothing downstream refused it, and it renders as nothing at all in
+ * an admin UI. Trimming instead of refusing would be worse: the caller would
+ * get back a grant on an id they did not send.
+ */
+function assertFieldString(value: unknown, field: string, hint?: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw fieldError('INVALID_FIELD', field, 'must be a non-empty string', hint)
+  }
+  if (value.trim().length === 0) {
+    throw fieldError('BLANK_FIELD', field, 'must not be blank', hint)
+  }
+  if (value.length > IAM_MAX_ADMIN_FIELD_LENGTH) {
+    throw fieldError('FIELD_TOO_LONG', field, `exceeds the ${IAM_MAX_ADMIN_FIELD_LENGTH}-char cap`, hint)
+  }
+  return value
+}
+
+/**
+ * Builds the refusal for one bad request field.
+ *
+ * The `issues` entry repeats the explanation rather than carrying a bare code,
+ * because it is the only part of the failure the HTTP adapters put in the
+ * response body - the message goes to the operator's `onError`, which a client
+ * never sees. A refusal that does not say how to spell the right thing reads as
+ * a bug to whoever hits it, and the `scope: null` case proved it: "omit the
+ * field entirely" is the whole answer, and it was in the message alone.
+ */
+function fieldError(code: string, field: string, detail: string, hint?: string): IamValidationError {
+  const tail = hint === undefined ? '' : `; ${hint}`
+  return new IamValidationError(
+    'request',
+    [`${code} at "${field}": ${detail}${tail}`],
+    `[@gentleduck/iam:generic] "${field}" ${detail}${tail}`,
+  )
+}
+
+/**
+ * Parses an admin request body, turning a malformed one into a 400.
+ *
+ * Hono and next call `req.json()` *inside* the audited handler, so a truncated
+ * upload or a `Content-Type: application/json` header on a form post raised a
+ * `SyntaxError` out of the handler and landed in the generic `catch`, which
+ * answers 500 and hands the parse error to `onError` as though the package had
+ * broken. Express and nest never saw it because their hosts parse the body
+ * before the handler runs and answer 400 themselves. The status a caller gets
+ * for the same broken bytes should not depend on which adapter is mounted.
+ *
+ * @param read - The framework's own parse call, e.g. `() => c.req.json()`.
+ * @returns The parsed body.
+ * @throws {IamValidationError} When the body is not valid JSON.
+ */
+export async function iamReadJsonBody(read: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return await read()
+  } catch {
+    // The parser's own message is not repeated: it quotes the offending bytes,
+    // which is caller-controlled content going into an operator's log.
+    throw new IamValidationError(
+      'request',
+      ['MALFORMED_JSON'],
+      '[@gentleduck/iam:generic] request body is not valid JSON',
+    )
+  }
+}
+
+/**
  * Reads a required string field out of an admin request body.
  *
  * The admin routers used to take `body.roleId as TRole` straight from the
@@ -896,38 +1039,35 @@ export const IAM_METHOD_ACTION_MAP: Readonly<Record<string, string>> = {
  * @throws If the body is not an object, or the field is missing, not a string, or empty.
  */
 export function iamRequireStringField(source: unknown, field: string): string {
-  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
-    throw new Error(`[@gentleduck/iam:generic] request body must be a JSON object to read "${field}"`)
-  }
-  const value: unknown = Reflect.get(source, field)
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`[@gentleduck/iam:generic] "${field}" must be a non-empty string`)
-  }
-  return value
+  assertJsonObjectBody(source, field)
+  return assertFieldString(Reflect.get(source, field), field)
 }
 
 /**
  * {@link iamRequireStringField} for a field that may be absent.
  *
- * An explicit `null` reads as absent - that is how a JSON client spells "no
- * scope" - but a present non-string is still an error rather than a silently
- * dropped scope, which would widen a scoped grant into a global one.
+ * An **explicit `null` is refused**, where an absent field is not. This
+ * distinction is not pedantry about JSON: the only caller is the `scope` of a
+ * role grant, and "no scope" there means a tenant-wide grant. Reading `null` as
+ * absent made express the one adapter that turned a client's `null` into a
+ * global role assignment - hono answered 400, and next and nest passed it to
+ * the engine, which refuses it by name. Three adapters cannot hold two readings
+ * of the same body, and of the two, "silently widen the grant" is the one that
+ * has to go: a client written against hono that ships `scope: null` to mean
+ * "unset" would widen every grant it makes the day the deployment moves.
+ *
+ * Omitting the field is still how "unscoped" is said, and remains accepted.
  *
  * @param source - The parsed request body.
  * @param field - The field to read.
- * @returns The value, or `undefined` when the field is absent or `null`.
- * @throws If the body is not an object, or the field is present but not a non-empty string.
+ * @returns The value, or `undefined` when the field is absent.
+ * @throws If the body is not an object, or the field is present and not a non-empty string.
  */
 export function iamOptionalStringField(source: unknown, field: string): string | undefined {
-  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
-    throw new Error(`[@gentleduck/iam:generic] request body must be a JSON object to read "${field}"`)
-  }
+  assertJsonObjectBody(source, field)
   const value: unknown = Reflect.get(source, field)
-  if (value === undefined || value === null) return undefined
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`[@gentleduck/iam:generic] "${field}" must be a non-empty string when present`)
-  }
-  return value
+  if (value === undefined) return undefined
+  return assertFieldString(value, field, 'omit the field entirely to mean "unset"')
 }
 
 /**
@@ -942,7 +1082,13 @@ export function iamOptionalStringField(source: unknown, field: string): string |
  */
 export function iamRequirePathParam(value: unknown, name: string): string {
   if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`[@gentleduck/iam:generic] path parameter "${name}" is missing`)
+    throw fieldError('MISSING_PARAM', name, 'is a required path parameter and is missing')
+  }
+  if (value.trim().length === 0) {
+    throw fieldError('BLANK_PARAM', name, 'is a path parameter and must not be blank')
+  }
+  if (value.length > IAM_MAX_ADMIN_FIELD_LENGTH) {
+    throw fieldError('PARAM_TOO_LONG', name, `exceeds the ${IAM_MAX_ADMIN_FIELD_LENGTH}-char cap`)
   }
   return value
 }

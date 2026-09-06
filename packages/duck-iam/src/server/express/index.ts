@@ -293,13 +293,30 @@ export function iamAdminRouter<
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
-  /** Read gate: authorize only - no CSRF check, no audit emission. */
+  /**
+   * Read gate. Runs the same CSRF + `authorize` phase as {@link mutate}, and
+   * emits no audit event - a read is not a mutation.
+   *
+   * The CSRF check used to be skipped here on express, hono and next while nest
+   * ran it, so `GET /policies` with `Sec-Fetch-Site: cross-site` returned the
+   * full policy list on three adapters and 403 on the fourth. A browser cannot
+   * read a cross-origin response without CORS, so that was not an exploitable
+   * read - but `csrfCheck` is an operator-supplied predicate, and an operator
+   * whose predicate carries any part of an authorization decision had it
+   * enforced on reads on exactly one of four adapters, undocumented. The four
+   * now answer the same question the same way.
+   *
+   * Not a new refusal for API clients: `iamDefaultCsrfCheck` returns `true`
+   * when there is no `Sec-Fetch-Site` header at all, which is every non-browser
+   * caller. What is now refused is a genuine cross-site browser read, and
+   * `csrfCheck: false` still turns the whole phase off.
+   */
   const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {
+    const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
+    if (authz.phase === 'forbidden') return onForbidden(res)
+    if (authz.phase === 'unauthorized') return onUnauthorized(req, res)
+    if (authz.phase === 'error') return onError(authz.error, req, res)
     try {
-      if (!(await authorize(req))) {
-        onUnauthorized(req, res)
-        return
-      }
       await handler(req, res)
     } catch (err) {
       onError(err instanceof Error ? err : new Error(String(err)), req, res)

@@ -5,12 +5,16 @@ import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literal
 import {
   type IamAdminAudit,
   iamActionForMethod,
+  iamAuditIdOf,
   iamDefaultCsrfCheck,
   iamDefaultResource,
   iamExtractEnvironment,
   iamIsSubjectId,
   iamNoticeCsrfDefaultIfNeeded,
+  iamOptionalStringField,
+  iamReadJsonBody,
   iamRequirePathParam,
+  iamRequireStringField,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
@@ -29,6 +33,20 @@ interface HonoContext {
   json(data: unknown, status?: number): Response
   text(data: string, status?: number): Response
 }
+/**
+ * A context the admin router can read a body from.
+ *
+ * Separate from {@link HonoContext} because only the admin router needs a body
+ * parser: the access middleware never reads one, and a consumer testing it with
+ * a hand-built context should not have to supply a `json()` it will never call.
+ * The router reached this method through `c as unknown as { req: { json(): ...
+ * } }` at three sites, which typed away nothing the real hono context lacks and
+ * only hid that the interface was incomplete for this use.
+ */
+interface HonoAdminContext extends HonoContext {
+  req: HonoContext['req'] & { json(): Promise<unknown> }
+}
+
 /** Hono next function. */
 type HonoNext = () => Promise<void>
 /** Hono middleware function. */
@@ -93,12 +111,18 @@ export namespace IamHono {
     onAdminMutation?: IamAdminAudit.Hook
   }
 
-  /** Describes the minimal Hono router surface used by {@link iamBindAdminRouter}. */
+  /**
+   * Describes the minimal Hono router surface used by {@link iamBindAdminRouter}.
+   *
+   * The handlers take a context carrying hono's body parser, because the admin
+   * routes read request bodies. The access middleware's context type is
+   * unchanged and still needs no parser.
+   */
   export interface IRouterLike {
-    get(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
-    put(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
-    post(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
-    delete(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
+    get(path: string, handler: (c: HonoAdminContext) => Promise<Response> | Response): unknown
+    put(path: string, handler: (c: HonoAdminContext) => Promise<Response> | Response): unknown
+    post(path: string, handler: (c: HonoAdminContext) => Promise<Response> | Response): unknown
+    delete(path: string, handler: (c: HonoAdminContext) => Promise<Response> | Response): unknown
   }
 }
 
@@ -250,12 +274,32 @@ export function iamBindAdminRouter<
   const onUnauthorized = opts.onUnauthorized ?? ((c) => c.json({ error: 'Unauthorized' }, 401))
   const onError = opts.onError ?? ((_, c) => c.json({ error: 'Internal server error' }, 500))
 
-  /** Read gate: authorize only - no CSRF check, no audit emission. */
+  /**
+   * Read gate. Runs the same CSRF + `authorize` phase as {@link mutate}, and
+   * emits no audit event - a read is not a mutation.
+   *
+   * The CSRF check used to be skipped here on express, hono and next while nest
+   * ran it, so `GET /policies` with `Sec-Fetch-Site: cross-site` returned the
+   * full policy list on three adapters and 403 on the fourth. A browser cannot
+   * read a cross-origin response without CORS, so that was not an exploitable
+   * read - but `csrfCheck` is an operator-supplied predicate, and an operator
+   * whose predicate carries any part of an authorization decision had it
+   * enforced on reads on exactly one of four adapters, undocumented. The four
+   * now answer the same question the same way.
+   *
+   * Not a new refusal for API clients: `iamDefaultCsrfCheck` returns `true`
+   * when there is no `Sec-Fetch-Site` header at all, which is every non-browser
+   * caller. What is now refused is a genuine cross-site browser read, and
+   * `csrfCheck: false` still turns the whole phase off.
+   */
   const gate =
-    (handler: (c: HonoContext) => Promise<Response> | Response) =>
-    async (c: HonoContext): Promise<Response> => {
+    (handler: (c: HonoAdminContext) => Promise<Response> | Response) =>
+    async (c: HonoAdminContext): Promise<Response> => {
+      const authz = await iamRunAdminAuthz(c, effectiveCsrfCheck, authorize)
+      if (authz.phase === 'forbidden') return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
+      if (authz.phase === 'unauthorized') return onUnauthorized(c)
+      if (authz.phase === 'error') return onError(authz.error, c)
       try {
-        if (!(await authorize(c))) return onUnauthorized(c)
         return await handler(c)
       } catch (err) {
         return onError(err instanceof Error ? err : new Error(String(err)), c)
@@ -270,30 +314,40 @@ export function iamBindAdminRouter<
     (
       action: IamAdminAudit.Action,
       target: IamAdminAudit.Target,
-      getTargetId: ((c: HonoContext) => string | undefined) | undefined,
-      handler: (c: HonoContext) => Promise<Response> | Response,
+      getTargetId: ((c: HonoAdminContext) => string | undefined) | undefined,
+      handler: (c: HonoAdminContext, setTargetId: (id: string | undefined) => void) => Promise<Response> | Response,
     ) =>
-    async (c: HonoContext): Promise<Response> => {
+    async (c: HonoAdminContext): Promise<Response> => {
       // Shared CSRF + authorize phase.
       const authz = await iamRunAdminAuthz(c, effectiveCsrfCheck, authorize)
       if (authz.phase === 'forbidden') return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
       if (authz.phase === 'unauthorized') return onUnauthorized(c)
       if (authz.phase === 'error') return onError(authz.error, c)
+      // Mutable, and read by `iamWithAdminAudit` in its `finally` rather than
+      // at call time. `getTargetId` can only see the request, which is enough
+      // for a role assignment (the subject is in the path) and useless for
+      // `PUT /policies`, where the id is in a body nobody has parsed yet - so
+      // those two events recorded that *a* policy had been replaced without
+      // saying which one. The handler fills it in once it knows.
+      const auditCtx = {
+        actor: authz.actor,
+        action,
+        target,
+        targetId: getTargetId?.(c),
+        method: c.req.method,
+        path: c.req.path,
+        onAdminMutation,
+        redactPath,
+        onAuditHookError,
+        includeErrorMessage,
+      }
       try {
-        return await iamWithAdminAudit(
-          {
-            actor: authz.actor,
-            action,
-            target,
-            targetId: getTargetId?.(c),
-            method: c.req.method,
-            path: c.req.path,
-            onAdminMutation,
-            redactPath,
-            onAuditHookError,
-            includeErrorMessage,
-          },
-          () => Promise.resolve(handler(c)),
+        return await iamWithAdminAudit(auditCtx, () =>
+          Promise.resolve(
+            handler(c, (id) => {
+              auditCtx.targetId = id
+            }),
+          ),
         )
       } catch (err) {
         // A body the validator rejected is the caller's mistake, not ours.
@@ -314,25 +368,23 @@ export function iamBindAdminRouter<
   )
   router.put(
     '/policies',
-    mutate('replace', 'policy', undefined, async (c) => {
-      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as AccessControl.IPolicy<
-        TAction,
-        TResource,
-        TRole
-      >
+    mutate('replace', 'policy', undefined, async (c, setTargetId) => {
+      // Shape-checked by `savePolicy`, which runs the validator before it
+      // writes and throws `IamValidationError` - the same 400 this router
+      // already answers for. Express, next and nest all read the body the same
+      // way for the same reason.
+      const body = (await iamReadJsonBody(() => c.req.json())) as AccessControl.IPolicy<TAction, TResource, TRole>
+      setTargetId(iamAuditIdOf(body))
       await engine.admin.savePolicy(body)
       return c.json({ ok: true })
     }),
   )
   router.put(
     '/roles',
-    mutate('replace', 'role', undefined, async (c) => {
-      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as AccessControl.IRole<
-        TAction,
-        TResource,
-        TRole,
-        TScope
-      >
+    mutate('replace', 'role', undefined, async (c, setTargetId) => {
+      // Shape-checked by `saveRole`; see the note on `PUT /policies` above.
+      const body = (await iamReadJsonBody(() => c.req.json())) as AccessControl.IRole<TAction, TResource, TRole, TScope>
+      setTargetId(iamAuditIdOf(body))
       await engine.admin.saveRole(body)
       return c.json({ ok: true })
     }),
@@ -344,21 +396,15 @@ export function iamBindAdminRouter<
       'role-assignment',
       (c) => c.req.param('id'),
       async (c) => {
-        const raw: unknown = await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()
-        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-          return c.json({ error: 'invalid body' }, 400)
-        }
-        const roleId = Reflect.get(raw, 'roleId')
-        const scope = Reflect.get(raw, 'scope')
-        if (typeof roleId !== 'string' || roleId.length === 0 || roleId.length > 128) {
-          return c.json({ error: 'invalid roleId' }, 400)
-        }
-        if (scope !== undefined && (typeof scope !== 'string' || scope.length === 0 || scope.length > 128)) {
-          return c.json({ error: 'invalid scope' }, 400)
-        }
+        // These checks were hand-rolled here, with a 128-char cap the other
+        // three adapters and the engine itself did not share, so the same
+        // `roleId` was a 400 on hono and a write everywhere else. The shared
+        // validators are the same checks with one cap and one status code.
+        const raw: unknown = await iamReadJsonBody(() => c.req.json())
+        const scope = iamOptionalStringField(raw, 'scope')
         await engine.admin.assignRole(
           iamRequirePathParam(c.req.param('id'), 'id'),
-          iamAsRoleLiteral<TRole>(roleId),
+          iamAsRoleLiteral<TRole>(iamRequireStringField(raw, 'roleId')),
           scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
         )
         return c.json({ ok: true })

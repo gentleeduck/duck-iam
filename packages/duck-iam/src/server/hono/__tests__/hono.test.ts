@@ -427,6 +427,74 @@ describe('iamBindAdminRouter (hono)', () => {
     expect(authorizeCalled).toBe(false)
   })
 
+  /**
+   * The explicit case above pins that a supplied `csrfCheck` is honoured. It
+   * says nothing about the default, and `csrfCheck ?? iamDefaultCsrfCheck` ->
+   * `csrfCheck ?? null` survived the whole suite here - only express pinned it
+   * (`express.test.ts`). So the admin gate that is on by default could be
+   * removed entirely while the "(2.1.0 behavior change) default CSRF check
+   * enabled" notice kept printing, and every cross-site browser mutation would
+   * be accepted. This supplies no `csrfCheck` at all, which is the shape real
+   * callers have.
+   */
+  it('the default csrfCheck blocks a cross-site mutation with no csrfCheck supplied', async () => {
+    const engine = makeEngine()
+    let authorizeCalled = false
+    type Handler = (c: unknown) => Promise<Response> | Response
+    const handlers: Record<string, Handler> = {}
+    const router = {
+      get: vi.fn(),
+      put: vi.fn((path: string, h: Handler) => {
+        handlers[`PUT ${path}`] = h
+      }),
+      post: vi.fn(),
+      delete: vi.fn(),
+    }
+    iamBindAdminRouter(router, engine, {
+      authorize: () => {
+        authorizeCalled = true
+        return true
+      },
+    })
+    const ctx = {
+      req: {
+        param: () => undefined,
+        json: async () => ({ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }),
+        header: (n: string) => (n === 'sec-fetch-site' ? 'cross-site' : undefined),
+      },
+      json: (data: unknown, status?: number) => ({ data, status: status ?? 200 }) as unknown as Response,
+    }
+    const res = (await handlers['PUT /policies']!(ctx)) as unknown as { status: number }
+    expect(res.status).toBe(403)
+    expect(authorizeCalled).toBe(false)
+  })
+
+  it('a same-origin mutation still gets through the default check', async () => {
+    // Positive control - a default that refused everything would pass above.
+    const engine = makeEngine()
+    type Handler = (c: unknown) => Promise<Response> | Response
+    const handlers: Record<string, Handler> = {}
+    const router = {
+      get: vi.fn(),
+      put: vi.fn((path: string, h: Handler) => {
+        handlers[`PUT ${path}`] = h
+      }),
+      post: vi.fn(),
+      delete: vi.fn(),
+    }
+    iamBindAdminRouter(router, engine, { authorize: () => true })
+    const ctx = {
+      req: {
+        param: () => undefined,
+        json: async () => ({ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }),
+        header: (n: string) => (n === 'sec-fetch-site' ? 'same-origin' : undefined),
+      },
+      json: (data: unknown, status?: number) => ({ data, status: status ?? 200 }) as unknown as Response,
+    }
+    const res = (await handlers['PUT /policies']!(ctx)) as unknown as { status: number }
+    expect(res.status).toBe(200)
+  })
+
   describe('onAdminMutation', () => {
     const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
 

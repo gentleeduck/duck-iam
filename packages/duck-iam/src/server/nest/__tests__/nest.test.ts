@@ -288,6 +288,52 @@ describe('createIamAdminOperations onAdminMutation', () => {
     expect(savedPolicy).toBe(false)
   })
 
+  /**
+   * The explicit case above pins that a supplied `csrfCheck` is honoured. It
+   * says nothing about the default, and `csrfCheck ?? iamDefaultCsrfCheck` ->
+   * `csrfCheck ?? null` survived the whole suite here - only express pinned it
+   * (`express.test.ts`). So the admin gate that is on by default could be
+   * removed entirely while the "(2.1.0 behavior change) default CSRF check
+   * enabled" notice kept printing, and every cross-site browser mutation would
+   * be accepted. This supplies no `csrfCheck` at all, which is the shape real
+   * callers have.
+   */
+  it('the default csrfCheck blocks a cross-site mutation with no csrfCheck supplied', async () => {
+    const engine = makeEngine()
+    let authorizeCalled = false
+    let savedPolicy = false
+    const origSave = engine.admin.savePolicy.bind(engine.admin)
+    engine.admin.savePolicy = async (p) => {
+      savedPolicy = true
+      return origSave(p)
+    }
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+      authorize: (() => {
+        authorizeCalled = true
+        return { id: 'admin-1' }
+      }) as never,
+    })
+    const req = { method: 'PUT', path: '/admin/policies', headers: { 'sec-fetch-site': 'cross-site' } } as never
+    await expect(
+      h.savePolicy(req, { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] } as never),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(authorizeCalled).toBe(false)
+    expect(savedPolicy).toBe(false)
+  })
+
+  it('a same-origin mutation still gets through the default check', async () => {
+    // Positive control: a default that refused everything would pass the test
+    // above without gating anything correctly.
+    const engine = makeEngine()
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+      authorize: (() => ({ id: 'admin-1' })) as never,
+    })
+    const req = { method: 'PUT', path: '/admin/policies', headers: { 'sec-fetch-site': 'same-origin' } } as never
+    await expect(
+      h.savePolicy(req, { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] } as never),
+    ).resolves.not.toThrow()
+  })
+
   it('savePolicy fires with action:replace, target:policy, success:true', async () => {
     const engine = makeEngine()
     const events: unknown[] = []
@@ -334,9 +380,19 @@ describe('createIamAdminOperations onAdminMutation', () => {
         events.push(e)
       },
     })
-    await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
-    ).rejects.toThrow('save-failed')
+    // What escapes is the adapter's own 500, not the engine's message -
+    // express, hono and next all answer the fixed `Internal server error`
+    // here, and nest used to be the one adapter that re-threw the original.
+    // The original is still reachable as `cause`, so a logger loses nothing.
+    const thrown = await h
+      .savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+      .then(
+        () => null,
+        (err: unknown) => err,
+      )
+    expect(String(thrown)).not.toContain('save-failed')
+    expect((thrown as { statusCode?: number }).statusCode).toBe(500)
+    expect((thrown as { cause?: Error }).cause?.message).toBe('save-failed')
     await flushMicrotasks()
     engine.admin.savePolicy = original
     expect(events).toHaveLength(1)
@@ -449,9 +505,18 @@ describe('createIamAdminOperations onAdminMutation', () => {
         events.push(e)
       },
     })
-    await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
-    ).rejects.toBeInstanceOf(PolicyValidationError)
+    // The message is a SQL fragment naming a password column. It must not be
+    // in the event (asserted below) and must not be what the framework is
+    // handed either - which is where it used to go, in full.
+    const thrown = await h
+      .savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+      .then(
+        () => null,
+        (err: unknown) => err,
+      )
+    expect(thrown).not.toBeInstanceOf(PolicyValidationError)
+    expect(String(thrown)).not.toContain('password')
+    expect((thrown as { cause?: Error }).cause).toBeInstanceOf(PolicyValidationError)
     await flushMicrotasks()
     engine.admin.savePolicy = original
     expect(events).toHaveLength(1)
@@ -473,9 +538,15 @@ describe('createIamAdminOperations onAdminMutation', () => {
         events.push(e)
       },
     })
-    await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
-    ).rejects.toThrow('full-detailed-message')
+    const thrown = await h
+      .savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+      .then(
+        () => null,
+        (err: unknown) => err,
+      )
+    // `includeErrorMessage` governs the *audit string*, not the response, on
+    // every adapter. The message reaches the event and still not the caller.
+    expect(String(thrown)).not.toContain('full-detailed-message')
     await flushMicrotasks()
     engine.admin.savePolicy = original
     expect(events[0]!.error).toBe('full-detailed-message')
