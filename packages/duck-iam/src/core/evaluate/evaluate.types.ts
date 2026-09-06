@@ -19,8 +19,6 @@ export namespace Evaluate {
     readonly rule: AccessControl.IRule
     readonly actions: Set<string>
     readonly resources: Set<string>
-    readonly hasWildcardAction: boolean
-    readonly hasWildcardResource: boolean
     /** Pre-computed `('all' in cond || 'any' in cond || 'none' in cond)`. Avoids three `in` checks per hot-path entry. */
     readonly hasConditions: boolean
     /**
@@ -42,7 +40,7 @@ export namespace Evaluate {
    */
   export interface IPolicyRuleIndex {
     /** Literal `action\0resource` keys; covers rules with no expansive patterns. */
-    readonly byActionResource: Map<string, IIndexedRule[]>
+    readonly byActionResource: Map<string, Map<string, IIndexedRule[]>>
     /** Literal action -> rules whose resource is expansive; resource still needs a match check. */
     readonly byActionWildcardResource: Map<string, IIndexedRule[]>
     /** Literal resource -> rules whose action is expansive; action still needs a match check. */
@@ -50,9 +48,17 @@ export namespace Evaluate {
     /** Rules with an expansive action AND an expansive resource - neither side is indexable; matched by scan. */
     readonly wildcardBoth: IIndexedRule[]
     /**
-     * `action -> resource -> effect` for unconditional rules in a wildcardless
+     * `action -> resource -> allowed` for unconditional rules in a wildcardless
      * policy. Lets the fast path return without scanning. Empty otherwise.
      */
     readonly precomputed: Map<string, Map<string, boolean>>
+    /**
+     * Some rule carries a condition that can throw - a `matches` operator (its
+     * input may exceed `MAX_REGEX_INPUT_LENGTH`) or an operator absent from
+     * `ops`. Such a policy is Indeterminate as a whole, and the fast path's
+     * early returns can reach a verdict before the throwing rule is ever
+     * evaluated, so it hands the policy to the interpreter instead.
+     */
+    readonly mayThrow: boolean
   }
 }

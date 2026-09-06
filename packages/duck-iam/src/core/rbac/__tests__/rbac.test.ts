@@ -151,11 +151,14 @@ describe('rolesToPolicy()', () => {
     }
     const policy = rolesToPolicy([condRole])
     const rule = policy.rules[0]!
-    const conditions = 'all' in rule.conditions ? rule.conditions.all : []
-    // Should have role condition + owner condition
-    expect(conditions).toHaveLength(2)
-    expect(conditions.some((c) => 'field' in c && c.field === 'subject.roles')).toBe(true)
-    expect(conditions.some((c) => 'field' in c && c.field === 'resource.attributes.ownerId')).toBe(true)
+    // Two siblings: the generated base group, then the author's group whole.
+    // The author's group sits one level down whatever its key is, so an `any`
+    // permission condition is not charged a level that an `all` one escapes.
+    const top = 'all' in rule.conditions ? rule.conditions.all : []
+    expect(top).toHaveLength(2)
+    const fields = JSON.stringify(top)
+    expect(fields).toContain('subject.roles')
+    expect(fields).toContain('resource.attributes.ownerId')
   })
 })
 

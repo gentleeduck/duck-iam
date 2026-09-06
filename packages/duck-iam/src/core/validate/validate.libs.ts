@@ -34,6 +34,20 @@ export const VALID_ALGORITHMS: ReadonlySet<string> = new Set([
   'highest-priority',
 ])
 
+/**
+ * Control characters have no meaning in an action or resource name and are
+ * invisible in every UI that would show one, so a name carrying one reads as a
+ * different name than it is. Rejected at validation rather than normalized:
+ * silently rewriting a name would change which rules a policy matches.
+ */
+function hasControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code < 0x20 || code === 0x7f) return true
+  }
+  return false
+}
+
 /** Valid rule effect values. */
 export const VALID_EFFECTS: ReadonlySet<string> = new Set(['allow', 'deny'])
 
@@ -91,6 +105,111 @@ export const VALID_OPERATORS: ReadonlySet<string> = new Set([
   'after',
 ])
 
+function isCompilableRegex(pattern: string): boolean {
+  try {
+    new RegExp(pattern)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Operators that read only the field; an operand on them is meaningless. */
+const VALUELESS_OPERATORS: ReadonlySet<string> = new Set(['exists', 'not_exists'])
+
+/**
+ * The operand type each listed operator compares against. A wrongly-typed
+ * operand does not raise at evaluation - it makes the operator return a fixed
+ * verdict, and for the negated ones (`nin`, `not_contains`) that verdict is
+ * `true`, so an "allow unless denylisted" rule allows everyone. Operators not
+ * listed here accept any scalar.
+ */
+const OPERAND_TYPES: ReadonlyMap<string, 'array' | 'number' | 'string' | 'temporal'> = new Map([
+  ['in', 'array'],
+  ['nin', 'array'],
+  ['subset_of', 'array'],
+  ['superset_of', 'array'],
+  ['gt', 'number'],
+  ['gte', 'number'],
+  ['lt', 'number'],
+  ['lte', 'number'],
+  ['starts_with', 'string'],
+  ['ends_with', 'string'],
+  ['matches', 'string'],
+  ['before', 'temporal'],
+  ['after', 'temporal'],
+])
+
+function operandHasType(kind: 'array' | 'number' | 'string' | 'temporal', value: unknown): boolean {
+  switch (kind) {
+    case 'array':
+      return Array.isArray(value)
+    case 'number':
+      return typeof value === 'number'
+    case 'string':
+      return typeof value === 'string'
+    case 'temporal':
+      return typeof value === 'number' || typeof value === 'string'
+  }
+}
+
+/**
+ * `POLICY_JSON_SCHEMA` sets `additionalProperties: false` on the policy, the
+ * rule, the target and the condition, so tooling built on the published schema
+ * already refuses an unknown key. Accepting one here left the runtime the more
+ * permissive of the two, and an unknown key is rarely inert: a misspelled
+ * `targets` / `conditions` / `value` is a restriction the author wrote and the
+ * engine silently never applies.
+ *
+ * A key explicitly set to `undefined` is ignored - `JSON.stringify` drops it,
+ * so it reaches neither a store nor an external validator.
+ */
+export function checkKnownKeys(
+  obj: object,
+  allowed: ReadonlySet<string>,
+  path: string,
+  issues: IamValidate.IIssue[],
+): void {
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined || allowed.has(key)) continue
+    issues.push({
+      type: 'error',
+      code: 'UNKNOWN_FIELD',
+      message: `Unknown field "${key}"; the policy schema forbids additional properties here`,
+      path: path ? `${path}.${key}` : key,
+    })
+  }
+}
+
+/** Keys `POLICY_JSON_SCHEMA` declares on a policy. */
+export const POLICY_KEYS: ReadonlySet<string> = new Set([
+  'id',
+  'name',
+  'description',
+  'version',
+  'algorithm',
+  'rules',
+  'targets',
+])
+
+/** Keys `POLICY_JSON_SCHEMA` declares on `policy.targets`. */
+export const TARGET_KEYS: ReadonlySet<string> = new Set(['actions', 'resources', 'roles'])
+
+/** Keys `POLICY_JSON_SCHEMA` declares on a rule. */
+const RULE_KEYS: ReadonlySet<string> = new Set([
+  'id',
+  'effect',
+  'description',
+  'priority',
+  'actions',
+  'resources',
+  'conditions',
+  'metadata',
+])
+
+/** Keys `POLICY_JSON_SCHEMA` declares on a leaf condition. */
+const CONDITION_KEYS: ReadonlySet<string> = new Set(['field', 'operator', 'value'])
+
 /**
  * Validate one condition item (leaf or group); groups delegate to {@link validateConditionGroup}.
  *
@@ -113,6 +232,7 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
   const obj = input
 
   if ('field' in obj) {
+    checkKnownKeys(obj, CONDITION_KEYS, path, issues)
     if (typeof obj.field !== 'string' || !obj.field) {
       issues.push({
         type: 'error',
@@ -135,13 +255,40 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
         path: `${path}.field`,
       })
     }
-    if (typeof obj.operator !== 'string' || !VALID_OPERATORS.has(obj.operator)) {
+    const operator = typeof obj.operator === 'string' && VALID_OPERATORS.has(obj.operator) ? obj.operator : null
+    if (operator === null) {
       issues.push({
         type: 'error',
         code: 'INVALID_OPERATOR',
         message: `Invalid operator "${String(obj.operator)}"`,
         path: `${path}.operator`,
       })
+    } else if (!VALUELESS_OPERATORS.has(operator)) {
+      // `JSON.stringify` drops an `undefined` value, so a policy authored with
+      // one reaches the engine through any adapter with the key simply absent.
+      // There `cond.value ?? null` makes it `null`, which compares equal to a
+      // missing attribute - the guard passes for exactly the subjects it was
+      // written to exclude. Missing and explicitly-`undefined` are one case.
+      if (!('value' in obj) || obj.value === undefined) {
+        issues.push({
+          type: 'error',
+          code: 'MISSING_VALUE',
+          message: `Operator "${operator}" requires a "value"`,
+          path: `${path}.value`,
+        })
+      } else if (!(typeof obj.value === 'string' && obj.value.startsWith('$'))) {
+        // A `$`-prefixed value resolves from the request at evaluation time, so
+        // its type is unknowable here.
+        const expected = OPERAND_TYPES.get(operator)
+        if (expected !== undefined && !operandHasType(expected, obj.value)) {
+          issues.push({
+            type: 'error',
+            code: 'OPERAND_TYPE_MISMATCH',
+            message: `Operator "${operator}" expects ${expected === 'temporal' ? 'a number or ISO-8601 string' : `a ${expected}`} value`,
+            path: `${path}.value`,
+          })
+        }
+      }
     }
     if (typeof obj.value === 'string' && obj.value.length > MAX_CONDITION_VALUE_LENGTH) {
       issues.push({
@@ -183,6 +330,16 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
           message: `Condition "matches" pattern rejected: ${result.reason}`,
           path: `${path}.value`,
         })
+      } else if (!isCompilableRegex(obj.value)) {
+        // A pattern that will not compile does not raise at evaluation - the
+        // operator returns `false`, which retires a `deny`-when-`matches` rule
+        // outright. Compiling it here is the only place the failure is visible.
+        issues.push({
+          type: 'error',
+          code: 'ERR_REGEX_INVALID',
+          message: 'Condition "matches" pattern is not a valid regular expression',
+          path: `${path}.value`,
+        })
       }
     }
   } else {
@@ -222,9 +379,9 @@ export function validateConditionGroup(input: unknown, path: string, issues: Iam
     return
   }
 
-  const groupKey = (['all', 'any', 'none'] as const).find((k) => k in input)
+  const present = (['all', 'any', 'none'] as const).filter((k) => k in input)
 
-  if (!groupKey) {
+  if (present.length === 0) {
     issues.push({
       type: 'error',
       code: 'INVALID_CONDITION',
@@ -233,6 +390,23 @@ export function validateConditionGroup(input: unknown, path: string, issues: Iam
     })
     return
   }
+
+  // `evalConditionGroup` reads one key and ignores the rest, so `{ all, any }`
+  // silently drops whichever it does not reach - the schema's `oneOf` refuses
+  // the shape and the runtime honoured half of it.
+  if (present.length > 1) {
+    issues.push({
+      type: 'error',
+      code: 'INVALID_CONDITION',
+      message: `Condition group has ${present.join(' and ')}; exactly one of "all", "any" or "none" is evaluated`,
+      path,
+    })
+    return
+  }
+
+  const groupKey = present[0]
+  if (groupKey === undefined) return
+  if (isPlainObjectLike(input)) checkKnownKeys(input, new Set([groupKey]), path, issues)
 
   const items = Reflect.get(input, groupKey)
   if (!Array.isArray(items)) {
@@ -264,6 +438,7 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
   }
 
   const rule = input
+  checkKnownKeys(rule, RULE_KEYS, path, issues)
 
   if (typeof rule.id !== 'string' || !rule.id) {
     issues.push({
@@ -316,6 +491,13 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
           message: 'Action must be a string',
           path: `${path}.actions[${i}]`,
         })
+      } else if (hasControlChar(action)) {
+        issues.push({
+          type: 'error',
+          code: 'INVALID_TYPE',
+          message: 'Action must not contain control characters',
+          path: `${path}.actions[${i}]`,
+        })
       }
     }
   }
@@ -342,6 +524,13 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
           type: 'error',
           code: 'INVALID_TYPE',
           message: 'Resource must be a string',
+          path: `${path}.resources[${i}]`,
+        })
+      } else if (hasControlChar(resource)) {
+        issues.push({
+          type: 'error',
+          code: 'INVALID_TYPE',
+          message: 'Resource must not contain control characters',
           path: `${path}.resources[${i}]`,
         })
       }

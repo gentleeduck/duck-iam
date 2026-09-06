@@ -120,7 +120,13 @@ export namespace AccessControl {
    * | `deny-overrides` | Any deny wins. Default. |
    * | `allow-overrides` | Any allow wins. Best for RBAC / permissive rules. |
    * | `first-match` | Highest-priority match wins; ties resolved by source order. |
-   * | `highest-priority` | Rule with the highest priority number wins. |
+   * | `highest-priority` | Identical to `first-match`. |
+   *
+   * "Source order" is the order the rules arrive in `policy.rules`, which for a
+   * stored policy is the adapter's row order. Equal-priority rules of opposing
+   * effect therefore make the verdict depend on that order - give the rule you
+   * mean to win a higher priority rather than relying on an adapter to return
+   * rows the same way twice.
    */
   export type CombiningAlgorithm = 'deny-overrides' | 'allow-overrides' | 'first-match' | 'highest-priority'
 
@@ -131,7 +137,7 @@ export namespace AccessControl {
    * |---|---|
    * | `and` | Every policy must allow. Any deny is final. Default. |
    * | `allow-overrides` | Any policy that allows wins. |
-   * | `first-applicable` | First policy whose targets+rules produce a non-default decision wins. |
+   * | `first-applicable` | First policy that is not NotApplicable wins, including one that votes its default. |
    */
   export type PolicyCombine = 'and' | 'allow-overrides' | 'first-applicable'
 
@@ -239,6 +245,20 @@ export namespace AccessControl {
      * Omitted (or `true`) for applicable decisions.
      */
     readonly applicable?: boolean
+    /**
+     * Set when the deny came from the engine failing rather than from a policy
+     * saying no. Absent on every ordinary decision, allow or deny.
+     *
+     * `'input'` - the request itself was rejected (a malformed `subjectId`).
+     * `'resolution'` - the subject could not be resolved; an adapter outage
+     * lands here. `'evaluation'` - evaluation itself threw.
+     *
+     * Without it an adapter outage and a legitimate deny are the same `false`,
+     * so a caller cannot answer 403 for one and 503 for the other. Production
+     * mode returns a bare boolean by design and has no place to carry this -
+     * use the engine's `onError` hook there.
+     */
+    readonly failure?: 'input' | 'resolution' | 'evaluation'
   }
 
   /**
@@ -280,4 +300,29 @@ export namespace AccessControl {
    * `(field, value)` pair from a condition.
    */
   export type OpFn = (field: IamPrimitives.AttributeValue, value: IamPrimitives.AttributeValue) => boolean
+
+  /**
+   * Handler for a policy that threw during evaluation, as the **evaluator**
+   * calls it: the second argument is the offending {@link IPolicy} itself.
+   *
+   * There are three `onPolicyError` shapes in this package and they are not
+   * interchangeable. TypeScript catches a mismatch when the handler is
+   * declared separately, but an inline arrow is contextually typed and
+   * compiles against all three - so a logger written for one prints
+   * `[object Object]` against another:
+   *
+   * | Where | Second argument |
+   * |---|---|
+   * | `iamEvaluate` / `iamEvaluateFast` | this type - the policy object |
+   * | {@link IamEngineTypes.IHooks.onPolicyError} | the policy **id**, a string |
+   * | adapter configs | {@link IamAdapter.RowErrorHandler}'s `{ adapter, rowId }` |
+   *
+   * The offending policy is Indeterminate, never NotApplicable: a policy
+   * carrying a deny rule must not be silently skipped because one of its
+   * conditions is malformed.
+   */
+  export type PolicyErrorHandler<TAction extends string = string, TResource extends string = string> = (
+    err: Error,
+    policy: IPolicy<TAction, TResource>,
+  ) => void
 }

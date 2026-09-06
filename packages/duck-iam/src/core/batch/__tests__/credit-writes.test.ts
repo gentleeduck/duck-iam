@@ -60,7 +60,6 @@ describe('appliedRows', () => {
 
     expect(result).toEqual({
       applied: 2,
-      failed: 0,
       outcomes: [
         { ok: true, row: { id: 'a' }, value: { changed: true } },
         { ok: true, row: { id: 'b' }, value: { changed: false } },

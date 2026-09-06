@@ -39,13 +39,33 @@ export function createPending<TRole extends string = string>(
         // the drain lands in the next batch rather than appending to this one.
         const draining = buffer
         buffer = []
+        const failed: Pending.Invalidation<TRole>[] = []
+        const errors: unknown[] = []
         for (const entry of draining) {
-          if (entry.kind === 'subject') target.invalidateSubject(entry.subjectId)
-          else if (entry.kind === 'policies') target.invalidatePolicies()
-          else target.invalidateRoles(entry.roleId)
+          try {
+            if (entry.kind === 'subject') target.invalidateSubject(entry.subjectId)
+            else if (entry.kind === 'policies') target.invalidatePolicies()
+            else target.invalidateRoles(entry.roleId)
+          } catch (err) {
+            // The target fans out to the fleet invalidator, so this is a
+            // network call. The entries belong to a transaction that has
+            // already committed: dropping one leaves every node's cache
+            // answering from pre-commit state, so keep it and apply the rest.
+            failed.push(entry)
+            errors.push(err)
+          }
+        }
+        if (failed.length > 0) {
+          buffer = [...failed, ...buffer.filter((b) => !failed.some((f) => sameEntry(f, b)))]
+          throw new AggregateError(
+            errors,
+            `[@gentleduck/iam:pending] ${failed.length} of ${draining.length} invalidations could not be applied and remain buffered - retry flush()`,
+          )
         }
       },
-      peek: () => buffer,
+      // A copy: the declared `readonly` erases, and the live array is about
+      // to be flushed - a caller could inject or reorder entries in it.
+      peek: () => [...buffer],
       get size() {
         return buffer.length
       },

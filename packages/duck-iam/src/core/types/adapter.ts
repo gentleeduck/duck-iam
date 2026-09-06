@@ -2,14 +2,34 @@ import type { AccessControl, IamPrimitives, IamRequest } from '.'
 export namespace IamAdapter {
   /**
    * Optional read-time cancellation token. The engine creates a controller per
-   * adapter call and triggers `abort()` on its timeout. Adapters that can honor
-   * cancellation (HttpAdapter via `fetch(url, {signal})`, Redis via `RESET`,
-   * etc.) should plumb this through; adapters that can't (in-memory, file)
-   * may ignore it - the engine still releases the request thread on timeout.
+   * adapter call and triggers `abort()` on its `adapterTimeoutMs`.
+   *
+   * Of the six shipped adapters, **only `IamHttpAdapter` honors it** - it
+   * merges this signal with its own timeout and hands the result to
+   * `fetch(url, { signal })`. The other five accept the parameter and ignore
+   * it; this doc used to name Redis as an implementer, which it is not.
+   *
+   * Ignoring it is not a leak: `Engine._withTimeout` races every adapter call
+   * against `adapterTimeoutMs` and rejects, so the request thread is released
+   * either way. What an ignoring adapter loses is the *upstream* cancellation -
+   * the query keeps running and its result is discarded. A third-party adapter
+   * that can cancel should plumb this through.
    */
   export interface IReadOptions {
     readonly signal?: AbortSignal
   }
+
+  /**
+   * Handler for a stored row an adapter could not deserialise, as **adapter
+   * configs** call it: the second argument is a context object naming the
+   * adapter and the row, because the row never became a policy.
+   *
+   * The third of the three `onPolicyError` shapes - see
+   * {@link AccessControl.PolicyErrorHandler} for the table. `TAdapter` is the
+   * adapter's own literal tag, so a handler narrowed to one adapter cannot be
+   * wired into another by accident.
+   */
+  export type RowErrorHandler<TAdapter extends string> = (err: Error, ctx: { adapter: TAdapter; rowId: string }) => void
 
   /**
    * One `(subject, role, scope)` triple - the unit every batch role write takes.
@@ -98,7 +118,12 @@ export namespace IamAdapter {
     getSubjectRoles(subjectId: string, opts?: IReadOptions): Promise<TRole[]>
     /** Scoped role assignments. Optional - only when multi-tenant scoped roles are in use. */
     getSubjectScopedRoles?(subjectId: string, opts?: IReadOptions): Promise<IamRequest.IScopedRole<TRole, TScope>[]>
-    /** Assigns a role to a subject, optionally within a scope. `opts` is honoured by adapters that support it. */
+    /**
+     * Assigns a role to a subject, optionally within a scope. An adapter that
+     * cannot store `opts` **throws** rather than dropping it - a time-boxed grant
+     * that silently became permanent is the failure this contract exists to
+     * prevent. Only the drizzle schemas carry the columns today.
+     */
     assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IAssignOptions): Promise<void>
     /** Revokes a role from a subject, optionally within a scope. */
     revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>

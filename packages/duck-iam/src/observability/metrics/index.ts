@@ -100,9 +100,20 @@ export function iamCreateMetricsAggregator(config: IamMetrics.IConfig = {}): Iam
       if (event.allowed) allow++
       else deny++
       if (event.failOpen) failOpen++
-      buf[head] = event.durationMs
-      head = (head + 1) % cap
-      if (count < cap) count++
+      // The decision is always counted; only the latency sample can be refused.
+      // `record` is documented as bindable straight to `IHooks.onMetrics`, so
+      // `durationMs` is a caller-supplied number, and an `undefined` or `NaN`
+      // reaching a `Float64Array` becomes `NaN` - which makes the percentile
+      // sort's comparator inconsistent and returns `NaN` for a quantile (a
+      // `/metrics` route then serialises it as `null`) until the ring rolls
+      // over. One bad sample corrupted the whole window, so it is dropped
+      // instead. `samples` therefore need not equal `total`, which is the
+      // honest reading.
+      if (Number.isFinite(event.durationMs) && event.durationMs >= 0) {
+        buf[head] = event.durationMs
+        head = (head + 1) % cap
+        if (count < cap) count++
+      }
     },
     snapshot() {
       if (count === 0) {

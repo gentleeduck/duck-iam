@@ -1,4 +1,6 @@
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
+import type { IamValidate } from '../validate'
+import { validateRuleShape } from '../validate/validate.libs'
 import { When } from './when'
 
 /**
@@ -49,11 +51,23 @@ export class RuleBuilder<
   private _actions: (TAction | '*')[] = ['*']
   private _resources: (TResource | '*')[] = ['*']
   private _conditions: AccessControl.IConditionGroup = { all: [] }
+  private _conditionsSet = false
   private _metadata?: IamPrimitives.Attributes
   private _scopeCondition?: AccessControl.ICondition
 
   constructor(id: string) {
     this._id = id
+  }
+
+  /**
+   * ANDs a new group onto whatever `.when()` / `.whenAny()` already set.
+   *
+   * Replacing instead would let a second call silently drop the first
+   * restriction, turning a narrow rule into a broad one.
+   */
+  private _addConditions(next: AccessControl.IConditionGroup): void {
+    this._conditions = this._conditionsSet ? { all: [this._conditions, next] } : next
+    this._conditionsSet = true
   }
 
   /**
@@ -191,7 +205,8 @@ export class RuleBuilder<
    *
    * Every condition added inside the callback must hold (`AND` semantics) for
    * the rule to match. Composes with `.forScope()` - the scope check is
-   * prepended to the condition list automatically at build time.
+   * prepended to the condition list automatically at build time. Calling
+   * `.when()` / `.whenAny()` again ANDs the new group onto the existing one.
    *
    * @example
    * ```ts
@@ -215,7 +230,7 @@ export class RuleBuilder<
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(w)
-    this._conditions = w.buildAll()
+    this._addConditions(w.buildAll())
     return this
   }
 
@@ -223,7 +238,8 @@ export class RuleBuilder<
    * Attaches an ANY-of condition group to the rule using a {@link When} builder.
    *
    * At least one condition added inside the callback must hold (`OR` semantics)
-   * for the rule to match.
+   * for the rule to match. A second `.when()` / `.whenAny()` call ANDs its
+   * group onto this one rather than replacing it.
    *
    * @example
    * ```ts
@@ -247,7 +263,7 @@ export class RuleBuilder<
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(w)
-    this._conditions = w.buildAny()
+    this._addConditions(w.buildAny())
     return this
   }
 
@@ -273,6 +289,7 @@ export class RuleBuilder<
    * group here so that `.forScope()` and `.when()` / `.whenAny()` always
    * compose correctly regardless of call order.
    *
+   * @throws If the resulting rule fails validation
    * @returns A fully constructed, immutable {@link AccessControl.IRule}
    */
   build(): AccessControl.IRule<TAction, TResource> {
@@ -284,7 +301,7 @@ export class RuleBuilder<
       }
     }
 
-    return {
+    const rule: AccessControl.IRule<TAction, TResource> = {
       id: this._id,
       effect: this._effect,
       description: this._description,
@@ -294,6 +311,19 @@ export class RuleBuilder<
       conditions,
       metadata: this._metadata,
     }
+    // Validate at build time, like RoleBuilder and PolicyBuilder do, so a rule
+    // handed straight to an adapter still fails where the bug was introduced.
+    const issues: IamValidate.IIssue[] = []
+    validateRuleShape(rule, 'rule', issues)
+    const errs = issues
+      .filter((i) => i.type === 'error')
+      .map((i) => `${i.code}${i.path ? ` at "${i.path}"` : ''}: ${i.message}`)
+    if (errs.length > 0) {
+      throw new Error(
+        `[@gentleduck/iam:builder] RuleBuilder.build("${this._id}") rejected by validator - ${errs.join('; ')}`,
+      )
+    }
+    return rule
   }
 }
 

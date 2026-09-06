@@ -22,8 +22,8 @@ export namespace IamClient {
   > =
     | `${TAction}:${TResource}`
     | `${TAction}:${TResource}:${string}`
-    | `${TScope}:${TAction}:${TResource}`
-    | `${TScope}:${TAction}:${TResource}:${string}`
+    | `@${TScope}:${TAction}:${TResource}`
+    | `@${TScope}:${TAction}:${TResource}:${string}`
 
   /**
    * Map from {@link PermissionKey} strings to boolean results. Returned by

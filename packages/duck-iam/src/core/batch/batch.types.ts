@@ -1,10 +1,18 @@
 /**
  * Per-row results for the batch forms of the admin's single-row writes.
  *
- * A **hard** failure - a constraint violation or driver error - throws, which
- * inside a caller's transaction aborts the whole transaction and is what makes
- * a batch atomic with the caller's work. A **soft** failure - a row that did
- * not match - is reported as `ok: false` without throwing.
+ * Every failure here is **hard**: a constraint violation or driver error
+ * throws, which inside a caller's transaction aborts the whole transaction and
+ * is what makes a batch atomic with the caller's work.
+ *
+ * There is deliberately no soft-failure channel. Both role writes are
+ * idempotent, so a row the statement did not move is still applied - the
+ * postcondition holds either way - and reporting it as a miss would contradict
+ * the single-row method, which calls the same case success. `Outcome` once
+ * carried an `ok: false` arm with a `FailureReason`, and nothing in the package
+ * could produce one: both producers hard-coded `ok: true`, so the `failed`
+ * counter derived from it was structurally always zero and a consumer writing
+ * `if (!outcome.ok)` was writing dead code against a documented contract.
  *
  * Deliberately duplicated from duck-auth's `core/batch` rather than shared:
  * the two packages do not depend on each other, and a shared shape is not worth
@@ -13,8 +21,6 @@
  * while a role assignment has no such key. See {@link Batch.Outcome}.
  */
 export namespace Batch {
-  export type FailureReason = 'not-found' | 'skipped'
-
   /**
    * One row's result, carrying the row it describes.
    *
@@ -29,9 +35,7 @@ export namespace Batch {
    * hands back exactly what the caller passed in. Outcomes are also in input
    * order, so matching by index stays available and exact.
    */
-  export type Outcome<TRow, T = void> =
-    | { row: TRow; ok: true; value: T }
-    | { row: TRow; ok: false; reason: FailureReason; detail?: string }
+  export type Outcome<TRow, T = void> = { row: TRow; ok: true; value: T }
 
   /**
    * What a role-write outcome carries. The write itself is idempotent, so the
@@ -56,7 +60,7 @@ export namespace Batch {
   export type Result<TRow, T = void> = {
     /** One entry per input row, in input order. */
     outcomes: Outcome<TRow, T>[]
+    /** Always `outcomes.length`; kept because callers read it as the row count. */
     applied: number
-    failed: number
   }
 }

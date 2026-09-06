@@ -115,10 +115,33 @@ describe('condition operators', () => {
       )
     })
 
-    it('string contains substring', () => {
+    // `contains` is array membership, not substring search. It used to fall
+    // through to `String.includes` for a string field, so a `groups` claim
+    // arriving as a CSV string satisfied `contains 'admins'` on a substring.
+    it('does not substring-match a string field', () => {
       expect(
         evalConditionGroup(req, {
           all: [{ field: 'subject.attributes.department', operator: 'contains', value: 'engine' }],
+        }),
+      ).toBe(false)
+    })
+
+    // The mirror case: the same type confusion must not bypass the negated
+    // operator either, so a present non-array field fails both guards.
+    it('does not satisfy not_contains on a string field either', () => {
+      expect(
+        evalConditionGroup(req, {
+          all: [{ field: 'subject.attributes.department', operator: 'not_contains', value: 'sales' }],
+        }),
+      ).toBe(false)
+    })
+
+    // An absent field is a different case from a wrongly-typed one: an empty
+    // list contains nothing, so `not_contains` still holds.
+    it('not_contains holds for an absent field', () => {
+      expect(
+        evalConditionGroup(req, {
+          all: [{ field: 'subject.attributes.nope', operator: 'not_contains', value: 'anything' }],
         }),
       ).toBe(true)
     })
@@ -418,7 +441,7 @@ describe('regex cache LRU (M1)', () => {
 
 describe('matches operator ReDoS hardening (P1)', () => {
   it('evaluates a catastrophic pattern + adversarial-length input under 50ms', async () => {
-    const { regexCache, RegexInputTooLargeError } = await import('../conditions.libs')
+    const { regexCache, IamRegexInputTooLargeError } = await import('../conditions.libs')
     regexCache.clear()
     const big = `${'a'.repeat(3000)}!`
     const req = makeReq({ subject: { id: big, roles: [], attributes: {} } })
@@ -433,12 +456,12 @@ describe('matches operator ReDoS hardening (P1)', () => {
       caught = e
     }
     const elapsed = performance.now() - start
-    expect(caught).toBeInstanceOf(RegexInputTooLargeError)
+    expect(caught).toBeInstanceOf(IamRegexInputTooLargeError)
     expect(elapsed).toBeLessThan(50)
   })
 
-  it('throws RegexInputTooLargeError on inputs longer than MAX_REGEX_INPUT_LENGTH instead of returning false', async () => {
-    const { MAX_REGEX_INPUT_LENGTH, RegexInputTooLargeError, regexCache } = await import('../conditions.libs')
+  it('throws IamRegexInputTooLargeError on inputs longer than MAX_REGEX_INPUT_LENGTH instead of returning false', async () => {
+    const { MAX_REGEX_INPUT_LENGTH, IamRegexInputTooLargeError, regexCache } = await import('../conditions.libs')
     regexCache.clear()
     // A silent `false` would flip `deny`-when-`matches` rules into
     // "condition not met -> allow". The operator throws a tagged error so
@@ -457,16 +480,16 @@ describe('matches operator ReDoS hardening (P1)', () => {
     } catch (e) {
       caught = e
     }
-    expect(caught).toBeInstanceOf(RegexInputTooLargeError)
-    expect((caught as InstanceType<typeof RegexInputTooLargeError>).field).toBe('subject.id')
-    expect((caught as InstanceType<typeof RegexInputTooLargeError>).length).toBe(10_000)
-    expect((caught as InstanceType<typeof RegexInputTooLargeError>).tag).toBe('duck-iam/regex-input-too-large')
+    expect(caught).toBeInstanceOf(IamRegexInputTooLargeError)
+    expect((caught as InstanceType<typeof IamRegexInputTooLargeError>).field).toBe('subject.id')
+    expect((caught as InstanceType<typeof IamRegexInputTooLargeError>).length).toBe(10_000)
+    expect((caught as InstanceType<typeof IamRegexInputTooLargeError>).tag).toBe('duck-iam/regex-input-too-large')
     // The operator throws before compiling the regex.
     expect(regexCache.has(pattern)).toBe(false)
   })
 
   it('deny-when-matches over-length input drops policy (decision = deny, not allow)', async () => {
-    const { evaluate } = await import('../../evaluate')
+    const { evaluate } = await import('../../evaluate/evaluate')
     const policy: AccessControl.IPolicy = {
       id: 'deny-evil',
       name: 'Deny evil subjects',
@@ -598,9 +621,9 @@ describe('per-instance regex cache isolation', () => {
   })
 
   it('evalMatchesOp throws on over-length input instead of returning false', async () => {
-    const { evalMatchesOp, MAX_REGEX_INPUT_LENGTH, RegexInputTooLargeError } = await import('../conditions.libs')
+    const { evalMatchesOp, MAX_REGEX_INPUT_LENGTH, IamRegexInputTooLargeError } = await import('../conditions.libs')
     const cache = new Map<string, RegExp>()
-    expect(() => evalMatchesOp('a'.repeat(MAX_REGEX_INPUT_LENGTH + 1), '^a', cache)).toThrow(RegexInputTooLargeError)
+    expect(() => evalMatchesOp('a'.repeat(MAX_REGEX_INPUT_LENGTH + 1), '^a', cache)).toThrow(IamRegexInputTooLargeError)
   })
 
   it('clearRegexCache empties the process-wide cache only', async () => {

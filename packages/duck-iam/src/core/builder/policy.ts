@@ -214,7 +214,7 @@ export class PolicyBuilder<
       description: this._description,
       version: this._version,
       algorithm: this._algorithm,
-      rules: this._rules,
+      rules: [...this._rules],
       targets: this._targets,
     }
     // Validate at build time so callers wiring the adapter directly

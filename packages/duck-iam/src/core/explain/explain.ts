@@ -68,15 +68,26 @@ export function explainEvaluation(
   }
 }
 
+/**
+ * Whether a traced policy takes part in the cross-policy combine, mirroring
+ * `evaluate`'s two NotApplicable tests. This used to be `targetMatch` alone -
+ * only the first test - so a policy about `write` cast a `defaultEffect` vote
+ * here that the engine never cast, and the explanation could contradict the
+ * decision it was explaining. A trace's `actionMatch && resourceMatch` is
+ * `ruleTargetsMatch` by construction, so the second test reads off the trace
+ * and the rules stay in the output either way - the point of explaining.
+ */
+function traceIsApplicable(trace: Explain.IPolicyTrace): boolean {
+  return trace.targetMatch && trace.rules.some((rule) => rule.actionMatch && rule.resourceMatch)
+}
+
 /** Resolve the final decision across all policy traces under the given combine mode. */
 function decideFinal(
   traces: readonly Explain.IPolicyTrace[],
   defaultEffect: AccessControl.Effect,
   combine: AccessControl.PolicyCombine,
 ): { effect: AccessControl.Effect; reason: string; policy?: string; rule?: AccessControl.IRule } {
-  // NotApplicable traces (targets didn't match) are skipped in every mode -
-  // they contribute nothing to the cross-policy combine.
-  const applicable = traces.filter((t) => t.targetMatch)
+  const applicable = traces.filter(traceIsApplicable)
 
   if (combine === 'and') {
     let lastAllow: Explain.IPolicyTrace | null = null
@@ -101,11 +112,12 @@ function decideFinal(
       return { effect: 'deny', reason: lastDeny.reason, policy: lastDeny.policyId, rule: lastDeny.decidingRule }
     }
   } else {
-    // first-applicable
-    for (const pt of applicable) {
-      if (pt.decidingRule) {
-        return { effect: pt.result, reason: pt.reason, policy: pt.policyId, rule: pt.decidingRule }
-      }
+    // first-applicable: the first applicable trace wins, rule or not. Gating on
+    // `decidingRule` skipped a policy that voted its `defaultEffect`, which made
+    // the explanation disagree with the decision `evaluate` actually returned.
+    const first = applicable[0]
+    if (first !== undefined) {
+      return { effect: first.result, policy: first.policyId, reason: first.reason, rule: first.decidingRule }
     }
   }
   return {
@@ -142,8 +154,8 @@ function buildSummary(
     const matched = pt.rules.filter((r) => r.matched).length
     const total = pt.rules.length
 
-    if (!pt.targetMatch) {
-      parts.push(`  ${pt.policyId}: targets don't match (${pt.result})`)
+    if (!traceIsApplicable(pt)) {
+      parts.push(`  ${pt.policyId}: not applicable to this request`)
     } else if (pt.decidingRuleId) {
       parts.push(`  ${pt.policyId} [${pt.algorithm}]: ${pt.reason} (${matched}/${total} rules matched)`)
     } else {
