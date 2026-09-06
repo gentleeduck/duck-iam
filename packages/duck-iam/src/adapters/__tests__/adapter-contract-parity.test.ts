@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { IamEngine } from '../../core/engine/engine'
 import { iamAssertNoAssignOptions, iamAssertValidAssignWindow } from '../../shared/assign-options'
 import { iamAssertAttributesParam } from '../../shared/attributes'
 import { iamAssertAssignableScope } from '../../shared/scope'
@@ -122,6 +123,69 @@ describe('an empty-string scope is refused by every adapter', () => {
     await expect(adapter.assignRole('u1', 'admin', '')).rejects.toThrow()
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
     expect(await adapter.getSubjectRoles('u1')).toEqual([])
+  })
+})
+
+/**
+ * `'*'` is this package's spelling of "every scope" on the scope a role or a
+ * permission *declares* - `IPermission.scope` is typed `TScope | '*'`, and
+ * `matchesScope` / `scopeCovers` read it as global. It is not a spelling of
+ * anything on a scoped *assignment*: `enrichSubjectWithScopedRoles` compares
+ * the stored scope literally, so the row is stored, the write reports success,
+ * and no request the operator meant it for ever sees the role.
+ *
+ * Refused on a grant, allowed on a lookup, because an operator holding rows
+ * written before the guard has to be able to revoke them.
+ */
+describe('a "*" scope is refused on a grant and allowed on a lookup', () => {
+  const ADAPTERS = ['memory', 'file', 'redis', 'prisma', 'drizzle', 'http'] as const
+
+  it.each(ADAPTERS)('%s refuses it on a grant', (adapter) => {
+    expect(() => iamAssertAssignableScope(adapter, '*')).toThrow(/must not be "\*"/)
+  })
+
+  it('says why, and what to write instead', () => {
+    expect(() => iamAssertAssignableScope('memory', '*')).toThrow(/scope is the string "\*"/)
+    expect(() => iamAssertAssignableScope('memory', '*')).toThrow(/Omit the scope/)
+  })
+
+  it('allows it on a lookup, so an existing row can be revoked', () => {
+    expect(() => iamAssertAssignableScope('memory', '*', 'lookup')).not.toThrow()
+  })
+
+  // The empty string stays refused in both intents: it is not a row that can
+  // legitimately exist, so there is nothing to address.
+  it('still refuses the empty string on a lookup', () => {
+    expect(() => iamAssertAssignableScope('memory', '', 'lookup')).toThrow(/must not be an empty string/)
+  })
+
+  it('reaches the caller through a real adapter, and leaves no grant behind', async () => {
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
+    await expect(adapter.assignRole('u1', 'admin', '*')).rejects.toThrow(/must not be "\*"/)
+    expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
+    expect(await adapter.getSubjectRoles('u1')).toEqual([])
+  })
+
+  // The dead grant this refuses, demonstrated end to end on the engine: before
+  // the guard the write resolved, and every check the operator meant it for
+  // answered `false` while `getEffectiveRoles` returned nothing at all.
+  it('is the grant that would have applied to nothing', async () => {
+    const adapter = new IamMemoryAdapter<string, string, string, string>({
+      roles: [{ id: 'reader', name: 'Reader', permissions: [{ action: 'read', resource: 'post' }] }],
+    })
+    // Written past the guard, the way a row stored before it exists would be.
+    await adapter.assignRole('u1', 'reader', 'org-1')
+    const scoped = await adapter.getSubjectScopedRoles('u1')
+    expect(scoped).toEqual([{ role: 'reader', scope: 'org-1' }])
+    // The control: an ordinary scope does reach the request it names.
+    const engine = new IamEngine({ adapter, mode: 'development' })
+    expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' }, undefined, 'org-1')).toBe(true)
+    expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' })).toBe(false)
+  })
+
+  it('revoking a legacy "*" row still works', async () => {
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
+    await expect(adapter.revokeRole('u1', 'admin', '*')).resolves.toBeUndefined()
   })
 })
 

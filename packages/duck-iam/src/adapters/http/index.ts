@@ -893,7 +893,7 @@ export class IamHttpAdapter<
    * @returns Resolves once the API acknowledges the delete.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    iamAssertAssignableScope('http', scope)
+    iamAssertAssignableScope('http', scope, 'lookup')
     const params = scope !== undefined ? `?scope=${encodeURIComponent(scope)}` : ''
     await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles/${segment(roleId, 'role id')}${params}`, {
       method: 'DELETE',

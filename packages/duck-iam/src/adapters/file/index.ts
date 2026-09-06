@@ -703,7 +703,7 @@ export class IamFileAdapter<
    * @returns Resolves once the file is rewritten.
    */
   async revokeRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
-    iamAssertAssignableScope('file', scope)
+    iamAssertAssignableScope('file', scope, 'lookup')
     const s = await this._loadState()
     const entries = s.assignments[id]
     if (!entries) return

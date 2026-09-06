@@ -467,7 +467,7 @@ export class IamPrismaAdapter<
    * @returns Resolves once the delete completes.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    iamAssertAssignableScope('prisma', scope)
+    iamAssertAssignableScope('prisma', scope, 'lookup')
     await this._prisma.accessAssignment.deleteMany({
       where: { subjectId, roleId, ...(scope !== undefined ? { scope } : {}) },
     })

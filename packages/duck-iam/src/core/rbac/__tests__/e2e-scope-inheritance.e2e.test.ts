@@ -297,15 +297,46 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       expect(engineErrors).toEqual([])
     })
 
-    it("an ASSIGNMENT at scope '*' is a literal scope, not a global grant", async () => {
+    /**
+     * An ASSIGNMENT at scope `'*'` is a literal scope, not a global grant - and
+     * a row already carrying one keeps answering exactly as it always did.
+     *
+     * This test used to write the row through `engine.admin.assignRole('u1',
+     * 'admin', '*')` and assert that the call succeeded, under the comment
+     * "`assignRole` accepts '*' - only '' is refused - and stores it verbatim."
+     * That was a reading of the implementation, not a contract: no commit
+     * message, changeset or doc ever claimed a `'*'` assignment was meant to be
+     * writable, and the title it was given - "is a literal scope, NOT a global
+     * grant" - is the shape of a warning, not of an intended feature.
+     * `iamAssertAssignableScope` now refuses it on the write path across all
+     * six adapters and in `createAdmin`, so the write half is asserted here as
+     * a refusal.
+     *
+     * The semantics half is what it always was and is seeded directly, which is
+     * also the state an operator upgrading into that guard is in: rows written
+     * before it exists still have to read back predictably, and still have to
+     * be revocable - which is why `'*'` stays legal on a `'lookup'`.
+     */
+    it("an ASSIGNMENT at scope '*' is refused on the write path, and an existing row stays literal", async () => {
       await seedRole({ id: 'admin', permissions: [{ action: 'read', resource: 'doc' }] })
-      // `assignRole` accepts '*' - only '' is refused - and stores it verbatim.
       const engine = makeEngine()
-      await engine.admin.assignRole('u1', 'admin', '*')
-      expect(await engine.can('u1', 'read', DOC, undefined, '*')).toBe(true)
-      expect(await engine.can('u1', 'read', DOC, undefined, 'org-a')).toBe(false)
-      expect(await engine.can('u1', 'read', DOC, undefined, undefined)).toBe(false)
-      expect(await makeEngine({ scopeMode: 'hierarchical' }).can('u1', 'read', DOC, undefined, 'org-a')).toBe(false)
+
+      await expect(engine.admin.assignRole('u1', 'admin', '*')).rejects.toThrow(/must not be "\*"/)
+      // Refused, not half-written: nothing landed for u1.
+      expect(await engine.getEffectiveRoles('u1', '*')).toEqual([])
+
+      // A row written before the guard existed - or by anything that talks to
+      // the store directly - is unchanged: matched as the literal tenant `*`.
+      await seedAssignment('u2', 'admin', '*')
+      expect(await engine.can('u2', 'read', DOC, undefined, '*')).toBe(true)
+      expect(await engine.can('u2', 'read', DOC, undefined, 'org-a')).toBe(false)
+      expect(await engine.can('u2', 'read', DOC, undefined, undefined)).toBe(false)
+      expect(await makeEngine({ scopeMode: 'hierarchical' }).can('u2', 'read', DOC, undefined, 'org-a')).toBe(false)
+
+      // ...and it can still be deleted, which is the whole reason the guard
+      // exempts a lookup.
+      await engine.admin.revokeRole('u2', 'admin', '*')
+      expect(await engine.can('u2', 'read', DOC, undefined, '*')).toBe(false)
     })
   })
 
