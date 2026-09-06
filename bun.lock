@@ -17,7 +17,7 @@
     },
     "apps/duck-auth-demo": {
       "name": "@gentleduck/duck-auth-demo",
-      "version": "0.0.14",
+      "version": "0.0.22",
       "dependencies": {
         "@gentleduck/auth": "workspace:*",
         "@gentleduck/libs": "^1.0.0",
@@ -59,6 +59,7 @@
         "@gentleduck/iam": "workspace:*",
         "@gentleduck/libs": "catalog:",
         "@gentleduck/primitives": "catalog:",
+        "@gentleduck/registry-ui": "^0.5.0",
         "@gentleduck/variants": "catalog:",
         "@hocuspocus/provider": "^4.1.0",
         "@hocuspocus/server": "^4.1.0",
@@ -104,7 +105,7 @@
     },
     "examples/oidc-op": {
       "name": "@gentleduck/example-oidc-op",
-      "version": "0.0.13",
+      "version": "0.0.21",
       "dependencies": {
         "@gentleduck/auth": "workspace:*",
       },
@@ -186,7 +187,7 @@
     },
     "packages/duck-auth": {
       "name": "@gentleduck/auth",
-      "version": "5.3.4",
+      "version": "5.7.1",
       "bin": {
         "duck-auth": "./dist/cli/index.js",
       },
@@ -238,13 +239,13 @@
     },
     "packages/duck-iam": {
       "name": "@gentleduck/iam",
-      "version": "5.7.0",
+      "version": "5.8.1",
       "dependencies": {
         "uuid": "^14.0.2",
       },
       "devDependencies": {
         "@casl/ability": "^7.0.0",
-        "@gentleduck/libs": "^1.0.0",
+        "@gentleduck/libs": "catalog:",
         "@gentleduck/registry-ui": "^0.5.0",
         "@gentleduck/tsdown-config": "workspace:*",
         "@gentleduck/typescript-config": "workspace:*",
@@ -253,11 +254,14 @@
         "@stryker-mutator/core": "^9.6.1",
         "@stryker-mutator/vitest-runner": "^9.6.1",
         "@types/node": "^26.1.0",
+        "@types/pg": "^8.21.0",
         "@types/react": "^19.2.17",
         "accesscontrol": "^3.1.0",
         "casbin": "^5.50.0",
         "drizzle-orm": "^0.45.2",
         "easy-rbac": "^4.0.0",
+        "lucide-react": "catalog:",
+        "pg": "^8.23.0",
         "react": "^19.2.7",
         "react-dom": "^19.2.7",
         "tsdown": "^0.22.3",
@@ -265,15 +269,17 @@
         "vitest": "^4.1.9",
       },
       "peerDependencies": {
-        "@gentleduck/libs": "^1.0.0",
-        "@gentleduck/registry-ui": "^0.4.3",
+        "@gentleduck/libs": ">=0.2.0",
+        "@gentleduck/registry-ui": ">=0.5.0",
         "drizzle-orm": ">=0.30.0",
+        "lucide-react": ">=0.400.0",
         "react": "^19.2.6",
       },
       "optionalPeers": [
         "@gentleduck/libs",
         "@gentleduck/registry-ui",
         "drizzle-orm",
+        "lucide-react",
         "react",
       ],
     },
@@ -2917,6 +2923,8 @@
     "@esbuild-kit/core-utils/esbuild": ["esbuild@0.18.20", "", { "optionalDependencies": { "@esbuild/android-arm": "0.18.20", "@esbuild/android-arm64": "0.18.20", "@esbuild/android-x64": "0.18.20", "@esbuild/darwin-arm64": "0.18.20", "@esbuild/darwin-x64": "0.18.20", "@esbuild/freebsd-arm64": "0.18.20", "@esbuild/freebsd-x64": "0.18.20", "@esbuild/linux-arm": "0.18.20", "@esbuild/linux-arm64": "0.18.20", "@esbuild/linux-ia32": "0.18.20", "@esbuild/linux-loong64": "0.18.20", "@esbuild/linux-mips64el": "0.18.20", "@esbuild/linux-ppc64": "0.18.20", "@esbuild/linux-riscv64": "0.18.20", "@esbuild/linux-s390x": "0.18.20", "@esbuild/linux-x64": "0.18.20", "@esbuild/netbsd-x64": "0.18.20", "@esbuild/openbsd-x64": "0.18.20", "@esbuild/sunos-x64": "0.18.20", "@esbuild/win32-arm64": "0.18.20", "@esbuild/win32-ia32": "0.18.20", "@esbuild/win32-x64": "0.18.20" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA=="],
 
     "@eslint-community/eslint-utils/eslint-visitor-keys": ["eslint-visitor-keys@3.4.3", "", {}, "sha512-wpc+LXeiyiisxPlEkUzU6svyS1frIO3Mgxj1fdy7Pm8Ygzguax2N3Fa/D/ag1WqbOprdI+uY6wMUl8/a2G+iag=="],
+
+    "@gentleduck/iam/lucide-react": ["lucide-react@0.577.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-4LjoFv2eEPwYDPg/CUdBJQSDfPyzXCRrVW1X7jrx/trgxnxkHFjnVZINbzvzxjN70dxychOfg+FTYwBiS3pQ5A=="],
 
     "@gentleduck/registry-ui/lucide-react": ["lucide-react@0.577.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-4LjoFv2eEPwYDPg/CUdBJQSDfPyzXCRrVW1X7jrx/trgxnxkHFjnVZINbzvzxjN70dxychOfg+FTYwBiS3pQ5A=="],
 
