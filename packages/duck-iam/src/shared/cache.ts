@@ -137,11 +137,21 @@ export class IamLRUCache<V> {
     return this._map.size
   }
 
-  /** Iterate non-expired entries; does NOT refresh LRU order. */
+  /**
+   * Iterate non-expired entries; does NOT refresh LRU order.
+   *
+   * `>=` matches {@link get}: `expiresAt` is an exclusive upper bound, so at
+   * the entry's own expiry millisecond `get` already refuses to serve it. This
+   * used to be `>`, which made the iterator yield an entry the reader could
+   * not then fetch - one millisecond wide, and only visible to whoever trusted
+   * the iterator's "non-expired" claim. The current caller evicts rather than
+   * serves, so the disagreement cost nothing yet; it is the next caller that
+   * would have paid.
+   */
   *entries(): IterableIterator<[string, V]> {
     const now = Date.now()
     for (const [key, entry] of this._map) {
-      if (now > entry.expiresAt) continue
+      if (now >= entry.expiresAt) continue
       yield [key, entry.value]
     }
   }

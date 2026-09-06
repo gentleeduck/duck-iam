@@ -214,6 +214,25 @@ describe('IamLRUCache', () => {
         vi.useRealTimers()
       }
     })
+
+    // At the entry's own expiry millisecond `get` refuses to serve it, because
+    // `expiresAt` is an exclusive bound everywhere else in this package. The
+    // iterator used to disagree by one millisecond and yield it, which would
+    // hand any reader a value it could not then fetch.
+    it('agrees with get() at the exact expiry millisecond', () => {
+      vi.useFakeTimers()
+      try {
+        const cache = new IamLRUCache<string>(10, 100)
+        cache.set('a', '1')
+        vi.advanceTimersByTime(100)
+        expect(cache.get('a')).toBeUndefined()
+        cache.set('a', '1')
+        vi.advanceTimersByTime(100)
+        expect([...cache.entries()]).toEqual([])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })
 
