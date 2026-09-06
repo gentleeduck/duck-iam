@@ -94,22 +94,20 @@ Apply access control to every route under a path prefix.
 
 ```typescript
 import { iamAccessMiddleware } from '@gentleduck/iam/server/express'
+import { iamActionForMethod, iamDefaultResource } from '@gentleduck/iam/server/generic'
 
 const middleware = iamAccessMiddleware(engine, {
   // Extract user ID from your auth layer (passport, jwt, etc.)
   getUserId: (req) => req.user?.id,
 
-  // Map HTTP method to action (defaults to IAM_METHOD_ACTION_MAP)
-  getAction: (req) => IAM_METHOD_ACTION_MAP[req.method],
-
-  // Infer resource from the URL path
-  getResource: (req) => {
-    const parts = req.path.split('/').filter(Boolean)
-    return { type: parts[0] ?? 'root', id: parts[1], attributes: {} }
-  },
+  // These two are the defaults - shown only so you can see what they do.
+  // You rarely need to override them, and overriding them by hand is how
+  // deny rules get bypassed (see the callout below).
+  getAction: (req) => iamActionForMethod(req.method),
+  getResource: (req) => iamDefaultResource(req.path),
 
   // Optional: extract scope from headers or query
-  getScope: (req) => req.headers['x-org-id'] as string | undefined,
+  getScope: (req) => (typeof req.headers['x-org-id'] === 'string' ? req.headers['x-org-id'] : undefined),
 
   // Optional: extract environment context (IP, user agent, timestamp)
   getEnvironment: (req) => ({
@@ -127,6 +125,59 @@ const middleware = iamAccessMiddleware(engine, {
 
 app.use('/api', middleware)
 ```
+
+<Callout type="warning" title="Prefer the default getAction / getResource">
+Both defaults exist because the obvious hand-written versions are bypassable.
+
+A plain method-map lookup (`METHOD_ACTION_MAP[req.method]`) returns `undefined` for a
+lowercase or unknown method, and `undefined` matches no deny rule -- so `delete` in
+lowercase slips past a rule that denies `delete`. `iamActionForMethod` case-folds the
+method and maps anything unrecognised to a real action instead of `undefined`.
+
+A plain `req.path.split('/')` never decodes the path, so `/%61dmin` becomes the resource
+type `%61dmin` while routing to the same handler as `/admin` -- a different resource type,
+and a rule written against `admin` never fires. `iamDefaultResource` normalises first:
+decode once, collapse repeated slashes, resolve dot segments.
+
+If you do override these, run the incoming value through `iamNormalizePathname` and
+`iamActionForMethod` rather than reading `req` directly.
+</Callout>
+
+#### The request-derivation helpers
+
+These five are exported from `@gentleduck/iam/server/generic` and are what the
+built-in defaults are made of. Reach for them instead of hand-rolling — the
+hand-rolled version is the bypass described above.
+
+```typescript
+import {
+  IAM_UNKNOWN_ACTION,
+  IAM_UNKNOWN_RESOURCE,
+  iamActionForMethod,
+  iamDefaultResource,
+  iamNormalizePathname,
+} from '@gentleduck/iam/server/generic'
+```
+
+| Export | Signature | What it guarantees |
+|---|---|---|
+| `iamActionForMethod` | `(method: string \| undefined) => string` | Upper-cases before the lookup, so a lowercase `delete` cannot miss the map. Never returns `undefined`. |
+| `IAM_UNKNOWN_ACTION` | `'unknown'` | What `iamActionForMethod` returns for an unrecognised or missing method. |
+| `iamNormalizePathname` | `(pathname: string) => string` | Decodes once, collapses `//` runs, then resolves `.`/`..` — in that order, because decoding can reveal new dot segments. A malformed escape keeps the raw path rather than throwing. |
+| `iamDefaultResource` | `(pathname: string \| undefined) => { type, id, attributes }` | Normalises first, then derives `{ type, id }`. `attributes` is always present (`{}`) because `IResource` requires it. |
+| `IAM_UNKNOWN_RESOURCE` | `'unknown'` | What `iamDefaultResource` returns as the type when the path cannot be trusted to name one. |
+
+<Callout type="warning" title="The sentinels are fail-closed, not fallbacks">
+`IAM_UNKNOWN_ACTION` and `IAM_UNKNOWN_RESOURCE` are both the literal string
+`'unknown'`. That is deliberate: `'unknown'` matches no policy target, so a
+request the helpers could not classify is **denied**, not authorized against
+whatever the raw method or path happened to spell.
+
+The value they replace is `undefined` — and `undefined` matches no *deny* rule
+either, which is the opposite outcome. That asymmetry is the entire reason these
+exist. Do not "improve" them by falling back to `'read'` or to the raw path
+segment; both turn an unclassifiable request into an allowed one.
+</Callout>
 
 ### Per-route guard
 
@@ -324,7 +375,9 @@ Apply access control to all routes under a path pattern. If no user ID is found,
 import { iamAccessMiddleware } from '@gentleduck/iam/server/hono'
 
 app.use('/api/*', iamAccessMiddleware(engine, {
-  getUserId: (c) => c.get('userId') as string ?? c.req.header('x-user-id'),
+  // Read identity from what your auth middleware set on the context. Never from
+  // a client-settable header - the shipped default reads `c.get('userId')` only.
+  getUserId: (c) => c.get('userId') ?? null,
   getScope: (c) => c.req.header('x-org-id'),
   onDenied: (c) => c.json({ error: 'Forbidden' }, 403),
   onError: (err, c) => c.json({ error: 'Internal server error' }, 500),
@@ -379,7 +432,7 @@ Override with `getEnvironment` to add custom fields.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `getUserId` | `(c) -> string or null` | Context `userId` or `x-user-id` header | Extract the subject ID |
+| `getUserId` | `(c) -> string or null` | Context `userId` only | Extract the subject ID. The default never reads a request header - client-settable identity is spoofable and is refused on purpose. |
 | `getAction` | `(c) -> string` | HTTP method map | Map the request to an action |
 | `getResource` | `(c) -> Resource` | Infer from URL path | Map the request to a resource |
 | `getEnvironment` | `(c) -> Environment` | CF/forwarded IP + user agent + timestamp | Extract environment context |
@@ -528,7 +581,7 @@ When no rule matches a request path, the middleware returns `null` and the reque
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `getUserId` | `(req) -> string or null or Promise` | `x-user-id` header | Extract the subject ID |
+| `getUserId` | `(req) -> string or null or Promise` | none - **required** | Extract the subject ID. `withIamAccess` throws when it is omitted: deriving identity from request headers is unsafe, so there is no default. |
 | `getEnvironment` | `(req) -> Environment` | IP + user agent + timestamp | Extract environment context |
 | `scope` | `string` | `undefined` | Fixed scope for this handler |
 | `onError` | `(err, req) -> Response` | 500 JSON | Custom error handler |
@@ -574,14 +627,21 @@ app.delete('/api/admin/users/:id',
 Override the default HTTP method mapping for non-standard action patterns.
 
 ```typescript
+import { iamActionForMethod, iamNormalizePathname } from '@gentleduck/iam/server/generic'
+
 const middleware = iamAccessMiddleware(engine, {
   getUserId: (req) => req.user?.id,
   getAction: (req) => {
-    // POST /api/posts/:id/publish -> "publish" action
-    if (req.method === 'POST' && req.path.endsWith('/publish')) {
+    // POST /api/posts/:id/publish -> "publish" action.
+    // Normalise the path first: `/posts/1/%70ublish` routes to the same
+    // handler but does not match a raw `endsWith('/publish')`.
+    if (req.method?.toUpperCase() === 'POST' && iamNormalizePathname(req.path).endsWith('/publish')) {
       return 'publish'
     }
-    return IAM_METHOD_ACTION_MAP[req.method] ?? 'read'
+    // Fall back to the library helper, never to a hard-coded action: an
+    // unrecognised method defaulting to `'read'` lets an unknown verb through
+    // a rule that denies writes.
+    return iamActionForMethod(req.method)
   },
 })
 ```

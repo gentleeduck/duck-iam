@@ -498,36 +498,66 @@ in real projects instead of writing this one.
 
 ### The Adapter interface
 
+Members marked `?` are optional; everything else is required.
+
 ```typescript
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '@gentleduck/iam'
 
 interface CustomAdapter<TAction extends string, TResource extends string, TRole extends string, TScope extends string>
   extends IamAdapter.IAdapter<TAction, TResource, TRole, TScope> {
   // PolicyStore
-  listPolicies(): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]>
-  getPolicy(id: string): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null>
+  listPolicies(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]>
+  getPolicy(id: string, opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null>
   savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
   deletePolicy(id: string): Promise<void>
 
   // RoleStore
-  listRoles(): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]>
-  getRole(id: string): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null>
+  listRoles(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]>
+  getRole(id: string, opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null>
   saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
   deleteRole(id: string): Promise<void>
 
   // SubjectStore
-  getSubjectRoles(subjectId: string): Promise<TRole[]>
-  getSubjectScopedRoles?(subjectId: string): Promise<IamRequest.IScopedRole<TRole, TScope>[]>
-  assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
+  getSubjectRoles(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<TRole[]>
+  getSubjectScopedRoles?(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<IamRequest.IScopedRole<TRole, TScope>[]>
+  assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void>
   revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
-  getSubjectAttributes(subjectId: string): Promise<IamPrimitives.Attributes>
+  updateAssignmentScope?(
+    subjectId: string,
+    roleId: TRole,
+    fromScope: TScope | undefined,
+    toScope: TScope | undefined,
+    actor?: string,
+  ): Promise<boolean>
+  assignRoleMany?(rows: readonly IamAdapter.IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null>
+  revokeRoleMany?(rows: readonly IamAdapter.ITripleRow<TRole, TScope>[]): Promise<readonly number[] | null>
+  getSubjectAttributes(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes>
   setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
+
+  // Transactions
+  withClient?(client: unknown): IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 }
 ```
 
-`getSubjectScopedRoles` is optional. If your application does not use scoped roles, omit it.
-When absent, the engine treats scoped assignments as empty and continues with global role
-evaluation only.
+**The optional members, and what omitting each one costs you:**
+
+| Member | Omitting it means |
+|---|---|
+| `getSubjectScopedRoles` | Scoped assignments are treated as empty; only global role evaluation happens. |
+| `updateAssignmentScope` | Moving a grant between scopes falls back to revoke-then-assign, which is not atomic. |
+| `assignRoleMany` / `revokeRoleMany` | Batch admin calls loop one row at a time instead of issuing one statement. Return `null` to say "written, but I cannot report which rows moved". |
+| `withClient` | This adapter cannot join a transaction, and `IamEngine.withTransaction` **throws** rather than silently leaving writes outside the caller's transaction. The memory, file, redis and http adapters all omit it — none has a transaction to join. |
+
+**`opts` on the reads is not decoration.** `IReadOptions` carries the
+`AbortSignal` the engine derives from `IConfig.adapterTimeoutMs`. Ignoring it is
+not a request leak — the engine races every adapter call against
+`adapterTimeoutMs` itself, so the request thread is released either way. What an
+ignoring adapter loses is *upstream* cancellation: the query keeps running to
+completion and its result is thrown away. Of the six shipped adapters, only
+`IamHttpAdapter` honors the signal; if your backend can cancel, plumb it through.
+
+`IAssignOptions` carries the per-grant extras `assignRole` accepts:
+`startsAt`, `expiresAt` and `attributes`.
 
 ### Example: a from-scratch Redis-backed adapter
 

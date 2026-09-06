@@ -63,7 +63,7 @@ Both packages have their own subpath export tree (providers, transports, adapter
 
 | Path | Stack |
 | --- | --- |
-| [`examples/blogduck`](examples/blogduck) | Next.js + Prisma blog with `@gentleduck/iam` roles |
+| [`examples/blogduck`](examples/blogduck) | Next.js web + NestJS API blog on Drizzle/SQLite, with `@gentleduck/iam` roles |
 | [`examples/docduck`](examples/docduck) | Collaborative docs (Hocuspocus + Next.js) |
 | [`examples/nestjs-duck-auth`](examples/nestjs-duck-auth) | NestJS API with `@gentleduck/auth` sessions + `@gentleduck/iam` guards, Postgres via Drizzle |
 | [`examples/oidc-op`](examples/oidc-op) | Minimal OAuth2/OIDC provider on `@gentleduck/auth/oidc/op`, no external services |

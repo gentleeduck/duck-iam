@@ -1,5 +1,31 @@
 # @gentleduck/iam
 
+## Unreleased
+
+### Minor Changes
+
+- Both engine modes now evaluate through the compiled table.
+
+  `mode: 'production'` used the compiled table and `mode: 'development'` used the interpreter, so a disagreement between the two was invisible until it reached production - and it reached production as an *allow* against a development run that denied. That single shape accounted for five separate defects in the round-3 audit.
+
+  The table now produces the verdict in both modes. Development additionally runs the interpreter, because the table cannot explain itself: `CONST_ALLOW`/`CONST_DENY` cells are one `kind` byte and `allow` is a raw bitmask, so policy identity is erased at compile time. The interpreter supplies `reason`/`policy`/`rule`, the table supplies the verdict, and a disagreement is printed and thrown - a development-time failure instead of a production-only allow. `check()` returns the same `IDecision` it always did.
+
+  Development is roughly 2.4x slower than production as a result. That is the trade: the second evaluator is what makes a divergence visible, and it does not run in production.
+
+- More roles than the 32-bit grant mask can address now falls back to the interpreter instead of denying every request.
+
+  `compileTable()` throws past 32 roles because role N and role N+32 would otherwise silently share a mask bit. That throw used to reach `authorize()`'s catch, so the whole deployment answered deny with no message unless an `onError` hook happened to be wired - a total authorization outage caused by a capacity limit of one representation.
+
+  The engine now catches that error specifically, warns once, and runs the interpreter, which has no such limit. `preload()` resolves instead of throwing and `healthCheck()` keeps `ok: true` while reporting `compiledTable: { available: false, reason: 'role-limit-exceeded', roleCount, limit }` - correct answers, no fast path, and an operator who can see which.
+
+  Every other compile failure still throws and still denies; a malformed policy is a bug, and answering it with a slower correct path would hide it.
+
+### Patch Changes
+
+- A policy the compiler cannot lower is now named.
+
+  The compiler walks `policy.rules` and each rule's `actions`/`resources` directly, so a policy missing one of them threw from wherever the walk touched it first - `policy.rules is not iterable`, with no indication which of a tenant's policies was broken. The interpreter had always isolated a rotten policy and reported its id through `onPolicyError`, so moving both modes onto the table would have traded a precise diagnostic for an anonymous one. The shape check now runs before the walk, names the policy and the rule, and is forwarded to `onPolicyError` before the error is rethrown. The deny is unchanged.
+
 ## 5.8.0
 
 ### Minor Changes
@@ -63,8 +89,12 @@
 ### Minor Changes
 
 - 62e3d0b: Add an optional `IConfig.maxConcurrentSubjectLoads` cap (default `0` = unbounded,
-  matching `adapterTimeoutMs`'s 0-disables convention) to bound the cold-flat herd
-  described in `SCALING.md` §8. `resolveSubject` rejects a _new_ subject load once
+  matching `adapterTimeoutMs`'s 0-disables convention) to bound the cold-flat herd.
+  The herd is this: `inFlight.subjects` single-flights per subject and clears each
+  key on settle, so steady state is bounded by concurrency - but on a cold start
+  the peak is `arrival_rate x adapter_latency`, and the engine keeps issuing
+  adapter reads as fast as requests arrive, with no load-shed. The cap bounds it.
+  `resolveSubject` rejects a _new_ subject load once
   `inFlight.subjects.size` hits the cap, before touching the adapter - fail-closed
   load-shed, not a bounded queue, consistent with the engine's existing fail-closed
   posture. The rejection is a plain `Error` whose message contains `"subject load
@@ -345,6 +375,50 @@ shed"`, so it surfaces through `can`/`check`/`authorize`'s existing fail-closed
 ### Major Changes
 
 - Prefix all public exports with package namespace (`Auth*`/`Iam*`/`IAM_*`/`AUTH_*`) so the origin is clear at the type level when both packages are imported together. This is a breaking change — all consumers must update import references to the new names.
+
+  **It is not a pure prefix rename.** Most names took the prefix mechanically, but
+  a few changed shape or went away, and those are the ones a find-and-replace
+  upgrade walks into. Renames:
+
+  | 4.x | 5.0.0 | Subpath |
+  |---|---|---|
+  | `Engine` | `IamEngine` | `@gentleduck/iam` |
+  | `MemoryAdapter` | `IamMemoryAdapter` | `/adapters/memory` |
+  | `DrizzleAdapter` | `IamDrizzleAdapter` | `/adapters/drizzle` |
+  | `PrismaAdapter` | `IamPrismaAdapter` | `/adapters/prisma` |
+  | `HttpAdapter` | `IamHttpAdapter` | `/adapters/http` |
+  | `accessMiddleware` | `iamAccessMiddleware` | `/server/express`, `/server/hono` |
+  | `guard` | `iamGuard` | `/server/express`, `/server/hono` |
+  | `adminRouter` | `iamAdminRouter` | `/server/express` |
+  | `withAccess` | `withIamAccess` | `/server/next` |
+  | `checkAccess` | `checkIamAccess` | `/server/next` |
+  | `getPermissions` | `getIamPermissions` | `/server/next` |
+  | `createNextMiddleware` | `createIamNextMiddleware` | `/server/next` |
+  | `nestAccessGuard` | `iamNestAccessGuard` | `/server/nest` |
+  | `createEngineProvider` | `createIamEngineProvider` | `/server/nest` |
+  | `generatePermissionMap` | `generateIamPermissionMap` | `/server/generic` |
+  | `createAccessControl` | `createIamAccessControl` | `/client/react` |
+  | `createVueAccess` | `createIamVueAccess` | `/client/vue` |
+  | `createRedisInvalidator` | `createIamRedisInvalidator` | `/invalidators/redis` |
+  | `buildPermissionKey` | `iamBuildPermissionKey` | `@gentleduck/iam` |
+  | `ACCESS_ENGINE_TOKEN` | `IAM_ACCESS_ENGINE_TOKEN` | `/server/nest` |
+  | `ACCESS_INJECTION_KEY` | `IAM_ACCESS_INJECTION_KEY` | `/client/vue` |
+
+  **Removed, not renamed** — these need a code change, not an import change:
+
+  | 4.x | What to do instead |
+  |---|---|
+  | `createTypedAuthorize<A, R>()` | Use `IamAuthorize<A, R>(meta)` directly. It **is** the decorator; there is no factory to call first. Keep your call sites by aliasing: `const Authorize = (m: IamNest.IAuthorizeMeta<A, R>) => IamAuthorize<A, R>(m)`. |
+  | `PermissionMap` (root) | `IamClient.PermissionMap` / `IamClient.PartialPermissionMap`. |
+  | `DefaultContext` (root) | `DotPath.IDefaultContext`. |
+  | `validateRoles` (root) | Import from `@gentleduck/iam/core/validate` — it is deliberately off the root barrel so the 12 KB validator chunk stays lazy. |
+  | `createAccessConfig` | `createIam`. |
+
+  Scoped permission keys also changed format in this line: `scope:action:resource`
+  became `@scope:action:resource`. A 3-part key without the `@` still parses — as
+  `action:resource:resourceId` — so a stale key silently becomes a different
+  question rather than an error. Regenerate hand-written maps with
+  `iamBuildPermissionKey`.
 
 ## 4.0.0
 

@@ -147,19 +147,24 @@ the rotation window.
 
 ### Multi-tenant cache scoping
 
-The `matches`-operator regex cache and dot-path segment cache are
-process-globals. A hostile tenant flooding distinct patterns can evict
-another tenant's hot entries. Two mitigations:
+The `matches`-operator regex cache and the dot-path segment cache are held
+**per `IamEngine` instance**, and every `can()` / `checkMany()` path passes the
+instance's own pair. One tenant flooding cold patterns therefore cannot evict
+another tenant's entries, and one engine per tenant is enough to isolate them.
+`FAQ.md` §6 describes the same behaviour.
 
-- One Node process per tenant.
-- Periodic flush via `iamFlushSharedCaches()` (module-level, not an
-  `IamEngine` instance method - it clears the process-global regex/path
-  caches shared by every engine in the process).
+Process-global fallbacks of both caches do still exist, for callers that use
+`evaluate()` / the condition operators directly, and for `explain()`, which does
+not pass the instance caches. `iamFlushSharedCaches()` clears *those*:
 
 ```ts
 import { iamFlushSharedCaches } from '@gentleduck/iam/core'
-setInterval(() => iamFlushSharedCaches(), 5 * 60 * 1000)
+iamFlushSharedCaches()
 ```
+
+It is not a multi-tenancy mitigation - the per-instance caches it does not touch
+are the ones that serve production traffic - so there is no reason to schedule
+it on a timer.
 
 ### `defaultEffect: 'allow'`
 
