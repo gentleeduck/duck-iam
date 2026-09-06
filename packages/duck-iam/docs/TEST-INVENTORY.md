@@ -37,10 +37,11 @@ drift the way the hand-maintained version did.
 
 | File | Tests | Covers |
 |---|---|---|
-| `adapters/__tests__/adapter-contract-parity.test.ts` | 46 | assignRole options are refused, not discarded |
+| `adapters/__tests__/adapter-contract-parity.test.ts` | 58 | assignRole options are refused, not discarded |
 | `adapters/__tests__/e2e-adapter-drizzle-pg.e2e.test.ts` | 128 | E2E harness reachability (drizzle/pg) |
 | `adapters/__tests__/e2e-adapter-prisma-pg.e2e.test.ts` | 98 | E2E harness reachability (prisma/pg) |
 | `adapters/__tests__/e2e-adapter-redis.e2e.test.ts` | 96 | E2E harness reachability (redis) |
+| `adapters/__tests__/optional-method-matrix.test.ts` | 8 | the optional-method support matrix is what the adapters actually implement |
 | `adapters/__tests__/save-time-validation.test.ts` | 19 | every adapter refuses to save a row its reads would drop |
 | `adapters/drizzle/__tests__/drizzle-actor-provenance.test.ts` | 11 | assignRole records who made the grant |
 | `adapters/drizzle/__tests__/drizzle-assignment-expiry-attributes.test.ts` | 54 | IamDrizzleAdapter assignment expiry |
@@ -59,6 +60,7 @@ drift the way the hand-maintained version did.
 | `adapters/file/__tests__/file-rootdir-warn.test.ts` | 5 | the missing-rootDir warning, against a module whose latch has not fired |
 | `adapters/file/__tests__/file.test.ts` | 97 | IamFileAdapter |
 | `adapters/http/__tests__/http-compliance.test.ts` | 71 |  |
+| `adapters/http/__tests__/http-config-numbers.test.ts` | 13 | a numeric option that would disable what it configures is refused |
 | `adapters/http/__tests__/http-empty-body.test.ts` | 8 | a bodiless success is not a parse error |
 | `adapters/http/__tests__/http-error-body-cap.test.ts` | 6 | IamHttpAdapter error body cap |
 | `adapters/http/__tests__/http-input-shape.test.ts` | 1 | IamHttpAdapter direct-call input shape |
@@ -69,6 +71,7 @@ drift the way the hand-maintained version did.
 | `adapters/http/__tests__/http-timeout-timer.test.ts` | 2 | IamHttpAdapter per-request timeout timer |
 | `adapters/http/__tests__/http.test.ts` | 61 | IamHttpAdapter |
 | `adapters/memory/__tests__/memory-input-shape.test.ts` | 8 | IamMemoryAdapter direct-call input shape |
+| `adapters/memory/__tests__/memory-seed-parity.test.ts` | 11 | the memory adapter seed agrees with the equivalent write |
 | `adapters/memory/__tests__/memory.test.ts` | 93 | IamMemoryAdapter |
 | `adapters/prisma/__tests__/prisma-attribute-corruption.test.ts` | 16 | IamPrismaAdapter attribute corruption defense |
 | `adapters/prisma/__tests__/prisma-malformed-row-drop.test.ts` | 9 | IamPrismaAdapter malformed-row handling |
@@ -81,7 +84,7 @@ drift the way the hand-maintained version did.
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
 | `adapters/redis/__tests__/redis.test.ts` | 123 | IamRedisAdapter |
-| **Subtotal** | **1388** | |
+| **Subtotal** | **1432** | |
 
 ---
 
@@ -90,14 +93,15 @@ drift the way the hand-maintained version did.
 | File | Tests | Covers |
 |---|---|---|
 | `client/__tests__/client-parity.test.ts` | 29 | the three clients answer the same map identically |
-| `client/react/__tests__/react-use-permissions-stale.test.ts` | 3 | usePermissions does not serve a previous subject |
+| `client/react/__tests__/react-use-permissions-stale.test.ts` | 6 | usePermissions does not serve a previous subject |
 | `client/react/__tests__/react.test.ts` | 22 | createIamAccessControl |
 | `client/vanilla/__tests__/vanilla-fail-closed.test.ts` | 11 | vanilla client: a non-boolean map value denies |
+| `client/vanilla/__tests__/vanilla-map-ownership.test.ts` | 4 | the client owns its permission map |
 | `client/vanilla/__tests__/vanilla-partial-map.test.ts` | 2 | IamAccessClient partial permission map |
 | `client/vanilla/__tests__/vanilla.test.ts` | 29 | IamAccessClient |
 | `client/vue/__tests__/vue-partial-map.test.ts` | 1 | createIamVueAccess partial permission map |
 | `client/vue/__tests__/vue.test.ts` | 14 | createIamVueAccess - createAccessState |
-| **Subtotal** | **111** | |
+| **Subtotal** | **118** | |
 
 ---
 
@@ -121,12 +125,14 @@ drift the way the hand-maintained version did.
 | `core/conditions/__tests__/conditions-scalar-narrowing.test.ts` | 16 | condition ops Scalar narrowing |
 | `core/conditions/__tests__/conditions-temporal.test.ts` | 8 | temporal operators: after / before |
 | `core/conditions/__tests__/conditions.test.ts` | 57 | condition operators |
+| `core/conditions/__tests__/matches-operand-type.test.ts` | 10 | `matches` is bound by the operand-type guard |
 | `core/conditions/__tests__/matches-user-sourced-value.test.ts` | 11 | `matches` refuses a $-resolved pattern |
 | `core/conditions/__tests__/regex-detector-false-positives.test.ts` | 20 | detectCatastrophicRegex accepts safe lookaround guards |
 | `core/conditions/__tests__/regex-safety-agreement.test.ts` | 17 | regex safety: one predicate, two call sites |
 | `core/conditions/__tests__/unrecognised-node.test.ts` | 9 | an unrecognised condition node does not read as "no conditions" |
 | `core/config/__tests__/config.test.ts` | 18 | createIam() |
 | `core/config/__tests__/declared-surface.test.ts` | 17 | createIam().validateRoles checks grants against the declared vocabulary |
+| `core/engine/__tests__/admin-star-scope.test.ts` | 7 | admin refuses a "*" scope on a grant |
 | `core/engine/__tests__/admin.batch.test.ts` | 9 | IAdmin batch writes |
 | `core/engine/__tests__/compile-failure-is-reported.test.ts` | 12 | a role count past the compiled table capacity falls back and says so |
 | `core/engine/__tests__/decision-failure-discriminant.test.ts` | 6 | IDecision distinguishes a policy deny from a broken engine |
@@ -171,7 +177,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/unvalidated-policy-operand.test.ts` | 5 | a policy that never passed the validator still cannot over-grant |
 | `core/engine/__tests__/verdict-differential.test.ts` | 2 | E2E verdict parity: compiled table vs interpreter over generated catalogs |
 | `core/evaluate/__tests__/algorithm-alias-precompute.test.ts` | 9 | precompute covers every algorithm that can be precomputed |
-| `core/evaluate/__tests__/error-hook-isolation.test.ts` | 4 | a throwing onPolicyError does not unwind the evaluation |
+| `core/evaluate/__tests__/error-hook-isolation.test.ts` | 6 | a throwing onPolicyError does not unwind the evaluation |
 | `core/evaluate/__tests__/evaluate-error-indeterminate.test.ts` | 15 | evaluate ('and') with a throwing deny policy |
 | `core/evaluate/__tests__/evaluate-fast-caches.test.ts` | 2 |  |
 | `core/evaluate/__tests__/evaluate-missing-conditions.test.ts` | 4 | indexPolicy with a rule missing `conditions` |
@@ -194,6 +200,7 @@ drift the way the hand-maintained version did.
 | `core/explain/__tests__/explain-group-parity.test.ts` | 9 | a traced condition group agrees with the group the engine decided on |
 | `core/explain/__tests__/explain-indeterminate-parity.test.ts` | 28 | explain() absorbs a throwing rule exactly as the decision path does |
 | `core/explain/__tests__/explain-leaf-parity.test.ts` | 2 | a traced leaf agrees with the leaf the engine decided on |
+| `core/explain/__tests__/explain-reserved-refusal-parity.test.ts` | 6 | explain() refuses the reserved token the way the decision path does |
 | `core/explain/__tests__/explain.libs.test.ts` | 21 | tracePolicy() combining algorithms |
 | `core/explain/__tests__/explain.test.ts` | 26 | iamEscapeHtml |
 | `core/pending/__tests__/pending.test.ts` | 23 | createPending |
@@ -229,7 +236,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2159** | |
+| **Subtotal** | **2184** | |
 
 ---
 
@@ -263,9 +270,9 @@ drift the way the hand-maintained version did.
 | `invalidators/redis/__tests__/redis-invalidator-publish-failure.test.ts` | 7 | createIamRedisInvalidator publish failure |
 | `invalidators/redis/__tests__/redis-invalidator-signed-preimage.test.ts` | 4 | signed Redis invalidator pre-image |
 | `invalidators/redis/__tests__/redis-invalidator-subscribe-failure.test.ts` | 6 | a rejected client.subscribe() |
-| `invalidators/redis/__tests__/redis-invalidator.test.ts` | 19 | createIamRedisInvalidator |
+| `invalidators/redis/__tests__/redis-invalidator.test.ts` | 20 | createIamRedisInvalidator |
 | `invalidators/redis/__tests__/redis-signed-path.test.ts` | 32 | a signed round-trip carries every event kind |
-| **Subtotal** | **117** | |
+| **Subtotal** | **118** | |
 
 ---
 
@@ -316,10 +323,10 @@ drift the way the hand-maintained version did.
 |---|---|---|
 | `shared/__tests__/assignment-target.test.ts` | 12 | iamIsForeignKeyViolation recognises every dialect its docblock claims |
 | `shared/__tests__/attribute-narrowing.test.ts` | 23 | iamIsAttributeValue |
-| `shared/__tests__/cache.test.ts` | 26 | IamLRUCache |
+| `shared/__tests__/cache.test.ts` | 27 | IamLRUCache |
 | `shared/__tests__/keys-canonical-image.test.ts` | 17 | iamParsePermissionKey rejects anything outside the builder image |
 | `shared/__tests__/keys.test.ts` | 28 | iamBuildPermissionKey() |
-| **Subtotal** | **106** | |
+| **Subtotal** | **107** | |
 
 ---
 
@@ -356,14 +363,14 @@ drift the way the hand-maintained version did.
 | Area | Files | Tests |
 |---|---|---|
 | Core / compiled engine | 9 | 139 |
-| Adapters | 44 | 1388 |
-| Clients | 8 | 111 |
-| Core | 124 | 2159 |
+| Adapters | 47 | 1432 |
+| Clients | 9 | 118 |
+| Core | 127 | 2184 |
 | Devtools | 9 | 201 |
-| Invalidators | 11 | 117 |
+| Invalidators | 11 | 118 |
 | Observability | 3 | 24 |
 | Server | 22 | 764 |
-| Shared | 5 | 106 |
+| Shared | 5 | 107 |
 | Package surface | 11 | 114 |
 | Other | 1 | 4 |
-| **Total** | **247** | **5127** |
+| **Total** | **254** | **5205** |
