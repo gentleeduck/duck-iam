@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { Identity } from '~/core'
+import type { Identities } from '~/core'
 import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -14,7 +14,7 @@ function isoauthError(v: OidcOP.OauthError | object): v is OidcOP.OauthError {
   return 'error' in v && typeof v.error === 'string' && !('sub' in v)
 }
 
-interface ProfileShape extends Identity.ProfileMetadataBase {
+interface ProfileShape extends Identities.ProfileMetadataBase {
   name?: string
   email_verified?: boolean
 }

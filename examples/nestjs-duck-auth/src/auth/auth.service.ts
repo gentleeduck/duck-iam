@@ -1,6 +1,6 @@
 import type { AuthEngine } from '@gentleduck/auth'
 import { rethrowAuthError, throwAuthError } from '@gentleduck/auth'
-import type { Identity } from '@gentleduck/auth/core'
+import type { Identities } from '@gentleduck/auth/core'
 import { parseSignInBody } from '@gentleduck/auth/server/generic'
 import { DUCK_AUTH_TOKEN } from '@gentleduck/auth/server/nestjs'
 import type { IamEngine } from '@gentleduck/iam'
@@ -34,7 +34,7 @@ export class AuthService {
     return parsed
   }
 
-  async resolveIdentity(id: string): Promise<Identity.IIdentity<unknown>> {
+  async resolveIdentity(id: string): Promise<Identities.IIdentity<unknown>> {
     try {
       const identity = await this.auth.identities.getById(id)
       if (!identity) throwAuthError('AUTH_UNAUTHENTICATED')

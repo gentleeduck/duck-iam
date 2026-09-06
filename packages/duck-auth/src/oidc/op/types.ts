@@ -9,7 +9,7 @@
  * claim mapping, distributed claims, RP-initiated logout (separate).
  */
 
-import type { Identity } from '~/core'
+import type { Identities } from '~/core'
 
 export namespace OidcOP {
   export type GrantType = 'authorization_code' | 'refresh_token'
@@ -175,10 +175,10 @@ export namespace OidcOP {
   }
 
   /** /authorize result the host app routes on. */
-  export type AuthorizeResult<Profile extends Identity.ProfileMetadataBase> =
+  export type AuthorizeResult<Profile extends Identities.ProfileMetadataBase> =
     | { kind: 'redirect'; url: string }
     | { kind: 'login_required'; reason: 'no_session' | 'prompt_login' | 'max_age_exceeded' }
-    | { kind: 'consent_required'; client: Client; scope: string[]; identity: Identity.Me<Profile> }
+    | { kind: 'consent_required'; client: Client; scope: string[]; identity: Identities.Me<Profile> }
     | { kind: 'error'; status: number; body: OauthError; redirectUri?: string }
 
   /** /token request shape, post body parse. */
