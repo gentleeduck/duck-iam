@@ -557,9 +557,14 @@ export function runAdapterCompliance(
         expect((await a.getSubjectRoles('user-1')).sort()).toEqual(['viewer'])
       })
 
-      it('getSubjectScopedRoles returns ONLY scoped assignments', async () => {
+      it('getSubjectScopedRoles returns ONLY scoped assignments', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.getSubjectScopedRoles) return // optional method
+        if (!a.getSubjectScopedRoles) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'viewer')
         await a.assignRole('user-1', 'editor', 'org-1')
         const scoped = await a.getSubjectScopedRoles('user-1')
@@ -609,9 +614,14 @@ export function runAdapterCompliance(
        * redis encodes scope into the set member and has no in-place update, and
        * http delegates. Memory, file, prisma and drizzle all run these.
        */
-      it('updateAssignmentScope moves a scoped assignment and reports that it did', async () => {
+      it('updateAssignmentScope moves a scoped assignment and reports that it did', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'editor', 'org-1')
 
         expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(true)
@@ -623,28 +633,43 @@ export function runAdapterCompliance(
         expect(await a.getSubjectRoles('user-1')).toEqual([])
       })
 
-      it('updateAssignmentScope reports false for an assignment that is not there', async () => {
+      it('updateAssignmentScope reports false for an assignment that is not there', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
 
         expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
       })
 
-      it('a false report is not a write - the move must not create the grant', async () => {
+      it('a false report is not a write - the move must not create the grant', async (ctx) => {
         // The dangerous shape of the previous clause: an implementation that
         // upserts would answer `false` *and* grant `org-2`, which is a grant
         // nobody asked for on a subject who had none.
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')
 
         expect(await a.getSubjectRoles('user-1')).toEqual([])
         if (a.getSubjectScopedRoles) expect(await a.getSubjectScopedRoles('user-1')).toEqual([])
       })
 
-      it('the from-scope has to match - a row in another scope is not moved', async () => {
+      it('the from-scope has to match - a row in another scope is not moved', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'editor', 'org-9')
 
         expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
@@ -653,9 +678,14 @@ export function runAdapterCompliance(
         }
       })
 
-      it('the role has to match - another role in the same scope is not moved', async () => {
+      it('the role has to match - another role in the same scope is not moved', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'viewer', 'org-1')
 
         expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
@@ -664,9 +694,14 @@ export function runAdapterCompliance(
         }
       })
 
-      it('the subject has to match - another subject holding the same grant is untouched', async () => {
+      it('the subject has to match - another subject holding the same grant is untouched', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-2', 'editor', 'org-1')
 
         expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
@@ -675,11 +710,16 @@ export function runAdapterCompliance(
         }
       })
 
-      it('undefined as the to-scope promotes a scoped grant to a global one', async () => {
+      it('undefined as the to-scope promotes a scoped grant to a global one', async (ctx) => {
         // The widening direction, and the one worth stating out loud: after
         // this the subject holds the role everywhere, not only in `org-1`.
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'editor', 'org-1')
 
         expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', undefined)).toBe(true)
@@ -687,9 +727,14 @@ export function runAdapterCompliance(
         if (a.getSubjectScopedRoles) expect(await a.getSubjectScopedRoles('user-1')).toEqual([])
       })
 
-      it('undefined as the from-scope narrows a global grant into a scope', async () => {
+      it('undefined as the from-scope narrows a global grant into a scope', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'editor')
 
         expect(await a.updateAssignmentScope('user-1', 'editor', undefined, 'org-1')).toBe(true)
@@ -701,23 +746,33 @@ export function runAdapterCompliance(
         }
       })
 
-      it('an unscoped row is not what a scoped move is looking for', async () => {
+      it('an unscoped row is not what a scoped move is looking for', async (ctx) => {
         // `undefined` and `'org-1'` are different rows; a from-scope of
         // `org-1` must not fall back to the global grant.
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'editor')
 
         expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
         expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
       })
 
-      it('moving onto a scope the subject already holds does not leave two rows', async () => {
+      it('moving onto a scope the subject already holds does not leave two rows', async (ctx) => {
         // Both rows are legitimate grants, so this is a merge rather than a
         // refusal - but ending with `org-2` twice means a later single
         // `revokeRole(..., 'org-2')` leaves one behind.
         const a = await seeded(factory)
-        if (!a.updateAssignmentScope) return
+        if (!a.updateAssignmentScope) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'editor', 'org-1')
         await a.assignRole('user-1', 'editor', 'org-2')
 
@@ -736,9 +791,14 @@ export function runAdapterCompliance(
        * the future, or `null`. An implementation returning a *past* instant, or
        * `0`, would cap the cache at something already expired.
        */
-      it('getSubjectGrantBoundary answers null or a future instant', async () => {
+      it('getSubjectGrantBoundary answers null or a future instant', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.getSubjectGrantBoundary) return
+        if (!a.getSubjectGrantBoundary) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'editor')
 
         const boundary = await a.getSubjectGrantBoundary('user-1')
@@ -748,9 +808,14 @@ export function runAdapterCompliance(
         expect(boundary).toBeGreaterThan(Date.now())
       })
 
-      it('getSubjectGrantBoundary answers null for a subject with no grants at all', async () => {
+      it('getSubjectGrantBoundary answers null for a subject with no grants at all', async (ctx) => {
         const a = await factory()
-        if (!a.getSubjectGrantBoundary) return
+        if (!a.getSubjectGrantBoundary) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         expect(await a.getSubjectGrantBoundary('nobody')).toBeNull()
       })
 
@@ -762,9 +827,14 @@ export function runAdapterCompliance(
        * once. Reporting an index for a row that changed nothing is what makes a
        * caller's "granted N roles" count a lie.
        */
-      it('assignRoleMany stores the same rows the loop would have', async () => {
+      it('assignRoleMany stores the same rows the loop would have', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.assignRoleMany) return
+        if (!a.assignRoleMany) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
 
         const written = await a.assignRoleMany([
           { roleId: 'editor', subjectId: 'user-1' },
@@ -781,9 +851,14 @@ export function runAdapterCompliance(
         if (written !== null) expect(written.every((i) => Number.isInteger(i) && i >= 0 && i < 3)).toBe(true)
       })
 
-      it('assignRoleMany does not credit a write for a grant that was already there', async () => {
+      it('assignRoleMany does not credit a write for a grant that was already there', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.assignRoleMany) return
+        if (!a.assignRoleMany) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'editor')
 
         const written = await a.assignRoleMany([{ roleId: 'editor', subjectId: 'user-1' }])
@@ -792,11 +867,16 @@ export function runAdapterCompliance(
         expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
       })
 
-      it('assignRoleMany credits a duplicated row once, not twice', async () => {
+      it('assignRoleMany credits a duplicated row once, not twice', async (ctx) => {
         // Two rows asking for the same write. The write happened once, so at
         // most one index may name it - `creditWrites` assigns it to the first.
         const a = await seeded(factory)
-        if (!a.assignRoleMany) return
+        if (!a.assignRoleMany) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
 
         const written = await a.assignRoleMany([
           { roleId: 'editor', subjectId: 'user-1' },
@@ -806,9 +886,14 @@ export function runAdapterCompliance(
         expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
       })
 
-      it('revokeRoleMany removes the same rows the loop would have', async () => {
+      it('revokeRoleMany removes the same rows the loop would have', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.revokeRoleMany) return
+        if (!a.revokeRoleMany) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
         await a.assignRole('user-1', 'editor')
         await a.assignRole('user-1', 'viewer', 'org-1')
         await a.assignRole('user-2', 'editor')
@@ -824,9 +909,14 @@ export function runAdapterCompliance(
         expect(await a.getSubjectRoles('user-2')).toEqual(['editor'])
       })
 
-      it('revokeRoleMany does not credit a write for a grant that was not there', async () => {
+      it('revokeRoleMany does not credit a write for a grant that was not there', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.revokeRoleMany) return
+        if (!a.revokeRoleMany) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
 
         const removed = await a.revokeRoleMany([{ roleId: 'editor', subjectId: 'user-1' }])
         if (removed !== null) expect(removed).toEqual([])
@@ -839,9 +929,14 @@ export function runAdapterCompliance(
        * adapter it was called on, because the original keeps serving requests
        * outside the transaction.
        */
-      it('withClient returns a distinct adapter and leaves the original bound where it was', async () => {
+      it('withClient returns a distinct adapter and leaves the original bound where it was', async (ctx) => {
         const a = await seeded(factory)
-        if (!a.withClient) return
+        if (!a.withClient) {
+          // Reported as SKIPPED, not passed: `return` here made this test a green
+          // tick that asserted nothing on every adapter without the method.
+          ctx.skip()
+          return
+        }
 
         const bound = a.withClient({})
         expect(bound).not.toBe(a)
