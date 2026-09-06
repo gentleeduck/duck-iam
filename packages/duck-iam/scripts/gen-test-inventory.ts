@@ -9,6 +9,9 @@
  *
  *   bun run gen:test-inventory          # rewrite the file
  *   bun run gen:test-inventory --check  # exit 1 if it is stale (CI / the suite)
+ *   bun run gen:test-inventory -- --maxWorkers=1 --fileParallelism=false
+ *                                       # serial, which the docker-backed E2E
+ *                                       # files need for their counts to be real
  *
  * Counts come from vitest's JSON reporter, so `it.each` rows count individually,
  * matching what the old hand-captured numbers meant.
@@ -57,6 +60,20 @@ function coversOf(absolute: string): string {
   return (m?.[2] ?? '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim()
 }
 
+/**
+ * Anything after `--` goes to vitest.
+ *
+ * The counts are only as honest as the run that produced them: a file whose
+ * `beforeAll` times out reports zero tests, not its real total, and the
+ * docker-backed E2E files do exactly that when they contend for the daemon.
+ * `bun run gen:test-inventory -- --maxWorkers=1 --fileParallelism=false` is the
+ * serial run those files need.
+ */
+function passthrough(): string[] {
+  const at = process.argv.indexOf('--')
+  return at === -1 ? [] : process.argv.slice(at + 1)
+}
+
 function collect(): IFile[] {
   // A red suite still has to produce an inventory: the freshness test in
   // `src/__tests__` fails whenever a *new* test file is not yet listed, which
@@ -64,7 +81,7 @@ function collect(): IFile[] {
   // generation would make the two deadlock. Failures are reported below.
   let raw: string
   try {
-    raw = execFileSync('bunx', ['vitest', 'run', '--reporter=json'], {
+    raw = execFileSync('bunx', ['vitest', 'run', '--reporter=json', ...passthrough()], {
       cwd: PKG,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,

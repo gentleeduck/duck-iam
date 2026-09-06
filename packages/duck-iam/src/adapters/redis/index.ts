@@ -467,7 +467,7 @@ export class IamRedisAdapter<
       )
       return
     }
-    const keys = await list.call(this._client, `${this._prefix}assignments:*`)
+    const keys = await list.call(this._client, `${globLiteral(this._prefix)}assignments:*`)
     for (const key of keys) {
       await this._runSerialised(key, async () => {
         const stale = (await this._client.smembers(key)).filter((m) => this._decodeAssignment(m).role === roleId)
@@ -628,6 +628,22 @@ export class IamRedisAdapter<
     const merged = { ...existing, ...attrs }
     await this._client.set(this._attrsKey(subjectId), JSON.stringify(merged))
   }
+}
+
+/**
+ * Escapes the glob metacharacters Redis's `KEYS` understands, so a key prefix
+ * is matched as the literal text it is.
+ *
+ * `keyPrefix` is free text an operator chooses, and the only place it meets a
+ * pattern is the `deleteRole` sweep. A prefix of `app[1]:` interpolated raw
+ * turns `[1]` into a character class: the sweep then misses every key it owns -
+ * cascading nothing, silently - and matches `app1:assignments:*`, a *different*
+ * namespace, where it would remove that tenant's grants of the same role id.
+ * Redis's matcher takes `\` as an escape, so every metacharacter is escaped and
+ * the pattern means what the prefix says.
+ */
+function globLiteral(text: string): string {
+  return text.replace(/[\\*?[\]]/g, (ch) => `\\${ch}`)
 }
 
 /** Factory around {@link IamRedisAdapter}, for callers who prefer functions to `new`. */

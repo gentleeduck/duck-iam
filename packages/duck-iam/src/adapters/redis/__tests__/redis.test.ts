@@ -9,6 +9,32 @@ type R = 'post' | 'comment'
 type Ro = 'viewer' | 'editor'
 type S = 'org-1' | 'org-2'
 
+/**
+ * Redis's own `KEYS` glob, as a RegExp: `*`, `?`, `[...]` (with `!`/`^`
+ * negation) and `\` escaping the next character. Anything else is literal.
+ */
+function redisGlob(pattern: string): RegExp {
+  let out = '^'
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === '\\') {
+      i += 1
+      out += pattern[i] === undefined ? '\\\\' : pattern[i]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    } else if (ch === '*') out += '.*'
+    else if (ch === '?') out += '.'
+    else if (ch === '[') {
+      const close = pattern.indexOf(']', i + 1)
+      if (close === -1) out += '\\['
+      else {
+        const body = pattern.slice(i + 1, close)
+        out += `[${body.startsWith('!') ? `^${body.slice(1)}` : body}]`
+        i = close
+      }
+    } else out += ch!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`${out}$`)
+}
+
 class AuthFakeRedis implements IamRedis.ILike {
   private strings = new Map<string, string>()
   private hashes = new Map<string, Map<string, string>>()
@@ -83,14 +109,16 @@ class AuthFakeRedis implements IamRedis.ILike {
   /**
    * `KEYS`, as both ioredis and node-redis spell it. `deleteRole` uses it to
    * find the grants that named the role, so a fake without it would exercise
-   * the degraded path instead of the one real clients take. Only the trailing
-   * `*` the adapter actually sends is supported.
+   * the degraded path instead of the one real clients take.
+   *
+   * The pattern is matched as Redis matches it - `*`, `?`, `[...]` and `\` as
+   * the escape - not as a `startsWith`. A prefix-only fake would report success
+   * for a key prefix containing glob metacharacters, which is precisely the
+   * case the adapter has to escape.
    */
   async keys(pattern: string): Promise<string[]> {
-    const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern
-    const exact = !pattern.endsWith('*')
     const all = [...this.strings.keys(), ...this.hashes.keys(), ...this.sets.keys()]
-    return all.filter((k) => (exact ? k === pattern : k.startsWith(prefix)))
+    return all.filter((k) => redisGlob(pattern).test(k))
   }
 
   // helpers for assertions
@@ -648,6 +676,28 @@ describe('deleteRole reaches the grants', () => {
 
     expect(await mine.getSubjectRoles('user-1')).toEqual([])
     expect(await theirs.getSubjectRoles('user-1')).toEqual(['editor'])
+  })
+
+  /**
+   * `keyPrefix` is free text, and the sweep is the only place it meets a
+   * pattern. Interpolated raw, `app[1]:` becomes a character class: the sweep
+   * misses every key it owns and matches `app1:assignments:*` instead - another
+   * namespace, whose grants of the same role id it would then remove. Both
+   * halves are asserted: its own grants go, the neighbour's stay.
+   */
+  it('treats a key prefix containing glob metacharacters as literal text', async () => {
+    const r = new AuthFakeRedis()
+    const bracketed = new IamRedisAdapter<A, R, Ro, S>({ client: r, keyPrefix: 'app[1]:' })
+    const neighbour = new IamRedisAdapter<A, R, Ro, S>({ client: r, keyPrefix: 'app1:' })
+    for (const a of [bracketed, neighbour]) {
+      await a.saveRole({ id: 'editor', name: 'E', permissions: [] })
+      await a.assignRole('user-1', 'editor' as Ro)
+    }
+
+    await bracketed.deleteRole('editor')
+
+    expect(await bracketed.getSubjectRoles('user-1')).toEqual([])
+    expect(await neighbour.getSubjectRoles('user-1')).toEqual(['editor'])
   })
 
   it('reports the grants it could not reach when the client has no `keys`', async () => {
