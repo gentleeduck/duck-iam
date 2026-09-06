@@ -1,0 +1,801 @@
+/**
+ * E2E: `IamDrizzleAdapter` against REAL Postgres on the REAL shipped schema.
+ *
+ * The shared compliance matrix (`__compliance__/compliance.ts`) has only ever
+ * run against `makeDrizzleMock()` - a hand-written array store that answers
+ * `where` clauses with a JS `===` and has no constraints, no NULL semantics and
+ * no second connection. This file runs the same matrix twice against a real
+ * server:
+ *
+ *   1. on the schema this package ships (`src/test/pg-e2e-schema.sql`), so any
+ *      constraint that makes a contract-mandated operation impossible shows up;
+ *   2. on the same schema with those constraints dropped, so the rest of the
+ *      matrix is actually reached instead of being masked by the first failure.
+ *
+ * Then a set of cases the mock cannot express at all: rows the driver returns
+ * and the fake never does, concurrent writers on two connections, and the
+ * round-trip fidelity of every column type.
+ *
+ * Skips only when docker is unavailable AND no database URL was supplied; when
+ * docker IS up, the reachability suite below fails loudly instead of skipping.
+ */
+import { execFile } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
+import { connect } from 'node:net'
+import { promisify } from 'node:util'
+import { and, eq, isNull, or, type SQLWrapper } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { Pool } from 'pg'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { IamEngine } from '../../core/engine'
+import type { IamPrimitives } from '../../core/types'
+import { applyPgSchema } from '../../test/e2e-env'
+import { runAdapterCompliance } from '../__compliance__/compliance'
+import { IamDrizzleAdapter } from '../drizzle'
+import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../drizzle/pg'
+import { IamMemoryAdapter } from '../memory'
+
+const exec = promisify(execFile)
+
+async function docker(args: string[], timeout = 60_000): Promise<string> {
+  const { stdout } = await exec('docker', args, { encoding: 'utf8', timeout })
+  return stdout.trim()
+}
+
+/** Is the docker daemon answering? Decides "skip" vs "fail loudly" below. */
+async function dockerIsUp(): Promise<boolean> {
+  try {
+    await docker(['info', '--format', '{{.ServerVersion}}'], 5_000)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitFor(what: string, probe: () => Promise<boolean>, budgetMs = 60_000): Promise<void> {
+  const deadline = Date.now() + budgetMs
+  while (Date.now() < deadline) {
+    if (await probe()) return
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  throw new Error(`${what} was not ready within ${budgetMs}ms`)
+}
+
+/**
+ * This suite owns its Postgres rather than using the package `globalSetup`.
+ *
+ * `src/test/e2e-containers.ts` removes every container carrying the shared
+ * `duck-iam-e2e` label at the start of *any* vitest invocation, so a second
+ * suite starting up pulls the server out from under a running one. That is a
+ * harness property, not a product bug, but it makes a shared container unusable
+ * while more than one suite can run. A privately named container has no such
+ * neighbour.
+ */
+const PG_CONTAINER = `duck-iam-adapterconf-pg-${randomBytes(4).toString('hex')}`
+
+async function startPostgres(): Promise<string> {
+  await docker([
+    'run',
+    '-d',
+    '--name',
+    PG_CONTAINER,
+    '-p',
+    '0:5432',
+    '-e',
+    'POSTGRES_USER=duckiam',
+    '-e',
+    'POSTGRES_PASSWORD=duckiam',
+    '-e',
+    'POSTGRES_DB=duckiam_e2e',
+    'postgres:16-alpine',
+  ])
+  await waitFor(`${PG_CONTAINER} accepting queries`, async () => {
+    try {
+      await docker(['exec', PG_CONTAINER, 'psql', '-U', 'duckiam', '-d', 'duckiam_e2e', '-c', 'SELECT 1'], 10_000)
+      return true
+    } catch {
+      return false
+    }
+  })
+  const published = await docker(['port', PG_CONTAINER, '5432'])
+  const port = Number(published.split('\n')[0]?.split(':').pop())
+  if (!Number.isInteger(port) || port <= 0) throw new Error(`no published port: ${published}`)
+  // The in-container probe proves the server is up, not that docker's port
+  // forwarding is accepting yet.
+  await waitFor(`127.0.0.1:${port}`, async () => {
+    return await new Promise<boolean>((resolve) => {
+      const socket = connect({ host: '127.0.0.1', port })
+      const done = (ok: boolean) => {
+        socket.destroy()
+        resolve(ok)
+      }
+      socket.once('connect', () => done(true))
+      socket.once('error', () => done(false))
+      socket.setTimeout(1_000, () => done(false))
+    })
+  })
+  return `postgres://duckiam:duckiam@127.0.0.1:${port}/duckiam_e2e`
+}
+
+/** Create a database on our own server and return its URL. */
+async function makeDatabase(baseUrl: string, name: string): Promise<string> {
+  const admin = new Pool({ connectionString: baseUrl })
+  try {
+    await admin.query(`CREATE DATABASE ${name}`)
+  } finally {
+    await admin.end()
+  }
+  const url = new URL(baseUrl)
+  url.pathname = `/${name}`
+  return url.toString()
+}
+
+const DOCKER_UP = await dockerIsUp()
+let bootError: string | undefined
+let STRICT_URL: string | undefined
+if (DOCKER_UP) {
+  try {
+    STRICT_URL = await makeDatabase(await startPostgres(), 'strict')
+  } catch (err) {
+    bootError = err instanceof Error ? err.message : String(err)
+  }
+}
+
+afterAll(async () => {
+  if (DOCKER_UP) await docker(['rm', '-f', PG_CONTAINER]).catch(() => '')
+})
+
+const TABLES = { assignments: iamAssignments, attrs: iamSubjectAttrs, policies: iamPolicies, roles: iamRoles }
+/**
+ * The operator bundle the adapter is wired with.
+ *
+ * FINDING (reported, not fixed): the adapter declares
+ * `ops.eq: (col: unknown, val: unknown) => unknown` and
+ * `ops.isNull: (col: unknown) => SQLWrapper`, and drizzle's real `eq`/`isNull`
+ * are NOT assignable to those under `strictFunctionTypes` - their parameters
+ * are narrower than `unknown`. So the wiring the adapter's own docstring shows,
+ * `ops: { eq, and }`, does not compile against the real library. These wrappers
+ * are what a real caller is forced to write; the two casts are confined here and
+ * exist only to re-widen a parameter the declaration widened first.
+ */
+const OPS = {
+  and,
+  eq: (col: unknown, val: unknown): unknown => eq(col as SQLWrapper, val),
+  isNull: (col: unknown): SQLWrapper => isNull(col as SQLWrapper),
+  or,
+}
+
+/**
+ * The single largest risk in this exercise is a green report produced by a
+ * suite that never ran. If docker answers, this file is expected to have a
+ * database; not having one is a failure, not a reason to be quiet.
+ */
+describe('E2E harness reachability (drizzle/pg)', () => {
+  it('provisions a Postgres database whenever docker is available', () => {
+    if (!DOCKER_UP) {
+      expect(STRICT_URL, 'docker is down, so no e2e database is expected').toBeUndefined()
+      return
+    }
+    expect(bootError, 'docker is up but the container failed to start').toBeUndefined()
+    expect(STRICT_URL, 'docker is up but no e2e Postgres was provisioned - the suite would have skipped').toBeDefined()
+  })
+})
+
+type Adapter = IamDrizzleAdapter<string, string, string, string>
+
+function makePool(url: string): Pool {
+  return new Pool({ connectionString: url, max: 8 })
+}
+
+async function truncate(pool: Pool): Promise<void> {
+  await pool.query('TRUNCATE iam_assignments, iam_subject_attrs, iam_roles, iam_policies CASCADE')
+}
+
+function makeAdapter(pool: Pool): Adapter {
+  return new IamDrizzleAdapter<string, string, string, string>({ db: drizzle(pool), ops: OPS, tables: TABLES })
+}
+
+/**
+ * The whole error chain of a rejected call, as one string.
+ *
+ * Drizzle wraps every driver error in a `Failed query: ...` Error and hangs the
+ * real one off `cause`, so `rejects.toThrow(/constraint/)` - which reads only
+ * `message` - never matches. Walking the chain is what a caller has to do to
+ * find out *why* a write was refused; that it is necessary is itself pinned by
+ * a test below.
+ */
+async function failureChain(run: () => Promise<unknown>): Promise<string> {
+  try {
+    await run()
+  } catch (err) {
+    const parts: string[] = []
+    let node: unknown = err
+    for (let depth = 0; depth < 8 && node instanceof Error; depth++) {
+      parts.push(node.message, JSON.stringify({ constraint: (node as { constraint?: string }).constraint }))
+      node = node.cause
+    }
+    return parts.join(' | ')
+  }
+  return '<resolved>'
+}
+
+// ---------------------------------------------------------------------------
+// 1. The shipped schema, unmodified.
+// ---------------------------------------------------------------------------
+if (STRICT_URL) {
+  const strictPool = makePool(STRICT_URL)
+  await applyPgSchema(strictPool)
+  runAdapterCompliance('IamDrizzleAdapter @ real Postgres (shipped schema)', async () => {
+    await truncate(strictPool)
+    return makeAdapter(strictPool)
+  })
+  afterAll(async () => {
+    await strictPool.end()
+  })
+}
+
+// There used to be a second database here running the same matrix with
+// `uq_iam_policies_name`, `uq_iam_roles_name_scope` and
+// `fk_iam_assignments_role` dropped, because those three blocked writes the
+// compliance matrix mandates. Two of them are gone from the schema and the
+// third is now the contract, so that database would be byte-identical to the
+// strict one - a second full matrix, and a second container database, for no
+// signal at all. Deleted rather than kept as a no-op.
+
+// ---------------------------------------------------------------------------
+// 2. Cases the array-backed mock cannot produce.
+// ---------------------------------------------------------------------------
+const suite = STRICT_URL ? describe : describe.skip
+
+suite('IamDrizzleAdapter against rows only a real driver returns', () => {
+  let pool: Pool
+  let adapter: Adapter
+
+  beforeAll(async () => {
+    pool = makePool(STRICT_URL as string)
+    await applyPgSchema(pool)
+  })
+
+  afterAll(async () => {
+    await pool.end()
+  })
+
+  async function reset(): Promise<void> {
+    await truncate(pool)
+    adapter = makeAdapter(pool)
+  }
+
+  async function seedRole(id: string, name = id): Promise<void> {
+    await pool.query(`INSERT INTO iam_roles (id, name, permissions) VALUES ($1, $2, '[]'::jsonb)`, [id, name])
+  }
+
+  /**
+   * What used to be "constraints the other five adapters do not have".
+   *
+   * Two of the three are gone. `uq_iam_policies_name` and
+   * `uq_iam_roles_name_scope` blocked a write the compliance matrix mandates -
+   * two policies may share a name - to protect a field nothing resolves by:
+   * every lookup in this package is by `id`. They were dropped rather than
+   * copied onto the other five.
+   *
+   * `fk_iam_assignments_role` went the other way. A grant naming a role that
+   * does not exist is now refused everywhere, so this block pins the parity
+   * rather than the divergence.
+   */
+  describe('the assignments-to-roles foreign key, now shared by all six', () => {
+    it('assignRole to a role that does not exist is refused here and on memory', async () => {
+      await reset()
+      const mem = new IamMemoryAdapter<string, string, string, string>()
+      await expect(mem.assignRole('u1', 'ghost')).rejects.toThrow(/role that is not stored/)
+      expect(await mem.getSubjectRoles('u1')).toEqual([])
+
+      // Same call, same contract, same outcome - the database says it with the
+      // FK, memory says it with a check, and neither stores the row.
+      expect(await failureChain(() => adapter.assignRole('u1', 'ghost'))).toMatch(/fk_iam_assignments_role/)
+      const rows = await pool.query('SELECT count(*)::int AS n FROM iam_assignments')
+      expect((rows.rows[0] as { n: number }).n).toBe(0)
+    })
+
+    it('two policies with the same name and different ids now coexist', async () => {
+      await reset()
+      const base = { algorithm: 'deny-overrides' as const, name: 'Same Name', rules: [] }
+      await adapter.savePolicy({ ...base, id: 'p1' })
+      await adapter.savePolicy({ ...base, id: 'p2' })
+      expect((await adapter.listPolicies()).map((p) => p.id).sort()).toEqual(['p1', 'p2'])
+    })
+
+    it('two unscoped roles with the same name now coexist', async () => {
+      await reset()
+      await adapter.saveRole({ id: 'r1', name: 'Same', permissions: [] })
+      await adapter.saveRole({ id: 'r2', name: 'Same', permissions: [] })
+      expect((await adapter.listRoles()).map((r) => r.id).sort()).toEqual(['r1', 'r2'])
+    })
+
+    it('the caller reads why the grant failed on the top-level message', async () => {
+      await reset()
+      // Drizzle wraps the driver error in `Failed query: <sql>`, and the
+      // constraint that rejected the write is only on `.cause`, so an operator
+      // matching on `err.message` used to see the statement and never the
+      // reason. The adapter now translates the violation into the same refusal
+      // memory, file and redis raise, keeping the driver error as `cause`.
+      let top = ''
+      let cause: unknown
+      try {
+        await adapter.assignRole('u1', 'ghost')
+      } catch (err) {
+        top = err instanceof Error ? err.message : String(err)
+        cause = err instanceof Error ? err.cause : undefined
+      }
+      expect(top).toMatch(/cannot assign a role that is not stored/)
+      // The driver error is not discarded: whoever wants the constraint name
+      // can still reach it.
+      expect(String(cause)).toMatch(/Failed query/)
+    })
+
+    it('the schema refuses an empty-string scope, matching the adapter guard', async () => {
+      await reset()
+      await seedRole('editor')
+      await expect(
+        pool.query(`INSERT INTO iam_assignments (id, subject_id, role_id, scope) VALUES ('a1','u1','editor','')`),
+      ).rejects.toThrow(/ch_iam_assignments_scope_not_blank/)
+    })
+  })
+
+  describe('SQL NULL vs a scope string: the two read paths must agree', () => {
+    it('an unscoped grant is global on both reads, a scoped one on neither', async () => {
+      await reset()
+      await seedRole('editor')
+      await seedRole('viewer')
+      await adapter.assignRole('u1', 'editor')
+      await adapter.assignRole('u1', 'viewer', 'org-1')
+
+      const global = await adapter.getSubjectRoles('u1')
+      const scoped = await adapter.getSubjectScopedRoles('u1')
+      expect(global).toEqual(['editor'])
+      expect(scoped).toEqual([{ role: 'viewer', scope: 'org-1' }])
+      // No row may be reported by both, and none may be lost by both.
+      const rows = await pool.query('SELECT count(*)::int AS n FROM iam_assignments')
+      expect(global.length + scoped.length).toBe((rows.rows[0] as { n: number }).n)
+    })
+
+    it('a scope whose text starts with a space stays scoped on both reads', async () => {
+      await reset()
+      await seedRole('editor')
+      // ' x' passes ch_..._scope_not_blank (it has a non-space char) and is a
+      // scope like any other. It must never read back as a global grant.
+      await pool.query(`INSERT INTO iam_assignments (id, subject_id, role_id, scope) VALUES ('a1','u1','editor',' x')`)
+      expect(await adapter.getSubjectRoles('u1')).toEqual([])
+      expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'editor', scope: ' x' }])
+    })
+
+    it('revokeRole without a scope removes the unscoped and every scoped row', async () => {
+      await reset()
+      await seedRole('editor')
+      await adapter.assignRole('u1', 'editor')
+      await adapter.assignRole('u1', 'editor', 'org-1')
+      await adapter.assignRole('u1', 'editor', 'org-2')
+      await adapter.revokeRole('u1', 'editor')
+      expect(await adapter.getSubjectRoles('u1')).toEqual([])
+      expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
+    })
+  })
+
+  describe('timestamps the driver can return but the fake never does', () => {
+    it('expires_at = infinity leaves the grant live', async () => {
+      await reset()
+      await seedRole('editor')
+      // Postgres spells "never expires" as `infinity`; node-postgres parses it
+      // to the JS number Infinity, not a Date.
+      await pool.query(
+        `INSERT INTO iam_assignments (id, subject_id, role_id, expires_at) VALUES ('a1','u1','editor','infinity')`,
+      )
+      expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
+    })
+
+    it('starts_at = -infinity leaves the grant live', async () => {
+      await reset()
+      await seedRole('editor')
+      await pool.query(
+        `INSERT INTO iam_assignments (id, subject_id, role_id, starts_at) VALUES ('a1','u1','editor','-infinity')`,
+      )
+      expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
+    })
+
+    it('starts_at = infinity (a grant that never starts) denies', async () => {
+      await reset()
+      await seedRole('editor')
+      await pool.query(
+        `INSERT INTO iam_assignments (id, subject_id, role_id, starts_at) VALUES ('a1','u1','editor','infinity')`,
+      )
+      expect(await adapter.getSubjectRoles('u1')).toEqual([])
+    })
+
+    it('expires_at = -infinity (expired at the dawn of time) denies', async () => {
+      await reset()
+      await seedRole('editor')
+      await pool.query(
+        `INSERT INTO iam_assignments (id, subject_id, role_id, expires_at) VALUES ('a1','u1','editor','-infinity')`,
+      )
+      expect(await adapter.getSubjectRoles('u1')).toEqual([])
+    })
+
+    it('an expiry past the JS Date range still reads as live', async () => {
+      await reset()
+      await seedRole('editor')
+      // Year 250000 is inside timestamptz and outside `Date`'s +-8.64e15 ms.
+      // A failure here is a wrong DENY, not a wrong allow - a grant good until
+      // the year 250000 is live today.
+      await pool.query(
+        `INSERT INTO iam_assignments (id, subject_id, role_id, expires_at) VALUES ('a1','u1','editor','250000-01-01 00:00:00+00')`,
+      )
+      expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
+    })
+
+    it('a live scoped grant with bounds round-trips through both reads', async () => {
+      await reset()
+      await seedRole('editor')
+      const startsAt = new Date(Date.now() - 60_000)
+      const expiresAt = new Date(Date.now() + 3_600_000)
+      await adapter.assignRole('u1', 'editor', 'org-1', {
+        attributes: { n: 3, ok: true, tier: 'gold' },
+        expiresAt,
+        startsAt,
+      })
+      expect(await adapter.getSubjectScopedRoles('u1')).toEqual([
+        { attributes: { n: 3, ok: true, tier: 'gold' }, role: 'editor', scope: 'org-1' },
+      ])
+    })
+  })
+
+  describe('malformed rows must never produce an allow', () => {
+    it('a policy whose rules column holds JSON null is refused, not read as rule-less', async () => {
+      await reset()
+      await pool.query(`INSERT INTO iam_policies (id, name, rules) VALUES ('p1','Broken','null'::jsonb)`)
+      // Dropping it is not the safe answer either: the row may have been the
+      // one that denies, and `getPolicy` returning `null` makes a corrupt row
+      // indistinguishable from a deleted one. Roles are allow-only and so can
+      // be dropped; policies cannot.
+      await expect(adapter.getPolicy('p1')).rejects.toThrow(/cannot be read/)
+      await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+    })
+
+    it('a role whose permissions column holds a JSON string is dropped', async () => {
+      await reset()
+      await pool.query(`INSERT INTO iam_roles (id, name, permissions) VALUES ('r1','Broken','"nope"'::jsonb)`)
+      expect(await adapter.getRole('r1')).toBeNull()
+      expect(await adapter.listRoles()).toEqual([])
+    })
+
+    it('a role whose permissions column holds a wildcard-granting non-array is dropped', async () => {
+      await reset()
+      // The shape a hand-written migration produces: an object instead of the
+      // array of permissions. Nothing may read this as "grants everything".
+      await pool.query(
+        `INSERT INTO iam_roles (id, name, permissions) VALUES ('r1','Broken','{"action":"*","resource":"*"}'::jsonb)`,
+      )
+      expect(await adapter.getRole('r1')).toBeNull()
+    })
+
+    it('subject attributes that are a JSON array throw rather than reading as empty', async () => {
+      await reset()
+      await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','[1,2]'::jsonb)`)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+    })
+
+    it('subject attributes that are JSON null throw rather than reading as empty', async () => {
+      await reset()
+      await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','null'::jsonb)`)
+      // `{}` here would silently retire every deny rule that tests an
+      // attribute. The adapter's `data === null` early-return cannot tell a
+      // *stored* JSON null from an absent column.
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+    })
+
+    it('a stored __proto__ attribute key makes the row unreadable rather than half-read', async () => {
+      await reset()
+      await pool.query(
+        `INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','{"__proto__":{"tier":"gold"},"team":"A"}'::jsonb)`,
+      )
+      // Three outcomes were possible and two of them are wrong. Assigning the
+      // key sets the bag's prototype, so `tier` answers `gold` for a subject
+      // nobody granted it. Owning it as a plain key hides the opposite
+      // failure: whatever the operator meant to store under `__proto__` is
+      // absent, and an absent attribute retires every deny rule testing it.
+      // The bag is refused, and the operator is handed a row to repair.
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+    })
+
+    it('a __proto__ attribute written through the adapter is refused at the write', async () => {
+      await reset()
+      // An admin request body carrying this key, parsed into an OWN property -
+      // which is what `JSON.parse` produces and what makes the value reach
+      // storage at all. Built with `defineProperty` rather than parsed so the
+      // fixture is typed as the bag it claims to be; a plain assignment would
+      // set the prototype and never create the key.
+      const hostile: IamPrimitives.Attributes = { team: 'A' }
+      Object.defineProperty(hostile, '__proto__', {
+        configurable: true,
+        enumerable: true,
+        value: { tier: 'gold' },
+        writable: true,
+      })
+      // Refused here, not at the next read: a row nothing can read back is not
+      // worth writing, and the caller finds out while it still has the request
+      // in hand.
+      await expect(adapter.setSubjectAttributes('u1', hostile)).rejects.toThrow(/must not contain a __proto__ key/)
+      expect(await adapter.getSubjectAttributes('u1')).toEqual({})
+    })
+  })
+
+  describe('a malformed attributes row reaching a real decision', () => {
+    /**
+     * Deny-overrides catalog: everyone may read a post unless their stored
+     * `clearance` says `low`. The deny rule exists precisely to be retired by
+     * an attributes read that answers `{}`.
+     */
+    async function seedCatalog(a: Adapter): Promise<IamEngine<string, string, string, string>> {
+      await a.saveRole({ id: 'staff', name: 'Staff', permissions: [{ action: 'read', resource: 'post' }] })
+      await a.savePolicy({
+        algorithm: 'deny-overrides',
+        id: 'p-clearance',
+        name: 'Clearance',
+        rules: [
+          {
+            actions: ['read'],
+            conditions: { all: [{ field: 'subject.attributes.clearance', operator: 'eq', value: 'low' }] },
+            effect: 'deny',
+            id: 'deny-low',
+            priority: 100,
+            resources: ['post'],
+          },
+          {
+            actions: ['read'],
+            conditions: { all: [] },
+            effect: 'allow',
+            id: 'allow-all',
+            priority: 1,
+            resources: ['post'],
+          },
+        ],
+      })
+      return new IamEngine<string, string, string, string>({ adapter: a })
+    }
+
+    it('the deny rule fires for an intact clearance row', async () => {
+      await reset()
+      const engine = await seedCatalog(adapter)
+      await adapter.assignRole('u1', 'staff')
+      await adapter.setSubjectAttributes('u1', { clearance: 'low' })
+      expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' })).toBe(false)
+    })
+
+    it('a data column holding JSON null must not retire that deny rule', async () => {
+      await reset()
+      const engine = await seedCatalog(adapter)
+      await adapter.assignRole('u1', 'staff')
+      // `data` is NOT NULL, but `'null'::jsonb` is a perfectly valid non-NULL
+      // value - the shape an import or a hand-written migration produces from a
+      // missing field. Prisma's adapter throws on it; drizzle's `data === null`
+      // early-return cannot tell it from an absent column and answers `{}`.
+      await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','null'::jsonb)`)
+      // Fail-closed is the invariant: a corrupt row must deny or throw, never
+      // grant. `{}` here silently retires every deny rule that tests an
+      // attribute.
+      expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' })).toBe(false)
+    })
+
+    it('a data column holding a JSON array denies rather than granting', async () => {
+      await reset()
+      const engine = await seedCatalog(adapter)
+      await adapter.assignRole('u1', 'staff')
+      await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','["clearance"]'::jsonb)`)
+      expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' })).toBe(false)
+    })
+
+    it('a clearance hidden behind a stored __proto__ key still denies', async () => {
+      await reset()
+      const engine = await seedCatalog(adapter)
+      await adapter.assignRole('u1', 'staff')
+      await pool.query(
+        `INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','{"__proto__":{"clearance":"low"}}'::jsonb)`,
+      )
+      // The attribute IS in the row. Reading it into a bag that inherits rather
+      // than owns it makes the deny rule miss.
+      expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' })).toBe(false)
+    })
+  })
+
+  describe('round-trip fidelity through real column types', () => {
+    it('a policy keeps its scalar types and gains no columns', async () => {
+      await reset()
+      await adapter.savePolicy({
+        algorithm: 'deny-overrides',
+        description: 'D',
+        id: 'p1',
+        name: 'P',
+        rules: [
+          { actions: ['read'], conditions: { all: [] }, effect: 'allow', id: 'r1', priority: 10, resources: ['post'] },
+        ],
+        targets: { actions: ['read'] },
+        version: 7,
+      })
+      const got = await adapter.getPolicy('p1')
+      expect(got).not.toBeNull()
+      expect(Object.keys(got ?? {}).sort()).toEqual([
+        'algorithm',
+        'description',
+        'id',
+        'name',
+        'rules',
+        'targets',
+        'version',
+      ])
+      // `version` is an int4; a driver that stringified it would flip
+      // `version > 1` comparisons everywhere downstream.
+      expect(typeof got?.version).toBe('number')
+      expect(got?.version).toBe(7)
+      expect(typeof got?.rules[0]?.priority).toBe('number')
+      expect(got?.rules[0]?.priority).toBe(10)
+    })
+
+    it('a role keeps inherits/metadata types and never leaks created_at', async () => {
+      await reset()
+      await adapter.saveRole({
+        id: 'r1',
+        inherits: ['base'],
+        metadata: { level: 3 },
+        name: 'R',
+        permissions: [{ action: 'read', resource: 'post' }],
+        scope: 'org-1',
+      })
+      const got = await adapter.getRole('r1')
+      expect(got?.inherits).toEqual(['base'])
+      expect(got?.metadata).toEqual({ level: 3 })
+      expect(typeof (got?.metadata as Record<string, unknown>)?.level).toBe('number')
+      expect(Object.keys(got ?? {})).not.toContain('createdAt')
+      expect(Object.keys(got ?? {})).not.toContain('created_at')
+    })
+
+    it('a role reads back with the same key set on Postgres as on memory', async () => {
+      await reset()
+      const role = { id: 'r1', name: 'R', permissions: [] }
+      await adapter.saveRole(role)
+      const mem = new IamMemoryAdapter<string, string, string, string>()
+      await mem.saveRole(role)
+
+      const fromPg = await adapter.getRole('r1')
+      const fromMemory = await mem.getRole('r1')
+      // The compliance matrix pins this for *policies* ("returns the same shape
+      // on every backend") and leaves roles out. A key whose value is
+      // `undefined` still shows up in `Object.keys`, `JSON.stringify` drops it,
+      // and `toEqual` ignores it: three different answers to "does this role
+      // have a description", depending which one the consumer asks.
+      expect(Object.keys(fromPg ?? {}).sort()).toEqual(Object.keys(fromMemory ?? {}).sort())
+    })
+  })
+
+  describe('ids the fake never sees', () => {
+    const HOSTILE: [string, string][] = [
+      ['a colon (the permission-key separator)', 'a:b'],
+      ['an at sign', 'a@b'],
+      ['a slash', 'a/b'],
+      ['a newline', 'a\nb'],
+      ['unicode', 'ロール-✓'],
+      ['an emoji', 'role-🚀'],
+      ['a NUL byte', 'a\\u0000b'],
+      ['four thousand characters', `r-${'x'.repeat(4000)}`],
+    ]
+
+    it.each(HOSTILE)('either round-trips or refuses a role id containing %s', async (_label, id) => {
+      await reset()
+      const refusal = await adapter.saveRole({ id, name: `n-${id}`, permissions: [] }).then(
+        () => null,
+        (err: unknown) => String(err),
+      )
+      if (refusal !== null) {
+        expect(await adapter.getRole(id).catch(() => null)).toBeNull()
+        return
+      }
+      expect((await adapter.getRole(id))?.id).toBe(id)
+      await adapter.assignRole('u1', id)
+      expect(await adapter.getSubjectRoles('u1')).toEqual([id])
+      await adapter.revokeRole('u1', id)
+      expect(await adapter.getSubjectRoles('u1')).toEqual([])
+    })
+
+    it('a role id of __proto__ is listed by listRoles, not only by getRole', async () => {
+      await reset()
+      await adapter.saveRole({ id: '__proto__', name: 'P', permissions: [] })
+      expect((await adapter.getRole('__proto__'))?.id).toBe('__proto__')
+      expect((await adapter.listRoles()).map((r) => r.id)).toEqual(['__proto__'])
+    })
+  })
+
+  describe('two connections at once', () => {
+    it('twenty concurrent identical unscoped grants leave exactly one row', async () => {
+      await reset()
+      await seedRole('editor')
+      const second = makePool(STRICT_URL as string)
+      try {
+        const a = makeAdapter(pool)
+        const b = makeAdapter(second)
+        await Promise.all(Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? a : b).assignRole('u1', 'editor')))
+        const rows = await pool.query('SELECT count(*)::int AS n FROM iam_assignments')
+        expect((rows.rows[0] as { n: number }).n).toBe(1)
+        expect(await a.getSubjectRoles('u1')).toEqual(['editor'])
+      } finally {
+        await second.end()
+      }
+    }, 30_000)
+
+    it('a grant racing a revoke leaves the store and both read paths agreeing', async () => {
+      await reset()
+      await seedRole('editor')
+      const second = makePool(STRICT_URL as string)
+      try {
+        const a = makeAdapter(pool)
+        const b = makeAdapter(second)
+        for (let i = 0; i < 10; i++) {
+          await a.assignRole('u1', 'editor')
+          await Promise.all([b.revokeRole('u1', 'editor'), a.assignRole('u1', 'editor')])
+          const rows = await pool.query('SELECT count(*)::int AS n FROM iam_assignments')
+          const n = (rows.rows[0] as { n: number }).n
+          expect(await a.getSubjectRoles('u1')).toEqual(n === 0 ? [] : ['editor'])
+          await a.revokeRole('u1', 'editor')
+        }
+      } finally {
+        await second.end()
+      }
+    }, 30_000)
+
+    it('concurrent setSubjectAttributes from two connections does not lose the row', async () => {
+      await reset()
+      const second = makePool(STRICT_URL as string)
+      try {
+        const a = makeAdapter(pool)
+        const b = makeAdapter(second)
+        const results = await Promise.allSettled([
+          a.setSubjectAttributes('u1', { team: 'A' }),
+          b.setSubjectAttributes('u1', { plan: 'pro' }),
+        ])
+        // A lost update is acceptable (read-modify-write with no lock); both
+        // writers failing and leaving NO row is not.
+        const rejected = results.filter((r) => r.status === 'rejected')
+        const attrs = await a.getSubjectAttributes('u1')
+        expect(
+          Object.keys(attrs).length,
+          `both writers failed: ${rejected.map((r) => String((r as PromiseRejectedResult).reason)).join('; ')}`,
+        ).toBeGreaterThan(0)
+      } finally {
+        await second.end()
+      }
+    }, 30_000)
+  })
+
+  describe('updateAssignmentScope against a real unique index', () => {
+    it('moving an unscoped grant onto an already-granted scope collapses to one row', async () => {
+      await reset()
+      await seedRole('editor')
+      await adapter.assignRole('u1', 'editor')
+      await adapter.assignRole('u1', 'editor', 'org-1')
+      expect(await adapter.updateAssignmentScope('u1', 'editor', undefined, 'org-1')).toBe(true)
+      expect(await adapter.getSubjectRoles('u1')).toEqual([])
+      expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'editor', scope: 'org-1' }])
+    })
+
+    it('moving a scoped grant to global is visible on the global read', async () => {
+      await reset()
+      await seedRole('editor')
+      await adapter.assignRole('u1', 'editor', 'org-1')
+      expect(await adapter.updateAssignmentScope('u1', 'editor', 'org-1', undefined)).toBe(true)
+      expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
+      expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
+    })
+
+    it('returns false when the source row is not there', async () => {
+      await reset()
+      await seedRole('editor')
+      expect(await adapter.updateAssignmentScope('u1', 'editor', 'org-9', 'org-1')).toBe(false)
+    })
+  })
+})

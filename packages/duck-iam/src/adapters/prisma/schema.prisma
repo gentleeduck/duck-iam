@@ -1,6 +1,38 @@
 // ------------------------------------------------------------
 // duck-iam Prisma schema
 // Add these models to your existing schema.prisma
+//
+// A reduced mirror of the drizzle schemas: Prisma cannot express CHECK
+// constraints or partial indexes, so the blank-string and date-ordering checks
+// those schemas carry are absent here and the adapter validates instead. The
+// assignment temporal columns (`starts_at`/`expires_at`/`attributes`) are
+// deliberately absent too - `IamPrismaAdapter.assignRole` throws on those
+// options rather than dropping them silently.
+//
+// `scope` is nullable and SQL unique indexes do not collapse NULLs, so
+// `@@unique([subjectId, roleId, scope])` does NOT prevent a duplicate *unscoped*
+// grant the way the drizzle schemas' `NULLS NOT DISTINCT` / `coalesce(scope,'')`
+// indexes do. Prisma cannot express either spelling, so YOU MUST replace the
+// index it generates with one of these in a migration - twenty concurrent
+// `assignRole('u1','editor')` calls otherwise leave several identical rows,
+// because a read-then-write cannot be atomic on its own:
+//
+//   -- Postgres 15+
+//   DROP INDEX "iam_assignments_subject_id_role_id_scope_key";
+//   CREATE UNIQUE INDEX "iam_assignments_subject_id_role_id_scope_key"
+//     ON "iam_assignments" ("subject_id", "role_id", "scope") NULLS NOT DISTINCT;
+//
+//   -- MySQL / SQLite (no NULLS NOT DISTINCT): index the coalesced value
+//   CREATE UNIQUE INDEX "iam_assignments_subject_id_role_id_scope_key"
+//     ON "iam_assignments" ("subject_id", "role_id", (coalesce("scope", '')));
+//
+// The adapter keeps its read-then-write as the fast path and treats the `P2002`
+// a racing writer causes as success, so repeat grants stay idempotent either
+// way. Do not replace it with a bare `create`: without the read, a repeat grant
+// costs a round trip and a caught error every time.
+//
+// `created_by` / `updated_by` are written from the actor the caller supplies
+// and stay NULL when none is named.
 // ------------------------------------------------------------
 
 model AccessPolicy {
@@ -11,6 +43,8 @@ model AccessPolicy {
   algorithm   String   @default("deny-overrides")
   rules       Json
   targets     Json?
+  createdBy   String?  @map("created_by")
+  updatedBy   String?  @map("updated_by")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -25,29 +59,42 @@ model AccessRole {
   inherits    String[]           @default([])
   scope       String?
   metadata    Json?
+  createdBy   String?            @map("created_by")
+  updatedBy   String?            @map("updated_by")
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
   assignments AccessAssignment[]
 
+  @@index([scope])
   @@map("iam_roles")
 }
 
 model AccessAssignment {
-  id        String   @id @default(cuid())
-  subjectId String   @map("subject_id")
-  roleId    String   @map("role_id")
+  id        String     @id @default(cuid())
+  subjectId String     @map("subject_id")
+  roleId    String     @map("role_id")
   scope     String?
   role      AccessRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?    @map("created_by")
+  updatedBy String?    @map("updated_by")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
 
   @@unique([subjectId, roleId, scope])
   @@index([subjectId])
+  // The role index backs the cascade and `revokeRole`'s role-wide delete; the
+  // composite backs the scoped-subject lookup, which is the hot read.
+  @@index([roleId])
+  @@index([subjectId, scope])
   @@map("iam_assignments")
 }
 
 model AccessSubjectAttr {
   subjectId String   @id @map("subject_id")
   data      Json
+  createdBy String?  @map("created_by")
+  updatedBy String?  @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("iam_subject_attrs")

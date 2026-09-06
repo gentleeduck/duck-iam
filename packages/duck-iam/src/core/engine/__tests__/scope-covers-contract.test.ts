@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import * as pkg from '../../../index'
 import { matchesScope } from '../../resolve/resolve'
-import { scopeCovers } from '../engine.libs'
+import { scopeAncestors, scopeCovers } from '../engine.libs'
 
 /**
  * `matchesScope` documented the scope contract, was contract-tested, and was
@@ -54,5 +55,32 @@ describe('hierarchical adds descendants and nothing else', () => {
     expect(scopeCovers('', 'org-1', 'flat')).toBe(false)
     expect(scopeCovers('', 'org-1', 'hierarchical')).toBe(false)
     expect(scopeCovers('', '', 'flat')).toBe(true)
+  })
+})
+
+/**
+ * The scope walk was internal, so a caller doing scope-aware rank or reach
+ * calculations of their own had to reimplement it - and any reimplementation
+ * drifts from the relation the engine actually matches with. It is exported
+ * now, `iam`-prefixed like the rest of the flat package namespace.
+ *
+ * These pin identity, not behaviour: what makes the export worth anything is
+ * that it is the engine's own function and not a copy that can diverge.
+ */
+describe('the scope walk is reachable from the package root', () => {
+  it('exports the engine own scopeAncestors, not a copy', () => {
+    expect(pkg.iamScopeAncestors).toBe(scopeAncestors)
+  })
+
+  it('exports the engine own scopeCovers alongside it', () => {
+    expect(pkg.iamScopeCovers).toBe(scopeCovers)
+  })
+
+  it('walks a dotted scope up to its ancestors, most specific first', () => {
+    expect(pkg.iamScopeAncestors('org-1.team-a.repo-3')).toEqual(['org-1.team-a.repo-3', 'org-1.team-a', 'org-1'])
+  })
+
+  it('returns a single-element walk for a scope with no ancestors', () => {
+    expect(pkg.iamScopeAncestors('org-1')).toEqual(['org-1'])
   })
 })

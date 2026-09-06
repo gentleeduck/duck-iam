@@ -75,11 +75,19 @@ function createEngine(overrides?: {
       'user-org-editor': ['org-editor'] as RoleId[],
     },
   })
-  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: overrides?.cacheTTL ?? 0 })
+  // Pinned to development explicitly: `mode` now defaults to 'production', and
+  // these tests were written against the rich `IDecision` that only development
+  // returns. Pinning keeps them testing what they were written to test - the
+  // production shape has its own coverage.
+  return new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+    adapter,
+    cacheTTL: overrides?.cacheTTL ?? 0,
+    mode: 'development',
+  })
 }
 
 describe('Engine.can() - basic RBAC', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     engine = createEngine()
@@ -125,7 +133,7 @@ describe('Engine.can() - basic RBAC', () => {
 })
 
 describe('Engine.can() - scoped RBAC', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     engine = createEngine()
@@ -206,7 +214,7 @@ describe('Engine.can() - scoped role assignments via assignRole', () => {
 })
 
 describe('Engine.can() - isOwner conditions with $subject.id', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     const ownerEditorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
@@ -269,7 +277,7 @@ describe('Engine.can() - isOwner conditions with $subject.id', () => {
 })
 
 describe('Engine.permissions() - batch check', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     engine = createEngine()
@@ -412,7 +420,7 @@ describe('Engine.permissions() - batch check', () => {
 })
 
 describe('Engine.check() - detailed decision', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     engine = createEngine()
@@ -796,9 +804,10 @@ describe('Engine - hooks', () => {
       roles: [viewerRole],
       assignments: { 'user-viewer': ['viewer'] as RoleId[] },
     })
-    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
       adapter,
       cacheTTL: 0,
+      mode: 'development',
       hooks: {
         onMetrics: (e) => events.push({ subjectId: e.subjectId, allowed: e.allowed, mode: e.mode }),
       },
@@ -840,7 +849,11 @@ describe('Engine - stats', () => {
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+      adapter,
+      cacheTTL: 60,
+      mode: 'development',
+    })
 
     // First call: every cache misses then populates.
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
@@ -1055,7 +1068,7 @@ describe('Engine - construction guards', () => {
     })
     const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
+      const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
         adapter,
         mode: 'development',
         hooks: {
@@ -1080,7 +1093,7 @@ describe('Engine - construction guards', () => {
     })
     const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
+      const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
         adapter,
         mode: 'development',
         hooks: {
@@ -1191,9 +1204,10 @@ describe('Engine - cache invalidation', () => {
     // First check caches the result
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
 
-    // Assign editor role directly through adapter
-    await adapter.assignRole('user-1', 'editor' as RoleId)
+    // Assign editor role directly through adapter. The role is saved first:
+    // `assignRole` refuses a role id nothing is stored under.
     await adapter.saveRole(editorRole)
+    await adapter.assignRole('user-1', 'editor' as RoleId)
 
     // Before invalidation: still using cached subject (only has viewer)
     // After invalidation: should pick up the new role
@@ -1361,8 +1375,16 @@ describe('Engine - cache invalidation', () => {
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engineA = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
-    const engineB = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engineA = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+      adapter,
+      cacheTTL: 60,
+      mode: 'development',
+    })
+    const engineB = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+      adapter,
+      cacheTTL: 60,
+      mode: 'development',
+    })
     // Reach into private caches for assertion only.
     const a = (engineA as unknown as { _caches: { regex: Map<string, RegExp>; path: Map<string, string[] | null> } })
       ._caches
@@ -1440,7 +1462,11 @@ describe('Engine - cache invalidation', () => {
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+      adapter,
+      cacheTTL: 60,
+      mode: 'development',
+    })
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
     // Reach into private cache via a typed accessor on the engine for the test only.
     const cache = (engine as unknown as { _rbacPolicyCache: { get(k: string): { rules: unknown[] } | undefined } })

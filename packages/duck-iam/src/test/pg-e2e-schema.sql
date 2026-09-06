@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS iam_policies (
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_iam_policies PRIMARY KEY (id),
-  CONSTRAINT uq_iam_policies_name UNIQUE (name),
   CONSTRAINT ch_iam_policies_name_not_blank CHECK (name ~ '[^[:space:]]'),
   CONSTRAINT ch_iam_policies_version_positive CHECK (version >= 1)
 );
@@ -41,7 +40,6 @@ CREATE TABLE IF NOT EXISTS iam_roles (
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_iam_roles PRIMARY KEY (id),
-  CONSTRAINT uq_iam_roles_name_scope UNIQUE NULLS NOT DISTINCT (name, scope),
   CONSTRAINT ch_iam_roles_name_not_blank CHECK (name ~ '[^[:space:]]'),
   CONSTRAINT ch_iam_roles_scope_not_blank CHECK (scope IS NULL OR scope ~ '[^[:space:]]')
 );

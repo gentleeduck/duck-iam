@@ -11,6 +11,25 @@ export namespace IamEngineTypes {
     TRole,
     TScope
   >
+  /** Re-exported from {@link IamAdapter}. See {@link ITripleRow}. */
+  export type IRevokeRow<TRole extends string = string, TScope extends string = string> = IamAdapter.IRevokeRow<
+    TRole,
+    TScope
+  >
+  /** Re-exported from {@link IamAdapter}. Per-grant extras, including `actor`. */
+  export type IAssignOptions = IamAdapter.IAssignOptions
+  /** Re-exported from {@link IamAdapter}. Per-revoke extras, including `actor`. */
+  export type IRevokeOptions = IamAdapter.IRevokeOptions
+
+  /**
+   * Actor attribution for the admin writes that have no other per-call options
+   * - policy and role definition writes, attribute merges, and `import`. The
+   * value reaches {@link IHooks.onMutation} on the resulting event; nothing
+   * else consumes it, because these writes have no provenance column anywhere.
+   */
+  export interface IActorOptions {
+    readonly actor?: string
+  }
 
   /** One scope move: where the assignment is now, and where it should end up. */
   export interface IMoveRow<TRole extends string = string, TScope extends string = string> {
@@ -38,22 +57,39 @@ export namespace IamEngineTypes {
   > {
     listPolicies(): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]>
     getPolicy(id: string): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null>
-    /** Invalidates the policy cache. */
-    savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
-    /** Invalidates the policy cache. */
-    deletePolicy(id: string): Promise<void>
+    /** Invalidates the policy cache; emits `policy.saved`. */
+    savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>, opts?: IActorOptions): Promise<void>
+    /** Invalidates the policy cache; emits `policy.deleted`. */
+    deletePolicy(id: string, opts?: IActorOptions): Promise<void>
 
     listRoles(): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]>
     getRole(id: string): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null>
-    /** Invalidates role + subject caches keyed on `role.id`. */
-    saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
-    /** Invalidates role + subject caches keyed on `id`. */
-    deleteRole(id: string): Promise<void>
+    /** Invalidates role + subject caches keyed on `role.id`; emits `role.saved`. */
+    saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>, opts?: IActorOptions): Promise<void>
+    /** Invalidates role + subject caches keyed on `id`; emits `role.deleted`. */
+    deleteRole(id: string, opts?: IActorOptions): Promise<void>
 
-    /** Invalidates the subject's cache entry. */
-    assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
-    /** Invalidates the subject's cache entry. */
-    revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
+    /**
+     * Grant a role. Invalidates the subject's cache entry and emits
+     * `role.assigned`.
+     *
+     * `opts` carries the temporal bounds and per-grant attributes the adapter
+     * accepts, plus `opts.actor` - who is making the grant. The actor reaches
+     * the store's provenance column where one exists (`created_by` on the
+     * drizzle schemas) and reaches {@link IHooks.onMutation} either way, so a
+     * consumer needing "who granted this role" no longer has to bypass the
+     * engine and write the table directly.
+     */
+    assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IAssignOptions): Promise<void>
+    /**
+     * Revoke a role. Invalidates the subject's cache entry and emits
+     * `role.revoked`.
+     *
+     * The assignment row is hard-deleted, so `opts.actor` is the *only* record
+     * of who revoked it: without {@link IHooks.onMutation} wired, a revocation
+     * leaves no evidence anywhere.
+     */
+    revokeRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IRevokeOptions): Promise<void>
     /**
      * Moves a subject's role assignment from `fromScope` to `toScope` in place when the
      * adapter supports it (one write); falls back to revoke + assign otherwise. Invalidates
@@ -80,10 +116,14 @@ export namespace IamEngineTypes {
     assignRoles(
       rows: readonly IAssignRow<TRole, TScope>[],
     ): Promise<Batch.Result<IAssignRow<TRole, TScope>, Batch.Change>>
-    /** Revoke many triples. See {@link assignRoles}. */
+    /**
+     * Revoke many triples. See {@link assignRoles}. Each row may carry its own
+     * `opts.actor`; the row shape is otherwise the plain triple, so existing
+     * callers pass exactly what they passed before.
+     */
     revokeRoles(
-      rows: readonly ITripleRow<TRole, TScope>[],
-    ): Promise<Batch.Result<ITripleRow<TRole, TScope>, Batch.Change>>
+      rows: readonly IRevokeRow<TRole, TScope>[],
+    ): Promise<Batch.Result<IRevokeRow<TRole, TScope>, Batch.Change>>
     /**
      * Move many assignments between scopes. Delegates to
      * {@link updateAssignmentScope} per row, which falls back to revoke +
@@ -95,8 +135,12 @@ export namespace IamEngineTypes {
     /** Invalidate several subjects at once. Duplicate ids are collapsed. */
     invalidateSubjects(subjectIds: readonly string[]): void
 
-    /** Merges into the subject's attribute bag; invalidates the subject's cache entry. */
-    setAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
+    /**
+     * Merges into the subject's attribute bag; invalidates the subject's cache
+     * entry and emits `attributes.set`, which names the keys written but not
+     * their values.
+     */
+    setAttributes(subjectId: string, attrs: IamPrimitives.Attributes, opts?: IActorOptions): Promise<void>
     getAttributes(subjectId: string): Promise<IamPrimitives.Attributes>
 
     /**
@@ -117,7 +161,11 @@ export namespace IamEngineTypes {
      * Validates the snapshot's `schemaVersion` before applying. Schema
      * mismatches throw before any write.
      */
-    import(snapshot: ISnapshot<TAction, TResource, TRole, TScope>, options?: IImportOptions): Promise<IImportResult>
+    import(
+      snapshot: ISnapshot<TAction, TResource, TRole, TScope>,
+      options?: IImportOptions,
+      opts?: IActorOptions,
+    ): Promise<IImportResult>
   }
 
   /**
@@ -192,6 +240,121 @@ export namespace IamEngineTypes {
   }
 
   /**
+   * Fields common to every {@link IMutationEvent}.
+   *
+   * The engine emits these; it does not store them. Retention, redaction and
+   * erasure are compliance decisions that belong to the consuming application,
+   * so duck-iam ships no history table - only an event rich enough for the
+   * application to write its own.
+   */
+  export interface IMutationBase {
+    /** `Date.now()` at the moment the write completed. */
+    readonly at: number
+    /** Who made the change, when the caller supplied it. */
+    readonly actor?: string
+  }
+
+  /** A policy was created or overwritten. */
+  export interface IPolicySavedEvent extends IMutationBase {
+    readonly type: 'policy.saved'
+    readonly policyId: string
+  }
+
+  /** A policy was deleted. */
+  export interface IPolicyDeletedEvent extends IMutationBase {
+    readonly type: 'policy.deleted'
+    readonly policyId: string
+  }
+
+  /** A role definition was created or overwritten. */
+  export interface IRoleSavedEvent<TRole extends string = string> extends IMutationBase {
+    readonly type: 'role.saved'
+    readonly roleId: TRole
+  }
+
+  /** A role definition was deleted. */
+  export interface IRoleDeletedEvent<TRole extends string = string> extends IMutationBase {
+    readonly type: 'role.deleted'
+    readonly roleId: TRole
+  }
+
+  /** A role was granted to a subject. */
+  export interface IRoleAssignedEvent<TRole extends string = string, TScope extends string = string>
+    extends IMutationBase {
+    readonly type: 'role.assigned'
+    readonly subjectId: string
+    readonly roleId: TRole
+    readonly scope?: TScope
+    /**
+     * Whether this write actually created the grant, where the adapter could
+     * say. `false` means the subject already held it; `undefined` means the
+     * driver could not report it (MySQL's insert-ignore has no `RETURNING`,
+     * and the per-row loop path returns void). Absent rather than guessed -
+     * see {@link Batch.Change}.
+     */
+    readonly changed?: boolean
+  }
+
+  /**
+   * A role was revoked from a subject.
+   *
+   * The assignment row is hard-deleted, so this event is the only evidence the
+   * revocation happened. Nothing else in the library records it.
+   */
+  export interface IRoleRevokedEvent<TRole extends string = string, TScope extends string = string>
+    extends IMutationBase {
+    readonly type: 'role.revoked'
+    readonly subjectId: string
+    readonly roleId: TRole
+    readonly scope?: TScope
+    /** See {@link IRoleAssignedEvent.changed}. */
+    readonly changed?: boolean
+  }
+
+  /** An existing assignment moved between scopes. */
+  export interface IRoleScopeChangedEvent<TRole extends string = string, TScope extends string = string>
+    extends IMutationBase {
+    readonly type: 'role.scope-changed'
+    readonly subjectId: string
+    readonly roleId: TRole
+    readonly fromScope?: TScope
+    readonly toScope?: TScope
+  }
+
+  /**
+   * A subject's attribute bag was merged into.
+   *
+   * Carries the key names, not the values: attribute bags routinely hold
+   * personal data, and an event that a consumer will very likely write to a
+   * durable log is the wrong place to copy it to. Read the values back through
+   * `admin.getAttributes` if the history genuinely needs them.
+   */
+  export interface IAttributesSetEvent extends IMutationBase {
+    readonly type: 'attributes.set'
+    readonly subjectId: string
+    readonly keys: readonly string[]
+  }
+
+  /**
+   * Discriminated union of every write `engine.admin` performs, keyed on
+   * `type`. Closed by design: the bus carries the library's own events, so a
+   * consumer switching on `type` stays exhaustive across versions. Application
+   * events belong on the application's own bus.
+   *
+   * @template TRole  - Union of valid role IDs.
+   * @template TScope - Union of valid scope strings.
+   */
+  export type IMutationEvent<TRole extends string = string, TScope extends string = string> =
+    | IPolicySavedEvent
+    | IPolicyDeletedEvent
+    | IRoleSavedEvent<TRole>
+    | IRoleDeletedEvent<TRole>
+    | IRoleAssignedEvent<TRole, TScope>
+    | IRoleRevokedEvent<TRole, TScope>
+    | IRoleScopeChangedEvent<TRole, TScope>
+    | IAttributesSetEvent
+
+  /**
    * Lifecycle hooks. Wire `beforeEvaluate` for request enrichment,
    * `afterEvaluate` / `onDeny` for audit + alerting, `onError` for failure
    * paths, and `onMetrics` for latency / hit-rate telemetry.
@@ -211,6 +374,7 @@ export namespace IamEngineTypes {
     TAction extends string = string,
     TResource extends string = string,
     TScope extends string = string,
+    TRole extends string = string,
   > {
     /** Called before policy evaluation. May return a modified request. */
     beforeEvaluate?(
@@ -218,12 +382,28 @@ export namespace IamEngineTypes {
     ):
       | IamRequest.IAccessRequest<TAction, TResource, TScope>
       | Promise<IamRequest.IAccessRequest<TAction, TResource, TScope>>
-    /** Called after every evaluation with the final decision (development mode only). */
+    /**
+     * Called after every evaluation with the final decision. Fires in **both**
+     * modes - a denial log is a production concern, and these two hooks were
+     * the ones most needed there.
+     *
+     * In production the decision carries the verdict, `effect`, `duration` and
+     * `timestamp`, but no `policy` / `rule` provenance and a generic `reason`.
+     * That is not a shortcut: production evaluates through the compiled table,
+     * whose `CONST_ALLOW` / `CONST_DENY` cells are a single byte and whose
+     * `allow` is a raw bitmask, so policy identity is erased at compile time -
+     * that erasure is the optimisation. Reconstructing it would mean running
+     * the interpreter too, which is what development mode is for. Wire
+     * `mode: 'development'` when the hook needs to name the rule.
+     *
+     * The decision object is built only when one of these hooks is wired, so
+     * production callers who leave them unset still pay no allocation.
+     */
     afterEvaluate?(
       request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
       decision: AccessControl.IDecision,
     ): void | Promise<void>
-    /** Called only when a request is denied (development mode only). */
+    /** Called only when a request is denied. Fires in both modes; see {@link afterEvaluate}. */
     onDeny?(
       request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
       decision: AccessControl.IDecision,
@@ -253,6 +433,27 @@ export namespace IamEngineTypes {
      * without paying the cost of a full {@link AccessControl.IDecision}.
      */
     onMetrics?(event: IMetricsEvent<TAction, TResource>): void
+    /**
+     * Called after every write `engine.admin` performs, with a typed
+     * {@link IMutationEvent} naming the subject, role, scope and actor.
+     *
+     * This is the audit seam. `IHooks` covered decisions and nothing else, so a
+     * revocation could not be audited through the library at all: the grant row
+     * is hard-deleted, and the evidence went with it. An event fires here
+     * whether or not the store has a provenance column.
+     *
+     * Fires only after the adapter write has resolved and the caches have been
+     * invalidated, so an event is never emitted for a write that threw. Under
+     * {@link IamEngine.withTransaction} events are buffered with the pending
+     * invalidations and emitted by `pending.flush()` - a rollback discards them
+     * rather than reporting history that was rolled back.
+     *
+     * A throw here is caught and logged; it never rewrites or fails the write
+     * that produced it. Batch writes emit one event per row, so wiring this
+     * makes a large `assignRoles` call proportionally more expensive - the
+     * whole hook is skipped when unset.
+     */
+    onMutation?(event: IMutationEvent<TRole, TScope>): void | Promise<void>
   }
 
   /**
@@ -277,7 +478,7 @@ export namespace IamEngineTypes {
     TResource extends string = string,
     TRole extends string = string,
     TScope extends string = string,
-    TMode extends AccessControl.Mode = 'development',
+    TMode extends AccessControl.Mode = 'production',
   > {
     /** The storage adapter that provides policies, roles, and subject data. */
     readonly adapter: IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
@@ -288,8 +489,36 @@ export namespace IamEngineTypes {
     /** Maximum number of entries in the subject cache. Defaults to `1000`. */
     readonly maxCacheSize?: number
     /** Lifecycle hooks for observing or transforming requests and decisions. */
-    readonly hooks?: IHooks<TAction, TResource, TScope>
-    /** Execution mode. `'development'` returns rich Decision objects; `'production'` returns plain booleans. */
+    readonly hooks?: IHooks<TAction, TResource, TScope, TRole>
+    /**
+     * Execution mode. Defaults to `'production'`.
+     *
+     * `'production'` returns plain booleans: no `IDecision` allocation, no
+     * reason strings, and `explain()` unavailable. `'development'` returns rich
+     * {@link AccessControl.IDecision} objects and enables `explain()`.
+     *
+     * The default used to be `'development'`, which meant a consumer who never
+     * set it ran a production authorization engine that allocated a full
+     * decision object on every call - opt-out safety, for the mode fewer
+     * deployments are in. Rich objects are now opt-in.
+     *
+     * `afterEvaluate` and `onDeny` fire in both modes, so switching does not
+     * cost you a denial log; what it costs is `policy` / `rule` provenance on
+     * the decision those hooks receive. See {@link IHooks.afterEvaluate}.
+     */
+    /**
+     * Naming `TMode` in the type arguments does NOT set this. `mode` is
+     * optional, so `new IamEngine<A, R, Ro, S, 'development'>({ ...no mode })`
+     * typechecks and runs in production while `check()` is *typed* to return an
+     * `IDecision` - and every `d.allowed` read on the boolean it actually
+     * returns is `undefined`, which is falsy, so the mismatch shows up as
+     * assertions that quietly pass rather than as a crash. Four E2E suites were
+     * written that way. Making this required whenever `TMode` excludes
+     * `'production'` needs a conditional type on the constructor parameter,
+     * which TypeScript then cannot carry through `withTransaction`'s config
+     * spread without a cast; `mode-type-argument-does-not-set-mode.test.ts`
+     * pins the behaviour instead.
+     */
     readonly mode?: TMode
     /**
      * Strategy for combining decisions across multiple policies. Defaults to
@@ -328,15 +557,18 @@ export namespace IamEngineTypes {
     readonly adapterTimeoutMs?: number
     /**
      * Hard ceiling on concurrent distinct-subject adapter loads. Defaults to
-     * `0` (unbounded). A cold-flat thundering herd - a burst of never-before-
-     * cached subjects arriving faster than the adapter resolves them - grows
+     * `512`. A cold-flat thundering herd - a burst of never-before-cached
+     * subjects arriving faster than the adapter resolves them - grows
      * `inFlight.subjects` (and the promise closures it holds) without limit;
-     * setting this caps that growth. Once the cap is reached, a *new* subject
-     * load rejects immediately with a `subject load shed` error instead of
-     * calling the adapter; a call that hits the subject cache, or joins an
-     * already-in-flight load for the same subject, never counts against it.
-     * The rejection surfaces through `can`/`check`/`authorize`'s existing
-     * fail-closed error handling - no separate wiring needed.
+     * this caps that growth. Pass `0` to restore the old unbounded behaviour.
+     *
+     * Only a *distinct, never-before-cached* subject counts against the cap, so
+     * 512 sits far above legitimate steady-state concurrency: a cache hit does
+     * not count, and neither does a request joining an in-flight load for the
+     * same subject. Once the cap is reached, a *new* subject load rejects
+     * immediately with a `subject load shed` error instead of calling the
+     * adapter. The rejection surfaces through `can`/`check`/`authorize`'s
+     * existing fail-closed error handling - no separate wiring needed.
      */
     readonly maxConcurrentSubjectLoads?: number
     /**
@@ -344,6 +576,11 @@ export namespace IamEngineTypes {
      * (e.g. `createRedisInvalidator(redis, channel)`) here and every engine
      * instance subscribed to the same channel will drop its local caches
      * when any node mutates a policy / role / subject.
+     *
+     * Constructor-only. When the client does not exist yet - engines are
+     * commonly built at module import time, before any request-scoped or
+     * replica-specific Redis connection - attach it later with
+     * `engine.setInvalidator(...)` instead of hand-rolling the pub/sub.
      */
     readonly invalidator?: IInvalidator<TRole>
     /**

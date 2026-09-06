@@ -108,6 +108,29 @@ describe('IamPrismaAdapter attribute corruption defense', () => {
       const stored = attrs.get('user-1')!.data as Record<string, unknown>
       expect(stored).toEqual({ tier: 'pro', verified: true })
     })
+
+    /**
+     * The recovery is an overwrite, and an overwrite has to leave a record.
+     * The read is wrapped so one corrupt row cannot lock an operator out, but
+     * the same `catch` also swallows a read that failed for any other reason -
+     * a dropped connection, a permissions error - and then replaces the whole
+     * bag with the keys in this call. Redis and drizzle route that through
+     * `onPolicyError`; this adapter has no handler to wire, so it warns, the
+     * way `_readPolicy` does. Before, it said nothing at all.
+     */
+    it('says so when the existing attributes could not be read at all', async () => {
+      const { adapter, attrs } = makePrismaWithAttrs({ tier: 'pro' })
+      const boom = new Error('connection terminated')
+      vi.spyOn(adapter, 'getSubjectAttributes').mockRejectedValueOnce(boom)
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+      await adapter.setSubjectAttributes('user-1', { verified: true })
+
+      expect(attrs.get('user-1')?.data).toEqual({ verified: true })
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0]?.[0])).toContain('connection terminated')
+      warn.mockRestore()
+    })
   })
 })
 

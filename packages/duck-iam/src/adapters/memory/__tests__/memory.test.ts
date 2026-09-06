@@ -11,6 +11,15 @@ type R = 'post' | 'comment'
 type Ro = 'viewer' | 'editor'
 type S = 'org-1'
 
+/**
+ * `assignRole` refuses a role id nothing is stored under, so the assignment
+ * cases below seed their roles rather than granting them out of thin air.
+ */
+const GRANTABLE: AccessControl.IRole<A, R, Ro, S>[] = [
+  { id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] },
+  { id: 'editor', name: 'Editor', permissions: [{ action: 'write', resource: 'post' }] },
+]
+
 describe('IamMemoryAdapter', () => {
   let adapter: IamMemoryAdapter<A, R, Ro, S>
 
@@ -89,6 +98,10 @@ describe('IamMemoryAdapter', () => {
   })
 
   describe('IamAdapter.ISubjectStore', () => {
+    beforeEach(() => {
+      adapter = new IamMemoryAdapter<A, R, Ro, S>({ roles: GRANTABLE })
+    })
+
     it('getSubjectRoles returns empty for unknown subject', async () => {
       expect(await adapter.getSubjectRoles('unknown')).toEqual([])
     })
@@ -129,7 +142,9 @@ describe('IamMemoryAdapter', () => {
       let a: IamMemoryAdapter<A, R, Ro, S2>
 
       beforeEach(() => {
-        a = new IamMemoryAdapter<A, R, Ro, S2>()
+        a = new IamMemoryAdapter<A, R, Ro, S2>({
+          roles: [{ id: 'editor', name: 'Editor', permissions: [{ action: 'write', resource: 'post' }] }],
+        })
       })
 
       it('moves the assignment to the new scope in place', async () => {

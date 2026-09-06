@@ -110,3 +110,32 @@ export function iamNormalizePolicy<TAction extends string, TResource extends str
     ...(policy.targets === undefined ? {} : { targets: policy.targets }),
   }
 }
+
+/**
+ * The error every adapter raises for a policy row it cannot read.
+ *
+ * A malformed *role* row is dropped and reported: role permissions are
+ * allow-only (`rolesToPolicy` emits `effect: 'allow'` and nothing else), so
+ * losing one can only cost a subject a grant. A malformed *policy* row is not
+ * the same shape of loss. It may have been the rule saying NO, and dropping it
+ * turns a corrupt byte into an allow - and under `policyCombine: 'and'` even an
+ * allow-only policy votes deny when none of its rules match, so there is no
+ * subset of policies it is safe to drop without knowing the combine mode, which
+ * an adapter does not.
+ *
+ * So the row is refused, the read fails, and the engine denies. That is the
+ * same answer this package already gives for a corrupt attribute row
+ * ("Corruption != empty; `{}` would silently strip ABAC"), applied to the value
+ * where getting it wrong is more expensive.
+ *
+ * The cost is stated plainly: one unreadable policy row denies every request
+ * until it is repaired. That is the deliberate trade - an authorization system
+ * that cannot read its own rules must not answer as though the rules said yes.
+ * `onPolicyError` fires first, so the row is named before anything throws.
+ */
+export function iamUnreadablePolicy(adapter: string, id: string, detail: string): Error {
+  return new Error(
+    `[@gentleduck/iam:${adapter}] policy "${id}" cannot be read and will not be skipped - a dropped policy may be ` +
+      `the one that denies. Repair or delete the row. (${detail})`,
+  )
+}

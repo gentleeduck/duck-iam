@@ -1,3 +1,4 @@
+import type { Batch } from '../batch'
 import { appliedRows, batchResult, loopFallback } from '../batch'
 import { matchesScope } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
@@ -299,6 +300,50 @@ export function enrichSubjectWithScopedRoles<TScope extends string = string>(
 }
 
 /**
+ * Normalise an actor into the spread the event literals use, so `actor` is
+ * absent rather than explicitly `undefined` on an event nobody attributed.
+ */
+function actorOf(opts?: { readonly actor?: string }): { actor?: string } {
+  return opts?.actor === undefined ? {} : { actor: opts.actor }
+}
+
+/** The shape both batch role writes share: a triple that may name its own actor. */
+interface IActorRow<TRole extends string, TScope extends string> extends IamAdapter.ITripleRow<TRole, TScope> {
+  readonly opts?: { readonly actor?: string }
+}
+
+/**
+ * Emit one `role.assigned` / `role.revoked` per row of a batch result.
+ *
+ * Reads `changed` off the outcomes rather than recomputing it from the
+ * adapter's index list, so what a consumer sees on the event and what it sees
+ * on the returned {@link Batch.Result} are the same value by construction.
+ * One event per row and no de-duplication: two grants of the same role are two
+ * entries in the consumer's history even though they are one cache job.
+ */
+async function emitRowEvents<TRole extends string, TScope extends string>(
+  emit: ((event: IamEngineTypes.IMutationEvent<TRole, TScope>) => Promise<void>) | undefined,
+  result: {
+    readonly outcomes: readonly { readonly row: IActorRow<TRole, TScope>; readonly value: Batch.Change }[]
+  },
+  type: 'role.assigned' | 'role.revoked',
+): Promise<void> {
+  if (!emit) return
+  const at = Date.now()
+  for (const { row, value } of result.outcomes) {
+    const common = {
+      at,
+      subjectId: row.subjectId,
+      roleId: row.roleId,
+      ...(row.scope !== undefined && { scope: row.scope }),
+      ...(value.changed !== undefined && { changed: value.changed }),
+      ...actorOf(row.opts),
+    }
+    await emit(type === 'role.assigned' ? { type: 'role.assigned', ...common } : { type: 'role.revoked', ...common })
+  }
+}
+
+/**
  * Create an {@link IamEngineTypes.IAdmin} instance that delegates storage operations to the
  * given adapter and invalidates the engine's caches after mutations.
  *
@@ -308,7 +353,8 @@ export function enrichSubjectWithScopedRoles<TScope extends string = string>(
  * @template TScope    - Union of valid scope strings.
  *
  * @param adapter - The storage adapter for policies, roles, and subject data
- * @param engine  - The engine instance whose caches should be invalidated on writes
+ * @param engine  - The engine instance whose caches should be invalidated on
+ *   writes, and the optional sink its mutation events go to
  * @returns An {@link IamEngineTypes.IAdmin} object wired to the adapter and engine
  */
 export function createAdmin<
@@ -324,6 +370,16 @@ export function createAdmin<
       invalidateRoles(roleId?: TRole): void
       invalidateSubject(subjectId: string): void
     }
+    /**
+     * Where mutation events go. Omitted when nothing is listening - the engine
+     * leaves it off unless `hooks.onMutation` is wired - so an unobserved
+     * install allocates no events at all, which is what keeps a large
+     * `assignRoles` as cheap as it was before the bus existed.
+     *
+     * Structural, like `cache`, so the transaction-bound admin substitutes a
+     * buffering sink with no change here.
+     */
+    mutations?: { emit(event: IamEngineTypes.IMutationEvent<TRole, TScope>): void | Promise<void> }
   },
 ): IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
   const assertTriple = (subjectId: string, roleId: TRole, scope?: TScope): void => {
@@ -331,6 +387,25 @@ export function createAdmin<
     assertNonEmptyStringParam('roleId', roleId)
     assertOptionalNonEmptyStringParam('scope', scope)
   }
+  const sink = engine.mutations
+  /**
+   * Emit one mutation event, if anything is listening.
+   *
+   * Every call site is placed *after* the adapter write has resolved and after
+   * the cache invalidation, so a write that threw emits nothing and a consumer
+   * reacting to an event never reads a cache that still holds the old answer.
+   */
+  const emit =
+    sink === undefined
+      ? undefined
+      : async (event: IamEngineTypes.IMutationEvent<TRole, TScope>): Promise<void> => {
+          // Awaited, not fire-and-forget. A consumer writing this event to its
+          // own history table wants that write to have happened before
+          // `assignRole` resolves; otherwise a crash between the two loses the
+          // only record of the grant. The engine's sink already swallows
+          // throws, so awaiting cannot turn a hook bug into a failed write.
+          await sink.emit(event)
+        }
   /** One invalidation per subject, however many rows of the batch named it. */
   const invalidateEach = (rows: readonly IamEngineTypes.ITripleRow<TRole, TScope>[]): void => {
     for (const subjectId of new Set(rows.map((r) => r.subjectId))) engine.cache.invalidateSubject(subjectId)
@@ -352,10 +427,24 @@ export function createAdmin<
     if (!moved) {
       // Adapter has no in-place update, or nothing matched fromScope: fall back to
       // revoke + assign so the call still succeeds (assignRole is idempotent).
-      await adapter.revokeRole(subjectId, roleId, fromScope)
-      await adapter.assignRole(subjectId, roleId, toScope)
+      // The actor rides along on both halves so the fallback path records the
+      // same provenance the in-place update would have.
+      await adapter.revokeRole(subjectId, roleId, fromScope, { actor })
+      await adapter.assignRole(subjectId, roleId, toScope, { actor })
     }
     engine.cache.invalidateSubject(subjectId)
+    // One `role.scope-changed`, not a revoke + an assign, whichever path ran:
+    // the caller asked to move a grant, and reporting the fallback's mechanics
+    // would make the history depend on which adapter is installed.
+    await emit?.({
+      type: 'role.scope-changed',
+      at: Date.now(),
+      subjectId,
+      roleId,
+      ...(fromScope !== undefined && { fromScope }),
+      ...(toScope !== undefined && { toScope }),
+      ...(actor !== undefined && { actor }),
+    })
   }
 
   return {
@@ -366,16 +455,18 @@ export function createAdmin<
       assertNonEmptyStringParam('id', id)
       return adapter.getPolicy(id)
     },
-    async savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>) {
+    async savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>, opts?: IamEngineTypes.IActorOptions) {
       const { validatePolicy } = await _getValidate()
       assertValidOrThrow('policy', validatePolicy(policy))
-      await adapter.savePolicy(policy)
+      await adapter.savePolicy(policy, opts)
       engine.cache.invalidatePolicies()
+      await emit?.({ type: 'policy.saved', at: Date.now(), policyId: policy.id, ...actorOf(opts) })
     },
-    async deletePolicy(id: string) {
+    async deletePolicy(id: string, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('id', id)
       await adapter.deletePolicy(id)
       engine.cache.invalidatePolicies()
+      await emit?.({ type: 'policy.deleted', at: Date.now(), policyId: id, ...actorOf(opts) })
     },
     async listRoles() {
       return adapter.listRoles()
@@ -384,26 +475,47 @@ export function createAdmin<
       assertNonEmptyStringParam('id', id)
       return adapter.getRole(id)
     },
-    async saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
+    async saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>, opts?: IamEngineTypes.IActorOptions) {
       const { validateRole } = await _getValidate()
       assertValidOrThrow('role', validateRole(role))
-      await adapter.saveRole(role)
+      await adapter.saveRole(role, opts)
       engine.cache.invalidateRoles(role.id)
+      await emit?.({ type: 'role.saved', at: Date.now(), roleId: role.id, ...actorOf(opts) })
     },
-    async deleteRole(id: string) {
+    async deleteRole(id: string, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('id', id)
       await adapter.deleteRole(id)
-      engine.cache.invalidateRoles(id as TRole)
+      // The pre-existing cast: `TRole` is erased at runtime, so there is nothing
+      // to narrow against. A predicate here would be a cast wearing a disguise.
+      const roleId = id as TRole
+      engine.cache.invalidateRoles(roleId)
+      await emit?.({ type: 'role.deleted', at: Date.now(), roleId, ...actorOf(opts) })
     },
-    async assignRole(subjectId: string, roleId: TRole, scope?: TScope) {
+    async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions) {
       assertTriple(subjectId, roleId, scope)
-      await adapter.assignRole(subjectId, roleId, scope)
+      await adapter.assignRole(subjectId, roleId, scope, opts)
       engine.cache.invalidateSubject(subjectId)
+      await emit?.({
+        type: 'role.assigned',
+        at: Date.now(),
+        subjectId,
+        roleId,
+        ...(scope !== undefined && { scope }),
+        ...actorOf(opts),
+      })
     },
-    async revokeRole(subjectId: string, roleId: TRole, scope?: TScope) {
+    async revokeRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IRevokeOptions) {
       assertTriple(subjectId, roleId, scope)
-      await adapter.revokeRole(subjectId, roleId, scope)
+      await adapter.revokeRole(subjectId, roleId, scope, opts)
       engine.cache.invalidateSubject(subjectId)
+      await emit?.({
+        type: 'role.revoked',
+        at: Date.now(),
+        subjectId,
+        roleId,
+        ...(scope !== undefined && { scope }),
+        ...actorOf(opts),
+      })
     },
     async updateAssignmentScope(
       subjectId: string,
@@ -432,17 +544,24 @@ export function createAdmin<
       if (assignRoleMany) changed = await assignRoleMany(rows)
       else for (const r of rows) await adapter.assignRole(r.subjectId, r.roleId, r.scope, r.opts)
       invalidateEach(rows)
-      return appliedRows(rows, changed)
+      const result = appliedRows(rows, changed)
+      // Driven off `result.outcomes` rather than recomputing from `changed`, so
+      // the `changed` a consumer reads on the event and the one it reads on the
+      // batch result cannot disagree.
+      await emitRowEvents(emit, result, 'role.assigned')
+      return result
     },
-    async revokeRoles(rows: readonly IamEngineTypes.ITripleRow<TRole, TScope>[]) {
+    async revokeRoles(rows: readonly IamEngineTypes.IRevokeRow<TRole, TScope>[]) {
       if (rows.length === 0) return batchResult([])
       for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope)
       const revokeRoleMany = adapter.revokeRoleMany?.bind(adapter)
       let changed: readonly number[] | null = null
       if (revokeRoleMany) changed = await revokeRoleMany(rows)
-      else for (const r of rows) await adapter.revokeRole(r.subjectId, r.roleId, r.scope)
+      else for (const r of rows) await adapter.revokeRole(r.subjectId, r.roleId, r.scope, r.opts)
       invalidateEach(rows)
-      return appliedRows(rows, changed)
+      const result = appliedRows(rows, changed)
+      await emitRowEvents(emit, result, 'role.revoked')
+      return result
     },
     async moveRoleScopes(rows: readonly IamEngineTypes.IMoveRow<TRole, TScope>[]) {
       if (rows.length === 0) return batchResult([])
@@ -460,11 +579,15 @@ export function createAdmin<
     invalidateSubjects(subjectIds: readonly string[]) {
       for (const id of new Set(subjectIds)) engine.cache.invalidateSubject(id)
     },
-    async setAttributes(subjectId: string, attrs: IamPrimitives.Attributes) {
+    async setAttributes(subjectId: string, attrs: IamPrimitives.Attributes, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('subjectId', subjectId)
       assertAttributesParam(attrs)
-      await adapter.setSubjectAttributes(subjectId, attrs)
+      await adapter.setSubjectAttributes(subjectId, attrs, opts)
       engine.cache.invalidateSubject(subjectId)
+      // Key names only - see `IAttributesSetEvent`. `Object.keys` and not the
+      // bag itself, so the event cannot carry personal data into a consumer's
+      // durable log by accident.
+      await emit?.({ type: 'attributes.set', at: Date.now(), subjectId, keys: Object.keys(attrs), ...actorOf(opts) })
     },
     async getAttributes(subjectId: string) {
       assertNonEmptyStringParam('subjectId', subjectId)
@@ -482,6 +605,7 @@ export function createAdmin<
     async import(
       snapshot: IamEngineTypes.ISnapshot<TAction, TResource, TRole, TScope>,
       options: IamEngineTypes.IImportOptions = {},
+      opts?: IamEngineTypes.IActorOptions,
     ): Promise<IamEngineTypes.IImportResult> {
       if (snapshot?.schemaVersion !== 1) {
         const incoming =
@@ -506,6 +630,10 @@ export function createAdmin<
       const mode = options.mode ?? 'merge'
       let policiesDeleted = 0
       let rolesDeleted = 0
+      // Buffered and emitted after every write lands. An import that throws
+      // halfway is not a history of the rows that happened to go first.
+      const imported: IamEngineTypes.IMutationEvent<TRole, TScope>[] = []
+      const at = Date.now()
       if (mode === 'replace') {
         const [existingPolicies, existingRoles] = await Promise.all([adapter.listPolicies(), adapter.listRoles()])
         const incomingPolicyIds = new Set(snapshot.policies.map((p) => p.id))
@@ -514,20 +642,29 @@ export function createAdmin<
           if (!incomingPolicyIds.has(p.id)) {
             await adapter.deletePolicy(p.id)
             policiesDeleted++
+            if (emit) imported.push({ type: 'policy.deleted', at, policyId: p.id, ...actorOf(opts) })
           }
         }
         for (const r of existingRoles) {
           if (!incomingRoleIds.has(r.id)) {
             await adapter.deleteRole(r.id)
             rolesDeleted++
+            if (emit) imported.push({ type: 'role.deleted', at, roleId: r.id, ...actorOf(opts) })
           }
         }
       }
-      for (const p of snapshot.policies) await adapter.savePolicy(p)
-      for (const r of snapshot.roles) await adapter.saveRole(r)
+      for (const p of snapshot.policies) {
+        await adapter.savePolicy(p)
+        if (emit) imported.push({ type: 'policy.saved', at, policyId: p.id, ...actorOf(opts) })
+      }
+      for (const r of snapshot.roles) {
+        await adapter.saveRole(r)
+        if (emit) imported.push({ type: 'role.saved', at, roleId: r.id, ...actorOf(opts) })
+      }
       // Bulk write touched every cache; invalidate once instead of per-row.
       engine.cache.invalidatePolicies()
       engine.cache.invalidateRoles()
+      if (emit) for (const event of imported) await emit(event)
       return {
         policiesAdded: snapshot.policies.length,
         policiesDeleted,

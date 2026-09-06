@@ -165,7 +165,7 @@ describe('fail-skip matrix - path A: every group at an ABAC DYNAMIC cell throws 
       mode: 'production',
       hooks: { onPolicyError: (err) => (reported = err) },
     })
-    const development = new IamEngine({ adapter: buildPathAAdapter(), defaultEffect: 'deny' })
+    const development = new IamEngine({ adapter: buildPathAAdapter(), defaultEffect: 'deny', mode: 'development' })
     const resource = { type: 'doc', attributes: {} }
     expect(await production.can('user-1', 'read', resource)).toBe(false)
     expect(await production.can('user-1', 'read', resource)).toBe(
@@ -181,7 +181,12 @@ describe('fail-skip matrix - path A: every group at an ABAC DYNAMIC cell throws 
       allowFailOpen: true,
       mode: 'production',
     })
-    const development = new IamEngine({ adapter: buildPathAAdapter(), defaultEffect: 'allow', allowFailOpen: true })
+    const development = new IamEngine({
+      adapter: buildPathAAdapter(),
+      defaultEffect: 'allow',
+      allowFailOpen: true,
+      mode: 'development',
+    })
     const resource = { type: 'doc', attributes: {} }
     expect(await production.can('user-1', 'read', resource)).toBe(true)
     expect(await production.can('user-1', 'read', resource)).toBe(
@@ -259,7 +264,11 @@ describe('fail-skip matrix - path B: the rbacResidual policy throws (rbacVote ca
       mode: 'production',
       hooks: { onPolicyError: (err) => (reported = err) },
     })
-    const development = new IamEngine({ adapter: buildPathBAdapter(unrelatedResidualAllow), defaultEffect: 'deny' })
+    const development = new IamEngine({
+      adapter: buildPathBAdapter(unrelatedResidualAllow),
+      defaultEffect: 'deny',
+      mode: 'development',
+    })
     const resource = { type: 'doc2', attributes: {} }
     expect(await production.can('user-1', 'read', resource)).toBe(false)
     expect(await production.can('user-1', 'read', resource)).toBe(
@@ -276,6 +285,7 @@ describe('fail-skip matrix - path B: the rbacResidual policy throws (rbacVote ca
       mode: 'production',
     })
     const development = new IamEngine({
+      mode: 'development',
       adapter: buildPathBAdapter(unrelatedFlatAllow),
       defaultEffect: 'allow',
       allowFailOpen: true,
@@ -348,7 +358,7 @@ describe("fail-closed matrix - path C: lookup()'s own residual-policy loop throw
       mode: 'production',
       hooks: { onPolicyError: (err) => (reported = err) },
     })
-    const development = new IamEngine({ adapter: buildPathCAdapter(true), defaultEffect: 'deny' })
+    const development = new IamEngine({ adapter: buildPathCAdapter(true), defaultEffect: 'deny', mode: 'development' })
     const resource = { type: 'doc3', attributes: {} }
     expect(await production.can('user-1', 'read', resource)).toBe(false)
     expect(await production.can('user-1', 'read', resource)).toBe(
@@ -364,7 +374,12 @@ describe("fail-closed matrix - path C: lookup()'s own residual-policy loop throw
       allowFailOpen: true,
       mode: 'production',
     })
-    const development = new IamEngine({ adapter: buildPathCAdapter(true), defaultEffect: 'allow', allowFailOpen: true })
+    const development = new IamEngine({
+      adapter: buildPathCAdapter(true),
+      defaultEffect: 'allow',
+      allowFailOpen: true,
+      mode: 'development',
+    })
     const resource = { type: 'doc3', attributes: {} }
     expect(await production.can('user-1', 'read', resource)).toBe(false)
     expect(await production.can('user-1', 'read', resource)).toBe(

@@ -1,15 +1,5 @@
 import { sql } from 'drizzle-orm'
-import {
-  check,
-  foreignKey,
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-  unique,
-  uniqueIndex,
-} from 'drizzle-orm/sqlite-core'
+import { check, foreignKey, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl } from '../../../core/types'
 
@@ -17,8 +7,9 @@ import type { AccessControl } from '../../../core/types'
  * SQLite schema for the duck-iam IamDrizzle adapter. Every payload column is TEXT, so
  * the adapter must run in `json: 'string'` mode. Global rows (NULL scope) are
  * de-duplicated via a `COALESCE(scope, '')` expression unique index.
- * `created_by`/`updated_by` are left NULL by the adapter (no actor context); see the
- * Postgres schema for fuller notes.
+ * `created_by`/`updated_by` are written from the actor the caller supplies - the
+ * adapter is one class across all three dialects - and stay NULL when none is
+ * named; see the Postgres schema for fuller notes.
  */
 
 /** Mirrors {@link AccessControl.CombiningAlgorithm}. */
@@ -53,7 +44,11 @@ export const iamPolicies = sqliteTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
-    unique('uq_iam_policies_name').on(t.name),
+    // No unique index on `name`. Nothing in the engine resolves a policy by name
+    // - `id` is the key everywhere - so uniqueness here only bought a label
+    // nobody reads, at the cost of making pg the one adapter where a second
+    // policy with a duplicated name is impossible. Two adapters disagreeing
+    // about whether a write succeeds is the failure this schema must not have.
     check(
       'ch_iam_policies_algorithm_valid',
       sql`${t.algorithm} IN ('deny-overrides','allow-overrides','first-match','highest-priority')`,
@@ -87,11 +82,16 @@ export const iamRoles = sqliteTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    uniqueIndex('uq_iam_roles_name_scope').on(t.name, sql`coalesce(${t.scope}, '')`),
+    // Same as `iam_policies`: no unique index on (name, scope). Roles resolve by
+    // `id`, and the other five adapters accept a duplicate name happily.
     index('idx_iam_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
     check(
       'ch_iam_roles_name_not_blank',
       sql`trim(${t.name}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
+    check(
+      'ch_iam_roles_scope_not_blank',
+      sql`${t.scope} IS NULL OR trim(${t.scope}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
     ),
   ],
 )
@@ -135,6 +135,10 @@ export const iamAssignments = sqliteTable(
     check(
       'ch_iam_assignments_subject_not_blank',
       sql`trim(${t.subjectId}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
+    check(
+      'ch_iam_assignments_scope_not_blank',
+      sql`${t.scope} IS NULL OR trim(${t.scope}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
     ),
     check(
       'ch_iam_assignments_starts_before_expires',

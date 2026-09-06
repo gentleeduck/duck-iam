@@ -39,7 +39,9 @@ describe('Integration: config -> engine -> evaluate', () => {
       },
     })
 
-    const engine = access.createEngine({ adapter, cacheTTL: 0 })
+    // `mode` defaults to 'production' now; this flow asserts on the rich
+    // `check()`/`explain()` output, which only development returns.
+    const engine = access.createEngine({ adapter, cacheTTL: 0, mode: 'development' })
 
     // viewer can read, cannot create
     expect(await engine.can('alice', 'read', { type: 'post', attributes: {} })).toBe(true)
@@ -77,7 +79,7 @@ describe('Integration: config -> engine -> evaluate', () => {
       roles: [viewer, editor],
       assignments: { bob: ['editor'] },
     })
-    const engine = access.createEngine({ adapter, cacheTTL: 0 })
+    const engine = access.createEngine({ adapter, cacheTTL: 0, mode: 'development' })
 
     const map = await engine.permissions(
       'bob',
@@ -116,7 +118,7 @@ describe('Integration: config -> engine -> evaluate', () => {
       assignments: { charlie: ['admin'] },
       policies: [denyDraftPolicy],
     })
-    const engine = access.createEngine({ adapter, cacheTTL: 0 })
+    const engine = access.createEngine({ adapter, cacheTTL: 0, mode: 'development' })
 
     // Admin can delete published posts (deny condition doesn't match, allow wins)
     expect(

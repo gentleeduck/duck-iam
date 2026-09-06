@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { MAX_CONDITION_DEPTH } from '../../conditions/conditions.libs'
 import { IamEngine } from '../../engine/engine'
+import { evaluatePolicy } from '../../evaluate/evaluate'
+import { rolesToPolicy } from '../../rbac/rbac'
 import type { AccessControl } from '../../types'
 import { validatePolicy, validateRole } from '../validate'
 
@@ -114,31 +116,58 @@ describe('validateRole checks permission condition contents', () => {
 })
 
 /**
- * OPEN, and deliberately not fixed here: validation closes the front door, but a
- * role reaching the engine through an adapter that does not validate - a
- * hand-edited file row, a redis or SQL row written by another service - still
- * decides differently in each mode. `safeEval` catches at whole-policy scope and
- * `rolesToPolicy` folds *every* role into the single `__rbac__` policy, so one
- * rotten permission drops every RBAC grant for that request; the compiled path
- * answers from the ROLE_MASK bit before it reaches the group that throws.
+ * CLOSED. This block used to state a split it could not fix: a role reaching the
+ * engine through an adapter that does not validate - a hand-edited file row, a
+ * redis or SQL row written by another service - decided differently in each mode.
+ * `safeEval` caught at whole-policy scope and `rolesToPolicy` folds *every* role
+ * into the single `__rbac__` policy, so one rotten permission dropped every RBAC
+ * grant for that request; the compiled path answered from the ROLE_MASK bit
+ * before it reached the group that throws.
  *
- * Production is the one that is right: `good`'s grant is independent and should
- * not be voided by `rotten`'s malformed condition. Closing it means catching per
- * *rule* rather than per policy - the XACML Indeterminate-per-rule model - which
- * touches every policy and the `mayThrow` fast-path delegation, so it is its own
- * change. This test states the split rather than asserting a fix, so the day it
- * is closed this file goes red and gets updated.
+ * Production was the one that was right - `good`'s grant is independent and must
+ * not be voided by `rotten`'s malformed condition - and the interpreter now
+ * agrees: a rule that throws inside the generated `__rbac__` union abstains
+ * instead of poisoning the policy (see `evaluatePolicy`'s `rulesAbstainOnThrow`).
+ * That is safe only there. `rolesToPolicy` emits `effect: 'allow'` and nothing
+ * else, so in an allow-only union a skipped rule can only cost the subject a
+ * grant it would have got, never suppress a denial. An authored policy still
+ * fails closed at whole-policy scope, which the ABAC case below pins.
  */
-describe('residual: a throwing role permission is still handled at different granularities', () => {
+describe('residual: a throwing role permission no longer splits the two modes', () => {
   async function can(mode: 'development' | 'production') {
     const adapter = new IamMemoryAdapter({ assignments: { u1: ['rotten', 'good'] }, roles: [rotten, good] })
     const engine = new IamEngine({ adapter, cacheTTL: 0, hooks: { onPolicyError: vi.fn() }, mode })
     return await engine.can('u1', 'read', { attributes: {}, type: 'secret' })
   }
 
-  it('production keeps the unrelated grant; development loses the whole RBAC policy', async () => {
+  it('both modes keep the unrelated grant', async () => {
     expect(await can('production')).toBe(true)
-    expect(await can('development')).toBe(false)
+    expect(await can('development')).toBe(true)
+  })
+
+  // Abstaining is not swallowing: the interpreter still hands the throw to the
+  // error handler before skipping the rule. Asserted here rather than through
+  // `engine.can` because the engine never gets that far - `good`'s permission is
+  // unconditional, so the compiled table answers from the grant mask bit without
+  // ever reaching the group that throws, in both modes. That is why the split
+  // above was invisible until an unconditional grant sat beside a rotten one.
+  it('hands the throw to the error handler before abstaining', () => {
+    const seen: Error[] = []
+    const decision = evaluatePolicy(
+      rolesToPolicy([rotten, good], 'flat'),
+      {
+        action: 'read',
+        resource: { attributes: {}, type: 'secret' },
+        subject: { attributes: {}, id: 'u1', roles: ['rotten', 'good'] },
+      },
+      'deny',
+      undefined,
+      (err) => seen.push(err),
+    )
+    expect(decision.allowed).toBe(true)
+    expect(decision.rule?.id).toBe('__rbac__#1')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.message).toContain('BOGUS')
   })
 })
 
@@ -161,7 +190,11 @@ describe('permission condition depth matches what the evaluator accepts', () => 
       JSON.stringify({ id: 'r', name: 'R', permissions: [{ action: 'read', conditions, resource: 'secret' }] }),
     )
     const adapter = new IamMemoryAdapter({ assignments: { u1: ['r'] }, roles: [role] })
-    const engine = new IamEngine({ adapter, cacheTTL: 0, hooks: { onPolicyError: vi.fn() } })
+    // Pinned to development: `mode` defaults to 'production' since 5.9.0, and
+    // the two paths genuinely disagree about a throwing permission (the test
+    // just above pins that divergence). `validateRole` is written against the
+    // development evaluator, so that is the one this compares it to.
+    const engine = new IamEngine({ adapter, cacheTTL: 0, hooks: { onPolicyError: vi.fn() }, mode: 'development' })
     return await engine.can('u1', 'read', { attributes: {}, type: 'secret' })
   }
 

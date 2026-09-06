@@ -117,6 +117,10 @@ describe('IamRedisAdapter connection failure', () => {
     // promise.
     let failNext = true
     const client = clientFailingOn('smembers')
+    // `assignRole` reads the roles hash first and refuses an unknown role, so
+    // the grant below has to name one the client reports as stored - otherwise
+    // it never reaches the `sadd` this test is about.
+    Reflect.set(client, 'hget', async () => JSON.stringify({ id: 'editor', name: 'Editor', permissions: [] }))
     Reflect.set(client, 'sadd', async () => {
       if (failNext) {
         failNext = false

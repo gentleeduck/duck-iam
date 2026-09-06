@@ -9,7 +9,6 @@ import {
   mysqlEnum,
   mysqlTable,
   primaryKey,
-  unique,
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/mysql-core'
@@ -20,8 +19,8 @@ import type { AccessControl, IamPrimitives } from '../../../core/types'
  * MySQL schema for the duck-iam IamDrizzle adapter. CHECK constraints are enforced on
  * MySQL 8.0.16+ and parsed-but-ignored below that. No partial indexes, so global rows
  * (NULL scope) are de-duplicated via a `COALESCE(scope, '')` functional unique index.
- * `created_by`/`updated_by` are left NULL by the adapter (no actor context); see the
- * Postgres schema for fuller notes.
+ * `created_by`/`updated_by` are written from the actor the caller supplies and stay
+ * NULL when none is named; see the Postgres schema for fuller notes.
  */
 
 /** Mirrors {@link AccessControl.CombiningAlgorithm}. */
@@ -56,7 +55,11 @@ export const iamPolicies = mysqlTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
-    unique('uq_iam_policies_name').on(t.name),
+    // No unique index on `name`. Nothing in the engine resolves a policy by name
+    // - `id` is the key everywhere - so uniqueness here only bought a label
+    // nobody reads, at the cost of making pg the one adapter where a second
+    // policy with a duplicated name is impossible. Two adapters disagreeing
+    // about whether a write succeeds is the failure this schema must not have.
     check('ch_iam_policies_name_not_blank', sql`${t.name} REGEXP '[^[:space:]]'`),
     check('ch_iam_policies_version_positive', sql`${t.version} >= 1`),
   ],
@@ -70,7 +73,10 @@ export const iamRoles = mysqlTable(
     name: varchar('name', { length: 191 }).notNull(),
     description: varchar('description', { length: 1024 }),
     permissions: json('permissions').$type<AccessControl.IPermission[]>().notNull(),
-    inherits: json('inherits').$type<string[]>().notNull(),
+    // Expression default, the only form MySQL accepts for a JSON column
+    // (8.0.13+). Without it `inherits` was the one column an insert had to
+    // supply here and nowhere else.
+    inherits: json('inherits').$type<string[]>().notNull().default(sql`('[]')`),
     scope: varchar('scope', { length: 191 }),
     metadata: json('metadata').$type<IamPrimitives.Attributes>(),
     createdBy: varchar('created_by', { length: 191 }),
@@ -83,9 +89,11 @@ export const iamRoles = mysqlTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    uniqueIndex('uq_iam_roles_name_scope').on(t.name, sql`(coalesce(${t.scope}, ''))`),
+    // Same as `iam_policies`: no unique index on (name, scope). Roles resolve by
+    // `id`, and the other five adapters accept a duplicate name happily.
     index('idx_iam_roles_scope').on(t.scope),
     check('ch_iam_roles_name_not_blank', sql`${t.name} REGEXP '[^[:space:]]'`),
+    check('ch_iam_roles_scope_not_blank', sql`${t.scope} IS NULL OR ${t.scope} REGEXP '[^[:space:]]'`),
   ],
 )
 
@@ -124,8 +132,13 @@ export const iamAssignments = mysqlTable(
     uniqueIndex('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`(coalesce(${t.scope}, ''))`),
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
+    // Unfiltered where Postgres and SQLite use `WHERE scope IS NOT NULL`:
+    // MySQL has no partial indexes, and the scoped-subject lookup still needs
+    // the composite rather than a subject scan plus a filter.
+    index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope),
     index('idx_iam_assignments_expires_at').on(t.expiresAt),
     check('ch_iam_assignments_subject_not_blank', sql`${t.subjectId} REGEXP '[^[:space:]]'`),
+    check('ch_iam_assignments_scope_not_blank', sql`${t.scope} IS NULL OR ${t.scope} REGEXP '[^[:space:]]'`),
     check(
       'ch_iam_assignments_starts_before_expires',
       sql`${t.startsAt} IS NULL OR ${t.expiresAt} IS NULL OR ${t.startsAt} < ${t.expiresAt}`,

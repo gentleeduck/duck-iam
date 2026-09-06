@@ -129,6 +129,14 @@ function makeDrizzleMock(): {
           const held = new Set(table.map(identity))
           const fresh: Row[] = []
           for (const row of Array.isArray(data) ? data : [data]) {
+            // `fk_iam_assignments_role`: the shipped schema will not store a
+            // grant naming a role that does not exist, and a mock that accepts
+            // one lets this suite certify behaviour no real database has.
+            if (table === tables.assignments && !tables.roles.some((r) => r.id === row.roleId)) {
+              throw new Error(
+                `insert or update on table "iam_assignments" violates foreign key constraint "fk_iam_assignments_role"`,
+              )
+            }
             if (held.has(identity(row))) continue
             held.add(identity(row))
             table.push({ ...row })
@@ -172,11 +180,21 @@ function makeDrizzleMock(): {
       }) as unknown as TestConfig['db']['update'],
       delete: vi.fn((tableRef: unknown) => {
         const table = tableForRef(tableRef)
+        const cascades = tableRef === tableRefs.roles
         return {
           where(c: unknown) {
             const removed: Row[] = []
             for (let i = table.length - 1; i >= 0; i--) {
               if (rowMatches(table[i]!, c)) removed.unshift(...table.splice(i, 1))
+            }
+            // `fk_iam_assignments_role` is `ON DELETE CASCADE` on all three
+            // dialects, so deleting a role takes its grants. Without this the
+            // mock certified an orphan grant no real schema can produce.
+            if (cascades && removed.length > 0) {
+              const gone = new Set(removed.map((r) => String(r.id)))
+              for (let i = tables.assignments.length - 1; i >= 0; i--) {
+                if (gone.has(String(tables.assignments[i]?.roleId))) tables.assignments.splice(i, 1)
+              }
             }
             return statement(removed)
           },
@@ -373,6 +391,12 @@ describe('IamDrizzleAdapter', () => {
   })
 
   describe('IamAdapter.ISubjectStore', () => {
+    // `fk_iam_assignments_role` refuses a grant naming a role that does not
+    // exist, so the grants below name roles the store holds.
+    beforeEach(() => {
+      mock.tables.roles.push({ id: 'editor' }, { id: 'viewer' })
+    })
+
     it('assignRole + getSubjectRoles dedups', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
@@ -549,11 +573,15 @@ describe('IamDrizzleAdapter', () => {
     })
   })
 
-  describe('malformed-row drop (P0)', () => {
+  describe('malformed-row handling (P0)', () => {
     // IamDrizzle's JSON-stringified columns can desync from the row shape via
-    // partial migrations or manual SQL edits. The adapter must validate +
-    // drop instead of letting a corrupt row escape into the evaluator.
-    it('drops a policy row whose rules column is unparseable', async () => {
+    // partial migrations or manual SQL edits. The adapter must never let one
+    // escape into the evaluator - but the exit differs by table. A *role* row
+    // is dropped and reported: permissions are allow-only, so losing one only
+    // removes a grant. A *policy* row is reported and then throws, because the
+    // row that will not parse may have been the rule saying NO. See
+    // `iamUnreadablePolicy`.
+    it('refuses a policy row whose rules column is unparseable', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S>({
@@ -580,12 +608,12 @@ describe('IamDrizzleAdapter', () => {
         targets: null,
       })
 
-      const list = await adapter.listPolicies()
-      expect(list.map((p) => p.id)).toEqual(['good'])
+      // Not `['good']`: serving the readable half is the fail-open.
+      await expect(adapter.listPolicies()).rejects.toThrow(/policy "bad" cannot be read and will not be skipped/)
       expect(errors[0]?.rowId).toBe('bad')
     })
 
-    it('drops a policy row that parses but fails shape validation', async () => {
+    it('refuses a policy row that parses but fails shape validation', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S>({
@@ -602,8 +630,7 @@ describe('IamDrizzleAdapter', () => {
         rules: '[]',
         targets: null,
       })
-      const list = await adapter.listPolicies()
-      expect(list).toEqual([])
+      await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
       expect(errors[0]?.rowId).toBe('bad-algo')
     })
 
@@ -637,7 +664,7 @@ describe('IamDrizzleAdapter', () => {
       expect(errors[0]?.rowId).toBe('bad')
     })
 
-    it('getPolicy returns null when row fails validation', async () => {
+    it('getPolicy throws when the row fails validation, rather than reading as absent', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S>({
@@ -653,7 +680,9 @@ describe('IamDrizzleAdapter', () => {
         rules: '{not json',
         targets: null,
       })
-      expect(await adapter.getPolicy('bad')).toBeNull()
+      // `null` is the answer for a row that is not there; a corrupt row must
+      // not be able to impersonate a deleted one.
+      await expect(adapter.getPolicy('bad')).rejects.toThrow(/cannot be read/)
       expect(errors[0]?.rowId).toBe('bad')
     })
   })
@@ -740,11 +769,19 @@ describe('IamDrizzleAdapter', () => {
           }) as unknown as MysqlTestConfig['db']['update'],
           delete: vi.fn((tableRef: unknown) => {
             const table = tableForRef(tableRef)
+            const cascades = tableRef === tableRefs.roles
             return {
               // Also `returning()`-free, for the same reason as `ignore()`.
               where: (cond: unknown) => {
+                const gone = new Set<string>()
                 for (let i = table.length - 1; i >= 0; i--) {
-                  if (rowMatches(table[i]!, cond)) table.splice(i, 1)
+                  if (rowMatches(table[i]!, cond)) gone.add(String(table.splice(i, 1)[0]?.id))
+                }
+                // `fk_iam_assignments_role` is `ON DELETE CASCADE` here too.
+                if (cascades) {
+                  for (let i = tables.assignments.length - 1; i >= 0; i--) {
+                    if (gone.has(String(tables.assignments[i]?.roleId))) tables.assignments.splice(i, 1)
+                  }
                 }
                 return Promise.resolve(undefined)
               },

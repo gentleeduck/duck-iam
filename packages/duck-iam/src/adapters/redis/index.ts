@@ -1,8 +1,14 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
-import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import {
+  iamAssertSavablePolicy,
+  iamAssertSavableRole,
+  iamNormalizePolicy,
+  iamUnreadablePolicy,
+} from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
@@ -29,6 +35,15 @@ export namespace IamRedis {
     smembers(key: string): Promise<string[]>
     /** Optional Lua EVAL for cross-process atomic RMW on assignments; targets ioredis positional shape. */
     eval?(script: string, numkeys: number, ...keysAndArgs: string[]): Promise<unknown>
+    /**
+     * Optional key listing, used only by `deleteRole` to find the grants that
+     * named the deleted role. ioredis and node-redis both spell it
+     * `keys(pattern): Promise<string[]>`, unlike `SCAN`, whose cursor and
+     * options differ between the two. Without it `deleteRole` cannot reach the
+     * assignment sets and says so through `onPolicyError` rather than leaving
+     * the orphans unmentioned.
+     */
+    keys?(pattern: string): Promise<string[]>
   }
 
   /** Describes the configuration required to construct a {@link IamRedisAdapter}. */
@@ -110,8 +125,9 @@ export class IamRedisAdapter<
     try {
       parsed = JSON.parse(raw)
     } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
-      return null
+      const detail = err instanceof Error ? err : new Error(String(err))
+      this._reportPolicyError(detail, rowId)
+      throw iamUnreadablePolicy('redis', rowId, detail.message)
     }
     const policy = parsePolicyRow<TAction, TResource, TRole>(parsed)
     if (policy === null) {
@@ -119,7 +135,7 @@ export class IamRedisAdapter<
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
-      return null
+      throw iamUnreadablePolicy('redis', rowId, issues)
     }
     return policy
   }
@@ -406,13 +422,59 @@ export class IamRedisAdapter<
   }
 
   /**
-   * Removes a role by ID.
+   * Removes a role by ID, and with it every grant that named it.
+   *
+   * The grants go too because the SQL schemas take them: `fk_iam_assignments_role`
+   * is `ON DELETE CASCADE`, so `deleteRole('editor')` left `getSubjectRoles`
+   * returning `editor` here and `[]` on drizzle and prisma - one call, two
+   * answers. Keeping the orphan is not the harmless option either: it reads as
+   * a grant, `assignRole` now refuses to create one like it, and recreating a
+   * role under the reused id hands it back to everyone who once held it,
+   * without an operator granting anything.
+   *
+   * This is the one operation that touches the whole assignment keyspace, so it
+   * costs a `KEYS` sweep. It is an admin-rate call - deleting a role is not on
+   * any request path - and the alternative, a reverse index, would cascade only
+   * for grants written after the index existed and silently miss every older
+   * one.
    *
    * @param id - Identifies the role to delete.
-   * @returns Resolves once the HDEL completes.
+   * @returns Resolves once the role and its grants are removed.
    */
   async deleteRole(id: string): Promise<void> {
     await this._client.hdel(this._rolesKey(), id)
+    await this._revokeEverywhere(id)
+  }
+
+  /**
+   * Drops every assignment naming `roleId`, scoped and global alike.
+   *
+   * Each key's rewrite goes through {@link _runSerialised} for the same reason
+   * the migration path does: the members are read, filtered and removed in
+   * separate commands, and a concurrent `assignRole` on that subject must not
+   * land between the read and the `SREM`.
+   */
+  private async _revokeEverywhere(roleId: string): Promise<void> {
+    const list = this._client.keys
+    if (list === undefined) {
+      this._reportPolicyError(
+        new Error(
+          'the role was deleted but its grants were not: this client exposes no `keys`, ' +
+            'so the assignment sets cannot be enumerated. Revoke them explicitly, or pass a ' +
+            'client (ioredis, node-redis v4+) that implements it.',
+        ),
+        `roles:${roleId}`,
+      )
+      return
+    }
+    const keys = await list.call(this._client, `${this._prefix}assignments:*`)
+    for (const key of keys) {
+      await this._runSerialised(key, async () => {
+        const stale = (await this._client.smembers(key)).filter((m) => this._decodeAssignment(m).role === roleId)
+        if (stale.length === 0) return
+        await this._client.srem(key, ...stale)
+      })
+    }
   }
 
   /**
@@ -462,6 +524,8 @@ export class IamRedisAdapter<
    *
    * Idempotent thanks to Redis set semantics.
    *
+   * A role that is not stored is refused - see {@link iamAssertRoleExists}.
+   *
    * @param subjectId - Identifies the subject receiving the role.
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
@@ -470,9 +534,16 @@ export class IamRedisAdapter<
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('redis', scope)
     iamAssertNoAssignOptions('redis', opts)
+    // Encode before the lookup: an id this encoding cannot carry is refused for
+    // that reason, rather than reported as a missing role after a wasted round
+    // trip.
+    const member = this._encodeAssignment(roleId, scope)
+    // One extra round trip per grant, and `hget` rather than `hexists` so the
+    // operator-supplied client interface does not have to grow a method.
+    iamAssertRoleExists('redis', (await this._client.hget(this._rolesKey(), roleId)) !== null)
     const key = this._assignmentsKey(subjectId)
     // Serialise against the migration path.
-    await this._runSerialised(key, () => this._client.sadd(key, this._encodeAssignment(roleId, scope)))
+    await this._runSerialised(key, () => this._client.sadd(key, member))
   }
 
   /**

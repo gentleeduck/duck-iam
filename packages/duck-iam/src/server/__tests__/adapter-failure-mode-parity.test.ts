@@ -130,16 +130,23 @@ describe('a throwing getUserId denies through the adapter, not the framework', (
  */
 describe('iamExtractEnvironment caps every IP source', () => {
   it('drops an oversized req.ip', () => {
-    expect(iamExtractEnvironment({ ip: 'x'.repeat(100_000) }).ip).toBeUndefined()
+    expect(iamExtractEnvironment({ ip: 'x'.repeat(100_000) }, { trustProxy: true }).ip).toBeUndefined()
   })
 
   it('takes the leftmost hop of a comma-joined req.ip', () => {
-    expect(iamExtractEnvironment({ ip: '1.1.1.1, 2.2.2.2' }).ip).toBe('1.1.1.1')
+    expect(iamExtractEnvironment({ ip: '1.1.1.1, 2.2.2.2' }, { trustProxy: true }).ip).toBe('1.1.1.1')
   })
 
   // Control: an ordinary address still passes through untouched.
   it('keeps a normal req.ip', () => {
-    expect(iamExtractEnvironment({ ip: '203.0.113.7' }).ip).toBe('203.0.113.7')
+    expect(iamExtractEnvironment({ ip: '203.0.113.7' }, { trustProxy: true }).ip).toBe('203.0.113.7')
+  })
+
+  // The parity this describe exists for is now flat: with no `trustProxy` the
+  // ip is undefined on every integration, so no IP-conditioned rule can read
+  // one way on express and another on hono.
+  it('reports no ip at all unless the app opts in', () => {
+    expect(iamExtractEnvironment({ ip: '203.0.113.7' }).ip).toBeUndefined()
   })
 })
 

@@ -63,7 +63,7 @@ export function createIam<
 
     when: () => new When<TAction, TResource, TRole, TScope, TContext>(),
 
-    createEngine: <TMode extends AccessControl.Mode = 'development'>(
+    createEngine: <TMode extends AccessControl.Mode = 'production'>(
       config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
     ) => new IamEngine<TAction, TResource, TRole, TScope, TMode>(config),
 

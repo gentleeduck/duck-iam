@@ -14,6 +14,26 @@ export function iamAssertAttributesParam(
     const got = attrs === null ? 'null' : Array.isArray(attrs) ? 'array' : typeof attrs
     throw new Error(`[@gentleduck/iam:${adapter}] attributes for "${subjectId}" must be a plain object (got ${got})`)
   }
+  if (hasForbiddenAttributeKey(attrs)) {
+    throw new Error(
+      `[@gentleduck/iam:${adapter}] attributes for "${subjectId}" must not contain a ${FORBIDDEN_ATTRIBUTE_KEY} key`,
+    )
+  }
+}
+
+/**
+ * The one attribute name that cannot be stored and read back as itself.
+ *
+ * `__proto__` is an accessor on `Object.prototype`, so a plain assignment of it
+ * sets the target's prototype instead of adding a key. `JSON.parse` makes it an
+ * own property, which is how one reaches storage in the first place - an admin
+ * request body is parsed, spread into a bag, and written.
+ */
+const FORBIDDEN_ATTRIBUTE_KEY = '__proto__'
+
+/** Does this bag carry the one key that cannot survive a round trip intact? */
+function hasForbiddenAttributeKey(value: object): boolean {
+  return Object.hasOwn(value, FORBIDDEN_ATTRIBUTE_KEY)
 }
 
 /** True for a JSON scalar: `string | number | boolean | null`. */
@@ -59,10 +79,29 @@ export function iamIsAttributeValue(value: unknown): value is IamPrimitives.Attr
  */
 export function iamNarrowAttributes(value: unknown): IamPrimitives.Attributes | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  // Refused outright, not carried across as an own key. `iamIsAttributeValue`
+  // is happy with the value - a flat record of scalars is legitimate - so the
+  // bag would read back with a `__proto__` key and nothing else, and every
+  // attribute the operator meant to store under it would be *absent*. Absent
+  // is the dangerous answer: it retires every deny rule that tests the
+  // attribute, which is the same reason a corrupt bag throws instead of
+  // reading as `{}`. Refusing hands the caller the row to repair.
+  if (hasForbiddenAttributeKey(value)) return null
   const out: IamPrimitives.Attributes = {}
   for (const [key, entry] of Object.entries(value)) {
     if (!iamIsAttributeValue(entry)) return null
-    out[key] = entry
+    // `out[key] = entry` runs the inherited `__proto__` SETTER for that one key
+    // name, and two things go wrong at once. The key the operator stored is not
+    // in the bag, so a deny rule testing it reads `undefined` and retires; and
+    // the value becomes the bag's prototype, so every key inside it answers by
+    // inheritance - a stored `{"__proto__":{"tier":"gold"}}` makes
+    // `attributes.tier` read `'gold'` for a subject nobody granted it. Both
+    // halves are reachable from any row a hand-written script or an older
+    // version wrote, and `iamIsAttributeValue` waves the value through because
+    // a flat record of scalars is a legitimate attribute value.
+    //
+    // `defineProperty` stores it as the own data property it was written as.
+    Object.defineProperty(out, key, { configurable: true, enumerable: true, value: entry, writable: true })
   }
   return out
 }

@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import {
   check,
+  customType,
   foreignKey,
   index,
   integer,
@@ -19,8 +20,9 @@ import type { AccessControl, IamPrimitives } from '../../../core/types'
  * PostgreSQL schema for the duck-iam IamDrizzle adapter. Run `drizzle-kit generate`
  * against this file to emit migrations.
  *
- * `created_by`/`updated_by` are left NULL by the adapter (no actor context); an
- * external trigger or admin write sets them. Every delete here is a hard delete -
+ * `created_by` is written from `assignRole`'s `opts.actor` and `updated_by` from
+ * `updateAssignmentScope`'s `actor`; both stay NULL when the caller names none,
+ * and an external trigger may still set them. Every delete here is a hard delete -
  * `deletePolicy`/`deleteRole` so a name can be reused, `revokeRole` because a
  * revoked grant has no reason to be retained. No `deleted_at` column on any table.
  * Constraint naming: pk_ fk_ uq_ idx_ ch_.
@@ -55,7 +57,11 @@ export const iamPolicies = pgTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
-    unique('uq_iam_policies_name').on(t.name),
+    // No unique index on `name`. Nothing in the engine resolves a policy by name
+    // - `id` is the key everywhere - so uniqueness here only bought a label
+    // nobody reads, at the cost of making pg the one adapter where a second
+    // policy with a duplicated name is impossible. Two adapters disagreeing
+    // about whether a write succeeds is the failure this schema must not have.
     // Containment search over rules, e.g. `rules @> '[{"actions":["read"]}]'`.
     index('idx_iam_policies_rules_gin').using('gin', t.rules),
     check('ch_iam_policies_name_not_blank', sql`${t.name} ~ '[^[:space:]]'`),
@@ -84,7 +90,8 @@ export const iamRoles = pgTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    unique('uq_iam_roles_name_scope').on(t.name, t.scope).nullsNotDistinct(),
+    // Same as `iam_policies`: no unique index on (name, scope). Roles resolve by
+    // `id`, and the other five adapters accept a duplicate name happily.
     index('idx_iam_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
     // Containment search over permissions, e.g. `permissions @> '[{"resource":"post"}]'`.
     index('idx_iam_roles_permissions_gin').using('gin', t.permissions),
@@ -92,6 +99,40 @@ export const iamRoles = pgTable(
     check('ch_iam_roles_scope_not_blank', sql`${t.scope} IS NULL OR ${t.scope} ~ '[^[:space:]]'`),
   ],
 )
+
+/**
+ * `timestamptz` that survives Postgres's `infinity` and `-infinity`.
+ *
+ * Drizzle's own `timestamp()` maps every driver value through `new Date(...)`,
+ * and `new Date('infinity')` is an Invalid Date - indistinguishable from a
+ * genuinely corrupt column, which the adapter reads as "bound unreadable, row
+ * inactive". So an assignment written `expires_at = 'infinity'`, the way
+ * Postgres spells "never expires", read back as an expired grant: a wrong DENY
+ * on the value an operator writes precisely to mean "always".
+ *
+ * Kept as `±Infinity` numbers, the adapter's `now < startsAt` / `now >=
+ * expiresAt` comparisons give all four spellings the right answer without a
+ * special case. The SQL type is unchanged, so this is not a migration.
+ */
+const timestamptzWithInfinity = customType<{
+  data: Date | number
+  driverData: string
+}>({
+  dataType() {
+    return 'timestamp with time zone'
+  },
+  fromDriver(value: string): Date | number {
+    if (value === 'infinity') return Number.POSITIVE_INFINITY
+    if (value === '-infinity') return Number.NEGATIVE_INFINITY
+    return new Date(value)
+  },
+  toDriver(value: Date | number): string {
+    if (value === Number.POSITIVE_INFINITY) return 'infinity'
+    if (value === Number.NEGATIVE_INFINITY) return '-infinity'
+    if (value instanceof Date) return value.toISOString()
+    return new Date(value).toISOString()
+  },
+})
 
 /**
  * Subject-to-role assignments. NULL `scope` is a global (unscoped) grant. NULL
@@ -107,8 +148,8 @@ export const iamAssignments = pgTable(
     subjectId: text('subject_id').notNull(),
     roleId: text('role_id').notNull(),
     scope: text('scope'),
-    startsAt: timestamp('starts_at', { withTimezone: true }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    startsAt: timestamptzWithInfinity('starts_at'),
+    expiresAt: timestamptzWithInfinity('expires_at'),
     attributes: jsonb('attributes').$type<IamPrimitives.Attributes>(),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),

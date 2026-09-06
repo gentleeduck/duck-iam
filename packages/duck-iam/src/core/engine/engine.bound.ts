@@ -20,14 +20,14 @@ export namespace Bound {
     TResource extends string = string,
     TRole extends string = string,
     TScope extends string = string,
-    TMode extends AccessControl.Mode = 'development',
+    TMode extends AccessControl.Mode = 'production',
   > {
     /** The write surface, identical to `engine.admin` but bound to the transaction. */
     readonly admin: IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope>
     /** The transaction-local engine backing the reads. Reach for it only for methods not re-exposed here. */
     readonly engine: IamEngineImpl<TAction, TResource, TRole, TScope, TMode>
     /** Cache invalidations withheld until the caller's transaction commits. */
-    readonly pending: Pending.Effects<TRole>
+    readonly pending: Pending.Effects<TRole, TScope>
 
     authorize(request: IamRequest.IAccessRequest<TAction, TResource, TScope>): Promise<AccessControl.ModeResult<TMode>>
     can(
@@ -93,11 +93,20 @@ export function buildBoundEngine<
   const { invalidator: _dropped, ...rest } = config
   const local = makeEngine({ ...rest, adapter: boundAdapter })
 
-  const { cache, pending } = createPending<TRole>({
-    invalidatePolicies: () => parent.cache.invalidatePolicies(),
-    invalidateRoles: (roleId) => parent.cache.invalidateRoles(roleId),
-    invalidateSubject: (subjectId) => parent.cache.invalidateSubject(subjectId),
-  })
+  // Mutation events buffer alongside the invalidations and drain on flush, so a
+  // rolled-back transaction reports no history: emitting `role.assigned` for a
+  // grant the database threw away is exactly the false record this bus exists
+  // to avoid. The handler is read from the parent's config, since the local
+  // engine is built from the same one.
+  const onMutation = config.hooks?.onMutation
+  const { cache, mutations, pending } = createPending<TRole, TScope>(
+    {
+      invalidatePolicies: () => parent.cache.invalidatePolicies(),
+      invalidateRoles: (roleId) => parent.cache.invalidateRoles(roleId),
+      invalidateSubject: (subjectId) => parent.cache.invalidateSubject(subjectId),
+    },
+    onMutation === undefined ? undefined : (event) => onMutation(event),
+  )
 
   // Two sinks per write: the transaction-local caches drop the entry
   // immediately, so a read-after-write inside the transaction is correct, while
@@ -119,6 +128,7 @@ export function buildBoundEngine<
         cache.invalidateSubject(subjectId)
       },
     },
+    mutations,
   })
 
   return {

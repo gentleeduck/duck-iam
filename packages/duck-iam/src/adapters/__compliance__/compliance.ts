@@ -55,6 +55,24 @@ function fromJson(json: string) {
 }
 
 /**
+ * A fresh adapter with the roles the assignment cases grant already stored.
+ *
+ * `assignRole` refuses a role id nothing is stored under - drizzle and prisma
+ * because of the assignments-to-roles foreign key, the other four because the
+ * contract says so - so a suite that granted `editor` out of thin air was
+ * testing a write no adapter accepts any more.
+ *
+ * @param factory - The per-test adapter factory under compliance.
+ * @returns The adapter, with `editor` and `viewer` saved.
+ */
+async function seeded(factory: () => AnyAdapter | Promise<AnyAdapter>): Promise<AnyAdapter> {
+  const a = await factory()
+  await a.saveRole(sampleRole)
+  await a.saveRole({ id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] })
+  return a
+}
+
+/**
  * Run the compliance matrix against any adapter implementation.
  *
  * @param adapterName - Human-readable name used in describe blocks.
@@ -226,14 +244,14 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
       })
 
       it('assigning the same role twice does not duplicate it', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         await a.assignRole('user-1', 'editor')
         await a.assignRole('user-1', 'editor')
         expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
       })
 
       it('assigning the same scoped role twice does not duplicate it', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         await a.assignRole('user-1', 'editor', 'org-1')
         await a.assignRole('user-1', 'editor', 'org-1')
         if (a.getSubjectScopedRoles) {
@@ -241,11 +259,56 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
         }
       })
 
+      /**
+       * A grant naming a role that does not exist is refused on all six.
+       *
+       * It used to be refused on two: drizzle and prisma have the
+       * assignments-to-roles foreign key, so `assignRole('u1', 'edtior')`
+       * raised there and was accepted on memory, file, redis and http, where
+       * the row landed, `getSubjectRoles` returned it, and `resolveSubject`
+       * dropped it again because no definition resolves. The operator got
+       * "granted" back and a subject who could do nothing.
+       */
+      it('assigning a role that does not exist is refused', async () => {
+        const a = await factory()
+        await expect(a.assignRole('user-1', 'no-such-role')).rejects.toThrow()
+        expect(await a.getSubjectRoles('user-1')).toEqual([])
+      })
+
+      it('a role deleted after the grant does not make a new grant assignable', async () => {
+        const a = await seeded(factory)
+        await a.assignRole('user-1', 'editor')
+        await a.deleteRole('editor')
+        await expect(a.assignRole('user-2', 'editor')).rejects.toThrow()
+      })
+
+      /**
+       * Deleting a role takes the grants that named it with it.
+       *
+       * `assignRole` now refuses a role that is not stored on all six, which
+       * makes "every grant names a stored role" a claim the store makes rather
+       * than a hope. `deleteRole` is the other half: the SQL schemas spell it
+       * `ON DELETE CASCADE` and drop the rows, so the same delete left
+       * `getSubjectRoles` returning `editor` on memory, file and redis and `[]`
+       * on drizzle and prisma. An orphan grant is not inert either - recreate a
+       * role under the reused id and every subject who once held it holds it
+       * again, silently, without an operator granting anything.
+       */
+      it('deleting a role revokes the grants that named it', async () => {
+        const a = await seeded(factory)
+        await a.assignRole('user-1', 'editor')
+        await a.assignRole('user-1', 'viewer')
+        await a.assignRole('user-2', 'editor', 'team-a')
+        await a.deleteRole('editor')
+        expect(await a.getSubjectRoles('user-1')).toEqual(['viewer'])
+        if (a.getSubjectScopedRoles) expect(await a.getSubjectScopedRoles('user-2')).toEqual([])
+      })
+
       // An empty scope is refused everywhere: redis spells "no scope" as the
       // empty string, so storing a literal one decodes as a *global* grant -
       // strictly more power than was asked for.
       it('an empty-string scope is refused on assign and on revoke', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         await expect(a.assignRole('user-1', 'editor', '')).rejects.toThrow(/empty string/)
         await expect(a.revokeRole('user-1', 'editor', '')).rejects.toThrow(/empty string/)
       })
@@ -325,7 +388,7 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
        * report the grant as live.
        */
       it('either honours an expiresAt or refuses it by name', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         const past = new Date(Date.now() - 60_000)
         const refusal = await a.assignRole('user-1', 'editor', undefined, { expiresAt: past }).then(
           () => null,
@@ -340,7 +403,7 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
       })
 
       it('either honours a future startsAt or refuses it by name', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         const future = new Date(Date.now() + 3_600_000)
         const refusal = await a.assignRole('user-1', 'editor', undefined, { startsAt: future }).then(
           () => null,
@@ -351,7 +414,7 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
       })
 
       it('either stores assignment attributes or refuses them by name', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         const refusal = await a.assignRole('user-1', 'editor', undefined, { attributes: { tier: 'gold' } }).then(
           () => null,
           (err: unknown) => String(err),
@@ -403,13 +466,13 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
       })
 
       it('assignRole + getSubjectRoles returns the role', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         await a.assignRole('user-1', 'editor')
         expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
       })
 
       it('revokeRole removes the assignment', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         await a.assignRole('user-1', 'editor')
         await a.revokeRole('user-1', 'editor')
         expect(await a.getSubjectRoles('user-1')).toEqual([])
@@ -418,14 +481,14 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
       it('getSubjectRoles returns ONLY unscoped (global) roles', async () => {
         // Every adapter must honour this contract. Returning scoped+unscoped
         // collapsed means the same subject decides differently across backends.
-        const a = await factory()
+        const a = await seeded(factory)
         await a.assignRole('user-1', 'viewer')
         await a.assignRole('user-1', 'editor', 'org-1')
         expect((await a.getSubjectRoles('user-1')).sort()).toEqual(['viewer'])
       })
 
       it('getSubjectScopedRoles returns ONLY scoped assignments', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         if (!a.getSubjectScopedRoles) return // optional method
         await a.assignRole('user-1', 'viewer')
         await a.assignRole('user-1', 'editor', 'org-1')
@@ -434,7 +497,7 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
       })
 
       it('revokeRole with scope removes only the scoped assignment', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         await a.assignRole('user-1', 'editor')
         await a.assignRole('user-1', 'editor', 'org-1')
         await a.revokeRole('user-1', 'editor', 'org-1')
@@ -445,7 +508,7 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
       })
 
       it('revokeRole without scope removes ALL matching assignments', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         await a.assignRole('user-1', 'editor')
         await a.assignRole('user-1', 'editor', 'org-1')
         await a.assignRole('user-1', 'editor', 'org-2')
@@ -476,7 +539,7 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
       })
 
       it('assignments are isolated per subject', async () => {
-        const a = await factory()
+        const a = await seeded(factory)
         await a.assignRole('user-1', 'editor')
         await a.assignRole('user-2', 'viewer')
         expect((await a.getSubjectRoles('user-1')).sort()).toEqual(['editor'])

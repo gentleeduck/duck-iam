@@ -318,6 +318,7 @@ describe('property fuzz: production (compiled table) vs development (interpreter
           allowFailOpen,
         })
         const development = new IamEngine({
+          mode: 'development',
           adapter: new IamMemoryAdapter({ roles, policies, assignments, attributes }),
           defaultEffect,
           policyCombine,

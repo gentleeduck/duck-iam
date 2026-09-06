@@ -25,7 +25,11 @@ function devEngine() {
   const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [orgReader] })
   return {
     adapter,
-    engine: new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0, mode: 'development' }),
+    engine: new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+      adapter,
+      cacheTTL: 0,
+      mode: 'development',
+    }),
   }
 }
 
@@ -41,7 +45,7 @@ function prodEngine() {
   }
 }
 
-/** No `mode` at all - the engine defaults to development. */
+/** No `mode` at all - the engine defaults to production since 5.9.0. */
 function defaultEngine() {
   const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [orgReader] })
   return { adapter, engine: new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 }) }
@@ -78,9 +82,14 @@ describe('the devtools guard reads the mode of a real engine', () => {
     expect(isDevtoolsAllowed(devEngine().engine)).toBe(true)
   })
 
-  it('allows the default-mode engine, which is development', () => {
+  it('blocks the default-mode engine, which is production', () => {
     delete process.env.NODE_ENV
-    expect(isDevtoolsAllowed(defaultEngine().engine)).toBe(true)
+    // The `mode` default flipped to 'production' in 5.9.0, so an engine built
+    // without one now blocks devtools rather than opening it. That direction is
+    // the safe one - a consumer who forgot to set `mode` no longer ships an
+    // unauthenticated role-assignment UI - but it means devtools must now be
+    // opted into with an explicit `mode: 'development'`.
+    expect(isDevtoolsAllowed(defaultEngine().engine)).toBe(false)
   })
 
   it('blocks a production engine even under NODE_ENV=development', () => {

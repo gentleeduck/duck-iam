@@ -79,11 +79,17 @@ export namespace IamRedisInvalidator {
      */
     secret?: string | null
     /**
-     * Invoked when the underlying `client.publish(...)` throws. The publish
-     * failure is non-fatal for the local engine (it already applied the
-     * invalidation), but cross-instance invalidations are lost - wire this
-     * to your alerting pipeline so a long-lived Redis outage does not
-     * silently desync caches across nodes.
+     * Invoked when the underlying `client.publish(...)` throws *or rejects*.
+     * Both matter and only the first used to be caught: ioredis publishes
+     * asynchronously, so a dead broker rejects the returned promise rather
+     * than throwing, and the failure this hook exists to report went to an
+     * unhandled rejection instead - fatal under Node's default
+     * `--unhandled-rejections=throw`.
+     *
+     * The publish failure is non-fatal for the local engine (it already
+     * applied the invalidation), but cross-instance invalidations are lost -
+     * wire this to your alerting pipeline so a long-lived Redis outage does
+     * not silently desync caches across nodes.
      */
     onPublishError?: (err: Error, channel: string) => void
     /**
@@ -98,6 +104,20 @@ export namespace IamRedisInvalidator {
 }
 
 const DEFAULT_CHANNEL = 'duck-iam:invalidate'
+
+/**
+ * Does this value carry a callable `then`, so a rejection can still arrive?
+ *
+ * `IPubSubLike.publish` is typed `unknown` on purpose - ioredis and node-redis
+ * resolve a number, a synchronous test double returns nothing - and the only
+ * property this module needs from the return value is whether it can fail
+ * later. A `then` that takes handlers is exactly that question, so this asks
+ * it rather than assuming a shape.
+ */
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return false
+  return typeof Reflect.get(value, 'then') === 'function'
+}
 
 /** Replay window in milliseconds. Signed envelopes older than this are dropped. */
 const REPLAY_WINDOW_MS = 30_000
@@ -392,11 +412,9 @@ export function createIamRedisInvalidator<TRole extends string = string>(
       } else {
         payload = JSON.stringify({ event, instanceId })
       }
-      try {
-        config.client.publish(channel, payload)
-      } catch (err) {
-        // Publish failure is non-fatal; route to onPublishError so a
-        // long-lived outage does not silently desync caches.
+      // Publish failure is non-fatal; route it to onPublishError so a
+      // long-lived outage does not silently desync caches.
+      const reportPublishFailure = (err: unknown): void => {
         const error = err instanceof Error ? err : new Error(String(err))
         try {
           config.onPublishError?.(error, channel)
@@ -407,6 +425,19 @@ export function createIamRedisInvalidator<TRole extends string = string>(
           warnDropOnce(channel, `publish failed (${error.message})`)
         }
       }
+      try {
+        const result = config.client.publish(channel, payload)
+        // The `catch` below only ever saw a *synchronous* throw, and a real
+        // client does not fail that way: ioredis returns a promise and rejects
+        // it (`MaxRetriesPerRequestError` against a dead broker). So the one
+        // failure this hook exists for was the one it never reported, and the
+        // rejection went unhandled - which under Node's default
+        // `--unhandled-rejections=throw` takes the process down over a lost
+        // cache message.
+        if (isThenable(result)) result.then(undefined, reportPublishFailure)
+      } catch (err) {
+        reportPublishFailure(err)
+      }
     },
     subscribe(handler) {
       ensureSubscribed()
@@ -415,7 +446,20 @@ export function createIamRedisInvalidator<TRole extends string = string>(
         handlers.delete(handler)
         if (handlers.size === 0) {
           subscribed = false
-          void config.client.unsubscribe?.(channel)
+          // Same asynchronous-failure trap as `publish` above: `void` discards
+          // the promise without attaching a handler, so an unsubscribe against
+          // a dead broker rejected into nothing. There is no operator hook for
+          // this one - tearing down a subscription that is already gone is not
+          // an incident - so it warns and stops there.
+          const unsubscribed = config.client.unsubscribe?.(channel)
+          if (isThenable(unsubscribed)) {
+            unsubscribed.then(undefined, (err: unknown) => {
+              console.warn(
+                `[@gentleduck/iam:invalidator:redis] unsubscribe from ${JSON.stringify(channel)} failed`,
+                err,
+              )
+            })
+          }
         }
       }
     },

@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import type { IamClient, IamRequest } from '../../core/types'
+import type { AccessControl, IamClient, IamRequest } from '../../core/types'
 
 /**
  * Shared admin-mutation audit event shape.
@@ -446,6 +446,13 @@ function reportAuditHookError(
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
+ * @template TMode - Engine mode; determines whether the map is typed or plain
+ *   booleans. Inferred from `engine`, so a development-mode engine still
+ *   returns a typed {@link IamClient.PermissionMap} and a production one
+ *   returns `Record<string, boolean>` - what `engine.permissions` itself
+ *   returns in each mode. Before the default flipped to `'production'` this
+ *   helper was implicitly development-only and would not accept a production
+ *   engine at all.
  * @param engine - Provides the access engine to consult.
  * @param subjectId - Identifies the subject whose permissions are computed.
  * @param checks - Lists the permission tuples to evaluate.
@@ -457,12 +464,13 @@ export async function generateIamPermissionMap<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
+  TMode extends AccessControl.Mode = AccessControl.Mode,
 >(
-  engine: IamEngine<TAction, TResource, TRole, TScope>,
+  engine: IamEngine<TAction, TResource, TRole, TScope, TMode>,
   subjectId: string,
   checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
   environment?: IamRequest.IEnvironment,
-): Promise<IamClient.PermissionMap<TAction, TResource, TScope>> {
+): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
   return engine.permissions(subjectId, checks, environment)
 }
 
@@ -498,18 +506,43 @@ export function createIamSubjectCan<
 /**
  * Extracts an environment object from common request shapes.
  *
- * Looks at `req.ip`, `x-forwarded-for`, `x-real-ip`, and `user-agent`, and
- * stamps the current timestamp.
+ * **`environment.ip` is `undefined` unless you ask for it.** This helper does
+ * not guess the client address, because there is no guess that is right on
+ * every deployment and the wrong one is exploitable: `X-Forwarded-For` and
+ * `X-Real-IP` are request headers like any other, so with nothing in front of
+ * the app a client sets them itself. Against real servers, hono, next and the
+ * generic helper each echoed a plain `X-Forwarded-For: 10.0.0.1` into
+ * `environment.ip` and a header alone satisfied an IP-conditioned admin grant,
+ * while express and nest reported the socket peer for the same request - one
+ * policy, three answers, and three of five spoofable.
+ *
+ * Only the app knows how many proxies sit in front of it and which hop is the
+ * client, so the app supplies the value:
+ *
+ * ```ts
+ * // Behind exactly one trusted proxy that appends the peer address:
+ * getEnvironment: (req) => ({ ...iamExtractEnvironment(req), ip: trustedClientIp(req) })
+ * // Or, if you have already told your framework about your proxies:
+ * getEnvironment: (req) => iamExtractEnvironment(req, { trustProxy: true })
+ * ```
+ *
+ * `trustProxy` restores the old chain - `req.ip`, then the leftmost
+ * `x-forwarded-for` hop, then `x-real-ip` - and is only safe when something in
+ * front of the app overwrites those headers on every request.
  *
  * @param req - Provides any request-like object with `ip` and/or `headers`.
+ * @param opts - Set `trustProxy` to read the forwarding headers. Off by default.
  * @returns The extracted {@link IamRequest.IEnvironment}.
  */
-export function iamExtractEnvironment(req: {
-  ip?: string
-  headers?: Record<string, string | string[] | undefined> | Headers
-  method?: string
-  url?: string
-}): IamRequest.IEnvironment {
+export function iamExtractEnvironment(
+  req: {
+    ip?: string
+    headers?: Record<string, string | string[] | undefined> | Headers
+    method?: string
+    url?: string
+  },
+  opts?: { trustProxy?: boolean },
+): IamRequest.IEnvironment {
   const getHeader = (name: string): string | undefined => {
     if (!req.headers) return undefined
     if (req.headers instanceof Headers) return req.headers.get(name) ?? undefined
@@ -519,15 +552,16 @@ export function iamExtractEnvironment(req: {
 
   return {
     // XFF can carry multiple comma-separated values (one per proxy hop,
-    // leftmost is the original client). Apps behind multiple trusted
-    // proxies should bypass this helper and assemble `env.ip` themselves.
-    // `req.ip` is capped too: an adapter may fill it from a platform header
+    // leftmost is the original client). `req.ip` is read here too rather than
+    // trusted on its own: an integration may fill it from a platform header
     // rather than a socket, and `env.ip` flows into `matches` conditions the
     // same way `userAgent` does.
     ip:
-      normalizeForwardedFor(req.ip) ??
-      normalizeForwardedFor(getHeader('x-forwarded-for')) ??
-      normalizeForwardedFor(getHeader('x-real-ip')),
+      opts?.trustProxy === true
+        ? (normalizeForwardedFor(req.ip) ??
+          normalizeForwardedFor(getHeader('x-forwarded-for')) ??
+          normalizeForwardedFor(getHeader('x-real-ip')))
+        : undefined,
     userAgent: normalizeUserAgent(getHeader('user-agent')),
     timestamp: Date.now(),
   }
@@ -606,6 +640,24 @@ export function iamNormalizePathname(pathname: string): string {
 }
 
 /**
+ * Is this a usable subject id?
+ *
+ * `getUserId` is *typed* `string | null`, and every integration tested it with
+ * `if (!userId)`, which lets `42`, `true`, `{}` and `[]` straight through to
+ * `engine.can` - the check runs against a subject that is not an id, and the
+ * error surfaces (if at all) several layers down as an engine complaint rather
+ * than as the 401 it is. The extractor is consumer code reading a request body
+ * or a JWT claim, so its return type is a promise, not a guarantee; this is
+ * where the promise is checked.
+ *
+ * Blank is rejected for the same reason the empty string already was: a
+ * whitespace id names no subject.
+ */
+export function iamIsSubjectId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+/**
  * Resource type used when a request path cannot be trusted to name one.
  * Matches no policy target, so the request is denied rather than authorized
  * against whatever the raw path happened to spell.
@@ -613,22 +665,60 @@ export function iamNormalizePathname(pathname: string): string {
 export const IAM_UNKNOWN_RESOURCE = 'unknown'
 
 /**
+ * True when a raw path segment can be read one way here and another way by the
+ * router that will serve the request.
+ *
+ * A traversal has no safe resolution at this layer. Resolving it is what
+ * created the bypass: `/admin/../public` canonicalises to `/public`, so the
+ * check was made about `public` and passed, and then express, hono and next
+ * each routed the raw target to the `/admin` handler anyway - authorized as one
+ * resource, served as another. Refusing to resolve is the only answer that does
+ * not depend on guessing which framework's normalizer runs downstream.
+ *
+ * Legitimate escapes are left alone: only a segment that IS a dot-segment, or
+ * decodes into one, into a separator, or into another escape, is ambiguous.
+ * `/posts/hello%20world` is not.
+ */
+export function iamPathIsAmbiguous(raw: string): boolean {
+  for (const segment of raw.split('/')) {
+    if (segment === '.' || segment === '..') return true
+    if (!segment.includes('%')) continue
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(segment)
+    } catch {
+      // A malformed escape is decoded by nobody here and by something
+      // downstream - which is the definition of ambiguous.
+      return true
+    }
+    if (decoded === '.' || decoded === '..') return true
+    // `%` again means double-encoded: a router that decodes twice sees a
+    // different path than a router that decodes once.
+    if (/[/\\%\0]/.test(decoded)) return true
+  }
+  return false
+}
+
+/**
  * Default `{ type, id }` for a request path, shared by the framework adapters.
  *
  * The raw path is not usable here: `/posts/../admin/secret` reads as type
- * `posts`, so the check passes while the router serves `/admin/secret`. The
- * path is canonicalised first, and a segment still holding a `%` after one
- * decode (a double-encoded traversal the router may decode again) falls back to
- * {@link IAM_UNKNOWN_RESOURCE}.
+ * `posts`, so the check passes while the router serves `/admin/secret`. Nor is
+ * the canonicalised path, which reads as `admin` here while express serves
+ * `/posts`. Anything a router might resolve differently falls back to
+ * {@link IAM_UNKNOWN_RESOURCE}, which matches no policy target and therefore
+ * denies.
  */
 export function iamDefaultResource(pathname: string | undefined): {
   type: string
   id: string | undefined
   attributes: Record<string, never>
 } {
-  const parts = iamNormalizePathname(typeof pathname === 'string' ? pathname : '/')
-    .split('/')
-    .filter(Boolean)
+  const raw = typeof pathname === 'string' ? pathname : '/'
+  if (iamPathIsAmbiguous(raw)) {
+    return { attributes: {}, id: undefined, type: IAM_UNKNOWN_RESOURCE }
+  }
+  const parts = iamNormalizePathname(raw).split('/').filter(Boolean)
   if (parts.some((segment) => segment.includes('%'))) {
     return { attributes: {}, id: undefined, type: IAM_UNKNOWN_RESOURCE }
   }

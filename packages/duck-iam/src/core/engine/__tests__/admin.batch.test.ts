@@ -13,11 +13,20 @@ function bindable(adapter: IamMemoryAdapter): IamMemoryAdapter {
   return Object.assign(copy, { withClient: () => bindable(adapter) })
 }
 
+/**
+ * `assignRole` refuses a role id nothing is stored under, so the adapters below
+ * are built holding the roles these cases grant.
+ */
+const GRANTABLE = [
+  { id: 'admin', name: 'Admin', permissions: [] },
+  { id: 'editor', name: 'Editor', permissions: [] },
+]
+
 describe('IAdmin batch writes', () => {
   let engine: IamEngine
 
   beforeEach(() => {
-    engine = new IamEngine({ adapter: new IamMemoryAdapter() })
+    engine = new IamEngine({ adapter: new IamMemoryAdapter({ roles: GRANTABLE }) })
   })
 
   it('assignRoles applies every triple and reports one outcome each', async () => {
@@ -83,7 +92,7 @@ describe('IAdmin batch writes', () => {
   })
 
   it('reports changed per row when the adapter names the rows it moved', async () => {
-    const adapter = new IamMemoryAdapter()
+    const adapter = new IamMemoryAdapter({ roles: GRANTABLE })
     // A set-based write that DOES answer: it hands back only the triples that
     // were not already granted, which is what a `RETURNING` clause supplies.
     const answering = Object.assign(adapter, {
@@ -132,7 +141,7 @@ describe('IAdmin batch writes', () => {
   })
 
   it('bound batch writes buffer their invalidations', async () => {
-    const e = new IamEngine({ adapter: bindable(new IamMemoryAdapter()) })
+    const e = new IamEngine({ adapter: bindable(new IamMemoryAdapter({ roles: GRANTABLE })) })
     const spy = vi.spyOn(e.cache, 'invalidateSubject')
 
     const perms = e.withTransaction({})

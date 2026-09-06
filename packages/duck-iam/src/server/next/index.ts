@@ -16,8 +16,10 @@ import {
   iamActionForMethod,
   iamDefaultCsrfCheck,
   iamExtractEnvironment,
+  iamIsSubjectId,
   iamNormalizePathname,
   iamNoticeCsrfDefaultIfNeeded,
+  iamPathIsAmbiguous,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
@@ -182,7 +184,7 @@ export function withIamAccess<
       // Inside the try, like every other extractor: a throwing `getUserId` must
       // reach `onError` rather than the framework's boundary.
       const userId = await getUserId(req)
-      if (!userId) {
+      if (!iamIsSubjectId(userId)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 })
       }
 
@@ -260,6 +262,13 @@ export async function checkIamAccess<
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
+ * @template TMode - Engine mode; determines whether the map is typed or plain
+ *   booleans. Inferred from `engine`, so a development-mode engine still
+ *   returns a typed {@link IamClient.PermissionMap} and a production one
+ *   returns `Record<string, boolean>` - what `engine.permissions` itself
+ *   returns in each mode. Before the default flipped to `'production'` this
+ *   helper was implicitly development-only and would not accept a production
+ *   engine at all.
  * @param engine - Provides the access engine to consult.
  * @param subjectId - Identifies the subject whose permissions are computed.
  * @param checks - Lists the permission tuples to evaluate.
@@ -270,11 +279,12 @@ export async function getIamPermissions<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
+  TMode extends AccessControl.Mode = AccessControl.Mode,
 >(
-  engine: IamEngine<TAction, TResource, TRole, TScope>,
+  engine: IamEngine<TAction, TResource, TRole, TScope, TMode>,
   subjectId: string,
   checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
-): Promise<IamClient.PermissionMap<TAction, TResource, TScope>> {
+): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
   return engine.permissions(subjectId, checks)
 }
 
@@ -326,6 +336,15 @@ export function createIamNextMiddleware<
 
   return async (req: Request): Promise<Response | null> => {
     const url = new URL(req.url)
+    // Refused before canonicalisation, not after. `/admin/..%2fpublic` keeps
+    // its `%2f` through `new URL()`, so this middleware decoded it, resolved
+    // the `..`, matched the `/public` rule and allowed - while next's own
+    // router decoded the same escape into a path segment and served `/admin`.
+    // Authorized as one resource, served as another; the same refusal
+    // `iamDefaultResource` gives express and hono.
+    if (iamPathIsAmbiguous(url.pathname)) {
+      return onDenied(req)
+    }
     // `//admin` and `/%61dmin` both survive `new URL()` and skip a `/admin`
     // rule while still routing to `/admin`. Match on the canonical form.
     const path = iamNormalizePathname(url.pathname)
@@ -355,7 +374,7 @@ export function createIamNextMiddleware<
       // `onError` rather than escaping to the framework's own boundary, where
       // it would be reported as an application error rather than an authz one.
       const userId = await opts.getUserId(req)
-      if (!userId) {
+      if (!iamIsSubjectId(userId)) {
         return onUnauthorized(req)
       }
 
