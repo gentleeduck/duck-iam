@@ -1,5 +1,8 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import { iamAssertNoAssignOptions } from '../../shared/assign-options'
 import { iamAssertAttributesParam } from '../../shared/attributes'
+import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import { iamAssertAssignableScope } from '../../shared/scope'
 
 export namespace IamMemory {
   /**
@@ -53,7 +56,12 @@ export class IamMemoryAdapter<
    * @param init - Provides optional seed policies, roles, assignments, and attributes.
    */
   constructor(init?: IamMemory.IInit<TAction, TResource, TRole, TScope>) {
-    for (const p of init?.policies ?? []) this._policies.set(p.id, p)
+    // Seeded rows go through the same normaliser as `savePolicy`. Without
+    // this, one adapter answered `getPolicy` two ways for the same policy
+    // depending on whether it arrived via the constructor or a write - which
+    // is how `export()` on a seeded store produced a snapshot that `import()`
+    // then stored in a different shape.
+    for (const p of init?.policies ?? []) this._policies.set(p.id, iamNormalizePolicy(p))
     for (const r of init?.roles ?? []) this._roles.set(r.id, r)
     for (const [uid, roles] of Object.entries(init?.assignments ?? {})) {
       this._assignments.set(
@@ -97,7 +105,8 @@ export class IamMemoryAdapter<
    * @returns Resolves once the write completes.
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
-    this._policies.set(p.id, p)
+    iamAssertSavablePolicy('memory', p)
+    this._policies.set(p.id, iamNormalizePolicy(p))
   }
 
   /**
@@ -141,6 +150,7 @@ export class IamMemoryAdapter<
    * @returns Resolves once the write completes.
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+    iamAssertSavableRole('memory', r)
     this._roles.set(r.id, r)
   }
 
@@ -191,7 +201,9 @@ export class IamMemoryAdapter<
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the assignment is recorded.
    */
-  async assignRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
+  async assignRole(id: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
+    iamAssertAssignableScope('memory', scope)
+    iamAssertNoAssignOptions('memory', opts)
     let entries = this._assignments.get(id)
     if (!entries) {
       entries = []
@@ -207,10 +219,14 @@ export class IamMemoryAdapter<
    *
    * @param id - Identifies the subject losing the role.
    * @param roleId - Specifies the role being revoked.
-   * @param scope - Optional scope to match; omit to revoke unscoped only.
+   * @param scope - Optional scope to match. Omitting it removes EVERY
+   *                assignment for the role, scoped ones included - not just the
+   *                unscoped grant. This doc used to say the opposite, on a
+   *                destructive operation.
    * @returns Resolves once the assignment is removed.
    */
   async revokeRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
+    iamAssertAssignableScope('memory', scope)
     const entries = this._assignments.get(id)
     if (!entries) return
     // Omitting `scope` removes EVERY assignment for the role across all

@@ -24,12 +24,12 @@ export function IamMetricsPanel({
   metrics?: IamIDevtoolsMetrics
   pollMs?: number
 }) {
-  const [stats, setStats] = React.useState(() => engine.stats())
+  const [stats, setStats] = React.useState(() => engine.stats.get())
   const [snap, setSnap] = React.useState(() => metrics?.snapshot() ?? null)
 
   React.useEffect(() => {
     const id = setInterval(() => {
-      setStats(engine.stats())
+      setStats(engine.stats.get())
       if (metrics) setSnap(metrics.snapshot())
     }, pollMs)
     return () => clearInterval(id)
@@ -45,9 +45,9 @@ export function IamMetricsPanel({
         <span style={{ marginLeft: 'auto' }}>
           <Button
             onClick={() => {
-              engine.resetStats()
+              engine.stats.reset()
               metrics?.reset()
-              setStats(engine.stats())
+              setStats(engine.stats.get())
               setSnap(metrics?.snapshot() ?? null)
             }}>
             <Refresh size={10} /> reset

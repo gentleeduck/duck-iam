@@ -57,7 +57,7 @@ afterEach(() => {
 
 // IamAdapter compliance - fresh in-memory fake FS per call so each scenario
 // runs against an empty store.
-runAdapterCompliance('IamFileAdapter', () => new IamFileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never)
+runAdapterCompliance('IamFileAdapter', () => new IamFileAdapter({ fs: makeFakeFS(), path: '/store.json' }))
 
 const policy: AccessControl.IPolicy<Action, Resource, Role> = {
   id: 'p1',
@@ -78,7 +78,9 @@ describe('IamFileAdapter', () => {
     const fs = makeFakeFS()
     const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     await adapter.savePolicy(policy)
-    expect(await adapter.listPolicies()).toEqual([policy])
+    // `version: 1` comes from the shared write-path normaliser - see the same
+    // note in the memory suite.
+    expect(await adapter.listPolicies()).toEqual([{ ...policy, version: 1 }])
     // Verify on-disk JSON
     const disk = JSON.parse(fs.files.get('/store.json')!)
     expect(disk.policies.p1.name).toBe('Allow Read')

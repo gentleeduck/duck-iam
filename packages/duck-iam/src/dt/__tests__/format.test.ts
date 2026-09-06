@@ -43,30 +43,35 @@ describe('formatAttrValue', () => {
   })
 
   it('formats nested arrays recursively', () => {
-    expect(formatAttrValue([['a'], ['b']] as never)).toBe('[["a"], ["b"]]')
+    expect(formatAttrValue([['a'], ['b']])).toBe('[["a"], ["b"]]')
   })
 })
 
 describe('safeParseJson', () => {
+  // No `fallback` parameter and no caller-named `T` any more: it returned
+  // `JSON.parse`'s `any` under whatever type the call site asked for, and the
+  // value went on to `admin.setAttributes`. Call sites narrow it now.
   it('returns the parsed value with no error', () => {
-    expect(safeParseJson('{"a":1}', {})).toEqual({ value: { a: 1 } })
+    expect(safeParseJson('{"a":1}')).toEqual({ value: { a: 1 } })
   })
 
-  it('returns the fallback with no error for empty or whitespace input', () => {
-    expect(safeParseJson('', { fb: true })).toEqual({ value: { fb: true } })
-    expect(safeParseJson('   \n ', { fb: true })).toEqual({ value: { fb: true } })
+  it('returns undefined with no error for empty or whitespace input', () => {
+    expect(safeParseJson('')).toEqual({ value: undefined })
+    expect(safeParseJson('   \n ')).toEqual({ value: undefined })
   })
 
-  it('returns the fallback plus an error message for malformed input', () => {
-    const out = safeParseJson('{nope', { fb: true })
-    expect(out.value).toEqual({ fb: true })
+  it('returns an error message and no value for malformed input', () => {
+    const out = safeParseJson('{nope')
+    expect(out.value).toBeUndefined()
     expect(typeof out.error).toBe('string')
     expect(out.error).not.toBe('')
   })
 
-  it('parses bare JSON scalars', () => {
-    expect(safeParseJson('null', 'fb')).toEqual({ value: null })
-    expect(safeParseJson('7', 0)).toEqual({ value: 7 })
+  it('parses bare JSON scalars, which is why the call site must narrow', () => {
+    expect(safeParseJson('null')).toEqual({ value: null })
+    expect(safeParseJson('7')).toEqual({ value: 7 })
+    expect(safeParseJson('"hello"')).toEqual({ value: 'hello' })
+    expect(safeParseJson('[1,2]')).toEqual({ value: [1, 2] })
   })
 })
 

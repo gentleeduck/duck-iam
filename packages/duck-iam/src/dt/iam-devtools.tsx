@@ -1,7 +1,7 @@
 import { cn } from '@gentleduck/libs/cn'
 import React from 'react'
 import type { IamIFlowRecorder } from './lib/flow'
-import { isDevtoolsBlocked } from './lib/guard'
+import { isDevtoolsAllowed } from './lib/guard'
 import { ensureStylesInjected } from './lib/styles'
 import type { IamIDecisionInput, IamIDevtoolsEngine, IamIDevtoolsMetrics, IamPanelKey } from './lib/types'
 import { IamDecisionInspector } from './panels/decision'
@@ -34,7 +34,7 @@ const TABS: { key: IamPanelKey; label: string; dot: string }[] = [
 // No prop escape hatch by design - see lib/guard.ts. The guard sits in a thin
 // wrapper so the inner component's hook order stays unconditional.
 export function IamDevtoolsInner(props: IIamDevtoolsInnerProps) {
-  if (isDevtoolsBlocked(props.engine)) return null
+  if (!isDevtoolsAllowed(props.engine)) return null
   return <IamDevtoolsInnerImpl {...props} />
 }
 

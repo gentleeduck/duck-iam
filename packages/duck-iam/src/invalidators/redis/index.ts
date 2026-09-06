@@ -52,7 +52,7 @@ export namespace IamRedisInvalidator {
      */
     channel?: string
     /**
-     * CAVEAT-1: convenience helper for multi-tenant deployments. When set,
+     * Convenience helper for multi-tenant deployments. When set,
      * the effective channel becomes `duck-iam:invalidate:tenant:${tenantId}`
      * (or `${channel}:tenant:${tenantId}` if `channel` is also given). This
      * guarantees tenant isolation on a shared Redis instance - tenant A's
@@ -86,6 +86,14 @@ export namespace IamRedisInvalidator {
      * silently desync caches across nodes.
      */
     onPublishError?: (err: Error, channel: string) => void
+    /**
+     * Invoked when `client.subscribe(...)` rejects or throws. Losing the
+     * subscription is strictly worse than losing a publish - a failed publish
+     * drops one event, a failed subscribe drops every future one - so wire
+     * this up alongside {@link onPublishError}. The next `subscribe()` call
+     * retries; with no handler a warning is logged instead.
+     */
+    onSubscribeError?: (err: Error, channel: string) => void
   }
 }
 
@@ -143,12 +151,11 @@ function _measurePayload(root: unknown): { depth: number; keys: number } | null 
         if (child !== null && typeof child === 'object') stack.push([child, depth + 1])
       }
     } else if (node !== null && typeof node === 'object') {
-      const keys = Object.keys(node as Record<string, unknown>)
+      const keys = Object.keys(node)
       totalKeys += keys.length
       if (totalKeys > MAX_PAYLOAD_KEYS) return null
-      const obj = node as Record<string, unknown>
       for (const key of keys) {
-        const child = obj[key]
+        const child: unknown = Reflect.get(node, key)
         if (child !== null && typeof child === 'object') stack.push([child, depth + 1])
       }
     }
@@ -171,9 +178,27 @@ function canonicalJSON(v: unknown, _depth = 0): string {
   if (_depth > CANONICAL_MAX_DEPTH) throw new Error('canonicalJSON: max depth exceeded')
   if (v === null || typeof v !== 'object') return JSON.stringify(v)
   if (Array.isArray(v)) return `[${v.map((x) => canonicalJSON(x, _depth + 1)).join(',')}]`
-  const keys = Object.keys(v as Record<string, unknown>).sort()
-  const obj = v as Record<string, unknown>
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJSON(obj[k], _depth + 1)}`).join(',')}}`
+  const keys = Object.keys(v).sort()
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJSON(Reflect.get(v, k), _depth + 1)}`).join(',')}}`
+}
+
+/**
+ * HMAC pre-image for the publish path. The receiver only ever sees the value
+ * after a JSON round-trip, so the publisher has to sign *that* value, not the
+ * in-memory one. `canonicalJSON` walks the live object, where an `undefined`
+ * property contributes the literal token `undefined` while `JSON.stringify`
+ * drops the key outright - so the two sides hashed different byte strings and
+ * the signature could never match. `cache.invalidateRoles()` with no argument
+ * publishes exactly that shape (`{kind: 'roles', roleId: undefined}`), so a
+ * blanket role revoke never propagated once signing was enabled.
+ *
+ * Round-tripping first also covers every other JSON-lossy construct - `Date`,
+ * `toJSON`, functions, symbols, array holes - without enumerating them. For a
+ * value that survives JSON unchanged the pre-image is byte-identical to the
+ * old one, so signatures that verify today keep verifying.
+ */
+function signingPreimage(value: unknown): string {
+  return canonicalJSON(JSON.parse(JSON.stringify(value)))
 }
 
 /**
@@ -207,6 +232,12 @@ function safeHexEqual(a: string, b: string): boolean {
   } catch {
     return false
   }
+  // `ab.length === 0` is defence-in-depth, not a reachable branch: the only
+  // caller passes a full-length hex HMAC as `b`, so two empty buffers require
+  // the string-length check above to have been removed first. Keep it - it is
+  // what stops `timingSafeEqual` from calling two empty buffers equal if this
+  // ever compares two caller-supplied strings. No test can reach it through
+  // the public path.
   if (ab.length !== bb.length || ab.length === 0) return false
   return timingSafeEqual(ab, bb)
 }
@@ -292,20 +323,62 @@ export function createIamRedisInvalidator<TRole extends string = string>(
     )
   }
 
+  function reportSubscribeFailure(err: unknown): void {
+    const error = err instanceof Error ? err : new Error(String(err))
+    try {
+      config.onSubscribeError?.(error, channel)
+    } catch {
+      /* operator hook itself threw - preserve fail-soft contract */
+    }
+    if (!config.onSubscribeError) {
+      console.warn(
+        `[@gentleduck/iam:invalidator:redis] subscribe to ${JSON.stringify(channel)} failed (${error.message}) - this node will not receive invalidations until a later subscribe() succeeds. Pass \`onSubscribeError\` to handle this.`,
+      )
+    }
+  }
+
+  // Two latches, not one. `subscribed` was previously set before the call could
+  // fail, so a rejected `subscribe()` (NOAUTH, a wrong ACL, a reconnect window)
+  // left the node permanently deaf to invalidations - serving stale allow for
+  // its whole lifetime - with the rejection unhandled and nothing retrying.
+  // `subscribing` keeps a second concurrent `subscribe()` from double-issuing.
   let subscribed = false
+  let subscribing = false
   const ensureSubscribed = () => {
-    if (subscribed) return
-    subscribed = true
-    void Promise.resolve(
-      config.client.subscribe(channel, (message) => {
-        const parsed = parseIncoming<TRole>(message, secret, channel, warnDropOnce)
-        // Drop messages that originated on this instance - local mutations
-        // already cleared local caches; replaying would just double the work
-        // and risk an invalidation storm under high write QPS.
-        if (!parsed || parsed.instanceId === instanceId) return
-        for (const h of handlers) h(parsed.event)
-      }),
-    )
+    if (subscribed || subscribing) return
+    subscribing = true
+    try {
+      void Promise.resolve(
+        config.client.subscribe(channel, (message) => {
+          const parsed = parseIncoming<TRole>(message, secret, channel, warnDropOnce)
+          // Drop messages that originated on this instance - local mutations
+          // already cleared local caches; replaying would just double the work
+          // and risk an invalidation storm under high write QPS.
+          if (!parsed || parsed.instanceId === instanceId) return
+          // Per-handler, like every other callback boundary in the package.
+          // Two engines commonly share one invalidator, and an unguarded loop
+          // means engine A's buggy handler leaves engine B on a stale allow.
+          for (const h of handlers) {
+            try {
+              h(parsed.event)
+            } catch (err) {
+              console.error('[@gentleduck/iam:invalidator:redis] invalidation handler threw - continuing', err)
+            }
+          }
+        }),
+      )
+        .then(() => {
+          subscribed = true
+        })
+        .catch(reportSubscribeFailure)
+        .finally(() => {
+          subscribing = false
+        })
+    } catch (err) {
+      // A client that throws synchronously never produces a promise.
+      subscribing = false
+      reportSubscribeFailure(err)
+    }
   }
 
   return {
@@ -313,7 +386,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
       let payload: string
       if (secret !== null) {
         const inner = { event, instanceId, ts: Date.now() }
-        const sig = createHmac('sha256', secret).update(canonicalJSON(inner)).digest('hex')
+        const sig = createHmac('sha256', secret).update(signingPreimage(inner)).digest('hex')
         const envelope: SignedEnvelope<TRole> = { payload: inner, sig, v: ENVELOPE_V }
         payload = JSON.stringify(envelope)
       } else {
@@ -403,7 +476,9 @@ function parseIncoming<TRole extends string>(
       warnDropOnce(channel, 'malformed envelope')
       return null
     }
-    // Verify signature against canonical pre-image. Use constant-time compare.
+    // Verify against the canonical pre-image. `payload` is already the
+    // round-tripped value, which is what `signingPreimage` hashes on publish.
+    // Constant-time compare.
     const expected = createHmac('sha256', secret).update(canonicalJSON(payload)).digest('hex')
     if (!safeHexEqual(sig, expected)) {
       warnDropOnce(channel, 'signature mismatch')

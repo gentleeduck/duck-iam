@@ -3,7 +3,7 @@ import { Button } from '@gentleduck/registry-ui/button'
 import React from 'react'
 import { Close } from './components/icons'
 import { IamDevtoolsInner, type IIamDevtoolsInnerProps } from './iam-devtools'
-import { isDevtoolsBlocked } from './lib/guard'
+import { isDevtoolsAllowed } from './lib/guard'
 import { GENTLEDUCK_LOGO_DATA_URL } from './lib/logo'
 import { ensureStylesInjected } from './lib/styles'
 
@@ -25,12 +25,38 @@ const MIN_SIZE = 220
 const MAX_SIZE_VW = 0.9
 const ANIM_MS = 240
 
-function loadState<T>(key: string, fallback: T): T {
+/** Dock positions, in the order the dock button cycles through them. */
+const PANEL_POSITIONS: readonly PanelPosition[] = ['bottom', 'right', 'top', 'left']
+
+function isPanelPosition(value: unknown): value is PanelPosition {
+  return typeof value === 'string' && PANEL_POSITIONS.some((position) => position === value)
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean'
+}
+
+function isPanelSize(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+/**
+ * Reads one persisted panel preference, validating what it finds.
+ *
+ * `JSON.parse` returns `any`, and this handed it straight back as the `T` the
+ * call site named. localStorage is editable, shared across every page of the
+ * origin, and survives a version upgrade, so a stale or hand-edited entry put a
+ * string into `size` (`NaN` into a CSS length, panel collapsed) or an arbitrary
+ * value into `position` (no matching dock class, panel rendered off-screen).
+ * Each reader now proves the shape it wants and falls back otherwise.
+ */
+function loadState<T>(key: string, isValid: (value: unknown) => value is T, fallback: T): T {
   if (typeof window === 'undefined') return fallback
   try {
     const raw = window.localStorage.getItem(key)
     if (raw == null) return fallback
-    return JSON.parse(raw) as T
+    const parsed: unknown = JSON.parse(raw)
+    return isValid(parsed) ? parsed : fallback
   } catch {
     return fallback
   }
@@ -57,7 +83,7 @@ function panelHidden(position: PanelPosition): string {
 // Hard-no in production. No escape hatch - see lib/guard.ts. Guard sits in
 // a thin wrapper so the inner component's hook order stays unconditional.
 export function IamDevtools(props: IIamDevtoolsProps) {
-  if (isDevtoolsBlocked(props.engine)) return null
+  if (!isDevtoolsAllowed(props.engine)) return null
   return <IamDevtoolsImpl {...props} />
 }
 
@@ -78,11 +104,13 @@ function IamDevtoolsImpl({
   const sizeKey = `${storagePrefix}_SIZE`
   const posKey = `${storagePrefix}_POSITION`
 
-  const [open, setOpen] = React.useState<boolean>(() => loadState(openKey, initialIsOpen))
-  const [mounted, setMounted] = React.useState<boolean>(() => loadState(openKey, initialIsOpen))
+  const [open, setOpen] = React.useState<boolean>(() => loadState(openKey, isBoolean, initialIsOpen))
+  const [mounted, setMounted] = React.useState<boolean>(() => loadState(openKey, isBoolean, initialIsOpen))
   const [animateIn, setAnimateIn] = React.useState<boolean>(false)
-  const [size, setSize] = React.useState<number>(() => loadState(sizeKey, DEFAULT_SIZE))
-  const [position, setPosition] = React.useState<PanelPosition>(() => loadState(posKey, positionProp ?? 'bottom'))
+  const [size, setSize] = React.useState<number>(() => loadState(sizeKey, isPanelSize, DEFAULT_SIZE))
+  const [position, setPosition] = React.useState<PanelPosition>(() =>
+    loadState(posKey, isPanelPosition, positionProp ?? 'bottom'),
+  )
   const dragRef = React.useRef<{ start: number; size: number; axis: 'x' | 'y' } | null>(null)
 
   React.useEffect(() => saveState(openKey, open), [open, openKey])
@@ -132,9 +160,12 @@ function IamDevtoolsImpl({
   }
 
   const cycleDock = () => {
-    const order: PanelPosition[] = ['bottom', 'right', 'top', 'left']
-    const idx = order.indexOf(position)
-    setPosition(order[(idx + 1) % order.length] as PanelPosition)
+    const idx = PANEL_POSITIONS.indexOf(position)
+    const next = PANEL_POSITIONS[(idx + 1) % PANEL_POSITIONS.length]
+    // A `readonly PanelPosition[]` index is `PanelPosition | undefined` under
+    // `noUncheckedIndexedAccess`; the modulo makes it always defined, so the
+    // guard costs nothing and the cast goes away.
+    if (next !== undefined) setPosition(next)
   }
 
   const resizeAxisCls = position === 'left' || position === 'right' ? 'iam-dt-resize--ew' : 'iam-dt-resize--ns'

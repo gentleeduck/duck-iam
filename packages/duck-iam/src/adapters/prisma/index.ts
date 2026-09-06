@@ -1,5 +1,10 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow } from '../../core/validate'
+import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import { iamAssertAssignableScope } from '../../shared/scope'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
 /** IamPrisma adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamPrisma {
@@ -51,7 +56,13 @@ export namespace IamPrisma {
         create: Record<string, unknown>
         update: Record<string, unknown>
       }) => Promise<IPolicyRow>
-      delete: (args: { where: { id: string } }) => Promise<IPolicyRow>
+      /**
+       * `deleteMany`, not `delete`: Prisma's `delete` raises `P2025` when
+       * nothing matches, so deleting a row that is already gone threw here and
+       * no-opped on the other five adapters. An idempotent admin retry must not
+       * depend on the backend.
+       */
+      deleteMany: (args: { where: { id: string } }) => Promise<{ count: number }>
     }
     accessRole: {
       findMany: (args?: unknown) => Promise<IRoleRow[]>
@@ -61,7 +72,8 @@ export namespace IamPrisma {
         create: Record<string, unknown>
         update: Record<string, unknown>
       }) => Promise<IRoleRow>
-      delete: (args: { where: { id: string } }) => Promise<IRoleRow>
+      /** See `accessPolicy.deleteMany`. */
+      deleteMany: (args: { where: { id: string } }) => Promise<{ count: number }>
     }
     accessAssignment: {
       findMany: (args: {
@@ -164,7 +176,8 @@ export class IamPrismaAdapter<
    * @returns Resolves once the upsert completes.
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
-    const data = fromPolicy(p)
+    iamAssertSavablePolicy('prisma', p)
+    const data = fromPolicy(iamNormalizePolicy(p))
     await this._prisma.accessPolicy.upsert({
       where: { id: p.id },
       create: data,
@@ -179,7 +192,7 @@ export class IamPrismaAdapter<
    * @returns Resolves once the delete completes.
    */
   async deletePolicy(id: string): Promise<void> {
-    await this._prisma.accessPolicy.delete({ where: { id } })
+    await this._prisma.accessPolicy.deleteMany({ where: { id } })
   }
 
   /**
@@ -220,6 +233,7 @@ export class IamPrismaAdapter<
    * @returns Resolves once the upsert completes.
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+    iamAssertSavableRole('prisma', r)
     const data = fromRole(r)
     await this._prisma.accessRole.upsert({
       where: { id: r.id },
@@ -235,7 +249,7 @@ export class IamPrismaAdapter<
    * @returns Resolves once the delete completes.
    */
   async deleteRole(id: string): Promise<void> {
-    await this._prisma.accessRole.delete({ where: { id } })
+    await this._prisma.accessRole.deleteMany({ where: { id } })
   }
 
   /**
@@ -251,7 +265,7 @@ export class IamPrismaAdapter<
     const rows = await this._prisma.accessAssignment.findMany({
       where: { subjectId, scope: null },
     })
-    return [...new Set(rows.map((r) => r.roleId as TRole))]
+    return [...new Set(rows.map((r) => iamAsRoleLiteral<TRole>(r.roleId)))]
   }
 
   /**
@@ -268,7 +282,15 @@ export class IamPrismaAdapter<
     const rows = await this._prisma.accessAssignment.findMany({
       where: { subjectId },
     })
-    return rows.filter((r) => r.scope != null).map((r) => ({ role: r.roleId as TRole, scope: r.scope as TScope }))
+    // Narrowed per row, not by a `filter` predicate the mapper cannot see: the
+    // old `r.scope as TScope` let a `null` scope through as a scope value the
+    // moment the predicate changed.
+    const out: IamRequest.IScopedRole<TRole, TScope>[] = []
+    for (const r of rows) {
+      if (r.scope === null || r.scope === undefined) continue
+      out.push({ role: iamAsRoleLiteral<TRole>(r.roleId), scope: iamAsScopeLiteral<TScope>(r.scope) })
+    }
+    return out
   }
 
   /**
@@ -279,9 +301,29 @@ export class IamPrismaAdapter<
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the row is inserted.
    */
-  async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+  async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
+    iamAssertAssignableScope('prisma', scope)
+    iamAssertNoAssignOptions('prisma', opts)
+    // Idempotent, like the other five adapters: memory and file skip an
+    // existing pair, redis uses `SADD`, drizzle uses `onConflictDoNothing`.
+    // A bare `create` against the `@@unique([subjectId, roleId, scope])` index
+    // raised `P2002` for a repeat *scoped* grant, so re-running a provisioning
+    // script failed on Prisma alone - and for an *unscoped* one it did not even
+    // do that, because SQL unique indexes do not collapse `NULL`s, so the row
+    // was inserted again and the table grew without bound.
+    //
+    // A read-then-write, not an `upsert`: the composite key includes a nullable
+    // column, and `upsert` cannot address a row whose key is partly `NULL`.
+    // The window between the two statements is the same one every other adapter
+    // has; if a concurrent writer wins it, the unique index rejects the insert
+    // for a scoped grant, which is the correct outcome for a duplicate.
+    const existing = await this._prisma.accessAssignment.findMany({
+      take: 1,
+      where: { roleId, scope: scope ?? null, subjectId },
+    })
+    if (existing.length > 0) return
     await this._prisma.accessAssignment.create({
-      data: { subjectId, roleId, scope: scope ?? null },
+      data: { roleId, scope: scope ?? null, subjectId },
     })
   }
 
@@ -294,6 +336,7 @@ export class IamPrismaAdapter<
    * @returns Resolves once the delete completes.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+    iamAssertAssignableScope('prisma', scope)
     await this._prisma.accessAssignment.deleteMany({
       where: { subjectId, roleId, ...(scope !== undefined ? { scope } : {}) },
     })
@@ -350,17 +393,15 @@ export class IamPrismaAdapter<
     })
     if (!row) return {}
     const data = row.data
-    if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    // `iamNarrowAttributes` builds a fresh Record, so this also avoids sharing
+    // the Prisma-managed object.
+    const attrs = iamNarrowAttributes(data)
+    if (attrs === null) {
       throw new Error(
-        `[@gentleduck/iam:prisma] corrupted attributes for "${subjectId}" (expected JSON object, got ${
+        `[@gentleduck/iam:prisma] corrupted attributes for "${subjectId}" (expected a JSON object of scalar values, got ${
           data === null ? 'null' : Array.isArray(data) ? 'array' : typeof data
         })`,
       )
-    }
-    // Reconstruct as a fresh Record to avoid sharing the Prisma-managed object.
-    const attrs: IamPrimitives.Attributes = {}
-    for (const [k, v] of Object.entries(data)) {
-      attrs[k] = v as IamPrimitives.AttributeValue
     }
     return attrs
   }
@@ -373,6 +414,10 @@ export class IamPrismaAdapter<
    * @returns Resolves once the upsert completes.
    */
   async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
+    // The other four adapters have always called this; without it a non-object
+    // `attrs` spreads into per-character keys and corrupts the ABAC bag, so the
+    // same call errored loudly on memory/file/redis/http and wrote junk here.
+    iamAssertAttributesParam('prisma', subjectId, attrs)
     // Recover from corrupt existing data instead of locking the operator out.
     let existing: IamPrimitives.Attributes
     try {
@@ -389,16 +434,25 @@ export class IamPrismaAdapter<
   }
 }
 
-/** Converts a {@link IamPrisma.IPolicyRow} database row into a {@link AccessControl.IPolicy} domain object. */
-function toPolicy(row: IamPrisma.IPolicyRow): AccessControl.IPolicy {
+/**
+ * Reshapes a {@link IamPrisma.IPolicyRow} into a policy *candidate*.
+ *
+ * The return type is deliberately not `AccessControl.IPolicy`: `rules`,
+ * `targets` and `algorithm` are Prisma `Json` columns holding whatever was
+ * written to the row, and this function does no checking. It used to claim the
+ * domain type by asserting each column into it, which put the lie one call
+ * earlier than the validation - every caller pipes the result through
+ * `parsePolicyRow`, and that is what decides the row is a policy.
+ */
+function toPolicy(row: IamPrisma.IPolicyRow): Record<string, unknown> {
   return {
     id: row.id,
     name: row.name,
-    description: row.description ?? undefined,
+    ...(row.description === null || row.description === undefined ? {} : { description: row.description }),
     version: row.version,
-    algorithm: row.algorithm as AccessControl.IPolicy['algorithm'],
-    rules: row.rules as AccessControl.IPolicy['rules'],
-    targets: (row.targets as AccessControl.IPolicy['targets']) ?? undefined,
+    algorithm: row.algorithm,
+    rules: row.rules,
+    ...(row.targets === null || row.targets === undefined ? {} : { targets: row.targets }),
   }
 }
 
@@ -415,16 +469,16 @@ function fromPolicy(p: AccessControl.IPolicy): Record<string, unknown> {
   }
 }
 
-/** Converts a {@link IamPrisma.IRoleRow} database row into a {@link AccessControl.IRole} domain object. */
-function toRole(row: IamPrisma.IRoleRow): AccessControl.IRole {
+/** Role candidate, on the same terms as {@link toPolicy} - unchecked, and typed to say so. */
+function toRole(row: IamPrisma.IRoleRow): Record<string, unknown> {
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
-    permissions: row.permissions as AccessControl.IRole['permissions'],
+    permissions: row.permissions,
     inherits: row.inherits ?? [],
     scope: row.scope ?? undefined,
-    metadata: (row.metadata as AccessControl.IRole['metadata']) ?? undefined,
+    metadata: row.metadata ?? undefined,
   }
 }
 

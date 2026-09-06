@@ -28,7 +28,7 @@ describe('IamHttpAdapter subject-data shape validation', () => {
     it('rejects a string response (the corruption-as-string class)', async () => {
       const adapter = buildAdapter(() => 'admin=true')
       await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-        /getSubjectAttributes for "user-1" returned string \(expected JSON object\)/,
+        /getSubjectAttributes for "user-1" returned string \(expected a JSON object of scalar values\)/,
       )
     })
 

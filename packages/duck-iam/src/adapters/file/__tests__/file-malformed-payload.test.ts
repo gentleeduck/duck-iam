@@ -57,16 +57,43 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
-  it('drops an entire row when any inner entry is malformed', async () => {
+  // This previously asserted the whole row was dropped, on the reasoning that a
+  // partial parse "could grant unintended access". It cannot: an assignment
+  // entry is a grant and nothing else, so keeping the entries that parsed
+  // grants strictly less than the file asked for, while dropping the row costs
+  // the subject unrelated authority - a silent, permanent denial of service
+  // with only a warning to show for it. The adapter also used to *write* rows
+  // it could not read back (an empty scope), so this was reachable without any
+  // hand-editing at all.
+  it("drops only the malformed entry, keeping the subject's valid grants", async () => {
     const { adapter, errors } = await makeAdapter({
       assignments: {
         'user-bad': [{ role: 'editor' }, null, { role: 'viewer' }],
       },
     })
-    // One bad entry -> drop the whole row (fail-closed; partial
-    // assignments could grant unintended access).
-    expect(await adapter.getSubjectRoles('user-bad')).toEqual([])
+    expect(await adapter.getSubjectRoles('user-bad')).toEqual(['editor', 'viewer'])
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
+  })
+
+  it('reports each malformed entry with its index', async () => {
+    const { adapter, errors } = await makeAdapter({
+      assignments: {
+        'user-bad': [{ role: 'editor' }, null, { role: 42 }],
+      },
+    })
+    expect(await adapter.getSubjectRoles('user-bad')).toEqual(['editor'])
+    expect(errors.some((e) => e.includes('[1]'))).toBe(true)
+    expect(errors.some((e) => e.includes('[2]'))).toBe(true)
+  })
+
+  // The write path used to persist a state the loader refuses, which is how a
+  // subject lost grants across a restart with nobody having touched the file.
+  it('refuses to write an empty scope, so the store stays loadable', async () => {
+    const { adapter } = await makeAdapter({ assignments: {} })
+    // The generic refuses `''`; the guard is a runtime one, for data that did
+    // not come through a typed call site.
+    const emptyScope: Scope = JSON.parse('""')
+    await expect(adapter.assignRole('u1', 'editor', emptyScope)).rejects.toThrow(/empty string/)
   })
 
   it('drops entries with non-string role', async () => {

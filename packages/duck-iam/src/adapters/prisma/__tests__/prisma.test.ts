@@ -36,6 +36,37 @@ interface AttrRow {
   data: unknown
 }
 
+/**
+ * A Prisma-shaped error. The client rejects with an object carrying a `code`;
+ * anything the adapter does with `err.code` has to see the same shape here or
+ * the mock is testing a driver that does not exist.
+ */
+function prismaError(code: string, message: string): Error & { code: string } {
+  return Object.assign(new Error(message), { code })
+}
+
+/**
+ * A `where` matcher that understands `NOT`.
+ *
+ * The old matcher compared every key with `===`, so `NOT: { scope: 'org-1' }`
+ * was tested as if `NOT` were a column - it matched nothing, and
+ * `updateAssignmentScope`'s conflict-drop (`prisma/index.ts:364`) silently did
+ * nothing under test while working against the real driver. A mock that cannot
+ * express the query the code sends is not standing in for the driver.
+ */
+function matchesWhere(row: AssignmentRow, where: Record<string, unknown>): boolean {
+  const fields: Record<string, unknown> = { roleId: row.roleId, scope: row.scope, subjectId: row.subjectId }
+  for (const [key, value] of Object.entries(where)) {
+    if (key === 'NOT') {
+      if (typeof value !== 'object' || value === null) continue
+      if (Object.entries(value).every(([k, v]) => fields[k] === v)) return false
+      continue
+    }
+    if (fields[key] !== value) return false
+  }
+  return true
+}
+
 function makePrismaMock() {
   const policies = new Map<string, PolicyRow>()
   const roles = new Map<string, RoleRow>()
@@ -50,10 +81,13 @@ function makePrismaMock() {
         policies.set(where.id, create as unknown as PolicyRow)
         return create as unknown as PolicyRow
       }),
-      delete: vi.fn(async ({ where }: { where: { id: string } }) => {
-        const row = policies.get(where.id)!
-        policies.delete(where.id)
-        return row
+      // `deleteMany`, matching the adapter and the real client: it reports how
+      // many rows it removed rather than throwing `P2025` on a miss. The old
+      // mock spelled the miss `policies.get(id)!`, which returned `undefined` and
+      // hid the divergence the real driver would have shown.
+      deleteMany: vi.fn(async ({ where }: { where: { id: string } }) => {
+        const count = policies.delete(where.id) ? 1 : 0
+        return { count }
       }),
     },
     accessRole: {
@@ -63,49 +97,63 @@ function makePrismaMock() {
         roles.set(where.id, create as unknown as RoleRow)
         return create as unknown as RoleRow
       }),
-      delete: vi.fn(async ({ where }: { where: { id: string } }) => {
-        const row = roles.get(where.id)!
-        roles.delete(where.id)
-        return row
+      // `deleteMany`, matching the adapter and the real client: it reports how
+      // many rows it removed rather than throwing `P2025` on a miss. The old
+      // mock spelled the miss `roles.get(id)!`, which returned `undefined` and
+      // hid the divergence the real driver would have shown.
+      deleteMany: vi.fn(async ({ where }: { where: { id: string } }) => {
+        const count = roles.delete(where.id) ? 1 : 0
+        return { count }
       }),
     },
     accessAssignment: {
-      findMany: vi.fn(async ({ where }: { where: { subjectId: string; scope?: string | null } }) =>
-        assignments.filter((a) => {
-          if (a.subjectId !== where.subjectId) return false
-          // Mirror Prisma: `scope: null` filter matches NULL rows only.
-          if ('scope' in where) return a.scope === where.scope
-          return true
-        }),
+      // `roleId` is honoured. It used to be ignored, so any `where` naming a
+      // role matched every row for the subject - which would have reported an
+      // unrelated grant as an existing one.
+      findMany: vi.fn(
+        async ({
+          where,
+          take,
+        }: {
+          where: { subjectId: string; roleId?: string; scope?: string | null }
+          take?: number
+        }) => {
+          const hits = assignments.filter((a) => {
+            if (a.subjectId !== where.subjectId) return false
+            if (where.roleId !== undefined && a.roleId !== where.roleId) return false
+            // Mirror Prisma: `scope: null` filter matches NULL rows only.
+            if ('scope' in where) return a.scope === where.scope
+            return true
+          })
+          return take === undefined ? hits : hits.slice(0, take)
+        },
       ),
+      // The reference schema declares `@@unique([subjectId, roleId, scope])`.
+      // The mock used to accept any `create`, so a duplicate assignment looked
+      // fine here and raised P2002 in production - the mock was the reason CI
+      // could not see it.
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const row = data as unknown as AssignmentRow
+        const clash = assignments.some(
+          (a) => a.subjectId === row.subjectId && a.roleId === row.roleId && a.scope === row.scope,
+        )
+        if (clash) throw prismaError('P2002', 'Unique constraint failed on the fields: (`subjectId`,`roleId`,`scope`)')
         assignments.push(row)
         return row
       }),
       deleteMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
         const before = assignments.length
         for (let i = assignments.length - 1; i >= 0; i--) {
-          const a = assignments[i]!
-          let matches = true
-          for (const [k, v] of Object.entries(where)) {
-            if ((a as unknown as Record<string, unknown>)[k] !== v) {
-              matches = false
-              break
-            }
-          }
-          if (matches) assignments.splice(i, 1)
+          if (matchesWhere(assignments[i]!, where)) assignments.splice(i, 1)
         }
         return { count: before - assignments.length }
       }),
       updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
         let count = 0
-        for (const a of assignments as unknown as Record<string, unknown>[]) {
-          const matches = Object.entries(where).every(([k, v]) => k !== 'NOT' && a[k] === v)
-          if (matches) {
-            Object.assign(a, data)
-            count++
-          }
+        for (const a of assignments) {
+          if (!matchesWhere(a, where)) continue
+          Object.assign(a, data)
+          count++
         }
         return { count }
       }),
@@ -211,8 +259,19 @@ describe('IamPrismaAdapter', () => {
     it('deletePolicy removes the row', async () => {
       await adapter.savePolicy(policy)
       await adapter.deletePolicy('p1')
-      expect(prisma.accessPolicy.delete).toHaveBeenCalledWith({ where: { id: 'p1' } })
+      expect(prisma.accessPolicy.deleteMany).toHaveBeenCalledWith({ where: { id: 'p1' } })
       expect(await adapter.listPolicies()).toEqual([])
+    })
+
+    // This suite only ever deleted a row it had just created, which is why the
+    // `delete`-vs-`deleteMany` divergence survived: Prisma's `delete` raises
+    // `P2025` when nothing matches, so an idempotent admin retry succeeded on
+    // the other five adapters and threw here.
+    it('deletePolicy is idempotent, like every other adapter', async () => {
+      await adapter.savePolicy(policy)
+      await adapter.deletePolicy('p1')
+      await expect(adapter.deletePolicy('p1')).resolves.toBeUndefined()
+      await expect(adapter.deletePolicy('never-existed')).resolves.toBeUndefined()
     })
   })
 
@@ -277,6 +336,47 @@ describe('IamPrismaAdapter', () => {
   })
 
   describe('IamAdapter.ISubjectStore', () => {
+    /**
+     * `assignRole` used a bare `create` against `@@unique([subjectId, roleId,
+     * scope])`. A repeat *scoped* grant raised `P2002`, so re-running a
+     * provisioning script failed on Prisma alone; a repeat *unscoped* one did
+     * not even do that, because SQL unique indexes do not collapse `NULL`s, so
+     * the row was inserted again and the table grew without bound. The other
+     * five adapters are all explicitly idempotent.
+     */
+    it('assignRole is idempotent for a scoped grant', async () => {
+      await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
+      await expect(adapter.assignRole('user-1', 'editor' as Ro, 'org-1')).resolves.toBeUndefined()
+      expect(await adapter.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
+    })
+
+    it('assignRole does not accumulate duplicate rows for an unscoped grant', async () => {
+      await adapter.assignRole('user-1', 'editor' as Ro)
+      await adapter.assignRole('user-1', 'editor' as Ro)
+      await adapter.assignRole('user-1', 'editor' as Ro)
+      expect(prisma.accessAssignment.create).toHaveBeenCalledOnce()
+      expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
+    })
+
+    // Control: idempotence must not collapse grants that differ. A scoped and
+    // an unscoped grant of the same role are two rows, and two scopes are two
+    // rows - without this the assertions above would also pass on an
+    // `assignRole` that simply stopped writing after the first call.
+    it('control: distinct grants are still distinct rows', async () => {
+      await adapter.assignRole('user-1', 'editor' as Ro)
+      await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
+      await adapter.assignRole('user-1', 'editor' as Ro, 'org-2')
+      expect(prisma.accessAssignment.create).toHaveBeenCalledTimes(3)
+      expect((await adapter.getSubjectScopedRoles('user-1')).map((r) => r.scope).sort()).toEqual(['org-1', 'org-2'])
+    })
+
+    it('deleteRole is idempotent, like every other adapter', async () => {
+      await adapter.saveRole({ id: 'r-gone' as Ro, name: 'R', permissions: [] })
+      await adapter.deleteRole('r-gone')
+      await expect(adapter.deleteRole('r-gone')).resolves.toBeUndefined()
+      await expect(adapter.deleteRole('never-existed')).resolves.toBeUndefined()
+    })
+
     it('getSubjectRoles returns deduplicated list', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
@@ -310,10 +410,13 @@ describe('IamPrismaAdapter', () => {
       expect(await adapter.getSubjectRoles('user-1')).toEqual([])
     })
 
-    it('revokeRole with an empty-string scope targets only that scope, never all', async () => {
+    // Was: `''` targets only the empty scope rather than all scopes. `''` is now
+    // refused at the shared boundary, so the stronger property holds - it
+    // revokes nothing because it never runs.
+    it('revokeRole refuses an empty-string scope and leaves both grants standing', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
-      await adapter.revokeRole('user-1', 'editor' as Ro, '' as S)
+      await expect(adapter.revokeRole('user-1', 'editor' as Ro, '' as S)).rejects.toThrow(/must not be an empty string/)
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
       expect((await adapter.getSubjectScopedRoles('user-1')).map((r) => r.scope)).toEqual(['org-1'])
     })
@@ -359,5 +462,49 @@ describe('IamPrismaAdapter', () => {
       await a.savePolicy({ algorithm: 'deny-overrides', id: 'p1', name: 'P', rules: [] })
       expect(await b.listPolicies()).toEqual([])
     })
+  })
+})
+
+/**
+ * The shipped mock is the only Prisma the suite ever sees, so a mock more
+ * forgiving than the driver makes real divergences invisible by construction.
+ * These pin the two ways it used to be wrong.
+ */
+describe('the prisma mock rejects what Prisma rejects', () => {
+  it('raises P2002 on a duplicate (subjectId, roleId, scope)', async () => {
+    const prisma = makePrismaMock()
+    const row = { roleId: 'editor', scope: null, subjectId: 'user-1' }
+    await prisma.accessAssignment.create({ data: row })
+    await expect(prisma.accessAssignment.create({ data: row })).rejects.toMatchObject({ code: 'P2002' })
+  })
+
+  it("so the adapter's duplicate-assign pre-check is what keeps the write legal", async () => {
+    const adapter = new IamPrismaAdapter<A, R, Ro, S>(makePrismaMock())
+    await adapter.assignRole('user-1', 'editor')
+    // Without the `findMany` pre-check in `assignRole` this second call reaches
+    // `create` and raises P2002 - which is exactly what production did.
+    await expect(adapter.assignRole('user-1', 'editor')).resolves.toBeUndefined()
+    expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
+  })
+
+  it('interprets `NOT` in a deleteMany where-clause', async () => {
+    const prisma = makePrismaMock()
+    await prisma.accessAssignment.create({ data: { roleId: 'editor', scope: 'org-1', subjectId: 'user-1' } })
+    await prisma.accessAssignment.create({ data: { roleId: 'editor', scope: 'org-2', subjectId: 'user-1' } })
+    // The clause `updateAssignmentScope` sends: drop the row already sitting on
+    // the target scope, but never the source row it is about to move.
+    const result = await prisma.accessAssignment.deleteMany({
+      where: { NOT: { scope: 'org-1' }, roleId: 'editor', scope: 'org-2', subjectId: 'user-1' },
+    })
+    expect(result.count).toBe(1)
+    expect(await prisma.accessAssignment.findMany({ where: { subjectId: 'user-1' } })).toHaveLength(1)
+  })
+
+  it('runs the conflict-drop end to end: moving onto a scope the subject already holds', async () => {
+    const adapter = new IamPrismaAdapter<A, R, Ro, S>(makePrismaMock())
+    await adapter.assignRole('user-1', 'editor', 'org-1')
+    await adapter.assignRole('user-1', 'editor', 'org-2')
+    expect(await adapter.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(true)
+    expect(await adapter.getSubjectScopedRoles?.('user-1')).toEqual([{ role: 'editor', scope: 'org-2' }])
   })
 })

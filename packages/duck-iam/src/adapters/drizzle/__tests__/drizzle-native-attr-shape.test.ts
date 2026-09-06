@@ -100,7 +100,9 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     expect(onPolicyErrorMock).toHaveBeenCalled()
     const errArg = onPolicyErrorMock.mock.calls[0]?.[0] as Error | undefined
     expect(errArg).toBeInstanceOf(Error)
-    expect(errArg?.message).toContain('must be a JSON object (got array)')
+    // The guard now also rejects a bag whose *values* are unstorable, so the
+    // message says "of scalar values"; the `(got array)` suffix is unchanged.
+    expect(errArg?.message).toContain('must be a JSON object of scalar values (got array)')
   })
 
   it('throws when native data column holds a number', async () => {
@@ -140,6 +142,35 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
       /corrupted attributes for "user-1" \(not a JSON object\)/,
     )
+  })
+
+  /**
+   * `iamAssertAttributesParam` is the shared boundary guard every adapter runs
+   * first. Drizzle and Prisma - the two SQL backends - never called it, so
+   * `setSubjectAttributes(id, 'abc')` spread into per-character keys and wrote
+   * `{0:'a',1:'b',2:'c'}` here while the other four threw.
+   */
+  it.each([
+    ['a string', '"abc"'],
+    ['an array', '[1,2]'],
+    ['null', 'null'],
+    ['a number', '7'],
+  ])('setSubjectAttributes rejects %s', async (_label, json) => {
+    const adapter = buildAdapter([])
+    await expect(adapter.setSubjectAttributes('user-1', JSON.parse(json))).rejects.toThrow(/must be a plain object/)
+  })
+
+  // Control: a plain object gets *past* the guard. The mock has no write path,
+  // so it still fails - but on the write, not on the guard's message, which is
+  // what distinguishes "rejected correctly" from "method became inert".
+  it('setSubjectAttributes lets a plain object past the guard', async () => {
+    let message = ''
+    try {
+      await buildAdapter([]).setSubjectAttributes('user-1', { tier: 'gold' })
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).not.toMatch(/must be a plain object/)
   })
 
   it('error text never echoes the raw column value', async () => {

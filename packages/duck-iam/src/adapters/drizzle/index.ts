@@ -6,6 +6,10 @@ import { creditWrites } from '../../core/batch'
 import type { IamConfig } from '../../core/config'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import { iamAssertAssignableScope } from '../../shared/scope'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import type { Mysql } from './mysql/mysql.types'
 import type { Pg } from './pg/pg.types'
 import type { Sqlite } from './sqlite/sqlite.types'
@@ -64,7 +68,7 @@ export namespace IamDrizzle {
      * intact. Wire this to your alerting pipeline so corrupt rows do not
      * silently vanish from authorization decisions.
      */
-    onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
+    onPolicyError?: IamAdapter.RowErrorHandler<'drizzle'>
   }
 
   /** Row shapes returned by IamDrizzle queries. */
@@ -160,7 +164,7 @@ export class IamDrizzleAdapter<
   private readonly _or?: IamDrizzle.IConfig<TDb, TType>['ops']['or']
   private readonly _json: 'native' | 'string'
   private readonly _dialect: 'pg' | 'mysql' | 'sqlite'
-  private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
+  private readonly _onPolicyError?: IamAdapter.RowErrorHandler<'drizzle'>
   /** Retained whole so {@link withClient} can re-make this adapter with only `db` swapped. */
   private readonly _config: IamDrizzle.IConfig<TDb, TType>
 
@@ -245,9 +249,13 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Typed SELECT helpers consolidate the `as unknown as RowType[]` casts at
-   * the module edge into one place. IamDrizzle's `select().from()` returns
-   * untyped rows; row shapes are pinned at the boundary here.
+   * Typed SELECT helpers. Drizzle's `select().from()` returns rows whose shape
+   * it cannot know for a table passed as a value, so the row type is named once
+   * here per call site rather than at each of them.
+   *
+   * These no longer contain any `as unknown as RowType[]`; the earlier version
+   * of this comment described that removed behaviour, which is exactly the
+   * comment a reader trusts when deciding not to look.
    */
   private async _selectAll<T>(table: IamDrizzle.DrizzleTable): Promise<T[]> {
     return await this._db.select().from(table)
@@ -269,7 +277,6 @@ export class IamDrizzleAdapter<
       this._onPolicyError(err, { adapter: 'drizzle', rowId })
       return
     }
-    // eslint-disable-next-line no-console
     console.warn(`[@gentleduck/iam:drizzle] dropped malformed row "${rowId}": ${err.message}`)
   }
 
@@ -281,12 +288,15 @@ export class IamDrizzleAdapter<
     let parsedRules: unknown
     let parsedTargets: unknown
     try {
-      parsedRules =
-        typeof row.rules === 'string' ? JSON.parse(row.rules) : (row.rules as AccessControl.IPolicy['rules'])
+      // No cast on the non-string branch. The column is `jsonb`, so its value
+      // is whatever was written to the row - `parsePolicyRow` below is what
+      // decides it is a policy, and asserting the type first only made the
+      // laundering look like a check.
+      parsedRules = typeof row.rules === 'string' ? JSON.parse(row.rules) : row.rules
       parsedTargets = row.targets
         ? typeof row.targets === 'string'
           ? JSON.parse(row.targets)
-          : (row.targets as AccessControl.IPolicy['targets'])
+          : row.targets
         : undefined
     } catch (err) {
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), row.id)
@@ -296,11 +306,11 @@ export class IamDrizzleAdapter<
     const candidate = {
       id: row.id,
       name: row.name,
-      description: row.description ?? undefined,
+      ...(row.description === null || row.description === undefined ? {} : { description: row.description }),
       version: row.version,
-      algorithm: row.algorithm as AccessControl.IPolicy['algorithm'],
+      algorithm: row.algorithm,
       rules: parsedRules,
-      targets: parsedTargets,
+      ...(parsedTargets === undefined ? {} : { targets: parsedTargets }),
     }
     const policy = parsePolicyRow<TAction, TResource, TRole>(candidate)
     if (policy === null) {
@@ -318,16 +328,9 @@ export class IamDrizzleAdapter<
     let inherits: unknown
     let metadata: unknown
     try {
-      permissions =
-        typeof row.permissions === 'string'
-          ? JSON.parse(row.permissions)
-          : (row.permissions as AccessControl.IRole['permissions'])
-      inherits = typeof row.inherits === 'string' ? JSON.parse(row.inherits) : ((row.inherits as string[] | null) ?? [])
-      metadata = row.metadata
-        ? typeof row.metadata === 'string'
-          ? JSON.parse(row.metadata)
-          : (row.metadata as AccessControl.IRole['metadata'])
-        : undefined
+      permissions = typeof row.permissions === 'string' ? JSON.parse(row.permissions) : row.permissions
+      inherits = typeof row.inherits === 'string' ? JSON.parse(row.inherits) : (row.inherits ?? [])
+      metadata = row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : undefined
     } catch (err) {
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), row.id)
       return null
@@ -386,11 +389,15 @@ export class IamDrizzleAdapter<
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
       return undefined
     }
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      this._reportPolicyError(new Error(`Assignment attributes for "${rowId}" must be a JSON object`), rowId)
+    const attrs = iamNarrowAttributes(value)
+    if (attrs === null) {
+      this._reportPolicyError(
+        new Error(`Assignment attributes for "${rowId}" must be a JSON object of scalar values`),
+        rowId,
+      )
       return undefined
     }
-    return value as IamPrimitives.Attributes
+    return attrs
   }
 
   /**
@@ -431,7 +438,8 @@ export class IamDrizzleAdapter<
    * @returns Resolves once the upsert completes.
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
-    const data = serializePolicy(p, this._json)
+    iamAssertSavablePolicy('drizzle', p)
+    const data = serializePolicy(iamNormalizePolicy(p), this._json)
     await this._upsert(this._t.policies, data, this._t.policies.id, p.id, data)
   }
 
@@ -483,6 +491,7 @@ export class IamDrizzleAdapter<
    * @returns Resolves once the upsert completes.
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+    iamAssertSavableRole('drizzle', r)
     const data = serializeRole(r, this._json)
     await this._upsert(this._t.roles, data, this._t.roles.id, r.id, data)
   }
@@ -512,7 +521,11 @@ export class IamDrizzleAdapter<
     )
     // Unscoped (global) roles only - mirrors file/memory/redis adapters.
     const now = Date.now()
-    return [...new Set(rows.filter((r) => r.scope == null && this._isActive(r, now)).map((r) => r.roleId as TRole))]
+    return [
+      ...new Set(
+        rows.filter((r) => r.scope == null && this._isActive(r, now)).map((r) => iamAsRoleLiteral<TRole>(r.roleId)),
+      ),
+    ]
   }
 
   /**
@@ -532,16 +545,22 @@ export class IamDrizzleAdapter<
       subjectId,
     )
     const now = Date.now()
-    return rows
-      .filter((r) => r.scope != null && this._isActive(r, now))
-      .map((r) => {
-        const attributes = this._parseAssignmentAttributes(r)
-        return {
-          role: r.roleId as TRole,
-          scope: r.scope as TScope,
-          ...(attributes !== undefined && { attributes }),
-        }
+    // `filter` with a plain predicate does not narrow the mapped element, so
+    // `r.scope` is still `string | null` here. The old `r.scope as TScope`
+    // erased that: change the predicate and a `null` scope would travel on as a
+    // scope value, matching a scoped check it should never match. Narrowing per
+    // row keeps the two in step.
+    const out: IamRequest.IScopedRole<TRole, TScope>[] = []
+    for (const r of rows) {
+      if (r.scope === null || r.scope === undefined || !this._isActive(r, now)) continue
+      const attributes = this._parseAssignmentAttributes(r)
+      out.push({
+        role: iamAsRoleLiteral<TRole>(r.roleId),
+        scope: iamAsScopeLiteral<TScope>(r.scope),
+        ...(attributes !== undefined && { attributes }),
       })
+    }
+    return out
   }
 
   /**
@@ -556,6 +575,7 @@ export class IamDrizzleAdapter<
    * @returns Resolves once the insert completes.
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
+    iamAssertAssignableScope('drizzle', scope)
     await this._insertOrSkip(this._t.assignments, {
       subjectId,
       roleId,
@@ -575,6 +595,7 @@ export class IamDrizzleAdapter<
    * @returns Resolves once the delete completes.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+    iamAssertAssignableScope('drizzle', scope)
     const conditions = [
       this._eq(this._t.assignments.subjectId, subjectId),
       this._eq(this._t.assignments.roleId, roleId),
@@ -598,6 +619,7 @@ export class IamDrizzleAdapter<
    * @returns Indices of the rows this call granted, or `null` on MySQL - see below.
    */
   async assignRoleMany(rows: readonly IamAdapter.IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null> {
+    for (const r of rows) iamAssertAssignableScope('drizzle', r.scope)
     if (rows.length === 0) return []
     const statement = this._insertOrSkip(
       this._t.assignments,
@@ -641,6 +663,7 @@ export class IamDrizzleAdapter<
    * @returns Indices of the rows this call removed a grant for, or `null` on MySQL.
    */
   async revokeRoleMany(rows: readonly IamAdapter.ITripleRow<TRole, TScope>[]): Promise<readonly number[] | null> {
+    for (const r of rows) iamAssertAssignableScope('drizzle', r.scope)
     if (rows.length === 0) return []
     const rowCondition = (r: IamAdapter.ITripleRow<TRole, TScope>): SQLWrapper | undefined => {
       const conditions: (SQLWrapper | undefined)[] = [
@@ -746,12 +769,16 @@ export class IamDrizzleAdapter<
   }
 
   private _validateAttributesShape(value: unknown, subjectId: string): IamPrimitives.Attributes {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    const attrs = iamNarrowAttributes(value)
+    if (attrs === null) {
       const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
-      this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object (got ${got})`), subjectId)
+      this._reportPolicyError(
+        new Error(`Attributes for "${subjectId}" must be a JSON object of scalar values (got ${got})`),
+        subjectId,
+      )
       throw new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (not a JSON object)`)
     }
-    return value as IamPrimitives.Attributes
+    return attrs
   }
 
   /**
@@ -762,6 +789,10 @@ export class IamDrizzleAdapter<
    * @returns Resolves once the upsert completes.
    */
   async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
+    // The other four adapters have always called this; without it a non-object
+    // `attrs` spreads into per-character keys and corrupts the ABAC bag, so the
+    // same call errored loudly on memory/file/redis/http and wrote junk here.
+    iamAssertAttributesParam('drizzle', subjectId, attrs)
     // Admin overwrite must recover from corrupt existing data instead of
     // locking the operator out.
     let existing: IamPrimitives.Attributes

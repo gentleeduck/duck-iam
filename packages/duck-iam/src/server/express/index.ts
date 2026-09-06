@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamRequest } from '../../core/types'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
   type IamAdminAudit,
   iamActionForMethod,
@@ -7,11 +8,14 @@ import {
   iamDefaultResource,
   iamExtractEnvironment,
   iamNoticeCsrfDefaultIfNeeded,
+  iamOptionalStringField,
+  iamRequirePathParam,
+  iamRequireStringField,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
 
-/** Minimal IamExpress request shape. */
+/** Minimal Express request shape. */
 interface Req {
   method?: string
   path?: string
@@ -23,17 +27,17 @@ interface Req {
   user?: { id: string; [k: string]: unknown }
   [k: string]: unknown
 }
-/** Minimal IamExpress response shape. */
+/** Minimal Express response shape. */
 interface Res {
   status(code: number): Res
   json(body: unknown): void
 }
-/** IamExpress next function. */
+/** Express next function. */
 type Next = (err?: unknown) => void
-/** IamExpress middleware function. */
+/** Express middleware function. */
 type Middleware = (req: Req, res: Res, next: Next) => void
 
-/** Minimal IamExpress Router interface for admin routes. */
+/** Minimal Express Router interface for admin routes. */
 interface ExpressRouterLike {
   get(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
   put(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
@@ -41,7 +45,7 @@ interface ExpressRouterLike {
   delete(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
 }
 
-/** IamExpress server integration types. Type-only namespace - zero bundle cost. */
+/** Express server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamExpress {
   /**
    * Describes options for {@link iamAccessMiddleware} and {@link iamGuard}.
@@ -63,8 +67,15 @@ export namespace IamExpress {
     getScope?: (req: Req) => TScope | undefined
     /** Handles a denied request (defaults to 403 JSON). */
     onDenied?: (req: Req, res: Res) => void
-    /** Handles thrown errors during evaluation (defaults to 500 JSON). */
-    onError?: (err: Error, req: Req, res: Res, next: Next) => void
+    /**
+     * Handles thrown errors during evaluation (defaults to 500 JSON).
+     *
+     * `next` is deliberately NOT passed. It used to be, and a hook whose
+     * signature offers `next` invites calling it - which resumes the request
+     * with no decision made, i.e. fails open on the exact path where the
+     * decision could not be computed. The other four integrations never had it.
+     */
+    onError?: (err: Error, req: Req, res: Res) => void
   }
 
   /**
@@ -99,7 +110,7 @@ export namespace IamExpress {
 }
 
 /**
- * Builds global IamExpress middleware that runs `engine.can(...)` on every request.
+ * Builds global Express middleware that runs `engine.can(...)` on every request.
  *
  * Replies 401 when no user is present and 403 when denied.
  *
@@ -109,7 +120,7 @@ export namespace IamExpress {
  * @template TScope - Constrains valid scope strings.
  * @param engine - Provides the access engine to consult.
  * @param opts - Configures extractors and error hooks.
- * @returns An IamExpress middleware function.
+ * @returns An Express middleware function.
  * @example
  * ```ts
  * app.use(iamAccessMiddleware(engine, {
@@ -134,13 +145,17 @@ export function iamAccessMiddleware<
   } = opts
 
   return async (req, res, next) => {
-    const userId = getUserId(req)
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' })
-      return
-    }
-
     try {
+      // Inside the try: `getUserId` is the extractor most likely to do I/O (JWT
+      // verification, a session lookup, an IdP call), and an Express 4
+      // middleware that returns a rejected promise writes nothing to the
+      // socket - the client hung until it timed out.
+      const userId = getUserId(req)
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+
       const allowed = await engine.can(
         userId,
         getAction(req) as TAction,
@@ -150,7 +165,7 @@ export function iamAccessMiddleware<
       )
       allowed ? next() : onDenied(req, res)
     } catch (err) {
-      onError(err instanceof Error ? err : new Error(String(err)), req, res, next)
+      onError(err instanceof Error ? err : new Error(String(err)), req, res)
     }
   }
 }
@@ -167,7 +182,7 @@ export function iamAccessMiddleware<
  * @param action - Specifies the action being performed.
  * @param resourceType - Specifies the resource type required for the check.
  * @param opts - Configures optional extractors and `scope` override.
- * @returns An IamExpress middleware function.
+ * @returns An Express middleware function.
  * @example
  * ```ts
  * app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
@@ -183,23 +198,30 @@ export function iamGuard<
   engine: IamEngine<TAction, TResource, TRole, TScope>,
   action: TAction,
   resourceType: TResource,
-  opts: Pick<IamExpress.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied'> & { scope?: TScope } = {},
+  opts: Pick<IamExpress.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & {
+    scope?: TScope
+  } = {},
 ): Middleware {
   const {
     getUserId = (req) => req.user?.id ?? null,
     getEnvironment = iamExtractEnvironment,
     onDenied = (_, res) => res.status(403).json({ error: 'Forbidden' }),
+    // Was `next(err)`, which is the one entry point of the six that hands the
+    // error object to the framework: with no app error handler and
+    // `NODE_ENV !== 'production'`, finalhandler writes `err.stack` into the
+    // response body. Same default as `iamAccessMiddleware`, and now overridable.
+    onError = (_err, _, res) => res.status(500).json({ error: 'Internal server error' }),
     scope,
   } = opts
 
   return async (req, res, next) => {
-    const userId = getUserId(req)
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' })
-      return
-    }
-
     try {
+      const userId = getUserId(req)
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+
       const allowed = await engine.can(
         userId,
         action,
@@ -209,15 +231,15 @@ export function iamGuard<
       )
       allowed ? next() : onDenied(req, res)
     } catch (err) {
-      next(err)
+      onError(err instanceof Error ? err : new Error(String(err)), req, res)
     }
   }
 }
 
 /**
- * Builds an IamExpress router for the duck-iam admin API.
+ * Builds an Express router for the duck-iam admin API.
  *
- * Returns a factory that accepts the IamExpress `Router` constructor so we never
+ * Returns a factory that accepts the Express `Router` constructor so we never
  * import express at runtime. Throws when `opts.authorize` is missing.
  *
  * @template TAction - Constrains valid action strings.
@@ -256,7 +278,7 @@ export function iamAdminRouter<
 ): (Router: () => ExpressRouterLike) => ExpressRouterLike {
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error(
-      '[@gentleduck/iam] iamAdminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
+      '[@gentleduck/iam:express] iamAdminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
     )
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
@@ -368,8 +390,12 @@ export function iamAdminRouter<
         'role-assignment',
         (req) => req.params?.id,
         async (req, res) => {
-          const body = req.body as Record<string, unknown>
-          await engine.admin.assignRole(req.params?.id as string, body.roleId as TRole, body.scope as TScope)
+          const scope = iamOptionalStringField(req.body, 'scope')
+          await engine.admin.assignRole(
+            iamRequirePathParam(req.params?.id, 'id'),
+            iamAsRoleLiteral<TRole>(iamRequireStringField(req.body, 'roleId')),
+            scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+          )
           res.json({ ok: true })
         },
       ),
@@ -382,7 +408,10 @@ export function iamAdminRouter<
         'role-assignment',
         (req) => req.params?.id,
         async (req, res) => {
-          await engine.admin.revokeRole(req.params?.id as string, req.params?.roleId as TRole)
+          await engine.admin.revokeRole(
+            iamRequirePathParam(req.params?.id, 'id'),
+            iamAsRoleLiteral<TRole>(iamRequirePathParam(req.params?.roleId, 'roleId')),
+          )
           res.json({ ok: true })
         },
       ),

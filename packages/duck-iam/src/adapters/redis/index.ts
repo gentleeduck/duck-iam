@@ -1,6 +1,10 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
-import { iamAssertAttributesParam } from '../../shared/attributes'
+import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import { iamAssertAssignableScope } from '../../shared/scope'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
 /** Redis adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamRedis {
@@ -39,7 +43,16 @@ export namespace IamRedis {
      * intact. Wire this to your alerting pipeline so corrupt rows do not
      * silently vanish from authorization decisions.
      */
-    onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
+    onPolicyError?: IamAdapter.RowErrorHandler<'redis'>
+    /**
+     * Opts in to rewriting legacy space-separated assignment members into the
+     * current NUL-separated form on read. Off by default: the legacy shape is
+     * a heuristic, not a format, so a *global* grant of a role whose id
+     * contains a space is indistinguishable from a scoped grant of the prefix
+     * before it. Enable only when every member of every assignments set was
+     * written by an older version of this adapter.
+     */
+    migrateLegacyAssignments?: boolean
   }
 }
 
@@ -62,7 +75,7 @@ export class IamRedisAdapter<
 {
   private _client: TClient
   private _prefix: string
-  private _onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
+  private _onPolicyError?: IamAdapter.RowErrorHandler<'redis'>
   /**
    * Per-assignment-key serialisation. Read-modify-write on the legacy
    * migration path can race with concurrent `revokeRole` and resurrect a
@@ -73,6 +86,7 @@ export class IamRedisAdapter<
    * processes should rely on the Lua `eval` path when available.
    */
   private _assignmentWriteLocks = new Map<string, Promise<unknown>>()
+  private _migrateLegacyAssignments: boolean
 
   /**
    * Creates a new Redis-backed adapter.
@@ -83,6 +97,7 @@ export class IamRedisAdapter<
     this._client = config.client
     this._prefix = config.keyPrefix ?? ''
     this._onPolicyError = config.onPolicyError
+    this._migrateLegacyAssignments = config.migrateLegacyAssignments ?? false
   }
 
   /**
@@ -161,15 +176,17 @@ export class IamRedisAdapter<
 
   /**
    * Detects entries written by versions of this adapter that used a literal
-   * space as separator. Format: exactly one `0x20`, no `0x00` byte. On read,
-   * such entries are transparently re-encoded with the NUL separator and the
-   * legacy form is removed from the set.
+   * space as separator. Format: exactly one `0x20`, no `0x00` byte.
    *
-   * False positives are scoped to subjects whose role/scope strings happened
-   * to contain spaces - exactly the cases that were silently broken before -
-   * so the migration corrects rather than corrupts them.
+   * "One space" is a guess, not a format. A member holding a *global* grant of
+   * a role whose id contains a space reads identically to a scoped grant of
+   * the prefix before that space, so treating it as legacy would grant a role
+   * the subject never held and then destroy the original by rewriting the set.
+   * Nothing here can tell the two apart, so the reinterpretation is off unless
+   * the operator opts in with `migrateLegacyAssignments`.
    */
   private _isLegacyEncoded(member: string): boolean {
+    if (!this._migrateLegacyAssignments) return false
     if (member.includes(IamRedisAdapter._SEP)) return false
     const first = member.indexOf(' ')
     if (first === -1) return false
@@ -180,10 +197,10 @@ export class IamRedisAdapter<
     const r: string = roleId
     // The empty string is how this encoding spells "no scope", so a literal
     // empty scope would decode as a global assignment: strictly more power than
-    // was granted. Refused rather than silently widened.
-    if (scope === '') {
-      throw new Error('[@gentleduck/iam:redis] scope must not be an empty string; omit it for a global assignment')
-    }
+    // was granted. `assignRole` / `revokeRole` already refuse it at the shared
+    // boundary; this is the encoder's own guard, kept because every internal
+    // caller of `_encodeAssignment` would otherwise have to remember.
+    iamAssertAssignableScope('redis', scope)
     const s: string = scope ?? ''
     if (r.includes(IamRedisAdapter._SEP) || s.includes(IamRedisAdapter._SEP)) {
       throw new Error('[@gentleduck/iam:redis] role / scope must not contain NUL bytes')
@@ -193,20 +210,20 @@ export class IamRedisAdapter<
   private _decodeAssignment(member: string): { role: TRole; scope?: TScope } {
     const sep = member.indexOf(IamRedisAdapter._SEP)
     if (sep === -1) {
-      // Legacy-format fallback: older versions used a space separator.
-      // Accept exactly-one-space entries here; the caller
-      // (`_migrateLegacyAssignment`) re-encodes them on first read.
+      // Legacy-format fallback, only under `migrateLegacyAssignments`: older
+      // versions used a space separator. The caller
+      // (`_migrateLegacyAssignment`) re-encodes these on first read.
       if (this._isLegacyEncoded(member)) {
         const legacySep = member.indexOf(' ')
-        const role = member.slice(0, legacySep) as TRole
+        const role = iamAsRoleLiteral<TRole>(member.slice(0, legacySep))
         const scope = member.slice(legacySep + 1)
-        return scope === '' ? { role } : { role, scope: scope as TScope }
+        return scope === '' ? { role } : { role, scope: iamAsScopeLiteral<TScope>(scope) }
       }
-      return { role: member as TRole }
+      return { role: iamAsRoleLiteral<TRole>(member) }
     }
-    const role = member.slice(0, sep) as TRole
+    const role = iamAsRoleLiteral<TRole>(member.slice(0, sep))
     const scope = member.slice(sep + 1)
-    return scope === '' ? { role } : { role, scope: scope as TScope }
+    return scope === '' ? { role } : { role, scope: iamAsScopeLiteral<TScope>(scope) }
   }
 
   /**
@@ -332,7 +349,8 @@ export class IamRedisAdapter<
    * @returns Resolves once the HSET completes.
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
-    await this._client.hset(this._policiesKey(), p.id, JSON.stringify(p))
+    iamAssertSavablePolicy('redis', p)
+    await this._client.hset(this._policiesKey(), p.id, JSON.stringify(iamNormalizePolicy(p)))
   }
 
   /**
@@ -383,6 +401,7 @@ export class IamRedisAdapter<
    * @returns Resolves once the HSET completes.
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+    iamAssertSavableRole('redis', r)
     await this._client.hset(this._rolesKey(), r.id, JSON.stringify(r))
   }
 
@@ -448,7 +467,9 @@ export class IamRedisAdapter<
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the SADD completes.
    */
-  async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+  async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
+    iamAssertAssignableScope('redis', scope)
+    iamAssertNoAssignOptions('redis', opts)
     const key = this._assignmentsKey(subjectId)
     // Serialise against the migration path.
     await this._runSerialised(key, () => this._client.sadd(key, this._encodeAssignment(roleId, scope)))
@@ -465,6 +486,7 @@ export class IamRedisAdapter<
    * @returns Resolves once the SREM completes.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+    iamAssertAssignableScope('redis', scope)
     const key = this._assignmentsKey(subjectId)
     // Serialise against migration so a racing _migrateLegacyAssignment
     // cannot SADD the migrated form after our SREM lands.
@@ -502,11 +524,15 @@ export class IamRedisAdapter<
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
       throw new Error(`[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (JSON parse failed)`)
     }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
+    const attrs = iamNarrowAttributes(parsed)
+    if (attrs === null) {
+      this._reportPolicyError(
+        new Error(`Attributes for "${subjectId}" must be a JSON object of scalar values`),
+        subjectId,
+      )
       throw new Error(`[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (not a JSON object)`)
     }
-    return parsed as IamPrimitives.Attributes
+    return attrs
   }
 
   /**
