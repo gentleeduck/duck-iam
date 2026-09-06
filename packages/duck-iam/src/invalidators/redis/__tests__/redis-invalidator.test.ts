@@ -134,7 +134,7 @@ describe('createIamRedisInvalidator', () => {
     }
   })
 
-  it('peer without secret accepts unsigned and warns once at construction', () => {
+  it('peer without secret accepts unsigned and warns once per channel, not once per process', () => {
     const bus = makeBus()
     const inv = createIamRedisInvalidator({ client: bus.client })
     const received: IamEngineTypes.IInvalidateEvent[] = []
@@ -143,18 +143,48 @@ describe('createIamRedisInvalidator', () => {
     bus.publish(JSON.stringify({ event: { kind: 'all' }, instanceId: 'peer' }))
     expect(received).toEqual([{ kind: 'all' }])
 
-    // Construction-time warn: at most once per process. The latch is module-
-    // level so earlier tests in this file may already have tripped it; assert
-    // the warn fired at most once across multiple constructions in this case.
-    const before = warnSpy.mock.calls.length
-    createIamRedisInvalidator({ client: makeBus().client })
-    createIamRedisInvalidator({ client: makeBus().client })
-    const after = warnSpy.mock.calls.length
-    const unsignedWarns = warnSpy.mock.calls
+    // The latch used to be one process-wide boolean, so the second and every
+    // later unsigned invalidator in a multi-tenant process constructed in
+    // silence - and the one warning that did fire named no channel, leaving an
+    // operator who fixed "the" unsigned invalidator no way to learn the rest
+    // were still unsigned. Fresh channel names per case, so nothing earlier in
+    // this file can have claimed the latch: the counts below are exact, not
+    // bounds.
+    const unsignedWarnsFor = (channel: string): string[] =>
+      warnSpy.mock.calls
+        .map((c: unknown[]) => String(c[0] ?? ''))
+        .filter((m: string) => m.includes('`secret` not set') && m.includes(channel))
+
+    const chA = `t-unsigned-a-${Math.random().toString(36).slice(2)}`
+    const chB = `t-unsigned-b-${Math.random().toString(36).slice(2)}`
+    createIamRedisInvalidator({ channel: chA, client: makeBus().client })
+    createIamRedisInvalidator({ channel: chB, client: makeBus().client })
+    expect(unsignedWarnsFor(chA)).toHaveLength(1)
+    expect(unsignedWarnsFor(chB)).toHaveLength(1)
+
+    // Same channel again: still latched, so a reconnect loop that rebuilds its
+    // invalidator does not print the line forever.
+    createIamRedisInvalidator({ channel: chA, client: makeBus().client })
+    expect(unsignedWarnsFor(chA)).toHaveLength(1)
+  })
+
+  it('reports each tenant channel separately, and never prints the tenant id', () => {
+    const base = `t-unsigned-tenant-${Math.random().toString(36).slice(2)}`
+    createIamRedisInvalidator({ channel: base, client: makeBus().client, tenantId: 'acme' })
+    createIamRedisInvalidator({ channel: base, client: makeBus().client, tenantId: 'globex' })
+
+    const msgs = warnSpy.mock.calls
       .map((c: unknown[]) => String(c[0] ?? ''))
-      .filter((m: string) => m.includes('`secret` not set'))
-    expect(unsignedWarns.length).toBeLessThanOrEqual(1)
-    expect(after - before).toBeLessThanOrEqual(1)
+      .filter((m: string) => m.includes('`secret` not set') && m.includes(base))
+    // Two tenants on one base channel are two reports, not one - that is the
+    // whole point of keying on the full channel.
+    expect(msgs).toHaveLength(2)
+    // The channel is named so the report is actionable, but the tenant segment
+    // is the digest `redactChannel` produces: this line is written on a path an
+    // outsider can drive, and stderr is not a tenant directory.
+    expect(msgs.some((m: string) => m.includes('acme'))).toBe(false)
+    expect(msgs.some((m: string) => m.includes('globex'))).toBe(false)
+    expect(msgs.every((m: string) => m.includes(`${base}:tenant:`))).toBe(true)
   })
 
   it('tenantId option auto-namespaces channel (CAVEAT-1)', () => {

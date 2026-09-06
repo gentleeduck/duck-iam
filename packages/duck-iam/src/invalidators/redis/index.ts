@@ -152,8 +152,21 @@ const REPLAY_WINDOW_MS = 30_000
 /** Wire-format version. Bump when the envelope shape changes incompatibly. */
 const ENVELOPE_V = 1
 
-/** Module-level latch for the unsigned-mode warning. Fires at most once per process. */
-const _UNSIGNED_WARNED = { fired: false }
+/**
+ * Channels already reported as running unsigned.
+ *
+ * Per channel, not per process. `tenantId` exists so one process builds one
+ * invalidator per tenant, and a single process-wide latch meant the second and
+ * every later unsigned invalidator constructed in silence - while the one
+ * warning that did fire named no channel, so an operator who fixed "the"
+ * unsigned invalidator had no way to learn the other forty were still unsigned.
+ *
+ * Still a latch rather than a warn per construction: an app that rebuilds its
+ * invalidator on reconnect would otherwise print the same line forever. Keyed
+ * on the full channel, so two tenants report separately and one tenant reports
+ * once.
+ */
+const _UNSIGNED_WARNED = new Set<string>()
 
 /**
  * Per-channel rate-limited warn state. Rate-limits warns at a tunable
@@ -367,10 +380,10 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   const handlers = new Set<(event: IamEngineTypes.IInvalidateEvent<TRole>) => void>()
   const secret = config.secret ?? null
 
-  if (secret === null && !_UNSIGNED_WARNED.fired) {
-    _UNSIGNED_WARNED.fired = true
+  if (secret === null && !_UNSIGNED_WARNED.has(channel)) {
+    _UNSIGNED_WARNED.add(channel)
     console.warn(
-      '[@gentleduck/iam:invalidator:redis] `secret` not set - accepting unsigned pub/sub. Anyone with PUBLISH rights on the channel can wipe caches. Pass `secret` to require HMAC-SHA256.',
+      `[@gentleduck/iam:invalidator:redis] \`secret\` not set on channel ${JSON.stringify(redactChannel(channel))} - accepting unsigned pub/sub. Anyone with PUBLISH rights on the channel can wipe caches. Pass \`secret\` to require HMAC-SHA256.`,
     )
   }
 

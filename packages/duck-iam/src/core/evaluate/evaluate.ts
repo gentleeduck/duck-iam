@@ -142,7 +142,7 @@ export function evaluatePolicy(
       applies = ruleApplies(rule, request, caches)
     } catch (err) {
       if (!rulesAbstainOnThrow) throw err
-      safeErrorReport(() => onRuleError?.(err instanceof Error ? err : new Error(String(err)), policy))
+      safeErrorReport(onRuleError, err, policy)
       continue
     }
     if (applies) {
@@ -225,7 +225,7 @@ export function evaluate(
     try {
       return evaluatePolicy(policy, request, defaultEffect, caches, onPolicyError)
     } catch (err) {
-      safeErrorReport(() => onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy))
+      safeErrorReport(onPolicyError, err, policy)
       if (policyHasDenyRule(policy)) {
         return {
           allowed: false,
@@ -570,7 +570,7 @@ export function evaluateFast(
     try {
       return evaluatePolicyFast(policy, request, defaultEffect, caches, voteSource, onPolicyError)
     } catch (err) {
-      safeErrorReport(() => onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy))
+      safeErrorReport(onPolicyError, err, policy)
       voteSource.fromDefault = false
       if (policyHasDenyRule(policy)) return false
       voteSource.fromDefault = true
