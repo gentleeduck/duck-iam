@@ -1,4 +1,12 @@
 import type { AccessControl, IamPrimitives } from '../types'
+/**
+ * The decision trace: every policy and rule that was consulted, what each one
+ * voted, and which one decided. Type-only.
+ *
+ * Produced by `engine.explain()` rather than by `can()` - a check answers a
+ * boolean on the fast path, and reconstructing why is deliberately a separate,
+ * slower call so debugging never taxes production authorization.
+ */
 export namespace Explain {
   /**
    * Trace of a single leaf condition: field, operator, expected vs actual, and the result.

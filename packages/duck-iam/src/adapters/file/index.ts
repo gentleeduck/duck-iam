@@ -13,6 +13,9 @@ import {
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
+/**
+ * Types for the JSON-file adapter. Type-only namespace - zero bundle cost.
+ */
 export namespace IamFile {
   /**
    * Describes the minimal `node:fs/promises`-compatible surface used by {@link IamFileAdapter}.

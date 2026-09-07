@@ -1,3 +1,11 @@
+/**
+ * The literal unions a consumer declares (actions, resources, roles, scopes)
+ * and the helpers that derive types from them. Type-only.
+ *
+ * This is where the library learns the caller's vocabulary: everything else is
+ * generic over these, which is what turns an unknown action into a compile
+ * error instead of a runtime deny.
+ */
 export namespace IamClient {
   /**
    * Compound string key uniquely identifying a permission check result. Used

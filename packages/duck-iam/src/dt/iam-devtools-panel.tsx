@@ -7,9 +7,22 @@ import { isDevtoolsAllowed } from './lib/guard'
 import { GENTLEDUCK_LOGO_DATA_URL } from './lib/logo'
 import { ensureStylesInjected } from './lib/styles'
 
+/** Where the floating launcher sits. `'relative'` drops it into normal flow instead, for embedding it in a toolbar of your own. */
 export type ButtonPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'relative'
+/** Which edge the panel docks to. Cycled through by the dock button in `PANEL_POSITIONS` order. */
 export type PanelPosition = 'top' | 'bottom' | 'left' | 'right'
 
+/**
+ * Props for `IamDevtools` - the launcher button plus the dockable panel around
+ * {@link IamDevtoolsInner}. Extends the inner props, so everything the panels
+ * need is passed straight through.
+ *
+ * All presentation: which edge to dock to, where the button sits, whether to
+ * render the button at all (`hideButton`, for driving open state yourself), and
+ * the `localStorage` key prefix under which the open/dock/size state persists -
+ * set `storagePrefix` when two devtools instances share a page, or they fight
+ * over the same keys.
+ */
 export interface IIamDevtoolsProps extends IIamDevtoolsInnerProps {
   initialIsOpen?: boolean
   buttonPosition?: ButtonPosition

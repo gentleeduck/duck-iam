@@ -1,5 +1,12 @@
 import type { IamPrimitives } from './primitives'
 
+/**
+ * What is being asked, and by whom: the subject making a request, the resource
+ * it names, and the environment it happens in. Type-only.
+ *
+ * Kept apart from {@link AccessControl} because these describe one evaluation
+ * in flight, while those describe the model that outlives it.
+ */
 export namespace IamRequest {
   /**
    * A role assignment scoped to a tenant, organization, or workspace. Used in

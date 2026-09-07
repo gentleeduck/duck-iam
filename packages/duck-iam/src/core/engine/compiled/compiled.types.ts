@@ -1,3 +1,11 @@
+/**
+ * How a single (action, resource) cell of the compiled table can be answered.
+ *
+ * `CONST_DENY` and `CONST_ALLOW` are settled at compile time and need only a
+ * bit test at lookup. `DYNAMIC` means conditions or policy targeting make the
+ * answer depend on the request, so the cell's groups must be evaluated per
+ * call - the case the table exists to keep rare.
+ */
 export enum CellKind {
   CONST_DENY = 0,
   CONST_ALLOW = 1,
@@ -32,6 +40,20 @@ export interface DynamicPolicyGroup {
   readonly targetRoles?: readonly string[]
 }
 
+/**
+ * The whole authorization model baked into flat arrays, indexed by
+ * `actionId * nResources + resourceId`, so the common case is a bit test rather
+ * than a walk over policies. Built once per model generation and replaced
+ * wholesale on invalidation - never mutated, because a request already reading
+ * it must see one consistent model.
+ *
+ * A cell falls into one of three classes (`kind`): a constant allow or deny the
+ * lookup can answer from `allow`/`touched` alone, or DYNAMIC, where conditions
+ * or targeting force per-request evaluation of `dynamic`. RBAC is deliberately
+ * spread across three fields - the `allow` bitmask, `rbacDynamic`, and
+ * `rbacResidual` - which together form ONE vote; see `rbacResidual` for why
+ * treating them as three would break an 'and'-combined table.
+ */
 export interface CompiledTable {
   readonly nResources: number
   readonly actionId: ReadonlyMap<string, number>

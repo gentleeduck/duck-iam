@@ -1,3 +1,14 @@
+/**
+ * The icons the devtools use, hand-inlined as SVG.
+ *
+ * A devtools panel that pulled in an icon package would put that package in the
+ * dependency tree of every consumer of `@gentleduck/iam`, for artwork most
+ * builds drop entirely. Each is a plain component over the shared `base`
+ * stroke attributes at a default 12px (`Close` at 14). Each carries a single line saying what
+ * it marks rather than what it draws - the glyph is evident from the name, the
+ * meaning it carries in a trace is not. {@link Dot} and {@link Spinner} break
+ * the shared pattern and say why.
+ */
 import type { CSSProperties } from 'react'
 
 interface IconProps {
@@ -14,6 +25,7 @@ const base = {
   strokeLinejoin: 'round' as const,
 }
 
+/** Disclosure caret, expanded state. */
 export function ChevronDown({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -22,6 +34,7 @@ export function ChevronDown({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Disclosure caret, collapsed state. */
 export function ChevronRight({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -30,6 +43,7 @@ export function ChevronRight({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Dismiss affordance - the panel's own close control. */
 export function Close({ size = 14, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -38,6 +52,7 @@ export function Close({ size = 14, className, style }: IconProps) {
   )
 }
 
+/** Re-read affordance on panels that load from the engine on demand. */
 export function Refresh({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -46,6 +61,7 @@ export function Refresh({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Magnifier, rendered inside {@link FilterBar}'s input rather than beside it. */
 export function Search({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -55,6 +71,7 @@ export function Search({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Forward/step marker in the decision trace. */
 export function ArrowRight({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -63,6 +80,7 @@ export function ArrowRight({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Inheritance marker in the Roles panel: the arrow before a role's `inherits` list. */
 export function CornerUpRight({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -71,6 +89,7 @@ export function CornerUpRight({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** The odd one out: a filled circle, so it takes none of the shared `base` stroke attributes and defaults to 4px rather than 12. */
 export function Dot({ size = 4, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 4 4" className={className} style={style}>
@@ -79,6 +98,11 @@ export function Dot({ size = 4, className, style }: IconProps) {
   )
 }
 
+/**
+ * The one animated icon. Spins via the `.iam-dt-spin` class from
+ * `lib/styles.ts` rather than an inline `animation`, which it used to
+ * duplicate - two copies of the same 0.9s timing that could drift apart.
+ */
 export function Spinner({ size = 12, className, style }: IconProps) {
   return (
     <svg
@@ -86,25 +110,9 @@ export function Spinner({ size = 12, className, style }: IconProps) {
       height={size}
       viewBox="0 0 16 16"
       {...base}
-      className={className}
-      style={{ ...style, animation: 'iam-dt-spin 0.9s linear infinite' }}>
+      className={className ? `iam-dt-spin ${className}` : 'iam-dt-spin'}
+      style={style}>
       <path d="M8 1.5a6.5 6.5 0 1 1-6.5 6.5" />
-    </svg>
-  )
-}
-
-export function Check({ size = 12, className, style }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
-      <path d="M3 8.5l3.5 3.5L13 5" />
-    </svg>
-  )
-}
-
-export function Minus({ size = 12, className, style }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
-      <path d="M3 8h10" />
     </svg>
   )
 }

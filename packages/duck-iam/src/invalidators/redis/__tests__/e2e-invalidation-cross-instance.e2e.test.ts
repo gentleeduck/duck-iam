@@ -5,9 +5,10 @@
  * Two `IamEngine` objects, each with its own connection pool, its own caches,
  * and its own pair of Redis connections (publisher + subscriber), so every
  * invalidation genuinely leaves the process, crosses the Redis server, and
- * comes back. A companion suite (`e2e-invalidation-two-process.e2e.test.ts`)
- * repeats the core case across two OS processes to prove the shortcut here is
- * honest.
+ * comes back. The last case goes further and repeats the core scenario across
+ * two OS processes - the second engine spawned under its own `bun` from
+ * `e2e-invalidation-worker.ts` - so the cross-process claim the rest of the
+ * suite makes in one process is proved literally at least once.
  *
  * The invariant under test: **a revoked grant must stop being honoured
  * everywhere.** `cacheTTL` is deliberately long (600 s) in every case that is

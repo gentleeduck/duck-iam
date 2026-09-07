@@ -1,3 +1,13 @@
+/**
+ * Thin devtools-flavoured wrappers over the shared `@gentleduck/registry-ui`
+ * primitives - a card with a title slot, a button with the sizes these panels
+ * use, and so on.
+ *
+ * They exist so panel code reads as layout rather than as class strings, and so
+ * a styling change lands in one place. Each is a presentational wrapper doing
+ * what its name says; the behaviour worth knowing about lives in the registry
+ * components they delegate to.
+ */
 import { cn } from '@gentleduck/libs/cn'
 import { Badge as RxBadge } from '@gentleduck/registry-ui/badge'
 import { Button as RxButton } from '@gentleduck/registry-ui/button'
@@ -6,6 +16,7 @@ import { Input as RxInput } from '@gentleduck/registry-ui/input'
 import { Textarea as RxTextarea } from '@gentleduck/registry-ui/textarea'
 import type React from 'react'
 
+/** A titled box. Header renders only when there is a `title` or `actions` to put in it, so an untitled card is just a bordered body. */
 export function Card({
   title,
   children,
@@ -32,6 +43,7 @@ export function Card({
   )
 }
 
+/** A button at the sizes these panels use. `type` defaults to `'button'`, so one inside a panel form cannot submit it by accident. */
 export function Button({
   children,
   onClick,
@@ -62,6 +74,7 @@ export function Button({
   )
 }
 
+/** A labelled form row: the small caps label above whatever control is passed as children. */
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -71,14 +84,22 @@ export function Field({ label, children }: { label: string; children: React.Reac
   )
 }
 
+/** An `input` at devtools scale. Passes every native prop through, so callers keep full control of the element. */
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <RxInput {...props} className={cn('h-7 text-xs', props.className)} />
 }
 
+/** A monospaced `textarea`, for the JSON the Decision Inspector and Subjects panel take as free text. */
 export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <RxTextarea {...props} className={cn('font-mono text-[11px] leading-relaxed', props.className)} />
 }
 
+/**
+ * A small status pill. `tone` is semantic rather than a colour: `'allow'` and
+ * `'deny'` are the two the panels lean on, and they read the same here as in
+ * the trace tree and the flow log, so a green pill means the same thing
+ * wherever it appears.
+ */
 export function Badge({
   children,
   tone = 'neutral',
@@ -117,6 +138,7 @@ export function Badge({
   )
 }
 
+/** The dashed placeholder for a list with nothing in it - distinct from {@link DetailEmpty}, which fills a detail pane. */
 export function Empty({ message }: { message: string }) {
   return (
     <div className="rounded-md border border-border/60 border-dashed bg-muted/20 p-6 text-center text-muted-foreground text-xs">
@@ -125,6 +147,7 @@ export function Empty({ message }: { message: string }) {
   )
 }
 
+/** An inline error or success banner, used for the results of the writes the Subjects panel makes. */
 export function Alert({ kind, children }: { kind: 'error' | 'success'; children: React.ReactNode }) {
   return (
     <div

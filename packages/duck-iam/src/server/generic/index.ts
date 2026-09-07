@@ -241,6 +241,26 @@ function readSecFetchSite(req: unknown): string | undefined {
   return undefined
 }
 
+/**
+ * The default CSRF check for the admin routers: refuse a browser request the
+ * browser itself labelled cross-site.
+ *
+ * `Sec-Fetch-Site` is set by the user agent and cannot be forged by page script,
+ * which is what makes it worth reading. It is absent for non-browser callers
+ * (curl, a server-to-server client, an old browser), and absence is treated as
+ * a pass: this check is not the authentication, it only stops a logged-in
+ * browser being steered into a mutation by another origin. Bearer tokens or
+ * mTLS decide the non-browser case.
+ *
+ * Header lookup is case-insensitive. HTTP header names are case-insensitive by
+ * spec and different frameworks hand them over in different cases; matching only
+ * the lowercase form let a cross-site request through whenever the runtime
+ * happened to preserve `Sec-Fetch-Site` as sent.
+ *
+ * @param req - The framework request, in any of the three header shapes
+ *              {@link readSecFetchSite} understands.
+ * @returns `true` when the request may proceed.
+ */
 export function iamDefaultCsrfCheck(req: unknown): boolean {
   const site = readSecFetchSite(req)
   if (!site) return true // non-browser caller; let bearer/mTLS auth decide
@@ -310,20 +330,34 @@ export interface IamIAdminAuthzForbidden {
   phase: 'forbidden'
 }
 
+/** The caller is not an admin: `authorize` returned false or a falsy actor. */
 export interface IamIAdminAuthzUnauthorized {
   phase: 'unauthorized'
 }
 
+/**
+ * `authorize` itself threw. Distinct from `unauthorized` so a broken callback
+ * is reported as a server fault rather than silently denying every admin.
+ */
 export interface IamIAdminAuthzError {
   phase: 'error'
   error: Error
 }
 
+/**
+ * The caller may proceed.
+ *
+ * `actor` is whatever `authorize` returned, and is `undefined` when that value
+ * cannot name anyone — `true` is a valid authorising answer and the documented
+ * contract, but it is not an actor, and recording it as one would put `true` in
+ * the audit trail where a user id belongs.
+ */
 export interface IamIAdminAuthzOk {
   phase: 'ok'
   actor: unknown
 }
 
+/** Every outcome of the shared admin gate. Exhaustive: adapters switch on `phase`. */
 export type IamIAdminAuthzResult =
   | IamIAdminAuthzForbidden
   | IamIAdminAuthzUnauthorized

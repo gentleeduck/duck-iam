@@ -1,4 +1,14 @@
 import type { AccessControl, IamPrimitives, IamRequest } from '.'
+/**
+ * The storage contract every adapter implements, plus the option and error
+ * types its methods exchange. Type-only.
+ *
+ * Reads take an optional `AbortSignal` (see {@link IReadOptions} for which
+ * adapters actually honour it), and the optional members -
+ * `getSubjectScopedRoles`, `getSubjectGrantBoundary`, the batch writes - are
+ * capabilities rather than requirements: a store that omits one is not broken,
+ * the engine falls back to what it can do without it.
+ */
 export namespace IamAdapter {
   /**
    * Optional read-time cancellation token. The engine creates a controller per

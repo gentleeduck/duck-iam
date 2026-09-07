@@ -20,9 +20,14 @@ const exec = promisify(execFile)
  * sweeps every container carrying that label on startup, so with several agents
  * running suites concurrently the shared Postgres gets torn down underneath a
  * run in progress. This suite therefore owns both of its backends.
+ *
+ * They additionally carry `OWNED_LABEL`, which `e2e-containers.ts` sweeps with
+ * an age bound on every run - that is what collects them when a run dies before
+ * its `afterAll`. This file deliberately ships no sweeper of its own: an
+ * unbounded one would tear down a concurrent run's containers, and it once did
+ * exist here, exported and never called.
  */
 export const E2E_LABEL = 'duck-iam-e2e-invalidation'
-export const REDIS_LABEL = E2E_LABEL
 const REDIS_IMAGE = 'redis:7-alpine'
 const PG_IMAGE = 'postgres:16-alpine'
 const PG_USER = 'duckiam'
@@ -35,6 +40,13 @@ async function docker(args: string[], timeout?: number): Promise<string> {
   return stdout.trim()
 }
 
+/**
+ * Whether a docker daemon answers within 5 seconds.
+ *
+ * Bounded rather than open-ended: a wedged daemon that never replies would hang
+ * the module-level `await` in each suite and stall the whole run, where a
+ * false here just makes the suites skip.
+ */
 export async function dockerAvailable(): Promise<boolean> {
   try {
     await docker(['info', '--format', '{{.ServerVersion}}'], 5_000)
@@ -69,7 +81,7 @@ async function waitUntilReachable(port: number): Promise<void> {
 
 /** Bring up a throwaway Redis on an ephemeral host port. Labelled for sweep-up. */
 export async function startRedis(): Promise<{ name: string; port: number }> {
-  const name = `${REDIS_LABEL}-${randomBytes(4).toString('hex')}`
+  const name = `${E2E_LABEL}-${randomBytes(4).toString('hex')}`
   await docker([
     'run',
     '-d',
@@ -78,7 +90,7 @@ export async function startRedis(): Promise<{ name: string; port: number }> {
     '--label',
     'duck-iam-e2e-owned',
     '--label',
-    REDIS_LABEL,
+    E2E_LABEL,
     '-p',
     '0:6379',
     REDIS_IMAGE,
@@ -159,6 +171,14 @@ export async function startPostgres(): Promise<{ name: string; url: string }> {
   return { name, url: `postgres://${PG_USER}:${PG_PASSWORD}@127.0.0.1:${port}/${PG_DB}` }
 }
 
+/**
+ * Best-effort teardown of one container this suite started.
+ *
+ * `-v` as well as `-f`, or its anonymous volume outlives it. Warns instead of
+ * throwing: a teardown failure must not turn a green suite red, and the
+ * container is still labelled `OWNED_LABEL`, so the age-bounded sweep in
+ * `e2e-containers.ts` collects it on a later run.
+ */
 export async function removeContainer(name: string): Promise<void> {
   try {
     await docker(['rm', '-f', '-v', name])
@@ -167,21 +187,7 @@ export async function removeContainer(name: string): Promise<void> {
   }
 }
 
-export async function removeRedis(name: string): Promise<void> {
-  try {
-    await docker(['rm', '-f', '-v', name])
-  } catch (err) {
-    console.warn(`[e2e-invalidation] could not remove ${name}: ${err instanceof Error ? err.message : err}`)
-  }
-}
-
-/** Remove containers a crashed earlier run leaked. */
-export async function removeRedisStrays(): Promise<void> {
-  const ids = await docker(['ps', '-aq', '--filter', `label=${REDIS_LABEL}`])
-  if (ids.length === 0) return
-  await docker(['rm', '-f', '-v', ...ids.split('\n')])
-}
-
+/** A decoded RESP2 reply. Recursive, because an array reply holds replies. */
 export type Reply = string | number | null | Reply[]
 
 interface ParseResult {

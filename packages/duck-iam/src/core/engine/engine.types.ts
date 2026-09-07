@@ -1,5 +1,11 @@
 import type { Batch } from '../batch'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
+/**
+ * The engine's public options, hooks and invalidator contract. Type-only.
+ *
+ * Split out of `engine.ts` so a consumer can type a config object, a hook, or a
+ * custom invalidator without importing the engine implementation itself.
+ */
 export namespace IamEngineTypes {
   /** Re-exported from {@link IamAdapter} so `engine.admin` callers need one import. */
   export type ITripleRow<TRole extends string = string, TScope extends string = string> = IamAdapter.ITripleRow<

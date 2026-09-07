@@ -54,11 +54,22 @@ export interface IamIDevtoolsEngine {
   }
 }
 
+/**
+ * The metrics aggregator as the Telemetry panel needs it. Structural rather
+ * than an import of the concrete aggregator so a consumer can hand in their
+ * own - the panel only ever reads a snapshot and offers a reset button.
+ */
 export interface IamIDevtoolsMetrics {
   snapshot(): IamMetrics.ISnapshot
   reset(): void
 }
 
+/**
+ * The Decision Inspector's form state. Every field is a string, including the
+ * two JSON boxes, because this is what the user is currently typing - half-typed
+ * JSON has to be a legal state of the form, so parsing happens at submit and a
+ * syntax error is shown rather than thrown.
+ */
 export interface IamIDecisionInput {
   subjectId: string
   action: string
@@ -69,4 +80,5 @@ export interface IamIDecisionInput {
   scope: string
 }
 
+/** Which devtools panel is open. Also the persisted key, so renaming one resets the user's last tab. */
 export type IamPanelKey = 'flow' | 'decision' | 'policies' | 'roles' | 'subjects' | 'metrics'
