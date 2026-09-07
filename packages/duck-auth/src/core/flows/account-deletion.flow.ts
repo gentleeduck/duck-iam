@@ -124,6 +124,21 @@ export async function cancelAccountDeletion<Profile extends Identities.ProfileMe
   if (typeof input.identityId !== 'string' || input.identityId.length === 0 || input.identityId.length > 256) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
+  // A missing callback is a wiring mistake, not a failed authentication, so it
+  // reports as one - and loudly. This used to check that `identityId` was a
+  // plausible string and then restore the account: no token, no session, no
+  // callback. Anyone who could reach the function un-deleted any account by id.
+  if (typeof input.authorize !== 'function') {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: 'cancelAccountDeletion: an authorize(identityId) callback is required',
+    })
+  }
+  // Before the read, before the write. A refusal is reported with the same code
+  // as an id that does not exist, so this cannot be used to ask which accounts
+  // are sitting in the deletion grace window.
+  if (!(await input.authorize(input.identityId))) {
+    throw new AuthError('AUTH_UNAUTHENTICATED')
+  }
   const identity = await deps.identities.restore(input.identityId)
   // The store reports "no such id" as data; at the flow boundary it is an
   // error - there is no account whose deletion this could be cancelling, and

@@ -390,7 +390,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
       await auth.flows.completeAccountDeletion({ token })
       expect(await stores.identities.findById(user.id)).toBeNull()
 
-      await auth.flows.cancelAccountDeletion({ identityId: user.id })
+      await auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId: user.id })
       expect(await stores.identities.findById(user.id)).not.toBeNull()
     })
 
@@ -403,7 +403,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
       await auth.flows.completeAccountDeletion({ token })
       await expect(auth.flows.completeAccountDeletion({ token })).rejects.toBeTruthy()
       // Leave it restored so the afterAll cleanup can still find it.
-      await auth.flows.cancelAccountDeletion({ identityId: user.id })
+      await auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId: user.id })
     })
 
     it('a deleted account cannot sign in, and can again once restored', async () => {
@@ -414,7 +414,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
       await expect(signIn(user.email)).rejects.toBeTruthy()
 
-      await auth.flows.cancelAccountDeletion({ identityId: user.id })
+      await auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId: user.id })
       expect((await signIn(user.email)).sid).toBeTruthy()
     })
 

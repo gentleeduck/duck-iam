@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthTestChannel } from '~/channels/console'
 import { AuthEngine } from '~/core/engine'
@@ -84,10 +84,79 @@ describe('FlowsImpl - account deletion', () => {
     await auth.flows.completeAccountDeletion({ token })
     expect(await adapter.identities.findById(identityId)).toBeNull()
 
-    const cancelled = await auth.flows.cancelAccountDeletion({ identityId })
+    const cancelled = await auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId })
     expect(cancelled.identity.id).toBe(identityId)
     expect(cancelled.identity.deletedAt).toBeNull()
     expect(await adapter.identities.findById(identityId)).not.toBeNull()
+  })
+
+  it('cancel refuses when authorize() says no, and leaves the account deleted', async () => {
+    // The whole gate. Before this, the function checked that `identityId` was a
+    // plausible string and restored the account - anyone who could reach it
+    // un-deleted any account by id.
+    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId })
+    const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    await auth.flows.completeAccountDeletion({ token })
+
+    await expect(auth.flows.cancelAccountDeletion({ authorize: async () => false, identityId })).rejects.toMatchObject({
+      code: 'AUTH_UNAUTHENTICATED',
+    })
+    expect(await adapter.identities.findById(identityId)).toBeNull()
+  })
+
+  it('cancel asks authorize() about the identity it is being asked to restore', async () => {
+    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId })
+    const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    await auth.flows.completeAccountDeletion({ token })
+    const seen: string[] = []
+
+    await auth.flows.cancelAccountDeletion({
+      authorize: async (id) => {
+        seen.push(id)
+        return true
+      },
+      identityId,
+    })
+
+    expect(seen).toEqual([identityId])
+  })
+
+  it('cancel refuses before reading or writing anything, not after', async () => {
+    // A denial must not be observable as a restore-then-undo, and must not cost
+    // a store round-trip an attacker can time.
+    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId })
+    const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    await auth.flows.completeAccountDeletion({ token })
+    const restore = vi.spyOn(adapter.identities, 'restore')
+
+    await expect(auth.flows.cancelAccountDeletion({ authorize: async () => false, identityId })).rejects.toMatchObject({
+      code: 'AUTH_UNAUTHENTICATED',
+    })
+
+    expect(restore).not.toHaveBeenCalled()
+    restore.mockRestore()
+  })
+
+  it('a denied cancel is indistinguishable from an id that does not exist', async () => {
+    // Same code both ways, so this cannot be used to ask which accounts are
+    // sitting in the deletion grace window.
+    const denied = await auth.flows
+      .cancelAccountDeletion({ authorize: async () => false, identityId })
+      .catch((e: unknown) => e)
+    const unknown = await auth.flows
+      .cancelAccountDeletion({ authorize: async () => true, identityId: 'no-such-identity' })
+      .catch((e: unknown) => e)
+
+    expect((denied as { code: string }).code).toBe('AUTH_UNAUTHENTICATED')
+    expect((unknown as { code: string }).code).toBe('AUTH_UNAUTHENTICATED')
+  })
+
+  it('cancel without an authorize callback is a wiring error, not a silent pass', async () => {
+    // TypeScript refuses this call; a JS host, or an object built from parsed
+    // input, reaches it anyway. Reported as AUTH_MISCONFIGURED rather than
+    // treated as permission granted.
+    const input = { identityId } as unknown as Parameters<typeof auth.flows.cancelAccountDeletion>[0]
+    await expect(auth.flows.cancelAccountDeletion(input)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('complete with bogus token throws RECOVERY_TOKEN_INVALID', async () => {

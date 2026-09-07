@@ -116,7 +116,9 @@ describe('flows/account-deletion.ts - direct exports', () => {
   })
 
   it('cancelAccountDeletion rejects oversize identityId', async () => {
-    await expect(cancelAccountDeletion(auth.flows.deps, { identityId: 'x'.repeat(300) })).rejects.toMatchObject({
+    await expect(
+      cancelAccountDeletion(auth.flows.deps, { authorize: async () => true, identityId: 'x'.repeat(300) }),
+    ).rejects.toMatchObject({
       code: 'AUTH_UNAUTHENTICATED',
     })
   })

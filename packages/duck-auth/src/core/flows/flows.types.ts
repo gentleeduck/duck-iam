@@ -190,6 +190,20 @@ export namespace Flows {
   export type AccountDeletionCancelInput = {
     /** Identity to restore. */
     identityId: string
+    /**
+     * Mandatory. Decides whether this caller may cancel THIS deletion, and the
+     * only gate on the call - a cancel restores an account from an id alone.
+     *
+     * Required rather than optional on purpose: every sibling in this flow is
+     * gated (`completeAccountDeletion` by a single-use token, `impersonate` by
+     * a callback of exactly this shape), and there is no default the library
+     * could pick that is safe. Only the host knows who is asking.
+     *
+     * The identity is soft-deleted at this point, so it cannot be loaded and
+     * handed over - the id is what you get. Resolve the caller from your own
+     * request context and answer for that.
+     */
+    authorize: (identityId: string) => Promise<boolean>
     tenantId?: string
   }
 }
