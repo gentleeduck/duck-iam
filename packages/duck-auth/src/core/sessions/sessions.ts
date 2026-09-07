@@ -411,7 +411,25 @@ export function isSessionExpired(session: Pick<Sessions.Me, 'expiresAt' | 'absol
  * flag. Fails closed on a `rotatedAt` nothing can read, since this is the gate
  * in front of password changes.
  */
-export function isSessionFresh(session: Pick<Sessions.Me, 'rotatedAt'>, now: number, freshnessMs: number): boolean {
+/**
+ * Fresh is the AND of two things, and the column alone is neither.
+ *
+ * The clock half decays: `now - rotatedAt < freshnessMs`. Only `touch` ever
+ * rewrote the stored flag, so on its own the column let a session written
+ * `fresh: true` and left alone claim freshness for as long as it lived.
+ *
+ * The stored half revokes: `rotateOrCreate({ purpose: 'step-up' })` demotes the
+ * session the caller is stepping up *from* by writing `fresh: false` onto a row
+ * whose `rotatedAt` is seconds old. Recomputing from the clock alone would hand
+ * that demotion straight back. A stored `false` is therefore sticky - freshness
+ * decays with time and can be revoked early, but storage can never grant it.
+ */
+export function isSessionFresh(
+  session: Pick<Sessions.Me, 'rotatedAt' | 'fresh'>,
+  now: number,
+  freshnessMs: number,
+): boolean {
+  if (session.fresh !== true) return false
   const ms = deadlineMs(session.rotatedAt)
   return Number.isFinite(ms) && now - ms < freshnessMs
 }
@@ -432,7 +450,7 @@ export async function resolveBySid<Profile extends Identities.ProfileMetadataBas
   sid: string,
   sessions: Sessions.Store,
   identities: Identities.Store<Profile>,
-  opts: { expectedTenantId?: string } = {},
+  opts: { expectedTenantId?: string; freshnessMs?: number } = {},
 ): Promise<{ session: Sessions.Me; identity: Identities.Me<Profile> | null } | null> {
   const hash = sha256(sid)
   const session = await sessions.getByHash(hash)
@@ -455,7 +473,13 @@ export async function resolveBySid<Profile extends Identities.ProfileMetadataBas
     // Identity erased while session was live; surface as missing" rather than misleading "expired".
     throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'identity-erased' })
   }
-  return { session, identity }
+  // Recomputed, never read off the row - same rule as `getBySid`. `fresh` is a
+  // persisted column that only `touch` ever refreshed, so a session written
+  // `fresh: true` and left alone still claimed freshness weeks later. Callers
+  // gate re-auth on this field, so a stale `true` is a security hole and a
+  // stale `false` is a spurious re-auth prompt.
+  const freshnessMs = isFiniteNumber(opts.freshnessMs) ? opts.freshnessMs : DEFAULT_SESSION_CONFIG.freshnessMs
+  return { identity, session: { ...session, fresh: isSessionFresh(session, now, freshnessMs) } }
 }
 
 /** Factory around {@link SessionsImpl} for functional-style config. */

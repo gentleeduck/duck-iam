@@ -490,6 +490,16 @@ describe('SessionsFacet', () => {
       const { sid } = await facet.create({ aal: 2, factors: [], identityId: 'u', kind: 'user' })
       expect((await facet.getBySid(sid))?.fresh).toBe(true)
     })
+
+    it('keeps a stored fresh:false even when the clock says otherwise', async () => {
+      // `fresh` is two claims in one column. The clock half decays; the stored
+      // half revokes - a step-up demotes the session it stepped up from by
+      // writing `fresh: false` onto a row whose `rotatedAt` is seconds old.
+      // Recomputing from `rotatedAt` alone hands that demotion straight back.
+      const { sid } = await facet.create({ aal: 1, factors: [], identityId: 'u', kind: 'user' })
+      await adapter.sessions.update(sha256(sid), { fresh: false, rotatedAt: new Date() })
+      expect((await facet.getBySid(sid))?.fresh).toBe(false)
+    })
   })
 
   describe('touch()', () => {
@@ -572,6 +582,49 @@ describe('resolveBySid()', () => {
     const resolved = await resolveBySid(sid, adapter.sessions, adapter.identities)
     expect(resolved?.session.identityId).toBe(identity.id)
     expect(resolved?.identity?.profile?.email).toBe('x@y.com')
+  })
+
+  it('recomputes fresh from rotatedAt instead of handing back the stored flag', async () => {
+    // The other half of the `getBySid` fix. `fresh` is a persisted column that
+    // only `touch` ever refreshed, and this is the function the engine calls on
+    // every cookie-borne request - so a session written `fresh: true` and left
+    // alone claimed freshness for as long as it lived, and every re-auth gate
+    // reading `session.fresh` believed it.
+    const adapter = new MemoryAdapter()
+    const facet = new SessionsImpl(adapter.sessions, new InMemoryEvents(), DEFAULT_SESSION_CONFIG)
+    const { sid } = await facet.create({ aal: 2, factors: [], identityId: null, kind: 'guest' })
+    await adapter.sessions.update(sha256(sid), {
+      fresh: true,
+      rotatedAt: new Date(Date.now() - DEFAULT_SESSION_CONFIG.freshnessMs - 1000),
+    })
+    expect((await resolveBySid(sid, adapter.sessions, adapter.identities))?.session.fresh).toBe(false)
+  })
+
+  it('keeps a step-up demotion rather than reviving it from rotatedAt', async () => {
+    const adapter = new MemoryAdapter()
+    const facet = new SessionsImpl(adapter.sessions, new InMemoryEvents(), DEFAULT_SESSION_CONFIG)
+    const first = await facet.create({ aal: 1, factors: [], identityId: null, kind: 'guest' })
+    // Exactly what `rotateOrCreate({ purpose: 'step-up' })` writes to the session
+    // being stepped up from: same AAL, no longer fresh, `rotatedAt` untouched.
+    await facet.rotateOrCreate({
+      aal: 2,
+      factors: [],
+      identityId: null,
+      kind: 'guest',
+      previousSid: first.sid,
+      purpose: 'step-up',
+    })
+    expect((await resolveBySid(first.sid, adapter.sessions, adapter.identities))?.session.fresh).toBe(false)
+  })
+
+  it('honours a caller-supplied freshness window over the default', async () => {
+    const adapter = new MemoryAdapter()
+    const facet = new SessionsImpl(adapter.sessions, new InMemoryEvents(), DEFAULT_SESSION_CONFIG)
+    const { sid } = await facet.create({ aal: 2, factors: [], identityId: null, kind: 'guest' })
+    await adapter.sessions.update(sha256(sid), { fresh: true, rotatedAt: new Date(Date.now() - 10_000) })
+    const stores = [adapter.sessions, adapter.identities] as const
+    expect((await resolveBySid(sid, ...stores, { freshnessMs: 1_000 }))?.session.fresh).toBe(false)
+    expect((await resolveBySid(sid, ...stores, { freshnessMs: 60_000 }))?.session.fresh).toBe(true)
   })
 
   it('returns null and deletes an expired session', async () => {

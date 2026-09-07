@@ -43,7 +43,19 @@ export async function requestEmailVerification<Profile extends Identities.Profil
     })
   }
 
-  await ctx.stores.credentials.deleteByKind(opts.identityId, 'recovery', ctx.tenant)
+  // By purpose, never by kind. `recovery` is shared by four flows - password
+  // reset, email verification, account deletion and signup-flow state - which are
+  // told apart only by `metadata.purpose`. `deleteByKind` cannot read metadata, so
+  // asking for a verification mail used to throw the user out of an in-flight
+  // signup and silently void a pending reset or deletion token. The write side
+  // discriminated and the delete side did not; now both do.
+  // `requestAccountDeletion` does the same thing the same way.
+  const stale = await ctx.stores.credentials.listByIdentity(opts.identityId, 'recovery', ctx.tenant)
+  for (const row of stale) {
+    if (getCredentialPurpose(row) === 'email-verification') {
+      await ctx.stores.credentials.delete(row.id, ctx.tenant)
+    }
+  }
 
   const token = ctx.crypto.authRandomToken(32)
   const tokenHash = ctx.crypto.authSha256(token)

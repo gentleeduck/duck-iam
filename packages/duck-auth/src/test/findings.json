@@ -600,6 +600,30 @@
     "why": "Membership is exact, so a key that merely contains a sensitive word is kept. Deliberate and defensible, since a substring rule would strip innocent keys like `tokenCount`, but it means a caller inventing its own key name gets no protection. Recorded so the constraint is known rather than assumed."
   },
   {
+    "file": "src/core/flows/__tests__/flows-c6-audit-fixes.test.ts",
+    "line": 256,
+    "title": "beginSignUp still creates a real identity for an address nobody proved they own",
+    "why": "F21's other half. The limiter caps the rate; it does not stop the row existing. An attacker still pre-claims `victim@corp.com`, and what the real victim meets when they sign up is decided entirely by the host's own findByEmail handling. Closing it means not writing the identity until the address is verified - `DECISIONS.md` D1 option A - which the credentials store cannot host today: `fk_auth_credentials_identity` requires the very row that option defers, so the flow state has nowhere to live."
+  },
+  {
+    "file": "src/core/flows/__tests__/flows-c6-audit-fixes.test.ts",
+    "line": 269,
+    "title": "a second beginSignUp on a taken address says so, which answers who is registered",
+    "why": "The pre-created row makes the duplicate-email refusal reachable by anyone, so signup reports account existence in a way `requestPasswordReset` goes to some length to avoid. Same root cause as the finding above."
+  },
+  {
+    "file": "src/core/flows/__tests__/flows-c6-audit-fixes.test.ts",
+    "line": 280,
+    "title": "requestPasswordReset still spends a write on one branch and a read on the other",
+    "why": "The round-trip counts match and the crypto matches; what does not is that the known-address branch writes a credential row and the unknown one reads the same table instead. A write cannot be mirrored - the foreign key means there is no row to hang a decoy on - so the residue is one write against one read, measurable against a store where those differ enough to see."
+  },
+  {
+    "file": "src/core/flows/__tests__/flows-c6-audit-fixes.test.ts",
+    "line": 297,
+    "title": "a password reset cannot be served at all unless the mfa provider is registered",
+    "why": "`requireMfa()` throws when the provider is absent, and the reset flow reads it on every request to decide one template variable. A deployment with no MFA gets AUTH_PROVIDER_NOT_REGISTERED out of a public endpoint rather than a reset mail. Uniform across both branches now, which is what stops it being an oracle, but it is still a hard dependency nothing declares."
+  },
+  {
     "file": "src/core/hijack/__tests__/hijack-policy.test.ts",
     "line": 204,
     "title": "a stripped header softens a revoke even when the other signal is a real mismatch",
@@ -607,97 +631,85 @@
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 75,
-    "title": "a key with no tenant mints a token for whatever tenant the caller names",
-    "why": "The cross-tenant guard only fires when the credential itself carries a tenant. A global key leaves `verified.tenantId` undefined, so the check is skipped and `effectiveTenantId` falls through to the caller's value. The `tid` claim on the resulting JWT is then chosen by the request body, which is the one thing a client_credentials grant must never let a client pick."
-  },
-  {
-    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 98,
-    "title": "an empty-string tenant is a distinct tenant, not an absent one",
-    "why": "`!== undefined` is the only absence test, so `tenantId: ''` reaches the session and the claim as a real value."
-  },
-  {
-    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 107,
+    "line": 122,
     "title": "asking for scopes the key does not have yields a token with no scope at all",
     "why": "In the default intersect mode an empty intersection is not an error. RFC 6749 section 3.3 says the server must either fail or issue the scopes it is willing to grant; issuing a token with an empty scope claim leaves the resource server to decide what a scopeless bearer token means, which is exactly the ambiguity that turns into an allow."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 129,
+    "line": 144,
     "title": "the strict-mode refusal reports the key’s full scope set back to the caller",
     "why": "The error meta carries `have`, so a caller probing with one scope learns every scope the key holds. The caller already has the secret, but an error body forwarded to a client, or written to a shared log, spreads it."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 152,
+    "line": 167,
     "title": "an empty scope string is read as omitted, so it grants everything",
     "why": "`if (input.scope)` is a truthiness test, so a client sending `scope=` asking for nothing receives the full set instead of none."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 159,
+    "line": 174,
     "title": "a whitespace-only scope also grants everything",
     "why": "The split filters out empties, leaving a zero-length request, which `_resolveScopes` treats the same as no request at all."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 166,
+    "line": 181,
     "title": "duplicates survive into the granted scope claim and count against the cap",
     "why": "Nothing deduplicates, so a client can pad the scope string. Sixty-four copies of one scope exhausts the token budget and pushes out the scopes that follow it in the same request."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 179,
+    "line": 194,
     "title": "a scope token may contain any character that is not whitespace",
     "why": "RFC 6749 section 3.3 restricts a scope token to a printable subset that excludes the quote and the backslash. Neither the grant nor the key creation path checks, so a quote or a brace rides into the `scope` claim and back out to whatever parses the response."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 216,
+    "line": 231,
     "title": "a key holding no scopes still mints a token rather than being refused",
     "why": ""
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 248,
+    "line": 263,
     "title": "a token minted before revocation keeps verifying afterwards",
     "why": "Documented on the facet, pinned here because it is the grant's sharpest edge: revoking a leaked key stops new exchanges and does nothing about the tokens already issued, for up to the configured ttl. The default ttl is an hour."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 272,
+    "line": 287,
     "title": "every exchange persists a session row that nothing ever cleans up",
     "why": "The grant is stateless from the client's point of view, but each call writes a session. A service polling for a token, or an attacker holding a valid key, grows the session store one row per request, and the rows are never revoked because no client ever signs out of them."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 281,
+    "line": 296,
     "title": "the persisted session outlives the token whose lifetime was capped",
     "why": "`issue` receives a copy with the expiry clamped to the m2m ttl, but the row written a moment earlier keeps the sessions facet's own, longer expiry. The token expires in a minute; the record stays live far past it."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 320,
+    "line": 335,
     "title": "a negative ttl is accepted and mints a token that is already expired",
     "why": "Nothing validates `ttlMs`. The clamped expiry lands in the past, so the grant returns a two hundred with a token no resource server will accept, and a negative `expires_in` for the client to reason about."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 335,
+    "line": 350,
     "title": "a ttl longer than the session lifetime is silently ignored",
     "why": "The clamp is a `Math.min`, so asking for a twenty-four hour token against a shorter session policy quietly yields the shorter one while `expires_in` is computed from the configured ttl and overstates it."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 392,
+    "line": 407,
     "title": "a transport reporting its own expires_in overrides the m2m policy in the response",
     "why": "The envelope prefers whatever the transport put in the body, so the number the client is told can disagree with the ttl the operator configured, and with the token's actual exp."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
-    "line": 409,
+    "line": 424,
     "title": "the session is written before the transport is checked, so a misconfiguration still leaves rows",
     "why": "The AUTH_MISCONFIGURED throw happens after `sessions.create`. Every rejected exchange against a wrongly wired transport persists a session that no token was ever issued for."
   },
@@ -850,12 +862,6 @@
     "line": 204,
     "title": "an object spread from a facet loses its prototype and stops resolving",
     "why": "Spreading a capability to override one field is an ordinary thing to do, and it produces a plain object. The id map still holds it and dispatch still works, so it looks registered, but `auth.passwords` and its siblings return null because the instanceof scan no longer matches."
-  },
-  {
-    "file": "src/core/sessions/__tests__/sessions.redis-parser.e2e.test.ts",
-    "line": 127,
-    "title": "a partial actingAs envelope is dropped rather than refused",
-    "why": "Losing the envelope loses both halves of what it is for: the audit trail saying who the real actor was, and the expiry that bounds the session. The row then reads as an ordinary session belonging to the impersonated user."
   },
   {
     "file": "src/core/transport/__tests__/composite.test.ts",
@@ -1051,61 +1057,61 @@
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 514,
+    "line": 520,
     "title": "the payload is forwarded verbatim, including whatever a session object carries",
     "why": "Nothing redacts before signing. A `session.created` payload holds the session record and the identity, so every field either of them carries is posted to a third party by default."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 528,
+    "line": 534,
     "title": "a payload that cannot be serialised is retried the whole ladder",
     "why": "`JSON.stringify` runs inside the try that guards the transport, so a circular payload reads as a failed attempt rather than as a permanent error. Nothing is ever sent, and the caller waits through every backoff before the entry is dead-lettered with a TypeError as its last error."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 551,
+    "line": 557,
     "title": "a bigint in the payload is dead-lettered the same way, with nothing sent",
     "why": ""
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 574,
+    "line": 580,
     "title": "an invalid signature header name fails every attempt and dead-letters the event",
     "why": "The header name is caller-supplied and reaches `fetch` unvalidated, so a typo containing a space or a colon turns into a thrown request for every event, forever."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 594,
+    "line": 600,
     "title": "the dead-letter record stores the endpoint url, credentials included",
     "why": ""
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 626,
+    "line": 632,
     "title": "the prefix is authSha256=, not the sha256= the doc comment promises",
     "why": "The comment says the format matches \"the convention most webhook tooling uses\". It does not, so a consumer written against that sentence, or against a GitHub or Stripe style verifier, rejects every delivery."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 669,
+    "line": 675,
     "title": "a negative tolerance rejects every signature, including a fresh one",
     "why": "Nothing validates the window, and `Math.abs(...) > negative` is true for any gap at all, so a sign error in a consumer's config silently refuses every delivery it receives."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 679,
+    "line": 685,
     "title": "nothing binds a delivery to a single use inside the window",
     "why": "The timestamp bounds replay but does not prevent it: the same body and signature verify as many times as they are presented for five minutes."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 687,
+    "line": 693,
     "title": "the freshness window is checked against the caller-supplied timestamp, not the signed one",
     "why": "The helper takes the timestamp as an argument and signs with it, so a consumer that reads the value out of the body rather than the header is trusting a number the sender controls. Only the header form is bound."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 707,
+    "line": 713,
     "title": "an empty secret signs and verifies without complaint",
     "why": "Construction refuses an empty secret on an endpoint, but the exported helpers are what a consumer calls, and they accept one."
   },

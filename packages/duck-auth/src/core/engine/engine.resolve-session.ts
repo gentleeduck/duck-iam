@@ -3,6 +3,7 @@ import { AuthError } from '../errors'
 import type { Identities } from '../identities'
 import type { Sessions } from '../sessions'
 import { resolveBySid } from '../sessions'
+import { DEFAULT_SESSION_CONFIG } from '../sessions/sessions.constants'
 import type { AuthEngine } from './engine'
 import type { Engine } from './engine.types'
 
@@ -58,6 +59,9 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
   }
 
   const resolved = await resolveBySid(token, engine.cfg.stores.sessions, engine.cfg.stores.identities, {
+    // The engine's own window, so `session.fresh` means the same thing here as it
+    // does on the JWT path, which has always recomputed it from `rotatedAt`.
+    freshnessMs: engine.cfg.session?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
     ...(opts.expectedTenantId !== undefined && { expectedTenantId: opts.expectedTenantId }),
   })
   if (!resolved) return null

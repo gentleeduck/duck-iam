@@ -23,8 +23,27 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   const now = Date.now()
   const required = opts.required ?? ['email-verified', 'terms-accepted']
 
+  // The only flow in the unit that never consumed the limiter - password reset,
+  // email verification and account deletion all do. Without it one unauthenticated
+  // request equals one permanent identity row, unbounded. Keyed on the address, the
+  // same shape `requestPasswordReset` uses, so hammering one victim's address is
+  // what gets capped.
+  const emailCanonical = opts.email.trim().toLowerCase()
+  const limited = await ctx.limiter.consume(`signup:begin:${emailCanonical}`)
+  if (!limited.ok) {
+    throw new AuthError('AUTH_RATE_LIMITED', {
+      retryAfter: Math.max(0, Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000)),
+    })
+  }
+
   const initial = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
-  const profile: Profile = { ...initial, email: opts.email } as unknown as Profile
+  // No cast. `ProfileMetadataBase` requires `username`, duck-auth's own Postgres
+  // schema enforces it with a CHECK and a unique index, and this line used to
+  // launder a profile without one past the type with `as unknown as Profile` -
+  // so `beginSignUp({ email })`, the documented happy path, produced an INSERT
+  // that the library's own adapter rejects. Nothing caught it because the sqlite
+  // conformance DDL omits CHECK constraints and memory/Redis have no schema.
+  const profile = buildSignUpProfile<Profile>(initial, opts.email)
 
   const created = await ctx.stores.identities.create({
     profile,
@@ -50,7 +69,7 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
       identityId: created.id,
       kind: 'recovery',
       secret: flowTokenHash,
-      metadata: { kind: 'signup-flow', flow },
+      metadata: { flow, purpose: 'signup-flow' },
       expiresAt: new Date(flow.absoluteExpiresAt),
     }),
     ctx.tenant,
@@ -117,7 +136,7 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
       identityId: flow.identityId,
       kind: 'recovery',
       secret: hash,
-      metadata: { kind: 'signup-flow', flow: next },
+      metadata: { flow: next, purpose: 'signup-flow' },
       expiresAt: new Date(flow.absoluteExpiresAt),
     }),
     ctx.tenant,
@@ -182,6 +201,35 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
+/**
+ * Total a caller's partial profile into one the identity store will accept.
+ *
+ * `username` is required by the type and by the Postgres CHECK, and
+ * `beginSignUp`'s `initialProfile` is optional, so something has to supply it.
+ * Deriving beats requiring it: a signature change would break every caller for
+ * a field most signups do not collect until a later stage, and the derived
+ * handle is replaced by `completeSignUp` the moment the flow carries a real one.
+ *
+ * The address itself, not its local part. `username` carries a unique index of
+ * its own, so deriving from the local part would refuse `sam@b.com` because
+ * `sam@a.com` signed up first - a collision on a field neither of them chose.
+ * The full address is unique by construction, and it is already what every
+ * fixture and every store-compliance case in this library uses.
+ *
+ * The one remaining cast is the generic's: `Profile` may declare fields beyond
+ * the base two, and only its caller knows them. It is a widening of a value that
+ * now genuinely carries both required keys, not the `as unknown as` that used to
+ * launder one missing them.
+ */
+function buildSignUpProfile<Profile extends Identities.ProfileMetadataBase>(
+  initial: Record<string, unknown>,
+  email: string,
+): Profile {
+  const supplied = initial.username
+  const username = typeof supplied === 'string' && supplied.length > 0 ? supplied : email
+  return { ...initial, email, username } as Profile
+}
+
 const SIGNUP_STAGE_VALUES: ReadonlySet<string> = new Set([
   'email-collected',
   'email-verified',
@@ -199,7 +247,10 @@ function parseSignUpFlow<Profile extends Identities.ProfileMetadataBase>(
   meta: unknown,
 ): Flows.SignUpFlowState<Profile> | null {
   if (!isPlainObject(meta)) return null
-  if (meta.kind !== 'signup-flow') return null
+  // `purpose`, the one discriminator every flow writes. This row used to be the
+  // odd one out with `kind`, which meant `getCredentialPurpose` - the helper the
+  // deletes and the guards read - returned `undefined` for it.
+  if (meta.purpose !== 'signup-flow') return null
   const flow = meta.flow
   if (!isPlainObject(flow)) return null
   if (typeof flow.id !== 'string' || flow.id.length === 0) return null
