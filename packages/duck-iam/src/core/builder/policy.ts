@@ -165,9 +165,14 @@ export class PolicyBuilder<
       r: RuleBuilder<TAction, TResource, TScope, TRole, TContext>,
     ) => RuleBuilder<TAction, TResource, TScope, TRole, TContext, any>,
   ): this {
+    // Same contract as the condition callbacks: the signature says the callback
+    // returns a builder, so a callback that returns a different one is honoured
+    // rather than dropped. Here a dropped return already failed loudly - an
+    // untouched RuleBuilder has no effect and `build()` refuses it - but the
+    // two callbacks should not read differently.
     const builder = new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id)
-    fn(builder)
-    this._rules.push(builder.build())
+    const returned = fn(builder)
+    this._rules.push((returned instanceof RuleBuilder ? returned : builder).build())
     return this
   }
 
@@ -208,14 +213,18 @@ export class PolicyBuilder<
    * @returns The constructed `Policy`.
    */
   build(): AccessControl.IPolicy<TAction, TResource, TRole> {
+    // Optional fields are spread in only when they were set. A key carrying
+    // `undefined` is not the same object as a key that is absent: it survives
+    // in the memory adapter and disappears through every JSON-backed one, so
+    // the same authored policy read back from two stores compared unequal.
     const policy: AccessControl.IPolicy<TAction, TResource, TRole> = {
       id: this._id,
       name: this._name,
-      description: this._description,
-      version: this._version,
+      ...(this._description === undefined ? {} : { description: this._description }),
+      ...(this._version === undefined ? {} : { version: this._version }),
       algorithm: this._algorithm,
       rules: [...this._rules],
-      targets: this._targets,
+      ...(this._targets === undefined ? {} : { targets: this._targets }),
     }
     // Validate at build time so callers wiring the adapter directly
     // (bypassing engine.admin.savePolicy's validator) still see the

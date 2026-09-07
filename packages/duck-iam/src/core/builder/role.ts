@@ -1,6 +1,6 @@
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 import { validateRole } from '../validate'
-import { When } from './when'
+import { iamChosenWhen, When } from './when'
 
 /**
  * The four verbs {@link RoleBuilder.grantCRUD} emits. Exported so a config can
@@ -248,8 +248,7 @@ export class RoleBuilder<
     ) => When<TAction, TResource, TRole, TScope, TContext, R>,
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, R>()
-    fn(w)
-    this._permissions.push({ action, resource, conditions: w.buildAll() })
+    this._permissions.push({ action, resource, conditions: iamChosenWhen(w, fn(w)).buildAll() })
     return this
   }
 
@@ -365,14 +364,16 @@ export class RoleBuilder<
    * @returns A fully constructed {@link AccessControl.IRole}
    */
   build(): AccessControl.IRole<TAction, TResource, TRole, TScope> {
+    // See `PolicyBuilder.build`: an optional key set to `undefined` is a shape
+    // difference between backends, not a value.
     const role: AccessControl.IRole<TAction, TResource, TRole, TScope> = {
       id: this._id,
       name: this._name,
-      description: this._description,
+      ...(this._description === undefined ? {} : { description: this._description }),
       permissions: [...this._permissions],
-      inherits: this._inherits.length > 0 ? [...this._inherits] : undefined,
-      scope: this._scope,
-      metadata: this._metadata,
+      ...(this._inherits.length === 0 ? {} : { inherits: [...this._inherits] }),
+      ...(this._scope === undefined ? {} : { scope: this._scope }),
+      ...(this._metadata === undefined ? {} : { metadata: this._metadata }),
     }
     // Validate at build time so callers wiring the adapter directly
     // still see the failure where the bug was introduced.

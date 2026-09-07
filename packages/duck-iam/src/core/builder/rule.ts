@@ -1,7 +1,7 @@
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 import type { IamValidate } from '../validate'
 import { validateRuleShape } from '../validate/validate.libs'
-import { When } from './when'
+import { iamChosenWhen, When } from './when'
 
 /**
  * Fluent builder for constructing {@link AccessControl.IRule} objects in duck-iam.
@@ -229,8 +229,7 @@ export class RuleBuilder<
     ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
-    fn(w)
-    this._addConditions(w.buildAll())
+    this._addConditions(iamChosenWhen(w, fn(w)).buildAll())
     return this
   }
 
@@ -262,8 +261,7 @@ export class RuleBuilder<
     ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
-    fn(w)
-    this._addConditions(w.buildAny())
+    this._addConditions(iamChosenWhen(w, fn(w)).buildAny())
     return this
   }
 
@@ -301,15 +299,17 @@ export class RuleBuilder<
       }
     }
 
+    // See `PolicyBuilder.build`: an optional key set to `undefined` is a shape
+    // difference between backends, not a value.
     const rule: AccessControl.IRule<TAction, TResource> = {
       id: this._id,
       effect: this._effect,
-      description: this._description,
+      ...(this._description === undefined ? {} : { description: this._description }),
       priority: this._priority,
       actions: this._actions,
       resources: this._resources,
       conditions,
-      metadata: this._metadata,
+      ...(this._metadata === undefined ? {} : { metadata: this._metadata }),
     }
     // Validate at build time, like RoleBuilder and PolicyBuilder do, so a rule
     // handed straight to an adapter still fails where the bug was introduced.
