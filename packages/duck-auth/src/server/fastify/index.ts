@@ -11,10 +11,12 @@
  *   fastify.post('/AUTH/providers/:id/begin', fastifyProviderBegin(auth))
  */
 
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
@@ -23,6 +25,8 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 import type { FastifyAdapter } from './fastify.types'
@@ -69,7 +73,7 @@ export function fastifySignIn(auth: AuthEngine): FastifyAdapter.Handler {
       }
       const result = await auth.flows.signIn({
         ...parsed,
-        ...callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] }),
+        ...fastifyCaller(req),
       })
       return forward(executeIntents(result.intents), reply)
     } catch (err) {
@@ -157,6 +161,51 @@ export function registerFastify(
 }
 
 /** CSRF guard for your own routes: `fastify.addHook('preHandler', fastifyCsrf(auth))`. */
+/**
+ * Wrap one handler so its writes carry the request's actor. `Fastify` composes no
+ * `next`, so the binding is per-handler rather than a middleware: without it a
+ * write records `created_by` / `updated_by` / `deleted_by` as `null`, because
+ * nothing else in the package opens the scope the stores read.
+ *
+ * Anonymous requests and unresolvable sessions run unbound, which is the honest
+ * `null`; while impersonating, the operator behind `actingAs` is the actor, not
+ * the account being acted on.
+ */
+/** The fingerprint Fastify resolved, the same pair {@link fastifySignIn} stamps at sign-in. */
+export function fastifyCaller(req: FastifyAdapter.Request): CallerFingerprint {
+  return callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] })
+}
+
+/**
+ * Options for the actor-context wrapper.
+ *
+ * `getCaller` is the opt-in: omit it and the wrapper is what it has always been, an attribution
+ * scope that refuses nothing. Supply it - {@link fastifyCaller} reads the same values the sign-in
+ * route already stamps onto the session - and every request's fingerprint is compared with the
+ * session's, running the anomaly detectors and the hijack policy. Switching that on in a live
+ * deployment starts acting on IP and User-Agent drift for sessions already issued.
+ */
+export type FastifyActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (req: FastifyAdapter.Request) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+export function fastifyWithActor(
+  auth: AuthEngine,
+  handler: FastifyAdapter.Handler,
+  opts: FastifyActorOptions = {},
+): FastifyAdapter.Handler {
+  return (req, reply) =>
+    withRequestActor(
+      auth,
+      { headers: toFetchHeaders(req.headers) },
+      () => handler(req, reply),
+      requestSecurity(auth, { ...(opts.onHijack && { onHijack: opts.onHijack }), caller: opts.getCaller?.(req) ?? {} }),
+    )
+}
+
 export function fastifyCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): FastifyAdapter.PreHandler {
   return async (req, reply) => {
     try {

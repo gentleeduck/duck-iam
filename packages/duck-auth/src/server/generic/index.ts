@@ -1,5 +1,10 @@
+import type { RequestActorOptions } from '~/core/actor'
+import type { Anomaly } from '~/core/anomaly/anomaly.types'
 import { AuthError } from '~/core/errors'
+import type { Hijack } from '~/core/hijack/hijack.types'
 import type { Provider } from '~/core/provider/provider.types'
+import { SESSION_COLUMN_CAPS } from '~/core/sessions/sessions.constants'
+import type { Sessions } from '~/core/sessions/sessions.types'
 
 /** Web-Fetch executor: turn `Provider.Intent[]` into a `Response`. */
 export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Response {
@@ -183,10 +188,84 @@ export function serializeCookie(
  * The caller, for the session row. Only ever what the framework resolved: reading a forwarded
  * header here would take the value the caller wrote, and the host is the only layer that knows
  * how many proxies it trusts. Omitted keys stay omitted so the flow's own defaults apply.
+ *
+ * Truncated to {@link SESSION_COLUMN_CAPS}, the same lengths `SessionsImpl.create` stores. That
+ * is not belt-and-braces: `hijack.evaluate` compares the fingerprint read off a later request
+ * against the truncated value on the row, so normalising to a *different* length would make a
+ * client with a long User-Agent read as drift on every request it ever sends. Truncated rather
+ * than dropped for the same reason - both sides go through here, so both clip identically.
  */
 export function callerContext(input: { ip?: string; userAgent?: unknown }): { ip?: string; userAgent?: string } {
+  const ip = typeof input.ip === 'string' && input.ip.length > 0 ? input.ip.slice(0, SESSION_COLUMN_CAPS.ip) : undefined
+  const userAgent =
+    typeof input.userAgent === 'string' && input.userAgent.length > 0
+      ? input.userAgent.slice(0, SESSION_COLUMN_CAPS.userAgent)
+      : undefined
   return {
-    ...(typeof input.ip === 'string' && input.ip.length > 0 && { ip: input.ip }),
-    ...(typeof input.userAgent === 'string' && input.userAgent.length > 0 && { userAgent: input.userAgent }),
+    ...(ip !== undefined && { ip }),
+    ...(userAgent !== undefined && { userAgent }),
+  }
+}
+
+/** The fingerprint an adapter reads off a request, as {@link callerContext} normalises it. */
+export type CallerFingerprint = { ip?: string; userAgent?: string }
+
+/**
+ * Lift a {@link callerContext} fingerprint into the snapshot the anomaly detectors take.
+ * `now` is a parameter so a caller can pin it; detectors compare it against session timestamps.
+ */
+export function callerSnapshot(caller: CallerFingerprint, now: number = Date.now()): Anomaly.RequestSnapshot {
+  return { ...caller, now }
+}
+
+/** Drift that `hijack.evaluate` refused to pass. */
+export type HijackDrift = Extract<Hijack.Evaluation, { ok: false }>
+
+/** What {@link requestSecurity} needs off the engine, structurally. */
+export type HijackEvaluable = {
+  hijack: {
+    evaluate(session: Sessions.Me, request: CallerFingerprint): Promise<Hijack.Evaluation>
+    applyReaction(reaction: Hijack.Reaction): void
+  }
+}
+
+export type RequestSecurityOptions = {
+  /**
+   * The request fingerprint. Passing one is what switches these checks on: without it the
+   * session's recorded `ip` / `userAgent` are stamped at sign-in and never looked at again.
+   */
+  caller?: CallerFingerprint
+  /**
+   * Called instead of the configured reaction when drift is detected, and the place to handle
+   * `'rotate'`. `applyReaction` throws for `'mfa'` and `'revoke'` but is deliberately a no-op for
+   * `'rotate'`: rotating means writing a new session cookie onto the response, which a wrapper
+   * that only owns handler execution cannot do. Throwing from here refuses the request.
+   */
+  onHijack?: (drift: HijackDrift, session: Sessions.Me) => void | Promise<void>
+}
+
+/**
+ * Build the {@link RequestActorOptions} that turn an actor-context wrapper into a fingerprint
+ * check as well: the anomaly detectors get a snapshot to run against, and every resolved session
+ * is compared with `hijack.evaluate` - which emits `suspicious` on any drift, even when the
+ * configured reaction is `'ignore'`.
+ *
+ * Returns an empty bag when no fingerprint was read, so an adapter that was given no `getCaller`
+ * behaves exactly as it did before: actor scope only, nothing refused.
+ */
+export function requestSecurity(auth: HijackEvaluable, opts: RequestSecurityOptions = {}): RequestActorOptions {
+  const caller = opts.caller
+  if (!caller || (caller.ip === undefined && caller.userAgent === undefined)) return {}
+  return {
+    onSession: async (session) => {
+      const evaluation = await auth.hijack.evaluate(session, caller)
+      if (evaluation.ok) return
+      if (opts.onHijack) {
+        await opts.onHijack(evaluation, session)
+        return
+      }
+      auth.hijack.applyReaction(evaluation.reaction)
+    },
+    requestSnapshot: callerSnapshot(caller),
   }
 }

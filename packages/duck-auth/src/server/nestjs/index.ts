@@ -1,5 +1,6 @@
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext } from '@nestjs/common'
 import { Catch, createParamDecorator } from '@nestjs/common'
+import { withRequestActor, withResolvedActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard, verifyCsrf } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
@@ -7,6 +8,8 @@ import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import {
+  type CallerFingerprint,
+  callerContext,
   errorToHttp,
   executeIntents,
   extractSetCookies,
@@ -14,6 +17,8 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 import type { NestAdapter } from './nestjs.types'
@@ -57,23 +62,11 @@ export function nestSignIn(auth: AuthEngine): NestAdapter.Handler {
       }
       // The flow, the store and the columns all take these and the adapter was dropping
       // them, so every session row recorded a device it could not name.
-      const result = await auth.flows.signIn({ ...parsed, ...callerOf(req) })
+      const result = await auth.flows.signIn({ ...parsed, ...nestCaller(req) })
       return forward(executeIntents(result.intents), reply)
     } catch (err) {
       return handleError(err, reply)
     }
-  }
-}
-
-/**
- * `req.ip` and nothing else: the host resolves it against its own proxy trust, and reading a
- * forwarded header here would take the value the caller wrote.
- */
-function callerOf(req: NestAdapter.Request): { ip?: string; userAgent?: string } {
-  const ua = req.headers?.['user-agent']
-  return {
-    ...(req.ip !== undefined && { ip: req.ip }),
-    ...(typeof ua === 'string' && { userAgent: ua }),
   }
 }
 
@@ -161,6 +154,70 @@ export function makeGuard(auth: AuthEngine, opts: { required?: boolean; csrf?: b
       // Adapter is profile-agnostic; store the resolved identity opaquely.
       req.identity = resolved.identity as NestAdapter.Request['identity']
       return true
+    },
+  }
+}
+
+/**
+ * Bind the request's actor scope for everything downstream:
+ * `consumer.apply(nestActorContext(auth)).forRoutes('*')`.
+ *
+ * A middleware and not a guard or an interceptor. `canActivate` returns before
+ * the handler runs, so a scope opened there is already closed by the time a
+ * write happens; an interceptor would have to hold the scope across the
+ * `Observable` its handler is subscribed on, which is not where it is opened.
+ * Middleware is the one Nest hook that wraps handler execution directly.
+ *
+ * Reuses the session `makeGuard` resolved when it ran first, so the pair costs
+ * one `resolveSession`, not two.
+ */
+/**
+ * The fingerprint Nest resolved, the same pair the sign-in handler stamps onto the session.
+ *
+ * `req.ip` and nothing else: the host resolves it against its own proxy trust, and reading a
+ * forwarded header here would take the value the caller wrote.
+ */
+export function nestCaller(req: NestAdapter.Request): CallerFingerprint {
+  return callerContext({ ip: req.ip, userAgent: req.headers?.['user-agent'] })
+}
+
+/**
+ * Options for the actor-context wrapper.
+ *
+ * `getCaller` is the opt-in: omit it and the wrapper is what it has always been, an attribution
+ * scope that refuses nothing. Supply it - {@link nestCaller} reads the same values the sign-in
+ * route already stamps onto the session - and every request's fingerprint is compared with the
+ * session's, running the anomaly detectors and the hijack policy. Switching that on in a live
+ * deployment starts acting on IP and User-Agent drift for sessions already issued.
+ */
+export type NestActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (req: NestAdapter.Request) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+export function nestActorContext(
+  auth: AuthEngine,
+  opts: NestActorOptions = {},
+): {
+  use(req: NestAdapter.Request, res: unknown, next: () => void): Promise<void>
+} {
+  return {
+    async use(req, _res, next) {
+      const bound = async (): Promise<void> => {
+        next()
+      }
+      const security = requestSecurity(auth, {
+        ...(opts.onHijack && { onHijack: opts.onHijack }),
+        caller: opts.getCaller?.(req) ?? {},
+      })
+      // `next()` is synchronous, so the downstream chain starts inside the
+      // scope and every async continuation of it inherits the binding.
+      // The guard's session skips the second resolveSession, and with it the
+      // anomaly snapshot - the hijack check still runs, on the same session.
+      if (req.session) await withResolvedActor(req.session, bound, security)
+      else await withRequestActor(auth, { headers: toFetchHeaders(req.headers) }, bound, security)
     },
   }
 }

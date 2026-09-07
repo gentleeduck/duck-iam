@@ -11,16 +11,20 @@
  *   app.post('/AUTH/providers/:id/begin', elysiaProviderBegin(auth))
  */
 
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
   isValidProviderId,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 import type { ElysiaAdapter } from './elysia.types'
@@ -44,7 +48,7 @@ export function elysiaSignIn(auth: AuthEngine): ElysiaAdapter.Handler {
       }
       const result = await auth.flows.signIn({
         ...parsed,
-        ...callerContext({ ip: ctx.ip, userAgent: ctx.request.headers.get('user-agent') ?? undefined }),
+        ...elysiaCaller(ctx),
       })
       return executeIntents(result.intents)
     } catch (err) {
@@ -108,6 +112,51 @@ export function elysiaProviderBegin(auth: AuthEngine): ElysiaAdapter.Handler {
 }
 
 /** CSRF guard for your own routes: `app.onBeforeHandle(elysiaCsrf(auth))`. */
+/**
+ * Wrap one handler so its writes carry the request's actor. `Elysia` composes no
+ * `next`, so the binding is per-handler rather than a middleware: without it a
+ * write records `created_by` / `updated_by` / `deleted_by` as `null`, because
+ * nothing else in the package opens the scope the stores read.
+ *
+ * Anonymous requests and unresolvable sessions run unbound, which is the honest
+ * `null`; while impersonating, the operator behind `actingAs` is the actor, not
+ * the account being acted on.
+ */
+/** The fingerprint Elysia resolved, the same pair {@link elysiaSignIn} stamps at sign-in. */
+export function elysiaCaller(ctx: ElysiaAdapter.Context): CallerFingerprint {
+  return callerContext({ ip: ctx.ip, userAgent: ctx.request.headers.get('user-agent') ?? undefined })
+}
+
+/**
+ * Options for the actor-context wrapper.
+ *
+ * `getCaller` is the opt-in: omit it and the wrapper is what it has always been, an attribution
+ * scope that refuses nothing. Supply it - {@link elysiaCaller} reads the same values the sign-in
+ * route already stamps onto the session - and every request's fingerprint is compared with the
+ * session's, running the anomaly detectors and the hijack policy. Switching that on in a live
+ * deployment starts acting on IP and User-Agent drift for sessions already issued.
+ */
+export type ElysiaActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (ctx: ElysiaAdapter.Context) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+export function elysiaWithActor(
+  auth: AuthEngine,
+  handler: ElysiaAdapter.Handler,
+  opts: ElysiaActorOptions = {},
+): ElysiaAdapter.Handler {
+  return (ctx) =>
+    withRequestActor(
+      auth,
+      { headers: ctx.request.headers },
+      () => handler(ctx),
+      requestSecurity(auth, { ...(opts.onHijack && { onHijack: opts.onHijack }), caller: opts.getCaller?.(ctx) ?? {} }),
+    )
+}
+
 export function elysiaCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): ElysiaAdapter.Middleware {
   return async (ctx) => {
     try {
