@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamRequest } from '../../core/types'
+import { iamIsValidationError } from '../../shared/errors'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
   type IamAdminAudit,
@@ -295,6 +296,10 @@ export function iamBindAdminRouter<
           () => Promise.resolve(handler(c)),
         )
       } catch (err) {
+        // A body the validator rejected is the caller's mistake, not ours.
+        if (iamIsValidationError(err)) {
+          return c.json({ error: `Invalid ${err.kind}`, issues: err.issues }, 400)
+        }
         return onError(err instanceof Error ? err : new Error(String(err)), c)
       }
     }

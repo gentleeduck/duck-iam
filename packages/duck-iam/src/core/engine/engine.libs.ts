@@ -1,3 +1,4 @@
+import { IamValidationError } from '../../shared/errors'
 import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import type { Batch } from '../batch'
 import { appliedRows, batchResult, loopFallback } from '../batch'
@@ -114,7 +115,11 @@ function assertValidOrThrow(kind: 'policy' | 'role', result: IamValidate.IResult
   const errs = result.issues
     .filter((i) => i.type === 'error')
     .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
-  throw new Error(`[@gentleduck/iam:engine] ${kind} rejected by validator - ${errs.join('; ')}`)
+  throw new IamValidationError(
+    kind,
+    errs,
+    `[@gentleduck/iam:engine] ${kind} rejected by validator - ${errs.join('; ')}`,
+  )
 }
 
 function assertNonEmptyStringParam(name: string, value: unknown): asserts value is string {

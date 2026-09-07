@@ -10,6 +10,7 @@
 
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamClient, IamRequest } from '../../core/types'
+import { iamIsValidationError } from '../../shared/errors'
 import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import {
   type IamAdminAudit,
@@ -515,6 +516,10 @@ export function createIamAdminHandlers<
           () => fn(req, { params: resolvedParams as P }),
         )
       } catch (err) {
+        // A body the validator rejected is the caller's mistake, not ours.
+        if (iamIsValidationError(err)) {
+          return Response.json({ error: `Invalid ${err.kind}`, issues: err.issues }, { status: 400 })
+        }
         return onError(err instanceof Error ? err : new Error(String(err)), req)
       }
     }

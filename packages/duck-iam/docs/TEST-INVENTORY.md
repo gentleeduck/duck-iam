@@ -270,6 +270,7 @@ drift the way the hand-maintained version did.
 | `server/__tests__/e2e-http-servers.e2e.test.ts` | 169 | harness |
 | `server/express/__tests__/express-path-bypass.test.ts` | 12 | iamAccessMiddleware refuses a path it cannot map, even for a wildcard admin |
 | `server/express/__tests__/express.test.ts` | 44 | iamAccessMiddleware (express) |
+| `server/generic/__tests__/admin-body-status.test.ts` | 18 | IamValidationError |
 | `server/generic/__tests__/admin-shared.test.ts` | 25 | iamDefaultCsrfCheck |
 | `server/generic/__tests__/extract-environment-ua-cap.test.ts` | 2 | iamExtractEnvironment user-agent cap |
 | `server/generic/__tests__/extract-environment-xff.test.ts` | 20 | iamExtractEnvironment XFF normalization under trustProxy |
@@ -282,7 +283,7 @@ drift the way the hand-maintained version did.
 | `server/next/__tests__/next-middleware-encoded-path.test.ts` | 6 | next middleware: a path with encoding residue |
 | `server/next/__tests__/next-middleware-environment.test.ts` | 4 | createIamNextMiddleware environment |
 | `server/next/__tests__/next.test.ts` | 29 | withIamAccess |
-| **Subtotal** | **529** | |
+| **Subtotal** | **547** | |
 
 ---
 
@@ -328,7 +329,7 @@ drift the way the hand-maintained version did.
 | Devtools | 5 | 71 |
 | Invalidators | 9 | 101 |
 | Observability | 3 | 24 |
-| Server | 17 | 529 |
+| Server | 18 | 547 |
 | Shared | 4 | 94 |
 | Package surface | 11 | 114 |
-| **Total** | **221** | **4401** |
+| **Total** | **222** | **4419** |

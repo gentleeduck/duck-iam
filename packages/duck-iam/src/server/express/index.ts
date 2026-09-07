@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamRequest } from '../../core/types'
+import { type IamValidationError, iamIsValidationError } from '../../shared/errors'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
   type IamAdminAudit,
@@ -286,6 +287,8 @@ export function iamAdminRouter<
   const onUnauthorized = opts.onUnauthorized ?? ((_, res) => res.status(401).json({ error: 'Unauthorized' }))
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
   const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
+  const onBadRequest = (res: Res, err: IamValidationError) =>
+    res.status(400).json({ error: `Invalid ${err.kind}`, issues: err.issues })
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
@@ -337,6 +340,9 @@ export function iamAdminRouter<
           () => handler(req, res),
         )
       } catch (err) {
+        // A body the validator rejected is the caller's mistake, not ours: 500
+        // tells a client to retry something that can never succeed.
+        if (iamIsValidationError(err)) return onBadRequest(res, err)
         onError(err instanceof Error ? err : new Error(String(err)), req, res)
       }
     }
