@@ -637,14 +637,14 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "test": "vitest run",
+    "test": "vitest run --project unit",
     "benchmark": "bun run scripts/benchmark.ts",
     "findings": "bun run scripts/collect-findings.ts",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",
     "clean": "rimraf dist .cache .turbo node_modules",
-    "test:e2e": "vitest run e2e",
+    "test:e2e": "vitest run --project e2e --fileParallelism=false",
     "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-sqlite.config.ts && node src/test/sqlite-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && node src/test/oidc-e2e-schema.mjs"
   },
   "dependencies": {
