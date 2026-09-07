@@ -29,7 +29,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { IamDrizzleAdapter } from '../../../adapters/drizzle'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../../../adapters/drizzle/pg'
-import { applyPgSchema, isolatedDatabaseUrl } from '../../../test/e2e-env'
+import { applyPgSchema, assertE2eReachable, isolatedDatabaseUrl } from '../../../test/e2e-env'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
@@ -54,6 +54,7 @@ if (URL === undefined && (await dockerReachable())) {
       'This suite must not skip under those conditions - fix the harness (src/test/e2e-containers.ts) instead.',
   )
 }
+assertE2eReachable('verdict-pg-fallback', URL)
 const suite = URL ? describe : describe.skip
 
 const TABLES = { assignments: iamAssignments, attrs: iamSubjectAttrs, policies: iamPolicies, roles: iamRoles }

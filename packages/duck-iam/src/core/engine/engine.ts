@@ -1,5 +1,6 @@
 import { IamLRUCache } from '../../shared/cache'
 import { iamBuildPermissionKey } from '../../shared/keys'
+import { iamIsReservedRefusal } from '../../shared/reserved'
 import { clearRegexCache } from '../conditions/conditions.libs'
 import { VALID_POLICY_COMBINES } from '../evaluate'
 import { evaluate } from '../evaluate/evaluate'
@@ -722,6 +723,27 @@ export class IamEngine<
         ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
         : undefined
 
+      // A request naming the reserved refusal token is refused before any
+      // policy is consulted. The framework adapters produce it for a method
+      // they cannot map and a path they cannot safely resolve, and it used to
+      // travel as an ordinary string - which a `'*'` rule matches, so the
+      // refusal became an allow on exactly the requests built to be denied.
+      // Placed inside the try so `onDeny` / `afterEvaluate` / `onMetrics` see
+      // this denial like any other.
+      if (iamIsReservedRefusal(req.action) || iamIsReservedRefusal(req.resource?.type)) {
+        const refusal = this._reservedRefusalDecision()
+        decisionForHooks = refusal
+        result = this._asResult(this._mode === 'production' ? false : refusal)
+        allowedForMetrics = false
+        failOpenForMetrics = false
+        if (this._hooks.afterEvaluate || this._hooks.onDeny) {
+          await this._safeHookCall(() => this._hooks.afterEvaluate?.(req, refusal), 'afterEvaluate')
+          await this._safeHookCall(() => this._hooks.onDeny?.(req, refusal), 'onDeny')
+        }
+        this._emitMetrics(req, false, t0, false)
+        return result
+      }
+
       const signals: { failOpen?: boolean } = {}
       const verdict = await this._evaluateOnce(req, onPolicyError, signals)
       if (verdict.decision !== undefined) {
@@ -790,6 +812,25 @@ export class IamEngine<
    * Called only when one of the two hooks is wired, so the allocation lands on
    * installs that asked for it and nobody else.
    */
+  /**
+   * The denial for a request naming the reserved refusal token.
+   *
+   * Shared by `authorize` and `permissions` so the two entry points cannot
+   * report the same refusal differently - `failure: 'input'` because the
+   * request named something that is not an action or a resource, not because
+   * evaluating it went wrong.
+   */
+  private _reservedRefusalDecision(): AccessControl.IDecision {
+    return {
+      allowed: false,
+      effect: 'deny',
+      failure: 'input',
+      reason: 'Denied: the request names the reserved refusal token, which no policy can grant',
+      duration: 0,
+      timestamp: Date.now(),
+    }
+  }
+
   private _verdictOnlyDecision(allowed: boolean, t0: number): AccessControl.IDecision {
     return {
       allowed,
@@ -1127,8 +1168,14 @@ export class IamEngine<
         const signals: { failOpen?: boolean } = {}
 
         // Same path as `authorize()` - a batch check must never be able to
-        // answer differently from the single check it batches.
-        const verdict = await this._evaluateOnce(req, onPolicyError, signals)
+        // answer differently from the single check it batches. That includes
+        // the reserved-refusal token: `permissions()` does not route through
+        // `authorize()`, so the refusal has to be repeated here or one entry
+        // point would grant what the other denies.
+        const verdict =
+          iamIsReservedRefusal(req.action) || iamIsReservedRefusal(req.resource?.type)
+            ? { allowed: false, decision: this._reservedRefusalDecision() }
+            : await this._evaluateOnce(req, onPolicyError, signals)
         map[key] = verdict.allowed
         if (verdict.decision !== undefined) decisionForHooks = verdict.decision
         allowedForCheck = verdict.allowed

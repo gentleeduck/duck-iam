@@ -169,14 +169,24 @@ import {
 
 <Callout type="warning" title="The sentinels are fail-closed, not fallbacks">
 `IAM_UNKNOWN_ACTION` and `IAM_UNKNOWN_RESOURCE` are both the literal string
-`'unknown'`. That is deliberate: `'unknown'` matches no policy target, so a
-request the helpers could not classify is **denied**, not authorized against
+`'unknown'`, and the engine **reserves** that token: `authorize()` and
+`permissions()` refuse a request naming it before any policy is consulted. So a
+request the helpers could not classify is denied, rather than authorized against
 whatever the raw method or path happened to spell.
 
-The value they replace is `undefined` — and `undefined` matches no *deny* rule
-either, which is the opposite outcome. That asymmetry is the entire reason these
-exist. Do not "improve" them by falling back to `'read'` or to the raw path
-segment; both turn an unclassifiable request into an allowed one.
+The refusal lives in the engine because it cannot live in the string. These
+constants used to rely on `'unknown'` simply matching no policy — but `'*'`
+matches every string, so a single wildcard rule (`.on('*').of('*')`, the
+ordinary shape of an admin role) matched the sentinel too and turned every
+unclassifiable request back into an allow, on exactly the path built to refuse
+it. Reserving the token is what makes the denial true by construction.
+
+The consequence worth knowing: a resource type or action genuinely named
+`'unknown'` can no longer be granted. The value they replace is `undefined` —
+and `undefined` matches no *deny* rule either, which is the opposite outcome.
+That asymmetry is the entire reason these exist. Do not "improve" them by
+falling back to `'read'` or to the raw path segment; both turn an unclassifiable
+request into an allowed one.
 </Callout>
 
 ### Per-route guard

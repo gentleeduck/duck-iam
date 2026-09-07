@@ -580,14 +580,34 @@ function fromPolicy(p: AccessControl.IPolicy): Record<string, unknown> {
 
 /** Role candidate, on the same terms as {@link toPolicy} - unchecked, and typed to say so. */
 function toRole(row: IamPrisma.IRoleRow): Record<string, unknown> {
+  // Absent columns are omitted, not set to `undefined` - the shape
+  // `IamDrizzleAdapter._safeParseRole` already produces, and the one the other
+  // stores return by handing back the caller's own object. A key holding
+  // `undefined` is still a key: `Object.keys` lists it, `JSON.stringify` drops
+  // it and `toEqual` ignores it, so "does this role have a description" got
+  // three answers depending which one the consumer asked, and a role saved as
+  // `{id, name, permissions}` read back from prisma with seven keys and from
+  // memory with three.
+  //
+  // `inherits: []` is the same case wearing a different coat: it was invented
+  // here for a role that never had one, so a round trip through prisma turned
+  // an absent `inherits` into an empty array. Drizzle drops the empty value for
+  // exactly that reason, and `RoleBuilder.build()` omits the key when the
+  // author sets no parents, so absent is the shape both ends already agree on.
+  const inherits: unknown = row.inherits
   return {
     id: row.id,
     name: row.name,
-    description: row.description ?? undefined,
+    ...(row.description === null || row.description === undefined ? {} : { description: row.description }),
     permissions: row.permissions,
-    inherits: row.inherits ?? [],
-    scope: row.scope ?? undefined,
-    metadata: row.metadata ?? undefined,
+    // Anything that is not an empty array is passed through unchanged, including
+    // values that are not arrays at all, so `parseRoleRow` still sees - and
+    // refuses - a corrupt column rather than having it quietly normalised away.
+    ...(inherits === null || inherits === undefined || (Array.isArray(inherits) && inherits.length === 0)
+      ? {}
+      : { inherits }),
+    ...(row.scope === null || row.scope === undefined ? {} : { scope: row.scope }),
+    ...(row.metadata === null || row.metadata === undefined ? {} : { metadata: row.metadata }),
   }
 }
 

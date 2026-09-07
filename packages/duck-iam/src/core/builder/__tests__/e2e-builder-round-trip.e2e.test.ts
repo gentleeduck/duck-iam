@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { IamDrizzleAdapter } from '../../../adapters/drizzle'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../../../adapters/drizzle/pg'
 import { iamNormalizePolicy } from '../../../shared/rows'
-import { applyPgSchema, databaseUrl, isolatedDatabaseUrl } from '../../../test/e2e-env'
+import { applyPgSchema, assertE2eReachable, databaseUrl, isolatedDatabaseUrl } from '../../../test/e2e-env'
 import { IamEngine } from '../../engine'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../types'
 import { definePolicy } from '../policy'
@@ -36,6 +36,7 @@ if (BASE_URL !== undefined && URL === undefined) {
       'Refusing to skip: a skipped suite is not a passing suite.',
   )
 }
+assertE2eReachable('builder-round-trip', URL)
 const suite = URL ? describe : describe.skip
 
 type Action = 'read' | 'update' | 'delete'

@@ -131,7 +131,17 @@ beforeAll(async () => {
   await docker(['info', '--format', '{{.ServerVersion}}'], 10_000)
   containerName = `duck-iam-resilience-redis-${randomBytes(4).toString('hex')}`
   redisPort = await freePort()
-  await docker(['run', '-d', '--name', containerName, '-p', `127.0.0.1:${redisPort}:6379`, REDIS_IMAGE])
+  await docker([
+    'run',
+    '-d',
+    '--name',
+    containerName,
+    '--label',
+    'duck-iam-e2e-owned',
+    '-p',
+    `127.0.0.1:${redisPort}:6379`,
+    REDIS_IMAGE,
+  ])
   await waitUntilReady(containerName, ['redis-cli', 'ping'])
 
   await seed()
@@ -159,7 +169,7 @@ afterAll(async () => {
   await docker(['unpause', containerName]).catch(() => {})
   await docker(['start', containerName]).catch(() => {})
   for (const c of clients) c.disconnect()
-  if (containerName) await docker(['rm', '-f', containerName]).catch(() => {})
+  if (containerName) await docker(['rm', '-f', '-v', containerName]).catch(() => {})
 }, 120_000)
 
 async function whilePaused<T>(body: () => Promise<T>): Promise<T> {

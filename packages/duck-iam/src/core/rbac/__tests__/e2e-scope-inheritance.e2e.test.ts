@@ -16,7 +16,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { IamDrizzleAdapter } from '../../../adapters/drizzle'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../../../adapters/drizzle/pg'
-import { applyPgSchema, databaseUrl, isolatedDatabaseUrl } from '../../../test/e2e-env'
+import { applyPgSchema, assertE2eReachable, databaseUrl, isolatedDatabaseUrl } from '../../../test/e2e-env'
 import { IamEngine } from '../../engine'
 import { MAX_INHERITANCE_DEPTH } from '../rbac'
 
@@ -28,6 +28,7 @@ if (BASE_URL !== undefined && URL === undefined) {
       'Refusing to skip: a skipped suite is not a passing suite.',
   )
 }
+assertE2eReachable('scope-inheritance', URL)
 const suite = URL ? describe : describe.skip
 
 type Action = 'read' | 'write' | 'admin'

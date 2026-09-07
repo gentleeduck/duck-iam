@@ -37,6 +37,7 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
     "check": "biome check packages/ tooling/",
     "lint": "biome lint packages/ tooling/",
     "format": "biome format --write packages/ tooling/",

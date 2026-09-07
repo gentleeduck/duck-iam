@@ -64,6 +64,8 @@ async function startPostgres(): Promise<string> {
     '-d',
     '--name',
     CONTAINER,
+    '--label',
+    'duck-iam-e2e-owned',
     '-p',
     '0:5432',
     '-e',
@@ -342,7 +344,7 @@ if (DOCKER_UP) {
 }
 
 afterAll(async () => {
-  if (DOCKER_UP) await docker(['rm', '-f', CONTAINER]).catch(() => '')
+  if (DOCKER_UP) await docker(['rm', '-f', '-v', CONTAINER]).catch(() => '')
 })
 
 describe('E2E harness reachability (prisma/pg)', () => {
