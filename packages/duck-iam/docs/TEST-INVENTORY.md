@@ -37,13 +37,13 @@ drift the way the hand-maintained version did.
 
 | File | Tests | Covers |
 |---|---|---|
-| `adapters/__tests__/adapter-contract-parity.test.ts` | 36 | assignRole options are refused, not discarded |
-| `adapters/__tests__/e2e-adapter-drizzle-pg.e2e.test.ts` | 95 | E2E harness reachability (drizzle/pg) |
-| `adapters/__tests__/e2e-adapter-prisma-pg.e2e.test.ts` | 78 | E2E harness reachability (prisma/pg) |
-| `adapters/__tests__/e2e-adapter-redis.e2e.test.ts` | 76 | E2E harness reachability (redis) |
+| `adapters/__tests__/adapter-contract-parity.test.ts` | 46 | assignRole options are refused, not discarded |
+| `adapters/__tests__/e2e-adapter-drizzle-pg.e2e.test.ts` | 108 | E2E harness reachability (drizzle/pg) |
+| `adapters/__tests__/e2e-adapter-prisma-pg.e2e.test.ts` | 27 | E2E harness reachability (prisma/pg) |
+| `adapters/__tests__/e2e-adapter-redis.e2e.test.ts` | 25 | E2E harness reachability (redis) |
 | `adapters/__tests__/save-time-validation.test.ts` | 19 | every adapter refuses to save a row its reads would drop |
 | `adapters/drizzle/__tests__/drizzle-actor-provenance.test.ts` | 11 | assignRole records who made the grant |
-| `adapters/drizzle/__tests__/drizzle-assignment-expiry-attributes.test.ts` | 32 | IamDrizzleAdapter assignment expiry |
+| `adapters/drizzle/__tests__/drizzle-assignment-expiry-attributes.test.ts` | 54 | IamDrizzleAdapter assignment expiry |
 | `adapters/drizzle/__tests__/drizzle-native-attr-shape.test.ts` | 13 | IamDrizzleAdapter native JSONB shape validation |
 | `adapters/drizzle/__tests__/drizzle-update-assignment-scope.test.ts` | 6 | IamDrizzleAdapter.updateAssignmentScope |
 | `adapters/drizzle/__tests__/drizzle.test.ts` | 101 | IamDrizzleAdapter |
@@ -78,7 +78,7 @@ drift the way the hand-maintained version did.
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
 | `adapters/redis/__tests__/redis.test.ts` | 103 | IamRedisAdapter |
-| **Subtotal** | **1152** | |
+| **Subtotal** | **1095** | |
 
 ---
 
@@ -154,6 +154,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/engine.stats.test.ts` | 5 | statsSnapshot |
 | `core/engine/__tests__/engine.test.ts` | 86 | Engine.can() - basic RBAC |
 | `core/engine/__tests__/failopen-metric-parity.test.ts` | 5 | failOpen metric: development and production agree |
+| `core/engine/__tests__/grant-expiry-vs-cache.test.ts` | 13 | a grant that expires stops granting, whatever the cache thinks |
 | `core/engine/__tests__/import-validates-before-write.test.ts` | 4 | admin.import validates the whole snapshot before writing |
 | `core/engine/__tests__/mode-type-argument-does-not-set-mode.test.ts` | 3 | the mode type argument does not set the mode |
 | `core/engine/__tests__/policy-combine-validation.test.ts` | 11 | policyCombine validation |
@@ -212,7 +213,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **1961** | |
+| **Subtotal** | **1974** | |
 
 ---
 
@@ -315,13 +316,13 @@ drift the way the hand-maintained version did.
 | Area | Files | Tests |
 |---|---|---|
 | Core / compiled engine | 9 | 139 |
-| Adapters | 41 | 1152 |
+| Adapters | 41 | 1095 |
 | Clients | 8 | 111 |
-| Core | 110 | 1961 |
+| Core | 111 | 1974 |
 | Devtools | 5 | 71 |
 | Invalidators | 9 | 101 |
 | Observability | 3 | 24 |
 | Server | 15 | 465 |
 | Shared | 4 | 94 |
 | Package surface | 10 | 109 |
-| **Total** | **214** | **4227** |
+| **Total** | **215** | **4183** |

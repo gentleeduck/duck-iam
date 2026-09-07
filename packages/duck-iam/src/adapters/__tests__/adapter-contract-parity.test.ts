@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertNoAssignOptions, iamAssertValidAssignWindow } from '../../shared/assign-options'
 import { iamAssertAttributesParam } from '../../shared/attributes'
 import { iamAssertAssignableScope } from '../../shared/scope'
+import { IamDrizzleAdapter } from '../drizzle'
+import { IamFileAdapter } from '../file'
 import { IamHttpAdapter } from '../http'
 import { IamMemoryAdapter } from '../memory'
+import { IamPrismaAdapter } from '../prisma'
+import { IamRedisAdapter } from '../redis'
 
 /**
  * The six adapters implement one interface, and an audit matrix found three
@@ -287,5 +291,87 @@ describe('read options are accepted by every adapter', () => {
     await adapter.listPolicies({ signal: ctrl.signal })
 
     expect(sawAborted).toBe(true)
+  })
+})
+
+/**
+ * `getSubjectGrantBoundary` and `assignRole`'s window options are two halves of
+ * one feature, and they have to be present or absent together.
+ *
+ * The method tells the engine when to stop trusting a cached subject. An
+ * adapter that cannot store `startsAt`/`expiresAt` has no boundary to report,
+ * and one that reported `null` while refusing the options would be answering a
+ * question about grants it does not have. The pairing is what keeps the engine
+ * from having to know which backend it is talking to.
+ */
+describe('the grant boundary is implemented exactly where the bounds are stored', () => {
+  const ADAPTERS = [
+    ['memory', IamMemoryAdapter, false],
+    ['file', IamFileAdapter, false],
+    ['redis', IamRedisAdapter, false],
+    ['prisma', IamPrismaAdapter, false],
+    ['http', IamHttpAdapter, false],
+    ['drizzle', IamDrizzleAdapter, true],
+  ] as const
+
+  it.each(ADAPTERS)('%s', (_name, ctor, stores) => {
+    const proto: unknown = ctor.prototype
+    const has =
+      typeof proto === 'object' && proto !== null && typeof Reflect.get(proto, 'getSubjectGrantBoundary') === 'function'
+    expect(has).toBe(stores)
+  })
+
+  it('the five that refuse the options are exactly the five without the method', () => {
+    // Belt and braces: read both facts off the same list rather than trusting
+    // the table above to have been kept in step with the guard.
+    for (const [name, ctor, stores] of ADAPTERS) {
+      const refuses = (() => {
+        try {
+          iamAssertNoAssignOptions(name, { expiresAt: new Date(0) })
+          return false
+        } catch {
+          return true
+        }
+      })()
+      // `iamAssertNoAssignOptions` is name-agnostic - it refuses for whatever
+      // adapter calls it - so what this pins is that no adapter is exempt.
+      expect(refuses).toBe(true)
+      const hasMethod = typeof Reflect.get(ctor.prototype, 'getSubjectGrantBoundary') === 'function'
+      expect(hasMethod, `${name} must ${stores ? 'implement' : 'omit'} getSubjectGrantBoundary`).toBe(stores)
+    }
+  })
+})
+
+/**
+ * The window guard is drizzle-only in the same way, and for the same reason:
+ * nowhere else can accept a window at all.
+ */
+describe('an empty window is refused before it reaches any driver', () => {
+  it('names both fields and neither instant', () => {
+    const startsAt = new Date('2030-01-01T00:00:00.000Z')
+    try {
+      iamAssertValidAssignWindow('drizzle', { expiresAt: new Date('2029-01-01T00:00:00.000Z'), startsAt })
+      expect.unreachable('an empty window must not be accepted')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      expect(message).toMatch(/startsAt >= expiresAt/)
+      expect(message, 'an authorization error must not echo its input').not.toContain(startsAt.toISOString())
+      expect(message).not.toContain('2029')
+    }
+  })
+
+  it('accepts every window a store could honour', () => {
+    const t = new Date('2030-01-01T00:00:00.000Z')
+    const later = new Date(t.getTime() + 1)
+    expect(() => iamAssertValidAssignWindow('drizzle', undefined)).not.toThrow()
+    expect(() => iamAssertValidAssignWindow('drizzle', {})).not.toThrow()
+    expect(() => iamAssertValidAssignWindow('drizzle', { startsAt: t })).not.toThrow()
+    expect(() => iamAssertValidAssignWindow('drizzle', { expiresAt: t })).not.toThrow()
+    expect(() => iamAssertValidAssignWindow('drizzle', { expiresAt: later, startsAt: t })).not.toThrow()
+  })
+
+  it('refuses a bound that is not a usable Date', () => {
+    expect(() => iamAssertValidAssignWindow('drizzle', { startsAt: new Date('nope') })).toThrow(/startsAt/)
+    expect(() => iamAssertValidAssignWindow('drizzle', { expiresAt: new Date('nope') })).toThrow(/expiresAt/)
   })
 })
