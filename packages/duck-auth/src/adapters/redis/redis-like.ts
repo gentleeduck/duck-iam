@@ -28,9 +28,30 @@ export namespace RedisLike {
     srem(key: string, ...members: string[]): Promise<number>
     /** SMEMBERS key -> array of members (empty when key missing) */
     smembers(key: string): Promise<string[]>
+    /** ZADD key score member -> 1 when added, 0 when an existing member was re-scored */
+    zadd(key: string, score: number, member: string): Promise<number>
+    /** ZREM key member... -> removed count */
+    zrem(key: string, ...members: string[]): Promise<number>
+    /**
+     * ZRANGEBYSCORE key min max [LIMIT offset count] -> members in score order.
+     * `min`/`max` accept `'-inf'` and `'+inf'`, and are inclusive.
+     */
+    zrangebyscore(
+      key: string,
+      min: number | string,
+      max: number | string,
+      opts?: { limit?: { offset: number; count: number } },
+    ): Promise<string[]>
     /** EVAL script numKeys keys... args... -> result */
     eval?(script: string, opts: { keys: string[]; args: string[] }): Promise<unknown>
   }
+}
+
+/** `'-inf'` / `'+inf'` / a numeric bound -> a number, falling back for anything else. */
+function bound(v: number | string, fallback: number): number {
+  if (typeof v === 'number') return v
+  const parsed = Number(v)
+  return Number.isNaN(parsed) ? fallback : parsed
 }
 
 /**
@@ -41,6 +62,8 @@ export namespace RedisLike {
 export class FakeRedis implements RedisLike.Client {
   private readonly _data = new Map<string, { value: string; expiresAt: number | null }>()
   private readonly _sets = new Map<string, Set<string>>()
+  /** Sorted sets, member -> score. Ordering is applied on read, as Redis does. */
+  private readonly _zsets = new Map<string, Map<string, number>>()
   private readonly _channels = new Map<string, Set<(channel: string, message: string) => void | Promise<void>>>()
 
   private _maybeExpire(key: string): void {
@@ -151,6 +174,51 @@ export class FakeRedis implements RedisLike.Client {
   /** `RedisLike.smembers`. Returns empty array when key missing. */
   async smembers(key: string): Promise<string[]> {
     return [...(this._sets.get(key) ?? [])]
+  }
+
+  /** `RedisLike.zadd`. Returns 1 when the member is new, 0 when only its score moved. */
+  async zadd(key: string, score: number, member: string): Promise<number> {
+    let zset = this._zsets.get(key)
+    if (!zset) {
+      zset = new Map()
+      this._zsets.set(key, zset)
+    }
+    const isNew = !zset.has(member)
+    zset.set(member, score)
+    return isNew ? 1 : 0
+  }
+
+  /** `RedisLike.zrem` variadic. Returns count of removed members. */
+  async zrem(key: string, ...members: string[]): Promise<number> {
+    const zset = this._zsets.get(key)
+    if (!zset) return 0
+    let removed = 0
+    for (const member of members) {
+      if (zset.delete(member)) removed++
+    }
+    if (zset.size === 0) this._zsets.delete(key)
+    return removed
+  }
+
+  /** `RedisLike.zrangebyscore`. Inclusive bounds, ascending by score then member. */
+  async zrangebyscore(
+    key: string,
+    min: number | string,
+    max: number | string,
+    opts: { limit?: { offset: number; count: number } } = {},
+  ): Promise<string[]> {
+    const zset = this._zsets.get(key)
+    if (!zset) return []
+    const lo = bound(min, Number.NEGATIVE_INFINITY)
+    const hi = bound(max, Number.POSITIVE_INFINITY)
+    const hits = [...zset.entries()]
+      .filter(([, score]) => score >= lo && score <= hi)
+      // Redis orders by score, then lexicographically among equal scores. Tests
+      // that plant several rows at one instant depend on that being stable.
+      .sort(([aMember, aScore], [bMember, bScore]) => aScore - bScore || aMember.localeCompare(bMember))
+      .map(([member]) => member)
+    if (!opts.limit) return hits
+    return hits.slice(opts.limit.offset, opts.limit.offset + opts.limit.count)
   }
 
   /** `RedisPubSubClient.publish` stub. Fans the payload out to every subscriber on `channel`. */

@@ -233,11 +233,16 @@ suite('E2E session security rules on real Postgres + Redis', () => {
         input: { email: user.email, password: PASSWORD },
         providerId: 'password',
       })
+      // One clock read for both deadlines. Taken separately they straddle a
+      // millisecond tick often enough to matter, and `absoluteExpiresAt` landing
+      // 1ms before `expiresAt` trips chk_auth_sessions_absolute_expires_after_expires
+      // - the write fails for the wrong reason and the test reads as a product bug.
+      const past = Date.now() - 1000
       await stores.sessions.update(rowId(signedIn), {
-        absoluteExpiresAt: new Date(Date.now() - 1000),
-        createdAt: new Date(Date.now() - 120_000),
-        expiresAt: new Date(Date.now() - 1000),
-        rotatedAt: new Date(Date.now() - 120_000),
+        absoluteExpiresAt: new Date(past),
+        createdAt: new Date(past - 119_000),
+        expiresAt: new Date(past),
+        rotatedAt: new Date(past - 119_000),
       })
 
       expect(await auth.resolveSession(cookie(signedIn.sid))).toBeNull()
@@ -285,11 +290,13 @@ suite('E2E session security rules on real Postgres + Redis', () => {
         input: { email: user.email, password: PASSWORD },
         providerId: 'password',
       })
+      // Same single clock read as above, for the same constraint.
+      const past = Date.now() - 1
       await stores.sessions.update(rowId(dead), {
-        absoluteExpiresAt: new Date(Date.now() - 1),
-        createdAt: new Date(Date.now() - 120_000),
-        expiresAt: new Date(Date.now() - 1),
-        rotatedAt: new Date(Date.now() - 120_000),
+        absoluteExpiresAt: new Date(past),
+        createdAt: new Date(past - 120_000),
+        expiresAt: new Date(past),
+        rotatedAt: new Date(past - 120_000),
       })
 
       await auth.sessions.gc()

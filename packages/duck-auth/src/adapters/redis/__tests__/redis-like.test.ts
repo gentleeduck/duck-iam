@@ -74,3 +74,75 @@ describe('FakeRedis.scan - glob MATCH', () => {
     expect(matched).toEqual([])
   })
 })
+
+/**
+ * The gc sweep in `RedisSessionImpl` runs against this class in every unit test,
+ * so a FakeRedis that ordered, bounded or paged differently from Redis would
+ * make those tests agree with each other and disagree with production.
+ */
+describe('FakeRedis - sorted sets', () => {
+  it('zadd reports an insert once, and a re-score as an update', async () => {
+    const r = new FakeRedis()
+    expect(await r.zadd('z', 10, 'a')).toBe(1)
+    expect(await r.zadd('z', 20, 'a')).toBe(0)
+    // The second call moved the member rather than adding a duplicate.
+    expect(await r.zrangebyscore('z', 15, 25)).toEqual(['a'])
+    expect(await r.zrangebyscore('z', 0, 14)).toEqual([])
+  })
+
+  it('zrangebyscore bounds are inclusive on both ends', async () => {
+    // `gc` asks for `<= now`; an exclusive upper bound would leave a session
+    // that expired on exactly this millisecond unswept until the next cycle.
+    const r = new FakeRedis()
+    await r.zadd('z', 100, 'a')
+    expect(await r.zrangebyscore('z', 100, 100)).toEqual(['a'])
+  })
+
+  it('zrangebyscore accepts -inf and +inf', async () => {
+    const r = new FakeRedis()
+    await r.zadd('z', -5, 'a')
+    await r.zadd('z', 5, 'b')
+    expect(await r.zrangebyscore('z', '-inf', '+inf')).toEqual(['a', 'b'])
+    expect(await r.zrangebyscore('z', '-inf', 0)).toEqual(['a'])
+  })
+
+  it('zrangebyscore returns members in score order', async () => {
+    const r = new FakeRedis()
+    await r.zadd('z', 30, 'c')
+    await r.zadd('z', 10, 'a')
+    await r.zadd('z', 20, 'b')
+    expect(await r.zrangebyscore('z', '-inf', '+inf')).toEqual(['a', 'b', 'c'])
+  })
+
+  it('members sharing a score come back in a stable lexicographic order', async () => {
+    // Sessions planted at one instant are the normal case in a test; without a
+    // tiebreak the page boundary would fall in a different place each run.
+    const r = new FakeRedis()
+    for (const m of ['c', 'a', 'b']) await r.zadd('z', 1, m)
+    expect(await r.zrangebyscore('z', '-inf', '+inf')).toEqual(['a', 'b', 'c'])
+  })
+
+  it('LIMIT pages from the offset, and a page past the end is empty', async () => {
+    const r = new FakeRedis()
+    for (let i = 0; i < 5; i++) await r.zadd('z', i, `m${i}`)
+    expect(await r.zrangebyscore('z', '-inf', '+inf', { limit: { count: 2, offset: 0 } })).toEqual(['m0', 'm1'])
+    expect(await r.zrangebyscore('z', '-inf', '+inf', { limit: { count: 2, offset: 2 } })).toEqual(['m2', 'm3'])
+    expect(await r.zrangebyscore('z', '-inf', '+inf', { limit: { count: 2, offset: 9 } })).toEqual([])
+  })
+
+  it('zrem counts only what it actually removed', async () => {
+    // `gc` reports this number as `deleted`, so counting absent members would
+    // have a losing instance claim work the winner did.
+    const r = new FakeRedis()
+    await r.zadd('z', 1, 'a')
+    await r.zadd('z', 2, 'b')
+    expect(await r.zrem('z', 'a', 'ghost')).toBe(1)
+    expect(await r.zrangebyscore('z', '-inf', '+inf')).toEqual(['b'])
+  })
+
+  it('a range or removal on an unknown key is empty, not an error', async () => {
+    const r = new FakeRedis()
+    expect(await r.zrangebyscore('nope', '-inf', '+inf')).toEqual([])
+    expect(await r.zrem('nope', 'a')).toBe(0)
+  })
+})

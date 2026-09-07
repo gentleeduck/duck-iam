@@ -16,15 +16,19 @@ export namespace ValkeyClient {
     sadd(key: string, ...members: string[]): Promise<number>
     srem(key: string, ...members: string[]): Promise<number>
     smembers(key: string): Promise<string[]>
+    zrem(key: string, ...members: string[]): Promise<number>
 
     /**
-     * `set`/`scan`/`eval` are declared loosely on purpose: ioredis's long overload
-     * lists aren't assignable to any single variadic signature, so pinning one here
-     * would make a real ioredis client fail to type-check against its own adapter.
+     * `set`/`scan`/`eval`/`zadd`/`zrangebyscore` are declared loosely on purpose:
+     * ioredis's long overload lists aren't assignable to any single variadic
+     * signature, so pinning one here would make a real ioredis client fail to
+     * type-check against its own adapter.
      */
     set(key: string, value: string, ...args: any[]): Promise<any>
     scan(cursor: string | number, ...args: any[]): Promise<any>
     eval(script: string, numKeys: number, ...args: any[]): Promise<any>
+    zadd(key: string, ...args: any[]): Promise<any>
+    zrangebyscore(key: string, min: number | string, max: number | string, ...args: any[]): Promise<any>
   }
 }
 
@@ -59,6 +63,17 @@ export function valkeyAdapter(client: ValkeyClient.Me): RedisLike.Client {
     sadd: (key, ...members) => client.sadd(key, ...members),
     srem: (key, ...members) => client.srem(key, ...members),
     smembers: (key) => client.smembers(key),
+
+    zadd: async (key, score, member) => Number(await client.zadd(key, score, member)),
+    zrem: (key, ...members) => client.zrem(key, ...members),
+
+    zrangebyscore: async (key, min, max, opts) => {
+      // ioredis takes LIMIT variadically, and only accepts it at all when both
+      // offset and count are present.
+      const args: (string | number)[] = []
+      if (opts?.limit) args.push('LIMIT', opts.limit.offset, opts.limit.count)
+      return client.zrangebyscore(key, min, max, ...args)
+    },
 
     // ioredis takes the key count positionally, then keys, then args.
     eval: (script, opts) => client.eval(script, opts.keys.length, ...opts.keys, ...opts.args),

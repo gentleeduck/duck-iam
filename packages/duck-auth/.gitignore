@@ -9,3 +9,6 @@ node_modules/
 .drizzle-e2e-out-mysql/
 .drizzle-e2e-out-oidc-pg/
 .drizzle-e2e-out-oidc-mysql/
+
+# scratch walkthroughs, not part of the package docs
+docs/notes/
