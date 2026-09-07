@@ -1,6 +1,7 @@
 import { IamLRUCache } from '../../shared/cache'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamIsReservedRefusal } from '../../shared/reserved'
+import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import { clearRegexCache } from '../conditions/conditions.libs'
 import { VALID_POLICY_COMBINES } from '../evaluate'
 import { evaluate } from '../evaluate/evaluate'
@@ -78,6 +79,17 @@ function maskFromRoles(table: CompiledTable, roles: readonly string[]): number {
   }
   return mask
 }
+
+/**
+ * One single-flight slot: the in-progress promise for a cache key, or `null`
+ * when nothing is in flight. Declared rather than inferred so the initialiser
+ * can write a bare `null` — inferring from `{ value: null }` would fix the
+ * slot type at `null` and force a widening cast at every assignment.
+ */
+interface ISingleFlightSlot<T> {
+  value: Promise<T> | null
+}
+
 /**
  * Central runtime that evaluates access requests against RBAC roles and ABAC
  * policies.
@@ -136,12 +148,18 @@ export class IamEngine<
   private _subjectCache: IamLRUCache<IamRequest.ISubject>
   // Single-flight: coalesce concurrent cache-misses so a cold start under load
   // doesn't fan out N identical adapter calls. Cleared once the promise settles.
-  private _inFlight = {
-    policies: { value: null as Promise<AccessControl.IPolicy[]> | null },
-    roles: { value: null as Promise<AccessControl.IRole[]> | null },
-    rbac: { value: null as Promise<AccessControl.IPolicy> | null },
-    merged: { value: null as Promise<AccessControl.IPolicy[]> | null },
-    subjects: new Map<string, Promise<IamRequest.ISubject>>(),
+  private _inFlight: {
+    policies: ISingleFlightSlot<AccessControl.IPolicy[]>
+    roles: ISingleFlightSlot<AccessControl.IRole[]>
+    rbac: ISingleFlightSlot<AccessControl.IPolicy>
+    merged: ISingleFlightSlot<AccessControl.IPolicy[]>
+    subjects: Map<string, Promise<IamRequest.ISubject>>
+  } = {
+    policies: { value: null },
+    roles: { value: null },
+    rbac: { value: null },
+    merged: { value: null },
+    subjects: new Map(),
   }
   /**
    * Per-instance evaluation caches. Multi-tenant deployments instantiate
@@ -922,7 +940,7 @@ export class IamEngine<
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
     const subject = await this._resolveSubject(subjectId)
     const enriched = enrichSubjectWithScopedRoles(subject, scope, this._scopeMode, this._scopeCombine)
-    return enriched.roles.map((r) => r as TRole)
+    return enriched.roles.map((r) => iamAsRoleLiteral<TRole>(r))
   }
 
   /**
