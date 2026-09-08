@@ -14,16 +14,33 @@ import {
   providerSubKey,
 } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
+import {
+  reviveIdentityRow,
+  reviveIdentityRowOrNull,
+  reviveSessionRow,
+  reviveSessionRowRequired,
+} from '~/adapters/sql/stored-json'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './pg.schema'
-import type { Pg } from './pg.types'
 
 /**
- * Postgres returns `jsonb` as already-parsed JSON, so `Date` fields nested inside
- * `factors`/`actingAs` come back as ISO strings; revive them so `Sessions.Me` satisfies
- * its `Date`-typed contract. Top-level timestamptz columns are already `Date`.
+ * Every session of one identity, narrowed to a tenant when one is named.
+ *
+ * `eq` never matches NULL, so a global (`tenant_id IS NULL`) session is
+ * deliberately outside a named tenant's scope - the same rule the credential
+ * queries follow, and the reason a tenant's "sign out everywhere" can no longer
+ * reach the same person's logins in another tenant. `auth_sessions_tenant`
+ * indexes the column, and `identity_id` is indexed too.
  */
+function sessionScope(identityId: string, tenantId: string | undefined) {
+  return tenantId === undefined
+    ? eq(authSessions.identityId, identityId)
+    : and(eq(authSessions.identityId, identityId), eq(authSessions.tenantId, tenantId))
+}
+
+import type { Pg } from './pg.types'
+
 /**
  * Pull the `id` column out of a raw `db.execute` result. `execute` hands back
  * untyped rows, so narrow rather than assert - a row without a string id is
@@ -43,27 +60,6 @@ function idsOf(rows: readonly Record<string, unknown>[]): string[] {
  * assertion - the batch reports a closed window as one row's soft failure, not
  * as an error that takes the other rows down with it.
  */
-function reviveSessionRow<T extends { factors: unknown; actingAs: unknown }>(row: T | null): T | null {
-  return row ? reviveSessionRowRequired(row) : null
-}
-
-function reviveSessionRowRequired<T extends { factors: unknown; actingAs: unknown }>(row: T): T {
-  const factors = Array.isArray(row.factors)
-    ? row.factors.map((f) => {
-        const factor = f as { completedAt: unknown }
-        return { ...factor, completedAt: new Date(factor.completedAt as string) }
-      })
-    : row.factors
-  const acting = row.actingAs
-  const actingAs =
-    acting && typeof acting === 'object'
-      ? (() => {
-          const a = acting as { startedAt: unknown; expiresAt: unknown }
-          return { ...a, startedAt: new Date(a.startedAt as string), expiresAt: new Date(a.expiresAt as string) }
-        })()
-      : acting
-  return { ...row, factors, actingAs }
-}
 
 /**
  * `code` off a driver error, following `cause` because the pool and drizzle
@@ -117,7 +113,7 @@ export function createDrizzlePgBridge<
       .from(authIdentities)
       .where(eq(authIdentities.id, id))
       .limit(1)
-      .then((r) => r[0] ?? null)
+      .then((r) => reviveIdentityRowOrNull(r[0] ?? null))
 
   const tenantWhere = <T extends { tenantId: PgColumn }>(table: T, tenantId: string | undefined) =>
     tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
@@ -131,7 +127,7 @@ export function createDrizzlePgBridge<
             .from(authIdentities)
             .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
             .limit(1)
-            .then((r) => r[0] ?? null),
+            .then((r) => reviveIdentityRowOrNull(r[0] ?? null)),
         ),
 
       // Case-insensitive to match the `unique (lower(profile->>'email'))` constraint.
@@ -143,7 +139,7 @@ export function createDrizzlePgBridge<
             and(sql`lower(${authIdentities.profile}->>'email') = lower(${email})`, isNull(authIdentities.deletedAt)),
           )
           .limit(1)
-          .then((r) => r[0] ?? null),
+          .then((r) => reviveIdentityRowOrNull(r[0] ?? null)),
 
       findByProviderSub: (providerId, sub) =>
         db
@@ -156,7 +152,7 @@ export function createDrizzlePgBridge<
             ),
           )
           .limit(1)
-          .then((r) => r[0] ?? null),
+          .then((r) => reviveIdentityRowOrNull(r[0] ?? null)),
 
       insert: (row) =>
         db
@@ -171,7 +167,7 @@ export function createDrizzlePgBridge<
             .set(patch)
             .where(and(eq(authIdentities.id, id), eq(authIdentities.version, expectedVersion)))
             .returning()
-            .then((r) => r[0] ?? null),
+            .then((r) => reviveIdentityRowOrNull(r[0] ?? null)),
         ),
 
       softDelete: (id, deletedAt, deletedBy) =>
@@ -190,7 +186,7 @@ export function createDrizzlePgBridge<
             .set({ deletedAt, deletedBy, emailVerified: false })
             .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
             .returning()
-            .then((r) => r[0] ?? null),
+            .then((r) => reviveIdentityRowOrNull(r[0] ?? null)),
         ),
 
       /**
@@ -237,7 +233,7 @@ export function createDrizzlePgBridge<
           .set({ deletedAt: null, deletedBy: null })
           .where(eq(authIdentities.id, id))
           .returning()
-        return restored[0] ?? null
+        return reviveIdentityRowOrNull(restored[0] ?? null)
       },
 
       erase: (id) =>
@@ -247,7 +243,7 @@ export function createDrizzlePgBridge<
           // `RETURNING` on the DELETE hands back the row as it was, so saying what
           // was erased costs nothing extra.
           const gone = await db.delete(authIdentities).where(eq(authIdentities.id, id)).returning()
-          return gone[0] ?? null
+          return reviveIdentityRowOrNull(gone[0] ?? null)
         }),
 
       /**
@@ -372,7 +368,11 @@ export function createDrizzlePgBridge<
           async () => {
             const list = [...ids]
             if (list.length === 0) return { candidates: [], restored: [] }
-            const candidates = await db.select().from(authIdentities).where(inArray(authIdentities.id, list))
+            const candidates = await db
+              .select()
+              .from(authIdentities)
+              .where(inArray(authIdentities.id, list))
+              .then((rows) => rows.map(reviveIdentityRow))
             const restorable = candidates.filter(isRestorable)
             const emails = new Map<string, string>()
             for (const row of restorable) {
@@ -457,6 +457,7 @@ export function createDrizzlePgBridge<
               .set({ deletedAt: null, deletedBy: null })
               .where(inArray(authIdentities.id, okIds))
               .returning()
+              .then((rows) => rows.map(reviveIdentityRow))
             return { candidates, refused, restored }
           },
           { candidates: [], restored: [] },
@@ -495,7 +496,11 @@ export function createDrizzlePgBridge<
           `)
           const ids = idsOf(updated.rows)
           if (ids.length === 0) return []
-          return db.select().from(authIdentities).where(inArray(authIdentities.id, ids))
+          return db
+            .select()
+            .from(authIdentities)
+            .where(inArray(authIdentities.id, ids))
+            .then((rows) => rows.map(reviveIdentityRow))
         }),
 
       merge: (survivorId, dupId) =>
@@ -698,17 +703,17 @@ export function createDrizzlePgBridge<
           .delete(authSessions)
           .where(eq(authSessions.id, id))
           .then(() => {}),
-      listByIdentity: (identityId) =>
+      listByIdentity: (identityId, tenantId) =>
         emptyOnUnrepresentableId(() =>
           db
             .select()
             .from(authSessions)
-            .where(eq(authSessions.identityId, identityId))
+            .where(sessionScope(identityId, tenantId))
             .then((rows) => rows.map((r) => reviveSessionRowRequired(r))),
         ),
-      deleteAllForIdentity: async (identityId) => {
+      deleteAllForIdentity: async (identityId, tenantId) => {
         await nullOnUnrepresentableId(async () => {
-          await db.delete(authSessions).where(eq(authSessions.identityId, identityId))
+          await db.delete(authSessions).where(sessionScope(identityId, tenantId))
           return null
         })
       },
@@ -774,5 +779,5 @@ export function drizzlePgStorage<Profile extends SqlBridge.ProfileMetadataBase>(
         ? (input as Pg.AnyNodePgDatabase)
         : lazyRequire('drizzle-orm/node-postgres').drizzle(input)
 
-  return createSqlStores<Profile>(createDrizzlePgBridge(db) as SqlBridge.Me<Profile>)
+  return createSqlStores<Profile>(createDrizzlePgBridge<Profile>(db))
 }

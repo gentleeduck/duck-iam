@@ -12,12 +12,14 @@
  */
 
 import { createHash } from 'node:crypto'
+import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createSqlStores } from '~/adapters/sql/sql'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { SQLITE_DDL as DDL } from '~/test/sqlite-schema'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
 import { createDrizzleSqliteBridge } from '../sqlite'
+import { authIdentities, authSessions } from '../sqlite.schema'
 
 type Profile = { username: string; email: string }
 
@@ -336,5 +338,92 @@ describe('DrizzleSqlite store-contract divergences', () => {
       expect(rotated.secret).toBe('v2')
       expect(rotated.lastUsedAt).toBeInstanceOf(Date)
     })
+  })
+})
+
+/**
+ * The tables are a public export, so a `db.select().from(authIdentities)` is a
+ * supported read that never touches `createSqlStores`. SQLite stores these
+ * columns as raw `TEXT`, so the value coming back is a JSON string, not even a
+ * parsed object - and the declared type said `ProviderLink[]` with a `Date` on
+ * it. pg and mysql carry the same assertions in their e2e suites; this is the
+ * one dialect that can make them without a container.
+ */
+describe('the exported tables hand back the types they declare', () => {
+  async function makeDb() {
+    const { default: Database } = await import('better-sqlite3')
+    const { drizzle } = await import('drizzle-orm/better-sqlite3')
+    const sqlite = new Database(':memory:')
+    sqlite.exec(DDL)
+    sqlite.exec(
+      `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
+       VALUES ('${OWNER}', '{"email":"owner@fk.local","username":"owner"}', '[]', 1, 1, 0, 0)`,
+    )
+    // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
+    const db = drizzle(sqlite as any)
+    return { db, sqlite, stores: createSqlStores<Profile>(createDrizzleSqliteBridge(db)) }
+  }
+
+  it('gives providers[].addedAt as a Date on a direct select', async () => {
+    const { db, stores } = await makeDb()
+    const addedAt = new Date('2026-01-02T03:04:05.000Z')
+    await stores.identities.link(OWNER, { addedAt, providerId: 'google', providerSub: 'sub-1' })
+
+    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, OWNER))
+    expect(row?.providers[0]?.addedAt).toBeInstanceOf(Date)
+    expect(row?.providers[0]?.addedAt?.getTime()).toBe(addedAt.getTime())
+  })
+
+  it('gives factors[].completedAt and both actingAs dates as Dates on a direct select', async () => {
+    const { db, stores } = await makeDb()
+    const completedAt = new Date('2026-01-02T03:04:05.000Z')
+    const startedAt = new Date('2026-01-02T03:00:00.000Z')
+    const expiresAt = new Date('2026-01-02T04:00:00.000Z')
+    const id = sessionId('sqlite-table-types')
+    await stores.sessions.create(
+      sessionInput({
+        aal: 2,
+        absoluteExpiresAt: new Date(Date.now() + 600_000),
+        actingAs: { expiresAt, realIdentityId: OWNER, reason: 'support', startedAt },
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        factors: [{ completedAt, method: 'password' }],
+        fresh: true,
+        id,
+        identityId: OWNER,
+        kind: 'user',
+        rotatedAt: new Date(),
+      }),
+    )
+
+    const [row] = await db.select().from(authSessions).where(eq(authSessions.id, id))
+    expect(row?.factors[0]?.completedAt).toBeInstanceOf(Date)
+    expect(row?.factors[0]?.completedAt?.getTime()).toBe(completedAt.getTime())
+    expect(row?.actingAs?.startedAt).toBeInstanceOf(Date)
+    expect(row?.actingAs?.expiresAt.getTime()).toBe(expiresAt.getTime())
+  })
+
+  it('reads an unparseable addedAt as null at the table and as createdAt through the store', async () => {
+    const { db, sqlite, stores } = await makeDb()
+    sqlite.exec(
+      `UPDATE auth_identities SET providers = '${JSON.stringify([
+        { addedAt: 'not-a-date', providerId: 'google', providerSub: 'sub-1' },
+      ])}' WHERE id = '${OWNER}'`,
+    )
+
+    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, OWNER))
+    expect(row?.providers[0]?.addedAt).toBeNull()
+
+    const viaStore = await stores.identities.findById(OWNER)
+    expect(viaStore?.providers[0]?.addedAt).toBeInstanceOf(Date)
+    expect(viaStore?.providers[0]?.addedAt.getTime()).toBe(row?.createdAt.getTime())
+  })
+
+  /** A column holding text that is not JSON at all reads as empty, not as a throw. */
+  it('answers [] for a providers column that is not JSON', async () => {
+    const { db, sqlite } = await makeDb()
+    sqlite.exec(`UPDATE auth_identities SET providers = 'not json' WHERE id = '${OWNER}'`)
+    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, OWNER))
+    expect(row?.providers).toEqual([])
   })
 })

@@ -21,9 +21,32 @@ import {
   providerSubKey,
 } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
+import {
+  reviveIdentityRow,
+  reviveIdentityRowOrNull,
+  reviveSessionRow,
+  reviveSessionRowRequired,
+  type StoredProviderLink,
+} from '~/adapters/sql/stored-json'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './mysql.schema'
+
+/**
+ * Every session of one identity, narrowed to a tenant when one is named.
+ *
+ * `eq` never matches NULL, so a global (`tenant_id IS NULL`) session is
+ * deliberately outside a named tenant's scope - the same rule the credential
+ * queries follow, and the reason a tenant's "sign out everywhere" can no longer
+ * reach the same person's logins in another tenant. `auth_sessions_tenant`
+ * indexes the column, and `identity_id` is indexed too.
+ */
+function sessionScope(identityId: string, tenantId: string | undefined) {
+  return tenantId === undefined
+    ? eq(authSessions.identityId, identityId)
+    : and(eq(authSessions.identityId, identityId), eq(authSessions.tenantId, tenantId))
+}
+
 import type { Mysql } from './mysql.types'
 
 /**
@@ -42,38 +65,11 @@ import type { Mysql } from './mysql.types'
  * both read one array, both write their own, and the second silently erases the
  * first - a provider the user believes is connected and is not.
  */
-const providersUnchanged = (seen: readonly Identities.ProviderLink[]) =>
+const providersUnchanged = (seen: readonly StoredProviderLink[]) =>
   sql`${authIdentities.providers} = cast(${JSON.stringify(seen)} as json)`
 
 /** A write that matched nothing after its own read saw the row: someone else got there first. */
 const staleWrite = (): AuthError => new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: -1 })
-
-/**
- * MySQL returns `json` columns as already-parsed JSON, so `Date` fields nested inside
- * `factors`/`actingAs` arrive as ISO strings while `Sessions.Me` types them as `Date`.
- * Revive them here, same as the pg adapter and the Redis store's `parseStoredDate`.
- */
-function reviveSessionRow<T extends { factors: unknown; actingAs: unknown }>(row: T | null): T | null {
-  return row ? reviveSessionRowRequired(row) : null
-}
-
-function reviveSessionRowRequired<T extends { factors: unknown; actingAs: unknown }>(row: T): T {
-  const factors = Array.isArray(row.factors)
-    ? row.factors.map((f) => {
-        const factor = f as { completedAt: unknown }
-        return { ...factor, completedAt: new Date(factor.completedAt as string) }
-      })
-    : row.factors
-  const acting = row.actingAs
-  const actingAs =
-    acting && typeof acting === 'object'
-      ? (() => {
-          const a = acting as { startedAt: unknown; expiresAt: unknown }
-          return { ...a, expiresAt: new Date(a.expiresAt as string), startedAt: new Date(a.startedAt as string) }
-        })()
-      : acting
-  return { ...row, actingAs, factors }
-}
 
 /** Generic over the profile so callers with their own profile shape don't have to cast. */
 export function createDrizzleMysqlBridge<
@@ -95,7 +91,7 @@ export function createDrizzleMysqlBridge<
   /** MySQL has no RETURNING, so re-select a row by primary key after a mutation. */
   async function reselectIdentity(id: string) {
     const rows = await db.select(identityColumns).from(authIdentities).where(eq(authIdentities.id, id)).limit(1)
-    return rows[0] ?? null
+    return reviveIdentityRowOrNull(rows[0] ?? null)
   }
   async function reselectCredential(id: string) {
     const rows = await db.select().from(authCredentials).where(eq(authCredentials.id, id)).limit(1)
@@ -117,7 +113,7 @@ export function createDrizzleMysqlBridge<
           .limit(1)
         const row = rows[0]
         if (!row) return null
-        return row
+        return reviveIdentityRow(row)
       },
       findByEmail: async (email) => {
         const rows = await db
@@ -127,7 +123,7 @@ export function createDrizzleMysqlBridge<
             and(sql`lower(${authIdentities.profile}->>'$.email') = lower(${email})`, isNull(authIdentities.deletedAt)),
           )
           .limit(1)
-        return rows[0] ?? null
+        return reviveIdentityRowOrNull(rows[0] ?? null)
       },
       findByProviderSub: async (providerId, sub) => {
         // JSON_CONTAINS(target, candidate); needle is bound as a parameter, never interpolated.
@@ -137,7 +133,7 @@ export function createDrizzleMysqlBridge<
           .from(authIdentities)
           .where(and(sql`json_contains(${authIdentities.providers}, ${needle})`, isNull(authIdentities.deletedAt)))
           .limit(1)
-        return rows[0] ?? null
+        return reviveIdentityRowOrNull(rows[0] ?? null)
       },
       insert: async (row) => {
         await db.insert(authIdentities).values(row)
@@ -358,7 +354,11 @@ export function createDrizzleMysqlBridge<
       restoreManyReturning: async (ids) => {
         const list = [...ids]
         if (list.length === 0) return { candidates: [], restored: [] }
-        const candidates = await db.select(identityColumns).from(authIdentities).where(inArray(authIdentities.id, list))
+        const candidates = await db
+          .select(identityColumns)
+          .from(authIdentities)
+          .where(inArray(authIdentities.id, list))
+          .then((rows) => rows.map(reviveIdentityRow))
         const restorable = candidates.filter(isRestorable)
         const emails = new Map<string, string>()
         for (const row of restorable) {
@@ -448,6 +448,7 @@ export function createDrizzleMysqlBridge<
           .select(identityColumns)
           .from(authIdentities)
           .where(and(inArray(authIdentities.id, okIds), isNull(authIdentities.deletedAt)))
+          .then((rs) => rs.map(reviveIdentityRow))
         return { candidates, refused, restored }
       },
 
@@ -468,7 +469,11 @@ export function createDrizzleMysqlBridge<
           if (result[0].affectedRows > 0) updated.push(r.id)
         }
         if (updated.length === 0) return []
-        return db.select(identityColumns).from(authIdentities).where(inArray(authIdentities.id, updated))
+        return db
+          .select(identityColumns)
+          .from(authIdentities)
+          .where(inArray(authIdentities.id, updated))
+          .then((rs) => rs.map(reviveIdentityRow))
       },
 
       merge: async (survivorId, dupId) => {
@@ -645,12 +650,12 @@ export function createDrizzleMysqlBridge<
       delete: async (id) => {
         await db.delete(authSessions).where(eq(authSessions.id, id))
       },
-      listByIdentity: async (identityId) => {
-        const rows = await db.select().from(authSessions).where(eq(authSessions.identityId, identityId))
+      listByIdentity: async (identityId, tenantId) => {
+        const rows = await db.select().from(authSessions).where(sessionScope(identityId, tenantId))
         return rows.map(reviveSessionRowRequired)
       },
-      deleteAllForIdentity: async (identityId) => {
-        await db.delete(authSessions).where(eq(authSessions.identityId, identityId))
+      deleteAllForIdentity: async (identityId, tenantId) => {
+        await db.delete(authSessions).where(sessionScope(identityId, tenantId))
       },
       deleteAllForIdentitiesReturningIds: async (identityIds) => {
         const list = [...identityIds]
@@ -678,7 +683,8 @@ export function createDrizzleMysqlBridge<
         db
           .select()
           .from(authSessions)
-          .where(inArray(authSessions.identityId, [...identityIds])),
+          .where(inArray(authSessions.identityId, [...identityIds]))
+          .then((rows) => rows.map(reviveSessionRowRequired)),
       // Either clock, not just the outer one. `expiresAt` is the idle deadline a
       // session is renewed against and `absoluteExpiresAt` the ceiling it can
       // never pass; reading only the ceiling left every idled-out session in the
@@ -730,6 +736,5 @@ export function drizzleMysqlStorage<Profile extends SqlBridge.ProfileMetadataBas
     const { drizzle } = lazyRequire('drizzle-orm/mysql2')
     db = drizzle(input)
   }
-  // Asserts the concrete `Profile` shape; DB check constraints guarantee the base keys exist.
-  return createSqlStores<Profile>(createDrizzleMysqlBridge(db) as unknown as SqlBridge.Me<Profile>)
+  return createSqlStores<Profile>(createDrizzleMysqlBridge<Profile>(db))
 }

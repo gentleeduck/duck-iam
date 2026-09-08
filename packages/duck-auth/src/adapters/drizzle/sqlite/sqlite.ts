@@ -21,9 +21,31 @@ import {
   providerSubKey,
 } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
+import {
+  reviveIdentityRow,
+  reviveIdentityRowOrNull,
+  reviveSessionRow,
+  reviveSessionRowRequired,
+} from '~/adapters/sql/stored-json'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './sqlite.schema'
+
+/**
+ * Every session of one identity, narrowed to a tenant when one is named.
+ *
+ * `eq` never matches NULL, so a global (`tenant_id IS NULL`) session is
+ * deliberately outside a named tenant's scope - the same rule the credential
+ * queries follow, and the reason a tenant's "sign out everywhere" can no longer
+ * reach the same person's logins in another tenant. `auth_sessions_tenant`
+ * indexes the column, and `identity_id` is indexed too.
+ */
+function sessionScope(identityId: string, tenantId: string | undefined) {
+  return tenantId === undefined
+    ? eq(authSessions.identityId, identityId)
+    : and(eq(authSessions.identityId, identityId), eq(authSessions.tenantId, tenantId))
+}
+
 import type { Sqlite } from './sqlite.types'
 
 /**
@@ -53,7 +75,7 @@ export function createDrizzleSqliteBridge<
           .limit(1)
         const row = rows[0]
         if (!row) return null
-        return row
+        return reviveIdentityRow(row)
       },
       findByEmail: async (email) => {
         const rows = await db
@@ -66,7 +88,7 @@ export function createDrizzleSqliteBridge<
             ),
           )
           .limit(1)
-        return rows[0] ?? null
+        return reviveIdentityRowOrNull(rows[0] ?? null)
       },
       findByProviderSub: async (providerId, sub) => {
         // No jsonb containment in SQLite, so walk the providers array with json_each.
@@ -84,7 +106,7 @@ export function createDrizzleSqliteBridge<
             ),
           )
           .limit(1)
-        return rows[0] ?? null
+        return reviveIdentityRowOrNull(rows[0] ?? null)
       },
       insert: async (row) => {
         await db.insert(authIdentities).values(row)
@@ -95,7 +117,7 @@ export function createDrizzleSqliteBridge<
           .set(patch)
           .where(and(eq(authIdentities.id, id), eq(authIdentities.version, expectedVersion)))
           .returning()
-        return result[0] ?? null
+        return reviveIdentityRowOrNull(result[0] ?? null)
       },
       softDelete: async (id, deletedAt, deletedBy) => {
         // `emailVerified` goes with it: the partial unique index and `findByEmail`
@@ -112,7 +134,7 @@ export function createDrizzleSqliteBridge<
           .set({ deletedAt, deletedBy, emailVerified: false })
           .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
           .returning()
-        return result[0] ?? null
+        return reviveIdentityRowOrNull(result[0] ?? null)
       },
       /**
        * Three round trips, all on a rare admin path: read the hidden row, refuse
@@ -163,7 +185,7 @@ export function createDrizzleSqliteBridge<
           .set({ deletedAt: null, deletedBy: null })
           .where(eq(authIdentities.id, id))
           .returning()
-        return result[0] ?? null
+        return reviveIdentityRowOrNull(result[0] ?? null)
       },
       erase: async (id) => {
         // FK CASCADE handles credentials and sessions; explicit deletes are belt-and-suspenders.
@@ -175,7 +197,7 @@ export function createDrizzleSqliteBridge<
           .delete(authIdentities)
           .where(and(eq(authIdentities.id, id)))
           .returning()
-        return gone[0] ?? null
+        return reviveIdentityRowOrNull(gone[0] ?? null)
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt) => {
         // Read-modify-write: SQLite JSON edit functions are awkward; splice client-side.
@@ -222,7 +244,7 @@ export function createDrizzleSqliteBridge<
         // already carries the link, so answer with it rather than with `null`.
         if (providers.some((p) => p.providerId === providerId && p.providerSub === providerSub)) {
           const [unchanged] = await db.select().from(authIdentities).where(eq(authIdentities.id, identityId)).limit(1)
-          return unchanged ?? null
+          return reviveIdentityRowOrNull(unchanged ?? null)
         }
         providers.push({ providerId, providerSub: providerSub ?? null, addedAt })
         const linked = await db
@@ -230,7 +252,7 @@ export function createDrizzleSqliteBridge<
           .set({ providers })
           .where(and(eq(authIdentities.id, identityId)))
           .returning()
-        return linked[0] ?? null
+        return reviveIdentityRowOrNull(linked[0] ?? null)
       },
       deleteProviderLink: async (identityId, providerId) => {
         const rows = await db
@@ -246,7 +268,7 @@ export function createDrizzleSqliteBridge<
           .set({ providers })
           .where(and(eq(authIdentities.id, identityId)))
           .returning()
-        return unlinked[0] ?? null
+        return reviveIdentityRowOrNull(unlinked[0] ?? null)
       },
       softDeleteManyReturningIds: async (ids, deletedAt, deletedBy) => {
         const rows = await db
@@ -284,7 +306,11 @@ export function createDrizzleSqliteBridge<
       restoreManyReturning: async (ids) => {
         const list = [...ids]
         if (list.length === 0) return { candidates: [], restored: [] }
-        const candidates = await db.select().from(authIdentities).where(inArray(authIdentities.id, list))
+        const candidates = await db
+          .select()
+          .from(authIdentities)
+          .where(inArray(authIdentities.id, list))
+          .then((rs) => rs.map(reviveIdentityRow))
         const restorable = candidates.filter(isRestorable)
         const emails = new Map<string, string>()
         for (const row of restorable) {
@@ -372,6 +398,7 @@ export function createDrizzleSqliteBridge<
           .set({ deletedAt: null, deletedBy: null })
           .where(inArray(authIdentities.id, okIds))
           .returning()
+          .then((rs) => rs.map(reviveIdentityRow))
         return { candidates, refused, restored }
       },
 
@@ -383,7 +410,7 @@ export function createDrizzleSqliteBridge<
        * statement count, not the atomicity, that SQLite cannot collapse.
        */
       updateProfileManyReturning: async (rows) => {
-        const out: (typeof authIdentities.$inferSelect)[] = []
+        const out: Identities.Me[] = []
         for (const r of rows) {
           const updated = await db
             .update(authIdentities)
@@ -391,7 +418,7 @@ export function createDrizzleSqliteBridge<
             .where(and(eq(authIdentities.id, r.id), eq(authIdentities.version, r.expectedVersion)))
             .returning()
           const row = updated[0]
-          if (row) out.push(row)
+          if (row) out.push(reviveIdentityRow(row))
         }
         return out
       },
@@ -419,7 +446,7 @@ export function createDrizzleSqliteBridge<
         // never a duplicate - would lose the account it was trying to keep.
         if (survivorId === dupId) {
           const [self] = await db.select().from(authIdentities).where(eq(authIdentities.id, survivorId)).limit(1)
-          return self ?? null
+          return reviveIdentityRowOrNull(self ?? null)
         }
         await db
           .update(authIdentities)
@@ -432,7 +459,7 @@ export function createDrizzleSqliteBridge<
         await db.delete(authIdentities).where(eq(authIdentities.id, dupId))
         // The survivor is what the caller keeps; `null` when there was none.
         const [merged] = await db.select().from(authIdentities).where(eq(authIdentities.id, survivorId)).limit(1)
-        return merged ?? null
+        return reviveIdentityRowOrNull(merged ?? null)
       },
     },
     // --- Credentials ---
@@ -549,7 +576,7 @@ export function createDrizzleSqliteBridge<
       },
       findByHash: async (sidHash) => {
         const rows = await db.select().from(authSessions).where(eq(authSessions.id, sidHash)).limit(1)
-        return rows[0] ?? null
+        return reviveSessionRow(rows[0] ?? null)
       },
       update: async (id, patch) => {
         // A patch whose every key was an explicit `undefined` arrives here
@@ -558,19 +585,20 @@ export function createDrizzleSqliteBridge<
         // the row back untouched and so does this.
         if (Object.keys(patch).length === 0) {
           const rows = await db.select().from(authSessions).where(eq(authSessions.id, id)).limit(1)
-          return rows[0] ?? null
+          return reviveSessionRow(rows[0] ?? null)
         }
         const result = await db.update(authSessions).set(patch).where(eq(authSessions.id, id)).returning()
-        return result[0] ?? null
+        return reviveSessionRow(result[0] ?? null)
       },
       delete: async (id) => {
         await db.delete(authSessions).where(eq(authSessions.id, id))
       },
-      listByIdentity: async (identityId) => {
-        return db.select().from(authSessions).where(eq(authSessions.identityId, identityId))
+      listByIdentity: async (identityId, tenantId) => {
+        const rows = await db.select().from(authSessions).where(sessionScope(identityId, tenantId))
+        return rows.map(reviveSessionRowRequired)
       },
-      deleteAllForIdentity: async (identityId) => {
-        await db.delete(authSessions).where(eq(authSessions.identityId, identityId))
+      deleteAllForIdentity: async (identityId, tenantId) => {
+        await db.delete(authSessions).where(sessionScope(identityId, tenantId))
       },
       deleteAllForIdentitiesReturningIds: async (identityIds) => {
         const rows = await db
@@ -590,7 +618,8 @@ export function createDrizzleSqliteBridge<
         db
           .select()
           .from(authSessions)
-          .where(inArray(authSessions.identityId, [...identityIds])),
+          .where(inArray(authSessions.identityId, [...identityIds]))
+          .then((rows) => rows.map(reviveSessionRowRequired)),
       // Either clock, not just the outer one. `expiresAt` is the idle deadline a
       // session is renewed against and `absoluteExpiresAt` the ceiling it can
       // never pass; reading only the ceiling left every idled-out session in the
@@ -647,6 +676,5 @@ export function drizzleSqliteStorage<Profile extends SqlBridge.ProfileMetadataBa
     const { drizzle } = lazyRequire('drizzle-orm/better-sqlite3')
     db = drizzle(input)
   }
-  // Asserts the concrete `Profile` shape; DB check constraints guarantee the base keys exist.
-  return createSqlStores<Profile>(createDrizzleSqliteBridge(db) as unknown as SqlBridge.Me<Profile>)
+  return createSqlStores<Profile>(createDrizzleSqliteBridge<Profile>(db))
 }
