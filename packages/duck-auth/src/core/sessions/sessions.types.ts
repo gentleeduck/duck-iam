@@ -2,6 +2,7 @@ import type { Batch } from '~/core/batch'
 /** Session domain + lifecycle types — the single `Session` namespace for the sessions subject. */
 
 import type { Identities } from '../identities'
+import type { TenantContext } from '../tenant/tenant.types'
 
 /**
  * Authenticated (or guest, or API-key) bearer of access. Issued by the configured
@@ -88,8 +89,29 @@ export namespace Sessions {
     getByHash(sidHash: string): Promise<Me | null>
     update(id: string, patch: Partial<Me>): Promise<Me>
     delete(id: string): Promise<void>
-    listByIdentity(identityId: string): Promise<Me[]>
-    deleteAllForIdentity(identityId: string): Promise<void>
+    /**
+     * Every session of an identity, optionally narrowed to one tenant.
+     *
+     * Identities are global - the conformance suite says so in as many words -
+     * so one person is routinely a user of tenant A and of tenant B, and their
+     * sessions all hang off the same id. Without the filter this read handed
+     * tenant A the IP, user-agent and existence of every session tenant B had
+     * issued. Sessions were the only store carrying a `tenantId` that no method
+     * could select on, which `TenantContext`'s own docstring ("stores receive it
+     * on every call") already said they should.
+     *
+     * `ctx` omitted, or `ctx.tenantId` undefined, means every tenant - the
+     * behaviour every existing caller has. A set `tenantId` matches exactly, so
+     * a global (`tenantId: null`) session is not visible to a named tenant.
+     * Same rule as `Credential.Store`, which is the reference.
+     */
+    listByIdentity(identityId: string, ctx?: TenantContext): Promise<Me[]>
+    /**
+     * Sign an identity out. Scoped the same way as `listByIdentity`: unscoped it
+     * ends every session the identity has anywhere, which is what a tenant A
+     * "sign out everywhere" used to do to that person's tenant B logins.
+     */
+    deleteAllForIdentity(identityId: string, ctx?: TenantContext): Promise<void>
     /**
      * Periodic GC. Implementations that can run on several instances at once MUST
      * serialise themselves - `RedisSessionImpl` takes a `{prefix}:gc:lease` with
@@ -152,7 +174,16 @@ export namespace Sessions {
       | 'credential-change'
       | 'impersonate-start'
       | 'impersonate-release'
+      /** A guest session becoming a named one; the guest row is revoked. */
       | 'guest-promotion'
+      /**
+       * The first session of a brand-new account. Distinct from `guest-promotion`
+       * because `completeSignUp`'s `previousSid` is optional: most signups have no
+       * prior session to promote, and calling that a promotion made the rotation
+       * log describe a transition that never happened. Same revocation semantics -
+       * whatever the caller came in on does not survive the account being created.
+       */
+      | 'sign-up'
     previousSid?: string
   }
 }
