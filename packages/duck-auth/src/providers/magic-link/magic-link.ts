@@ -1,5 +1,6 @@
 import { isCredentialExpired, toCredentialUpsert } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
+import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { isSafeCallbackPath } from '~/core/url-validators'
@@ -65,11 +66,10 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
     // stored credential metadata all share one key.
     const emailCanonical = email.trim().toLowerCase()
     const limited = await ctx.limiter.consume(`${this.prefix}${emailCanonical}`)
-    if (!limited.ok) {
-      throw new AuthError('AUTH_RATE_LIMITED', {
-        retryAfter: Math.max(0, Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000)),
-      })
-    }
+    // No subject: `findIdentityByEmail` is host code on an unauthenticated
+    // endpoint, and a spent link bucket stops a mail from going out rather than
+    // locking anyone out. Same call the password-reset request makes.
+    if (!limited.ok) await refuseRateLimited(ctx.events, limited, null)
 
     let identityId: string | null =
       (await this.opts.findIdentityByEmail(emailCanonical, ctx.tenant.tenantId))?.id ?? null

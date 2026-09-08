@@ -214,14 +214,35 @@ export function passkey<Profile extends Identities.ProfileMetadataBase = Identit
   return new PasskeyImpl(opts)
 }
 
-/** Issue a registration ceremony. */
+/**
+ * Issue a registration ceremony.
+ *
+ * Takes the credential store, the way `completePasskeyRegistration` does, so
+ * the ceremony can name the keys this identity already holds. Without that list
+ * the authenticator has no way to know it is already enrolled: it happily mints
+ * a second credential for the same account on the same device, and the user
+ * ends up with a pile of passkeys they cannot tell apart and cannot prune,
+ * because nothing distinguishes them. `excludeCredentials` is WebAuthn's answer
+ * and the field was declared here from the start - it was simply never filled.
+ */
 export async function beginPasskeyRegistration(
   opts: Passkey.Options,
-  input: { identityId: string; userName: string; userDisplayName?: string; sessionId: string },
+  input: {
+    identityId: string
+    userName: string
+    userDisplayName?: string
+    sessionId: string
+    credentialStore: Credential.Store
+    tenant: { tenantId?: string }
+  },
 ): Promise<Passkey.RegistrationOptions> {
   const challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
   const challengeTtlMs = opts.challengeTtlMs ?? DEFAULT_PASSKEY_CONFIG.challengeTtlMs
   const webauthn = await loadWebAuthn(opts.webauthnModule)
+  // A revoked passkey is one the user asked to be rid of, so it is not excluded
+  // - re-enrolling the same authenticator is the documented way back.
+  const existing = await input.credentialStore.listByIdentity(input.identityId, 'passkey', input.tenant)
+  const excludeCredentials = existing.filter((c) => !isRevoked(c)).map(toExcludedCredential)
   const options = await webauthn.generateRegistrationOptions({
     rpName: opts.rpName,
     rpID: opts.rpID,
@@ -229,6 +250,7 @@ export async function beginPasskeyRegistration(
     userName: input.userName,
     userDisplayName: input.userDisplayName,
     attestationType: 'none',
+    excludeCredentials,
     authenticatorSelection: {
       residentKey: 'preferred',
       userVerification: opts.userVerification ?? DEFAULT_PASSKEY_CONFIG.userVerification,
@@ -286,6 +308,16 @@ export async function completePasskeyRegistration(
     input.tenant,
   )
   return persisted.id
+}
+
+/**
+ * A stored passkey row as the browser names it. `secret` is the credential id
+ * verbatim; transports come from the metadata when the authenticator reported
+ * them, and are omitted rather than guessed when it did not.
+ */
+function toExcludedCredential(row: Credential.Me): { id: string; type: 'public-key'; transports?: string[] } {
+  const transports = parsePasskeyMetadata(row.metadata)?.transports
+  return { id: row.secret, type: 'public-key', ...(transports?.length && { transports }) }
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {

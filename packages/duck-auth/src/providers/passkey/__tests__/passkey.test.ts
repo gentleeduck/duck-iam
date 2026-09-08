@@ -99,6 +99,8 @@ describe('passkey provider - registration', () => {
       identityId,
       userName: 'a@b.com',
       sessionId: 's1',
+      credentialStore: adapter.credentials,
+      tenant: {},
     })
     expect(options.challenge).toMatch(/^reg-challenge-/)
     expect(mockWebauthn.generateRegistrationOptions).toHaveBeenCalledWith(
@@ -109,7 +111,13 @@ describe('passkey provider - registration', () => {
   })
 
   it('completeRegistration persists a passkey credential + returns its id', async () => {
-    await beginPasskeyRegistration(opts, { identityId, userName: 'a@b.com', sessionId: 's1' })
+    await beginPasskeyRegistration(opts, {
+      identityId,
+      userName: 'a@b.com',
+      sessionId: 's1',
+      credentialStore: adapter.credentials,
+      tenant: {},
+    })
     const credId = await completePasskeyRegistration(opts, {
       identityId,
       sessionId: 's1',
@@ -138,7 +146,13 @@ describe('passkey provider - registration', () => {
 
   it('completeRegistration with verified:false throws AUTH/PASSKEY_MISMATCH', async () => {
     mockWebauthn.verifyRegistrationResponse = vi.fn(async () => ({ verified: false }))
-    await beginPasskeyRegistration(opts, { identityId, userName: 'a@b.com', sessionId: 's2' })
+    await beginPasskeyRegistration(opts, {
+      identityId,
+      userName: 'a@b.com',
+      sessionId: 's2',
+      credentialStore: adapter.credentials,
+      tenant: {},
+    })
     await expect(
       completePasskeyRegistration(opts, {
         identityId,
@@ -174,7 +188,13 @@ describe('passkey provider - sign-in', () => {
       webauthnModule: mockWebauthn,
       challengeStore,
     }
-    await beginPasskeyRegistration(opts, { identityId, userName: 'a@b.com', sessionId: 'reg-s1' })
+    await beginPasskeyRegistration(opts, {
+      identityId,
+      userName: 'a@b.com',
+      sessionId: 'reg-s1',
+      credentialStore: adapter.credentials,
+      tenant: {},
+    })
     await completePasskeyRegistration(opts, {
       identityId,
       sessionId: 'reg-s1',

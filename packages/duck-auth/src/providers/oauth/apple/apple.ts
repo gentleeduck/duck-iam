@@ -132,6 +132,7 @@ export function apple<Profile extends Identities.ProfileMetadataBase = Identitie
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
+    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
     ...(opts.profileToIdentityProfile !== undefined && {
       profileToIdentityProfile: opts.profileToIdentityProfile,
     }),

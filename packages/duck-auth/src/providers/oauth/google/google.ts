@@ -31,6 +31,7 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
+    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
     ...(opts.profileToIdentityProfile !== undefined && { profileToIdentityProfile: opts.profileToIdentityProfile }),
     async fetchProfile(tokens, c) {
       const info = await c.userinfo(tokens.access_token)

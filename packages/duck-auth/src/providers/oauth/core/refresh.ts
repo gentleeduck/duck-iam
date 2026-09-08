@@ -17,13 +17,19 @@ export async function authRefreshoauthToken(opts: {
   events: Events.IBus
   exchange: () => Promise<OAuth.TokenResponse>
   /**
-   * Optional, and it should be supplied. Without it this refreshes tokens for
-   * an identity that has since been deleted and hands its id back to the
-   * caller, because nothing on the credential-first path looks at the identity
-   * - the same gap that let an API key outlive its owner. `findById` filters
-   * soft-deleted rows, so a `null` means deleted or erased.
+   * Required. Without it this refreshes tokens for an identity that has since
+   * been deleted and hands its id back to the caller, because nothing on the
+   * credential-first path looks at the identity - the same gap that let an API
+   * key outlive its owner. `findById` filters soft-deleted rows, so a `null`
+   * means deleted or erased.
+   *
+   * It used to be optional, documented as "should be supplied". Nothing in the
+   * library calls this function, so there was no wiring to supply it and the
+   * only caller is a host reading the signature - which said the safe argument
+   * was opt-in. `apiKeyProvider` passes `stores.identities` unconditionally for
+   * the identical check; this is the same guarantee, made unskippable.
    */
-  identities?: { findById(id: string): Promise<unknown | null> }
+  identities: { findById(id: string): Promise<unknown | null> }
 }): Promise<{ tokens: OAuth.TokenResponse; identityId: string; familyId: string }> {
   const presentedHash = sha256(opts.presentedRefreshToken)
   const row = await opts.credentials.findByHashedSecret(presentedHash, 'oauth', opts.tenant)
@@ -60,7 +66,9 @@ export async function authRefreshoauthToken(opts: {
   // account neither burns the row nor makes a call to the provider. The family
   // is left alone rather than revoked: a soft delete is reversible, and the
   // tokens should work again if the account comes back within its grace window.
-  if (opts.identities && row.identityId && !(await opts.identities.findById(row.identityId))) {
+  // `row.identityId` is empty for a client-credentials grant, which has no
+  // identity to outlive.
+  if (row.identityId && !(await opts.identities.findById(row.identityId))) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
 

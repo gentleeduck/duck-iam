@@ -89,6 +89,18 @@ export namespace OAuth {
     onSignIn?: Options<AppProfile>['onSignIn']
     /** Project canonical Profile into the consumer's Profile shape. */
     profileToIdentityProfile?: Options<AppProfile>['profileToIdentityProfile']
+    /**
+     * What to do when the profile's email already belongs to an identity that
+     * has no link to this provider. See {@link Options.onFederationConflict};
+     * the default is still `'reject'`.
+     *
+     * `Options` has carried this since the policy was written, but `OptionsBase`
+     * did not, and `oProvider` is not exported from any entrypoint - so every
+     * shipped provider was hard-wired to `'reject'` and no consumer could reach
+     * `'link-if-verified'` or the callback at all. The default is the safe
+     * direction, which is why nothing broke and nobody noticed.
+     */
+    onFederationConflict?: Options<AppProfile>['onFederationConflict']
   }
 
   /** Full options surface consumed by `oProvider`. */
