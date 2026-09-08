@@ -71,7 +71,7 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     providers?: Identities.ProviderLink[]
     emailVerified?: boolean
   }): Promise<Identities.Me<Profile>> {
-    this._assertProfileWithinCap(input.profile)
+    this.assertProfileWithinCap(input.profile)
     const created = await this._store.create({
       profile: input.profile,
       providers: input.providers ?? [],
@@ -89,8 +89,43 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     const cur = await this._store.findById(id)
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
     const nextProfile = { ...(cur.profile ?? {}), ...profilePatch } as Profile
-    this._assertProfileWithinCap(nextProfile)
+    this.assertProfileWithinCap(nextProfile)
     return this._store.update(id, { profile: nextProfile }, expectedVersion)
+  }
+
+  /**
+   * Turn `emailVerified` on, and answer with the row that carries it.
+   *
+   * The column, never the profile - `updateProfile` merges a caller-supplied
+   * patch without filtering keys, so routing verification through it would make
+   * "my address is verified" something the account holder can assert about
+   * themselves.
+   *
+   * Reads its own expected version rather than taking one, and retries once on
+   * `AUTH_STALE_WRITE`. `completeEmailVerification` calls this after it has
+   * already consumed the single-use token, so there is no second attempt for
+   * the user to make: a concurrent profile write bumping the version between
+   * the read and the write used to surface as a raw stale-write error with the
+   * token already spent. One retry is enough - the write is idempotent and the
+   * losing racer re-reads the version the winner just wrote.
+   *
+   * Already-verified is a no-op that answers with the current row, so a
+   * duplicated verification click is not an error.
+   */
+  async markEmailVerified(id: string): Promise<Identities.Me<Profile>> {
+    let lastErr: unknown
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const cur = await this._store.findById(id)
+      if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
+      if (cur.emailVerified) return cur
+      try {
+        return await this._store.update(id, { emailVerified: true }, cur.version)
+      } catch (err) {
+        if (!(err instanceof AuthError) || err.code !== 'AUTH_STALE_WRITE') throw err
+        lastErr = err
+      }
+    }
+    throw lastErr
   }
 
   /**
@@ -106,8 +141,17 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
    * picture URL + locale + a few custom fields) without leaving the
    * door open to multi-MB blobs. Operators with richer schemas can
    * raise via `profiles.profileMaxBytes`.
+   *
+   * Public, and typed `unknown`, because the signup flow stages a partial
+   * profile in the credentials store for up to 24 hours before any of it
+   * reaches an identity row. A cap the profile only meets on the last hop is
+   * not a cap: `advanceSignUp` accepted an arbitrarily large `profilePatch`
+   * and `completeSignUp` was where it finally bounced, after the bytes had
+   * already been stored and re-read on every stage. The check reads nothing
+   * off `Profile` - it serializes and measures - so widening the parameter
+   * costs no safety and saves the callers a cast.
    */
-  private _assertProfileWithinCap(profile: Profile): void {
+  assertProfileWithinCap(profile: unknown): void {
     const cap = this._cfg.profileMaxBytes
     if (cap === undefined || cap <= 0) return
     let bytes: number
@@ -380,7 +424,7 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
         continue
       }
       const next = { ...cur.profile, ...row.patch }
-      this._assertProfileWithinCap(next)
+      this.assertProfileWithinCap(next)
       resolved.push({ expectedVersion: row.expectedVersion, id: row.id, profile: next })
     }
 

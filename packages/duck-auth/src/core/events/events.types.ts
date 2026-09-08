@@ -79,6 +79,21 @@ export namespace Events {
       providerId: string
       audit?: Envelope
     }
+    /**
+     * A provider link was removed. The mirror of `identity.linked`, and it did
+     * not exist: linking an authentication factor was audited, removing one was
+     * silent. Removal is the half an attacker who has taken over an account
+     * performs - dropping the real owner's Google link so the recovery route
+     * they still control is the only one left - so it is the half that most
+     * needs a trail.
+     */
+    'identity.unlinked': {
+      identityId: string
+      providerId: string
+      /** Whether the caller passed `allowLockout` to override the last-factor guard. */
+      allowedLockout: boolean
+      audit?: Envelope
+    }
     'identity.merged': {
       survivorId: string
       mergedFromId: string

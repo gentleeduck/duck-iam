@@ -1,10 +1,13 @@
 import {
+  deleteCredentialsByPurpose,
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
+  RECOVERY_PURPOSES,
   toCredentialUpsert,
 } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
+import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Identities } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
 import type { Flows } from './flows.types'
@@ -17,19 +20,23 @@ export async function requestEmailVerification<Profile extends Identities.Profil
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
   const callbackPath = isSafeCallbackPath(opts.callbackPath) ? opts.callbackPath : '/auth/verify-email'
 
-  const limited = await ctx.limiter.consume(`verify:email:${opts.identityId}`)
-  if (!limited.ok) {
-    throw new AuthError('AUTH_RATE_LIMITED', {
-      retryAfter: Math.max(0, Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000)),
-    })
-  }
-
   const identity = await ctx.stores.identities.findById(opts.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   if (identity.emailVerified) {
     return { ok: true }
   }
+
+  // After the two answers that send nothing, not before. The bucket exists to
+  // bound outbound mail, and both of the branches above return without any: an
+  // unknown id and an already-verified address used to spend a real user's
+  // resend budget on a request that could never have produced a message, so a
+  // caller looping on a stale id could exhaust the quota of the account it
+  // named. Neither early return leaks anything the limiter was hiding - an
+  // unknown id reports `AUTH_UNAUTHENTICATED` either way, and "already
+  // verified" reports success either way.
+  const limited = await ctx.limiter.consume(`verify:email:${opts.identityId}`)
+  if (!limited.ok) await refuseRateLimited(ctx.events, limited, identity.id)
 
   const requestedChannel = opts.channel ?? 'email'
   const channel: 'email' | 'sms' | 'webpush' =
@@ -43,19 +50,19 @@ export async function requestEmailVerification<Profile extends Identities.Profil
     })
   }
 
-  // By purpose, never by kind. `recovery` is shared by four flows - password
-  // reset, email verification, account deletion and signup-flow state - which are
-  // told apart only by `metadata.purpose`. `deleteByKind` cannot read metadata, so
-  // asking for a verification mail used to throw the user out of an in-flight
-  // signup and silently void a pending reset or deletion token. The write side
+  // By purpose, never by kind. `recovery` is shared by six token families
+  // (`RECOVERY_PURPOSES`) told apart only by `metadata.purpose`, and
+  // `deleteByKind` cannot read metadata - so asking for a verification mail used
+  // to throw the user out of an in-flight signup and silently void a pending
+  // reset, deletion, backup-code set or trusted device. The write side
   // discriminated and the delete side did not; now both do.
-  // `requestAccountDeletion` does the same thing the same way.
-  const stale = await ctx.stores.credentials.listByIdentity(opts.identityId, 'recovery', ctx.tenant)
-  for (const row of stale) {
-    if (getCredentialPurpose(row) === 'email-verification') {
-      await ctx.stores.credentials.delete(row.id, ctx.tenant)
-    }
-  }
+  await deleteCredentialsByPurpose(
+    ctx.stores.credentials,
+    opts.identityId,
+    'recovery',
+    RECOVERY_PURPOSES.emailVerification,
+    ctx.tenant,
+  )
 
   const token = ctx.crypto.authRandomToken(32)
   const tokenHash = ctx.crypto.authSha256(token)
@@ -107,12 +114,14 @@ export async function completeEmailVerification<Profile extends Identities.Profi
     throw err
   }
 
-  const identity = await ctx.stores.identities.findById(row.identityId)
-  if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
-
-  // The column, never the profile. `updateProfile` merges a caller-supplied patch without
-  // filtering keys, so a profile flag is something the account holder can set on themselves.
-  const verified = await ctx.stores.identities.update(identity.id, { emailVerified: true }, identity.version)
+  // Through the facet, not the raw store. `IdentitiesImpl` is where the profile
+  // size cap and the stale-write retry live; a flow reaching past it to
+  // `ctx.stores.identities.update` gets neither. It also owns the read of the
+  // expected version, which is the whole point here: the token is already spent
+  // by the line above, so a version bumped by a concurrent profile write has to
+  // be absorbed rather than reported - there is no second click for the user to
+  // make.
+  const verified = await deps.identities.markEmailVerified(row.identityId)
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
   // The verified row, straight off the write that set the flag - a caller that
   // renders the account after verification should not have to read it back.

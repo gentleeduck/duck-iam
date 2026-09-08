@@ -6,6 +6,7 @@ import { AuthError } from '../errors'
 import type { Identities, IdentitiesImpl } from '../identities'
 import type { Provider } from '../provider'
 import type { Sessions, SessionsImpl } from '../sessions'
+import type { TenantContext } from '../tenant/tenant.types'
 import type { Transport } from '../transport'
 import {
   cancelAccountDeletion as cancelAccountDeletionImpl,
@@ -176,12 +177,25 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
   /**
    * Complete a step-up by verifying the supplied factor and rotating the
    * session to the higher AAL with the new factor recorded.
+   *
+   * The factor is looked up in the session's own tenant, and there is no second
+   * input that could name a different one. There used to be: an optional
+   * `tenantId` scoped the credential read while `resolved.tenantId` scoped the
+   * session, and nothing bound them. Worse than a mismatch - the default was
+   * `{}`, an *unscoped* read, so with no `tenantId` supplied a factor enrolled
+   * in any tenant at all satisfied a step-up in any other. Credentials are
+   * tenant-scoped and identities are not, so a user enrolled in tenant B reached
+   * AAL 2 in tenant A, where A had never seen a factor for them and `hasTotp`
+   * therefore never demanded one.
+   *
+   * Same shape as F28 on the reset flow's MFA gate: the check resolved its scope
+   * from one input and acted on another. Removing the parameter is the fix - one
+   * source of truth cannot disagree with itself.
    */
   async completeStepUp(opts: {
     currentSid: string
     method: 'totp' | 'backup-code'
     code: string
-    tenantId?: string
   }): Promise<{ session: Sessions.Me; sid: string; intents: Provider.Intent[] }> {
     if (opts.method !== 'totp' && opts.method !== 'backup-code') {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
@@ -195,18 +209,14 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     if (!resolved?.identityId) {
       throw new AuthError('AUTH_UNAUTHENTICATED')
     }
+    // The session's tenant, not the caller's claim about it. A global session
+    // (`tenantId: null`) reads unscoped, which is the same rule `Credential.Store`
+    // applies everywhere else.
+    const tenant: TenantContext = resolved.tenantId !== null ? { tenantId: resolved.tenantId } : {}
     const ok =
       opts.method === 'totp'
-        ? await mfa.verifyTotp(
-            resolved.identityId,
-            opts.code,
-            opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {},
-          )
-        : await mfa.verifyBackupCode(
-            resolved.identityId,
-            opts.code,
-            opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {},
-          )
+        ? await mfa.verifyTotp(resolved.identityId, opts.code, tenant)
+        : await mfa.verifyBackupCode(resolved.identityId, opts.code, tenant)
     if (!ok) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
@@ -220,7 +230,10 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
         ...resolved.factors,
         { method: opts.method === 'totp' ? 'totp' : 'backup-code', completedAt: new Date() },
       ],
-      ...(resolved.tenantId !== undefined && { tenantId: resolved.tenantId }),
+      // Unconditional: `Sessions.Me.tenantId` is `string | null` and never
+      // `undefined`, so the guard this replaces always fired and read as though
+      // it sometimes did not. The rotated session stays in the tenant it was in.
+      tenantId: resolved.tenantId,
     })
     const intents = transport.issue(sid, session, { fresh: true, absolute: false, csrfToken })
     return { session, sid, intents }
@@ -248,15 +261,24 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
   }
 
   /**
-   * Complete a password reset by verifying the single-use token, setting
-   * the new password, and revoking every other session for the identity.
+   * Complete a password reset by verifying the single-use token, ending every
+   * session the old password could still be holding open, and setting the new
+   * one - in that order, so a failed revoke cannot leave old sessions live under
+   * a new password.
+   *
    * If MFA is enrolled, callers must satisfy a step-up *before* hitting this
    * endpoint - the library refuses to swap passwords for accounts with MFA
-   * unless a fresh AAL=2 session is passed via `currentSid`.
+   * unless a fresh AAL=2 session **belonging to that identity** is passed via
+   * `currentSid`. Repeated refusals are rate limited and eventually consume the
+   * token.
+   *
+   * `intents` is empty for the ordinary email-link reset, which has no session.
+   * When `currentSid` names a live session of this identity, that session is
+   * rotated rather than swept and `intents` carries its replacement bearer.
    */
   async completePasswordReset(
     input: Flows.PasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
-  ): Promise<{ ok: true }> {
+  ): Promise<{ ok: true; intents: Provider.Intent[] }> {
     return completePasswordResetImpl(this._deps, input)
   }
 
@@ -305,12 +327,25 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return requestAccountDeletionImpl(this._deps, opts)
   }
 
-  async completeAccountDeletion(
-    input: Flows.AccountDeletionCompleteInput,
-  ): Promise<{ identity: Identities.Me<Profile>; identityId: string; restorableUntil: number }> {
+  /**
+   * Confirm a deletion. Soft-deletes the identity, revokes its sessions, and
+   * mints the single-use undo token `cancelAccountDeletion` accepts - returned
+   * as plaintext exactly once, and mailed for you if `channels` is supplied.
+   */
+  async completeAccountDeletion(input: Flows.AccountDeletionCompleteInput): Promise<{
+    identity: Identities.Me<Profile>
+    identityId: string
+    restorableUntil: number
+    cancellationToken: string
+  }> {
     return completeAccountDeletionImpl(this._deps, input)
   }
 
+  /**
+   * Undo a deletion inside the grace window - with the undo token (the user's
+   * route) or an `authorize` callback (the operator's). One or the other; both
+   * or neither is `AUTH_MISCONFIGURED`.
+   */
   async cancelAccountDeletion(
     input: Flows.AccountDeletionCancelInput,
   ): Promise<{ identity: Identities.Me<Profile>; identityId: string }> {
@@ -389,8 +424,15 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return impersonateImpl(this._deps, opts)
   }
 
+  /**
+   * Attach a provider identity to an existing account.
+   *
+   * `providerSub` is unverifiable from in here, so the mandatory `authorize`
+   * callback is where the host states that it came from a dance they completed.
+   * See {@link Flows.LinkProviderInput.authorize}.
+   */
   async linkProvider(
-    opts: Flows.LinkProviderInput,
+    opts: Flows.LinkProviderInput<Profile>,
   ): Promise<{ identity: Identities.Me<Profile>; identityId: string; providerId: string }> {
     return linkProviderImpl(this._deps, opts)
   }
@@ -401,7 +443,15 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return unlinkProviderImpl(this._deps, opts)
   }
 
-  async releaseImpersonation(impersonationSid: string): Promise<{ intents: Provider.Intent[] }> {
+  /**
+   * End an impersonation and mint the operator a session of their own.
+   *
+   * `session`/`sid` are null/empty only when the operator's own identity is gone,
+   * in which case the bearer is cleared instead.
+   */
+  async releaseImpersonation(
+    impersonationSid: string,
+  ): Promise<{ session: Sessions.Me | null; sid: string; intents: Provider.Intent[] }> {
     return releaseImpersonationImpl(this._deps, impersonationSid)
   }
 }

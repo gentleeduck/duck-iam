@@ -24,6 +24,13 @@ import { completePasswordReset, requestPasswordReset } from '../password-reset.f
 import { linkProvider, unlinkProvider } from '../provider-link.flow'
 import { advanceSignUp, beginSignUp, completeSignUp, getSignUpFlow } from '../signup.flow'
 
+/**
+ * Stand-in for the host's proof that it completed the provider's dance. These
+ * suites are about what `linkProvider` does once the caller is trusted; the
+ * callback itself is exercised in `flows-c6-open-findings.test.ts`.
+ */
+const ALLOW_LINK = async () => true
+
 interface MyProfile extends Identities.ProfileMetadataBase {
   emailVerified?: boolean
 }
@@ -229,6 +236,7 @@ describe('flows/provider-link.ts - direct exports', () => {
   it('linkProvider attaches a provider link to an existing identity', async () => {
     const ident = await auth.identities.create({ profile: { username: 'b@x.com', email: 'b@x.com' } })
     const out = await linkProvider(auth.flows.deps, {
+      authorize: ALLOW_LINK,
       identityId: ident.id,
       providerId: 'authGithub',
       providerSub: 'gh-sub-1',
@@ -241,13 +249,18 @@ describe('flows/provider-link.ts - direct exports', () => {
 
   it('linkProvider rejects invalid providerId', async () => {
     await expect(
-      linkProvider(auth.flows.deps, { identityId: 'x', providerId: '', providerSub: 's' }),
+      linkProvider(auth.flows.deps, { authorize: ALLOW_LINK, identityId: 'x', providerId: '', providerSub: 's' }),
     ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('unlinkProvider lockout guard refuses to leave identity with no factors', async () => {
     const ident = await auth.identities.create({ profile: { username: 'c@x.com', email: 'c@x.com' } })
-    await linkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub', providerSub: 'gh-1' })
+    await linkProvider(auth.flows.deps, {
+      authorize: ALLOW_LINK,
+      identityId: ident.id,
+      providerId: 'authGithub',
+      providerSub: 'gh-1',
+    })
     await expect(
       unlinkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub' }),
     ).rejects.toMatchObject({
@@ -257,7 +270,12 @@ describe('flows/provider-link.ts - direct exports', () => {
 
   it('unlinkProvider allows lockout when allowLockout: true', async () => {
     const ident = await auth.identities.create({ profile: { username: 'd@x.com', email: 'd@x.com' } })
-    await linkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub', providerSub: 'gh-2' })
+    await linkProvider(auth.flows.deps, {
+      authorize: ALLOW_LINK,
+      identityId: ident.id,
+      providerId: 'authGithub',
+      providerSub: 'gh-2',
+    })
     const out = await unlinkProvider(auth.flows.deps, {
       identityId: ident.id,
       providerId: 'authGithub',

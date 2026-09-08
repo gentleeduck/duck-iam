@@ -9,10 +9,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  getProfileNumber,
   getProfileString,
   isCredentialExpired,
   isExpiredAt,
   isFiniteNumber,
+  isProfileBooleanFalse,
   isProfileBooleanTrue,
   isRevoked,
   isSoftDeleted,
@@ -235,5 +237,51 @@ describe('isProfileBooleanTrue', () => {
 
   it('is false for an absent key', () => {
     expect(isProfileBooleanTrue({}, 'emailVerified')).toBe(false)
+  })
+})
+
+describe('getProfileNumber', () => {
+  it('reads a finite number', () => {
+    expect(getProfileNumber({ lastTotpStep: 42 }, 'lastTotpStep')).toBe(42)
+    expect(getProfileNumber({ lastTotpStep: 0 }, 'lastTotpStep')).toBe(0)
+    expect(getProfileNumber({ lastTotpStep: -1 }, 'lastTotpStep')).toBe(-1)
+  })
+
+  it('refuses NaN and Infinity rather than handing back a number that loses every comparison', () => {
+    // The reason this helper exists. A caller guarding with `typeof x ===
+    // 'number'` accepts NaN, and `step <= NaN` is `false`, so a TOTP replay
+    // check written the obvious way waves the replay through.
+    expect(getProfileNumber({ lastTotpStep: Number.NaN }, 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber({ lastTotpStep: Number.POSITIVE_INFINITY }, 'lastTotpStep')).toBeUndefined()
+  })
+
+  it('refuses a numeric string, an absent key, and a non-object', () => {
+    expect(getProfileNumber({ lastTotpStep: '42' }, 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber({}, 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber(null, 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber([1, 2], 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber('nope', 'lastTotpStep')).toBeUndefined()
+  })
+})
+
+describe('isProfileBooleanFalse', () => {
+  it('is true only for a literal false', () => {
+    expect(isProfileBooleanFalse({ confirmed: false }, 'confirmed')).toBe(true)
+    expect(isProfileBooleanFalse({ confirmed: true }, 'confirmed')).toBe(false)
+  })
+
+  it('is not the negation of isProfileBooleanTrue - an absent key is neither', () => {
+    // What tells "explicitly not yet confirmed" apart from "never had the
+    // field". A pending TOTP enrollment is found by the first; a row that
+    // never carried the key must not be.
+    expect(isProfileBooleanFalse({}, 'confirmed')).toBe(false)
+    expect(isProfileBooleanTrue({}, 'confirmed')).toBe(false)
+  })
+
+  it('refuses the string "false" and other falsy values', () => {
+    expect(isProfileBooleanFalse({ confirmed: 'false' }, 'confirmed')).toBe(false)
+    expect(isProfileBooleanFalse({ confirmed: 0 }, 'confirmed')).toBe(false)
+    expect(isProfileBooleanFalse({ confirmed: null }, 'confirmed')).toBe(false)
+    expect(isProfileBooleanFalse(null, 'confirmed')).toBe(false)
   })
 })

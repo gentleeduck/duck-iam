@@ -300,6 +300,7 @@ const EVERY_EVENT: Events.EventName[] = [
   'mfa.enrolled',
   'mfa.removed',
   'identity.linked',
+  'identity.unlinked',
   'identity.merged',
   'identity.impersonated',
   'recovery.password.requested',

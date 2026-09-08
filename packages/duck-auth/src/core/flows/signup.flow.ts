@@ -1,6 +1,13 @@
-import { isCredentialExpired, isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
+import {
+  getCredentialPurpose,
+  isCredentialExpired,
+  isRevoked,
+  toCredentialUpsert,
+} from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
+import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Identities } from '~/core/identities'
+import type { Provider } from '~/core/provider/provider.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import type { Flows } from './flows.types'
 
@@ -30,11 +37,10 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   // what gets capped.
   const emailCanonical = opts.email.trim().toLowerCase()
   const limited = await ctx.limiter.consume(`signup:begin:${emailCanonical}`)
-  if (!limited.ok) {
-    throw new AuthError('AUTH_RATE_LIMITED', {
-      retryAfter: Math.max(0, Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000)),
-    })
-  }
+  // No subject to name. This bucket guards an address that, by construction, has
+  // no account behind it yet, so there is nothing for a `lockout` handler to page
+  // about or lock; looking one up would only add a read to a refused request.
+  if (!limited.ok) await refuseRateLimited(ctx.events, limited, null)
 
   const initial = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
   // No cast. `ProfileMetadataBase` requires `username`, duck-auth's own Postgres
@@ -45,28 +51,80 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   // conformance DDL omits CHECK constraints and memory/Redis have no schema.
   const profile = buildSignUpProfile<Profile>(initial, opts.email)
 
-  const created = await ctx.stores.identities.create({
-    profile,
-    providers: [],
-    emailVerified: false,
-  })
+  // The row is claimed, not minted, whenever one is already sitting on this
+  // address doing nothing.
+  //
+  // `beginSignUp` writes an identity for an address nobody has proved they own,
+  // which let an attacker park on `victim@corp.com` and collide with the real
+  // owner's signup forever - the unique index on email means the second signup
+  // cannot have a row of its own. Deferring the write was the plan; it is not
+  // buildable, because the credential row holding the flow token is a NOT NULL
+  // foreign key to the identity it would defer (`fk_auth_credentials_identity`,
+  // every dialect).
+  //
+  // So the squat is disarmed instead of prevented: a row in exactly the state
+  // `beginSignUp` leaves behind, and nothing else, is handed to the next signup
+  // for that address. The attacker's parking spot becomes the real user's
+  // account, and the state check is what keeps this from being a takeover of
+  // somebody's real one - see `isAbandonedSignUp`.
+  const existing = await ctx.stores.identities.findByEmail(emailCanonical)
+  let identityId: string
+  if (existing) {
+    if (!(await isAbandonedSignUp(existing, ctx))) {
+      // An established account. This is the one thing signup cannot hide: the
+      // address is unique, so a second account for it is impossible and the
+      // caller has to be told something. Every path that reaches here answers
+      // with this single code rather than whatever unique-index error the
+      // dialect raised, so the answer is deliberate and identical everywhere.
+      // Closing it entirely needs what `requestPasswordReset` has - a channel to
+      // answer through, so the "someone tried to sign up with your address" mail
+      // goes to the owner and the caller gets the same reply either way - and a
+      // channel is the host's to supply.
+      throw new AuthError('AUTH_EMAIL_TAKEN')
+    }
+    // Kill the flow the previous attempt was holding. Two live tokens on one row
+    // would let whoever started first finish the signup the second caller is
+    // paying for.
+    for (const c of await ctx.stores.credentials.listByIdentity(existing.id, 'recovery', {})) {
+      if (!isRevoked(c) && getCredentialPurpose(c) === 'signup-flow') {
+        await ctx.stores.credentials.revoke(c.id, {})
+      }
+    }
+    identityId = (await deps.identities.updateProfile(existing.id, profile, existing.version)).id
+  } else {
+    identityId = (
+      await ctx.stores.identities.create({
+        profile,
+        providers: [],
+        emailVerified: false,
+      })
+    ).id
+  }
 
   const flowToken = ctx.crypto.authRandomToken(32)
   const flowTokenHash = ctx.crypto.authSha256(flowToken)
-  const dataInit = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
+  const dataInit: Partial<Profile> = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
+  const data: Partial<Profile> = { ...dataInit, email: opts.email }
+  // The same cap the identity row is held to. `flow.data` is profile data that
+  // has not landed yet: it is staged in credential metadata, which has no size
+  // limit of its own, for up to 24 hours and re-read on every stage. Checking it
+  // only at `completeSignUp` - where it finally meets `identities.update` - meant
+  // the bytes were already stored and already being served before anything
+  // objected, which is exactly the amplification `profileMaxBytes` exists to stop.
+  deps.identities.assertProfileWithinCap(data)
   const flow: Flows.SignUpFlowState<Profile> = {
     id: ctx.crypto.authRandomToken(8),
-    identityId: created.id,
+    identityId,
     required,
     completed: ['email-collected'],
-    data: { ...dataInit, email: opts.email } as Partial<Profile> & { email: string },
+    data,
     expiresAt: now + 30 * 60_000,
     absoluteExpiresAt: now + 24 * 60 * 60_000,
     createdAt: now,
   }
   await ctx.stores.credentials.upsert(
     toCredentialUpsert({
-      identityId: created.id,
+      identityId,
       kind: 'recovery',
       secret: flowTokenHash,
       metadata: { flow, purpose: 'signup-flow' },
@@ -122,6 +180,25 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
     data: opts.profilePatch ? { ...flow.data, ...opts.profilePatch } : flow.data,
     expiresAt: Math.min(flow.absoluteExpiresAt, Date.now() + 30 * 60_000),
   }
+  // Before either write, so an oversized patch is refused rather than stored.
+  // `profilePatch` is caller-supplied and was bounded by nothing at all on this
+  // path - each stage merged it into `flow.data` and wrote the result back into
+  // credential metadata, so a signup could stage megabytes and re-read them on
+  // every subsequent call.
+  deps.identities.assertProfileWithinCap(next.data)
+
+  // The version guard, then the metadata write. This used to be rotate, revoke,
+  // re-upsert: three writes, no transaction, and the middle one destroys the
+  // token. A failure after the revoke stranded the user mid-signup with a token
+  // the store had already marked dead, and the recovery depended on `upsert`
+  // re-accepting a secret hash that had just been revoked - keying semantics the
+  // interface never promised.
+  //
+  // `rotate` with the row's own secret keeps the compare-and-set - a concurrent
+  // `advanceSignUp` still loses on `expectedVersion` - without invalidating the
+  // token, and `patchMetadata` is a single atomic merge. The worst outcome is now
+  // a version bump whose stage did not record, which the user fixes by retrying
+  // the same call with the same token.
   try {
     await ctx.stores.credentials.rotate(row.id, row.secret, row.version, ctx.tenant)
   } catch (err) {
@@ -130,17 +207,7 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
     }
     throw err
   }
-  await ctx.stores.credentials.revoke(row.id, ctx.tenant)
-  await ctx.stores.credentials.upsert(
-    toCredentialUpsert({
-      identityId: flow.identityId,
-      kind: 'recovery',
-      secret: hash,
-      metadata: { flow: next, purpose: 'signup-flow' },
-      expiresAt: new Date(flow.absoluteExpiresAt),
-    }),
-    ctx.tenant,
-  )
+  await ctx.stores.credentials.patchMetadata(row.id, { flow: next, purpose: 'signup-flow' }, ctx.tenant)
   return next
 }
 
@@ -173,19 +240,37 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
 
   const identity = await ctx.stores.identities.findById(flow.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
-  const baseProfile = isPlainObject(identity.profile) ? identity.profile : {}
-  const mergedProfile: Profile = { ...baseProfile, ...flow.data } as Profile
+  // Through the facet. It performs the same merge this used to hand-roll, and it
+  // enforces `profileMaxBytes` - which the raw store does not, so the one place
+  // the staged profile finally met a size limit was the one place that skipped
+  // it. Dropping the hand-rolled merge also drops its `as Profile`: the cast was
+  // asserting that the union of a stored profile and a caller's patch is a
+  // complete `Profile`, which nothing checked.
   // `identity` is stale past this line; listeners need the profile we just wrote.
-  const merged = await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version)
+  const merged = await deps.identities.updateProfile(identity.id, flow.data, identity.version)
+  // The stage said the address was proven; the column never recorded it. Nothing
+  // in this flow ever set `emailVerified`, so an account created through the
+  // documented happy path stayed unverified for good - which now also means it
+  // stayed reclaimable by `beginSignUp` forever, turning a stale column into a
+  // way to take over finished accounts. Written here, from the stage the host
+  // completed, so the row leaves the abandoned state the moment it stops being
+  // abandoned.
+  const settled = flow.completed.includes('email-verified')
+    ? await deps.identities.markEmailVerified(identity.id)
+    : merged
   await ctx.stores.credentials.revoke(row.id, ctx.tenant)
 
   const factors = opts.factors ?? [{ method: 'magic-link', completedAt: new Date() }]
   const aal = opts.aal ?? 1
   const { session, sid, csrfToken } = await deps.sessions.rotateOrCreate({
-    purpose: 'guest-promotion',
+    // `sign-up`, not `guest-promotion`. `previousSid` is optional here: most
+    // signups arrive with no prior session at all, and calling those a promotion
+    // made every rotation event describe a transition that never took place. The
+    // revocation semantics are identical; the name is now true.
+    purpose: 'sign-up',
     ...(opts.previousSid !== undefined && { previousSid: opts.previousSid }),
     identityId: flow.identityId,
-    identity: merged,
+    identity: settled,
     kind: 'user',
     aal,
     factors,
@@ -195,6 +280,41 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
   })
   const intents = deps.transport.issue(sid, session, { fresh: true, absolute: false, csrfToken })
   return { session, sid, intents }
+}
+
+/**
+ * True only for a row in the exact state `beginSignUp` leaves behind: an
+ * unverified address, no provider links, and no credential that is not a
+ * `signup-flow` token or already revoked.
+ *
+ * The three checks are the whole safety argument. Reusing a row means the next
+ * caller's `completeSignUp` mints a session for it, so anything short of
+ * "carries nothing and proves nothing" would be an account takeover rather than
+ * a squat reclaim: an unverified account with a password set is somebody's, and
+ * so is one with a Google link or a TOTP secret. MFA backup codes are stored as
+ * `kind: 'recovery'` too, under `purpose: 'mfa-backup-code'`, so they fail the
+ * `=== 'signup-flow'` test below and read as established here, which is right.
+ *
+ * The credential read is deliberately unscoped (`{}`), not run under the
+ * caller's tenant: identities are global while credentials are not, so a
+ * tenant-scoped read would miss a password living in another tenant and call an
+ * established account abandoned. Fail closed - look everywhere.
+ *
+ * The cost is that a genuine user who started a signup and has not finished can
+ * have their in-progress flow taken by someone else who asks for the same
+ * address. That is bounded by `signup:begin:<address>`, it ends at the address's
+ * real owner because completing still requires proving control of it, and it is
+ * strictly better than the alternative it replaces: a squat nobody can ever
+ * clear.
+ */
+async function isAbandonedSignUp<Profile extends Identities.ProfileMetadataBase>(
+  identity: Identities.Me<Profile>,
+  ctx: Provider.Context<Profile>,
+): Promise<boolean> {
+  if (identity.emailVerified) return false
+  if (identity.providers.length > 0) return false
+  const credentials = await ctx.stores.credentials.listByIdentity(identity.id, null, {})
+  return credentials.every((c) => isRevoked(c) || getCredentialPurpose(c) === 'signup-flow')
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

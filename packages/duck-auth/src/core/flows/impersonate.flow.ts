@@ -45,8 +45,20 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
     // Subject is the target; `actingAs` below records the real admin.
     identity: target,
     kind: 'user',
-    aal: real.aal,
-    factors: real.factors,
+    // AAL 1, no factors - not the admin's. `aal` and `factors` describe what the
+    // session's *subject* did to prove they are there, and the subject of this
+    // row is the target, who did nothing. Copying the admin's verbatim wrote the
+    // admin's TOTP, at the admin's `completedAt`, onto the target's session, so
+    // any policy asking "has this user recently passed a second factor" got the
+    // wrong person's answer for as long as the impersonation lasted.
+    //
+    // The admin's assurance has not been thrown away, it has been spent: it was
+    // the input to `authorize(real, targetIdentityId)` a few lines up, which is
+    // where a caller that wants to demand AAL 2 of its operators demands it. What
+    // this session records is the impersonation itself, and `actingAs` names who
+    // is behind it.
+    aal: 1,
+    factors: [],
     ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
     actingAs: {
       realIdentityId: real.identityId,
@@ -64,14 +76,58 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
   return { session, sid, intents }
 }
 
+/**
+ * End an impersonation and hand the operator back a session of their own.
+ *
+ * This used to revoke the impersonation session and call `transport.revoke()`,
+ * which clears the bearer outright - so ending a support session logged the
+ * admin out. The real session `impersonate-start` deliberately leaves alive is
+ * no help: `impersonate` overwrote the cookie with the impersonation sid, so its
+ * plaintext is gone from the client and nothing can present it again. There is
+ * nothing to return *to*; a session has to be minted.
+ *
+ * Which is what `impersonate-release` is for. It has sat unused in the rotation
+ * matrix since the matrix was written, with exactly the semantics needed here -
+ * mint, then delete the sid that was presented - and routing through it puts
+ * this transition back on the single rotation path the rest of the library
+ * promises.
+ *
+ * The new session starts at AAL 1 with no factors, for the same reason the
+ * impersonation session did: nobody has authenticated since. An operator
+ * returning to privileged work steps up again, which costs one TOTP prompt and
+ * means an hour-old impersonation cannot be cashed in for a fresh AAL 2 session.
+ */
 export async function releaseImpersonation<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   impersonationSid: string,
-): Promise<{ intents: Provider.Intent[] }> {
+): Promise<{ session: Sessions.Me | null; sid: string; intents: Provider.Intent[] }> {
   const session = await deps.sessions.getBySid(impersonationSid)
   if (!session?.actingAs) {
     throw new AuthError('AUTH_IMPERSONATE_EXPIRED')
   }
-  await deps.sessions.revoke(impersonationSid)
-  return { intents: deps.transport.revoke() }
+  const realIdentityId = session.actingAs.realIdentityId
+  const real = await deps.identities.getById(realIdentityId)
+  if (!real) {
+    // The operator's own account went away while they were impersonating -
+    // deleted, erased, or merged. There is no session to return them to, so the
+    // impersonation ends the way it always did: revoked, bearer cleared.
+    await deps.sessions.revoke(impersonationSid)
+    return { intents: deps.transport.revoke(), session: null, sid: '' }
+  }
+  const {
+    session: restored,
+    sid,
+    csrfToken,
+  } = await deps.sessions.rotateOrCreate({
+    purpose: 'impersonate-release',
+    previousSid: impersonationSid,
+    identityId: realIdentityId,
+    identity: real,
+    kind: 'user',
+    aal: 1,
+    factors: [],
+    ...(session.tenantId !== null && { tenantId: session.tenantId }),
+  })
+  const intents = deps.transport.issue(sid, restored, { fresh: true, absolute: false, csrfToken })
+  return { session: restored, sid, intents }
 }
