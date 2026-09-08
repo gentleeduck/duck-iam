@@ -161,9 +161,10 @@ suite('E2E withTransaction on real Postgres', () => {
   })
 
   it('a nested flow call inherits the caller transaction across all of its writes', async () => {
-    // completeAccountDeletion touches four things: it rotates the recovery
-    // credential, soft-deletes the identity, sweeps the sessions, then deletes
-    // the credential. All four must land on the caller's tx, not just the first.
+    // completeAccountDeletion touches five things: it rotates the recovery
+    // credential, soft-deletes the identity, sweeps the sessions, deletes the
+    // credential, then mints the undo token. All five must land on the caller's
+    // tx, not just the first.
     const identity = await engine.identities.create({ profile: { email: 'del@x', username: 'del' } })
     await engine.sessions.create({ aal: 1, factors: [], identityId: identity.id, kind: 'user' })
 
@@ -187,11 +188,13 @@ suite('E2E withTransaction on real Postgres', () => {
       const auth = engine.withTransaction(tx)
       await auth.flows.completeAccountDeletion({ token })
 
-      // Inside the tx: identity soft-deleted, so a live lookup misses, and the
-      // credential the flow deleted is gone too. Both prove writes two and four
-      // of the nested call landed on the caller's transaction, not just the first.
+      // Inside the tx: identity soft-deleted, so a live lookup misses; the
+      // deletion token is gone and the undo token is the only `recovery` row
+      // left. Writes two, four and five of the nested call all landed on the
+      // caller's transaction, not just the first.
       expect(await auth.identities.getById(identity.id)).toBeNull()
-      expect(await auth.stores.credentials.listByIdentity(identity.id, 'recovery', {})).toEqual([])
+      const rows = await auth.stores.credentials.listByIdentity(identity.id, 'recovery', {})
+      expect(rows.map((r) => (r.metadata as { purpose?: string } | null)?.purpose)).toEqual(['account-deletion-cancel'])
     })
 
     // After rollback everything is back, and nothing was published.
