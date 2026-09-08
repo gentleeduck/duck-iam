@@ -228,7 +228,9 @@ function schemaSession(): Record<string, unknown> {
     properties: {
       id: { type: 'string', description: 'Server-side session id (authSha256 of plaintext sid)' },
       identityId: { type: ['string', 'null'] },
-      tenantId: { type: 'string' },
+      // `null` on every session of a single-tenant deployment, so the old
+      // non-nullable `string` described the uncommon case as the only one.
+      tenantId: { type: ['string', 'null'] },
       kind: { type: 'string', enum: ['guest', 'user', 'apikey'] },
       aal: { type: 'integer', enum: [1, 2, 3] },
       factors: {
@@ -240,12 +242,18 @@ function schemaSession(): Record<string, unknown> {
               type: 'string',
               enum: ['password', 'passkey', 'totp', 'oauth', 'magic-link', 'webauthn', 'sms', 'api-key', 'backup-code'],
             },
-            completedAt: { type: 'integer' },
+            completedAt: { format: 'date-time', type: 'string' },
           },
         },
       },
-      expiresAt: { type: 'integer' },
-      absoluteExpiresAt: { type: 'integer' },
+      // ISO strings, not epoch integers. The handler answers with
+      // `Response.json(session)`, and `JSON.stringify` writes a `Date` as
+      // `"2026-09-04T09:00:00.000Z"` - so a client generated from the old
+      // `integer` got `number` for a field that is a string on the wire.
+      createdAt: { format: 'date-time', type: 'string' },
+      rotatedAt: { format: 'date-time', type: 'string' },
+      expiresAt: { format: 'date-time', type: 'string' },
+      absoluteExpiresAt: { format: 'date-time', type: 'string' },
       fresh: { type: 'boolean' },
     },
   }
