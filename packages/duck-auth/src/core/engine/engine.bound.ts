@@ -27,10 +27,11 @@ export namespace Bound {
    * and every event it would have emitted lands in {@link AuthEngine.pending}
    * instead.
    *
-   * `limiter`, `idempotency`, `hijack`, `anomaly`, `transport`, `plugins` and
-   * `resolveSession` are deliberately absent: they are request-scoped guards
-   * that write nothing to SQL, so a rollback has nothing to undo and joining a
-   * transaction would be meaningless. Reach them on the engine itself.
+   * `limiter`, `idempotency`, `hijack`, `anomaly`, `captcha`, `transport`,
+   * `plugins` and `resolveSession` are deliberately absent: they are
+   * request-scoped guards that write nothing to SQL, so a rollback has nothing
+   * to undo and joining a transaction would be meaningless. Reach them on the
+   * engine itself.
    */
   export interface AuthEngine<Profile extends Identities.ProfileMetadataBase, OrgMeta> {
     readonly identities: IdentitiesImpl<Profile>

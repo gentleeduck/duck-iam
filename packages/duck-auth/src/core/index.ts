@@ -16,10 +16,12 @@ export {
   AuthNullCaptchaVerifier,
   AuthRecaptchaV3Verifier,
   AuthTurnstileVerifier,
+  AuthUnconfiguredCaptchaVerifier,
   authHCaptchaVerifier,
   authNullCaptchaVerifier,
   authRecaptchaV3Verifier,
   authTurnstileVerifier,
+  authUnconfiguredCaptchaVerifier,
 } from './captcha'
 export type { Compliance } from './compliance'
 export { type AuthDefine, createAuth } from './config'

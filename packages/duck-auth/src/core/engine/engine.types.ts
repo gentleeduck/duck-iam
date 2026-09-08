@@ -1,6 +1,7 @@
 import type { Events } from '~/core/events/events.types'
 import type { Limiter } from '~/limiters'
 import type { Anomaly } from '../anomaly'
+import type { AuthCaptcha } from '../captcha'
 import type { AuthDefine } from '../config/config.types'
 import type { Credential } from '../credentials/credentials.types'
 import type { Hijack } from '../hijack/hijack.types'
@@ -44,6 +45,18 @@ export namespace Engine {
      * `idempotency: redisIdempotency({ prefix: 'auth:idem', redis })`.
      */
     idempotency?: IdempotencyInput
+    /**
+     * Captcha verifier, surfaced as `auth.captcha` so a host has one place to
+     * reach for it instead of maintaining a parallel service with its own
+     * wiring. `authTurnstileVerifier({ secret })`, hCaptcha and reCAPTCHA v3
+     * ship in `core/captcha`.
+     *
+     * Omitted, `auth.captcha` is an {@link AuthUnconfiguredCaptchaVerifier}:
+     * every call answers `{ success: false, errorCodes: ['captcha-not-configured'] }`.
+     * Not an always-pass default - a missing secret must not read as a solved
+     * challenge. Pass `authNullCaptchaVerifier()` to opt into always-pass.
+     */
+    captcha?: AuthCaptcha.IVerifier
     /** Channel bundle forwarded to provider thunks (magic-link / OTP). */
     channels?: AuthDefine.IChannels
     events?: Events.IBus

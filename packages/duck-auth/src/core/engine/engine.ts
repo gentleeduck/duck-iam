@@ -6,6 +6,7 @@ import { PasswordsImpl } from '~/providers/passwords'
 import { setDefaultActorResolver } from '../actor'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
 import type { Anomaly } from '../anomaly/anomaly.types'
+import { type AuthCaptcha, AuthUnconfiguredCaptchaVerifier } from '../captcha'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { type Events, InMemoryEvents, withAuditStamping } from '../events'
@@ -43,6 +44,12 @@ export class AuthEngine<
   readonly orgs: OrgsImpl<OrgMeta> | null
   readonly flows: FlowsImpl<Profile>
   readonly limiter: Limiter.Me
+  /**
+   * The configured captcha verifier, or one that refuses every call when none
+   * was configured. Never throws - `IVerifier.verify` reports failure in its
+   * result so a caller can answer 400 rather than 500.
+   */
+  readonly captcha: AuthCaptcha.IVerifier
   readonly hijack: HijackFacet
   readonly anomaly: AnomalyFacet
   readonly idempotency: IdempotencyImpl
@@ -88,6 +95,8 @@ export class AuthEngine<
     this.events = withAuditStamping(cfg.events ?? new InMemoryEvents())
     this.transport = cfg.transport
     this.limiter = cfg.limiter ?? new MemoryLimiter()
+    // Refusing, not passing. See `Engine.Cfg.captcha`.
+    this.captcha = cfg.captcha ?? new AuthUnconfiguredCaptchaVerifier()
     // Dev-only fallback: under NODE_ENV=production `MemoryIdempotency` refuses to
     // build, so a deploy that forgot to configure a shared store fails at boot.
     this.idempotency = resolveIdempotency(cfg.idempotency ?? new MemoryIdempotency())

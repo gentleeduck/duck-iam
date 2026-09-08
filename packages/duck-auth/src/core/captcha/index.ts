@@ -181,11 +181,32 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
 /**
  * Always-pass verifier for tests. Surfaces the input token in the
  * result so call-sites can assert wiring.
+ *
+ * Opt in to it explicitly. It is deliberately NOT what `auth.captcha` answers
+ * when no verifier is configured - see {@link AuthUnconfiguredCaptchaVerifier}.
  */
 export class AuthNullCaptchaVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'null'
   async verify(_input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     return { success: true }
+  }
+}
+
+/**
+ * What `auth.captcha` is when `cfg.captcha` was not supplied. Every call fails
+ * with `captcha-not-configured`.
+ *
+ * The alternative - defaulting to {@link AuthNullCaptchaVerifier} - makes the
+ * common wiring mistake invisible: a host writes `if (!(await
+ * auth.captcha.verify(...)).success) throw`, ships with the secret unset, and
+ * the challenge passes every bot in production while the code reads as though a
+ * captcha is enforced. A host that never calls `auth.captcha` is unaffected
+ * either way, so the only behaviour this changes is the one that was wrong.
+ */
+export class AuthUnconfiguredCaptchaVerifier implements AuthCaptcha.IVerifier {
+  readonly id = 'unconfigured'
+  async verify(_input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
+    return { success: false, errorCodes: ['captcha-not-configured'] }
   }
 }
 
@@ -301,4 +322,11 @@ export function authNullCaptchaVerifier(
   ...args: ConstructorParameters<typeof AuthNullCaptchaVerifier>
 ): AuthNullCaptchaVerifier {
   return new AuthNullCaptchaVerifier(...args)
+}
+
+/** Factory around {@link AuthUnconfiguredCaptchaVerifier}, for callers who prefer functions to `new`. */
+export function authUnconfiguredCaptchaVerifier(
+  ...args: ConstructorParameters<typeof AuthUnconfiguredCaptchaVerifier>
+): AuthUnconfiguredCaptchaVerifier {
+  return new AuthUnconfiguredCaptchaVerifier(...args)
 }
