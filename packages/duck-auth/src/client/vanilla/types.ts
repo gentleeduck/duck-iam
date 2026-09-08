@@ -28,6 +28,32 @@ export namespace VanillaClient {
     path?: string
   }
 
+  /**
+   * A row type as it arrives over HTTP: `JSON.stringify` has already flattened
+   * every `Date` to an ISO string. `Serialized<T>` is not assignable to `T`, so
+   * the only route to the row type is `./revive` - which is what a plain cast at
+   * the fetch boundary used to hide.
+   */
+  export type Serialized<T> = T extends Date
+    ? string
+    : T extends readonly (infer Element)[]
+      ? Serialized<Element>[]
+      : T extends object
+        ? { [K in keyof T]: Serialized<T[K]> }
+        : T
+
+  /** `profile` is exempt: it is the consumer's own shape, and `./revive` does not walk it. */
+  export type SerializedIdentity<Profile extends Identities.ProfileMetadataBase> = Omit<
+    Serialized<Identities.Me>,
+    'profile'
+  > & { profile: Profile }
+
+  /** What `GET /session` puts on the wire; {@link SessionResult} is what a caller gets after revival. */
+  export type SerializedSessionResult<Profile extends Identities.ProfileMetadataBase> = {
+    session: Serialized<Sessions.Me> | null
+    identity: SerializedIdentity<Profile> | null
+  }
+
   export type SessionResult<Profile extends Identities.ProfileMetadataBase> = {
     session: Sessions.Me | null
     identity: Identities.Me<Profile> | null

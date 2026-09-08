@@ -5,6 +5,12 @@ import type { Credential } from '~/core/credentials/credentials.types'
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
+import {
+  CREDENTIAL_FIELDS,
+  expectFieldTypes,
+  IDENTITY_FIELDS,
+  SESSION_FIELDS,
+} from '~/test/type-fidelity'
 
 /**
  * Compliance test matrix for Identity stores. Every shipped adapter (memory,
@@ -23,10 +29,25 @@ async function absentIdentityId<P extends SqlBridge.ProfileMetadataBase>(
   store: Identities.Store<P>,
 ): Promise<string> {
   const doomed = await store.create(
-    identityInput({ profile: { email: `absent-${Date.now()}@x`, username: 'absent' } as unknown as P }),
+    identityInput({ profile: profileOf<P>(`absent-${Date.now()}@x`, 'absent') }),
   )
   await store.erase(doomed.id)
   return doomed.id
+}
+
+/**
+ * A profile literal for the suite's unbound `P`.
+ *
+ * The one assertion in this file, down from sixty-eight identical ones. Every
+ * adapter instantiates this suite with `{ username, email }`, and the suite only
+ * ever exercises those two keys - but inside a function generic over
+ * `P extends ProfileMetadataBase`, `P` could be narrower than any literal, so
+ * `identityInput<P>` refuses one. A caller that binds `P` to a concrete type
+ * needs no cast at all; this exists solely because the suite cannot see which
+ * type it was instantiated with.
+ */
+function profileOf<P>(email: string, username: string): P {
+  return { email, username } as P
 }
 
 /** Same idea for session compliance, whose identity ids come from the caller. */
@@ -42,11 +63,54 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
   factory: () => Identities.Store<P>,
 ): void {
   describe('Identity.IStore compliance', () => {
+    /**
+     * The row type says `Date`, `number`, `boolean`. A driver that hands back
+     * the serialised form satisfies `tsc` all the same, because nothing
+     * re-checks a value once it has crossed the driver boundary - it surfaces
+     * in a caller as `deletedAt.getTime is not a function`, or silently, as a
+     * comparison that does the wrong thing. Every read path is checked, not
+     * just `create`: `create` builds the row in memory and may never have gone
+     * near the database.
+     */
+    it('every read path returns the field types the row type declares', async () => {
+      const store = factory()
+      const created = await store.create(
+        identityInput({
+          profile: profileOf<P>('fidelity@x.com', 'fidelity'),
+          providers: [{ addedAt: new Date(), providerId: 'password', providerSub: 'sub-1' }],
+        }),
+      )
+      expectFieldTypes(created, IDENTITY_FIELDS, 'create')
+      expectFieldTypes(await store.findById(created.id), IDENTITY_FIELDS, 'findById')
+      expectFieldTypes(
+        await store.findByProviderSub('password', 'sub-1'),
+        IDENTITY_FIELDS,
+        'findByProviderSub',
+      )
+      expectFieldTypes(
+        await store.update(created.id, { emailVerified: true }, created.version),
+        IDENTITY_FIELDS,
+        'update',
+      )
+      const linked = await store.link(created.id, {
+        addedAt: new Date(),
+        providerId: 'authGoogle',
+        providerSub: 'g-1',
+      })
+      expectFieldTypes(linked, IDENTITY_FIELDS, 'link')
+      expectFieldTypes(await store.unlink(created.id, 'authGoogle'), IDENTITY_FIELDS, 'unlink')
+      // A soft-deleted row is the one case with every nullable date populated.
+      const deleted = await store.softDelete(created.id, 60_000)
+      expectFieldTypes(deleted, IDENTITY_FIELDS, 'softDelete')
+      expect(deleted?.deletedAt).toBeInstanceOf(Date)
+      expectFieldTypes(await store.restore(created.id), IDENTITY_FIELDS, 'restore')
+    })
+
     it('create stamps id, version=1, createdAt, updatedAt; respects providers + tenantId', async () => {
       const store = factory()
       const i = await store.create(
         identityInput({
-          profile: { email: 'a@x.com', username: 'a' } as unknown as P,
+          profile: profileOf<P>('a@x.com', 'a'),
           providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
         }),
       )
@@ -60,7 +124,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       const store = factory()
       // Adapters with no transactional driver omit withClient by design.
       if (!store.withClient) return ctx.skip()
-      const i = await store.create(identityInput({ profile: { email: 'wc@x', username: 'wc' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('wc@x', 'wc') }))
 
       // Re-binding to the SAME client must still produce a new object, never
       // `this` - a bound facade that shared identity with the engine's store
@@ -75,8 +139,8 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       const store = factory()
       // A store with no set-based form is complete without one; the facet loops.
       if (!store.softDeleteMany) return ctx.skip()
-      const a = await store.create(identityInput({ profile: { email: 'ba@x', username: 'ba' } as unknown as P }))
-      const b = await store.create(identityInput({ profile: { email: 'bb@x', username: 'bb' } as unknown as P }))
+      const a = await store.create(identityInput({ profile: profileOf<P>('ba@x', 'ba') }))
+      const b = await store.create(identityInput({ profile: profileOf<P>('bb@x', 'bb') }))
       const gone = await absentIdentityId(store)
 
       const result = await store.softDeleteMany([a.id, gone, b.id], 1000)
@@ -91,12 +155,12 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('updateProfileMany, when present, reports stale rows without throwing', async (ctx) => {
       const store = factory()
       if (!store.updateProfileMany) return ctx.skip()
-      const a = await store.create(identityInput({ profile: { email: 'ua@x', username: 'ua' } as unknown as P }))
-      const b = await store.create(identityInput({ profile: { email: 'ub@x', username: 'ub' } as unknown as P }))
+      const a = await store.create(identityInput({ profile: profileOf<P>('ua@x', 'ua') }))
+      const b = await store.create(identityInput({ profile: profileOf<P>('ub@x', 'ub') }))
 
       const result = await store.updateProfileMany([
-        { expectedVersion: 999, id: a.id, profile: { email: 'ua2@x', username: 'ua2' } as unknown as P },
-        { expectedVersion: b.version, id: b.id, profile: { email: 'ub2@x', username: 'ub2' } as unknown as P },
+        { expectedVersion: 999, id: a.id, profile: profileOf<P>('ua2@x', 'ua2') },
+        { expectedVersion: b.version, id: b.id, profile: profileOf<P>('ub2@x', 'ub2') },
       ])
 
       expect(result.outcomes[0]).toMatchObject({ ok: false, reason: 'stale-write' })
@@ -112,7 +176,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('eraseMany and restoreMany, when present, round-trip', async (ctx) => {
       const store = factory()
       if (!store.restoreMany || !store.eraseMany) return ctx.skip()
-      const a = await store.create(identityInput({ profile: { email: 'er@x', username: 'er' } as unknown as P }))
+      const a = await store.create(identityInput({ profile: profileOf<P>('er@x', 'er') }))
       // The absent id costs a create and an erase against the real database, so
       // take it before the clock starts. A one-second window with that round-trip
       // inside it closes on a loaded container, and the run then reports a working
@@ -139,12 +203,12 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       if (!store.restoreMany) return ctx.skip()
       const stamp = Date.now()
 
-      const ok = await store.create(identityInput({ profile: { email: `rr-ok-${stamp}@x`, username: 'rrok' } as unknown as P }))
+      const ok = await store.create(identityInput({ profile: profileOf<P>(`rr-ok-${stamp}@x`, 'rrok') }))
       const expired = await store.create(
-        identityInput({ profile: { email: `rr-exp-${stamp}@x`, username: 'rrexp' } as unknown as P }),
+        identityInput({ profile: profileOf<P>(`rr-exp-${stamp}@x`, 'rrexp') }),
       )
       const clashing = await store.create(
-        identityInput({ profile: { email: `rr-dup-${stamp}@x`, username: 'rrdup' } as unknown as P }),
+        identityInput({ profile: profileOf<P>(`rr-dup-${stamp}@x`, 'rrdup') }),
       )
       await store.softDelete(ok.id, 60_000)
       // A grace window that closed a second ago: the row is queued for purge.
@@ -152,7 +216,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       await store.softDelete(clashing.id, 60_000)
       // Free to take now that the row holding it is hidden - the unique indexes
       // are partial on `deletedAt` - which is exactly what blocks the restore.
-      await store.create(identityInput({ profile: { email: `rr-dup-${stamp}@x`, username: 'rrdup2' } as unknown as P }))
+      await store.create(identityInput({ profile: profileOf<P>(`rr-dup-${stamp}@x`, 'rrdup2') }))
 
       const absent = await absentIdentityId(store)
       const result = await store.restoreMany([ok.id, expired.id, clashing.id, absent])
@@ -193,13 +257,13 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('a write under an ambient actor stamps provenance, and an update moves only updatedBy', async () => {
       const store = factory()
       const created = await withActor('op-1', () =>
-        store.create(identityInput({ profile: { email: 'prov@x', username: 'prov' } as unknown as P })),
+        store.create(identityInput({ profile: profileOf<P>('prov@x', 'prov') })),
       )
       expect(created.createdBy).toBe('op-1')
       expect(created.updatedBy).toBe('op-1')
 
       const updated = await withActor('op-2', () =>
-        store.update(created.id, { profile: { email: 'prov2@x', username: 'prov' } as unknown as P }, created.version),
+        store.update(created.id, { profile: profileOf<P>('prov2@x', 'prov') }, created.version),
       )
       // Who made the row is not who last touched it.
       expect(updated?.createdBy).toBe('op-1')
@@ -210,13 +274,13 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       const store = factory()
       if (!store.updateProfileMany) return ctx.skip()
       const i = await withActor('op-1', () =>
-        store.create(identityInput({ profile: { email: 'bprov@x', username: 'bprov' } as unknown as P })),
+        store.create(identityInput({ profile: profileOf<P>('bprov@x', 'bprov') })),
       )
 
       const out = await withActor('op-2', () =>
         // biome-ignore lint/style/noNonNullAssertion: guarded by the skip above
         store.updateProfileMany!([
-          { expectedVersion: i.version, id: i.id, profile: { email: 'bprov2@x', username: 'bprov' } as unknown as P },
+          { expectedVersion: i.version, id: i.id, profile: profileOf<P>('bprov2@x', 'bprov') },
         ]),
       )
 
@@ -230,7 +294,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('a write with no actor bound records null, not a placeholder', async () => {
       const store = factory()
-      const created = await store.create(identityInput({ profile: { email: 'anon@x', username: 'anon' } as unknown as P }))
+      const created = await store.create(identityInput({ profile: profileOf<P>('anon@x', 'anon') }))
 
       // NULL here means "nothing was in scope", which is a true statement. A
       // stand-in like 'system' would assert an actor that never existed.
@@ -240,7 +304,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('a soft delete records who did it, and a restore clears the claim', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'del@x', username: 'del' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('del@x', 'del') }))
       expect(i.deletedBy).toBeNull()
 
       const hidden = await withActor('op-5', () => store.softDelete(i.id, 60_000))
@@ -257,13 +321,13 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('restore refuses when a live row has since claimed the provider login', async () => {
       const store = factory()
-      const a = await store.create(identityInput({ profile: { email: 'pa@x', username: 'pa' } as unknown as P }))
+      const a = await store.create(identityInput({ profile: profileOf<P>('pa@x', 'pa') }))
       await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-shared' })
       await store.softDelete(a.id, 60_000)
 
       // Legitimate while A is hidden: `findByProviderSub` cannot see A, so the
       // sub genuinely is free.
-      const b = await store.create(identityInput({ profile: { email: 'pb@x', username: 'pb' } as unknown as P }))
+      const b = await store.create(identityInput({ profile: profileOf<P>('pb@x', 'pb') }))
       await store.link(b.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-shared' })
 
       // Without this guard both rows go live holding one Google account, and
@@ -274,7 +338,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('restore still succeeds when the provider login is genuinely free', async () => {
       const store = factory()
-      const a = await store.create(identityInput({ profile: { email: 'pc@x', username: 'pc' } as unknown as P }))
+      const a = await store.create(identityInput({ profile: profileOf<P>('pc@x', 'pc') }))
       await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-solo' })
       await store.softDelete(a.id, 60_000)
 
@@ -287,10 +351,10 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('restoreMany refuses a provider clash and names it as one', async (ctx) => {
       const store = factory()
       if (!store.restoreMany) return ctx.skip()
-      const a = await store.create(identityInput({ profile: { email: 'ba@x', username: 'ba' } as unknown as P }))
+      const a = await store.create(identityInput({ profile: profileOf<P>('ba@x', 'ba') }))
       await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'batch-shared' })
       await store.softDelete(a.id, 60_000)
-      const b = await store.create(identityInput({ profile: { email: 'bb@x', username: 'bb' } as unknown as P }))
+      const b = await store.create(identityInput({ profile: profileOf<P>('bb@x', 'bb') }))
       await store.link(b.id, { addedAt: new Date(), providerId: 'google', providerSub: 'batch-shared' })
 
       // biome-ignore lint/style/noNonNullAssertion: guarded by the skip above
@@ -307,7 +371,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('restoreMany still restores a row whose provider login is free', async (ctx) => {
       const store = factory()
       if (!store.restoreMany) return ctx.skip()
-      const a = await store.create(identityInput({ profile: { email: 'bc@x', username: 'bc' } as unknown as P }))
+      const a = await store.create(identityInput({ profile: profileOf<P>('bc@x', 'bc') }))
       await store.link(a.id, { addedAt: new Date(), providerId: 'google', providerSub: 'batch-solo' })
       await store.softDelete(a.id, 60_000)
 
@@ -326,15 +390,15 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('findByEmail finds a created identity (identities are global)', async () => {
       const store = factory()
-      await store.create(identityInput({ profile: { email: 'shared@x', username: 'shared' } as unknown as P }))
+      await store.create(identityInput({ profile: profileOf<P>('shared@x', 'shared') }))
       expect(await store.findByEmail('shared@x')).not.toBeNull()
     })
 
     it('update with expectedVersion mismatch surfaces AUTH/STALE_WRITE', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'a@x', username: 'a' } as unknown as P }))
-      await store.update(i.id, { profile: { email: 'b@x', username: 'b' } as unknown as P }, i.version)
-      await expect(store.update(i.id, { profile: { email: 'c@x', username: 'c' } as unknown as P }, 1)).rejects.toMatchObject({
+      const i = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a') }))
+      await store.update(i.id, { profile: profileOf<P>('b@x', 'b') }, i.version)
+      await expect(store.update(i.id, { profile: profileOf<P>('c@x', 'c') }, 1)).rejects.toMatchObject({
         code: 'AUTH_STALE_WRITE',
       })
     })
@@ -345,11 +409,11 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       // observable contract is the same: one write lands, the rest are refused, and
       // the version advances exactly once.
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'race@x', username: 'race' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('race@x', 'race') }))
 
       const settled = await Promise.allSettled(
         Array.from({ length: 10 }, (_, n) =>
-          store.update(i.id, { profile: { email: 'race@x', username: `race-${n}` } as unknown as P }, i.version),
+          store.update(i.id, { profile: profileOf<P>('race@x', `race-${n}`) }, i.version),
         ),
       )
 
@@ -362,7 +426,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('softDelete hides; restore brings back within grace; erase is permanent', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'a@x', username: 'a' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a') }))
       await store.softDelete(i.id, 60_000)
       expect(await store.findById(i.id)).toBeNull()
       const restored = await store.restore(i.id)
@@ -374,7 +438,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('softDelete clears emailVerified, so a restore does not hand back a verified claim', async () => {
       const store = factory()
       const i = await store.create(
-        identityInput({ emailVerified: true, profile: { email: 'a@x', username: 'a' } as unknown as P }),
+        identityInput({ emailVerified: true, profile: profileOf<P>('a@x', 'a') }),
       )
       expect(i.emailVerified).toBe(true)
 
@@ -393,10 +457,10 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       const store = factory()
       if (!store.softDeleteMany) return ctx.skip()
       const a = await store.create(
-        identityInput({ emailVerified: true, profile: { email: 'a@x', username: 'a' } as unknown as P }),
+        identityInput({ emailVerified: true, profile: profileOf<P>('a@x', 'a') }),
       )
       const b = await store.create(
-        identityInput({ emailVerified: true, profile: { email: 'b@x', username: 'b' } as unknown as P }),
+        identityInput({ emailVerified: true, profile: profileOf<P>('b@x', 'b') }),
       )
 
       expect((await store.softDeleteMany([a.id, b.id], 60_000)).applied).toBe(2)
@@ -407,7 +471,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('restore refuses once the grace window has closed', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'a@x', username: 'a' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a') }))
 
       // `deletedAt` holds the moment the window shuts, so a negative grace is a
       // window that shut before it opened - the same state a row reaches by
@@ -421,13 +485,13 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('restore refuses when the address was taken while the row was hidden', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'a@x', username: 'a' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a') }))
       await store.softDelete(i.id, 60_000)
 
       // Free to claim precisely because the unique index and `findByEmail` are
       // both partial on `deletedAt`. A different username, so this pins the
       // email check rather than the username one.
-      const claimant = await store.create(identityInput({ profile: { email: 'a@x', username: 'a2' } as unknown as P }))
+      const claimant = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a2') }))
 
       await expect(store.restore(i.id)).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
       expect(await store.findById(i.id)).toBeNull()
@@ -444,43 +508,43 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
      */
     it('create refuses a second live row with the same email', async () => {
       const store = factory()
-      await store.create(identityInput({ profile: { email: 'dup@x', username: 'one' } as unknown as P }))
+      await store.create(identityInput({ profile: profileOf<P>('dup@x', 'one') }))
       // A different handle, so this pins the email index rather than the other.
       await expect(
-        store.create(identityInput({ profile: { email: 'DUP@x', username: 'two' } as unknown as P })),
+        store.create(identityInput({ profile: profileOf<P>('DUP@x', 'two') })),
       ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
     })
 
     it('create refuses a second live row with the same username', async () => {
       const store = factory()
-      await store.create(identityInput({ profile: { email: 'one@x', username: 'dup' } as unknown as P }))
+      await store.create(identityInput({ profile: profileOf<P>('one@x', 'dup') }))
       // Distinct address, same handle: reporting this as the email clash would
       // send the caller off to change a field that is not the problem.
       await expect(
-        store.create(identityInput({ profile: { email: 'two@x', username: 'DUP' } as unknown as P })),
+        store.create(identityInput({ profile: profileOf<P>('two@x', 'DUP') })),
       ).rejects.toMatchObject({ code: 'AUTH_USERNAME_TAKEN' })
     })
 
     it('a soft-deleted row frees its email and username for someone else', async () => {
       const store = factory()
-      const first = await store.create(identityInput({ profile: { email: 'g@x', username: 'g' } as unknown as P }))
+      const first = await store.create(identityInput({ profile: profileOf<P>('g@x', 'g') }))
       await store.softDelete(first.id, 60_000)
 
       // The control for the two refusals above: both indexes are partial on
       // `deletedAt`, so without this they would also pass against a store that
       // refused duplicates unconditionally and broke the grace window.
       await expect(
-        store.create(identityInput({ profile: { email: 'g@x', username: 'g' } as unknown as P })),
+        store.create(identityInput({ profile: profileOf<P>('g@x', 'g') })),
       ).resolves.toBeDefined()
     })
 
     it('update refuses moving onto another live row profile', async () => {
       const store = factory()
-      const holder = await store.create(identityInput({ profile: { email: 'h@x', username: 'h' } as unknown as P }))
-      const mover = await store.create(identityInput({ profile: { email: 'm@x', username: 'm' } as unknown as P }))
+      const holder = await store.create(identityInput({ profile: profileOf<P>('h@x', 'h') }))
+      const mover = await store.create(identityInput({ profile: profileOf<P>('m@x', 'm') }))
 
       await expect(
-        store.update(mover.id, { profile: { email: 'h@x', username: 'm' } as unknown as P }, mover.version),
+        store.update(mover.id, { profile: profileOf<P>('h@x', 'm') }, mover.version),
       ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
       // Refused, not half-applied: the row keeps the address it had.
       expect((await store.findById(mover.id))?.profile).toMatchObject({ email: 'm@x' })
@@ -489,7 +553,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('update leaves a row its own profile without tripping the indexes', async () => {
       const store = factory()
-      const row = await store.create(identityInput({ profile: { email: 's@x', username: 's' } as unknown as P }))
+      const row = await store.create(identityInput({ profile: profileOf<P>('s@x', 's') }))
       // The refusal above must exclude the row being updated, or no identity
       // could ever be patched without also changing its email.
       const next = await store.update(row.id, { emailVerified: true }, row.version)
@@ -498,7 +562,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('link / unlink mutate providers; findByProviderSub locates linked identities', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'a@x', username: 'a' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a') }))
       await store.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'sub-1', addedAt: new Date() })
       const found = await store.findByProviderSub('oauth:authGoogle', 'sub-1')
       expect(found?.id).toBe(i.id)
@@ -509,7 +573,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('a provider link comes back as a real Date, not the string a JSON column stores', async () => {
       const store = factory()
       const addedAt = new Date()
-      const i = await store.create(identityInput({ profile: { email: 'd@x', username: 'd' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('d@x', 'd') }))
       const linked = await store.link(i.id, { addedAt, providerId: 'oauth:authGoogle', providerSub: 'sub-1' })
 
       // `providers` is a JSON column on every SQL dialect, and `JSON.stringify`
@@ -526,7 +590,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('re-linking the identical provider sub is a no-op, not a second entry', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'rl@x', username: 'rl' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('rl@x', 'rl') }))
       const link = { addedAt: new Date(), providerId: 'oauth:authGoogle', providerSub: 'sub-rl' }
       await store.link(i.id, link)
       // A retried OAuth callback is the ordinary way this happens. Appending
@@ -549,7 +613,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
      */
     it('a provider link comes back as a real Date from every read', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'pl-d@x', username: 'pld' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('pl-d@x', 'pld') }))
       const addedAt = new Date('2024-03-01T12:00:00.000Z')
 
       const written = await store.link(i.id, { addedAt, providerId: 'oauth:authGoogle', providerSub: 'date-sub' })
@@ -570,8 +634,8 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('refuses to link a provider sub that already belongs to a different identity', async () => {
       const store = factory()
-      const first = await store.create(identityInput({ profile: { email: 'o1@x', username: 'o1' } as unknown as P }))
-      const second = await store.create(identityInput({ profile: { email: 'o2@x', username: 'o2' } as unknown as P }))
+      const first = await store.create(identityInput({ profile: profileOf<P>('o1@x', 'o1') }))
+      const second = await store.create(identityInput({ profile: profileOf<P>('o2@x', 'o2') }))
       await store.link(first.id, { addedAt: new Date(), providerId: 'oauth:authGoogle', providerSub: 'shared-sub' })
 
       // Without this an attacker who can drive a link for a sub they control
@@ -591,8 +655,8 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
      */
     it('a soft-deleted holder does not keep its provider sub', async () => {
       const store = factory()
-      const first = await store.create(identityInput({ profile: { email: 'fh1@x', username: 'fh1' } as unknown as P }))
-      const second = await store.create(identityInput({ profile: { email: 'fh2@x', username: 'fh2' } as unknown as P }))
+      const first = await store.create(identityInput({ profile: profileOf<P>('fh1@x', 'fh1') }))
+      const second = await store.create(identityInput({ profile: profileOf<P>('fh2@x', 'fh2') }))
       await store.link(first.id, { addedAt: new Date(), providerId: 'oauth:authGoogle', providerSub: 'freed-sub' })
       await store.softDelete(first.id, 60_000)
 
@@ -604,7 +668,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('softDelete on an already-hidden row answers null and leaves the deadline where it was', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'sd@x', username: 'sd' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('sd@x', 'sd') }))
       const first = await store.softDelete(i.id, 60_000)
       expect(first).not.toBeNull()
 
@@ -616,7 +680,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('merging a row into itself is a no-op that returns the row, not a deletion', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'ss@x', username: 'ss' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('ss@x', 'ss') }))
       const merged = await store.merge(i.id, i.id)
       expect(merged?.id).toBe(i.id)
       // The reassignment loops run and then the "duplicate" is erased - which
@@ -628,7 +692,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('update leaves a field alone when the patch carries an explicit undefined', async () => {
       const store = factory()
       const i = await store.create(
-        identityInput({ emailVerified: true, profile: { email: 'eu@x', username: 'eu' } as unknown as P }),
+        identityInput({ emailVerified: true, profile: profileOf<P>('eu@x', 'eu') }),
       )
       // `{ profile: maybeProfile }` with nothing to say means "leave it alone",
       // never "clear the column" - which is what a bare spread would do.
@@ -640,13 +704,13 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       const store = factory()
       const survivor = await store.create(
         identityInput({
-          profile: { email: 's@x', username: 's' } as unknown as P,
+          profile: profileOf<P>('s@x', 's'),
           providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
         }),
       )
       const dup = await store.create(
         identityInput({
-          profile: { email: 'd@x', username: 'd' } as unknown as P,
+          profile: profileOf<P>('d@x', 'd'),
           providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: new Date() }],
         }),
       )
@@ -662,9 +726,9 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('merge writes nothing when either side is missing', async () => {
       const store = factory()
-      const dup = await store.create(identityInput({ profile: { email: 'md@x', username: 'md' } as unknown as P }))
-      const survivor = await store.create(identityInput({ profile: { email: 'ms@x', username: 'ms' } as unknown as P }))
-      const gone = (await store.create(identityInput({ profile: { email: 'mg@x', username: 'mg' } as unknown as P })))
+      const dup = await store.create(identityInput({ profile: profileOf<P>('md@x', 'md') }))
+      const survivor = await store.create(identityInput({ profile: profileOf<P>('ms@x', 'ms') }))
+      const gone = (await store.create(identityInput({ profile: profileOf<P>('mg@x', 'mg') })))
         .id
       await store.erase(gone)
 
@@ -680,7 +744,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('every mutating write answers with the row it touched', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'ret@x', username: 'ret' } as unknown as P }))
+      const i = await store.create(identityInput({ profile: profileOf<P>('ret@x', 'ret') }))
 
       const linked = await store.link(i.id, {
         addedAt: new Date(),
@@ -716,7 +780,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       const store = factory()
       // A real id whose row is gone - valid for every dialect's id column,
       // which a made-up string would not be.
-      const gone = (await store.create(identityInput({ profile: { email: 'g@x', username: 'g' } as unknown as P }))).id
+      const gone = (await store.create(identityInput({ profile: profileOf<P>('g@x', 'g') }))).id
       await store.erase(gone)
 
       expect(await store.softDelete(gone, 60_000)).toBeNull()
@@ -757,6 +821,40 @@ const DEFAULT_IDS: Required<ComplianceIds> = {
 export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: ComplianceIds = {}): void {
   const { identityId: OWNER, otherIdentityId: OTHER, sessionId: sid } = { ...DEFAULT_IDS, ...ids }
   describe('Session.IStore compliance', () => {
+    it('every read path returns the field types the row type declares', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      await store.create(
+        sessionInput({
+          aal: 2,
+          absoluteExpiresAt: exp,
+          actingAs: {
+            expiresAt: exp,
+            realIdentityId: OTHER,
+            reason: 'support',
+            startedAt: now,
+          },
+          createdAt: now,
+          expiresAt: exp,
+          factors: [{ completedAt: now, method: 'totp' }],
+          fresh: true,
+          id: sid('fidelity-1'),
+          identityId: OWNER,
+          kind: 'user',
+          rotatedAt: now,
+        }),
+      )
+      // `create` returns void here, so every check below is a real read back
+      // out of the store - which is the only kind that proves anything.
+      const id = sid('fidelity-1')
+      expectFieldTypes(await store.getByHash(id), SESSION_FIELDS, 'getByHash')
+      for (const row of await store.listByIdentity(OWNER)) {
+        expectFieldTypes(row, SESSION_FIELDS, 'listByIdentity')
+      }
+      expectFieldTypes(await store.update(id, { fresh: false }), SESSION_FIELDS, 'update')
+    })
+
     it('create + getByHash roundtrip uses the row id directly', async () => {
       const store = factory()
       const now = new Date()
@@ -906,6 +1004,67 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       await store.create(sessionInput({ id: sid('b'), identityId: OWNER, ...base }))
       await store.deleteAllForIdentity(OWNER)
       expect(await store.listByIdentity(OWNER)).toHaveLength(0)
+    })
+
+    it('listByIdentity narrows to one tenant, and a global session is not in it', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      const base = {
+        kind: 'user' as const,
+        aal: 1 as const,
+        factors: [],
+        createdAt: now,
+        rotatedAt: now,
+        expiresAt: exp,
+        absoluteExpiresAt: exp,
+        fresh: true,
+      }
+      await store.create(sessionInput({ id: sid('t-a'), identityId: OWNER, tenantId: 'tenant-a', ...base }))
+      await store.create(sessionInput({ id: sid('t-b'), identityId: OWNER, tenantId: 'tenant-b', ...base }))
+      await store.create(sessionInput({ id: sid('t-g'), identityId: OWNER, tenantId: null, ...base }))
+
+      // Identities are global, so all three hang off one id. Unscoped sees them
+      // all - that is every existing caller's behaviour and it does not change.
+      expect(await store.listByIdentity(OWNER)).toHaveLength(3)
+      expect(await store.listByIdentity(OWNER, {})).toHaveLength(3)
+
+      const a = await store.listByIdentity(OWNER, { tenantId: 'tenant-a' })
+      expect(a.map((r) => r.id)).toEqual([sid('t-a')])
+      const b = await store.listByIdentity(OWNER, { tenantId: 'tenant-b' })
+      expect(b.map((r) => r.id)).toEqual([sid('t-b')])
+      expect(await store.listByIdentity(OWNER, { tenantId: 'tenant-none' })).toEqual([])
+    })
+
+    it('deleteAllForIdentity scoped to a tenant leaves the identity signed in elsewhere', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      const base = {
+        kind: 'user' as const,
+        aal: 1 as const,
+        factors: [],
+        createdAt: now,
+        rotatedAt: now,
+        expiresAt: exp,
+        absoluteExpiresAt: exp,
+        fresh: true,
+      }
+      await store.create(sessionInput({ id: sid('d-a'), identityId: OWNER, tenantId: 'tenant-a', ...base }))
+      await store.create(sessionInput({ id: sid('d-b'), identityId: OWNER, tenantId: 'tenant-b', ...base }))
+      await store.create(sessionInput({ id: sid('d-g'), identityId: OWNER, tenantId: null, ...base }))
+
+      await store.deleteAllForIdentity(OWNER, { tenantId: 'tenant-a' })
+
+      // Survivors are reachable by every route, not merely still on disk: an
+      // index the scoped delete dropped wholesale would leave them alive and
+      // impossible to sign out.
+      expect((await store.listByIdentity(OWNER)).map((r) => r.id).sort()).toEqual([sid('d-b'), sid('d-g')].sort())
+      expect(await store.getByHash(sid('d-b'))).not.toBeNull()
+      expect(await store.getByHash(sid('d-a'))).toBeNull()
+
+      await store.deleteAllForIdentity(OWNER)
+      expect(await store.listByIdentity(OWNER)).toEqual([])
     })
 
     it('gc purges sessions with expiresAt or absoluteExpiresAt past now', async () => {
@@ -1067,6 +1226,40 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
 export function runCredentialStoreCompliance(factory: () => Credential.Store, ids: ComplianceIds = {}): void {
   const { identityId: OWNER } = { ...DEFAULT_IDS, ...ids }
   describe('Credential.IStore compliance', () => {
+    it('every read path returns the field types the row type declares', async () => {
+      const store = factory()
+      const created = await store.upsert(
+        credentialInput({
+          expiresAt: new Date(Date.now() + 60_000),
+          identityId: OWNER,
+          kind: 'password',
+          metadata: {},
+          secret: 'hashed-pw',
+        }),
+        {},
+      )
+      expectFieldTypes(created, CREDENTIAL_FIELDS, 'upsert')
+      expectFieldTypes(await store.findById(created.id, {}), CREDENTIAL_FIELDS, 'findById')
+      expectFieldTypes(
+        await store.findByHashedSecret('hashed-pw', 'password', {}),
+        CREDENTIAL_FIELDS,
+        'findByHashedSecret',
+      )
+      for (const row of await store.listByIdentity(OWNER, 'password', {})) {
+        expectFieldTypes(row, CREDENTIAL_FIELDS, 'listByIdentity')
+      }
+      expectFieldTypes(
+        await store.rotate(created.id, 'rotated-pw', created.version, {}),
+        CREDENTIAL_FIELDS,
+        'rotate',
+      )
+      expectFieldTypes(await store.patchMetadata(created.id, { seen: 1 }, {}), CREDENTIAL_FIELDS, 'patchMetadata')
+      // `revokedAt` is the only date that is null until it is not.
+      const revoked = await store.revoke(created.id, {})
+      expectFieldTypes(revoked, CREDENTIAL_FIELDS, 'revoke')
+      expect(revoked?.revokedAt).toBeInstanceOf(Date)
+    })
+
     it('upsert stamps id + version=1; findById retrieves it', async () => {
       const store = factory()
       const c = await store.upsert(

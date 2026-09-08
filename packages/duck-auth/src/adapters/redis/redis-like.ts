@@ -90,11 +90,23 @@ export class FakeRedis implements RedisLike.Client {
     return 'OK'
   }
 
-  /** `RedisLike.del` variadic. Returns count of keys actually removed. */
+  /**
+   * `RedisLike.del` variadic. Returns count of keys actually removed.
+   *
+   * Every type, the way real `DEL` behaves. This used to touch `_data` alone, so
+   * deleting a set or a sorted set was a silent no-op - and the session store's
+   * index and expiry keys are exactly those types. `runSessionStoreCompliance`
+   * runs the whole contract against this class specifically to catch divergences
+   * in-process, and any case asserting "the index key is gone" was passing
+   * against a fake that had not removed it.
+   */
   async del(...keys: string[]): Promise<number> {
     let deleted = 0
     for (const k of keys) {
-      if (this._data.delete(k)) deleted++
+      const hit = this._data.delete(k)
+      const hitSet = this._sets.delete(k)
+      const hitZset = this._zsets.delete(k)
+      if (hit || hitSet || hitZset) deleted++
     }
     return deleted
   }

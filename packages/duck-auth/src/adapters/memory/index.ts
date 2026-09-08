@@ -351,6 +351,14 @@ export class MemoryAdapter<
 
   private _buildSessionStore(): Sessions.Store {
     const store = this._sessions
+    /**
+     * Same rule the credential store's `visible` uses, and deliberately the same
+     * words: no ctx, or a ctx with no `tenantId`, sees everything; a named tenant
+     * sees only its own rows, so a global (`tenantId: null`) session is invisible
+     * to one. The compliance suite treats this as the reference.
+     */
+    const inTenant = (s: Sessions.Me, ctx: TenantContext | undefined): boolean =>
+      ctx?.tenantId === undefined || s.tenantId === ctx.tenantId
     return {
       create: async (s) => {
         // Fill nullable columns the caller omitted, so the store holds a complete row.
@@ -393,11 +401,11 @@ export class MemoryAdapter<
       delete: async (id) => {
         store.delete(id)
       },
-      listByIdentity: async (identityId) => {
-        return [...store.values()].filter((s) => s.identityId === identityId).map(copy)
+      listByIdentity: async (identityId, ctx) => {
+        return [...store.values()].filter((s) => s.identityId === identityId && inTenant(s, ctx)).map(copy)
       },
-      deleteAllForIdentity: async (identityId) => {
-        for (const s of store.values()) if (s.identityId === identityId) store.delete(s.id)
+      deleteAllForIdentity: async (identityId, ctx) => {
+        for (const s of store.values()) if (s.identityId === identityId && inTenant(s, ctx)) store.delete(s.id)
       },
       gc: async (now) => {
         let deleted = 0

@@ -120,8 +120,13 @@ export namespace SqlBridge {
     findByHash(sidHash: string): Promise<Row | null>
     update(id: string, patch: Partial<Omit<Row, 'id'>>): Promise<Row | null>
     delete(id: string): Promise<void>
-    listByIdentity(identityId: string): Promise<Row[]>
-    deleteAllForIdentity(identityId: string): Promise<void>
+    /**
+     * `tenantId` undefined means every tenant, matching the credential bridge
+     * above and `Sessions.Store.listByIdentity`. A named tenant matches exactly,
+     * so a global (`tenant_id IS NULL`) session is not in its scope.
+     */
+    listByIdentity(identityId: string, tenantId: string | undefined): Promise<Row[]>
+    deleteAllForIdentity(identityId: string, tenantId: string | undefined): Promise<void>
     deleteExpired(now: Date): Promise<number>
 
     /**

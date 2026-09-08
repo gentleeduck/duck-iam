@@ -26,6 +26,12 @@ function toApiKey(row: Credential.Me): ApiKeys.ApiKey {
   }
   if (row.lastUsedAt != null) key.lastUsedAt = row.lastUsedAt
   if (row.expiresAt != null) key.expiresAt = row.expiresAt
+  // `revoke()` promises "the key as it stands revoked" and this used to drop the
+  // one field that says so, so `ApiKeys.ApiKey.revokedAt` was a field the
+  // package declared and never once populated - a UI reading it back could not
+  // tell a revoked key from a live one. `list()` filters revoked rows out, so
+  // there it stays absent, which is the truth about those rows.
+  if (row.revokedAt != null) key.revokedAt = row.revokedAt
   return key
 }
 
