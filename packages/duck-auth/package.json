@@ -640,6 +640,7 @@
     "test": "vitest run --project unit",
     "benchmark": "bun run scripts/benchmark.ts",
     "findings": "bun run scripts/collect-findings.ts",
+    "dead-keys": "bun run scripts/audit-dead-keys.ts",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",
