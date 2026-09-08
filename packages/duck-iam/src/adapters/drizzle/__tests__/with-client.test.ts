@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import type { IamAdapter } from '../../../core/types/adapter'
 import { IamMemoryAdapter } from '../../memory'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
+import { fakeSql } from './fake-sql'
 
 type Row = Record<string, unknown>
 
@@ -40,7 +41,10 @@ const TABLES = {
   roles: {},
 } as unknown as IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>['tables']
 
-const OPS = { and: () => undefined, eq: () => ({}) } satisfies IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>['ops']
+const OPS = { and: () => undefined, eq: () => fakeSql({}) } satisfies IamDrizzle.IConfig<
+  IamDrizzle.AnyDrizzleDb,
+  'pg'
+>['ops']
 
 describe('IamAdapter.withClient', () => {
   it('the memory adapter deliberately does not implement it', () => {

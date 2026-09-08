@@ -20,10 +20,20 @@ import { randomBytes } from 'node:crypto'
 import { connect } from 'node:net'
 import { promisify } from 'node:util'
 import Redis from 'ioredis'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { dockerIsUp as sharedDockerIsUp } from '../../test/e2e-env'
 import { runAdapterCompliance } from '../__compliance__/compliance'
 import { IamMemoryAdapter } from '../memory'
 import { type IamRedis, IamRedisAdapter } from '../redis'
+
+// The shared compliance matrix registers about a hundred cases with no explicit
+// timeout, which is right against the in-memory fake and wrong here: each case
+// is a real round trip to a container that shares the machine with every other
+// e2e suite. One of them - "a saved policy and the same policy re-saved are
+// identical" - took 5.88s and was reported as a failure at vitest's 5s default,
+// on a run where nothing was actually wrong. Thirty seconds is still a bound: a
+// single CRUD round trip that needs longer is hung, not slow.
+vi.setConfig({ testTimeout: 30_000 })
 
 const exec = promisify(execFile)
 
@@ -35,14 +45,17 @@ async function docker(args: string[], timeout = 60_000): Promise<string> {
   return stdout.trim()
 }
 
-async function dockerIsUp(): Promise<boolean> {
-  try {
-    await docker(['info', '--format', '{{.ServerVersion}}'], 5_000)
-    return true
-  } catch {
-    return false
-  }
-}
+/**
+ * Delegates to the shared probe in `src/test/e2e-env.ts`.
+ *
+ * This used to be a local copy with a five-second budget, and that is not a
+ * detail: on a machine already running the e2e stack `docker info` takes
+ * longer than five seconds, the copy answered "down", and this whole file went
+ * quiet - twenty-four cases in one observed run - while its own reachability
+ * suite, reading the same wrong answer, agreed that a skip was expected. One
+ * probe, one budget, so a busy daemon cannot be mistaken for an absent one.
+ */
+const dockerIsUp = sharedDockerIsUp
 
 async function waitFor(what: string, probe: () => Promise<boolean>, budgetMs = 60_000): Promise<void> {
   const deadline = Date.now() + budgetMs
@@ -135,6 +148,16 @@ afterAll(async () => {
 
 describe('E2E harness reachability (redis)', () => {
   it('starts a Redis server whenever docker is available', () => {
+    // CI does not consult the probe: the workflow provisions the images before
+    // vitest starts, so a backend is expected unconditionally. A false "down"
+    // from a busy daemon would otherwise silence the suite AND excuse this
+    // guard for letting it - which is how twenty-four cases here once vanished
+    // from a green run.
+    if (process.env.CI) {
+      expect(bootError, 'the container failed to start in CI, where it is provisioned').toBeUndefined()
+      expect(PORT, 'no redis in CI, where the workflow provisions one - the suite skipped').toBeDefined()
+      return
+    }
     if (!DOCKER_UP) {
       expect(PORT, 'docker is down, so no redis is expected').toBeUndefined()
       return

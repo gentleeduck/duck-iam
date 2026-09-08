@@ -343,7 +343,12 @@ function rowIdOf(row: unknown, fallback: string): string {
  *   headers: { Authorization: 'Bearer ...' },
  * })
  * ```
- */
+ */ /** The request shape {@link IamHttpAdapter} builds internally; see `_request`. */
+interface IHttpInit {
+  readonly method?: string
+  readonly body?: string
+}
+
 export class IamHttpAdapter<
   TAction extends string = string,
   TResource extends string = string,
@@ -468,8 +473,25 @@ export class IamHttpAdapter<
     }
   }
 
-  /** Sends an HTTP request to the API, merging headers and parsing the JSON response. */
-  private async _request(path: string, init?: RequestInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
+  /**
+   * The only two fields this adapter ever sets on an outgoing request.
+   *
+   * Narrower than `RequestInit` on purpose. The wide type carried a `headers`
+   * field of type `HeadersInit`, which is three different shapes - a `Headers`
+   * instance, an array of pairs, or a record - and the merge below handled one
+   * of them by asserting `init.headers as Record<string, string>` and spreading
+   * it. A `Headers` instance has no own enumerable properties, so spreading one
+   * yields `{}`: an `Authorization` header supplied that way would have been
+   * dropped and the write sent unauthenticated, with nothing to see. An array
+   * of pairs spreads to `{0: [...], 1: [...]}`, which is worse.
+   *
+   * No caller in this file has ever passed per-call headers - the standing ones
+   * come from `_headers` and are already a record - so the fix is to stop
+   * claiming a field that is not used rather than to write a normaliser for a
+   * shape nothing produces. If per-call headers are ever needed, add them here
+   * as a record and merge them explicitly.
+   */
+  private async _request(path: string, init?: IHttpInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (!res.ok) {
       throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
@@ -543,7 +565,7 @@ export class IamHttpAdapter<
    * the previous throw-on-every-non-2xx behaviour broke that contract and made
    * `engine.resolve()` bubble a hard error on every cold miss.
    */
-  private async _requestOrNull(path: string, init?: RequestInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
+  private async _requestOrNull(path: string, init?: IHttpInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (res.status === 404) return null
     if (!res.ok) {
@@ -565,7 +587,7 @@ export class IamHttpAdapter<
    */
   private async _fetchWithRetry(
     path: string,
-    init: RequestInit | undefined,
+    init: IHttpInit | undefined,
     readOpts?: IamAdapter.IReadOptions,
   ): Promise<Response> {
     const state = this._circuitState()
@@ -606,13 +628,12 @@ export class IamHttpAdapter<
 
   private async _fetchOnce(
     path: string,
-    init: RequestInit | undefined,
+    init: IHttpInit | undefined,
     readOpts?: IamAdapter.IReadOptions,
   ): Promise<Response> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(typeof this._headers === 'function' ? await this._headers() : (this._headers ?? {})),
-      ...((init?.headers as Record<string, string>) ?? {}),
     }
     const timeout = this._timeout()
     const controllers = [readOpts?.signal, timeout.signal].filter((s): s is AbortSignal => !!s)

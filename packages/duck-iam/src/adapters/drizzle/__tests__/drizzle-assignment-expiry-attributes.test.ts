@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
+import { fakeSql } from './fake-sql'
 
 type A = 'read'
 type R = 'post'
@@ -65,7 +66,7 @@ function makeMock(json: 'native' | 'string' = 'native') {
     } as unknown as IamDrizzle.AnyDrizzleDb,
     tables: tableRefs,
     ops: {
-      eq: (c, val) => ({ kind: 'eq', col: colName(c), val }) satisfies Condition,
+      eq: (c: unknown, val: unknown) => fakeSql({ kind: 'eq', col: colName(c), val } satisfies Condition),
       and: (...conds) =>
         ({ kind: 'and', conds: conds.filter(Boolean) }) as unknown as ReturnType<
           IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>['ops']['and']

@@ -133,4 +133,8 @@ runAdapterCompliance(
       fetch: makeReferenceServer(),
       timeoutMs: 0,
     }),
+  // The operator's server owns the role catalog, so this adapter cannot phrase
+  // the unknown-role refusal itself - it forwards the write and surfaces the
+  // non-2xx. The refusal clause still applies; only its wording is waived.
+  { delegatesRoleExistence: true },
 )

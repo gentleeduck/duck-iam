@@ -73,14 +73,39 @@ async function seeded(factory: () => AnyAdapter | Promise<AnyAdapter>): Promise<
 }
 
 /**
+ * Options for adapters that cannot meet a clause for a structural reason.
+ *
+ * Deliberately not a general escape hatch: every flag here has to name a
+ * property of the backend that no implementation choice can change, and it is
+ * always the *wording* of a refusal that is waived, never the refusal.
+ */
+export interface IComplianceOptions {
+  /**
+   * The adapter does not own its role storage, so it cannot phrase the
+   * unknown-role refusal itself.
+   *
+   * Only `IamHttpAdapter` sets this: the operator's server is the authority on
+   * which roles exist, so it delegates the check and surfaces the non-2xx, and
+   * a local pre-check would cost a round trip whose answer the server is free
+   * to disagree with. It must still reject - that clause is not waived.
+   */
+  readonly delegatesRoleExistence?: boolean
+}
+
+/**
  * Run the compliance matrix against any adapter implementation.
  *
  * @param adapterName - Human-readable name used in describe blocks.
  * @param factory - Async factory that returns a FRESH adapter per call. Must
  *   not share state across factory invocations (each test runs against a
  *   clean slate).
+ * @param opts - Structural exemptions; see {@link IComplianceOptions}.
  */
-export function runAdapterCompliance(adapterName: string, factory: () => AnyAdapter | Promise<AnyAdapter>): void {
+export function runAdapterCompliance(
+  adapterName: string,
+  factory: () => AnyAdapter | Promise<AnyAdapter>,
+  opts: IComplianceOptions = {},
+): void {
   describe(`IamAdapter compliance: ${adapterName}`, () => {
     describe('IPolicyStore', () => {
       it('listPolicies returns [] on empty store', async () => {
@@ -273,6 +298,51 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
         const a = await factory()
         await expect(a.assignRole('user-1', 'no-such-role')).rejects.toThrow()
         expect(await a.getSubjectRoles('user-1')).toEqual([])
+      })
+
+      /**
+       * ...and refused in the same words, which is the half a bare
+       * `rejects.toThrow()` could not see.
+       *
+       * Four adapters raise the shared sentence from `iamUnknownRoleError`;
+       * drizzle translates its driver error into it. Prisma did not - it let
+       * ``Foreign key constraint failed on the field: `roleId` `` out of the
+       * driver, naming a column of a schema the operator may not have written,
+       * in a string nothing can branch on. Every adapter passed the clause
+       * above while saying six different things, so the clause was pinning the
+       * `Promise` and not the contract.
+       *
+       * The message deliberately does not quote the role id: it reaches
+       * operator logs and error responses, and the id is caller-controlled.
+       */
+      it('the unknown-role refusal reads the same on every adapter that owns its roles', async () => {
+        if (opts.delegatesRoleExistence) return
+        const a = await factory()
+        await expect(a.assignRole('user-1', 'no-such-role')).rejects.toThrow(
+          /^\[@gentleduck\/iam:[a-z]+\] cannot assign a role that is not stored; save the role before granting it$/,
+        )
+      })
+
+      it('the refusal never echoes the role id back', async () => {
+        // Caller-controlled text in an operator log line, and the reason the
+        // wording above is fixed rather than merely "some error". Written as a
+        // catch rather than `rejects.toThrow(...)` because the assertion is a
+        // *negative* one about the message, which `toThrow` cannot express.
+        //
+        // Waived alongside the wording for a delegating adapter, and for the
+        // same structural reason: what surfaces there is the operator's own
+        // server's response body, and the reference server in
+        // `http-compliance.test.ts` does quote the id. This clause governs
+        // what *this package* writes into an error string, and the HTTP
+        // adapter's own contribution - the `HTTP <status>:` prefix - does not.
+        if (opts.delegatesRoleExistence) return
+        const a = await factory()
+        const caught = await a.assignRole('user-1', 'no-such-role').then(
+          () => null,
+          (err: unknown) => err,
+        )
+        expect(caught).not.toBeNull()
+        expect(String(caught)).not.toContain('no-such-role')
       })
 
       it('a role deleted after the grant does not make a new grant assignable', async () => {
@@ -517,6 +587,271 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
         if (a.getSubjectScopedRoles) {
           expect(await a.getSubjectScopedRoles('user-1')).toEqual([])
         }
+      })
+
+      /**
+       * `updateAssignmentScope` was in the interface, implemented on four
+       * adapters, and pinned by nothing. `IamFileAdapter.updateAssignmentScope`
+       * in particular had no test of any kind: it could have returned `true`
+       * without writing, moved the wrong row, or duplicated the grant, and the
+       * whole suite stayed green.
+       *
+       * It exists so a scope change is one write instead of revoke + assign,
+       * which means it carries the failure modes of both: leaving the old row
+       * behind (the subject keeps access to the scope they were moved out of)
+       * and losing the new one (the move silently revokes). The return value is
+       * load-bearing too - the admin falls back to revoke + assign on `false`,
+       * so an implementation that answers `true` for a row it did not find
+       * makes the grant vanish, and one that answers `false` for a row it *did*
+       * move makes the caller assign it a second time.
+       *
+       * Optional, so each clause returns early where the method is absent -
+       * redis encodes scope into the set member and has no in-place update, and
+       * http delegates. Memory, file, prisma and drizzle all run these.
+       */
+      it('updateAssignmentScope moves a scoped assignment and reports that it did', async () => {
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+        await a.assignRole('user-1', 'editor', 'org-1')
+
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(true)
+        if (a.getSubjectScopedRoles) {
+          // Exactly one row: the old scope is gone and the new one is not a
+          // second grant beside it.
+          expect(await a.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-2' }])
+        }
+        expect(await a.getSubjectRoles('user-1')).toEqual([])
+      })
+
+      it('updateAssignmentScope reports false for an assignment that is not there', async () => {
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+      })
+
+      it('a false report is not a write - the move must not create the grant', async () => {
+        // The dangerous shape of the previous clause: an implementation that
+        // upserts would answer `false` *and* grant `org-2`, which is a grant
+        // nobody asked for on a subject who had none.
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+        await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')
+
+        expect(await a.getSubjectRoles('user-1')).toEqual([])
+        if (a.getSubjectScopedRoles) expect(await a.getSubjectScopedRoles('user-1')).toEqual([])
+      })
+
+      it('the from-scope has to match - a row in another scope is not moved', async () => {
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+        await a.assignRole('user-1', 'editor', 'org-9')
+
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+        if (a.getSubjectScopedRoles) {
+          expect(await a.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-9' }])
+        }
+      })
+
+      it('the role has to match - another role in the same scope is not moved', async () => {
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+        await a.assignRole('user-1', 'viewer', 'org-1')
+
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+        if (a.getSubjectScopedRoles) {
+          expect(await a.getSubjectScopedRoles('user-1')).toEqual([{ role: 'viewer', scope: 'org-1' }])
+        }
+      })
+
+      it('the subject has to match - another subject holding the same grant is untouched', async () => {
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+        await a.assignRole('user-2', 'editor', 'org-1')
+
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+        if (a.getSubjectScopedRoles) {
+          expect(await a.getSubjectScopedRoles('user-2')).toEqual([{ role: 'editor', scope: 'org-1' }])
+        }
+      })
+
+      it('undefined as the to-scope promotes a scoped grant to a global one', async () => {
+        // The widening direction, and the one worth stating out loud: after
+        // this the subject holds the role everywhere, not only in `org-1`.
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+        await a.assignRole('user-1', 'editor', 'org-1')
+
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', undefined)).toBe(true)
+        expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
+        if (a.getSubjectScopedRoles) expect(await a.getSubjectScopedRoles('user-1')).toEqual([])
+      })
+
+      it('undefined as the from-scope narrows a global grant into a scope', async () => {
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+        await a.assignRole('user-1', 'editor')
+
+        expect(await a.updateAssignmentScope('user-1', 'editor', undefined, 'org-1')).toBe(true)
+        // The global grant is gone - otherwise the "narrowing" left the
+        // subject with the broader access it was supposed to remove.
+        expect(await a.getSubjectRoles('user-1')).toEqual([])
+        if (a.getSubjectScopedRoles) {
+          expect(await a.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
+        }
+      })
+
+      it('an unscoped row is not what a scoped move is looking for', async () => {
+        // `undefined` and `'org-1'` are different rows; a from-scope of
+        // `org-1` must not fall back to the global grant.
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+        await a.assignRole('user-1', 'editor')
+
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+        expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
+      })
+
+      it('moving onto a scope the subject already holds does not leave two rows', async () => {
+        // Both rows are legitimate grants, so this is a merge rather than a
+        // refusal - but ending with `org-2` twice means a later single
+        // `revokeRole(..., 'org-2')` leaves one behind.
+        const a = await seeded(factory)
+        if (!a.updateAssignmentScope) return
+        await a.assignRole('user-1', 'editor', 'org-1')
+        await a.assignRole('user-1', 'editor', 'org-2')
+
+        await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')
+        if (a.getSubjectScopedRoles) {
+          expect(await a.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-2' }])
+        }
+      })
+
+      /**
+       * `getSubjectGrantBoundary` is the adapter's only channel for telling the
+       * engine that an answer has a shelf life - the engine caps the cache
+       * entry at the value it returns. An adapter that has no temporal columns
+       * omits the method entirely rather than returning `null`, so the only
+       * thing this suite can require of every adapter is the shape: a number in
+       * the future, or `null`. An implementation returning a *past* instant, or
+       * `0`, would cap the cache at something already expired.
+       */
+      it('getSubjectGrantBoundary answers null or a future instant', async () => {
+        const a = await seeded(factory)
+        if (!a.getSubjectGrantBoundary) return
+        await a.assignRole('user-1', 'editor')
+
+        const boundary = await a.getSubjectGrantBoundary('user-1')
+        if (boundary === null) return
+        expect(typeof boundary).toBe('number')
+        expect(Number.isFinite(boundary)).toBe(true)
+        expect(boundary).toBeGreaterThan(Date.now())
+      })
+
+      it('getSubjectGrantBoundary answers null for a subject with no grants at all', async () => {
+        const a = await factory()
+        if (!a.getSubjectGrantBoundary) return
+        expect(await a.getSubjectGrantBoundary('nobody')).toBeNull()
+      })
+
+      /**
+       * `assignRoleMany` / `revokeRoleMany` are an optimisation, so the
+       * contract is that they are indistinguishable from the loop they replace:
+       * same rows stored afterwards, and the returned indices - when the driver
+       * can supply them - name the writes that actually happened, each credited
+       * once. Reporting an index for a row that changed nothing is what makes a
+       * caller's "granted N roles" count a lie.
+       */
+      it('assignRoleMany stores the same rows the loop would have', async () => {
+        const a = await seeded(factory)
+        if (!a.assignRoleMany) return
+
+        const written = await a.assignRoleMany([
+          { roleId: 'editor', subjectId: 'user-1' },
+          { roleId: 'viewer', scope: 'org-1', subjectId: 'user-1' },
+          { roleId: 'editor', subjectId: 'user-2' },
+        ])
+
+        expect((await a.getSubjectRoles('user-1')).sort()).toEqual(['editor'])
+        expect(await a.getSubjectRoles('user-2')).toEqual(['editor'])
+        if (a.getSubjectScopedRoles) {
+          expect(await a.getSubjectScopedRoles('user-1')).toEqual([{ role: 'viewer', scope: 'org-1' }])
+        }
+        // `null` is an honest "the driver cannot say"; indices must be real.
+        if (written !== null) expect(written.every((i) => Number.isInteger(i) && i >= 0 && i < 3)).toBe(true)
+      })
+
+      it('assignRoleMany does not credit a write for a grant that was already there', async () => {
+        const a = await seeded(factory)
+        if (!a.assignRoleMany) return
+        await a.assignRole('user-1', 'editor')
+
+        const written = await a.assignRoleMany([{ roleId: 'editor', subjectId: 'user-1' }])
+        if (written !== null) expect(written).toEqual([])
+        // Either way the grant is held exactly once.
+        expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
+      })
+
+      it('assignRoleMany credits a duplicated row once, not twice', async () => {
+        // Two rows asking for the same write. The write happened once, so at
+        // most one index may name it - `creditWrites` assigns it to the first.
+        const a = await seeded(factory)
+        if (!a.assignRoleMany) return
+
+        const written = await a.assignRoleMany([
+          { roleId: 'editor', subjectId: 'user-1' },
+          { roleId: 'editor', subjectId: 'user-1' },
+        ])
+        if (written !== null) expect(written.length).toBeLessThanOrEqual(1)
+        expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
+      })
+
+      it('revokeRoleMany removes the same rows the loop would have', async () => {
+        const a = await seeded(factory)
+        if (!a.revokeRoleMany) return
+        await a.assignRole('user-1', 'editor')
+        await a.assignRole('user-1', 'viewer', 'org-1')
+        await a.assignRole('user-2', 'editor')
+
+        await a.revokeRoleMany([
+          { roleId: 'editor', subjectId: 'user-1' },
+          { roleId: 'viewer', scope: 'org-1', subjectId: 'user-1' },
+        ])
+
+        expect(await a.getSubjectRoles('user-1')).toEqual([])
+        if (a.getSubjectScopedRoles) expect(await a.getSubjectScopedRoles('user-1')).toEqual([])
+        // The row nobody asked about survives - a batch revoke is not a purge.
+        expect(await a.getSubjectRoles('user-2')).toEqual(['editor'])
+      })
+
+      it('revokeRoleMany does not credit a write for a grant that was not there', async () => {
+        const a = await seeded(factory)
+        if (!a.revokeRoleMany) return
+
+        const removed = await a.revokeRoleMany([{ roleId: 'editor', subjectId: 'user-1' }])
+        if (removed !== null) expect(removed).toEqual([])
+      })
+
+      /**
+       * `withClient` re-binds the adapter to a caller-supplied transaction
+       * handle. Whatever it hands back has to still *be* an adapter - the
+       * engine calls the full interface on it - and it must not mutate the
+       * adapter it was called on, because the original keeps serving requests
+       * outside the transaction.
+       */
+      it('withClient returns a distinct adapter and leaves the original bound where it was', async () => {
+        const a = await seeded(factory)
+        if (!a.withClient) return
+
+        const bound = a.withClient({})
+        expect(bound).not.toBe(a)
+        expect(typeof bound.assignRole).toBe('function')
+        expect(typeof bound.getSubjectRoles).toBe('function')
+        expect(typeof bound.listPolicies).toBe('function')
+
+        // The original still answers - `withClient` is a copy, not a move.
+        await a.assignRole('user-1', 'editor')
+        expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
       })
 
       it('getSubjectAttributes returns {} when none recorded', async () => {

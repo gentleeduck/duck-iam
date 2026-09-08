@@ -10,6 +10,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
+import { fakeSql } from './fake-sql'
 
 type A = 'read'
 type R = 'post'
@@ -59,7 +60,7 @@ function makeMock(ops?: Partial<IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'
       // ignores its argument, so `undefined` is a real answer here rather than
       // a stand-in for one: `and` is declared to return `SQL | undefined`.
       and: () => undefined,
-      eq: (c, val) => ({ col: colName(c), kind: 'eq', val }),
+      eq: (c: unknown, val: unknown) => fakeSql({ col: colName(c), kind: 'eq', val }),
       ...ops,
     },
     tables: tableRefs,

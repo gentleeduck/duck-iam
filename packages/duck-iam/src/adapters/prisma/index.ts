@@ -1,6 +1,7 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamUnknownRoleError } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
 import {
   iamAssertSavablePolicy,
@@ -136,6 +137,28 @@ export namespace IamPrisma {
 function isUniqueConstraintViolation(err: unknown): boolean {
   if (err === null || typeof err !== 'object') return false
   return Reflect.get(err, 'code') === 'P2002'
+}
+
+/**
+ * Is this Prisma's `P2003`, "foreign key constraint failed"?
+ *
+ * `schema.prisma` declares `role AccessRole @relation(...)`, so granting a role
+ * that is not stored is refused by the database here exactly as it is on
+ * drizzle. What differed was the *wording*: drizzle translates its driver error
+ * into the shared refusal, and memory / file / redis raise the same sentence
+ * from their own lookup, so five adapters said one thing and Prisma leaked
+ * ``Foreign key constraint failed on the field: `roleId` `` straight from the
+ * driver. A caller cannot branch on that, and it names a column of a schema the
+ * operator did not necessarily write.
+ *
+ * Prisma's own code is checked rather than {@link iamIsForeignKeyViolation}'s
+ * message text: `P2003` is unambiguous and does not move with the server's
+ * locale, and `roleId` is the only relation on the assignment model, so there
+ * is no other constraint this could be.
+ */
+function isForeignKeyViolation(err: unknown): boolean {
+  if (err === null || typeof err !== 'object') return false
+  return Reflect.get(err, 'code') === 'P2003'
 }
 
 function provenance(actor: string | undefined): {
@@ -424,6 +447,10 @@ export class IamPrismaAdapter<
         data: { roleId, scope: scope ?? null, subjectId, ...provenance(opts?.actor).create },
       })
     } catch (err) {
+      // The role does not exist. Translated rather than propagated so the
+      // refusal reads the same on every adapter - see `iamUnknownRoleError`.
+      // The driver error is kept as `cause`, so nothing is lost.
+      if (isForeignKeyViolation(err)) throw iamUnknownRoleError('prisma', err)
       // The row exists - a racing writer inserted the identical grant first.
       // That is the state the caller asked for, so this is a success. Any
       // other failure is real and propagates.
