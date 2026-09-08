@@ -15,8 +15,18 @@
  * ask *which kind* of failure this was.
  */
 export class IamValidationError extends Error {
-  /** Which document failed: a policy or a role. */
-  readonly kind: 'policy' | 'role'
+  /**
+   * What failed: a policy document, a role document, or a field of the request
+   * itself.
+   *
+   * `'request'` was added because the edge validators in `server/generic`
+   * (`iamRequireStringField` and friends) threw a bare `Error`, so a body
+   * missing `roleId` - the caller's typo - was answered **500** on express,
+   * next and nest. Hono alone answered 400, by hand-rolling the same checks
+   * inline with its own 128-char cap. One shape of failure cannot have two
+   * status codes and two length limits depending on which adapter is mounted.
+   */
+  readonly kind: 'policy' | 'role' | 'request'
   /** The validator's error codes, already formatted with their paths. */
   readonly issues: readonly string[]
   /**
@@ -29,7 +39,25 @@ export class IamValidationError extends Error {
    */
   readonly status = 400
 
-  constructor(kind: 'policy' | 'role', issues: readonly string[], message: string) {
+  /**
+   * The same number under the name Nest's own filter actually reads.
+   *
+   * `status` alone was not enough for the case the comment above describes.
+   * Nest's base exception filter routes a non-`HttpException` to
+   * `handleUnknownError`, whose only non-500 branch duck-types
+   * `err.statusCode && err.message` — `statusCode`, not `status`. So a Nest
+   * host that wired no filter of its own answered **500** for a malformed
+   * policy body while the other three answered 400, and logged a stack trace
+   * for what is the caller's typo. `adminHttpError` in the nest adapter had
+   * already learned this and sets both; this is the same lesson applied to the
+   * error the engine itself throws.
+   *
+   * Both names are kept: `status` for express-style consumers, `statusCode` for
+   * Nest's.
+   */
+  readonly statusCode = 400
+
+  constructor(kind: 'policy' | 'role' | 'request', issues: readonly string[], message: string) {
     super(message)
     this.name = 'IamValidationError'
     this.kind = kind

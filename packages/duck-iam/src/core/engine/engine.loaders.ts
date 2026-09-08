@@ -250,7 +250,11 @@ export async function loadRbacPolicy<
       return deepFreezePolicy(rolesToPolicy(roles, deps.scopeMode))
     },
     (built) => {
-      deps.rbacPolicyCache.set('rbac', built)
+      // Capped at the role snapshot it was compiled from. A derived cache that
+      // takes a fresh TTL of its own outlives its input: `roleCache` could be
+      // one millisecond from lapsing here, and without the cap this policy
+      // would keep answering from those roles for another full `cacheTTL`.
+      deps.rbacPolicyCache.set('rbac', built, deps.roleCache.expiresAt('all'))
     },
   )
 }
@@ -281,7 +285,18 @@ export async function loadAllPolicies<
       return rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
     },
     (merged) => {
-      deps.mergedPolicyCache.set('merged', merged)
+      // Same rule, two inputs: the merged view is only as fresh as the older
+      // of them. `Math.min` over `Infinity` for an absent entry means "this
+      // input imposes no cap", which is the right reading - a value that was
+      // not cached was read live.
+      deps.mergedPolicyCache.set(
+        'merged',
+        merged,
+        Math.min(
+          deps.policyCache.expiresAt('all') ?? Number.POSITIVE_INFINITY,
+          deps.rbacPolicyCache.expiresAt('rbac') ?? Number.POSITIVE_INFINITY,
+        ),
+      )
     },
   )
 }

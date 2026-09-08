@@ -52,6 +52,19 @@ export class RuleBuilder<
   private _resources: (TResource | '*')[] = ['*']
   private _conditions: AccessControl.IConditionGroup = { all: [] }
   private _conditionsSet = false
+  /**
+   * Whether anything that shapes *what is granted* has been said. `desc`,
+   * `priority` and `meta` deliberately do not count: they annotate a rule, they
+   * do not narrow it.
+   *
+   * The defaults are the broadest possible grant - `allow` on `['*']` x `['*']`
+   * with `{all:[]}` conditions, which evaluates true - so a builder nobody
+   * configured is not an empty rule, it is allow-everything. `build()` refuses
+   * that rather than returning it, which is what `PolicyBuilder.rule()` has
+   * always claimed happens. A *deliberate* broad grant still builds: say
+   * `.allow()` and the flag is set.
+   */
+  private _grantShapeSet = false
   private _metadata?: IamPrimitives.Attributes
   private _scopeCondition?: AccessControl.ICondition
 
@@ -79,6 +92,7 @@ export class RuleBuilder<
    * @returns `this` for chaining
    */
   allow(): this {
+    this._grantShapeSet = true
     this._effect = 'allow'
     return this
   }
@@ -93,6 +107,7 @@ export class RuleBuilder<
    * @returns `this` for chaining
    */
   deny(): this {
+    this._grantShapeSet = true
     this._effect = 'deny'
     return this
   }
@@ -142,6 +157,7 @@ export class RuleBuilder<
    * @returns `this` for chaining
    */
   on(...actions: (TAction | '*')[]): this {
+    this._grantShapeSet = true
     this._actions = actions
     return this
   }
@@ -162,6 +178,7 @@ export class RuleBuilder<
    * @returns `this` for chaining
    */
   of<R extends TResource | '*'>(...resources: R[]): RuleBuilder<TAction, TResource, TScope, TRole, TContext, R> {
+    this._grantShapeSet = true
     this._resources = resources
     // Narrows TActiveResource so `.when(w => w.resourceAttr(...))` autocompletes
     // the attributes of the resource(s) just selected.
@@ -191,6 +208,23 @@ export class RuleBuilder<
    * @returns `this` for chaining
    */
   forScope(...scopes: (TScope | '*')[]): this {
+    // A scope restriction that names no scope is always a call-site bug, and
+    // the shape that gets here in practice is `.forScope(...tenantIds)` with a
+    // list that came back empty. Reading that as "every scope" is the fail-open
+    // reading: the author asked for a restriction and would silently get a
+    // global rule. `'*'` is how "every scope" is said out loud.
+    if (scopes.length === 0) {
+      throw new Error(
+        `[@gentleduck/iam:builder] RuleBuilder.forScope("${this._id}") was called with no scopes. ` +
+          'A scope restriction that names nothing would leave the rule global, which is the opposite ' +
+          "of the intent. Pass at least one scope, or `'*'` if the rule really is unscoped.",
+      )
+    }
+    // Counted even when every scope is `'*'`. The refusal in `build()` is aimed
+    // at *silence* - a callback that configured nothing - and `.forScope('*')`
+    // is an explicit statement about scope, so it is not silence. It narrows
+    // nothing, which is why the wildcard still produces no condition below.
+    this._grantShapeSet = true
     const nonWild = scopes.filter((s): s is TScope => s !== '*')
     if (nonWild.length === 0) return this
     this._scopeCondition =
@@ -229,7 +263,15 @@ export class RuleBuilder<
     ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
-    this._addConditions(iamChosenWhen(w, fn(w)).buildAll())
+    const group = iamChosenWhen(w, fn(w)).buildAll()
+    // Only a callback that actually added a condition counts as configuring the
+    // grant. An empty `all` group is not a narrow rule, it is the broadest one:
+    // `evalConditionGroup` runs `.every` over it, and `.every` on an empty array
+    // is `true`, so `{all: []}` matches every request. Counting it would let
+    // `.when(w => w)` build the same allow-everything rule `build()` refuses.
+    // `whenAny` deliberately does not do this - see its own note.
+    if (group.all.length > 0) this._grantShapeSet = true
+    this._addConditions(group)
     return this
   }
 
@@ -261,6 +303,12 @@ export class RuleBuilder<
     ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
+    // Counted unconditionally, unlike `when`. An empty `any` group fails closed
+    // where an empty `all` group fails open: `.some` on an empty array is
+    // `false`, so `{any: []}` matches nothing and the rule can never grant.
+    // Building an `any` list from a collection that turns out to be empty is a
+    // legitimate way to say "nobody", so there is nothing to refuse here.
+    this._grantShapeSet = true
     this._addConditions(iamChosenWhen(w, fn(w)).buildAny())
     return this
   }
@@ -291,6 +339,14 @@ export class RuleBuilder<
    * @returns A fully constructed, immutable {@link AccessControl.IRule}
    */
   build(): AccessControl.IRule<TAction, TResource> {
+    if (!this._grantShapeSet) {
+      throw new Error(
+        `[@gentleduck/iam:builder] RuleBuilder.build("${this._id}") was never configured - ` +
+          'no effect, action, resource, scope or condition was set. The defaults are the broadest ' +
+          'possible grant (allow * on *, unconditional), so this is refused rather than returned. ' +
+          'Call `.allow()` if a broad grant is intended.',
+      )
+    }
     let conditions = this._conditions
 
     if (this._scopeCondition) {

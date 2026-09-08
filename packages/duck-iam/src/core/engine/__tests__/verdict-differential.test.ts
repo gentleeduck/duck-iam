@@ -1,5 +1,18 @@
 /**
- * E2E: the compiled table vs the interpreter, over catalogs nobody hand-wrote.
+ * The compiled table vs the interpreter, over catalogs nobody hand-wrote.
+ *
+ * Deliberately NOT named `*.e2e.test.ts`, despite being a sweep. It imports
+ * `IamMemoryAdapter` and nothing else - no Postgres, no Redis, no container -
+ * and finishes in about thirteen seconds. Under the old name it was excluded
+ * from `bun run test` by the `--exclude` glob in `package.json` that drops
+ * every `.e2e.test.ts` file, and
+ * no CI workflow invokes `test:e2e`, so the one detector in this package that
+ * can catch an under-granting compiled table ran in no lane at all: a mutation
+ * to `compiled.lookup.ts` that denies where the interpreter allows shipped
+ * green through every job. The manifesto's rule is "prove the harness runs";
+ * a suite that executes nowhere is further from that than a skipped one, which
+ * at least reports itself. The `.e2e.` suffix is for tests that need external
+ * infrastructure, and this needs none.
  *
  * As of Batch 52 BOTH modes take their verdict from the compiled table;
  * development additionally runs the interpreter for provenance and

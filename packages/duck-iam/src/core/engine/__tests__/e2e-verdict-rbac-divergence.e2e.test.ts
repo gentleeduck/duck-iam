@@ -8,9 +8,14 @@
  * grants access that a development run of the same catalog refuses. Both are
  * reached with zero ABAC policies - RBAC role permissions alone.
  *
- * These assert the *correct* behaviour (the two paths agree), so they fail
- * against the current code. That is deliberate: a test edited to match the
- * broken behaviour certifies the break.
+ * They assert the *correct* behaviour (the two paths agree, and on a named
+ * verdict), and they failed when they were written. They pass now, and the
+ * direction the fix took is recorded at each case: an RBAC permission that
+ * cannot be evaluated contributes nothing rather than poisoning the whole
+ * `__rbac__` policy, so an independent unconditional grant survives it. The
+ * ABAC control at the end agrees on *deny* for the same throw, because a policy
+ * that may carry deny rules is Indeterminate as a whole - that asymmetry is the
+ * substance of the fix, not an accident of it.
  *
  * They differ in reachability, and the difference matters:
  *
@@ -89,6 +94,22 @@ function nestedAlwaysTrue(depth: number): AccessControl.IConditionGroup {
   return group
 }
 
+/**
+ * Both engines answering `false` to everything would satisfy every parity
+ * assertion in this file perfectly - which is exactly the failure mode a
+ * differential test cannot see. So each case names the verdict it expects as
+ * well, and the expectation is derived from the contract rather than copied
+ * from a run: a condition that throws makes its policy **Indeterminate**, and
+ * an Indeterminate policy casts `defaultEffect`, which is `deny`. "They agree"
+ * and "they agree on deny" are different claims, and only the second one is
+ * worth anything here.
+ */
+function expectAgreedVerdict(v: IVerdicts, expected: boolean, label: string): void {
+  expect(v.disagreements, `${label}: table/interpreter disagreement: ${v.disagreements[0] ?? ''}`).toEqual([])
+  expect(v.production, `${label}: production and development must reach the same verdict`).toBe(v.development)
+  expect(v.production, `${label}: the agreed verdict itself`).toBe(expected)
+}
+
 describe('E2E verdict divergence: RBAC role permissions', () => {
   it('a VALID role permission whose condition throws on request data must not be short-circuited by an inherited grant', async () => {
     // The strongest form of the finding: nothing here is malformed.
@@ -139,8 +160,18 @@ describe('E2E verdict divergence: RBAC role permissions', () => {
       },
     )
 
-    expect(v.disagreements, `table/interpreter disagreement: ${v.disagreements[0] ?? ''}`).toEqual([])
-    expect(v.production, 'production and development must reach the same verdict').toBe(v.development)
+    // Allow - and the direction is the point, so it is argued rather than
+    // recorded. RBAC permissions are additive and there is no such thing as a
+    // deny permission, so a grant nobody can evaluate contributes *nothing*:
+    // it can neither authorize on its own nor cancel `clean`'s unconditional
+    // `read doc`, which the subject holds through inheritance and which no
+    // condition guards. Denying here would mean a caller could revoke its own
+    // access - or anybody's, on a shared attribute - by padding one attribute
+    // past the regex cap, turning an authorization bug into a denial-of-service
+    // one. Contrast the ABAC control at the end of this file, which agrees on
+    // *deny* for the same throw: an ABAC policy may carry deny rules, so one
+    // that cannot be fully evaluated is Indeterminate as a whole.
+    expectAgreedVerdict(v, true, 'oversized request attribute')
   })
 
   it('a role permission whose condition THROWS must not be short-circuited by an inherited clean grant', async () => {
@@ -187,8 +218,10 @@ describe('E2E verdict divergence: RBAC role permissions', () => {
       },
     )
 
-    expect(v.disagreements, `table/interpreter disagreement: ${v.disagreements[0] ?? ''}`).toEqual([])
-    expect(v.production, 'production and development must reach the same verdict').toBe(v.development)
+    // Allow, for the reason argued in the previous case: the unconditional
+    // inherited grant stands on its own, and an unevaluable *grant* cannot
+    // revoke it.
+    expectAgreedVerdict(v, true, 'unknown operator')
   })
 
   it('a role permission condition nested exactly at MAX_CONDITION_DEPTH must mean the same thing to both paths', async () => {
@@ -225,8 +258,11 @@ describe('E2E verdict divergence: RBAC role permissions', () => {
           subjectId: 'u1',
         },
       )
-      expect(v.disagreements, `depth ${depth}: ${v.disagreements[0] ?? ''}`).toEqual([])
-      expect(v.production, `depth ${depth}: production and development must agree`).toBe(v.development)
+      // Under the cap the always-true leaf is reachable and the grant stands;
+      // at or over it `evalConditionGroup` fails closed and the permission
+      // cannot apply. Naming the side of the boundary each depth falls on is
+      // what makes this more than "the two paths said the same thing".
+      expectAgreedVerdict(v, depth < 10, `depth ${depth}`)
     }
   })
 
@@ -267,7 +303,6 @@ describe('E2E verdict divergence: RBAC role permissions', () => {
         subjectId: 'u1',
       },
     )
-    expect(v.disagreements).toEqual([])
-    expect(v.production).toBe(v.development)
+    expectAgreedVerdict(v, false, 'ABAC control')
   })
 })

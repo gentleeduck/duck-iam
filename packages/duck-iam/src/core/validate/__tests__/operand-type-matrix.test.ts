@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { evalCondition } from '../../conditions/conditions.libs'
+import { evalCondition, IamOperandTypeError } from '../../conditions/conditions.libs'
 import type { IamRequest } from '../../types'
 import { validatePolicy } from '../validate'
 import { VALID_OPERATORS } from '../validate.libs'
 
 /**
- * No operator throws on a wrongly-typed operand - each returns a fixed verdict
- * instead, and for the negated ones that verdict is `true`, so an "allow unless
- * denylisted" rule allows everyone. The validator is the only place that
- * failure is visible, so the whole 19-operator matrix is pinned here rather
- * than the three operators that happened to have a test.
+ * A wrongly-typed operand used to make each operator return a fixed verdict,
+ * and for the negated ones that verdict was `true`, so an "allow unless
+ * denylisted" rule allowed everyone. The validator refused the operand, and
+ * that was taken to make the verdict unreachable.
+ *
+ * It was not. Only `savePolicy` and `import` run the validator; `loadPolicies`
+ * does not, so a policy seeded through an adapter constructor - a documented
+ * API - or written straight to the store is evaluated exactly as authored.
+ * Measured end to end: a seeded denylist allowed the banned subject. The
+ * evaluator now applies the same matrix itself and throws, which the engine
+ * absorbs as Indeterminate, and both checks read one table.
  *
  * `EXPECTED_OPERAND` is written out rather than imported from `OPERAND_TYPES`:
  * a test that reads the table it is checking cannot catch an edit to it.
@@ -103,15 +109,24 @@ describe('operator x operand type', () => {
 
   it.each(MATRIX)('%s with %s', (operator, _label, value) => {
     const kind = EXPECTED_OPERAND[operator] ?? 'any'
-    expect(accepts(operator, value)).toBe(satisfies(kind, value))
+    // The one cell where a type-satisfying operand is still refused, and the
+    // refusal is not about its type. `matches` compiles its operand, and
+    // `evalCondition` will not compile one that came from the request - an
+    // attacker controlling that attribute would otherwise pin in a catastrophic
+    // regex. So the condition is false for every request that can ever arrive
+    // and the rule never fires; the validator refuses it rather than store a
+    // rule that provably does nothing. See `matches-pattern-agreement.test.ts`.
+    // `satisfies` is left alone deliberately: it models operand *types*, and
+    // folding a semantic refusal into it would make it wrong about types.
+    const inertUserSourcedPattern = operator === 'matches' && typeof value === 'string' && value.startsWith('$')
+    expect(accepts(operator, value)).toBe(satisfies(kind, value) && !inertUserSourcedPattern)
   })
 })
 
 /**
- * What the matrix is protecting against, spelled out. Each of these is the
- * verdict a malformed operand produces at evaluation - all three are the
- * permissive direction, and all three are unreachable only because the
- * validator refuses the operand first.
+ * What the matrix is protecting against, spelled out - and what now happens
+ * instead. The first two were the permissive direction; both were reachable
+ * without the validator, and both now refuse to answer.
  */
 describe('the verdicts a malformed operand would produce', () => {
   const req: IamRequest.IAccessRequest = {
@@ -121,29 +136,44 @@ describe('the verdicts a malformed operand would produce', () => {
     subject: { attributes: { groups: ['staff'], tier: 'gold' }, id: 'u1', roles: [] },
   }
 
-  it('`nin` with a non-array operand returns true, so a denylist admits everyone', () => {
-    expect(evalCondition(req, { field: 'subject.attributes.tier', operator: 'nin', value: 'gold' })).toBe(true)
+  it('`nin` with a non-array operand throws rather than admitting everyone', () => {
+    // The old verdict was `true`: a denylist that admits every subject it was
+    // written to exclude. Indeterminate is the honest answer - the operator
+    // cannot compare against a non-list - and the caller fails closed on it.
+    expect(() => evalCondition(req, { field: 'subject.attributes.tier', operator: 'nin', value: 'gold' })).toThrow(
+      IamOperandTypeError,
+    )
     expect(accepts('nin', 'gold')).toBe(false)
   })
 
-  it('`not_contains` on an absent field returns true', () => {
+  it('`eq` with a missing operand throws rather than matching every absent attribute', () => {
+    // `JSON.stringify` drops an `undefined`, so the key simply vanishes on the
+    // way to a store; `cond.value ?? null` then compared equal to any absent
+    // attribute. The guard passed for exactly the subjects it excluded.
+    expect(() => evalCondition(req, { field: 'subject.attributes.absent', operator: 'eq' })).toThrow(
+      IamOperandTypeError,
+    )
+    expect(accepts('eq', MISSING)).toBe(false)
+  })
+
+  it('`not_contains` on an absent field still returns true - that is the field, not the operand', () => {
+    // Unchanged, and deliberately: an empty list contains nothing. The operand
+    // is well-formed here, so there is nothing unanswerable about the question.
     expect(evalCondition(req, { field: 'subject.attributes.absent', operator: 'not_contains', value: 'staff' })).toBe(
       true,
     )
-  })
-
-  it('`eq` with a missing operand compares against null, matching an absent attribute', () => {
-    expect(evalCondition(req, { field: 'subject.attributes.absent', operator: 'eq' })).toBe(true)
-    expect(accepts('eq', MISSING)).toBe(false)
   })
 
   it('`contains` on a string-typed field returns false rather than matching a substring', () => {
     expect(evalCondition(req, { field: 'subject.attributes.tier', operator: 'contains', value: 'gol' })).toBe(false)
   })
 
-  // Control: the same operators reach the right verdict on a well-formed operand.
+  // Control: the same operators reach the right verdict on a well-formed
+  // operand. Without this the three clauses above are satisfied by an
+  // evaluator that throws on everything.
   it('control: well-formed operands answer correctly', () => {
     expect(evalCondition(req, { field: 'subject.attributes.tier', operator: 'nin', value: ['gold'] })).toBe(false)
+    expect(evalCondition(req, { field: 'subject.attributes.tier', operator: 'nin', value: ['silver'] })).toBe(true)
     expect(evalCondition(req, { field: 'subject.attributes.groups', operator: 'contains', value: 'staff' })).toBe(true)
     expect(evalCondition(req, { field: 'subject.attributes.tier', operator: 'eq', value: 'gold' })).toBe(true)
   })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validatePolicy } from '../validate'
+import { validatePolicy, validateRole } from '../validate'
 
 const NUL = String.fromCharCode(0)
 
@@ -64,4 +64,59 @@ describe('validatePolicy rejects control characters in action and resource names
       expect(validatePolicy(policyWith([name], [name])).valid).toBe(true)
     },
   )
+})
+
+/**
+ * The same guard on the *role* path, which this file never reached: every case
+ * above goes through `validatePolicy`, so `validateRole`'s two control-char
+ * checks could each be replaced with `false` and the whole suite stayed green.
+ *
+ * Both have a concrete reason recorded beside them. A NUL in a role id is the
+ * assignment member separator on redis, so `saveRole` stored a role that
+ * `assignRole` then threw on; a NUL in a permission's action or resource
+ * reaches a rule's `actions`/`resources` through `rolesToPolicy`, which the
+ * validator has always refused when the same string was written as a policy -
+ * so the identical value was rejected one way and accepted the other.
+ */
+describe('validateRole rejects control characters too', () => {
+  function roleWith(over: Record<string, unknown>): unknown {
+    return { id: 'r1', name: 'R', permissions: [{ action: 'read', resource: 'post' }], ...over }
+  }
+
+  it('a clean role is accepted - the control', () => {
+    expect(validateRole(roleWith({})).valid).toBe(true)
+  })
+
+  it('rejects a NUL in the role id', () => {
+    const result = validateRole(roleWith({ id: `admin${NUL}` }))
+    expect(result.valid).toBe(false)
+    expect(result.issues.some((i) => (i.path ?? '') === 'id')).toBe(true)
+  })
+
+  it('rejects a NUL in a permission action', () => {
+    const result = validateRole(roleWith({ permissions: [{ action: `read${NUL}`, resource: 'post' }] }))
+    expect(result.valid).toBe(false)
+    expect(result.issues.some((i) => (i.path ?? '').startsWith('permissions[0].action'))).toBe(true)
+  })
+
+  it('rejects a NUL in a permission resource', () => {
+    const result = validateRole(roleWith({ permissions: [{ action: 'read', resource: `post${NUL}x` }] }))
+    expect(result.valid).toBe(false)
+    expect(result.issues.some((i) => (i.path ?? '').startsWith('permissions[0].resource'))).toBe(true)
+  })
+
+  it.each([1, 8, 9, 10, 13, 27, 31, 127])('rejects control character %i wherever it appears', (code) => {
+    const ch = String.fromCharCode(code)
+    expect(validateRole(roleWith({ id: `admin${ch}` })).valid).toBe(false)
+    expect(validateRole(roleWith({ permissions: [{ action: `read${ch}`, resource: 'post' }] })).valid).toBe(false)
+    expect(validateRole(roleWith({ permissions: [{ action: 'read', resource: `post${ch}` }] })).valid).toBe(false)
+  })
+
+  it('accepts ordinary names that merely look unusual', () => {
+    // Anti-vacuity: a check that refused every id would satisfy the rows above.
+    for (const name of ['admin', 'org:admin', 'a-b_c.d', 'rôle', '管理者']) {
+      expect(validateRole(roleWith({ id: name })).valid).toBe(true)
+      expect(validateRole(roleWith({ permissions: [{ action: name, resource: name }] })).valid).toBe(true)
+    }
+  })
 })

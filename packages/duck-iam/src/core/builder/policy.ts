@@ -167,9 +167,10 @@ export class PolicyBuilder<
   ): this {
     // Same contract as the condition callbacks: the signature says the callback
     // returns a builder, so a callback that returns a different one is honoured
-    // rather than dropped. Here a dropped return already failed loudly - an
-    // untouched RuleBuilder has no effect and `build()` refuses it - but the
-    // two callbacks should not read differently.
+    // rather than dropped. A callback that configures nothing fails loudly at
+    // `build()`, which refuses a builder whose grant shape was never set - the
+    // defaults are allow-everything, not an empty rule, so returning one would
+    // have pushed an unconditional grant into the policy in silence.
     const builder = new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id)
     const returned = fn(builder)
     this._rules.push((returned instanceof RuleBuilder ? returned : builder).build())

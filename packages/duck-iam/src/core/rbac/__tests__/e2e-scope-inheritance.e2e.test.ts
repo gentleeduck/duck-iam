@@ -384,12 +384,16 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
     })
 
     /**
-     * PHANTOM ROLE. `resolveEffectiveRoles` adds an inherited role id to the
-     * effective set BEFORE looking it up in the catalog, so a role id that no
-     * role defines still lands in `subject.roles` - and a hand-written ABAC
-     * policy that tests `subject.roles contains 'ghost'` fires on it.
+     * PHANTOM ROLE, now closed. `resolveEffectiveRoles` used to add an
+     * inherited role id to the effective set BEFORE looking it up in the
+     * catalog, so an id that no role defines landed in `subject.roles` and a
+     * hand-written ABAC policy testing `subject.roles contains 'ghost'` fired
+     * on it. These assertions read the way they do because the product was
+     * changed; the earlier version of this test asserted `true` here under a
+     * docstring calling the behaviour a defect, which is a test certifying a
+     * break. `validateRoles` calls this catalog `DANGLING_INHERIT` / error.
      */
-    it('a nonexistent inherited role id still appears in subject.roles and can satisfy an ABAC policy', async () => {
+    it('a nonexistent inherited role id does not appear in subject.roles and cannot satisfy an ABAC policy', async () => {
       await seedRole({ id: 'r', inherits: ['ghost'] })
       await seedAssignment('u1', 'r', null)
       await seedPolicy('p-ghost', [
@@ -403,18 +407,19 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
         },
       ])
       const engine = makeEngine()
-      expect([...(await engine.getEffectiveRoles('u1'))].sort()).toEqual(['ghost', 'r'])
-      expect(await engine.can('u1', 'admin', DOC)).toBe(true)
+      expect([...(await engine.getEffectiveRoles('u1'))].sort()).toEqual(['r'])
+      expect(await engine.can('u1', 'admin', DOC)).toBe(false)
       expect(engineErrors).toEqual([])
     })
 
     /**
-     * Same defect reached the way an operator actually reaches it: delete the
-     * role, and the id survives in `subject.roles` because another role still
-     * names it in `inherits`. The deleted role's own permissions are correctly
-     * gone; a policy keyed on the role ID is not.
+     * The same closure reached the way an operator actually reaches it: delete
+     * the role, and the id used to survive in `subject.roles` because another
+     * role still named it in `inherits`. The deleted role's own permissions
+     * were always correctly gone; a policy keyed on the role ID was not, so
+     * the two halves of one deletion disagreed. They now agree.
      */
-    it('deleting a role does not remove its id from subject.roles while another role inherits it', async () => {
+    it('deleting a role removes its id from subject.roles even while another role inherits it', async () => {
       await seedRole({ id: 'ghost', permissions: [{ action: 'read', resource: 'doc' }] })
       await seedRole({ id: 'r', inherits: ['ghost'] })
       await seedAssignment('u1', 'r', null)
@@ -436,9 +441,9 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
 
       // The permissions the deleted role carried are gone, as they must be.
       expect(await engine.can('u1', 'read', DOC)).toBe(false)
-      // The role ID is not.
-      expect([...(await engine.getEffectiveRoles('u1'))].sort()).toEqual(['ghost', 'r'])
-      expect(await engine.can('u1', 'admin', DOC)).toBe(true)
+      // ...and so is the role ID, so a policy keyed on it stops matching too.
+      expect([...(await engine.getEffectiveRoles('u1'))].sort()).toEqual(['r'])
+      expect(await engine.can('u1', 'admin', DOC)).toBe(false)
       expect(engineErrors).toEqual([])
     })
   })
@@ -479,6 +484,27 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
      * Observed, not desired: the cap is a traversal bound, not the boundary the
      * doc comment on `MAX_INHERITANCE_DEPTH` describes ("Roles past this depth
      * are silently dropped from the resolved set").
+     *
+     * The obvious fix does not work, and this is the record of trying it so the
+     * next reader does not spend the afternoon the same way. Making
+     * `rolesToPolicy` emit each role's OWN permissions and letting inheritance
+     * ride on `subject.roles` closes this exactly - inside the cap the two
+     * formulations are identical, because every ancestor within the cap is
+     * itself in the resolved set and emits its own rules - and it passed the
+     * whole default suite bar twelve mechanism tests. It then failed two scoped
+     * cases in this very file: `an inherited role declaring scope '*' grants at
+     * the assignment scope...` and `an unscoped inner role reached through two
+     * differently-scoped parents grants in all three`.
+     *
+     * That is the load-bearing fact: the flattening carries **per-path scope**.
+     * An inherited permission's grant depends on the route it was inherited
+     * through - the same inner role reached through an `org-a` parent and an
+     * `org-b` parent grants in both - and a single rule keyed on the declaring
+     * role cannot express that. So the cap cannot be made consistent by
+     * removing the flattening; it needs either a subject-rooted permission walk
+     * (which a catalog-wide cached policy cannot do) or a different bound
+     * entirely. All three candidates are BREAKING, and picking one is a design
+     * decision rather than a bug fix, so the disagreement stays pinned here.
      */
     it(`a permission past MAX_INHERITANCE_DEPTH (${MAX_INHERITANCE_DEPTH}) is still granted although the role is not held`, async () => {
       await seedChain(34, {

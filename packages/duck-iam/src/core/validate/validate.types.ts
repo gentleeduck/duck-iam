@@ -19,6 +19,7 @@ export namespace IamValidate {
     | 'EMPTY_ROLE'
     | 'ERR_REGEX_CATASTROPHIC'
     | 'ERR_REGEX_INVALID'
+    | 'ERR_REGEX_USER_SOURCED'
     | 'INHERITANCE_TOO_DEEP'
     | 'INVALID_ALGORITHM'
     | 'INVALID_CONDITION'

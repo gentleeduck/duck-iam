@@ -1,5 +1,11 @@
 import type { IamEngine } from '..'
-import { detectCatastrophicRegex, MAX_CONDITION_DEPTH } from '../conditions/conditions.libs'
+import {
+  detectCatastrophicRegex,
+  MAX_CONDITION_DEPTH,
+  OPERAND_TYPES,
+  operandHasType,
+  VALUELESS_OPERATORS,
+} from '../conditions/conditions.libs'
 
 // The regex-safety heuristic lives next to `getCachedRegex` so validate-time and
 // evaluate-time agree on exactly which patterns are refusable. Re-exported here
@@ -114,44 +120,19 @@ function isCompilableRegex(pattern: string): boolean {
   }
 }
 
-/** Operators that read only the field; an operand on them is meaningless. */
-const VALUELESS_OPERATORS: ReadonlySet<string> = new Set(['exists', 'not_exists'])
-
 /**
- * The operand type each listed operator compares against. A wrongly-typed
- * operand does not raise at evaluation - it makes the operator return a fixed
- * verdict, and for the negated ones (`nin`, `not_contains`) that verdict is
- * `true`, so an "allow unless denylisted" rule allows everyone. Operators not
- * listed here accept any scalar.
+ * The operand-type matrix moved to `conditions/conditions.libs`, beside the
+ * operator table it describes, and is imported above.
+ *
+ * It used to be defined here, with a docblock explaining that a wrongly-typed
+ * operand makes an operator return a fixed verdict - `true` for the negated
+ * ones, so an "allow unless denylisted" rule allows everyone - and that this
+ * check was what stopped it. It was not: only `savePolicy` and `import` run the
+ * validator, so a policy seeded through an adapter constructor or written
+ * straight to the store reached the evaluator unchecked. The evaluator now
+ * applies the same table itself and throws, and shares this one so the write
+ * check and the read check cannot disagree.
  */
-const OPERAND_TYPES: ReadonlyMap<string, 'array' | 'number' | 'string' | 'temporal'> = new Map([
-  ['in', 'array'],
-  ['nin', 'array'],
-  ['subset_of', 'array'],
-  ['superset_of', 'array'],
-  ['gt', 'number'],
-  ['gte', 'number'],
-  ['lt', 'number'],
-  ['lte', 'number'],
-  ['starts_with', 'string'],
-  ['ends_with', 'string'],
-  ['matches', 'string'],
-  ['before', 'temporal'],
-  ['after', 'temporal'],
-])
-
-function operandHasType(kind: 'array' | 'number' | 'string' | 'temporal', value: unknown): boolean {
-  switch (kind) {
-    case 'array':
-      return Array.isArray(value)
-    case 'number':
-      return typeof value === 'number'
-    case 'string':
-      return typeof value === 'string'
-    case 'temporal':
-      return typeof value === 'number' || typeof value === 'string'
-  }
-}
 
 /**
  * `POLICY_JSON_SCHEMA` sets `additionalProperties: false` on the policy, the
@@ -320,7 +301,28 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
     }
     // `matches` is the only operator that compiles its value into a regex.
     // Refuse catastrophic patterns at validate-time so they never reach the
-    // policy store. Non-string / $-resolved values are caught elsewhere.
+    // policy store.
+    //
+    // A `$`-resolved operand is refused for a different reason. `evalCondition`
+    // returns `false` for one without looking at the request, deliberately: an
+    // attacker who controls the referenced attribute could otherwise pin in a
+    // catastrophic regex. That refusal is right, but it makes the condition
+    // false for every request that will ever arrive - so a `deny`-when-`matches`
+    // rule written this way validates clean, stores clean, and never fires. The
+    // comment here used to say these were "caught elsewhere"; they were not,
+    // `isUserSourcedValue` is referenced only from `conditions.libs.ts`. A rule
+    // that provably cannot do anything is an authoring error, not a warning.
+    if (obj.operator === 'matches' && typeof obj.value === 'string' && obj.value.startsWith('$')) {
+      issues.push({
+        type: 'error',
+        code: 'ERR_REGEX_USER_SOURCED',
+        message:
+          'Condition "matches" pattern is read from request data. This is refused at evaluation time ' +
+          '(a caller-supplied pattern is a ReDoS vector), so the condition would always be false and the ' +
+          'rule would never fire. Use a literal pattern.',
+        path: `${path}.value`,
+      })
+    }
     if (obj.operator === 'matches' && typeof obj.value === 'string' && !obj.value.startsWith('$')) {
       const result = detectCatastrophicRegex(obj.value)
       if (!result.safe) {

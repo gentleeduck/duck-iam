@@ -2,11 +2,23 @@ import type { AccessControl, IamPrimitives, IamRequest } from '../types'
 import { evalCondition, isCondition, MAX_CONDITION_DEPTH, ops, resolveValue } from './conditions.libs'
 
 /**
- * Evaluate a single operator. Exposed for explain/trace functionality.
+ * Apply one operator to two already-resolved operands.
+ *
+ * This is the raw operator table, not the decision path. It deliberately
+ * carries none of `evalCondition`'s guards: it does not refuse `matches`
+ * against a `$`-sourced operand (the ReDoS pin that refusal exists to stop), it
+ * uses the process-wide regex cache rather than a per-Engine one, and an
+ * operator outside the table throws a bare `TypeError` instead of naming
+ * itself. Anything deciding or *reporting* access must call `evalCondition`;
+ * the explain trace used to call this and consequently showed operators a
+ * condition as satisfied that the engine had refused.
+ *
+ * Kept exported for callers that genuinely want one operator applied to values
+ * they resolved themselves - a policy linter, a condition preview.
  *
  * @param op         - The operator to apply.
- * @param fieldValue - Left-hand side resolved from the request.
- * @param condValue  - Right-hand side from the condition.
+ * @param fieldValue - Left-hand side, already resolved from the request.
+ * @param condValue  - Right-hand side, already resolved.
  * @returns `true` when the operator predicate holds.
  */
 export function evaluateOperator(

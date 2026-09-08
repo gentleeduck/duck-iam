@@ -48,6 +48,80 @@ export class IamRegexInputTooLargeError extends Error {
 }
 
 /**
+ * A condition whose operand does not have the type its operator compares
+ * against, so the operator cannot answer the question that was asked.
+ *
+ * Tagged and thrown for the same reason as {@link IamRegexInputTooLargeError},
+ * and for the reason `evalCondition` already gives when it meets an operator it
+ * does not know: an unanswerable condition is Indeterminate, not `false`, and
+ * answering `false` quietly retires a deny rule. The permissive direction here
+ * is worse still. `nin` and `not_contains` return **true** on a wrongly-typed
+ * operand, so `allow if tier nin 'banned'` - the author meant `['banned']` -
+ * admits every subject the denylist was written to exclude.
+ *
+ * The validator refuses all of this at `savePolicy` and at `import`, and that
+ * was taken to make it unreachable. It does not: `loadPolicies` does not
+ * validate, so a row seeded through an adapter constructor, written by direct
+ * SQL, or stored before the rule existed is evaluated exactly as authored. That
+ * path was measured, not assumed - a seeded denylist allowed a banned subject
+ * through `engine.can`.
+ */
+export class IamOperandTypeError extends Error {
+  readonly name = 'IamOperandTypeError'
+  readonly tag = 'duck-iam/operand-type'
+  readonly field: string
+  readonly operator: string
+  constructor(field: string, operator: string, detail: string) {
+    super(
+      `[@gentleduck/iam:conditions] operator "${operator}" on field "${field}" ${detail}; condition is Indeterminate.`,
+    )
+    this.field = field
+    this.operator = operator
+  }
+}
+
+/** Operators that read only the field; an operand on them is meaningless. */
+export const VALUELESS_OPERATORS: ReadonlySet<string> = new Set(['exists', 'not_exists'])
+
+/**
+ * The operand type each listed operator compares against. Operators not listed
+ * accept any scalar.
+ *
+ * It lives here, beside the operator table it describes, and `validate.libs`
+ * imports it: one table, so the check the author gets at write time and the
+ * check the evaluator applies at read time cannot drift apart.
+ */
+export const OPERAND_TYPES: ReadonlyMap<string, 'array' | 'number' | 'string' | 'temporal'> = new Map([
+  ['in', 'array'],
+  ['nin', 'array'],
+  ['subset_of', 'array'],
+  ['superset_of', 'array'],
+  ['gt', 'number'],
+  ['gte', 'number'],
+  ['lt', 'number'],
+  ['lte', 'number'],
+  ['starts_with', 'string'],
+  ['ends_with', 'string'],
+  ['matches', 'string'],
+  ['before', 'temporal'],
+  ['after', 'temporal'],
+])
+
+/** Whether `value` has the operand type `kind`. */
+export function operandHasType(kind: 'array' | 'number' | 'string' | 'temporal', value: unknown): boolean {
+  switch (kind) {
+    case 'array':
+      return Array.isArray(value)
+    case 'number':
+      return typeof value === 'number'
+    case 'string':
+      return typeof value === 'string'
+    case 'temporal':
+      return typeof value === 'number' || typeof value === 'string'
+  }
+}
+
+/**
  * LRU cache capacity for compiled regex patterns. Shared by both the
  * process-wide default cache and per-instance caches an engine may pass in.
  */
@@ -635,6 +709,27 @@ export function evalCondition(
       throw new Error(
         `[@gentleduck/iam:conditions] unknown operator "${String(cond.operator)}" on field "${cond.field}"`,
       )
+    }
+    // An operand of the wrong type is the same kind of unanswerable as an
+    // operator nobody implements, and it was the one the operators answered
+    // anyway - each with a fixed verdict, permissive for the negated ones. The
+    // check is here rather than only in the validator because the validator
+    // guards `savePolicy` and `import`, and nothing guards a row that was
+    // seeded, migrated, or written directly to the store.
+    //
+    // `condVal` is the RESOLVED operand, so this also covers what the validator
+    // cannot see: a `$`-prefixed reference is skipped there because its type is
+    // unknowable at authoring time, and it lands here as whatever the request
+    // actually carried.
+    if (!VALUELESS_OPERATORS.has(cond.operator)) {
+      if (cond.value === undefined) {
+        throw new IamOperandTypeError(cond.field, cond.operator, 'requires a "value" and the key is absent')
+      }
+      const expected = OPERAND_TYPES.get(cond.operator)
+      if (expected !== undefined && !operandHasType(expected, condVal)) {
+        const wanted = expected === 'temporal' ? 'a number or ISO-8601 string' : `a ${expected}`
+        throw new IamOperandTypeError(cond.field, cond.operator, `expects ${wanted} operand, got ${typeof condVal}`)
+      }
     }
     return op(fieldVal, condVal)
   } catch (err) {
