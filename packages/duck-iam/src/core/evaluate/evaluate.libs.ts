@@ -445,13 +445,21 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
 }
 
 /**
- * One-shot latch for {@link safeErrorReport}. A broken hook is a wiring fault
- * the operator fixes once; the report is reachable per policy per request on an
- * attacker-controlled path (a padded field makes `matches` throw), so repeating
- * it would hand that attacker a log flood. Same reasoning as the file adapter's
- * `rootDir` warn latch.
+ * Hooks already reported as throwing.
+ *
+ * A broken hook is a wiring fault the operator fixes once; the report is
+ * reachable per policy per request on an attacker-controlled path (a padded
+ * field makes `matches` throw), so repeating it would hand that attacker a log
+ * flood. Same reasoning as the file adapter's `rootDir` warn latch.
+ *
+ * Keyed on the hook, not one module-level boolean. A single latch meant one
+ * engine's transiently broken `onPolicyError` permanently silenced a different
+ * engine's - a different tenant's - hook failure for the life of the process,
+ * and a hook failure is how an operator learns that policy evaluation is
+ * throwing at all. A `WeakSet` because the key is the operator's own function
+ * and this must not be the reference that keeps their engine alive.
  */
-let _ERROR_HOOK_THREW = false
+const _ERROR_HOOK_THREW = new WeakSet<object>()
 
 /**
  * Run an error-reporting hook so that a throw inside it cannot escape.
@@ -467,18 +475,35 @@ let _ERROR_HOOK_THREW = false
  * Synchronous by design: these sites are on the evaluation path, so the async
  * `safeHookCall` would only leave a floating promise. Prefer `safeHookCall` for
  * the engine's own lifecycle hooks, which are already awaited.
+ *
+ * Takes the hook and its arguments rather than a `() => hook?.(...)` thunk. The
+ * thunk form gave the latch nothing stable to key on - every call built a fresh
+ * closure - and it made each of the six call sites repeat the same
+ * `err instanceof Error ? err : new Error(String(err))`. Normalising here keeps
+ * that in one place and, because the `if (!hook) return` comes first, stops
+ * allocating an `Error` on every throwing policy of every request when no hook
+ * is wired at all - which is the default.
+ *
+ * @param hook   - The operator's reporter, or `undefined` when none is wired.
+ * @param err    - Whatever was thrown; normalised to an `Error` for the hook.
+ * @param policy - The policy the throw came from.
  */
-export function safeErrorReport(report: () => void): void {
+export function safeErrorReport(
+  hook: ((err: Error, policy: AccessControl.IPolicy) => void) | undefined,
+  err: unknown,
+  policy: AccessControl.IPolicy,
+): void {
+  if (!hook) return
   try {
-    report()
-  } catch (err) {
-    if (_ERROR_HOOK_THREW) return
-    _ERROR_HOOK_THREW = true
+    hook(err instanceof Error ? err : new Error(String(err)), policy)
+  } catch (hookErr) {
+    if (_ERROR_HOOK_THREW.has(hook)) return
+    _ERROR_HOOK_THREW.add(hook)
     try {
       console.error(
         '[@gentleduck/iam:evaluate] an error-reporting hook threw - swallowed to preserve the decision. ' +
-          'This is reported once per process; the hook is still broken.',
-        err,
+          'This is reported once per hook; the hook is still broken.',
+        hookErr,
       )
     } catch {
       /* last-resort: give up logging; the decision matters more than diagnostics */

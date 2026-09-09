@@ -114,3 +114,51 @@ describe('a throwing onRuleError does not unwind the evaluation', () => {
     expect(onPolicyError).toHaveBeenCalled()
   })
 })
+
+/**
+ * The swallow above is rate-limited, and the latch used to be one module-level
+ * boolean. Two engines in one process - two tenants - share that boolean, so
+ * the first transiently broken hook anywhere permanently silenced the report
+ * for every other hook for the life of the process. A hook failure is how an
+ * operator learns that policy evaluation is throwing at all, so losing it to a
+ * neighbour's outage loses the only signal.
+ */
+describe('the broken-hook report is latched per hook, not per process', () => {
+  it('reports each throwing hook once, and reports a second hook too', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const reportsFor = (marker: string): number =>
+        errorSpy.mock.calls.filter((c: unknown[]) =>
+          c.some((arg) => arg instanceof Error && arg.message.includes(marker)),
+        ).length
+
+      const hookA = vi.fn(() => {
+        throw new Error('backend-A-down')
+      })
+      const hookB = vi.fn(() => {
+        throw new Error('backend-B-down')
+      })
+
+      evaluate([allowAll, denyBots], request(OVERSIZED), 'deny', 'and', hookA)
+      evaluate([allowAll, denyBots], request(OVERSIZED), 'deny', 'and', hookA)
+      // Latched: the second evaluation calls the hook again and swallows again,
+      // but says so only once.
+      expect(hookA.mock.calls.length).toBeGreaterThan(1)
+      expect(reportsFor('backend-A-down')).toBe(1)
+
+      // A different hook has its own budget. Under the old module-level latch
+      // this was 0 - silenced by hookA's failure.
+      evaluate([allowAll, denyBots], request(OVERSIZED), 'deny', 'and', hookB)
+      expect(reportsFor('backend-B-down')).toBe(1)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('does not build an Error when no hook is wired', () => {
+    // `safeErrorReport` returns before normalising, so a throwing policy on a
+    // request with no reporter costs nothing. Observable only as the decision
+    // still being the Indeterminate deny.
+    expect(evaluate([allowAll, denyBots], request(OVERSIZED), 'deny', 'and').allowed).toBe(false)
+  })
+})

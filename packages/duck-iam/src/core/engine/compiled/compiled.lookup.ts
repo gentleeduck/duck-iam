@@ -49,7 +49,7 @@ function evaluateDynamicCell(
       // a different cell reads as allow-only here and the vote is dropped. The
       // interpreter asks `policyHasDenyRule(policy)`; asking anything narrower is
       // what let production allow what development denied. Reported either way.
-      safeErrorReport(() => onPolicyError?.(err instanceof Error ? err : new Error(String(err)), group.policy))
+      safeErrorReport(onPolicyError, err, group.policy)
       const hasDeny = policyHasDenyRule(group.policy)
       perPolicy.push(hasDeny ? false : defaultEffect === 'allow')
       fromDefault.push(!hasDeny)
@@ -137,7 +137,11 @@ function rbacVote(
   // per-policy-group handling), so the whole scan resolves Indeterminate rather than
   // risking a partial, order-dependent vote.
   const groups = idx !== undefined ? table.rbacDynamic[idx] : undefined
-  if (groups) {
+  // The first group is bound here rather than asserted with `!` inside the
+  // catch. An empty list cannot throw, so requiring one narrows the type and
+  // skips exactly the work the loop would have done zero times.
+  const firstGroup = groups?.[0]
+  if (groups && firstGroup) {
     try {
       for (const g of groups) {
         if ((mask & g.roleMask) === 0) continue
@@ -153,7 +157,7 @@ function rbacVote(
       // Indeterminate, not NotApplicable. Role permissions are allow-only, so the
       // vote this scan would have cast is `defaultEffect` - returning `null`
       // abstains and deletes it, which under 'and' turns the throw into an allow.
-      safeErrorReport(() => onPolicyError?.(err instanceof Error ? err : new Error(String(err)), groups[0]!.policy))
+      safeErrorReport(onPolicyError, err, firstGroup.policy)
       if (voteSource) voteSource.fromDefault = true
       return defaultEffect === 'allow'
     }
@@ -168,7 +172,7 @@ function rbacVote(
       if (vote !== null) return vote
     } catch (err) {
       // Same Indeterminate contract as every other catch on this path.
-      safeErrorReport(() => onPolicyError?.(err instanceof Error ? err : new Error(String(err)), rbacResidual))
+      safeErrorReport(onPolicyError, err, rbacResidual)
       const hasDeny = policyHasDenyRule(rbacResidual)
       if (voteSource) voteSource.fromDefault = !hasDeny
       return hasDeny ? false : defaultEffect === 'allow'
@@ -225,7 +229,7 @@ export function lookup(
       // policy votes deny, an allow-only one votes `defaultEffect`. Swallowing the
       // error instead drops the vote entirely, which is how a throwing residual
       // policy made production allow what development denied.
-      safeErrorReport(() => onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy))
+      safeErrorReport(onPolicyError, err, policy)
       const hasDeny = policyHasDenyRule(policy)
       voteSource.fromDefault = !hasDeny
       push(hasDeny ? false : defaultEffect === 'allow')
