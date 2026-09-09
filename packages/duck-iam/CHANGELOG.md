@@ -4,9 +4,192 @@
 
 ### Minor Changes
 
+- ff6f112: Close five ways the policy builder could emit something other than what the author wrote.
+
+  **A condition callback that returns a group is no longer discarded.**
+  `RuleBuilder.when()`, `RuleBuilder.whenAny()`, `RoleBuilder.grantWhen()` and
+  `PolicyBuilder.rule()` used the builder they passed in and ignored the callback's
+  return value. The reusable-group idiom returns one, so
+  `.when(() => sharedOwnerOrAdmin())` authored to `{ all: [] }` - and `all` of
+  nothing is true, making the rule fire unconditionally: an allow rule granted to
+  everybody, a deny rule denied everybody. The returned builder is now honoured. A
+  callback that both chains onto its argument _and_ returns a different builder
+  throws, because there is no answer to which group was meant.
+
+  **Built condition groups no longer alias the builder's array.** `buildAll()`,
+  `buildAny()` and `buildNone()` snapshot. Reusing a `When` after building used to
+  reach back into rules that were already finished.
+
+  **`When.roles()`, `When.scopes()` and `When.resourceType()` refuse zero
+  arguments.** They emitted a membership test against an empty list, which can
+  never match - on a deny rule that removes the guard. Pass at least one value, or
+  `.in(field, list)` when the list is computed and may legitimately be empty.
+
+  **The builders emit absent optional keys, not keys holding `undefined`.**
+  `description`, `targets` and `version` on policies, `description`/`metadata` on
+  rules, `description`/`inherits`/`scope`/`metadata` on roles. A key holding
+  `undefined` survived in the memory, file and http stores and disappeared through
+  every JSON- or `jsonb`-backed one, so the same authored policy read back unequal
+  depending on where it had been. `version` in particular is now left out when
+  unset: the `version: 1` default belongs to the store, and a builder that
+  pre-empted it made "never set" indistinguishable from "set to 1".
+
+  **Breaking:** `when()`'s type parameters were reordered to
+  `when<TAction, TResource, TRole, TScope, TContext, TActiveResource>` so they name
+  the slots they fill. They previously ran `TAction, TResource, TScope, TRole`,
+  which let a scope be passed to `.role()` and a role to `.scope()`. Only callers
+  who pass all four explicitly are affected; inference is unchanged.
+
+- 3de4298: Make the HTTP boundary's refusals actually refuse.
+
+  **A wildcard rule turned every unmappable request back into an allow.** The
+  framework adapters map an HTTP request to an `(action, resource)` pair, and some
+  requests cannot be mapped: an unmapped method, or a path this layer and the
+  router downstream would read differently. Both were expressed by handing the
+  engine a sentinel _string_ - `IAM_UNKNOWN_ACTION`, `IAM_UNKNOWN_RESOURCE` -
+  documented as matching no policy and therefore denying. `'*'` matches every
+  string, sentinels included, so any deployment with a wildcard rule
+  (`.on('*').of('*')`, the ordinary shape of an admin role) allowed them. The
+  traversal guard that refuses to resolve `/posts/../admin/secret` handed the
+  engine `type: 'unknown'`, an admin was allowed, and express, hono, next and nest
+  then routed the raw target elsewhere - authorized as one resource, served as
+  another.
+
+  A string cannot carry a denial, so the denial moved into the engine: the token
+  is reserved, and both `authorize()` and `permissions()` refuse it before
+  consulting any policy. `permissions()` needed it separately because it does not
+  route through `authorize()`. The refusal reports `failure: 'input'` and fires
+  `onDeny` like any other denial. Reserving the token means a resource type or
+  action genuinely named `'unknown'` can no longer be granted; both constants have
+  always been documented as sentinels that deny.
+
+  **A literal backslash was not treated as ambiguous, though `%5C` was.** The
+  WHATWG URL parser rewrites `\` to `/` in a special-scheme URL before resolving
+  dot segments, so `new URL('http://x/posts\..\admin').pathname` is `/admin`:
+  `iamPathIsAmbiguous` read the type as `posts\..\admin` while anything parsing
+  the target through `URL` read `/admin`. The encoded form was already refused;
+  the plain character - the easier one to send - was not.
+
+  **The default CSRF check allowed cross-site requests on a capital letter.**
+  `iamDefaultCsrfCheck` read exactly one spelling of `Sec-Fetch-Site` out of a
+  header Record. Node lowercases what it parses, but the predicate is exported and
+  documented as taking any request-like object, and not finding the header is
+  indistinguishable from "no header was sent" - which it treats as a non-browser
+  caller and allows. The lookup is now case-insensitive across all three supported
+  header shapes, and reads own properties only.
+
+  **A throwing `csrfCheck` escaped the admin gate.** `iamRunAdminAuthz` caught a
+  throwing `authorize` and reported `phase: 'error'`, but let a throwing
+  `csrfCheck` propagate, so whether the request was refused depended on the
+  framework adapter's outer catch. A predicate that cannot answer has not said
+  yes: it is now `phase: 'forbidden'`, and `authorize` is not called.
+
+  **The admin audit could not name who made a mutation.** The gate passed any
+  truthy `actor` straight into the audit event, and the documented shape -
+  `authorize: (req) => req.user?.role === 'admin'` - returns a boolean. So the
+  mutation was authorized and the audit trail recorded `true` as the person who
+  made it, which attributes it to nobody. A truthy answer still authorizes, as it
+  always did; a value that names no one is now recorded as no one (`actor:
+undefined`), with a one-time notice explaining how to make mutations
+  attributable. New `iamIsNameableActor` export.
+
+  `iamDefaultCsrfCheck`'s five `as` casts were replaced with runtime type
+  predicates while fixing it.
+
+- 8c131a4: Grant writes now record who made them, `engine.admin` emits a typed mutation event for every write, and `mode` defaults to `'production'`.
+
+  **Actor provenance.** `IAssignOptions` gains `actor?: string`, and `revokeRole` / `revokeRoles` gain a matching `IRevokeOptions`. `savePolicy`, `saveRole` and `setSubjectAttributes` take a new `IActorOptions`. Every table in the drizzle and Prisma schemas has declared `created_by` / `updated_by` for as long as it has existed and nothing ever filled them - eight columns per dialect promising a provenance the API could not produce. They are written now: `created_by` on the row a call inserts, `updated_by` on the row it overwrites, so an edit records its editor without rewriting the original author. Both are written by spread rather than as an explicit null, so a table that predates the columns is untouched unless the caller names an actor.
+
+  `actor` is deliberately outside the `ASSIGN_OPTION_FIELDS` allow-list that `iamAssertNoAssignOptions` guards. Dropping `expiresAt` changes what the store answers; dropping `actor` does not, because the event carries it regardless.
+
+  **Mutation events.** Wire `hooks.onMutation` to receive a closed discriminated union - `role.assigned`, `role.revoked`, `role.scope-changed`, `role.saved`, `role.deleted`, `policy.saved`, `policy.deleted`, `attributes.set` - each carrying `at`, the optional `actor`, and the subject/role/scope the write touched.
+
+  The library owns the event and the actor and ships no history table: retention, redaction and GDPR erasure are compliance decisions the consuming application must own. There is no way to register your own events on this bus; the union stays closed so a `switch` on `type` stays exhaustive across versions.
+
+  Two details worth knowing: `attributes.set` carries key names and never values, because attribute bags routinely hold personal data and the event is likely headed for a durable log. And under `withTransaction`, events buffer alongside invalidations and are emitted only on `flush()` - a rolled-back grant leaves no history.
+
+  **Breaking:**
+
+  - **`mode` now defaults to `'production'`.** A consumer who never set it was running a production authorization engine that allocated a rich `Decision` on every call. Three consequences: `can()` / `check()` return `boolean` rather than `IDecision` unless you opt in; `policyCombine: 'first-applicable'` now throws at construction, since the production fast path cannot represent it; and devtools, which refuses a production engine, is now off unless you set `mode: 'development'`.
+  - **Explicit type arguments need a fifth.** TypeScript uses a type parameter's default rather than inferring it when the argument list is partial, so `new IamEngine<Action, Resource, Role, Scope>({ ..., mode: 'development' })` no longer typechecks. Write `new IamEngine<Action, Resource, Role, Scope, 'development'>(...)`, or drop the explicit arguments and let all five infer.
+  - **`afterEvaluate` and `onDeny` now fire in production too.** They were documented and implemented as development-only, which put the audit and alerting hooks in the mode nobody runs in production. The production decision is verdict-only - `allowed`, `effect`, `duration`, `timestamp`, and a `reason` that says so - because the compiled table erases policy identity at compile time and that erasure is the optimisation. `policy` and `rule` are absent rather than fabricated. Nothing is allocated unless one of the two hooks is wired.
+  - **`maxConcurrentSubjectLoads` defaults to `512`** instead of `0` (unbounded). Only distinct, never-before-cached subjects count toward it, so reaching 512 means a cold-start herd rather than normal traffic. Shedding denies legitimate requests, so the bound is deliberately generous; set `0` to restore unbounded explicitly.
+
+  **Also:**
+
+  - `IamEngine.setInvalidator(invalidator | null)` attaches, replaces or detaches an invalidator after construction, for callers whose Redis client is built after their engine. It unsubscribes the previous one first and validates the shape, so a malformed object fails loudly instead of surfacing later as invalidations that never arrive. `IConfig.invalidator` still works and now routes through it.
+  - `iamScopeAncestors` and `iamScopeCovers` are exported. Callers doing scope-aware rank or reach calculations had to reimplement the walk, and any reimplementation drifts from the relation the engine matches with.
+  - The drizzle adapter warns once per process, at construction, when `ops.isNull` or `ops.or` is missing. Both omissions are correct but silently slow - without `or`, `revokeRoleMany` degrades to one `DELETE` per row; without `isNull`, `updateAssignmentScope` falls back to revoke + assign, two writes with a window where the grant does not exist. Neither can be derived: `eq(col, null)` is not `IS NULL`, and there is no way to synthesise an `OR` builder from `eq` and `and`.
+
+  **Production and development now agree on two cases where they did not.** Both were found by running the same catalog through a production engine and a development engine and comparing verdicts; both had production granting access development refused, on identical data, with no malformed catalog anywhere.
+
+  - **A throwing role permission no longer voids unrelated grants.** `rolesToPolicy` folds every role permission into one generated `__rbac__` policy, and the interpreter caught a throwing condition at whole-policy scope - so one rotten permission denied a subject an unconditional grant held through a different role, while the compiled table answered allow from the grant mask before it ever reached the bad condition. A rule that throws inside that generated union now abstains and is reported through `onPolicyError`, matching the table. This is safe only there: `rolesToPolicy` emits `effect: 'allow'` and nothing else, so a skipped rule in an allow-only union can cost a subject a grant but can never suppress a denial. An authored policy still fails closed at whole-policy scope, because its vote may have been a deny.
+  - **Role permission conditions get the same nesting budget in both modes.** `rolesToPolicy` nests a permission's condition group one level inside the generated rule, so the interpreter reached it at depth 1 while the compiled table, which stores the group raw, started it at 0. Authors got ten usable levels in production and nine in development: at exactly `MAX_CONDITION_DEPTH` the table allowed and the interpreter denied, while depths on either side agreed. `validateRole` already validated at depth 1, so the table was the outlier; it now starts there too, via the new exported `IAM_RBAC_CONDITION_DEPTH`.
+
+  **Schema fixes.** The three drizzle schemas are three hand-written files describing one logical schema and nothing compared them, so they had drifted:
+
+  - MySQL's `iam_roles.inherits` was `NOT NULL` with no default, while Postgres and SQLite default it to `[]`. The same insert succeeded on two dialects and failed on the third.
+  - `ch_iam_roles_scope_not_blank` and `ch_iam_assignments_scope_not_blank` existed only on Postgres, so a whitespace-only scope was storable on MySQL and SQLite and rejected on Postgres.
+  - MySQL lacked `idx_iam_assignments_subject_scope`, leaving the scoped-subject lookup - the hot read - to a subject scan plus a filter. It is added unfiltered there, MySQL having no partial indexes.
+
+  A new `schema-parity.test.ts` compares columns, insert-required columns, indexes, CHECKs and foreign keys across all three dialects, with an explicit allow-list for the handful of entries a dialect genuinely owns alone (Postgres GIN indexes, SQLite's algorithm CHECK standing in for the others' enum type). It also pins `src/test/pg-e2e-schema.sql` - self-described as a hand-kept mirror, with nothing keeping it honest - against the Postgres schema module.
+
+  The Prisma reference schema gains the provenance columns, `updated_at` on assignments, `created_at` on subject attributes, and the `role` / `(subject, scope)` indexes the drizzle schemas already had. Its header now spells out what Prisma cannot express - CHECK constraints, partial indexes - and, importantly, that `@@unique([subjectId, roleId, scope])` does not prevent a duplicate _unscoped_ grant, because SQL unique indexes do not collapse NULLs. The adapter closes that hole with a read-then-write; the comment exists so nobody "simplifies" it back to a bare `create`.
+
+  **Breaking: a role must exist before it can be granted.** `assignRole` (and `assignRoles`) now throws when no role is stored under the given id, on every adapter. This was already true on drizzle and Prisma, whose schemas carry the assignments-to-roles foreign key, and silently accepted on memory, file, redis and HTTP: the row landed, `getSubjectRoles` returned the id, and `resolveSubject` dropped it again because no definition resolves — so a typo'd role id reported success and granted nothing. Provisioning code that assigns before saving the role must now save first. The drizzle adapter also translates the driver's foreign-key error into that same refusal, keeping the original as `cause`; before, an operator saw `Failed query: <sql>` with the constraint reachable only on `.cause`.
+
+  **Breaking: the unique indexes on policy and role `name` are gone.** `uq_iam_policies_name` and `uq_iam_roles_name_scope` existed only on the drizzle Postgres schema. Nothing in this package resolves a policy or role by name — `id` is the key everywhere — so they protected a field no code reads while making a write the adapter contract mandates impossible on Postgres alone. Existing databases keep them until you drop them; nothing in the library depends on either behaviour.
+
+  **Breaking: `iamExtractEnvironment` no longer guesses the client IP.** It reported one from `req.ip`, `x-forwarded-for` or `x-real-ip`, which meant five HTTP integrations gave five different answers for the same request, and — with nothing in front of the app — let a client set `X-Forwarded-For` and satisfy an IP-conditioned policy. `environment.ip` is now `undefined` unless the app opts in: pass `{ trustProxy: true }` as the second argument, or supply the environment yourself through the integration's `getEnvironment`. Hono's `trustCloudflareHeaders` is that opt-in there. The normalisation is unchanged behind the flag.
+
+  **Breaking: deleting a role now revokes the grants that named it.** `deleteRole` is a cascade on every adapter, matching what `fk_iam_assignments_role ON DELETE CASCADE` already did on drizzle and Prisma: the same call left `getSubjectRoles` returning the deleted role on memory, file, redis and HTTP and `[]` on the SQL adapters. The orphan was not inert — `resolveSubject` ignored it, but recreating a role under the reused id handed it back to everyone who once held it, with no operator granting anything, and `assignRole` now refuses to create the very row `deleteRole` was leaving behind. The redis adapter reaches the assignment sets with a `KEYS` sweep on that one admin-rate call; a client that does not expose `keys` gets the role deleted and a report through `onPolicyError` saying the grants were not. An HTTP server is expected to cascade on `DELETE /roles/:id` — see the reference server in `http-compliance.test.ts`.
+
+- 70a9e4d: A malformed admin request body now answers 400 instead of 500.
+
+  `engine.admin.savePolicy` and `saveRole` validate before they write, and signalled
+  a rejection with a bare `Error`. Every HTTP integration catches whatever a handler
+  throws and routes it to `onError`, which answers 500 — so a body the validator
+  refused, which is the client's mistake, was reported as the server's. The write
+  was correctly refused either way, so this was never a way past validation; but a
+  500 tells a caller to retry a request that can never succeed, and hides a client
+  bug behind an apparent outage.
+
+  Rejections are now `IamValidationError`, carrying `kind` (`'policy' | 'role'`),
+  the validator's `issues`, and `status: 400`. It extends `Error`, so existing
+  `instanceof Error` checks and the exact message text still hold.
+
+  - **express, hono and next** answer `400 { error: 'Invalid policy', issues: [...] }`
+    and no longer route the failure through `onError`.
+  - **Nest** hands errors to its own exception filter, which only maps
+    `HttpException`, and this package does not depend on `@nestjs/common`. Read
+    `status` in a filter of your own:
+
+  ```ts
+  if (iamIsValidationError(err))
+    throw new BadRequestException({
+      error: `Invalid ${err.kind}`,
+      issues: err.issues,
+    });
+  ```
+
+  A genuine server fault is still a 500, and the `onAdminMutation` audit event
+  still fires with `success: false` either way.
+
+- 3de4298: The Prisma adapter no longer invents keys a stored role does not have.
+
+  `toRole` mapped an absent or null `inherits` column to `inherits: []`, so a role
+  read back through Prisma was not the role the other adapters returned for the
+  same row — a caller distinguishing "inherits nothing" from "does not declare
+  inheritance" saw the two collapse, and only on this adapter. Absent columns now
+  produce absent keys, matching the memory, Drizzle and Postgres adapters.
+
+  If you relied on `role.inherits` always being an array, read it as
+  `role.inherits ?? []`.
+
+
 - Both engine modes now evaluate through the compiled table.
 
-  `mode: 'production'` used the compiled table and `mode: 'development'` used the interpreter, so a disagreement between the two was invisible until it reached production - and it reached production as an *allow* against a development run that denied. That single shape accounted for five separate defects in the round-3 audit.
+  `mode: 'production'` used the compiled table and `mode: 'development'` used the interpreter, so a disagreement between the two was invisible until it reached production - and it reached production as an _allow_ against a development run that denied. That single shape accounted for five separate defects in the round-3 audit.
 
   The table now produces the verdict in both modes. Development additionally runs the interpreter, because the table cannot explain itself: `CONST_ALLOW`/`CONST_DENY` cells are one `kind` byte and `allow` is a raw bitmask, so policy identity is erased at compile time. The interpreter supplies `reason`/`policy`/`rule`, the table supplies the verdict, and a disagreement is printed and thrown - a development-time failure instead of a production-only allow. `check()` returns the same `IDecision` it always did.
 
@@ -25,6 +208,36 @@
 - A policy the compiler cannot lower is now named.
 
   The compiler walks `policy.rules` and each rule's `actions`/`resources` directly, so a policy missing one of them threw from wherever the walk touched it first - `policy.rules is not iterable`, with no indication which of a tenant's policies was broken. The interpreter had always isolated a rotten policy and reported its id through `onPolicyError`, so moving both modes onto the table would have traded a precise diagnostic for an anonymous one. The shape check now runs before the walk, names the policy and the rule, and is forwarded to `onPolicyError` before the error is rethrown. The deny is unchanged.
+
+## 5.8.1
+
+### Patch Changes
+
+- e47efb9: Time-boxed grants stop granting when they expire, not up to a `cacheTTL` later.
+
+  **The subject cache now respects the grant's own window.** `IamLRUCache` gave every entry the engine's full `cacheTTL` (60s by default) with nothing tying it to the bounds the drizzle adapter filters on, so a grant with `expiresAt` kept answering _allow_ for up to a minute after it ended, and a grant with a future `startsAt` kept answering _deny_ for up to a minute after it opened. A 30-second break-glass grant was live for sixty. `IamLRUCache.set` takes an optional `notAfter`, caps the entry at the earlier of the two, stores nothing when the bound has already passed, and expires on `>=` so it agrees with the adapter's exclusive upper bound.
+
+  **New optional adapter method: `getSubjectGrantBoundary(subjectId, opts?)`.** Returns the earliest _future_ `startsAt` or `expiresAt` among the subject's grants, or `null` when none has a bound. The engine asks for it alongside the reads it describes — no extra round trip — and caps the cache entry there. It is implemented by the drizzle adapter, the only one that stores the bounds; the other five omit it and continue to refuse the options outright. Custom adapters need no change, and gain the shortened cache by implementing it. A failure in the method costs caching only: the subject is not cached, the answer still comes from the store, and a warning names the method and subject.
+
+  **`assignRole` refuses a window that can never be active.** `startsAt >= expiresAt` is an empty interval — the grant is stored and never live, while the call resolves and `engine.admin.assignRoles` reports `ok: true, applied: 1`. An `Invalid Date` in either field was passed to the driver rather than refused. Both are now rejected at the adapter boundary, on `assignRole` and on every row of `assignRoleMany`; the error names the fields and never the instants. The shipped pg/mysql/sqlite schemas already carried `ch_iam_assignments_starts_before_expires`, but the adapter can be pointed at a caller's own table, where the code is the only guard.
+
+- Three fixes from the audit re-verification sweep.
+
+  An error-reporting hook that throws no longer unwinds the evaluation it was
+  reporting on. `onPolicyError` and `onRuleError` were called raw from inside the
+  catch that implements the Indeterminate contract, so a hook whose metrics
+  backend was down took the deny vote with it.
+
+  The Redis invalidator's drop warning no longer prints the tenant id. The channel
+  carries it, the warning is written on a path any holder of PUBLISH rights can
+  drive, and stderr is the stream that gets shipped to shared aggregators; the
+  tenant segment is now a stable digest instead.
+
+  `explain()` and `can()` agree at the leaf. The trace evaluated conditions
+  through the raw operator table, which skips the refusal of `matches` against a
+  `$`-sourced operand, so a trace could report a condition as satisfied that the
+  engine had refused - showing an operator the opposite of the decision they were
+  debugging. Leaf verdicts now come from the decision path itself.
 
 ## 5.8.0
 
@@ -380,39 +593,39 @@ shed"`, so it surfaces through `can`/`check`/`authorize`'s existing fail-closed
   a few changed shape or went away, and those are the ones a find-and-replace
   upgrade walks into. Renames:
 
-  | 4.x | 5.0.0 | Subpath |
-  |---|---|---|
-  | `Engine` | `IamEngine` | `@gentleduck/iam` |
-  | `MemoryAdapter` | `IamMemoryAdapter` | `/adapters/memory` |
-  | `DrizzleAdapter` | `IamDrizzleAdapter` | `/adapters/drizzle` |
-  | `PrismaAdapter` | `IamPrismaAdapter` | `/adapters/prisma` |
-  | `HttpAdapter` | `IamHttpAdapter` | `/adapters/http` |
-  | `accessMiddleware` | `iamAccessMiddleware` | `/server/express`, `/server/hono` |
-  | `guard` | `iamGuard` | `/server/express`, `/server/hono` |
-  | `adminRouter` | `iamAdminRouter` | `/server/express` |
-  | `withAccess` | `withIamAccess` | `/server/next` |
-  | `checkAccess` | `checkIamAccess` | `/server/next` |
-  | `getPermissions` | `getIamPermissions` | `/server/next` |
-  | `createNextMiddleware` | `createIamNextMiddleware` | `/server/next` |
-  | `nestAccessGuard` | `iamNestAccessGuard` | `/server/nest` |
-  | `createEngineProvider` | `createIamEngineProvider` | `/server/nest` |
-  | `generatePermissionMap` | `generateIamPermissionMap` | `/server/generic` |
-  | `createAccessControl` | `createIamAccessControl` | `/client/react` |
-  | `createVueAccess` | `createIamVueAccess` | `/client/vue` |
-  | `createRedisInvalidator` | `createIamRedisInvalidator` | `/invalidators/redis` |
-  | `buildPermissionKey` | `iamBuildPermissionKey` | `@gentleduck/iam` |
-  | `ACCESS_ENGINE_TOKEN` | `IAM_ACCESS_ENGINE_TOKEN` | `/server/nest` |
-  | `ACCESS_INJECTION_KEY` | `IAM_ACCESS_INJECTION_KEY` | `/client/vue` |
+  | 4.x                      | 5.0.0                       | Subpath                           |
+  | ------------------------ | --------------------------- | --------------------------------- |
+  | `Engine`                 | `IamEngine`                 | `@gentleduck/iam`                 |
+  | `MemoryAdapter`          | `IamMemoryAdapter`          | `/adapters/memory`                |
+  | `DrizzleAdapter`         | `IamDrizzleAdapter`         | `/adapters/drizzle`               |
+  | `PrismaAdapter`          | `IamPrismaAdapter`          | `/adapters/prisma`                |
+  | `HttpAdapter`            | `IamHttpAdapter`            | `/adapters/http`                  |
+  | `accessMiddleware`       | `iamAccessMiddleware`       | `/server/express`, `/server/hono` |
+  | `guard`                  | `iamGuard`                  | `/server/express`, `/server/hono` |
+  | `adminRouter`            | `iamAdminRouter`            | `/server/express`                 |
+  | `withAccess`             | `withIamAccess`             | `/server/next`                    |
+  | `checkAccess`            | `checkIamAccess`            | `/server/next`                    |
+  | `getPermissions`         | `getIamPermissions`         | `/server/next`                    |
+  | `createNextMiddleware`   | `createIamNextMiddleware`   | `/server/next`                    |
+  | `nestAccessGuard`        | `iamNestAccessGuard`        | `/server/nest`                    |
+  | `createEngineProvider`   | `createIamEngineProvider`   | `/server/nest`                    |
+  | `generatePermissionMap`  | `generateIamPermissionMap`  | `/server/generic`                 |
+  | `createAccessControl`    | `createIamAccessControl`    | `/client/react`                   |
+  | `createVueAccess`        | `createIamVueAccess`        | `/client/vue`                     |
+  | `createRedisInvalidator` | `createIamRedisInvalidator` | `/invalidators/redis`             |
+  | `buildPermissionKey`     | `iamBuildPermissionKey`     | `@gentleduck/iam`                 |
+  | `ACCESS_ENGINE_TOKEN`    | `IAM_ACCESS_ENGINE_TOKEN`   | `/server/nest`                    |
+  | `ACCESS_INJECTION_KEY`   | `IAM_ACCESS_INJECTION_KEY`  | `/client/vue`                     |
 
   **Removed, not renamed** — these need a code change, not an import change:
 
-  | 4.x | What to do instead |
-  |---|---|
+  | 4.x                            | What to do instead                                                                                                                                                                                                     |
+  | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | `createTypedAuthorize<A, R>()` | Use `IamAuthorize<A, R>(meta)` directly. It **is** the decorator; there is no factory to call first. Keep your call sites by aliasing: `const Authorize = (m: IamNest.IAuthorizeMeta<A, R>) => IamAuthorize<A, R>(m)`. |
-  | `PermissionMap` (root) | `IamClient.PermissionMap` / `IamClient.PartialPermissionMap`. |
-  | `DefaultContext` (root) | `DotPath.IDefaultContext`. |
-  | `validateRoles` (root) | Import from `@gentleduck/iam/core/validate` — it is deliberately off the root barrel so the 12 KB validator chunk stays lazy. |
-  | `createAccessConfig` | `createIam`. |
+  | `PermissionMap` (root)         | `IamClient.PermissionMap` / `IamClient.PartialPermissionMap`.                                                                                                                                                          |
+  | `DefaultContext` (root)        | `DotPath.IDefaultContext`.                                                                                                                                                                                             |
+  | `validateRoles` (root)         | Import from `@gentleduck/iam/core/validate` — it is deliberately off the root barrel so the 12 KB validator chunk stays lazy.                                                                                          |
+  | `createAccessConfig`           | `createIam`.                                                                                                                                                                                                           |
 
   Scoped permission keys also changed format in this line: `scope:action:resource`
   became `@scope:action:resource`. A 3-part key without the `@` still parses — as

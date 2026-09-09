@@ -1,5 +1,36 @@
 # @gentleduck/duck-auth-demo
 
+## 0.0.22
+
+### Patch Changes
+
+- Updated dependencies
+  - @gentleduck/auth@5.7.1
+
+## 0.0.21
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @gentleduck/auth@5.7.0
+
+## 0.0.20
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @gentleduck/auth@5.6.0
+
+## 0.0.19
+
+### Patch Changes
+
+- Updated dependencies
+  - @gentleduck/auth@5.5.1
+
 ## 0.0.18
 
 ### Patch Changes
