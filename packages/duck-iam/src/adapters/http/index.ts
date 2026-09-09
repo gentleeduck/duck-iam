@@ -380,12 +380,64 @@ export class IamHttpAdapter<
     this._baseUrl = IamHttpAdapter._validateBaseUrl(config)
     this._fetch = config.fetch ?? globalThis.fetch.bind(globalThis)
     this._headers = config.headers
-    this._timeoutMs = config.timeoutMs ?? 5_000
-    this._retries = config.retries ?? 2
-    this._backoffMs = config.backoffMs ?? 100
-    this._cbThreshold = config.circuitBreakerThreshold ?? 5
-    this._cbCooldownMs = config.circuitBreakerCooldownMs ?? 30_000
+    this._timeoutMs = IamHttpAdapter._number('timeoutMs', config.timeoutMs, 5_000, { min: 0 })
+    this._retries = IamHttpAdapter._number('retries', config.retries, 2, { integer: true, min: 0 })
+    this._backoffMs = IamHttpAdapter._number('backoffMs', config.backoffMs, 100, { min: 0 })
+    this._cbThreshold = IamHttpAdapter._number('circuitBreakerThreshold', config.circuitBreakerThreshold, 5, {
+      integer: true,
+      min: 1,
+    })
+    this._cbCooldownMs = IamHttpAdapter._number('circuitBreakerCooldownMs', config.circuitBreakerCooldownMs, 30_000, {
+      min: 0,
+    })
     this._onPolicyError = config.onPolicyError
+  }
+
+  /**
+   * Reads one numeric tuning option, refusing a value that would silently
+   * disable the thing it configures.
+   *
+   * These were `config.x ?? default` and nothing else, which admits `NaN` and a
+   * negative. Both are quiet, and the quietest is `retries`: `while (attempt <=
+   * this._retries)` is false immediately for either, so `_fetchWithRetry` made
+   * **no request at all** and then threw the `lastError` it never assigned -
+   * `undefined`, cast to `Error` on the way out. A read that never happened,
+   * reported as a thrown `undefined`. `NaN` reaches here the ordinary way: a
+   * `Number(process.env.IAM_HTTP_RETRIES)` on an unset variable.
+   *
+   * `timeoutMs: NaN` is the same shape one layer down - `setTimeout(fn, NaN)`
+   * fires on the next tick, so every request aborts before it can answer - and
+   * `circuitBreakerThreshold: 0` opens the breaker on a request that has not
+   * failed yet.
+   *
+   * Thrown at construction, beside `_validateBaseUrl`, because that is where an
+   * operator can still see it. `undefined` takes the default; anything else must
+   * be a number this adapter can act on.
+   *
+   * @param name - Option name, for the message.
+   * @param value - What the caller passed, if anything.
+   * @param fallback - Used when the option is omitted.
+   * @param bounds - `min` is inclusive; `integer` rejects a fractional count.
+   * @returns The value to use.
+   */
+  private static _number(
+    name: string,
+    value: number | undefined,
+    fallback: number,
+    bounds: { min: number; integer?: boolean },
+  ): number {
+    if (value === undefined) return fallback
+    const ok =
+      typeof value === 'number' &&
+      Number.isFinite(value) &&
+      value >= bounds.min &&
+      (bounds.integer !== true || Number.isInteger(value))
+    if (!ok) {
+      throw new Error(
+        `[@gentleduck/iam:http] \`${name}\` must be a finite ${bounds.integer === true ? 'integer' : 'number'} >= ${bounds.min}, got ${JSON.stringify(value)}`,
+      )
+    }
+    return value
   }
 
   /**
@@ -623,7 +675,11 @@ export class IamHttpAdapter<
       }
     }
     this._onCircuitFailure()
-    throw lastError as Error
+    // Reachable only if the loop never ran, which `_number` now refuses to let
+    // happen - but `lastError` is `unknown` either way, and `as Error` on an
+    // unassigned `let` is how `throw undefined` used to leave this function.
+    if (lastError instanceof Error) throw lastError
+    throw new Error(`[@gentleduck/iam:http] request to ${path} failed and no error was recorded`, { cause: lastError })
   }
 
   private async _fetchOnce(
