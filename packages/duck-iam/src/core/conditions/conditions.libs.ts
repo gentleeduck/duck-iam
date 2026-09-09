@@ -699,8 +699,6 @@ export function evalCondition(
   const fieldVal = resolve(req, cond.field, caches)
   const condVal = resolveValue(req, cond.value ?? null, caches)
   try {
-    // Per-Engine regex cache when supplied, module-global fallback.
-    if (cond.operator === 'matches') return evalMatchesOp(fieldVal, condVal, caches?.regex)
     const op = ops[cond.operator]
     // An operator we cannot evaluate is indeterminate, not false: returning
     // false here would quietly retire a deny rule. Throwing routes it through
@@ -721,6 +719,15 @@ export function evalCondition(
     // cannot see: a `$`-prefixed reference is skipped there because its type is
     // unknowable at authoring time, and it lands here as whatever the request
     // actually carried.
+    //
+    // The guard runs before every operator, `matches` included. It used to sit
+    // *after* the `matches` early return, which made it dead code for the one
+    // operator whose operand the validator screens hardest: `matches` with an
+    // absent or non-string `value` reached `evalMatchesOp`, failed that
+    // function's own `typeof v !== 'string'` test, and answered `false`. So a
+    // seeded `deny` rule read as "condition not met" and never denied -
+    // exactly the failure OPERAND_TYPES is shared with `validate.libs` to
+    // prevent, in the one place write-time and read-time had drifted apart.
     if (!VALUELESS_OPERATORS.has(cond.operator)) {
       if (cond.value === undefined) {
         throw new IamOperandTypeError(cond.field, cond.operator, 'requires a "value" and the key is absent')
@@ -731,6 +738,8 @@ export function evalCondition(
         throw new IamOperandTypeError(cond.field, cond.operator, `expects ${wanted} operand, got ${typeof condVal}`)
       }
     }
+    // Per-Engine regex cache when supplied, module-global fallback.
+    if (cond.operator === 'matches') return evalMatchesOp(fieldVal, condVal, caches?.regex)
     return op(fieldVal, condVal)
   } catch (err) {
     if (err instanceof IamRegexInputTooLargeError && err.field === '<unknown>') {
