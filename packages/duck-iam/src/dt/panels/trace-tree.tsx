@@ -3,6 +3,7 @@ import type { Explain } from '../../core/explain'
 import { ArrowRight, ChevronDown, ChevronRight } from '../components/icons'
 import { Badge } from '../components/ui'
 import { formatAttrValue, summarizeTrace } from '../lib/format'
+import { useIamDevtoolsStyles } from '../lib/styles'
 
 function LeafNode({ leaf }: { leaf: Explain.ILeafTrace }) {
   return (
@@ -88,8 +89,9 @@ function RuleTrace({ rule }: { rule: Explain.IRuleTrace }) {
  * looks the same whichever way you arrived at it.
  */
 export function IamTraceTree({ result }: { result: Explain.IResult }) {
+  useIamDevtoolsStyles()
   return (
-    <div className="iam-dt-col">
+    <div className="iam-dt iam-dt-col">
       <div className="iam-dt-trace__row">
         <Badge tone={result.decision.allowed ? 'allow' : 'deny'}>
           {result.decision.allowed ? 'ALLOWED' : 'DENIED'}

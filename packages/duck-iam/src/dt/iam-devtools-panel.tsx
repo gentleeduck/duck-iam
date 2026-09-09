@@ -1,11 +1,11 @@
-import { cn } from '@gentleduck/libs/cn'
-import { Button } from '@gentleduck/registry-ui/button'
 import React from 'react'
 import { Close } from './components/icons'
+import { Button } from './components/ui'
 import { IamDevtoolsInner, type IIamDevtoolsInnerProps } from './iam-devtools'
+import { cn } from './lib/cn'
 import { isDevtoolsAllowed } from './lib/guard'
 import { GENTLEDUCK_LOGO_DATA_URL } from './lib/logo'
-import { ensureStylesInjected } from './lib/styles'
+import { iamDevtoolsThemeAttr, useIamDevtoolsStyles } from './lib/styles'
 
 /** Where the floating launcher sits. `'relative'` drops it into normal flow instead, for embedding it in a toolbar of your own. */
 export type ButtonPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'relative'
@@ -37,6 +37,8 @@ const DEFAULT_SIZE = 500
 const MIN_SIZE = 220
 const MAX_SIZE_VW = 0.9
 const ANIM_MS = 240
+/** How far one arrow key nudges the resize edge; Page Up/Down move ten times that. */
+const KEY_RESIZE_STEP = 16
 
 /** Dock positions, in the order the dock button cycles through them. */
 const PANEL_POSITIONS: readonly PanelPosition[] = ['bottom', 'right', 'top', 'left']
@@ -81,6 +83,17 @@ function saveState(key: string, value: unknown) {
   } catch {}
 }
 
+/**
+ * How large the panel may get on the axis its dock edge constrains - 90% of
+ * that viewport dimension. Falls back to the default size under SSR, where
+ * there is no viewport to measure and nothing is on screen to measure against.
+ */
+function viewportLimit(position: PanelPosition): number {
+  if (typeof window === 'undefined') return DEFAULT_SIZE
+  const axis = position === 'left' || position === 'right' ? window.innerWidth : window.innerHeight
+  return Math.max(MIN_SIZE, axis * MAX_SIZE_VW)
+}
+
 function panelSize(position: PanelPosition, size: number): React.CSSProperties {
   if (position === 'bottom' || position === 'top') return { height: size }
   return { width: size }
@@ -109,9 +122,7 @@ function IamDevtoolsImpl({
   inset = 0,
   ...inner
 }: IIamDevtoolsProps) {
-  React.useEffect(() => {
-    ensureStylesInjected()
-  }, [])
+  useIamDevtoolsStyles()
 
   const openKey = `${storagePrefix}_OPEN`
   const sizeKey = `${storagePrefix}_SIZE`
@@ -124,7 +135,22 @@ function IamDevtoolsImpl({
   const [position, setPosition] = React.useState<PanelPosition>(() =>
     loadState(posKey, isPanelPosition, positionProp ?? 'bottom'),
   )
+  /**
+   * The largest the panel may grow to, in px.
+   *
+   * Held in state rather than read from `window` at each use because the
+   * resize handle reports it as `aria-valuemax`: a focusable `separator` is a
+   * window-splitter widget, and a widget that announces a position has to
+   * announce the scale that position is on. Recomputed when the dock edge
+   * changes (the limiting dimension flips between width and height) and when
+   * the viewport does; seeded lazily so an SSR render has a number instead of
+   * touching `window`.
+   */
+  const [maxSize, setMaxSize] = React.useState<number>(() => viewportLimit(positionProp ?? 'bottom'))
   const dragRef = React.useRef<{ start: number; size: number; axis: 'x' | 'y' } | null>(null)
+  const launcherRef = React.useRef<HTMLButtonElement | null>(null)
+  const dockRef = React.useRef<HTMLDivElement | null>(null)
+  const titleId = React.useId()
 
   React.useEffect(() => saveState(openKey, open), [open, openKey])
   React.useEffect(() => saveState(sizeKey, size), [size, sizeKey])
@@ -132,6 +158,13 @@ function IamDevtoolsImpl({
   React.useEffect(() => {
     if (positionProp) setPosition(positionProp)
   }, [positionProp])
+
+  React.useEffect(() => {
+    const update = () => setMaxSize(viewportLimit(position))
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [position])
 
   React.useEffect(() => {
     let raf = 0
@@ -151,9 +184,41 @@ function IamDevtoolsImpl({
     }
   }, [open])
 
+  /**
+   * Escape closes the panel, and focus goes back to the launcher that opened
+   * it.
+   *
+   * The overlay covers a slice of the host app and used to be dismissable only
+   * by finding and clicking one 28px button, which for a keyboard user meant
+   * tabbing through every control in whichever panel was open. The listener is
+   * on `document` because focus may legitimately sit inside the panel, on the
+   * launcher, or nowhere at all.
+   */
+  React.useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      launcherRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [open])
+
+  // Opening moves focus into the panel, so the next Tab lands on the dock and
+  // close controls rather than back at the top of the host page.
+  React.useEffect(() => {
+    if (open && mounted) dockRef.current?.focus()
+  }, [open, mounted])
+
+  const clampSize = React.useCallback(
+    (next: number) => Math.max(MIN_SIZE, Math.min(viewportLimit(position), next)),
+    [position],
+  )
+
   const onDragStart = (e: React.PointerEvent) => {
     const axis: 'x' | 'y' = position === 'left' || position === 'right' ? 'x' : 'y'
-    dragRef.current = { start: axis === 'x' ? e.clientX : e.clientY, size, axis }
+    dragRef.current = { axis, size, start: axis === 'x' ? e.clientX : e.clientY }
     if (e.target instanceof Element) e.target.setPointerCapture(e.pointerId)
   }
   const onDragMove = (e: React.PointerEvent) => {
@@ -161,15 +226,39 @@ function IamDevtoolsImpl({
     if (!d) return
     const delta = (d.axis === 'x' ? e.clientX : e.clientY) - d.start
     const sign = position === 'bottom' || position === 'right' ? -1 : 1
-    const max = (d.axis === 'x' ? window.innerWidth : window.innerHeight) * MAX_SIZE_VW
-    const next = Math.max(MIN_SIZE, Math.min(max, d.size + sign * delta))
-    setSize(next)
+    setSize(clampSize(d.size + sign * delta))
   }
   const onDragEnd = (e: React.PointerEvent) => {
     dragRef.current = null
     try {
       if (e.target instanceof Element) e.target.releasePointerCapture(e.pointerId)
     } catch {}
+  }
+
+  /**
+   * The resize edge from the keyboard.
+   *
+   * A focusable `separator` is the window-splitter role, and a role that
+   * claims an operation it only supports through `pointerdown` is a worse lie
+   * than no role at all. Grow and shrink rather than left and right, because
+   * which arrow enlarges the panel depends on which edge it is docked to.
+   */
+  const onResizeKeyDown = (e: React.KeyboardEvent) => {
+    const grows = position === 'bottom' || position === 'right' ? -1 : 1
+    const step = e.key === 'PageUp' || e.key === 'PageDown' ? KEY_RESIZE_STEP * 10 : KEY_RESIZE_STEP
+    let dir = 0
+    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'PageUp') dir = grows
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'PageDown') dir = -grows
+    else if (e.key === 'Home') {
+      e.preventDefault()
+      return setSize(clampSize(MIN_SIZE))
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      return setSize(clampSize(Number.POSITIVE_INFINITY))
+    }
+    if (dir === 0) return
+    e.preventDefault()
+    setSize((current) => clampSize(current + dir * step))
   }
 
   const cycleDock = () => {
@@ -181,98 +270,98 @@ function IamDevtoolsImpl({
     if (next !== undefined) setPosition(next)
   }
 
-  const resizeAxisCls = position === 'left' || position === 'right' ? 'iam-dt-resize--ew' : 'iam-dt-resize--ns'
+  const isHorizontal = position === 'left' || position === 'right'
+  const themeAttr = iamDevtoolsThemeAttr(inner.theme)
 
   return (
     <>
       {!hideButton && buttonPosition !== 'relative' && (
-        <div className="iam-dt-btn-wrap" data-pos={buttonPosition}>
+        <div className={cn('iam-dt', 'iam-dt-btn-wrap')} data-iam-dt-theme={themeAttr} data-pos={buttonPosition}>
           <button
+            aria-expanded={open}
             aria-label="Open duck-iam devtools"
+            className="iam-dt-launch"
+            data-hidden={open ? '1' : undefined}
             onClick={() => setOpen(true)}
-            type="button"
-            className={cn(
-              'inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-lg transition-all hover:-translate-y-0.5 hover:border-foreground hover:shadow-xl active:scale-95',
-              open && 'pointer-events-none scale-50 opacity-0',
-            )}>
-            <img
-              alt=""
-              className="h-6 w-6 object-contain"
-              draggable={false}
-              src={GENTLEDUCK_LOGO_DATA_URL}
-              style={{ width: 24, height: 24, objectFit: 'contain', display: 'block' }}
-            />
+            ref={launcherRef}
+            type="button">
+            <img alt="" draggable={false} src={GENTLEDUCK_LOGO_DATA_URL} />
           </button>
         </div>
       )}
 
       {mounted && (
         <div
-          className="iam-dt-panel-wrap"
-          data-pos={position}
+          className={cn('iam-dt', 'iam-dt-panel-wrap')}
+          data-iam-dt-theme={themeAttr}
           data-inset={inset > 0 ? '1' : undefined}
+          data-pos={position}
           style={{
-            transform: animateIn ? 'translate(0,0)' : panelHidden(position),
             opacity: animateIn ? 1 : 0,
+            transform: animateIn ? 'translate(0,0)' : panelHidden(position),
             ...panelSize(position, size),
           }}>
           <div
-            className={cn(
-              'flex h-full min-h-0 flex-col overflow-hidden border border-border bg-background text-foreground shadow-2xl',
-              inset > 0 && 'rounded-xl',
-              inset === 0 && position === 'bottom' && 'border-x-0 border-b-0',
-              inset === 0 && position === 'top' && 'border-x-0 border-t-0',
-              inset === 0 && position === 'left' && 'border-y-0 border-l-0',
-              inset === 0 && position === 'right' && 'border-y-0 border-r-0',
-            )}>
+            aria-labelledby={titleId}
+            className="iam-dt-dock"
+            data-flush={inset === 0 ? position : undefined}
+            data-inset={inset > 0 ? '1' : undefined}
+            ref={dockRef}
+            role="dialog"
+            tabIndex={-1}>
+            {/* biome-ignore lint/a11y/useSemanticElements: `<hr>` is the thematic-break separator; this is the focusable window-splitter variant of the role, which has no element form. */}
             <div
-              className={cn('iam-dt-resize', resizeAxisCls)}
+              aria-label="Resize devtools panel"
+              aria-orientation={isHorizontal ? 'vertical' : 'horizontal'}
+              aria-valuemax={Math.round(maxSize)}
+              aria-valuemin={MIN_SIZE}
+              aria-valuenow={Math.round(size)}
+              className={cn('iam-dt-resize', isHorizontal ? 'iam-dt-resize--ew' : 'iam-dt-resize--ns')}
+              onKeyDown={onResizeKeyDown}
+              onPointerCancel={onDragEnd}
               onPointerDown={onDragStart}
               onPointerMove={onDragMove}
               onPointerUp={onDragEnd}
-              onPointerCancel={onDragEnd}
+              role="separator"
+              tabIndex={0}
             />
-            <header className="flex shrink-0 items-center justify-between gap-4 border-b bg-card px-3 py-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-                  <img
-                    alt=""
-                    className="h-4 w-4 object-contain"
-                    draggable={false}
-                    src={GENTLEDUCK_LOGO_DATA_URL}
-                    style={{ width: 16, height: 16, objectFit: 'contain', display: 'block' }}
-                  />
+            <header className="iam-dt-header">
+              <div className="iam-dt-header__brand">
+                <span className="iam-dt-header__logo">
+                  <img alt="" draggable={false} src={GENTLEDUCK_LOGO_DATA_URL} />
                 </span>
-                <div className="flex min-w-0 flex-col leading-tight">
-                  <span className="font-bold text-xs tracking-tight">duck-iam</span>
-                  <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-[0.2em]">
-                    devtools
+                <span className="iam-dt-header__names">
+                  <span className="iam-dt-header__title" id={titleId}>
+                    duck-iam
                   </span>
-                </div>
-                <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-lime-500/30 bg-lime-500/10 px-2 py-0.5 font-mono font-semibold text-[9px] text-lime-400 uppercase">
-                  <span aria-hidden className="h-1 w-1 animate-pulse rounded-full bg-lime-400" />
+                  <span className="iam-dt-header__sub">devtools</span>
+                </span>
+                <span className="iam-dt-live">
+                  <span aria-hidden className="iam-dt-live__dot" />
                   live
                 </span>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="iam-dt-header__actions">
                 <Button
-                  size="sm"
-                  variant="outline"
+                  className="iam-dt-btn--dock"
                   onClick={cycleDock}
-                  className="h-7 px-2 font-mono text-[10px] uppercase">
+                  title={`Docked ${position} - click to move`}
+                  variant="default">
                   {position}
                 </Button>
                 <Button
-                  size="icon-sm"
-                  variant="outline"
-                  onClick={() => setOpen(false)}
                   aria-label="Close devtools"
-                  className="h-7 w-7 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400">
+                  className="iam-dt-btn--icon"
+                  onClick={() => {
+                    setOpen(false)
+                    launcherRef.current?.focus()
+                  }}
+                  title="Close devtools (Esc)">
                   <Close size={12} />
                 </Button>
               </div>
             </header>
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="iam-dt-body">
               <IamDevtoolsInner {...inner} embedded />
             </div>
           </div>

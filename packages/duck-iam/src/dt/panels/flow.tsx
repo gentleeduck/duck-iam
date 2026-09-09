@@ -1,10 +1,11 @@
-import { cn } from '@gentleduck/libs/cn'
 import React from 'react'
 import { Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Badge, Button } from '../components/ui'
+import { cn } from '../lib/cn'
 import type { IamIFlowEntry, IamIFlowRecorder } from '../lib/flow'
+import { useIamDevtoolsStyles } from '../lib/styles'
 
 function pad(n: number, w = 2) {
   return String(n).padStart(w, '0')
@@ -22,28 +23,24 @@ function fmtAgo(ts: number, now: number) {
 }
 
 function ActionChip({ action }: { action: string }) {
-  return (
-    <code className="inline-flex h-6 items-center rounded-md border border-sky-500/30 bg-sky-500/10 px-2 font-mono font-semibold text-[11px] text-sky-500">
-      {action}
-    </code>
-  )
+  return <code className="iam-dt-chip iam-dt-chip--action">{action}</code>
 }
 function ResourceChip({ resource, resourceId }: { resource: string; resourceId?: string }) {
   return (
-    <code className="inline-flex h-6 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 font-mono font-semibold text-[11px] text-amber-500">
+    <code className="iam-dt-chip iam-dt-chip--resource">
       {resource}
-      {resourceId && <span className="opacity-60">#{resourceId}</span>}
+      {resourceId && <span className="iam-dt-chip__id">#{resourceId}</span>}
     </code>
   )
 }
 function SubjectChip({ id }: { id: string }) {
   const initial = id.replace(/^u-/, '').charAt(0).toUpperCase() || '?'
   return (
-    <div className="inline-flex items-center gap-2 rounded-md border bg-card px-2 py-1">
-      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 font-bold font-mono text-[10px] text-primary">
+    <div className="iam-dt-subject">
+      <span aria-hidden className="iam-dt-subject__avatar">
         {initial}
       </span>
-      <code className="font-mono font-semibold text-[11px] text-foreground">{id}</code>
+      <code>{id}</code>
     </div>
   )
 }
@@ -57,6 +54,7 @@ function SubjectChip({ id }: { id: string }) {
  * so opening it cannot itself perturb what it is measuring.
  */
 export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
+  useIamDevtoolsStyles()
   const [entries, setEntries] = React.useState<readonly IamIFlowEntry[]>(() => flow.list())
   const [selected, setSelected] = React.useState<number | null>(null)
   const [filter, setFilter] = React.useState('')
@@ -116,12 +114,12 @@ export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
             </Button>
           }>
           <FilterBar onChange={setFilter} placeholder="Filter by subject, action, resource" value={filter} />
-          <div className="flex items-center gap-1.5 border-b bg-card/40 px-3 py-2">
-            <FilterPill active={showAllow} tone="allow" onClick={() => setShowAllow((v) => !v)}>
-              allow <span className="opacity-70">{counts.allow}</span>
+          <div className="iam-dt-flow__filters">
+            <FilterPill active={showAllow} onClick={() => setShowAllow((v) => !v)} tone="allow">
+              allow <span className="iam-dt-pill__count">{counts.allow}</span>
             </FilterPill>
-            <FilterPill active={showDeny} tone="deny" onClick={() => setShowDeny((v) => !v)}>
-              deny <span className="opacity-70">{counts.deny}</span>
+            <FilterPill active={showDeny} onClick={() => setShowDeny((v) => !v)} tone="deny">
+              deny <span className="iam-dt-pill__count">{counts.deny}</span>
             </FilterPill>
           </div>
           {filtered.length === 0 && (
@@ -140,15 +138,15 @@ export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
               key={e.id}
               onClick={() => setSelected(e.id)}
               primary={
-                <span className="inline-flex items-baseline gap-1.5">
-                  <span className="font-semibold text-sky-500">{e.action}</span>
-                  <span className="text-muted-foreground">on</span>
-                  <span className="font-semibold text-amber-500">{e.resource}</span>
-                  {e.resourceId && <span className="text-muted-foreground">#{e.resourceId}</span>}
+                <span className="iam-dt-row" style={{ gap: 6 }}>
+                  <span className="iam-dt-action">{e.action}</span>
+                  <span className="iam-dt-soft">on</span>
+                  <span className="iam-dt-resource">{e.resource}</span>
+                  {e.resourceId && <span className="iam-dt-soft">#{e.resourceId}</span>}
                 </span>
               }
               secondary={
-                <span className="inline-flex items-center gap-1.5">
+                <span className="iam-dt-row" style={{ gap: 6 }}>
                   {e.subjectId}
                   <Dot />
                   {fmtAgo(e.ts, now)}
@@ -168,13 +166,13 @@ export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
         !current ? (
           <DetailEmpty message="Pick a check on the left to inspect." />
         ) : (
-          <div className="flex h-full min-h-0 flex-col overflow-hidden">
-            <header className="sticky top-0 z-10 flex shrink-0 flex-wrap items-center gap-2 border-b bg-card/60 px-4 py-3 backdrop-blur">
+          <div className="iam-dt-frame">
+            <header className="iam-dt-flow__head">
               <Badge tone={current.allowed ? 'allow' : 'deny'}>{current.allowed ? 'allow' : 'deny'}</Badge>
               <ActionChip action={current.action} />
-              <span className="text-muted-foreground text-xs">on</span>
+              <span className="iam-dt-soft">on</span>
               <ResourceChip resource={current.resource} resourceId={current.resourceId} />
-              <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+              <span className="iam-dt-flow__time">
                 {fmtTime(current.ts)}
                 {typeof current.durationMs === 'number' && (
                   <>
@@ -184,23 +182,21 @@ export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
                 )}
               </span>
             </header>
-            <div className="flex-1 overflow-auto">
+            <div className="iam-dt-flow__scroll">
               <Section title="Subject">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="iam-dt-row">
                   <SubjectChip id={current.subjectId} />
                   {current.scope && <Badge tone="info">scope: {current.scope}</Badge>}
                 </div>
               </Section>
               {current.reason && (
                 <Section title="Reason">
-                  <p className="whitespace-pre-wrap font-mono text-[11px] text-foreground/80 leading-relaxed">
-                    {current.reason}
-                  </p>
+                  <p className="iam-dt-flow__reason">{current.reason}</p>
                 </Section>
               )}
               {(current.decidingPolicy || current.decidingRule) && (
                 <Section title="Deciding">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="iam-dt-row">
                     {current.decidingPolicy && <Kv k="policy" v={current.decidingPolicy} />}
                     {current.decidingRule && <Kv k="rule" v={current.decidingRule} />}
                   </div>
@@ -215,7 +211,7 @@ export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
                 <JsonTree data={current} defaultOpen />
               </Section>
             </div>
-            <footer className="flex shrink-0 items-center justify-end gap-1.5 border-t bg-card/60 px-3 py-2">
+            <footer className="iam-dt-flow__foot">
               <Button onClick={copyEntry} variant="ghost">
                 {copied ? 'copied' : 'copy entry'}
               </Button>
@@ -240,28 +236,24 @@ function FilterPill({
 }) {
   return (
     <button
-      type="button"
+      aria-pressed={active}
+      className={cn('iam-dt-pill', tone === 'allow' ? 'iam-dt-pill--allow' : 'iam-dt-pill--deny')}
       onClick={onClick}
-      className={cn(
-        'inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 font-mono font-semibold text-[10px] uppercase tracking-wider transition-all',
-        active && tone === 'allow' && 'border-lime-500/35 bg-lime-500/10 text-lime-500 hover:bg-lime-500/15',
-        active && tone === 'deny' && 'border-red-500/35 bg-red-500/10 text-red-500 hover:bg-red-500/15',
-        !active && 'border-border bg-transparent text-muted-foreground opacity-60 hover:opacity-100',
-      )}>
+      type="button">
       {children}
     </button>
   )
 }
 
 function Dot() {
-  return <span aria-hidden className="inline-block h-1 w-1 rounded-full bg-current opacity-40" />
+  return <span aria-hidden className="iam-dt-dot" />
 }
 
 function Kv({ k, v }: { k: string; v: string }) {
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2 py-1">
-      <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-wider">{k}</span>
-      <code className="font-mono font-semibold text-[11px] text-foreground">{v}</code>
+    <div className="iam-dt-kv">
+      <span className="iam-dt-kv__k">{k}</span>
+      <code className="iam-dt-kv__v">{v}</code>
     </div>
   )
 }
