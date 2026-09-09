@@ -11,16 +11,21 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamClient, IamRequest } from '../../core/types'
 import { iamIsValidationError } from '../../shared/errors'
-import { iamAsRoleLiteral } from '../../shared/tenant-literals'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
   type IamAdminAudit,
   iamActionForMethod,
+  iamAuditIdOf,
   iamDefaultCsrfCheck,
   iamExtractEnvironment,
   iamIsSubjectId,
   iamNormalizePathname,
   iamNoticeCsrfDefaultIfNeeded,
+  iamOptionalStringField,
   iamPathIsAmbiguous,
+  iamReadJsonBody,
+  iamRequirePathParam,
+  iamRequireStringField,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
@@ -458,12 +463,34 @@ export function createIamAdminHandlers<
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
-  /** Read gate: authorize only - no CSRF check, no audit emission. */
+  /**
+   * Read gate. Runs the same CSRF + `authorize` phase as {@link mutate}, and
+   * emits no audit event - a read is not a mutation.
+   *
+   * The CSRF check used to be skipped here on express, hono and next while nest
+   * ran it, so `GET /policies` with `Sec-Fetch-Site: cross-site` returned the
+   * full policy list on three adapters and 403 on the fourth. A browser cannot
+   * read a cross-origin response without CORS, so that was not an exploitable
+   * read - but `csrfCheck` is an operator-supplied predicate, and an operator
+   * whose predicate carries any part of an authorization decision had it
+   * enforced on reads on exactly one of four adapters, undocumented. The four
+   * now answer the same question the same way.
+   *
+   * Not a new refusal for API clients: `iamDefaultCsrfCheck` returns `true`
+   * when there is no `Sec-Fetch-Site` header at all, which is every non-browser
+   * caller. What is now refused is a genuine cross-site browser read, and
+   * `csrfCheck: false` still turns the whole phase off.
+   */
   const gate =
     <P>(fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
+      const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
+      if (authz.phase === 'forbidden') {
+        return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
+      }
+      if (authz.phase === 'unauthorized') return onUnauthorized(req)
+      if (authz.phase === 'error') return onError(authz.error, req)
       try {
-        if (!(await authorize(req))) return onUnauthorized(req)
         return await fn(req, ctx)
       } catch (err) {
         return onError(err instanceof Error ? err : new Error(String(err)), req)
@@ -479,7 +506,11 @@ export function createIamAdminHandlers<
       action: IamAdminAudit.Action,
       target: IamAdminAudit.Target,
       getTargetId: ((req: Request, params: P) => string | undefined) | undefined,
-      fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>,
+      fn: (
+        req: Request,
+        ctx: { params: Promise<P> | P },
+        setTargetId: (id: string | undefined) => void,
+      ) => Promise<Response>,
     ) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
       // Shared CSRF + authorize phase.
@@ -499,21 +530,28 @@ export function createIamAdminHandlers<
       } catch {
         path = req.url
       }
+      // Mutable, and read by `iamWithAdminAudit` in its `finally` rather than at
+      // call time. `getTargetId` only sees the request, which is enough for a
+      // role assignment and useless for `PUT /policies`, where the id is in a
+      // body nobody has parsed yet - so that event recorded that *a* policy had
+      // been replaced without saying which one.
+      const auditCtx = {
+        actor: authz.actor,
+        action,
+        target,
+        targetId: resolvedParams !== undefined ? getTargetId?.(req, resolvedParams) : undefined,
+        method: req.method,
+        path,
+        onAdminMutation,
+        redactPath,
+        onAuditHookError,
+        includeErrorMessage,
+      }
       try {
-        return await iamWithAdminAudit(
-          {
-            actor: authz.actor,
-            action,
-            target,
-            targetId: resolvedParams !== undefined ? getTargetId?.(req, resolvedParams) : undefined,
-            method: req.method,
-            path,
-            onAdminMutation,
-            redactPath,
-            onAuditHookError,
-            includeErrorMessage,
-          },
-          () => fn(req, { params: resolvedParams as P }),
+        return await iamWithAdminAudit(auditCtx, () =>
+          fn(req, { params: resolvedParams as P }, (id) => {
+            auditCtx.targetId = id
+          }),
         )
       } catch (err) {
         // A body the validator rejected is the caller's mistake, not ours.
@@ -527,13 +565,15 @@ export function createIamAdminHandlers<
   return {
     listPolicies: gate(async () => Response.json(await engine.admin.listPolicies())),
     listRoles: gate(async () => Response.json(await engine.admin.listRoles())),
-    savePolicy: mutate<Record<string, string>>('replace', 'policy', undefined, async (req) => {
-      const body = (await req.json()) as AccessControl.IPolicy<TAction, TResource, TRole>
+    savePolicy: mutate<Record<string, string>>('replace', 'policy', undefined, async (req, _ctx, setTargetId) => {
+      const body = (await iamReadJsonBody(() => req.json())) as AccessControl.IPolicy<TAction, TResource, TRole>
+      setTargetId(iamAuditIdOf(body))
       await engine.admin.savePolicy(body)
       return Response.json({ ok: true })
     }),
-    saveRole: mutate<Record<string, string>>('replace', 'role', undefined, async (req) => {
-      const body = (await req.json()) as AccessControl.IRole<TAction, TResource, TRole, TScope>
+    saveRole: mutate<Record<string, string>>('replace', 'role', undefined, async (req, _ctx, setTargetId) => {
+      const body = (await iamReadJsonBody(() => req.json())) as AccessControl.IRole<TAction, TResource, TRole, TScope>
+      setTargetId(iamAuditIdOf(body))
       await engine.admin.saveRole(body)
       return Response.json({ ok: true })
     }),
@@ -542,9 +582,21 @@ export function createIamAdminHandlers<
       'role-assignment',
       (_req, params) => params.id,
       async (req, ctx) => {
+        // Validated at the edge, the way express and hono do. This used to read
+        // the body through one cast and the path param through another and hand
+        // all three straight to `engine.admin.assignRole`: `{"roleId": 7}`, an
+        // array body, a missing `:id` and an empty `:id` all reached the engine.
+        // No bad grant landed - the engine refuses each one by name - but the
+        // refusal was entirely delegated, so a consumer with a custom adapter
+        // that does not repeat those checks lost it on two of four integrations.
         const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
-        const body = (await req.json()) as { roleId: TRole; scope?: TScope }
-        await engine.admin.assignRole((params as { id: string }).id, body.roleId, body.scope)
+        const body: unknown = await iamReadJsonBody(() => req.json())
+        const scope = iamOptionalStringField(body, 'scope')
+        await engine.admin.assignRole(
+          iamRequirePathParam(params?.id, 'id'),
+          iamAsRoleLiteral<TRole>(iamRequireStringField(body, 'roleId')),
+          scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+        )
         return Response.json({ ok: true })
       },
     ),
@@ -554,8 +606,10 @@ export function createIamAdminHandlers<
       (_req, params) => params.id,
       async (_req, ctx) => {
         const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
-        const { id, roleId } = params as { id: string; roleId: string }
-        await engine.admin.revokeRole(id, iamAsRoleLiteral<TRole>(roleId))
+        await engine.admin.revokeRole(
+          iamRequirePathParam(params?.id, 'id'),
+          iamAsRoleLiteral<TRole>(iamRequirePathParam(params?.roleId, 'roleId')),
+        )
         return Response.json({ ok: true })
       },
     ),

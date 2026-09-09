@@ -285,6 +285,56 @@ async function startExpress({ calls, engine, explode }: Instrumented): Promise<R
   }
 }
 
+/**
+ * A sixth listener, deliberately outside `RIG_NAMES`: express with the one
+ * opt-in none of the five take.
+ *
+ * Without it every assertion about `environment.ip` in this file is satisfied
+ * by an integration that reports no IP at all - "all five agree" is trivially
+ * true of five `undefined`s, and "nobody echoes an unverified header" is
+ * trivially true of a field nobody fills. Deleting the `ip:` computation in
+ * `iamExtractEnvironment` left this whole section green. This rig is the
+ * positive control: on it, and only on it, a forwarded address is supposed to
+ * arrive, so the `undefined` everywhere else is a decision rather than a pipe
+ * that was never connected.
+ */
+async function startExpressTrustingProxy({ calls, engine, explode }: Instrumented): Promise<Rig> {
+  const { default: express } = await import('express')
+  const app = express()
+  app.disable('x-powered-by')
+  // The second half of the documented deployment: the app has told its own
+  // framework about its proxies, so `req.ip` is already the client address and
+  // `iamExtractEnvironment` reads it first. Without this express fills `req.ip`
+  // from the socket and the forwarded address never gets a chance to arrive -
+  // which is correct, and is the case the sibling assertion pins.
+  app.set('trust proxy', true)
+  app.use((req, _res, next) => {
+    ;(req as unknown as { user: { id: string } }).user = { id: SUBJECT }
+    next()
+  })
+  useIamMiddleware(
+    app,
+    expressAccessMiddleware(engine, {
+      // The documented opt-in, verbatim from `iamExtractEnvironment`'s JSDoc.
+      getEnvironment: (req) => iamExtractEnvironment(req, { trustProxy: true }),
+    }),
+  )
+  app.all('/public{/*rest}', (_req, res) => {
+    res.json({ served: 'public' })
+  })
+  app.use((_req, res) => {
+    res.status(404).json({ served: 'none' })
+  })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', () => resolve())
+    server.once('error', reject)
+  })
+  const addr = server.address()
+  if (addr === null || typeof addr === 'string') throw new Error('express-trusted did not bind')
+  return { calls, close: () => closeServer(server), explode, name: 'express-trusted', port: addr.port }
+}
+
 // ---------------------------------------------------------------------------
 // Rig: hono. `@hono/node-server` is not installed in this workspace, so the
 // node -> fetch bridge is reproduced here: raw `req.url` concatenated onto the
@@ -511,6 +561,7 @@ async function startAll(factory: () => Instrumented): Promise<Record<string, Rig
     startNext(factory()),
     startNest(factory()),
     startGeneric(factory()),
+    startExpressTrustingProxy(factory()),
   ])
   const out: Record<string, Rig> = {}
   for (const r of started) out[r.name] = r
@@ -768,6 +819,49 @@ describe('environment derivation', () => {
     // comparing `environment.ip` to a literal cannot be written twice, once
     // per framework.
     expect(new Set(Object.values(mapped)).size, `IPv4-mapped divergence: ${JSON.stringify(mapped)}`).toBe(1)
+  })
+
+  /**
+   * The positive control for everything above.
+   *
+   * Every other `environment.ip` assertion in this section compares the five
+   * integrations to each other, and five `undefined`s agree perfectly - so the
+   * whole surface passed with the `ip` computation deleted from
+   * `iamExtractEnvironment`. This one names an absolute value that only arrives
+   * if the header really is read off the wire and carried into the engine call.
+   */
+  async function trustedEnvFor(headers: [string, string][]): Promise<IamRequest.IEnvironment | undefined> {
+    const r = rigs['express-trusted']
+    if (!r) throw new Error('express-trusted rig never started - the suite must fail, not skip')
+    const before = r.calls.length
+    await raw(r.port, 'GET', '/public/thing', { headers })
+    return r.calls[before]?.environment
+  }
+
+  it('a trusting integration really does put the forwarded client IP into env.ip', async () => {
+    // Leftmost hop: the original client, per the XFF convention the helper
+    // documents.
+    expect((await trustedEnvFor([['X-Forwarded-For', '203.0.113.7, 70.41.3.18, 150.172.238.178']]))?.ip).toBe(
+      '203.0.113.7',
+    )
+  })
+
+  it('with no forwarding header the same rig reports the socket peer', async () => {
+    // The other half of the control: `env.ip` is filled from the connection
+    // itself, not only from a header, so neither source is dead.
+    const ip = (await trustedEnvFor([]))?.ip
+    expect(ip, 'the trusting rig reported no ip for a direct connection').toBeDefined()
+    expect(ip).toMatch(/127\.0\.0\.1|::1/)
+  })
+
+  it('the same request on the five default integrations yields no ip at all', async () => {
+    // The counterpart absolute: not "they agree", but *what* they agree on.
+    // Only the app knows how many proxies sit in front of it, so the default is
+    // no IP rather than a guess a client can steer.
+    for (const name of RIG_NAMES) {
+      const env = await envFor(name, [['X-Forwarded-For', '203.0.113.7, 70.41.3.18']])
+      expect(env?.ip, `${name} filled environment.ip without the opt-in`).toBeUndefined()
+    }
   })
 
   it('an oversized user-agent is dropped rather than forwarded to conditions', async () => {

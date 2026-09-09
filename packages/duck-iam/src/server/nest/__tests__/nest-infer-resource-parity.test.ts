@@ -95,3 +95,31 @@ describe('route template', () => {
     )
   })
 })
+
+/**
+ * The ambiguity check runs *before* the template branch, and its comment
+ * records why: express matched `/public/*` for `/public/../admin`, so nest
+ * returned a confident `public` and authorized the request as public while
+ * hono and next served `/admin`.
+ *
+ * Every template case above supplies a safe path beside the template
+ * (`path: '/whatever/1'`), and every ambiguous-path case above supplies no
+ * template - so the one combination the guard exists for was never built, and
+ * deleting the guard left the whole file green. These pair the two.
+ */
+describe('an ambiguous path outranks a matched route template', () => {
+  it.each([
+    ['/public/../admin', '/public/*'],
+    ['/public/%2e%2e/admin', '/public/*'],
+    ['/posts/../../etc/passwd', '/posts/:id'],
+    ['/a/./b', '/a/*'],
+  ])('%s matched as %s still names no resource', async (path, routePath) => {
+    expect(await inferredResource({ path, routePath })).toBe(IAM_UNKNOWN_RESOURCE)
+  })
+
+  it('control: the same template with an unambiguous path names its resource', async () => {
+    // Without this, a guard that refused every templated request would pass.
+    expect(await inferredResource({ path: '/public/index.html', routePath: '/public/*' })).toBe('public')
+    expect(await inferredResource({ path: '/posts/42', routePath: '/posts/:id' })).toBe('posts')
+  })
+})
