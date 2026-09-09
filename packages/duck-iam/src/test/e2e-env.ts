@@ -116,17 +116,41 @@ export async function isolatedDatabaseUrl(name: string): Promise<string | undefi
  */
 export function assertE2eReachable(suiteName: string, backend: string | number | undefined): void {
   describe(`E2E reachability (${suiteName})`, () => {
-    it('has its backend whenever docker is available', async () => {
-      if (!(await dockerIsUp())) {
-        expect(backend, 'docker is down, so no e2e backend is expected here').toBeUndefined()
-        return
-      }
-      expect(
-        backend,
-        `docker is up but "${suiteName}" has no backend, so the suite skipped instead of running. ` +
-          'That is a provisioning failure, not a reason to be quiet.',
-      ).toBeDefined()
-    })
+    // The timeout is explicit and larger than the probe's own budget. Without
+    // it the case inherits vitest's 5s default while awaiting a 30s probe, so
+    // on the one machine state this guard exists for - a daemon busy running
+    // e2e containers - it fails as a *timeout*, reporting a provisioning
+    // failure for a suite that provisioned fine. Observed: `scope-prod-parity`
+    // red on this line with its eleven cases passing beside it.
+    it(
+      'has its backend whenever docker is available',
+      async () => {
+        // CI does not get to consult the probe. The workflow pulls the images
+        // and probes the daemon before vitest starts, so a backend is expected
+        // unconditionally - and the probe is the one oracle whose false "down"
+        // both silences the suite and excuses this guard for letting it go
+        // quiet. A green CI run over a tier that tested nothing is precisely
+        // what this exists to prevent, so there the answer is not negotiable.
+        if (process.env.CI) {
+          expect(
+            backend,
+            `"${suiteName}" has no backend in CI, where the workflow provisions one. ` +
+              'The suite skipped instead of running.',
+          ).toBeDefined()
+          return
+        }
+        if (!(await dockerIsUp())) {
+          expect(backend, 'docker is down, so no e2e backend is expected here').toBeUndefined()
+          return
+        }
+        expect(
+          backend,
+          `docker is up but "${suiteName}" has no backend, so the suite skipped instead of running. ` +
+            'That is a provisioning failure, not a reason to be quiet.',
+        ).toBeDefined()
+      },
+      60_000,
+    )
   })
 }
 
@@ -138,13 +162,23 @@ export function assertE2eReachable(suiteName: string, backend: string | number |
  * enough to take longer - and reading "busy" as "absent" is what turns this
  * guard back into the silent skip it exists to prevent.
  */
-async function dockerIsUp(): Promise<boolean> {
-  const { execFile } = await import('node:child_process')
-  const { promisify } = await import('node:util')
-  try {
-    await promisify(execFile)('docker', ['info', '--format', '{{.ServerVersion}}'], { timeout: 30_000 })
-    return true
-  } catch {
-    return false
-  }
+let dockerProbe: Promise<boolean> | undefined
+
+export function dockerIsUp(): Promise<boolean> {
+  // Memoised: the answer cannot change usefully inside one file's run, and
+  // every caller pays the probe's latency on a daemon that is by definition
+  // slow to answer. One probe per worker, shared by the guard and by whatever
+  // gates the suite itself, also removes the split verdict where the two
+  // disagree and the guard excuses the skip it should have reported.
+  dockerProbe ??= (async () => {
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    try {
+      await promisify(execFile)('docker', ['info', '--format', '{{.ServerVersion}}'], { timeout: 30_000 })
+      return true
+    } catch {
+      return false
+    }
+  })()
+  return dockerProbe
 }

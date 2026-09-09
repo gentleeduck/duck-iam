@@ -142,3 +142,48 @@ jobs:
         env:
           AFFECTED: ${{ steps.aff.outputs.filter }}
         run: bunx turbo run test --filter="$AFFECTED"
+
+  # The e2e tier - 19 files, ~700 tests - ran in no job at all: `bun run test`
+  # excludes `**/*.e2e.test.ts`, and nothing invoked `test:e2e`. Every path that
+  # only these suites cover (real Postgres through the drizzle and prisma
+  # adapters, real Redis invalidation, five real HTTP listeners) was therefore
+  # unguarded on every merge.
+  #
+  # Kept a separate job on purpose: it needs docker and takes minutes, so
+  # folding it into `test` would slow every PR down for a tier that fails for
+  # its own reasons. It must not be `continue-on-error` - a tier allowed to fail
+  # is the state this job exists to leave.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Cache Bun install
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - run: bun install # frozen check disabled: bun false-positive on workspace peer+dev dep (lockfile is in sync)
+      # The suites provision their own containers through vitest `globalSetup`
+      # (`src/test/e2e-containers.ts`), which is the same path a developer takes
+      # locally - so CI and a laptop cannot drift into testing different things.
+      # `docker info` must answer, or `assertE2eReachable` turns a skipped suite
+      # into a failing one, which is the behaviour we want here.
+      - name: Verify docker is up (a skipped e2e tier is not a passing one)
+        run: docker info --format '{{.ServerVersion}}'
+      - name: Pre-pull container images
+        run: docker pull postgres:16-alpine && docker pull redis:7-alpine
+      - name: E2E
+        run: bunx turbo run test:e2e --filter=@gentleduck/iam

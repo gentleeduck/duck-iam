@@ -134,11 +134,25 @@ async function waitUntilReachable(port: number): Promise<void> {
   throw new Error(`127.0.0.1:${port} never accepted a connection: ${lastError}`)
 }
 
-/** Remove any container this harness leaked in an earlier run that died badly. */
+/**
+ * Remove any container this harness leaked in an earlier run that died badly.
+ *
+ * Age-bounded, for the same reason {@link removeAgedOwnedStrays} is. This used
+ * to delete *every* container carrying {@link LABEL} the moment setup ran, and
+ * `startPostgres` labels the container it starts with exactly that - so a
+ * second `bun run test:e2e` in the same checkout force-removed the Postgres the
+ * first one was mid-suite against, and the first run failed with connection
+ * errors that pointed at nothing. The `OWNED_LABEL` docblock below spells out
+ * this hazard and works around it by leaving suite-owned containers unlabelled;
+ * the harness's own container had the same problem and no such workaround.
+ *
+ * The bound costs nothing that matters: a container younger than
+ * {@link OWNED_MAX_AGE} either belongs to a run in progress - in which case it
+ * must not be touched - or will be swept on the next invocation an hour later.
+ * A crashed run leaks one container, not a pile.
+ */
 async function removeStrays(): Promise<void> {
-  const ids = await docker(['ps', '-aq', '--filter', `label=${LABEL}`])
-  if (ids.length === 0) return
-  await docker(['rm', '-f', '-v', ...ids.split('\n')])
+  await removeAgedStrays(LABEL)
 }
 
 /**
@@ -170,11 +184,21 @@ const OWNED_MAX_AGE = '60m'
  * too young to match.
  */
 async function removeAgedOwnedStrays(): Promise<void> {
+  await removeAgedStrays(OWNED_LABEL)
+}
+
+/**
+ * The sweep both labels share: remove containers carrying `label` that are old
+ * enough that no live run can own them.
+ *
+ * @param label - The docker label to sweep.
+ */
+async function removeAgedStrays(label: string): Promise<void> {
   const ids = await docker([
     'ps',
     '-aq',
     '--filter',
-    `label=${OWNED_LABEL}`,
+    `label=${label}`,
     '--filter',
     `until=${OWNED_MAX_AGE}`,
   ]).catch(() => '')
