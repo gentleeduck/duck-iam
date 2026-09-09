@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import type { IamEngineTypes } from '../../core/engine/engine.types'
 
 /** Redis invalidator integration types. Type-only namespace - zero bundle cost. */
@@ -100,6 +100,33 @@ export namespace IamRedisInvalidator {
      * retries; with no handler a warning is logged instead.
      */
     onSubscribeError?: (err: Error, channel: string) => void
+    /**
+     * Invoked when an inbound message is dropped without being applied.
+     *
+     * Until this existed, a drop had exactly one channel out: a `console.warn`
+     * coalesced to one line per minute. That is adequate for the case it was
+     * written for - somebody with PUBLISH rights sending junk - and inadequate
+     * for the one that actually takes a deployment down, which is a `secret`
+     * rolled out to some nodes and not others. Every peer invalidation is then
+     * dropped by every node, in both directions and for the whole rollout:
+     * `'v:1 envelope received without secret configured'` on the nodes without
+     * it, `'unsigned message with secret configured'` on the nodes with it.
+     * Caches never converge, and stale *allow* is the failure - a revoked role
+     * keeps working until each node's own TTL retires it. Nothing failed, no
+     * request errored, and one log line a minute said so.
+     *
+     * `reason` is one of this module's own fixed strings, never anything from
+     * the message: a drop reason reaching a log or an alert must not be
+     * attacker-composed. `suppressed` counts the drops coalesced since the
+     * last report on this channel, so a hook wired to a counter sees the true
+     * rate rather than one event per window.
+     *
+     * Called on the same coalescing schedule as the warning it replaces, and
+     * deliberately so - inbound traffic is attacker-driven, and a hook invoked
+     * per message would be an amplifier pointed at the operator's own
+     * alerting. A throwing hook is swallowed, as with the other two.
+     */
+    onMessageDropped?: (reason: string, channel: string, suppressed: number) => void
   }
 }
 
@@ -136,6 +163,33 @@ const _UNSIGNED_WARNED = { fired: false }
 const _DROP_WARN_STATE = new Map<string, { lastWarn: number; suppressed: number }>()
 /** Minimum gap between drop warns for a single channel. */
 const DROP_WARN_WINDOW_MS = 60_000
+
+/**
+ * The channel as it is safe to print. A tenant-scoped channel is
+ * `<base>:tenant:<tenantId>`, and the drop warning it appears in is written on
+ * a path an outsider drives - anyone holding PUBLISH rights emits unverifiable
+ * messages at will - so logging the id verbatim turned stderr into a directory
+ * of which tenants exist and which are being probed. Shared log aggregators
+ * make that everyone's disclosure, not just the affected tenant's.
+ *
+ * The base channel is the operator's own constant and stays readable; only the
+ * tenant segment is replaced, by a truncated SHA-256 of the id. A digest rather
+ * than a redaction marker because operators still need to tell two tenants'
+ * warnings apart, and it is derived from the id alone - no per-process salt -
+ * so the same tenant reads as the same token across restarts and hosts.
+ *
+ * Not a confidentiality boundary: the tenant id space is usually small enough
+ * to enumerate offline. It stops incidental disclosure to whoever can read
+ * logs, which is the exposure that actually happens.
+ */
+function redactChannel(channelName: string): string {
+  const marker = ':tenant:'
+  const at = channelName.lastIndexOf(marker)
+  if (at === -1) return channelName
+  const tenantId = channelName.slice(at + marker.length)
+  const digest = createHash('sha256').update(tenantId).digest('hex').slice(0, 8)
+  return `${channelName.slice(0, at)}${marker}${digest}`
+}
 
 /**
  * Guard limits applied to incoming wire messages BEFORE the HMAC verifier
@@ -320,14 +374,40 @@ export function createIamRedisInvalidator<TRole extends string = string>(
     )
   }
 
-  function warnDropOnce(channelName: string, reason: string): void {
+  /**
+   * Reports a dropped inbound message, at most once per channel per window.
+   *
+   * The `kind` prefix on the latch key is not cosmetic. `_DROP_WARN_STATE` is
+   * module-level and was keyed on the channel alone, so inbound drops and
+   * publish failures shared one 60s budget on the same channel - and inbound
+   * drops are the half an attacker controls. Sending one junk message a minute
+   * claimed the window and coalesced away the publish-failure warning for a
+   * broker outage happening at the same time: the report an operator needs
+   * most, suppressed by traffic anyone with PUBLISH rights can generate.
+   * Separate keys mean neither kind can silence the other.
+   */
+  function reportDrop(kind: 'inbound' | 'publish', channelName: string, reason: string): void {
     const now = Date.now()
-    const state = _DROP_WARN_STATE.get(channelName)
-    if (!state) {
-      _DROP_WARN_STATE.set(channelName, { lastWarn: now, suppressed: 0 })
+    // A NUL cannot occur in a channel name, so the two namespaces cannot
+    // collide however a channel is named.
+    const key = `${kind}\u0000${channelName}`
+    const state = _DROP_WARN_STATE.get(key)
+    const emit = (suppressed: number, tail: string): void => {
+      if (config.onMessageDropped) {
+        try {
+          config.onMessageDropped(reason, channelName, suppressed)
+        } catch {
+          /* operator hook itself threw - preserve fail-soft contract */
+        }
+        return
+      }
       console.warn(
-        `[@gentleduck/iam:invalidator:redis] dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). Further drops within ${DROP_WARN_WINDOW_MS}ms are coalesced.`,
+        `[@gentleduck/iam:invalidator:redis] dropping unverifiable message on channel ${JSON.stringify(redactChannel(channelName))} (${reason}). ${tail}`,
       )
+    }
+    if (!state) {
+      _DROP_WARN_STATE.set(key, { lastWarn: now, suppressed: 0 })
+      emit(0, `Further drops within ${DROP_WARN_WINDOW_MS}ms are coalesced.`)
       return
     }
     if (now - state.lastWarn < DROP_WARN_WINDOW_MS) {
@@ -338,10 +418,11 @@ export function createIamRedisInvalidator<TRole extends string = string>(
     const suppressed = state.suppressed
     state.lastWarn = now
     state.suppressed = 0
-    console.warn(
-      `[@gentleduck/iam:invalidator:redis] dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). ${suppressed} prior drops coalesced.`,
-    )
+    emit(suppressed, `${suppressed} prior drops coalesced.`)
   }
+
+  /** Inbound drops. Passed to {@link parseIncoming}, which knows no other reporter. */
+  const warnDropOnce = (channelName: string, reason: string): void => reportDrop('inbound', channelName, reason)
 
   function reportSubscribeFailure(err: unknown): void {
     const error = err instanceof Error ? err : new Error(String(err))
@@ -352,7 +433,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
     }
     if (!config.onSubscribeError) {
       console.warn(
-        `[@gentleduck/iam:invalidator:redis] subscribe to ${JSON.stringify(channel)} failed (${error.message}) - this node will not receive invalidations until a later subscribe() succeeds. Pass \`onSubscribeError\` to handle this.`,
+        `[@gentleduck/iam:invalidator:redis] subscribe to ${JSON.stringify(redactChannel(channel))} failed (${error.message}) - this node will not receive invalidations until a later subscribe() succeeds. Pass \`onSubscribeError\` to handle this.`,
       )
     }
   }
@@ -422,7 +503,9 @@ export function createIamRedisInvalidator<TRole extends string = string>(
           /* operator hook itself threw - preserve fail-soft contract */
         }
         if (!config.onPublishError) {
-          warnDropOnce(channel, `publish failed (${error.message})`)
+          // Its own latch namespace: see `reportDrop`. Under the shared key an
+          // attacker's junk message suppressed exactly this line.
+          reportDrop('publish', channel, `publish failed (${error.message})`)
         }
       }
       try {
@@ -455,7 +538,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
           if (isThenable(unsubscribed)) {
             unsubscribed.then(undefined, (err: unknown) => {
               console.warn(
-                `[@gentleduck/iam:invalidator:redis] unsubscribe from ${JSON.stringify(channel)} failed`,
+                `[@gentleduck/iam:invalidator:redis] unsubscribe from ${JSON.stringify(redactChannel(channel))} failed`,
                 err,
               )
             })

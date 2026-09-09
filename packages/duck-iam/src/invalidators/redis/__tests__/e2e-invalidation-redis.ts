@@ -11,6 +11,7 @@ import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { connect, type Socket } from 'node:net'
 import { promisify } from 'node:util'
+import { dockerIsUp as sharedDockerIsUp } from '../../../test/e2e-env'
 import type { IamRedisInvalidator } from '../index'
 
 const exec = promisify(execFile)
@@ -47,14 +48,17 @@ async function docker(args: string[], timeout?: number): Promise<string> {
  * the module-level `await` in each suite and stall the whole run, where a
  * false here just makes the suites skip.
  */
-export async function dockerAvailable(): Promise<boolean> {
-  try {
-    await docker(['info', '--format', '{{.ServerVersion}}'], 5_000)
-    return true
-  } catch {
-    return false
-  }
-}
+/**
+ * Delegates to the shared probe in `src/test/e2e-env.ts`.
+ *
+ * This used to be a local copy with a five-second budget, and that is not a
+ * detail: on a machine already running the e2e stack `docker info` takes
+ * longer than five seconds, the copy answered "down", and this whole file went
+ * quiet - twenty-four cases in one observed run - while its own reachability
+ * suite, reading the same wrong answer, agreed that a skip was expected. One
+ * probe, one budget, so a busy daemon cannot be mistaken for an absent one.
+ */
+export const dockerAvailable = sharedDockerIsUp
 
 async function waitUntilReachable(port: number): Promise<void> {
   const deadline = Date.now() + READY_TIMEOUT_MS

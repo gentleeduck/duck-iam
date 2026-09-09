@@ -63,6 +63,25 @@ interface Instance {
 // Fail loudly, not silently. A skipped suite is not a passing suite.
 const suite = HAS_DOCKER ? describe : describe.skip
 
+/**
+ * The gate above is the docker probe itself, so it cannot complain about its
+ * own answer - "a skipped suite is not a passing suite" was written next to it
+ * and was not actually enforced by anything. This is the part that enforces it.
+ *
+ * In CI the workflow pulls the images and probes the daemon before vitest
+ * starts, so "docker is unavailable" there is a broken runner, not a reason to
+ * take cross-instance quiet. Locally the probe's answer is accepted, but the wiring
+ * between it and the gate is still checked.
+ */
+describe('E2E reachability (invalidation: cross-instance)', () => {
+  it('does not skip while docker is available', () => {
+    if (process.env.CI) {
+      expect(HAS_DOCKER, 'docker is unavailable in CI, where the workflow provides it').toBe(true)
+    }
+    if (HAS_DOCKER) expect(suite, 'docker is up but the suite is gated off anyway').toBe(describe)
+  })
+})
+
 suite('E2E cross-instance invalidation over real Redis + Postgres', () => {
   let redisName = ''
   let pgName = ''
