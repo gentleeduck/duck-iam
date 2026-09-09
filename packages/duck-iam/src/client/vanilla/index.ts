@@ -72,7 +72,13 @@ export class IamAccessClient<
    * @param permissions - Optional initial permission map (set later via `update`).
    */
   constructor(permissions?: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
-    this._permissions = permissions ?? {}
+    // Copied, for the reason the `permissions` getter copies on the way out:
+    // the map is a plain object and `Readonly<...>` erases at runtime, so
+    // holding the caller's reference let `map.x = true` after construction
+    // grant a permission without going through `update()`/`merge()` - and
+    // therefore without notifying a single subscriber. The guard was written
+    // on the reading side only; the writing side is the same hazard.
+    this._permissions = { ...permissions }
   }
 
   /**
@@ -148,7 +154,11 @@ export class IamAccessClient<
    * @returns Nothing.
    */
   update(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>): void {
-    this._permissions = permissions
+    // Copied in, for the reason the constructor copies. Listeners still receive
+    // the caller's own object: whatever a listener does to it is between the
+    // listener and the caller, and it can no longer reach what this client
+    // decides from.
+    this._permissions = { ...permissions }
     for (const fn of this._listeners) {
       try {
         fn(permissions)
