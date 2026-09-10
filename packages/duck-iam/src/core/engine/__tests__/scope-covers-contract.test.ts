@@ -3,15 +3,7 @@ import * as pkg from '../../../index'
 import { matchesScope } from '../../resolve/resolve'
 import { scopeAncestors, scopeCovers } from '../engine.libs'
 
-/**
- * `matchesScope` documented the scope contract, was contract-tested, and was
- * called by nothing: scope matching happened in `rbac.ts`'s emitted condition
- * and in the compiled table's own comparison, neither of which shared a line
- * with it. Three expressions, one contract, and the truth tables had already
- * drifted apart. `scopeCovers` - the one imperative scope check left in the
- * engine - now routes its exact-match arm through `matchesScope`, so this
- * pins that they cannot drift again.
- */
+// `scopeCovers` routes its exact-match arm through `matchesScope`; this pins that the two cannot drift apart.
 const DECLARED = ['org-1', 'org-10', 'org-1.team-a', '*', ''] as const
 const REQUESTED = [undefined, 'org-1', 'org-10', 'org-1.team-a', 'org-1.team-a.sub', '', 'org'] as const
 
@@ -43,8 +35,7 @@ describe('hierarchical adds descendants and nothing else', () => {
     expect(scopeCovers('org-1', undefined, 'hierarchical')).toBe(false)
   })
 
-  // `'*'` reaching `scopeCovers` is global. The `===` it replaced said no,
-  // which `matchesScope` had documented as yes for as long as it existed.
+  // `'*'` reaching `scopeCovers` is global, as `matchesScope` documents.
   it("treats '*' as global in both modes", () => {
     expect(scopeCovers('*', 'anything', 'flat')).toBe(true)
     expect(scopeCovers('*', 'anything', 'hierarchical')).toBe(true)
@@ -58,15 +49,7 @@ describe('hierarchical adds descendants and nothing else', () => {
   })
 })
 
-/**
- * The scope walk was internal, so a caller doing scope-aware rank or reach
- * calculations of their own had to reimplement it - and any reimplementation
- * drifts from the relation the engine actually matches with. It is exported
- * now, `iam`-prefixed like the rest of the flat package namespace.
- *
- * These pin identity, not behaviour: what makes the export worth anything is
- * that it is the engine's own function and not a copy that can diverge.
- */
+// Callers reuse the engine's own scope walk instead of a reimplementation, so these pin identity, not behaviour.
 describe('the scope walk is reachable from the package root', () => {
   it('exports the engine own scopeAncestors, not a copy', () => {
     expect(pkg.iamScopeAncestors).toBe(scopeAncestors)

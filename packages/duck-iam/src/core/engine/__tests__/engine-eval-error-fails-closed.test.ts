@@ -4,12 +4,8 @@ import { MAX_REGEX_INPUT_LENGTH } from '../../conditions/conditions.libs'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
-/**
- * End-to-end guard for the padded-header bypass: a deny rule that throws while
- * evaluating (oversized `matches` input) must not be skipped, in either mode.
- * Production routes through the compiled table, development through the
- * interpreter, so both need covering.
- */
+// A deny rule that throws on an oversized `matches` input must not be skipped, in either mode: production uses the
+// compiled table and development the interpreter.
 type A = 'read'
 type R = 'post'
 type Ro = 'viewer'
@@ -62,10 +58,7 @@ describe.each(['development', 'production'] as const)('%s mode: padded user agen
   })
 })
 
-/**
- * The discriminating case: on a fail-open engine, abstaining on the error
- * yields `allow`, so only a genuine fail-closed produces `false` here.
- */
+// On a fail-open engine abstaining yields `allow`, so only a genuine fail-closed returns `false` here.
 describe.each(['development', 'production'] as const)('%s mode, fail-open engine', (mode) => {
   it('control: a non-matching user agent is allowed', async () => {
     expect(await engineOf(mode, true).can('u1', 'read', post, { userAgent: 'firefox' })).toBe(true)

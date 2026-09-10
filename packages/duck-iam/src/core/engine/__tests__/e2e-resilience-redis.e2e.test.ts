@@ -1,19 +1,5 @@
-/**
- * E2E: does the engine fail CLOSED when a REAL Redis dies underneath it?
- *
- * Two distinct roles Redis plays in this package, and they fail differently:
- *
- *  1. `IamRedisAdapter` - the store the whole authorization decision is read
- *     from. Losing it means the engine cannot answer, so it must deny.
- *  2. `createIamRedisInvalidator` - the cross-instance invalidation bus.
- *     Losing it means invalidations stop propagating, which is not a deny by
- *     itself but MUST NOT let one instance keep honouring a revoked grant past
- *     its TTL. That is the "failing backend extends a stale grant" case, and it
- *     is measured here rather than argued about.
- *
- * Owns its own Redis container on a fixed free port, so nothing shared is
- * disturbed. Fails loudly if docker is not there.
- */
+// E2E: a dead Redis adapter must deny, and a dead invalidation bus must not extend a revoked grant past cacheTTL.
+// Owns its own Redis container on a free port, so nothing shared is disturbed.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:net'
@@ -67,11 +53,7 @@ async function waitUntilReady(name: string, probe: string[]): Promise<void> {
   throw new Error(`${name} never became ready: ${last}`)
 }
 
-/**
- * Narrow an ioredis instance to the surface the adapter declares. Written out
- * rather than cast: the point of an e2e run is that the real driver satisfies
- * the real contract.
- */
+/** Narrows ioredis to the adapter's surface, written out rather than cast so the real driver meets the contract. */
 function likeClient(redis: Redis): IamRedis.ILike {
   return {
     del: (...keys) => redis.del(...keys),
@@ -96,9 +78,7 @@ const clients: Redis[] = []
 
 function newClient(): Redis {
   const client = new Redis({
-    // Bounded retries: an unbounded offline queue would turn "Redis is gone"
-    // into "the caller waits forever", which is a different (also interesting)
-    // failure than the one under test. This is the realistic production shape.
+    // Bounded retries: an unbounded offline queue turns "Redis is gone" into a hang, not a deny.
     host: '127.0.0.1',
     maxRetriesPerRequest: 1,
     port: redisPort,
@@ -147,13 +127,7 @@ beforeAll(async () => {
   await seed()
 }, 180_000)
 
-/**
- * Re-establish the fixture. Idempotent, and re-run before every test: Redis is
- * an in-memory store with no volume here, so a container this suite stops takes
- * the whole catalog with it. (That an emptied store answers `deny` is itself
- * the fail-closed behaviour; it just must not be mistaken for the verdict under
- * test.)
- */
+/** Rewrites the fixture before every test: Redis has no volume here, so a stopped container loses the catalog. */
 async function seed(): Promise<void> {
   const boot = engineOn(newClient())
   await boot.admin.saveRole({ id: 'admin', name: 'admin', permissions: [{ action: 'read', resource: 'doc' }] })
@@ -220,9 +194,7 @@ describe('E2E fail-closed: the Redis the decision is READ from', () => {
 
     expect(denied).toBe(false)
 
-    // A restarted Redis comes back empty, so the catalog has to be rewritten
-    // before "did the engine recover" can mean anything. Note in passing that
-    // an empty store answers deny, which is the right way round.
+    // A restarted Redis comes back empty, so reseed before recovery can mean anything.
     await seed()
 
     let recovered = false
@@ -284,8 +256,7 @@ describe('E2E: a dead invalidation bus must not extend a stale grant', () => {
     await b.admin.assignRole('stale-user', 'admin')
     expect(await a.can('stale-user', 'read', DOC)).toBe(true)
 
-    // Revoke on B, then kill the bus so A's invalidation never arrives. The
-    // read path stays up: only the broadcast is lost.
+    // B has no invalidator, so A never hears of the revoke; only cacheTTL can end the stale grant.
     await b.admin.revokeRole('stale-user', 'admin')
 
     const t0 = Date.now()
@@ -317,9 +288,7 @@ describe('E2E: a dead invalidation bus must not extend a stale grant', () => {
     const pub = newClient()
     const invalidator = createIamRedisInvalidator({
       client: {
-        // Both ioredis and node-redis return a PROMISE here, which is exactly
-        // what the documented `IPubSubLike.publish` allows ("returns whatever
-        // the underlying client returns").
+        // ioredis and node-redis both return a promise here, which `IPubSubLike.publish` allows.
         publish: (channel, message) => pub.publish(channel, message),
         subscribe: () => {},
       },
@@ -351,12 +320,7 @@ describe('E2E: a dead invalidation bus must not extend a stale grant', () => {
       `[resilience] publish against a dead Redis: onPublishError fired ${publishErrors.length} time(s); unhandled rejections observed: ${unhandled.length}`,
     )
 
-    // The subscribe path in the same module does
-    // `Promise.resolve(...).catch(reportSubscribeFailure)`. The publish path
-    // has only a synchronous try/catch, so an async publish rejection - the
-    // ordinary shape of "Redis is down" - reaches neither the hook nor any
-    // catch. Under Node's default `--unhandled-rejections=throw` that ends the
-    // process.
+    // WARN: under Node's default `--unhandled-rejections=throw`, an uncaught async publish rejection ends the process.
     expect(unhandled, 'a failed publish must not surface as an unhandled rejection').toEqual([])
     expect(publishErrors.length, 'onPublishError must fire when the broadcast fails').toBeGreaterThan(0)
   }, 150_000)

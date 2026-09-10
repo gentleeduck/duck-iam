@@ -1,26 +1,5 @@
-/**
- * E2E against REAL Postgres: the >32-role compiled-table fallback, the compiled
- * table's TTL against a write made on another connection, and a store-backed
- * replay of the two table/interpreter divergences minimized in
- * `e2e-verdict-rbac-divergence.e2e.test.ts`.
- *
- * Everything here reads through `IamDrizzleAdapter` on the shipped schema.
- * Catalogs are written with raw SQL on a separate pool, not through
- * `adapter.saveRole`, for two reasons: it is the honest shape of the problem (a
- * migration, another service, or a hand-edited row can put anything in a `jsonb`
- * column), and it gives the TTL case a genuinely second connection rather than
- * the engine's own.
- *
- * Writing that way turned up a load-bearing fact worth stating: this adapter DOES
- * re-validate on read - `_safeParseRole` runs `validateRole` per row and drops
- * what it rejects. So a row that only *looks* like the catalog never reaches the
- * engine, and every test below that depends on a role being loaded asserts that
- * it was, or it would pass vacuously.
- *
- * The suite refuses to skip itself when docker is reachable: a skipped suite is
- * not a passing suite, and "six agents reported green because docker was down"
- * is the single largest risk in this exercise.
- */
+// E2E on real Postgres: the >32-role fallback, table TTL against another connection's write, and divergence replays.
+// Catalogs go in via raw SQL; drizzle re-validates on read and drops rejects, so cases assert their roles loaded.
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { and, eq, or } from 'drizzle-orm'
@@ -46,9 +25,7 @@ async function dockerReachable(): Promise<boolean> {
 
 const URL = await isolatedDatabaseUrl('verdict-fallback')
 if (URL === undefined && (await dockerReachable())) {
-  // Loud, not skipped. Docker is up, so `globalSetup` should have provisioned a
-  // Postgres and did not - that is a broken harness, and reporting it as a
-  // passing run is the failure mode this whole exercise is guarding against.
+  // Docker is up, so `globalSetup` should have provisioned Postgres; a skip here would hide a broken harness.
   throw new Error(
     '[e2e-verdict] docker is reachable but DUCKIAM_E2E_DATABASE_URL is unset or the database is unusable. ' +
       'This suite must not skip under those conditions - fix the harness (src/test/e2e-containers.ts) instead.',
@@ -140,8 +117,7 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
   it('the harness is really talking to Postgres', async () => {
     const r = await pool.query('SELECT version() AS v')
     expect(String((r.rows[0] as { v: string }).v)).toContain('PostgreSQL')
-    // Proves the adapter reads what raw SQL wrote, so every catalog below is
-    // genuinely round-tripping through the store and not through a fake.
+    // The adapter reads what raw SQL wrote, so every catalog below round-trips through the store.
     await insertRole(pool, { id: 'probe', permissions: [{ action: 'read', resource: 'doc' }] })
     const roles = await adapter().listRoles()
     expect(roles.map((r2) => r2.id)).toEqual(['probe'])
@@ -160,8 +136,7 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
       const { warnings } = await captureWarnings(async () => {
         for (const subject of ['granted', 'inheritor', 'other', 'nobody']) {
           const expected = subject === 'granted' || subject === 'inheritor'
-          // Several calls per subject: the warning must be once per engine, not
-          // once per request, and only repeated traffic can tell those apart.
+          // Repeated calls tell a once-per-engine warning apart from a once-per-request one.
           for (let i = 0; i < 3; i++) {
             expect(
               await production.can(subject, 'read', { attributes: {}, type: 'doc' }),
@@ -217,16 +192,14 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
     await insertRole(pool, { id: 'r', permissions: [{ action: 'read', resource: 'doc' }] })
     await assign('u1', 'r')
 
-    // 1s TTL, no invalidator wired - the default deployment shape, and the one
-    // where only the TTL can ever converge the table with the store.
+    // 1s TTL and no invalidator (the default shape), so only the TTL can converge the table with the store.
     const engine = new IamEngine({ adapter: adapter(), cacheTTL: 1, mode: 'production' })
     expect(await engine.can('u1', 'read', { attributes: {}, type: 'doc' })).toBe(true)
 
     // Revoke on the OTHER pool. Nothing tells this engine.
     await writer.query(`UPDATE iam_roles SET permissions = '[]'::jsonb WHERE id = 'r'`)
 
-    // Inside the TTL the engine is allowed to be stale; assert it so the
-    // staleness window is a stated property rather than an accident.
+    // Inside the TTL the engine may be stale; asserted so the window is a stated property.
     expect(await engine.can('u1', 'read', { attributes: {}, type: 'doc' })).toBe(true)
 
     await new Promise((resolve) => setTimeout(resolve, 1_300))
@@ -293,12 +266,8 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
     }
 
     it('a VALID role permission whose condition throws on request data: table allows, interpreter denies', async () => {
-      // Nothing here is malformed. `matches` is a legal operator, `^a+b` is not
-      // a catastrophic pattern, and the drizzle adapter re-validates every row
-      // it reads and keeps both of these (asserted below). What throws is the
-      // REQUEST: `subject.attributes.blob` is 3000 UTF-16 units, past
-      // MAX_REGEX_INPUT_LENGTH (2048), so `ops.matches` raises. No catalog
-      // validation can stop that, and padding an attribute is attacker-reachable.
+      // The catalog is valid; the request throws, because a 3000-unit `blob` exceeds MAX_REGEX_INPUT_LENGTH (2048).
+      // SECURITY: no catalog validation can stop this, and padding an attribute is attacker-reachable.
       await insertRole(pool, { id: 'clean', permissions: [{ action: 'read', resource: 'doc' }] })
       await insertRole(pool, {
         id: 'rotten',
@@ -314,10 +283,7 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
       await assign('u1', 'rotten')
       await setAttributes('u1', { blob: 'a'.repeat(3000) })
 
-      // Without this the case is vacuous: `IamDrizzleAdapter._safeParseRole`
-      // runs `validateRole` on every read and DROPS a role it rejects, so an
-      // unparseable catalog would make both modes deny and the test pass while
-      // proving nothing. Both roles surviving is what makes this a legal catalog.
+      // Guard against a vacuous pass: the adapter drops roles `validateRole` rejects on read.
       const loaded = await adapter().listRoles()
       expect(loaded.map((r) => r.id).sort(), 'the adapter dropped a role - this case would be vacuous').toEqual([
         'clean',
@@ -327,24 +293,14 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
       const v = await bothModes({ action: 'read', resource: 'doc', subjectId: 'u1' })
       expect(v.disagreements, `disagreement: ${v.disagreements[0] ?? ''}`).toEqual([])
       expect(v.production, 'production must not allow what development denies').toBe(v.development)
-      // Named, not just matched: two engines that both denied everything would
-      // satisfy the line above perfectly. `clean` grants `read doc` with no
-      // condition on it, and the subject holds that grant through inheritance,
-      // so the permission whose `matches` cannot run contributes nothing rather
-      // than revoking it - the same verdict the memory-adapter sibling pins,
-      // now reached through real Postgres and `IamDrizzleAdapter`.
+      // Two deny-everything engines would also agree. The inherited unconditional `clean` grant must still allow,
+      // since the permission whose `matches` throws contributes nothing rather than revoking it.
       expect(v.production, 'the agreed verdict itself').toBe(true)
     })
 
     it('the condition-depth divergence is contained at the store: drizzle drops the row', async () => {
-      // The sibling memory-adapter suite shows the table and the interpreter
-      // disagree on a role permission nested exactly at MAX_CONDITION_DEPTH.
-      // Reaching it needs a catalog `validateRole` rejects, and this adapter
-      // re-runs that validator on every READ - so a row written straight into
-      // Postgres (a migration, another service, a hand edit) never reaches the
-      // engine. That containment is a property worth pinning: if read-time
-      // validation is ever relaxed for speed, the divergence becomes reachable
-      // from a real store, and this test is what says so.
+      // `validateRole` rejects nesting at MAX_CONDITION_DEPTH, and this adapter re-validates on read.
+      // WARN: relaxing read-time validation would let a hand-written over-deep row reach the engine.
       let conditions: AccessControl.IConditionGroup = {
         all: [{ field: 'subject.attributes.level', operator: 'gte', value: 0 }],
       }

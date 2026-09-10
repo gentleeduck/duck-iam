@@ -18,12 +18,7 @@ async function engineWith(policies: AccessControl.IPolicy[]) {
   return new IamEngine({ adapter, mode: 'development' })
 }
 
-/**
- * `IDecision` encoded failure only in the free-text `reason`, so an adapter
- * outage and a legitimate deny were the same object shape and the same
- * `allowed: false`. A caller that wants 403 for one and 503 for the other had
- * no signal: `onError` fires, but it is engine-scoped rather than per-call.
- */
+// Lets a caller answer 403 for a deny and 503 for an outage; `onError` is engine-scoped, not per call.
 describe('IDecision distinguishes a policy deny from a broken engine', () => {
   it('an ordinary deny carries no failure', async () => {
     const engine = await engineWith([denyAll])
@@ -83,11 +78,7 @@ describe('IDecision distinguishes a policy deny from a broken engine', () => {
   })
 })
 
-/**
- * Production mode returns a bare boolean by design - there is no object to
- * carry the discriminant - so `onError` stays the channel there. Pinned so the
- * asymmetry is a decision rather than a surprise.
- */
+// Production has no object to carry the discriminant, so `onError` stays the channel there.
 describe('production mode still answers with a bare boolean', () => {
   it('an adapter outage is false, and onError is the only signal', async () => {
     const adapter = new IamMemoryAdapter()

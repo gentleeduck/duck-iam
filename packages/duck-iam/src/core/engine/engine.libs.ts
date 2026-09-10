@@ -9,19 +9,14 @@ import type { IamValidate } from '../validate/validate.types'
 import type { IamEngineTypes } from './engine.types'
 
 /**
- * A role's bit position in the compiled table's grant mask is `1 << index`, so
- * a 32-bit mask cannot address a 33rd role without aliasing an earlier one.
- * Lives here rather than in `compiled.compile.ts` so the engine can enforce it
- * at construction without statically importing the compiled chunk.
+ * Role cap for the compiled table: a role's bit is `1 << index`, so a 33rd role would alias an earlier one.
+ * NOTE: lives here so the engine can check it without statically importing the compiled chunk.
  */
 export const IAM_MAX_COMPILED_ROLES = 32
 
 /**
- * Default `environment.now` to the current epoch ms when the caller did not
- * supply one, so temporal operators (`before` / `after`) and `$environment.now`
- * references resolve to a real clock. Returns the request unchanged when `now`
- * is already set (tests / `beforeEvaluate` can pin a deterministic clock), so
- * an explicit `now` is never overwritten. Only allocates on the inject path.
+ * Defaults `environment.now` to the current epoch ms so temporal operators and `$environment.now` see a real clock.
+ * An explicit `now` is kept, so tests and `beforeEvaluate` can pin the clock.
  */
 export function ensureEnvNow<TAction extends string, TResource extends string, TScope extends string>(
   req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
@@ -31,9 +26,8 @@ export function ensureEnvNow<TAction extends string, TResource extends string, T
 }
 
 /**
- * Lazy validator binding. The `../validate` module is ~12 KB gzipped; users who
- * never call `engine.admin.savePolicy/saveRole/import` shouldn't pay for it at
- * import time. Loaded on first admin write and memoised.
+ * The validators, loaded on the first admin write and memoized.
+ * PERF: `../validate` is about 12 KB gzipped, which read-only installs never need.
  */
 let _validateBindings: {
   validatePolicy: typeof import('../validate').validatePolicy
@@ -48,21 +42,10 @@ async function _getValidate() {
 }
 
 /**
- * Single-flight helper for single-slot in-flight promises.
- *
- * Encapsulates the sentinel-compare pattern used by `_loadPolicies`,
- * `_loadRoles`, `_loadRbacPolicy`, `_loadAllPolicies`. A concurrent caller
- * sees the same `pending` promise; an `invalidate*()` mid-await nulls the
- * slot, and the sentinel check prevents the late resolver from writing
- * stale data into the now-cleared cache.
+ * Runs `produce` once for a single in-flight slot and stores the pending promise there until it settles.
+ * NOTE: `onResolve` runs only if the slot still holds this promise, so a load an invalidation cleared caches nothing.
  *
  * @template T - Resolved value type.
- * @param getSlot - Reads the current in-flight slot (returns `null` if empty).
- * @param setSlot - Writes the in-flight slot (`null` clears it).
- * @param produce - Async producer for the value.
- * @param onResolve - Called only when the slot still holds the original
- *   pending promise. Use this to populate the cache.
- * @returns The pending promise (also stored in the slot until resolved).
  */
 export function runSingleFlight<T>(
   getSlot: () => Promise<T> | null,
@@ -84,12 +67,7 @@ export function runSingleFlight<T>(
   return pending
 }
 
-/**
- * Keyed single-flight for per-key in-flight maps (subjects).
- *
- * Same shape as {@link runSingleFlight} but keyed on a Map entry. Identity
- * equality on the Promise reference disambiguates concurrent callers.
- */
+/** {@link runSingleFlight} keyed on a map entry, compared by promise identity. */
 export function runSingleFlightKeyed<K, T>(
   map: Map<K, Promise<T>>,
   key: K,
@@ -128,8 +106,7 @@ function assertNonEmptyStringParam(name: string, value: unknown): asserts value 
     const got = value === null ? 'null' : typeof value
     throw new Error(`[@gentleduck/iam:engine] ${name} must be a non-empty string (got ${got})`)
   }
-  // 1024-char cap so a hostile caller cannot bloat the adapter call (URL
-  // length on HTTP adapter, key length on Redis, JSON column size on SQL).
+  // SECURITY: capped so a hostile caller cannot bloat a URL, Redis key or SQL column.
   if (value.length > 1024) {
     throw new Error(`[@gentleduck/iam:engine] ${name} exceeds 1024-char cap (got length ${value.length})`)
   }
@@ -145,16 +122,12 @@ function assertAttributesParam(value: unknown): asserts value is IamPrimitives.A
     const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
     throw new Error(`[@gentleduck/iam:engine] attributes must be a plain object (got ${got})`)
   }
-  // 256 own-key cap so a hostile caller cannot push an unbounded attributes
-  // bag through setSubjectAttributes (would bloat the JSON column / Redis
-  // string + every downstream resolve()).
+  // SECURITY: capped so a hostile caller cannot store an unbounded bag that every resolve() then walks.
   const keyCount = Object.keys(value).length
   if (keyCount > 256) {
     throw new Error(`[@gentleduck/iam:engine] attributes must have <=256 keys (got ${keyCount})`)
   }
-  // Reject deep nesting: resolve() walks dot-paths to depth ~8 in practice.
-  // 16 is a safe ceiling that defends against stack-overflow when the
-  // walker recurses (and rejects pathological `{a:{a:{...}}}` shapes).
+  // SECURITY: depth capped so a recursive walker cannot overflow the stack.
   const depth = _measureDepth(value)
   if (depth > 16) {
     throw new Error(`[@gentleduck/iam:engine] attributes nesting depth ${depth} exceeds cap (16)`)
@@ -184,8 +157,7 @@ function _measureDepth(node: unknown, current = 0): number {
 function formatErrInterp(value: unknown, maxLen = 64): string {
   if (value === null) return 'null'
   if (value === undefined) return 'undefined'
-  // Narrow on the inline `typeof`, not through the `t` alias - TS follows the
-  // first and not the second, which is what forced the cast this replaces.
+  // Narrow on the inline `typeof`: TypeScript does not narrow through the `t` alias below.
   if (typeof value === 'string') {
     if (value.length <= maxLen) return `string '${value}'`
     return `string '${value.slice(0, maxLen)}...' (length ${value.length})`
@@ -224,33 +196,25 @@ function freezeConditionArray(arr: ReadonlyArray<AccessControl.ICondition | Acce
 }
 
 /**
- * Whether a grant declared at `declared` reaches a request made at
- * `requestScope`. Under `'flat'` that is exact equality; under
- * `'hierarchical'` a scope also covers everything beneath it, the same relation
- * {@link scopeAncestors} computes from the request's end for scoped
- * assignments. Used for the *other* kind of scope - the one a role or
- * permission declares - so one config flag means one thing.
+ * Whether a scope a role or permission declares reaches a request at `requestScope`.
+ * `'flat'` is exact match; `'hierarchical'` also covers descendants, as {@link scopeAncestors} does for assignments.
  */
 export function scopeCovers(
   declared: string,
   requestScope: string | undefined,
   scopeMode: 'flat' | 'hierarchical',
 ): boolean {
-  // The exact-match arm is `matchesScope`'s, not a second copy of it. The scope
-  // contract was documented in `resolve.ts` and enforced by three unrelated
-  // expressions elsewhere, which is how the truth tables came to disagree;
-  // this is the one imperative scope check in the engine, so it is the one
-  // that routes through the module that owns the contract. `'*'` reaching here
-  // is global, which `matchesScope` already says and the old `===` did not.
+  // WARN: the exact-match arm must stay `matchesScope`, which owns the scope contract (including `'*'` as global).
   if (matchesScope(declared, requestScope)) return true
   if (requestScope === undefined) return false
   return scopeMode === 'hierarchical' && requestScope.startsWith(`${declared}.`)
 }
 
 /**
- * Scope plus every ancestor prefix, specific first:
- * `'org-1.team-2.repo-3'` -> `['org-1.team-2.repo-3', 'org-1.team-2', 'org-1']`.
- * No `.` -> one entry (itself).
+ * The scope and each ancestor, most specific first.
+ *
+ * @example
+ * scopeAncestors('org-1.team-2.repo-3') // ['org-1.team-2.repo-3', 'org-1.team-2', 'org-1']
  */
 export function scopeAncestors(scope: string): string[] {
   const out: string[] = [scope]
@@ -265,11 +229,8 @@ export function scopeAncestors(scope: string): string[] {
 }
 
 /**
- * Merge scoped role assignments matching `scope` into `subject.roles`.
- * `scopeMode: 'flat'` (default) requires an exact scope match;
- * `'hierarchical'` also matches grants at any ancestor scope, combined per
- * `scopeCombine` (see `IConfig.scopeMode` / `IConfig.scopeCombine`).
- * Returns the original subject unchanged if nothing matches.
+ * Merges scoped assignments matching `scope` into `subject.roles`, returning the same subject when none match.
+ * `'hierarchical'` also matches ancestor scopes, combined per `scopeCombine` (see `IConfig.scopeMode`).
  */
 export function enrichSubjectWithScopedRoles<TScope extends string = string>(
   subject: IamRequest.ISubject,
@@ -306,10 +267,7 @@ export function enrichSubjectWithScopedRoles<TScope extends string = string>(
   return { ...subject, roles: mergedRoles }
 }
 
-/**
- * Normalise an actor into the spread the event literals use, so `actor` is
- * absent rather than explicitly `undefined` on an event nobody attributed.
- */
+/** An actor as an event spread, so an unattributed event has no `actor` key rather than `undefined`. */
 function actorOf(opts?: { readonly actor?: string }): { actor?: string } {
   return opts?.actor === undefined ? {} : { actor: opts.actor }
 }
@@ -320,13 +278,8 @@ interface IActorRow<TRole extends string, TScope extends string> extends IamAdap
 }
 
 /**
- * Emit one `role.assigned` / `role.revoked` per row of a batch result.
- *
- * Reads `changed` off the outcomes rather than recomputing it from the
- * adapter's index list, so what a consumer sees on the event and what it sees
- * on the returned {@link Batch.Result} are the same value by construction.
- * One event per row and no de-duplication: two grants of the same role are two
- * entries in the consumer's history even though they are one cache job.
+ * Emits one `role.assigned` or `role.revoked` per row, not de-duplicated.
+ * `changed` comes from the outcomes, so each event agrees with the returned {@link Batch.Result}.
  */
 async function emitRowEvents<TRole extends string, TScope extends string>(
   emit: ((event: IamEngineTypes.IMutationEvent<TRole, TScope>) => Promise<void>) | undefined,
@@ -351,18 +304,12 @@ async function emitRowEvents<TRole extends string, TScope extends string>(
 }
 
 /**
- * Create an {@link IamEngineTypes.IAdmin} instance that delegates storage operations to the
- * given adapter and invalidates the engine's caches after mutations.
+ * Creates an {@link IamEngineTypes.IAdmin} that writes through `adapter`, then invalidates caches and emits events.
  *
  * @template TAction   - Union of valid action strings.
  * @template TResource - Union of valid resource strings.
  * @template TRole     - Union of valid role IDs.
  * @template TScope    - Union of valid scope strings.
- *
- * @param adapter - The storage adapter for policies, roles, and subject data
- * @param engine  - The engine instance whose caches should be invalidated on
- *   writes, and the optional sink its mutation events go to
- * @returns An {@link IamEngineTypes.IAdmin} object wired to the adapter and engine
  */
 export function createAdmin<
   TAction extends string = string,
@@ -378,30 +325,15 @@ export function createAdmin<
       invalidateSubject(subjectId: string): void
     }
     /**
-     * Where mutation events go. Omitted when nothing is listening - the engine
-     * leaves it off unless `hooks.onMutation` is wired - so an unobserved
-     * install allocates no events at all, which is what keeps a large
-     * `assignRoles` as cheap as it was before the bus existed.
-     *
-     * Structural, like `cache`, so the transaction-bound admin substitutes a
-     * buffering sink with no change here.
+     * Where mutation events go; structural, so the bound admin can pass a buffering sink.
+     * PERF: omitted unless `hooks.onMutation` is set, so an unobserved install allocates no events.
      */
     mutations?: { emit(event: IamEngineTypes.IMutationEvent<TRole, TScope>): void | Promise<void> }
   },
 ): IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
   /**
-   * The scope rules the adapters enforce, applied one layer earlier.
-   *
-   * `iamAssertAssignableScope` is the predicate itself rather than a second
-   * copy of it, but where it runs matters as much as what it says. The adapters
-   * guard their own `assignRole`, which for `assignRoles` is *inside* the write
-   * loop - so a batch carrying one `'*'` row would write every row before it
-   * and then throw, which is exactly the half-applied batch the pre-pass at
-   * `assignRoles` exists to prevent ("a caller who fixes a malformed row and
-   * retries would otherwise double-apply every row that had already landed").
-   * Running it in the pre-pass makes the whole batch fail before anything is
-   * written; the adapter guard stays as the backstop for a caller who reaches
-   * the adapter directly.
+   * The adapters' scope rule, checked before any write so one bad batch row fails the batch before anything lands.
+   * The adapter's own guard stays as the backstop for direct callers.
    */
   const assertAssignableScope = (scope: unknown, intent: 'grant' | 'lookup'): void => {
     iamAssertAssignableScope('engine', scope, intent)
@@ -419,21 +351,15 @@ export function createAdmin<
   }
   const sink = engine.mutations
   /**
-   * Emit one mutation event, if anything is listening.
-   *
-   * Every call site is placed *after* the adapter write has resolved and after
-   * the cache invalidation, so a write that threw emits nothing and a consumer
-   * reacting to an event never reads a cache that still holds the old answer.
+   * Emits one mutation event, if anything listens.
+   * NOTE: call only after the write and invalidation, so a failed write emits nothing and no listener reads stale.
    */
   const emit =
     sink === undefined
       ? undefined
       : async (event: IamEngineTypes.IMutationEvent<TRole, TScope>): Promise<void> => {
-          // Awaited, not fire-and-forget. A consumer writing this event to its
-          // own history table wants that write to have happened before
-          // `assignRole` resolves; otherwise a crash between the two loses the
-          // only record of the grant. The engine's sink already swallows
-          // throws, so awaiting cannot turn a hook bug into a failed write.
+          // Awaited (up to `hookTimeoutMs`) so a history write lands before the mutation resolves.
+          // The sink swallows throws, so a hook bug cannot fail the write.
           await sink.emit(event)
         }
   /** One invalidation per subject, however many rows of the batch named it. */
@@ -441,9 +367,26 @@ export function createAdmin<
     for (const subjectId of new Set(rows.map((r) => r.subjectId))) engine.cache.invalidateSubject(subjectId)
   }
   /**
-   * The single-row scope move, hoisted so `moveRoleScopes` can reuse it without
-   * relying on `this` inside the object literal below.
+   * After a batch throws part-way, invalidates every requested row but emits only rows known to have landed.
+   * SECURITY: earlier rows are already stored, so skipping this leaves a revoked grant cached until the TTL expires.
    */
+  const settlePartialBatch = async (
+    requested: readonly IamEngineTypes.ITripleRow<TRole, TScope>[],
+    landed: readonly IActorRow<TRole, TScope>[],
+    type: 'role.assigned' | 'role.revoked',
+  ): Promise<void> => {
+    invalidateEach(requested)
+    await emitRowEvents(emit, appliedRows(landed, null), type)
+  }
+  /** Whether the subject actually holds this grant, so a move never invents one. */
+  const holdsGrant = async (subjectId: string, roleId: TRole, fromScope?: TScope): Promise<boolean> => {
+    if (fromScope === undefined) return (await adapter.getSubjectRoles(subjectId)).includes(roleId)
+    const scoped = adapter.getSubjectScopedRoles
+    // Unknowable without it; guess "not held", since "held" would write a grant.
+    if (!scoped) return false
+    return (await scoped.call(adapter, subjectId)).some((r) => r.role === roleId && r.scope === fromScope)
+  }
+  /** The single-row scope move, hoisted so `moveRoleScopes` reuses it without `this`. */
   const moveOne = async (
     subjectId: string,
     roleId: TRole,
@@ -451,21 +394,24 @@ export function createAdmin<
     toScope?: TScope,
     actor?: string,
   ): Promise<void> => {
-    const moved = adapter.updateAssignmentScope
-      ? await adapter.updateAssignmentScope(subjectId, roleId, fromScope, toScope, actor)
-      : false
-    if (!moved) {
-      // Adapter has no in-place update, or nothing matched fromScope: fall back to
-      // revoke + assign so the call still succeeds (assignRole is idempotent).
-      // The actor rides along on both halves so the fallback path records the
-      // same provenance the in-place update would have.
+    const update = adapter.updateAssignmentScope
+    if (update) {
+      // SECURITY: `false` means "no such grant"; falling through to revoke + assign would create one.
+      if (!(await update.call(adapter, subjectId, roleId, fromScope, toScope, actor))) return
+    } else {
+      // Emulate the update for a grant that exists, with the actor on both halves.
+      if (!(await holdsGrant(subjectId, roleId, fromScope))) return
       await adapter.revokeRole(subjectId, roleId, fromScope, { actor })
-      await adapter.assignRole(subjectId, roleId, toScope, { actor })
+      try {
+        await adapter.assignRole(subjectId, roleId, toScope, { actor })
+      } catch (err) {
+        // SECURITY: the revoke landed, so drop the cached grant at `fromScope` before rethrowing.
+        engine.cache.invalidateSubject(subjectId)
+        throw err
+      }
     }
     engine.cache.invalidateSubject(subjectId)
-    // One `role.scope-changed`, not a revoke + an assign, whichever path ran:
-    // the caller asked to move a grant, and reporting the fallback's mechanics
-    // would make the history depend on which adapter is installed.
+    // One `role.scope-changed` on either path, reached only when a row moved.
     await emit?.({
       type: 'role.scope-changed',
       at: Date.now(),
@@ -515,9 +461,7 @@ export function createAdmin<
     async deleteRole(id: string, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('id', id)
       await adapter.deleteRole(id)
-      // `TRole` is erased at runtime, so there is nothing to narrow against; a
-      // predicate here would be a cast wearing a disguise. Routed through the
-      // one documented place so it greps alongside the other tenant literals.
+      // `TRole` is erased at runtime, so there is nothing to narrow; `iamAsRoleLiteral` keeps it greppable.
       const roleId = iamAsRoleLiteral<TRole>(id)
       engine.cache.invalidateRoles(roleId)
       await emit?.({ type: 'role.deleted', at: Date.now(), roleId, ...actorOf(opts) })
@@ -536,9 +480,7 @@ export function createAdmin<
       })
     },
     async revokeRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IRevokeOptions) {
-      // `'lookup'`: a revoke addresses a row that already exists, and an
-      // operator holding `'*'` rows written before the guard has to be able to
-      // delete them.
+      // `'lookup'`: a revoke addresses an existing row, so legacy `'*'` rows stay deletable.
       assertTriple(subjectId, roleId, scope, 'lookup')
       await adapter.revokeRole(subjectId, roleId, scope, opts)
       engine.cache.invalidateSubject(subjectId)
@@ -562,30 +504,33 @@ export function createAdmin<
       assertNonEmptyStringParam('roleId', roleId)
       assertOptionalNonEmptyStringParam('fromScope', fromScope)
       assertOptionalNonEmptyStringParam('toScope', toScope)
-      // A move reads one scope and writes the other, so the two ends are not
-      // the same question: `'*'` may be moved *off*, never *to*.
+      // `'*'` may be moved off, never to.
       assertAssignableScope(fromScope, 'lookup')
       assertAssignableScope(toScope, 'grant')
       await moveOne(subjectId, roleId, fromScope, toScope, actor)
     },
     async assignRoles(rows: readonly IamEngineTypes.IAssignRow<TRole, TScope>[]) {
       if (rows.length === 0) return batchResult([])
-      // A pre-pass, not per-row: a caller who fixes a malformed row and retries
-      // would otherwise double-apply every row that had already landed.
+      // Validate every row first, so fixing a bad row and retrying cannot double-apply the rows that landed.
       for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope)
-      // Bound, not destructured: the adapter may be a class instance whose
-      // method needs its `this`.
+      // Bound: a class-instance adapter needs its `this`.
       const assignRoleMany = adapter.assignRoleMany?.bind(adapter)
-      // `null` means "written, but I cannot say which rows moved". The loop
-      // path is in that position by construction: `assignRole` returns void.
+      // `null` means written, but which rows changed is unknown, as on the loop path (`assignRole` returns void).
       let changed: readonly number[] | null = null
-      if (assignRoleMany) changed = await assignRoleMany(rows)
-      else for (const r of rows) await adapter.assignRole(r.subjectId, r.roleId, r.scope, r.opts)
+      const landed: IamEngineTypes.IAssignRow<TRole, TScope>[] = []
+      try {
+        if (assignRoleMany) changed = await assignRoleMany(rows)
+        else
+          for (const r of rows) {
+            await adapter.assignRole(r.subjectId, r.roleId, r.scope, r.opts)
+            landed.push(r)
+          }
+      } catch (err) {
+        await settlePartialBatch(rows, landed, 'role.assigned')
+        throw err
+      }
       invalidateEach(rows)
       const result = appliedRows(rows, changed)
-      // Driven off `result.outcomes` rather than recomputing from `changed`, so
-      // the `changed` a consumer reads on the event and the one it reads on the
-      // batch result cannot disagree.
       await emitRowEvents(emit, result, 'role.assigned')
       return result
     },
@@ -594,8 +539,18 @@ export function createAdmin<
       for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope, 'lookup')
       const revokeRoleMany = adapter.revokeRoleMany?.bind(adapter)
       let changed: readonly number[] | null = null
-      if (revokeRoleMany) changed = await revokeRoleMany(rows)
-      else for (const r of rows) await adapter.revokeRole(r.subjectId, r.roleId, r.scope, r.opts)
+      const landed: IamEngineTypes.IRevokeRow<TRole, TScope>[] = []
+      try {
+        if (revokeRoleMany) changed = await revokeRoleMany(rows)
+        else
+          for (const r of rows) {
+            await adapter.revokeRole(r.subjectId, r.roleId, r.scope, r.opts)
+            landed.push(r)
+          }
+      } catch (err) {
+        await settlePartialBatch(rows, landed, 'role.revoked')
+        throw err
+      }
       invalidateEach(rows)
       const result = appliedRows(rows, changed)
       await emitRowEvents(emit, result, 'role.revoked')
@@ -611,9 +566,7 @@ export function createAdmin<
         assertAssignableScope(r.fromScope, 'lookup')
         assertAssignableScope(r.toScope, 'grant')
       }
-      // Delegates per row to the single-row move, which owns the revoke + assign
-      // fallback for adapters with no in-place update. There is no set-based
-      // form to fall back FROM, so this loop is the fast path, not a shim.
+      // No set-based move exists, so this per-row loop is the only path, not a fallback.
       return loopFallback(rows, (r) => moveOne(r.subjectId, r.roleId, r.fromScope, r.toScope, r.actor))
     },
     invalidateSubjects(subjectIds: readonly string[]) {
@@ -624,9 +577,7 @@ export function createAdmin<
       assertAttributesParam(attrs)
       await adapter.setSubjectAttributes(subjectId, attrs, opts)
       engine.cache.invalidateSubject(subjectId)
-      // Key names only - see `IAttributesSetEvent`. `Object.keys` and not the
-      // bag itself, so the event cannot carry personal data into a consumer's
-      // durable log by accident.
+      // SECURITY: key names only, so the event cannot carry personal data into a durable log.
       await emit?.({ type: 'attributes.set', at: Date.now(), subjectId, keys: Object.keys(attrs), ...actorOf(opts) })
     },
     async getAttributes(subjectId: string) {
@@ -659,10 +610,7 @@ export function createAdmin<
           throw new Error(`[@gentleduck/iam:engine] snapshot "${field}" must be an array`)
         }
       }
-      // Validate the whole snapshot before touching the adapter. Interleaving
-      // meant an invalid row halfway through left the store half-applied: in
-      // `replace` mode the deletions had already landed, so deny policies could
-      // be gone with nothing written back in their place.
+      // SECURITY: validate all before writing; in `replace` mode a late bad row would leave deny policies deleted.
       const { validatePolicy, validateRole } = await _getValidate()
       for (const p of snapshot.policies) assertValidOrThrow('policy', validatePolicy(p))
       for (const r of snapshot.roles) assertValidOrThrow('role', validateRole(r))
@@ -670,8 +618,7 @@ export function createAdmin<
       const mode = options.mode ?? 'merge'
       let policiesDeleted = 0
       let rolesDeleted = 0
-      // Buffered and emitted after every write lands. An import that throws
-      // halfway is not a history of the rows that happened to go first.
+      // Emitted only after every write lands, so a failed import records no partial history.
       const imported: IamEngineTypes.IMutationEvent<TRole, TScope>[] = []
       const at = Date.now()
       if (mode === 'replace') {

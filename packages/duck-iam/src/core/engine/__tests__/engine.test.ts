@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { withoutInPlaceUpdate } from '../../../test/adapter-capabilities'
 import type { AccessControl, IamClient, IamRequest } from '../../types'
 import { IamEngine, iamFlushSharedCaches } from '../engine'
 
@@ -75,10 +76,7 @@ function createEngine(overrides?: {
       'user-org-editor': ['org-editor'] as RoleId[],
     },
   })
-  // Pinned to development explicitly: `mode` now defaults to 'production', and
-  // these tests were written against the rich `IDecision` that only development
-  // returns. Pinning keeps them testing what they were written to test - the
-  // production shape has its own coverage.
+  // Pinned to development: these tests assert on the rich `IDecision`, and `mode` defaults to 'production'.
   return new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
     adapter,
     cacheTTL: overrides?.cacheTTL ?? 0,
@@ -298,10 +296,7 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('returns fail-closed all-deny map when adapter rejects', async () => {
-    // IamAdapter rejects on listPolicies - without the outer try permissions()
-    // would reject the whole batch and callers that don't .catch() lose the
-    // fail-closed behaviour. With the catch: every requested check is keyed
-    // false and onError fires once.
+    // A rejecting adapter must not reject the batch: every check is keyed false and onError fires once.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -329,9 +324,7 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('forwards onPolicyError to evaluator for batch checks', async () => {
-    // A policy whose evaluator throws (IamRegexInputTooLargeError when matching
-    // against an oversize subject attribute) must surface via onPolicyError;
-    // permissions() previously passed undefined and the throw was eaten.
+    // A policy that throws (oversized `matches` input) must surface via onPolicyError in a batch too.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -473,9 +466,7 @@ describe('Engine.admin - CRUD operations', () => {
 
   it('updateAssignmentScope falls back to revoke + assign when the adapter has no in-place update', async () => {
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [editorRole] })
-    // Strip the optional capability to exercise the engine's fallback path.
-    // biome-ignore lint/performance/noDelete: test-only, deleting the optional method to simulate an adapter without it
-    delete (adapter as { updateAssignmentScope?: unknown }).updateAssignmentScope
+    withoutInPlaceUpdate(adapter)
     const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
     await engine.admin.assignRole('user-fallback', 'editor', 'org-1')
@@ -909,10 +900,8 @@ describe('Engine - empty RBAC + explicit ABAC allow', () => {
 
 describe('Engine - construction guards', () => {
   it("throws when mode='production' is combined with policyCombine='first-applicable'", () => {
-    // evaluateFast cannot represent "rule fired" vs "default applied", so it
-    // would silently downgrade first-applicable to AND in production. The
-    // ctor refuses the combination to surface the issue at boot, not at
-    // request time.
+    // evaluateFast cannot tell "rule fired" from "default applied", so first-applicable would degrade to AND.
+    // The constructor refuses it at boot rather than at request time.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(
       () =>
@@ -973,9 +962,7 @@ describe('Engine - construction guards', () => {
   })
 
   it("refuses defaultEffect='allow' in development without opt-in (P0)", () => {
-    // Fail-open is just as dangerous in dev/staging as in prod - a dev
-    // engine that ships with allow-by-default lets corrupt policies vanish
-    // silently. Same opt-in required in every mode.
+    // SECURITY: fail-open needs the same opt-in in every mode; allow-by-default hides corrupt policies.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(() => new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow' })).toThrow(
       /fail-open/i,
@@ -1159,11 +1146,8 @@ describe('Engine - DoS bounds at load time (B5)', () => {
 })
 
 describe('Engine - Indeterminate on malformed policy (B4)', () => {
-  // Was 'skips a throwing policy and continues evaluating the rest', asserting
-  // `true`. A policy too malformed to evaluate is Indeterminate, not
-  // NotApplicable: nothing is known about what it would have decided, so it
-  // casts its `defaultEffect` vote rather than dropping out. Skipping it is
-  // what let a corrupt or attacker-supplied policy row disable itself.
+  // SECURITY: a policy too malformed to evaluate is Indeterminate, not NotApplicable; skipping it would let a
+  // corrupt or attacker-supplied policy row disable itself.
   it('a throwing policy casts its defaultEffect vote instead of being skipped', async () => {
     const goodPolicy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
       id: 'good',
@@ -1209,8 +1193,7 @@ describe('Engine - cache invalidation', () => {
     await adapter.saveRole(editorRole)
     await adapter.assignRole('user-1', 'editor' as RoleId)
 
-    // Before invalidation: still using cached subject (only has viewer)
-    // After invalidation: should pick up the new role
+    // The cached subject only has viewer; invalidation picks up the new role.
     engine.cache.invalidate()
     expect(await engine.can('user-1', 'create', { type: 'post', attributes: {} })).toBe(true)
   })
@@ -1273,8 +1256,7 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('single-flight: concurrent cold-start checks fan in to one adapter load', async () => {
-    // 50 parallel can() calls on a fresh engine must hit listPolicies/listRoles once each,
-    // not 50 times. Catches the thundering-herd regression.
+    // 50 parallel can() calls on a fresh engine must hit listPolicies/listRoles once each.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -1430,16 +1412,8 @@ describe('Engine - cache invalidation', () => {
       return origPolicies()
     }
 
-    // Driven through `permissions()` with an empty check list, not `can()`.
-    // `permissions()` awaits `_loadAllPolicies` once up front and then runs no
-    // checks at all, so the merged load is genuinely in flight for the 5ms the
-    // stub holds it and nothing reloads afterwards - which is what makes an
-    // empty cache the honest assertion. Under `can()` this no longer holds:
-    // both modes now build the compiled table first, which pre-warms every
-    // input the merged load needs, and any post-invalidation check would
-    // legitimately repopulate the cache. The old version of this test counted
-    // two microtasks to find the window; that count silently stopped landing
-    // inside it, leaving the test passing for the wrong reason.
+    // NOTE: `permissions()` with no checks, not `can()`: it awaits the merged load once and reloads nothing after,
+    // so an empty cache is the honest assertion. `can()` pre-warms that load while building the compiled table.
     const internals = engine as unknown as { _inFlight: { merged: { value: Promise<unknown> | null } } }
     const pending = engine.permissions('user-1', [])
     // Poll on a macrotask, because the stub waits on a `setTimeout` that a
@@ -1448,9 +1422,8 @@ describe('Engine - cache invalidation', () => {
     engine.cache.invalidatePolicies()
     await pending
 
-    // `runSingleFlight` only writes back when the slot still holds its own
-    // pending promise, so the invalidation that nulled the slot mid-flight wins
-    // and the pre-invalidation value is never cached.
+    // `runSingleFlight` writes back only if the slot still holds its own promise, so the mid-flight
+    // invalidation wins and the stale value is never cached.
     const cache = (engine as unknown as { _mergedPolicyCache: { get(k: string): unknown } })._mergedPolicyCache
     expect(cache.get('merged')).toBeUndefined()
   })
@@ -1532,10 +1505,8 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('synthesised RBAC policy is deep-frozen (M2)', async () => {
-    // A live TTL: this asserts on the cached object, and the suite default of
-    // `cacheTTL: 0` expires the entry in the same millisecond it is written, so
-    // the read raced the write and the test failed roughly one run in five.
-    // Freezing happens on write, so the TTL is irrelevant to what is asserted.
+    // A live TTL: with the suite's `cacheTTL: 0` the entry expires as it is written and the read races it.
+    // Freezing happens on write, so the TTL does not affect what is asserted.
     const engine = createEngine({ cacheTTL: 60_000 })
     await engine.can('user-editor', 'read', { type: 'post', attributes: {} })
     const internal = engine as unknown as { _rbacPolicyCache: { get(k: string): AccessControl.IPolicy | undefined } }
@@ -1695,9 +1666,8 @@ describe('Engine - cross-instance invalidator (B2)', () => {
     await engine.can('u', 'read', { type: 'post', attributes: {} })
     engine.cache.invalidatePolicies()
     await engine.can('u', 'read', { type: 'post', attributes: {} })
-    // The single publish goes to the bus and back into our subscription.
-    // Bus-handler applies invalidate with `broadcast: false`. We expect: warm
-    // call, invalidate, cold call -> exactly 2 listPolicies calls.
+    // The publish echoes back through our own subscription with `broadcast: false`, so warm call +
+    // invalidate + cold call is exactly 2 listPolicies calls.
     expect(listCalls).toBe(2)
     engine.dispose()
   })

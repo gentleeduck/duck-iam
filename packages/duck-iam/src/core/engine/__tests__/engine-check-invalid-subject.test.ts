@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../engine'
 
-/**
- * An invalid `subjectId` short-circuits before evaluation. In development mode
- * the synthesized deny must still be a complete `IDecision` - callers read
- * `effect`/`timestamp` off it like any other decision.
- */
+// An invalid `subjectId` short-circuits evaluation; in development the deny must still be a complete `IDecision`.
 describe('engine.check() with an invalid subjectId', () => {
   const adapter = new IamMemoryAdapter<'read', 'post', 'viewer', 'org'>({ roles: [], assignments: {}, policies: [] })
   const resource = { type: 'post' as const, attributes: {} }

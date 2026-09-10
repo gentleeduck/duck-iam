@@ -3,18 +3,8 @@ import { IamMemoryAdapter } from '../../../../adapters/memory'
 import { iamBuildPermissionKey } from '../../../../shared/keys'
 import { IamEngine } from '../../engine'
 
-// mode: 'production' now always uses the compiled table - no opt-in flag, no
-// fallthrough. These tests compare a production engine's boolean verdicts
-// against a development engine (the interpreted ground truth) over the same
-// data, for both policyCombine modes, plus the invalidation contract.
-//
-// Parity alone is not enough, and each clause below therefore also pins the
-// development verdict as an absolute. Two engines that both answer `false` for
-// everything agree perfectly: a compiled table stuck at deny, or an adapter
-// that hands back no roles at all, satisfied every `toBe(dev)` here while
-// authorizing nothing. The absolute anchors are what make the agreement
-// mean something - and they are stated per `policyCombine`, because that is
-// where the two modes legitimately part company.
+// Production (compiled table) vs development (interpreter) verdicts over the same data, per `policyCombine`.
+// Each case also pins the development verdict, so two engines that deny everything cannot agree vacuously.
 
 const roles = [{ id: 'editor', name: 'Editor', permissions: [{ action: 'update', resource: 'post' }] }]
 const policies = [
@@ -54,9 +44,7 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
       policyCombine,
     })
     const resource = { type: 'post', attributes: {} }
-    // `editor` grants `update post` outright, and the ownership policy has no
-    // rule shaped for `update`, so it abstains rather than voting - the role
-    // grant stands under both combine modes.
+    // `editor` grants `update post` and the ownership policy has no `update` rule, so it abstains under both combines.
     expect((await development.check('user-1', 'update', resource)).allowed).toBe(true)
     expect(await production.can('user-1', 'update', resource)).toBe(
       (await development.check('user-1', 'update', resource)).allowed,
@@ -78,16 +66,8 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
     })
     const owned = { type: 'post', attributes: { ownerId: 'user-1' } }
     const notOwned = { type: 'post', attributes: { ownerId: 'someone-else' } }
-    // The two requests differ only in `ownerId`, and they must come out
-    // differently: `owned` is allowed and `notOwned` is not. That split is the
-    // anchor - it is what proves the condition was evaluated rather than the
-    // whole rule skipped, which a `toBe(dev)` comparison cannot see.
-    //
-    // Allowed under `'and'` as well as `'allow-overrides'`, because `editor`
-    // carries no `read post` permission and the RBAC policy therefore *abstains*
-    // on this request rather than voting deny - the same NotApplicable
-    // contract the untargeted-policy case below relies on. The ownership allow
-    // is the only vote cast.
+    // The owned/notOwned split proves the condition ran. Allowed under 'and' too: `editor` has no `read post`,
+    // so RBAC abstains and the ownership allow is the only vote.
     expect((await development.check('user-1', 'read', owned)).allowed).toBe(true)
     expect((await development.check('user-1', 'read', notOwned)).allowed).toBe(false)
     expect(await production.can('user-1', 'read', owned)).toBe(
@@ -116,9 +96,7 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
       { action: 'read', resource: 'post', resourceId: 'p1' },
     ] as const
     const prodMap = await production.permissions('user-1', checks)
-    // The batch is not uniformly false: `update post` is granted by the role
-    // in both combine modes. Without this the loop below is satisfied by a
-    // `permissions()` that returns deny for every key it is asked about.
+    // Guard against a `permissions()` that denies every key passing the loop below vacuously.
     expect(prodMap[iamBuildPermissionKey('update', 'post')]).toBe(true)
     for (const c of checks) {
       const decision = await development.check('user-1', c.action, {
@@ -156,9 +134,7 @@ describe("production mode: 'and'-mode soundness - an irrelevant untargeted polic
       attributes,
     })
     const production = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' }) // policyCombine: 'and' default
-    // Under 'and', `irrelevant` has no rule shaped for update/post, so it abstains
-    // (NotApplicable) instead of forcing a defaultEffect vote - the role grant is the only
-    // applicable vote and stands.
+    // `irrelevant` has no update/post rule, so it abstains instead of voting defaultEffect.
     expect(await production.can('user-1', 'update', { type: 'post', attributes: {} })).toBe(true)
   })
 })
@@ -201,11 +177,7 @@ describe('production mode: mixed simple+residual RBAC on one role (regression)',
 })
 
 describe('role count beyond the 32-bit mask capacity', () => {
-  // The bug this guards is bit-index aliasing: with `1 << 32` wrapping to bit 0,
-  // role-32 would silently borrow role-0's grants. The engine no longer answers
-  // that by denying everything - it falls back to the interpreter, which has no
-  // mask and therefore no aliasing. The property under test is unchanged; only
-  // the mechanism that delivers it is.
+  // `1 << 32` wraps to bit 0, so role-32 would borrow role-0's grants. Past 32 roles the engine uses the interpreter.
   const tooManyRoles = Array.from({ length: 33 }, (_, i) => ({
     id: `role-${i}`,
     name: `Role ${i}`,
@@ -227,11 +199,9 @@ describe('role count beyond the 32-bit mask capacity', () => {
     try {
       const engine = engineOf(mode)
       const secret = { type: 'secret', attributes: {} }
-      // role-32 has no permissions of its own, so this must deny - and it
-      // must deny for that reason, not because the whole engine is down.
+      // role-32 has no permissions of its own, so this must deny.
       expect(await engine.can('guest', 'delete', secret)).toBe(false)
-      // The proof that it is not a blanket deny: role-0's real grant still
-      // works over the same over-limit config.
+      // Not a blanket deny: role-0's real grant still works over the same config.
       expect(await engine.can('root', 'delete', secret)).toBe(true)
     } finally {
       warn.mockRestore()
@@ -242,9 +212,7 @@ describe('role count beyond the 32-bit mask capacity', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const production = engineOf('production')
-      // Not `engineOf('development')`: a helper parameterised over the mode
-      // widens `TMode` to a union, which drops `check()`'s development-only
-      // `IDecision` return type.
+      // Not `engineOf('development')`: its `TMode` union drops `check()`'s development-only `IDecision` type.
       const development = new IamEngine({ adapter: overLimitAdapter(), defaultEffect: 'deny', mode: 'development' })
       const secret = { type: 'secret', attributes: {} }
       for (const subject of ['guest', 'root']) {

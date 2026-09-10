@@ -1,14 +1,6 @@
-/**
- * E2E: `IamEngine.withTransaction` against REAL Postgres on the REAL shipped schema.
- *
- * Proves the two things in-process tests cannot: that a rolled-back grant
- * leaves no assignment row AND never reaches the shared cache, and that a read
- * inside the transaction sees the transaction's own uncommitted grant.
- *
- * Skips when DUCKIAM_E2E_DATABASE_URL is unset; `globalSetup` provisions a
- * container when docker is available.
- */
-import { and, eq, or } from 'drizzle-orm'
+// E2E: `IamEngine.withTransaction` on real Postgres and the shipped schema.
+// A rolled-back grant leaves no row and never reaches the shared cache; a read in the transaction sees its own grant.
+import { and, eq, isNull, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -18,7 +10,7 @@ import { applyPgSchema, assertE2eReachable, isolatedDatabaseUrl } from '../../..
 import type { Batch } from '../../batch'
 import { IamEngine } from '../engine'
 
-/** The `changed` flag of every outcome, in input order. `null` marks a failed row. */
+/** The `changed` flag of every outcome, in input order. */
 function changedFlags<TRow>(result: Batch.Result<TRow, Batch.Change>): (boolean | undefined | null)[] {
   return result.outcomes.map((o) => (o.ok ? o.value.changed : null))
 }
@@ -30,12 +22,9 @@ const suite = URL ? describe : describe.skip
 type Role = 'admin' | 'viewer'
 
 const TABLES = { assignments: iamAssignments, attrs: iamSubjectAttrs, policies: iamPolicies, roles: iamRoles }
-// `isNull` is omitted deliberately: it is needed only by `updateAssignmentScope`,
-// which nothing here calls, and drizzle's own `isNull` does not satisfy the
-// adapter's declared `(col: unknown) => SQLWrapper` without a cast.
-// `or` IS supplied: it is what collapses `revokeRoleMany` into one DELETE, and
-// the batch cases below would silently exercise the per-row fallback without it.
-const OPS = { and, eq, or }
+// The full drizzle operator bundle, so the adapter runs its deployment statements.
+// NOTE: without `or` batch revokes go one DELETE per row; without `isNull` scope moves fall back to revoke + assign.
+const OPS = { and, eq, isNull, or }
 
 suite('E2E IamEngine.withTransaction on real Postgres', () => {
   let pool: Pool
@@ -57,8 +46,7 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
     engine = new IamEngine<string, string, Role, string>({
       adapter: new IamDrizzleAdapter<string, string, Role, string>({ db, ops: OPS, tables: TABLES }),
     })
-    // `iam_assignments.role_id` is a real foreign key, so the role has to exist
-    // before anything can be granted it.
+    // `iam_assignments.role_id` is a real foreign key, so the role must exist before it is granted.
     await engine.admin.saveRole({ id: 'admin', name: 'admin', permissions: [] })
   })
 
@@ -67,11 +55,7 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
     return (r.rows[0] as { n: number }).n
   }
 
-  /**
-   * Runs `body` on a transaction that always rolls back, re-throwing anything
-   * the body threw that is not our own sentinel - so a failed assertion inside
-   * the transaction surfaces instead of being swallowed by the rollback.
-   */
+  /** Runs `body` in a transaction that always rolls back; anything but the sentinel is re-thrown. */
   async function rollsBack(body: (tx: unknown) => Promise<void>): Promise<void> {
     const sentinel = new Error('__rollback__')
     await db
@@ -117,8 +101,7 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
   })
 
   it('a rolled-back grant never reaches the shared cache', async () => {
-    // Warm the shared cache with "u5 has no roles", so a leaked invalidation
-    // would be the only thing that could change the answer below.
+    // Warm the shared cache with "no roles", so only a leaked invalidation could change the answer below.
     expect(await engine.getEffectiveRoles('u5')).toEqual([])
 
     await rollsBack(async (tx) => {
@@ -169,9 +152,7 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
       const first = await engine.admin.assignRoles(rows)
       const again = await engine.admin.assignRoles(rows)
 
-      // The duplicate is skipped by the conflict clause, not reported as a
-      // miss - the grant is in place either way. `changed` is what separates
-      // the two calls: the second wrote nothing.
+      // The conflict clause skips the duplicate as applied; only `changed` shows the second call wrote nothing.
       expect(again.applied).toBe(1)
       expect(changedFlags(first)).toEqual([true])
       expect(changedFlags(again)).toEqual([false])
@@ -187,18 +168,14 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
         { roleId: 'admin', scope: 'org-1', subjectId: 'c1' },
       ])
 
-      // Every row is applied - the grant is in place for all three - but only
-      // the first and third are grants this call made. The scoped row is new
-      // even though `(c1, admin)` already exists unscoped.
+      // All three are applied, but only the first and third are new; `(c1, admin)` unscoped does not cover `org-1`.
       expect(result.applied).toBe(3)
       expect(changedFlags(result)).toEqual([true, false, true])
       expect(await assignmentCount()).toBe(3)
     })
 
     it('credits a write once when the batch names it twice', async () => {
-      // Both rows are `ok` - the grant is in place - but one INSERT happened,
-      // so only the first row is credited with making it. This runs the `or`
-      // path, one statement for the whole list.
+      // One INSERT happened, so only the first row is credited. Runs the `or` path: one statement for the list.
       const result = await engine.admin.assignRoles([
         { roleId: 'admin', subjectId: 'c5' },
         { roleId: 'admin', subjectId: 'c5' },
@@ -212,8 +189,7 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
     it('credits a subsuming revoke, not the narrower row it already covers', async () => {
       await engine.admin.assignRoles([{ roleId: 'admin', scope: 'org-1', subjectId: 'c6' }])
 
-      // The first row revokes the role in every scope, so it already accounts
-      // for the grant the second row names.
+      // The unscoped first row revokes every scope, so it already covers the second row's grant.
       const result = await engine.admin.revokeRoles([
         { roleId: 'admin', subjectId: 'c6' },
         { roleId: 'admin', scope: 'org-1', subjectId: 'c6' },
@@ -230,8 +206,7 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
       ]
       const result = await engine.admin.assignRoles(rows)
 
-      // The row travels with its outcome, so nothing has to parse an id back
-      // into a triple - and two structurally identical rows stay distinct.
+      // Each outcome carries its input row by reference, so identical rows stay distinct.
       expect(result.outcomes.map((o) => o.row)).toEqual(rows)
       expect(result.outcomes[0]?.row).toBe(rows[0])
     })
@@ -273,8 +248,7 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
 
       const result = await engine.admin.revokeRoles([{ roleId: 'admin', subjectId: 'b7' }])
 
-      // One requested row removed two grants, so it matches on subject and
-      // role alone rather than on a scope it never named.
+      // One row removed two grants: it matches on subject and role, not on a scope it never named.
       expect(changedFlags(result)).toEqual([true])
       expect(await assignmentCount()).toBe(0)
     })

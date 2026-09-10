@@ -1,12 +1,9 @@
-/**
- * Stats snapshot/reset, extracted from Engine. Pure plumbing over the
- * five caches.
- */
+// Stats snapshot and reset over the engine's five caches.
 
 import type { IamLRUCache } from '../../shared/cache'
 import type { AccessControl, IamRequest } from '../types'
 
-/** The five caches a stats snapshot reads. Named separately from the engine so the snapshot can be taken of any bag of caches, including in a test. */
+/** The five caches a stats snapshot reads, typed apart from the engine so any bag of caches works. */
 export interface IIamCachesForStats {
   policyCache: IamLRUCache<AccessControl.IPolicy[]>
   roleCache: IamLRUCache<AccessControl.IRole[]>
@@ -24,12 +21,7 @@ export interface IStatsSnapshot {
   subjects: { hits: number; misses: number; size: number }
 }
 
-/**
- * Read every cache's counters at one instant.
- *
- * @param caches - The caches to read.
- * @returns A plain snapshot, safe to serialise; it holds no reference to the caches.
- */
+/** Reads every cache's counters at one instant into a plain snapshot. */
 export function statsSnapshot(c: IIamCachesForStats): IStatsSnapshot {
   return {
     policies: c.policyCache.stats,
@@ -40,14 +32,7 @@ export function statsSnapshot(c: IIamCachesForStats): IStatsSnapshot {
   }
 }
 
-/**
- * Zero every cache's hit/miss counters, leaving the cached entries in place.
- *
- * Counters and contents are deliberately separate: an operator sampling a rate
- * wants the window reset, not a cold cache and the latency spike that follows.
- *
- * @param caches - The caches whose counters to reset.
- */
+/** Zeroes hit/miss counters but keeps entries, so resetting a sampling window does not cold-start the caches. */
 export function resetStats(c: IIamCachesForStats): void {
   c.policyCache.resetStats()
   c.roleCache.resetStats()
@@ -56,13 +41,7 @@ export function resetStats(c: IIamCachesForStats): void {
   c.subjectCache.resetStats()
 }
 
-/**
- * Collapse the per-cache counters into one hit rate across all five.
- *
- * @param s - A snapshot from {@link statsSnapshot}.
- * @returns The pooled `rate` (0 when nothing has been looked up yet, rather
- *          than `NaN` from dividing by zero) alongside the totals it came from.
- */
+/** Pools a {@link statsSnapshot} into one hit rate with its totals; `rate` is `0`, not `NaN`, before any lookup. */
 export function aggregateCacheHitRate(s: IStatsSnapshot): { total: number; hits: number; rate: number } {
   const total =
     s.policies.hits +

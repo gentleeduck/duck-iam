@@ -2,18 +2,15 @@ import type { Explain } from '../explain'
 import { createPending, type Pending } from '../pending'
 import type { AccessControl, IamAdapter, IamClient, IamRequest } from '../types'
 import type { IamEngine as IamEngineImpl } from './engine'
+import { DEFAULT_HOOK_TIMEOUT_MS, safeHookCall } from './engine.hooks'
 import { createAdmin } from './engine.libs'
 import type { IamEngineTypes } from './engine.types'
 
 /** The transaction-bound view of an {@link IamEngineImpl}. */
 export namespace Bound {
   /**
-   * Writes go through `admin` - the same interface as the unbound engine's, so
-   * there is one write surface rather than two. Reads are the engine's own
-   * methods, served from transaction-local caches.
-   *
-   * Every read method is declared explicitly rather than spread, so this
-   * surface stays reviewable against the unbound one.
+   * Writes go through `admin`, the unbound engine's write interface; reads are served from transaction-local caches.
+   * Read methods are declared explicitly, not spread, so this surface stays reviewable against the unbound one.
    */
   export interface IamEngine<
     TAction extends string = string,
@@ -64,13 +61,8 @@ export namespace Bound {
 }
 
 /**
- * Builds the bound view. Reads delegate to a private engine constructed with
- * the transaction-bound adapter and FRESH caches.
- *
- * Fresh caches are the whole trick. An empty cache always misses, so every
- * bound read reaches the transaction-bound adapter and therefore sees the
- * transaction's own uncommitted writes. They also keep uncommitted data out of
- * the shared caches: the transaction-local ones are collected with the facade.
+ * Builds the bound view over a private engine with the transaction-bound adapter and fresh caches.
+ * NOTE: fresh caches always miss, so reads see uncommitted writes and never leak them into the shared caches.
  */
 export function buildBoundEngine<
   TAction extends string,
@@ -86,33 +78,27 @@ export function buildBoundEngine<
     cfg: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
   ) => IamEngineImpl<TAction, TResource, TRole, TScope, TMode>,
 ): Bound.IamEngine<TAction, TResource, TRole, TScope, TMode> {
-  // The invalidator is deliberately dropped: a bound engine must never
-  // broadcast to the fleet mid-transaction, and it must not subscribe either -
-  // a facade built per transaction would otherwise leak a subscription each
-  // time. Buffered entries broadcast through the PARENT on flush, after commit.
+  // Drop the invalidator: never broadcast mid-transaction, nor leak a subscription per transaction.
+  // Buffered invalidations broadcast through the parent on flush, after commit.
   const { invalidator: _dropped, ...rest } = config
   const local = makeEngine({ ...rest, adapter: boundAdapter })
 
-  // Mutation events buffer alongside the invalidations and drain on flush, so a
-  // rolled-back transaction reports no history: emitting `role.assigned` for a
-  // grant the database threw away is exactly the false record this bus exists
-  // to avoid. The handler is read from the parent's config, since the local
-  // engine is built from the same one.
+  // Mutation events buffer with the invalidations and drain on flush, so a rolled-back transaction emits nothing.
   const onMutation = config.hooks?.onMutation
+  const hookTimeoutMs = config.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   const { cache, mutations, pending } = createPending<TRole, TScope>(
     {
       invalidatePolicies: () => parent.cache.invalidatePolicies(),
       invalidateRoles: (roleId) => parent.cache.invalidateRoles(roleId),
       invalidateSubject: (subjectId) => parent.cache.invalidateSubject(subjectId),
     },
-    onMutation === undefined ? undefined : (event) => onMutation(event),
+    onMutation === undefined
+      ? undefined
+      : (event) => safeHookCall(() => onMutation(event), 'onMutation', hookTimeoutMs),
   )
 
-  // Two sinks per write: the transaction-local caches drop the entry
-  // immediately, so a read-after-write inside the transaction is correct, while
-  // the shared caches only learn about it on flush. `broadcast: false` keeps the
-  // local drop off the wire - the local engine has no invalidator anyway, but
-  // saying so at the call site is what makes the intent legible.
+  // Two sinks per write: local caches drop at once for read-after-write; shared caches learn on flush.
+  // `broadcast: false` states the intent, though the local engine has no invalidator anyway.
   const admin = createAdmin<TAction, TResource, TRole, TScope>(boundAdapter, {
     cache: {
       invalidatePolicies: () => {
@@ -130,6 +116,8 @@ export function buildBoundEngine<
     },
     mutations,
   })
+  // `local.admin` would write through the transaction but invalidate and emit outside `pending`.
+  Object.defineProperty(local, 'admin', { value: admin })
 
   return {
     admin,
@@ -140,8 +128,7 @@ export function buildBoundEngine<
       local.check(subjectId, action, resource, environment, scope),
     engine: local,
     explain(subjectId, action, resource, environment, scope) {
-      // `this` is the development-mode instantiation per the interface, which is
-      // exactly what the unbound `explain` demands of its receiver.
+      // `this` is the development-mode instantiation, as the unbound `explain` requires of its receiver.
       return this.engine.explain(subjectId, action, resource, environment, scope)
     },
     getEffectiveRoles: (subjectId, scope) => local.getEffectiveRoles(subjectId, scope),

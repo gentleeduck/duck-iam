@@ -4,25 +4,8 @@ import { IamOperandTypeError } from '../../conditions/conditions.libs'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../index'
 
-/**
- * The validator is a gate on two doors, and policies come in through more than
- * two.
- *
- * `admin.savePolicy` and `admin.import` both run `validatePolicy`, and the
- * operand-type matrix leaned entirely on that: a wrongly-typed operand makes
- * `nin` return `true`, so `allow if tier nin 'banned'` - the author meant
- * `['banned']` - admits every subject the denylist was written to exclude, and
- * the argument for why that could never happen was "the validator refuses it
- * first".
- *
- * `loadPolicies` does not validate. So the rule reaches evaluation intact when
- * it arrives any other way, and the adapter constructor below is a documented,
- * supported way for it to arrive - as is an operator's `INSERT`, a seed script,
- * a migration, and a row written by a version that predates the rule.
- *
- * This file is the reachability half. `validate/__tests__/operand-type-matrix`
- * pins the operator behaviour; what is pinned here is that the door exists.
- */
+// `loadPolicies` does not validate, so a policy seeded past `validatePolicy` reaches evaluation intact.
+// Pins that such a policy still cannot over-grant; `validate/__tests__/operand-type-matrix` pins the operators.
 type Action = 'read'
 type Res = 'post'
 
@@ -34,8 +17,7 @@ const TYPOED_DENYLIST = {
   rules: [
     {
       actions: ['read'],
-      // `'banned'`, not `['banned']`. The validator calls this
-      // OPERAND_TYPE_MISMATCH; nothing on this path asks it.
+      // `'banned'`, not `['banned']`: an OPERAND_TYPE_MISMATCH the validator never sees on this path.
       conditions: { all: [{ field: 'subject.attributes.tier', operator: 'nin', value: 'banned' }] },
       effect: 'allow',
       id: 'r-allow-unless-banned',
@@ -43,9 +25,7 @@ const TYPOED_DENYLIST = {
       resources: ['post'],
     },
   ],
-  // The cast manufactures the malformed policy on purpose: the typed surface
-  // cannot express an operand the operator does not accept, which is the whole
-  // reason this shape only ever arrives from outside the package.
+  // The cast is the point: the typed surface cannot express an operand the operator does not accept.
 } as unknown as AccessControl.IPolicy<Action, Res, string>
 
 /** The same policy, authored correctly. */
@@ -80,23 +60,18 @@ function engineWith(
 
 describe('a policy that never passed the validator still cannot over-grant', () => {
   it('a seeded denylist with a non-array operand does not admit the banned subject', async () => {
-    // Before the evaluator applied the matrix this was `true`, from the
-    // documented seeding API, with no database and nothing hand-edited.
+    // Reachable from the documented seeding API alone, with nothing hand-edited.
     const engine = engineWith(TYPOED_DENYLIST)
     expect(await engine.can('banned', 'read', { attributes: {}, type: 'post' })).toBe(false)
   })
 
   it('and does not admit the subject the denylist was not about either', async () => {
-    // The rule is the only thing granting here, so once it cannot be evaluated
-    // nobody gets through. That is the cost of Indeterminate, and it is the
-    // direction that does not hand out access nobody authored.
+    // The rule is the only grant, so once it cannot be evaluated nobody gets through: Indeterminate fails closed.
     const engine = engineWith(TYPOED_DENYLIST)
     expect(await engine.can('ok', 'read', { attributes: {}, type: 'post' })).toBe(false)
   })
 
   it('reports the refusal rather than swallowing it', async () => {
-    // A deny nobody can explain is its own outage. The operator has to be able
-    // to find the malformed rule.
     const onPolicyError = vi.fn()
     const engine = engineWith(TYPOED_DENYLIST, onPolicyError)
     await engine.can('banned', 'read', { attributes: {}, type: 'post' })
@@ -108,8 +83,7 @@ describe('a policy that never passed the validator still cannot over-grant', () 
   })
 
   it('control: the same denylist authored correctly still allows and still denies', async () => {
-    // Without this the three clauses above are satisfied by an engine that
-    // denies everything, which would prove nothing about the operand at all.
+    // Guard against an engine that denies everything passing the clauses above vacuously.
     const engine = engineWith(CORRECT_DENYLIST)
     expect(await engine.can('ok', 'read', { attributes: {}, type: 'post' })).toBe(true)
     expect(await engine.can('banned', 'read', { attributes: {}, type: 'post' })).toBe(false)
@@ -118,5 +92,62 @@ describe('a policy that never passed the validator still cannot over-grant', () 
   it('control: the write path still refuses the same policy, so the two gates agree', async () => {
     const engine = engineWith(CORRECT_DENYLIST)
     await expect(engine.admin.savePolicy(TYPOED_DENYLIST)).rejects.toThrow()
+  })
+})
+
+/** An allow plus a deny with a non-scalar operand, which reference comparison (`f === v`) could never fire. */
+const UNFIREABLE_DENY = (operator: string, value: unknown) => ({
+  algorithm: 'deny-overrides',
+  id: 'p-unfireable',
+  name: 'deny the banned tier',
+  rules: [
+    {
+      actions: ['read'],
+      conditions: { all: [] },
+      effect: 'allow',
+      id: 'r-allow',
+      priority: 1,
+      resources: ['post'],
+    },
+    {
+      actions: ['read'],
+      conditions: { all: [{ field: 'subject.attributes.tier', operator, value }] },
+      effect: 'deny',
+      id: 'r-deny',
+      priority: 2,
+      resources: ['post'],
+    },
+  ],
+})
+
+const NON_SCALAR_OPERANDS: readonly [string, string, unknown][] = [
+  ['eq', 'an object', { tier: 'banned' }],
+  ['in', 'an array of objects', [{ tier: 'banned' }]],
+  ['superset_of', 'an array of arrays', [['banned']]],
+]
+
+describe('a non-scalar operand cannot retire a deny rule', () => {
+  it.each(NON_SCALAR_OPERANDS)('%s with %s is refused on the write path', async (operator, _label, value) => {
+    const engine = engineWith(CORRECT_DENYLIST)
+    // biome-ignore lint/suspicious/noExplicitAny: a deliberately malformed operand is the subject of the test
+    await expect(engine.admin.savePolicy(UNFIREABLE_DENY(operator, value) as any)).rejects.toThrow()
+  })
+
+  it.each(NON_SCALAR_OPERANDS)(
+    '%s with %s still denies when seeded past the validator',
+    async (operator, _l, value) => {
+      // The throwing deny-bearing policy is Indeterminate and votes deny, so the rule is not retired.
+      // biome-ignore lint/suspicious/noExplicitAny: as above
+      const engine = engineWith(UNFIREABLE_DENY(operator, value) as any)
+      expect(await engine.can('banned', 'read', { attributes: {}, type: 'post' })).toBe(false)
+    },
+  )
+
+  it('control: the same deny authored with a scalar operand fires, and spares everyone else', async () => {
+    // Guard against an engine that denies everything passing the clauses above vacuously.
+    // biome-ignore lint/suspicious/noExplicitAny: shape matches the fixtures above
+    const engine = engineWith(UNFIREABLE_DENY('eq', 'banned') as any)
+    expect(await engine.can('banned', 'read', { attributes: {}, type: 'post' })).toBe(false)
+    expect(await engine.can('ok', 'read', { attributes: {}, type: 'post' })).toBe(true)
   })
 })

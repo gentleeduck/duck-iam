@@ -1,23 +1,5 @@
-/**
- * E2E: network-level nastiness between the engine and a REAL Postgres.
- *
- * `docker pause` proves the coarse case. This suite proves the precise ones,
- * by putting a TCP proxy this file controls between the pg driver and the
- * database and then doing to the connection exactly what a bad network does:
- *
- *  - RST the socket the instant the query goes out (connection reset mid-flight)
- *  - accept the connection and never answer (does `_withTimeout` actually fire?)
- *  - answer correctly, but 1.5s after the engine gave up (is the LATE response used?)
- *  - break one half of a split adapter (roles load, policies do not - and back)
- *  - exhaust the connection pool
- *  - oversize the role and policy sets
- *
- * The invariant is the same one: a system that cannot answer must DENY, and
- * the recorded verdict is the value the CALLER received.
- *
- * Owns its own container on a fixed free port, unlabelled, so the shared e2e
- * Postgres is never touched.
- */
+// E2E: resets, hangs, late responses, partial outages and exhaustion through a TCP proxy must all DENY.
+// Owns its own Postgres container on a free port, so the shared e2e Postgres is never touched.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { connect, createServer, type Server, type Socket } from 'node:net'
@@ -79,20 +61,14 @@ async function waitUntilReady(name: string, probe: string[]): Promise<void> {
 
 /**
  * A TCP proxy whose failure mode is switchable at runtime.
- *
- * `pass` forwards both directions untouched. `blackhole` accepts and forwards
- * nothing, so the peer waits forever - the only honest way to ask whether the
- * engine's own timeout fires. `delayMs` holds server->client bytes, so a
- * response can be made to land *after* the engine has already given up.
- * `killNow()` RSTs every live pair.
+ * `blackhole` accepts and never answers, so only the engine's own timeout can end the wait.
  */
 class FaultProxy {
   mode: 'pass' | 'blackhole' = 'pass'
-  /** Milliseconds to hold each server->client chunk. */
+  /** Milliseconds to hold each server->client chunk, so a response can land after the engine gave up. */
   delayMs = 0
   /** When set, the next client->server chunk RSTs the pair instead of being forwarded. */
   resetOnNextQuery = false
-  /** Refuse new connections outright (listener closed) while true. */
   private _pairs = new Set<{ client: Socket; upstream: Socket }>()
   private _server: Server | null = null
   port = 0
@@ -145,8 +121,7 @@ class FaultProxy {
   /** RST every live connection - what a mid-flight reset actually looks like. */
   killNow(): void {
     for (const pair of this._pairs) {
-      // `resetAndDestroy` sends RST rather than FIN, which is the difference
-      // between "server closed politely" and "the network ate it".
+      // `resetAndDestroy` sends RST, not FIN: the network ate it, not a polite close.
       pair.client.resetAndDestroy()
       pair.upstream.destroy()
     }
@@ -185,8 +160,7 @@ function urlFor(port: number, db = PG_DB): string {
 
 function poolFor(port: number, db = PG_DB, max = 10): Pool {
   const pool = new Pool({ connectionString: urlFor(port, db), max })
-  // pg raises `error` on the Pool when an idle socket dies; unhandled it kills
-  // the worker. That is a pg property, not a duck-iam verdict.
+  // INFO: pg emits `error` on the Pool when an idle socket dies; unhandled, it kills the worker.
   pool.on('error', () => {})
   pools.push(pool)
   return pool
@@ -211,19 +185,8 @@ function engineOn(
 }
 
 /**
- * The healthy-path baseline a fault test takes before arming its fault.
- *
- * Retries instead of asserting once, because the pool is shared across this
- * file and carries the previous test's damage: a connection an earlier test
- * RST at the socket can still be sitting in `pg`'s idle set, and the first
- * acquire after that gets the dead client back and denies in single-digit
- * milliseconds. That deny is correct - the system could not answer, so it
- * refused - but it belongs to the previous test's fault, not the one this test
- * is about to arm, and asserting on it measures nothing.
- *
- * The retry is bounded and still an assertion. A reset that left the pool
- * permanently unable to answer would be a real bug - a transient network fault
- * turned into a standing denial of service - and this goes red for it.
+ * Asserts the healthy path allows before a fault is armed. Retries because the shared pool can still hold
+ * the previous test's RST'd sockets; still fails if the pool never recovers.
  */
 async function baselineAllows(engine: IamEngine<string, string, Role, string, 'development'>): Promise<void> {
   const deadline = Date.now() + 5_000
@@ -236,15 +199,9 @@ async function baselineAllows(engine: IamEngine<string, string, Role, string, 'd
   expect(allowed, 'the healthy path never recovered, so no fault below is being measured').toBe(true)
 }
 
-/**
- * A real drizzle adapter whose four read methods can each be pointed at a
- * SECOND real drizzle adapter on a different (breakable) connection. Nothing is
- * stubbed: both halves talk to the same Postgres, one of them through a proxy
- * that can be made to fail. That is what makes "roles load but policies do not"
- * a real partial failure rather than a mock throwing on cue.
- */
 type ReadMethod = 'listPolicies' | 'listRoles' | 'getSubjectRoles' | 'getSubjectAttributes'
 
+/** A real drizzle adapter whose read methods can each be routed to a second real adapter behind a breakable proxy. */
 class SplitAdapter extends IamDrizzleAdapter<string, string, Role, string> {
   /** Methods routed to the breakable half. */
   broken = new Set<ReadMethod>()
@@ -343,8 +300,7 @@ describe('E2E fail-closed: connection reset mid-flight', () => {
 
     expect(allowed).toBe(false)
     expect(errors.length).toBeGreaterThan(0)
-    // A reset is an immediate error, not a timeout: it must not cost the full
-    // adapter timeout, and it certainly must not hang.
+    // A reset is an immediate error, so it must not cost the full adapter timeout.
     expect(elapsed).toBeLessThan(4000)
   }, 60_000)
 
@@ -381,8 +337,7 @@ describe('E2E fail-closed: a hung connection that never answers', () => {
     console.info(`[resilience] hung connection: verdict=${d.allowed ? 'ALLOW' : 'deny'} after ${elapsed}ms`)
     expect(d.allowed).toBe(false)
     expect(errors.length).toBeGreaterThan(0)
-    // The whole point of the timeout: it has to actually fire. Generous bound
-    // so this is a liveness assertion, not a latency one.
+    // A generous bound: this asserts the timeout fires, not how fast.
     expect(elapsed).toBeLessThan(6000)
   }, 60_000)
 
@@ -409,8 +364,7 @@ describe('E2E fail-closed: a hung connection that never answers', () => {
 describe('E2E fail-closed: a correct response that arrives after the timeout', () => {
   it('the late response is not used to answer, and is not cached as an allow', async () => {
     proxy.healthy()
-    // Long TTL on purpose: if the late load lands in the cache, the NEXT check
-    // can be answered from it - which is the fail-open this test hunts.
+    // Long TTL on purpose: a late load that lands in the cache could answer the next check.
     const engine = engineOn(adapterOn(proxyPool), { adapterTimeoutMs: 700, cacheTTL: 60 })
 
     // Hold every response for well past the timeout. Nothing is cached yet.
@@ -421,9 +375,7 @@ describe('E2E fail-closed: a correct response that arrives after the timeout', (
     expect(first, 'a response that arrived after the timeout must not answer').toBe(false)
     expect(elapsed).toBeLessThan(2000)
 
-    // Let the late response land, then make the backend unable to answer at
-    // all. If the next check allows, it can only have come from the late
-    // response having been written into the cache.
+    // Let the late response land, then hang the backend: an allow now can only come from the cache.
     await new Promise((r) => setTimeout(r, 3000))
     proxy.delayMs = 0
     proxy.mode = 'blackhole'
@@ -451,8 +403,7 @@ describe('E2E fail-closed: partial backend failure', () => {
       const errors: Error[] = []
       const engine = engineOn(adapter, { adapterTimeoutMs: 900, onError: (e) => errors.push(e) })
 
-      // Everything healthy: the fixture allows. This is what makes the deny
-      // below attributable to the partial failure and nothing else.
+      // A healthy allow first, so the deny below is down to the partial failure alone.
       await baselineAllows(engine)
 
       adapter.broken.add(method)
@@ -472,8 +423,7 @@ describe('E2E fail-closed: partial backend failure', () => {
     const engine = engineOn(adapter, { adapterTimeoutMs: 900 })
     await baselineAllows(engine)
 
-    // The subject still resolves (assignments + attrs are on the healthy half);
-    // only the policy load is gone.
+    // The subject still resolves on the healthy half; only the policy load is gone.
     adapter.broken.add('listPolicies')
     broken.mode = 'blackhole'
     const map = await engine.permissions('u1', [
@@ -540,12 +490,7 @@ describe('E2E fail-closed: resource exhaustion', () => {
 })
 
 describe('E2E fail-closed: oversized catalogs on the interpreter fallback', () => {
-  /**
-   * >32 roles puts the engine on the interpreter (the compiled table cannot
-   * address a 33rd role). That is a second code path, and it has to fail closed
-   * for the same reasons. Runs in its own database so the role explosion cannot
-   * leak into the suites above.
-   */
+  // More than 32 roles forces the interpreter. Its own database keeps the extra roles out of the suites above.
   let bigPool: Pool
   let bigProxy: FaultProxy
   const BIG_DB = 'duckiam_net_big'

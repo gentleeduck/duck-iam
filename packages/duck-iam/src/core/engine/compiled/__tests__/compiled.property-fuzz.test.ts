@@ -4,16 +4,8 @@ import { iamBuildPermissionKey } from '../../../../shared/keys'
 import type { AccessControl, IamPrimitives } from '../../../types'
 import { IamEngine } from '../../engine'
 
-// Property-based / randomized differential test: a `mode: 'production'` engine
-// (compiled table) and a `mode: 'development'` engine (interpreter, the ground
-// truth oracle) must agree on every `can()`/`check()` verdict and every
-// `permissions()` batch entry over identical `IamMemoryAdapter` data - that is
-// the entire correctness contract of the compiled path (see docs/engine-rewrite.md).
-//
-// Randomness is a seeded mulberry32 PRNG, never bare `Math.random()`, so a
-// failure is reproducible: the failure message prints both the master SEED and
-// the iteration index, from which `seedFor(SEED, i)` regenerates the exact same
-// roles/policies/assignments/attributes/requests deterministically.
+// Seeded fuzz: production (compiled table) must match development (interpreter) on can/check and permissions().
+// A failure prints SEED and the iteration, and `seedFor(SEED, i)` regenerates that exact config.
 
 /** mulberry32: tiny, fast, deterministic 32-bit PRNG. */
 function mulberry32(seed: number): () => number {
@@ -86,10 +78,7 @@ const SCOPES = ['org-1', 'org-2', 'org-3'] as const
 const DEPTS = ['eng', 'sales', 'ops'] as const
 const TAGS = ['vip', 'trial', 'internal'] as const
 const SUBJECT_IDS = ['u0', 'u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7'] as const
-// Role counts we must hit: none, one, a handful (3-5), and exactly the 32-bit
-// mask capacity. Cycled deterministically across iterations so every count is
-// exercised many times over CONFIG_COUNT runs, while every other dimension
-// (policies, permission shapes, conditions, requests) stays randomized.
+// Role counts cycled across iterations: none, one, a handful, and the full 32-bit mask. Everything else is random.
 const ROLE_COUNT_PLAN = [0, 1, 3, 4, 5, 32] as const
 
 function randomCondition(rng: () => number): AccessControl.IConditionGroup {
@@ -348,8 +337,7 @@ describe('property fuzz: production (compiled table) vs development (interpreter
           totalAssertions++
         }
 
-        // permissions() batch check: a meaningful subset (first 4 generated
-        // requests per config) run as one production batch vs per-item development checks.
+        // permissions(): the first 4 requests as one production batch vs per-item development checks.
         const batch = requests.slice(0, 4)
         const checks = batch.map((r) => ({
           action: r.action,

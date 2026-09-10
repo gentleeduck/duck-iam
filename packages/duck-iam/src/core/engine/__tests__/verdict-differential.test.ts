@@ -1,41 +1,6 @@
 /**
- * The compiled table vs the interpreter, over catalogs nobody hand-wrote.
- *
- * Deliberately NOT named `*.e2e.test.ts`, despite being a sweep. It imports
- * `IamMemoryAdapter` and nothing else - no Postgres, no Redis, no container -
- * and finishes in about thirteen seconds. Under the old name it was excluded
- * from `bun run test` by the `--exclude` glob in `package.json` that drops
- * every `.e2e.test.ts` file, and
- * no CI workflow invokes `test:e2e`, so the one detector in this package that
- * can catch an under-granting compiled table ran in no lane at all: a mutation
- * to `compiled.lookup.ts` that denies where the interpreter allows shipped
- * green through every job. The manifesto's rule is "prove the harness runs";
- * a suite that executes nowhere is further from that than a skipped one, which
- * at least reports itself. The `.e2e.` suffix is for tests that need external
- * infrastructure, and this needs none.
- *
- * As of Batch 52 BOTH modes take their verdict from the compiled table;
- * development additionally runs the interpreter for provenance and
- * `console.error`s + throws when the two disagree (see
- * `docs/engine-rewrite.md`, "Both modes evaluate through the table"). That
- * design only pays off if a disagreement actually exists somewhere and is
- * findable, so this file generates catalogs and hunts for one.
- *
- * Two independent detectors, because neither alone is sufficient:
- *
- *  1. `production.can()` vs `development.check().allowed`. This catches the
- *     "table allows, interpreter denies" direction only - the other direction
- *     is MASKED, because the dev disagreement throw is swallowed by
- *     `authorize()`'s fail-closed catch and reported as `allowed: false`,
- *     which happens to equal the table's deny. A suite comparing only the two
- *     booleans would report green on half of all possible divergences.
- *  2. The dev engine's `onError` hook plus a `console.error` spy, both keyed on
- *     the literal "compiled table and interpreter disagree" message. This is
- *     direction-agnostic and is the authoritative detector here.
- *
- * Randomness is a seeded mulberry32 PRNG. `DUCKIAM_VERDICT_SEED` overrides the
- * master seed and `DUCKIAM_VERDICT_CONFIGS` the catalog count, so a reported
- * failure is replayable and a sweep can be widened without editing the file.
+ * Compiled table vs interpreter over seeded catalogs; replay or widen with `DUCKIAM_VERDICT_SEED` / `_CONFIGS`.
+ * NOTE: not `*.e2e.test.ts` on purpose - `bun run test` excludes that suffix, and this needs no infrastructure.
  */
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
@@ -70,10 +35,8 @@ function hex(n: number): string {
 }
 
 const SEED = Number(process.env.DUCKIAM_VERDICT_SEED ?? 0x51ded00d) >>> 0
-// 6000 catalogs x 16 comparisons ~= 96k verdict pairs in a few seconds. Sized
-// so the two known divergences (iterations 1369 and 4710 under the default
-// seed) are inside the sweep - a count that misses them would report green on a
-// live Critical bug.
+// 6000 catalogs x 16 comparisons ~= 96k verdict pairs. WARN: keep it past iterations 1369 and 4710, which
+// reproduced divergences under the default seed, or the sweep goes green without reaching them.
 const CONFIG_COUNT = Number(process.env.DUCKIAM_VERDICT_CONFIGS ?? 6000)
 const REQUESTS_PER_CONFIG = 12
 
@@ -109,14 +72,12 @@ const SUBJECT_IDS = ['u0', 'u1', 'u2', 'u3', 'u4', 'u5'] as const
 const ALGORITHMS = ['deny-overrides', 'allow-overrides', 'first-match', 'highest-priority'] as const
 
 /**
- * Role counts to hit, cycled deterministically. 31/32 straddle the 32-bit grant
- * mask capacity; 33/64/65 are the interpreter-fallback side of that boundary
- * (`compileTable` throws `IamRoleLimitExceededError` past 32 and both modes drop
- * to the interpreter, so those iterations exercise the fallback, not the table).
+ * Role counts, cycled. 31/32 sit at the 32-bit grant mask's capacity; 33/64/65 exceed it, so `compileTable`
+ * throws and both modes fall back to the interpreter.
  */
 const ROLE_COUNT_PLAN = [0, 1, 2, 3, 5, 8, 31, 32, 33, 64, 65] as const
 
-/** Every counter the distribution assertions read. A generator that emits one trivial catalog N times fails these, not the differential. */
+/** Counters for the distribution assertions, which fail a generator that keeps emitting one trivial catalog. */
 interface IStats {
   comparisons: number
   allow: number
@@ -187,7 +148,7 @@ function newStats(): IStats {
   }
 }
 
-/** Nest `{all:[...]}` `depth` levels deep around a leaf condition. `MAX_CONDITION_DEPTH` is 10, so 8..12 straddles the fail-closed cut. */
+/** Nests `{all:[...]}` `depth` levels around a leaf; 8..12 straddles the fail-closed `MAX_CONDITION_DEPTH` (10). */
 function nestedCondition(depth: number, leaf: AccessControl.ICondition): AccessControl.IConditionGroup {
   let group: AccessControl.IConditionGroup = { all: [leaf] }
   for (let i = 1; i < depth; i++) group = { all: [group] }
@@ -195,18 +156,15 @@ function nestedCondition(depth: number, leaf: AccessControl.ICondition): AccessC
 }
 
 function randomCondition(rng: () => number, stats: IStats): AccessControl.IConditionGroup {
-  // Weighted, not uniform: unconditional rules are the only thing that lowers a
-  // cell to CONST_ALLOW / CONST_DENY, and a uniform draw left the two constant
-  // cell kinds unrepresented - the differential would then only ever have
-  // exercised DYNAMIC cells.
+  // Weighted toward unconditional rules, the only thing that lowers a cell to CONST_ALLOW / CONST_DENY;
+  // a uniform draw exercised only DYNAMIC cells.
   if (randBool(rng, 0.3)) return { all: [] }
   switch (randInt(rng, 0, 11)) {
     case 0:
       return { all: [] } // unconditionally true - lowers into a CONST cell
     case 1:
       stats.emptyAnyCondition++
-      // Request-independently FALSE. `matchesUnconditionally` deliberately
-      // refuses to lower this, so it must land in a DYNAMIC cell.
+      // Always false; `matchesUnconditionally` refuses to lower it, so it lands in a DYNAMIC cell.
       return { any: [] }
     case 2:
       return { all: [{ field: 'subject.id', operator: 'eq', value: '$resource.attributes.ownerId' }] }
@@ -241,24 +199,19 @@ function randomCondition(rng: () => number, stats: IStats): AccessControl.ICondi
     }
     case 8: {
       stats.throwingOperator++
-      // `subject.attributes.blob` is 3000 UTF-16 units, over MAX_REGEX_INPUT_LENGTH
-      // (2048), so `matches` throws IamRegexInputTooLargeError - the "operator that
-      // throws" lever, which both evaluators must resolve to Indeterminate identically.
+      // `blob` is 3000 units, over MAX_REGEX_INPUT_LENGTH (2048), so `matches` throws; both evaluators must
+      // resolve that to Indeterminate identically.
       return { all: [{ field: 'subject.attributes.blob', operator: 'matches', value: '^a+b' }] }
     }
     case 9: {
       stats.unknownOperator++
-      // Deliberately malformed: an operator no `ops` entry answers to. Reaches
-      // `evalCondition`'s unknown-operator throw. The cast manufactures the bad
-      // value on purpose - a store row or hand-edited config can carry one.
+      // An unknown operator, as a store row can carry; reaches `evalCondition`'s unknown-operator throw.
       const op = 'no-such-operator' as AccessControl.Operator
       return { all: [{ field: 'subject.attributes.level', operator: op, value: 1 }] }
     }
     case 10: {
       stats.unknownGroupKey++
-      // Deliberately malformed group key (a typo'd `all`, a hand-edited row).
-      // `evalConditionGroup` reads it as false; `matchesUnconditionally` refuses
-      // to lower it. The cast is what makes the malformed shape expressible.
+      // A typo'd group key: `evalConditionGroup` reads it as false and `matchesUnconditionally` will not lower it.
       const bad = { alll: [{ field: 'subject.id', operator: 'exists' }] } as unknown as AccessControl.IConditionGroup
       return bad
     }
@@ -292,11 +245,7 @@ function genPermission(rng: () => number, stats: IStats): AccessControl.IPermiss
   return base
 }
 
-/**
- * Roles with a real inheritance graph: chains, diamonds, and (10% of catalogs)
- * a deliberate cycle, which the compiler's `seen` map and `collectPermissions`'
- * are both meant to cut identically.
- */
+/** Roles with chains, diamonds and (10% of catalogs) a cycle, which both walkers must cut identically. */
 function genRoles(rng: () => number, count: number, stats: IStats): AccessControl.IRole[] {
   const ids = Array.from({ length: count }, (_, i) => `role-${i}`)
   const roles: AccessControl.IRole[] = ids.map((id, idx) => {
@@ -317,9 +266,7 @@ function genRoles(rng: () => number, count: number, stats: IStats): AccessContro
     return out
   })
 
-  // 10% of catalogs get a genuine cycle: role-0 inherits the last role, which
-  // already reaches role-0. The validator is not in this path - an adapter can
-  // return exactly this - so both walkers must terminate and agree.
+  // A real cycle (role-0 <-> last role). An adapter can return this unvalidated, so both walkers must terminate.
   if (count >= 2 && randBool(rng, 0.1)) {
     stats.cyclicInherits++
     const last = roles[count - 1]!
@@ -352,8 +299,7 @@ function genPolicy(rng: () => number, id: string, roleIds: readonly string[], st
   let algorithm: AccessControl.CombiningAlgorithm = pick(rng, ALGORITHMS)
   if (randBool(rng, 0.06)) {
     stats.unknownAlgorithm++
-    // Deliberately malformed: an algorithm outside `combiners`. Both paths must
-    // treat it as Indeterminate, never fall through to a permissive default.
+    // An unknown algorithm: both paths must treat it as Indeterminate, never as a permissive default.
     algorithm = 'bogus-algorithm' as AccessControl.CombiningAlgorithm
   }
   const rules = Array.from({ length: randInt(rng, 1, 3) }, (_, i) => genRule(rng, `${id}-r${i}`, stats))
@@ -374,8 +320,7 @@ function genPolicy(rng: () => number, id: string, roleIds: readonly string[], st
   }
   if (shape < 0.5) {
     stats.wildcardTargetedPolicy++
-    // A wildcard in `targets` forces the whole policy residual - the branch a
-    // literal target restriction deliberately does NOT take.
+    // A wildcard in `targets` makes the whole policy residual; a literal target does not.
     return randBool(rng)
       ? { ...policy, targets: { actions: [pick(rng, WILDCARD_ACTIONS)] } }
       : { ...policy, targets: { resources: [pick(rng, WILDCARD_RESOURCES)] } }
@@ -425,9 +370,7 @@ function genConfig(rng: () => number, i: number, stats: IStats): IGeneratedConfi
     assignments[sid] = n === 0 ? [] : pickN(rng, roleIds, n)
     if (roleIds.length > 0 && randBool(rng, 0.3)) {
       stats.scopedAssignment++
-      // `''` is excluded here only: the store schema forbids a blank assignment
-      // scope, and this generator's catalogs are replayed into Postgres by the
-      // sibling suite.
+      // No `''`: the store schema forbids a blank assignment scope, and a sibling suite replays these into Postgres.
       const scope = pick(
         rng,
         SCOPES.filter((s) => s.length > 0),
@@ -506,14 +449,13 @@ async function buildAdapter(cfg: IGeneratedConfig): Promise<IamMemoryAdapter> {
   return adapter
 }
 
-/** Record the compiled table's own shape, so "the generator varied the catalog" is asserted on structure, not on generator intent. */
+/** Records the compiled table's shape, so catalog variety is asserted on structure rather than generator intent. */
 function recordTableShape(cfg: IGeneratedConfig, stats: IStats): void {
   let table: ReturnType<typeof compileTable>
   try {
     table = compileTable(cfg.roles, cfg.policies, cfg.policyCombine, cfg.scopeMode)
   } catch {
-    // Past 32 roles compileTable throws and both modes fall back to the
-    // interpreter; that is a shape too, counted separately.
+    // Past 32 roles both modes fall back to the interpreter; counted as its own shape.
     stats.tableUnavailable++
     return
   }
@@ -541,6 +483,8 @@ function repro(i: number, iterSeed: number, cfg: IGeneratedConfig, extra: unknow
   ].join('\n')
 }
 
+// NOTE: this marker is the authoritative detector. Comparing `can()` with `check().allowed` misses the
+// table-denies direction, since development's disagreement throw fails closed to `allowed: false`.
 const DISAGREE_MARKER = 'compiled table and interpreter disagree'
 
 describe('E2E verdict parity: compiled table vs interpreter over generated catalogs', () => {
@@ -550,10 +494,7 @@ describe('E2E verdict parity: compiled table vs interpreter over generated catal
     const stats = newStats()
     const disagreements: string[] = []
     const mismatches: string[] = []
-    // Set before every evaluated request so a disagreement - which surfaces
-    // out-of-band, via console.error and the onError hook - can be reported
-    // with the catalog and request that produced it rather than as a bare
-    // message with no reproduction.
+    // Set per request, so an out-of-band disagreement (console.error, onError) is reported with its repro.
     let context = () => 'no request in flight'
 
     const realWarn = console.warn
@@ -604,9 +545,7 @@ describe('E2E verdict parity: compiled table vs interpreter over generated catal
           if (prod) stats.allow++
           else stats.deny++
 
-          // `failure: 'evaluation'` is what a swallowed disagreement throw
-          // looks like from outside; record it even when the two booleans
-          // happen to line up.
+          // A swallowed disagreement throw shows as `failure: 'evaluation'`; record it even when the booleans agree.
           if (dev.failure === 'evaluation') {
             mismatches.push(repro(i, iterSeed, cfg, { kind: 'dev-evaluation-failure', request: r, requestIndex: ri }))
           }
@@ -667,9 +606,7 @@ describe('E2E verdict parity: compiled table vs interpreter over generated catal
       console.error = realError
     }
 
-    // The generator has to have produced varied catalogs, or a green
-    // differential means nothing. These assert on the compiled table's own
-    // structure and on the observed verdict spread, not on generator intent.
+    // Guard against a green differential over trivial catalogs: assert table structure and verdict spread.
     expect(stats.comparisons).toBeGreaterThanOrEqual(CONFIG_COUNT * (REQUESTS_PER_CONFIG + 4))
     expect(stats.allow).toBeGreaterThan(stats.comparisons * 0.05)
     expect(stats.deny).toBeGreaterThan(stats.comparisons * 0.05)
@@ -707,13 +644,10 @@ describe('E2E verdict parity: compiled table vs interpreter over generated catal
       const value = stats[key]
       expect(typeof value === 'number' ? value : 0, `generator never produced "${key}"`).toBeGreaterThan(0)
     }
-    // The role-limit fallback warns; the fail-open defaultEffect warns. Both
-    // are expected, so a zero here would mean the stub never ran.
+    // The role-limit fallback and fail-open defaultEffect both warn, so zero means the stub never ran.
     expect(warnCount).toBeGreaterThan(0)
 
-    // The finding, if there is one. Reported one sample per distinct shape
-    // rather than the first N raw hits: a single frequent divergence would
-    // otherwise fill the output and hide a rarer, different one behind it.
+    // One sample per distinct shape, so a frequent divergence cannot hide a rarer one.
     const byShape = new Map<string, { count: number; sample: string }>()
     for (const d of disagreements) {
       const m = /table=(\w+), interpreter=(\w+) \(interpreter reason: ([^)]*)/.exec(d)
@@ -732,8 +666,7 @@ describe('E2E verdict parity: compiled table vs interpreter over generated catal
   })
 
   it("production still refuses policyCombine 'first-applicable' at construction", () => {
-    // Documents why the sweep above only varies 'and' / 'allow-overrides': the
-    // third combine cannot be compared, because production rejects it outright.
+    // Why the sweep only varies 'and' / 'allow-overrides'.
     expect(
       () =>
         new IamEngine({

@@ -12,7 +12,7 @@ import { IamPolicyCompileError, IamRoleLimitExceededError } from './compiled/com
 import { lookup } from './compiled/compiled.lookup'
 import type { CompiledTable } from './compiled/compiled.types'
 import { type Bound, buildBoundEngine } from './engine.bound'
-import { emitMetrics, safeHookCall } from './engine.hooks'
+import { DEFAULT_HOOK_TIMEOUT_MS, emitMetrics, isThenable, safeHookCall } from './engine.hooks'
 import {
   applyInvalidateEvent,
   type IEngineCacheBag,
@@ -29,49 +29,49 @@ import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } 
 import type { IamEngineTypes } from './engine.types'
 
 /**
- * Default ceiling on concurrent distinct-subject adapter loads.
- *
- * The cap used to default to `0` (unbounded), which made it a safety limit that
- * protected nobody: the cold-cache thundering herd its own documentation
- * describes was permitted by default, and only an operator who had already read
- * that paragraph was protected from it.
- *
- * `512` is chosen to sit far above legitimate steady-state concurrency and well
- * below runaway growth. Only a *distinct, never-before-cached* subject counts:
- * a cache hit does not, and a request joining an already-in-flight load for the
- * same subject does not. A node with 512 different cold subjects resolving
- * simultaneously is in a herd, not serving traffic normally.
- *
- * Shedding is a denial of legitimate traffic, so the number is deliberately
- * generous. Set `maxConcurrentSubjectLoads: 0` to restore the old unbounded
- * behaviour explicitly.
+ * Default cap on concurrent cold-subject adapter loads; `0` means unbounded.
+ * NOTE: shedding denies real traffic, so keep this well above normal concurrency.
  */
 const DEFAULT_MAX_CONCURRENT_SUBJECT_LOADS = 512
 
 /**
- * Clears the process-global regex and dot-path caches - the fallbacks used by
- * direct `evaluate()` / operator calls and by `explain()`. Every `can()` path
- * uses the engine's own per-instance caches, which this does not touch, so it
- * is not a multi-tenancy mitigation and needs no periodic schedule.
+ * Clears the process-global regex and dot-path caches used by direct `evaluate()` calls and `explain()`.
+ * NOTE: engine checks use per-instance caches this does not touch, so it is not a multi-tenancy measure.
  */
 export function iamFlushSharedCaches(): void {
   clearRegexCache()
   clearPathCache()
 }
 
-/**
- * Runtime shape check for {@link IamEngine.setInvalidator}. An invalidator
- * arriving after construction comes from wherever the caller's Redis client was
- * built, so it is checked rather than trusted: a missing `subscribe` would
- * otherwise surface much later as invalidations that silently never arrive.
- */
+/** Shape check for {@link IamEngine.setInvalidator}, so a missing `subscribe` fails now, not as lost invalidations. */
 function isInvalidatorLike<TRole extends string>(value: unknown): value is IamEngineTypes.IInvalidator<TRole> {
   if (value === null || typeof value !== 'object') return false
   if (!('publish' in value) || !('subscribe' in value)) return false
   return typeof value.publish === 'function' && typeof value.subscribe === 'function'
 }
 
-/** Bit per directly-held role name; `compileTable`'s inheritance closure already bakes inherited grants into `table.allow`, so no re-expansion is needed here. */
+/**
+ * Reads an invalidator's optional `status()` for {@link IamEngine.healthCheck}; `broken` flags a bad implementation.
+ * NOTE: never throws, so a broken invalidator cannot take down the health probe.
+ */
+function readInvalidatorSubscribed(
+  invalidator: unknown,
+): { ok: true; subscribed: boolean } | { ok: false; broken: boolean } {
+  if (invalidator === null || typeof invalidator !== 'object') return { broken: false, ok: false }
+  if (!('status' in invalidator) || invalidator.status === undefined) return { broken: false, ok: false }
+  if (typeof invalidator.status !== 'function') return { broken: true, ok: false }
+  let reported: unknown
+  try {
+    reported = invalidator.status()
+  } catch {
+    return { broken: true, ok: false }
+  }
+  if (reported === null || typeof reported !== 'object') return { broken: true, ok: false }
+  if (!('subscribed' in reported) || typeof reported.subscribed !== 'boolean') return { broken: true, ok: false }
+  return { ok: true, subscribed: reported.subscribed }
+}
+
+/** One bit per directly held role; `compileTable` already folds inherited grants into `table.allow`. */
 function maskFromRoles(table: CompiledTable, roles: readonly string[]): number {
   let mask = 0
   for (const roleName of roles) {
@@ -82,26 +82,14 @@ function maskFromRoles(table: CompiledTable, roles: readonly string[]): number {
 }
 
 /**
- * One single-flight slot: the in-progress promise for a cache key, or `null`
- * when nothing is in flight. Declared rather than inferred so the initialiser
- * can write a bare `null` — inferring from `{ value: null }` would fix the
- * slot type at `null` and force a widening cast at every assignment.
- */
-/**
- * Central runtime that evaluates access requests against RBAC roles and ABAC
- * policies.
- *
- * Loads roles + policies from its adapter, caches them with configurable TTL,
- * converts RBAC roles into ABAC rules via {@link rolesToPolicy}, and merges
- * decisions across all policies according to its `policyCombine` setting
- * (default `'and'`; see {@link AccessControl.PolicyCombine}).
+ * Evaluates access requests against RBAC roles and ABAC policies loaded and cached from its adapter.
+ * Decisions combine across policies per `policyCombine` (default `'and'`; see {@link AccessControl.PolicyCombine}).
  *
  * @template TAction   - Union of valid action strings.
  * @template TResource - Union of valid resource strings.
  * @template TRole     - Union of valid role IDs.
  * @template TScope    - Union of valid scope strings.
- * @template TMode     - Engine mode (`'development'` or `'production'`) that
- *   determines whether return types are `IDecision` or plain `boolean`.
+ * @template TMode     - `'production'` returns `boolean`; `'development'` returns `IDecision`.
  *
  * @example
  * ```ts
@@ -125,7 +113,7 @@ export class IamEngine<
   private _policyCombine: AccessControl.PolicyCombine
   private _scopeMode: 'flat' | 'hierarchical'
   private _scopeCombine: 'union' | 'override'
-  /** Production mode's evaluator. Lazily built on first `authorize()`/`permissions()` call, rebuilt after any policy/role invalidation or once `cacheTTL` has elapsed. */
+  /** The verdict source in both modes. Built on first use; rebuilt after a policy/role invalidation or `cacheTTL`. */
   private _compiledTable: CompiledTable | null = null
   /** `Date.now()` when `_compiledTable` was committed - the TTL clock, mirroring the LRU caches'. */
   private _compiledTableBuiltAt = 0
@@ -133,18 +121,20 @@ export class IamEngine<
   private _maxPolicies: number
   private _maxRoles: number
   private _adapterTimeoutMs: number
+  private _hookTimeoutMs: number
   private _maxConcurrentSubjectLoads: number
   private _invalidator?: IamEngineTypes.IInvalidator<TRole>
   /** Retained whole so {@link withTransaction} can re-make this engine with only the adapter swapped. */
   private readonly _config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>
   private _invalidatorUnsub: (() => void) | null = null
+  /** One-shot: a broken `status()` is warned about once, not once per probe. */
+  private _invalidatorStatusWarned = false
   private _policyCache: IamLRUCache<AccessControl.IPolicy[]>
   private _roleCache: IamLRUCache<AccessControl.IRole[]>
   private _rbacPolicyCache: IamLRUCache<AccessControl.IPolicy>
   private _mergedPolicyCache: IamLRUCache<AccessControl.IPolicy[]>
   private _subjectCache: IamLRUCache<IamRequest.ISubject>
-  // Single-flight: coalesce concurrent cache-misses so a cold start under load
-  // doesn't fan out N identical adapter calls. Cleared once the promise settles.
+  // Single-flight slots, so concurrent cache misses share one adapter call. Cleared once the promise settles.
   private _inFlight: IEngineInFlightBag = {
     policies: { value: null },
     roles: { value: null },
@@ -152,23 +142,17 @@ export class IamEngine<
     merged: { value: null },
     subjects: new Map(),
   }
-  /**
-   * Per-instance evaluation caches. Multi-tenant deployments instantiate
-   * one Engine per tenant; each owns its own regex + path caches and
-   * cannot be evicted by hostile-tenant pattern flooding.
-   */
+  /** SECURITY: per-instance regex and path caches, so one tenant's engine cannot flood another's. */
   private _caches: { regex: Map<string, RegExp>; path: Map<string, string[] | null> } = {
     regex: new Map(),
     path: new Map(),
   }
 
   /**
-   * Cache invalidation facet. Groups the five cache-management calls so the
-   * Engine API surface stays focused on evaluation. Use after policy/role/
-   * subject mutations to drop stale entries; pass `{ broadcast: false }`
-   * when applying an event received from another instance.
+   * Cache invalidation, for writes made outside `engine.admin`.
+   * Pass `{ broadcast: false }` when applying an event received from another instance.
    *
-   * @since 3.0.0 - replaces the flat `engine.invalidate*` methods.
+   * @since 3.0.0
    */
   readonly cache = {
     /** Clear every cache + in-flight resolver. */
@@ -183,9 +167,9 @@ export class IamEngine<
   }
 
   /**
-   * Observability facet. Cache hit/miss/size counters plus a zero op.
+   * Per-cache hit, miss and size counters.
    *
-   * @since 3.0.0 - replaces the flat `engine.stats()` / `engine.resetStats()`.
+   * @since 3.0.0
    */
   readonly stats = {
     /** Snapshot per-cache counters. Counters accumulate from construction. */
@@ -200,11 +184,7 @@ export class IamEngine<
     reset: (): void => this._resetStats(),
   }
 
-  /**
-   * Constructs a new engine wired to the given adapter and configuration.
-   *
-   * @param config - Engine configuration (adapter, mode, caches, hooks).
-   */
+  /** Throws on an invalid config, such as an unknown `policyCombine` or `defaultEffect: 'allow'` without opt-in. */
   constructor(config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>) {
     this._config = config
     this._adapter = config.adapter
@@ -215,10 +195,7 @@ export class IamEngine<
     this._scopeCombine = config.scopeCombine ?? 'union'
     this._hooks = config.hooks ?? {}
 
-    // Both engines branch on 'and' and 'allow-overrides' and fall through to
-    // `first-applicable` for anything else - the most permissive of the three.
-    // A typo, or a value read from a config file rather than written in TS,
-    // therefore lost deny-overrides semantics with no signal at all.
+    // SECURITY: both evaluators treat an unknown value as first-applicable, the most permissive combine.
     if (!VALID_POLICY_COMBINES.includes(this._policyCombine)) {
       throw new Error(
         `[@gentleduck/iam:engine] unknown policyCombine ${JSON.stringify(this._policyCombine)}. Must be one of: ${VALID_POLICY_COMBINES.join(', ')}.`,
@@ -238,8 +215,7 @@ export class IamEngine<
         "[@gentleduck/iam:engine] defaultEffect 'allow' is a fail-open footgun. Pass `allowFailOpen: true` to confirm intent.",
       )
     }
-    // Even with the opt-in, emit a loud startup warning so an operator
-    // grep'ing logs for fail-open configurations always finds it.
+    // Warn even with the opt-in, so a log search for fail-open configs finds it.
     if (this._defaultEffect === 'allow') {
       console.warn(
         "[@gentleduck/iam:engine] engine configured with defaultEffect: 'allow' (fail-open). Every request with no applicable policy will be allowed.",
@@ -249,10 +225,10 @@ export class IamEngine<
     this._maxPolicies = config.maxPolicies ?? 10_000
     this._maxRoles = config.maxRoles ?? 10_000
     this._adapterTimeoutMs = config.adapterTimeoutMs ?? 5_000
+    this._hookTimeoutMs = config.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
     this._maxConcurrentSubjectLoads = config.maxConcurrentSubjectLoads ?? DEFAULT_MAX_CONCURRENT_SUBJECT_LOADS
 
-    // Reject non-finite caps; `NaN > x` is always false so a NaN limit
-    // silently disables the bound.
+    // SECURITY: reject non-finite caps; `NaN > x` is always false, so a NaN limit disables the bound.
     if (!Number.isFinite(this._maxPolicies) || this._maxPolicies < 1) {
       throw new RangeError('[@gentleduck/iam:engine] maxPolicies must be a finite number >= 1')
     }
@@ -261,6 +237,9 @@ export class IamEngine<
     }
     if (!Number.isFinite(this._adapterTimeoutMs) || this._adapterTimeoutMs < 0) {
       throw new RangeError('[@gentleduck/iam:engine] adapterTimeoutMs must be a finite number >= 0')
+    }
+    if (!Number.isFinite(this._hookTimeoutMs) || this._hookTimeoutMs < 0) {
+      throw new RangeError('[@gentleduck/iam:engine] hookTimeoutMs must be a finite number >= 0')
     }
     // 0 means unbounded (same convention as adapterTimeoutMs); anything else must be a real cap.
     if (
@@ -282,20 +261,13 @@ export class IamEngine<
     this._mergedPolicyCache = new IamLRUCache(1, ttl)
     this._subjectCache = new IamLRUCache(maxSize, ttl)
 
-    // Through the setter, so the constructor path and the late-attach path
-    // validate and subscribe identically.
+    // Through the setter, so construction and late attach validate and subscribe the same way.
     if (config.invalidator) this.setInvalidator(config.invalidator)
   }
 
   /**
-   * Wrap an adapter read with the engine's configured timeout. Creates a
-   * fresh `AbortController` per call so a slow upstream gets hard-cancelled
-   * once `adapterTimeoutMs` elapses; the timeout error routes through
-   * `authorize`'s catch and produces a fail-closed deny.
-   *
-   * Returns the adapter call result. Throws on timeout. Adapters that don't
-   * honor `signal` still get their result discarded - the engine just
-   * doesn't wait for them.
+   * Runs an adapter call under `adapterTimeoutMs`, aborting its signal and throwing on expiry.
+   * SECURITY: the timeout error reaches the entry point's catch, which denies.
    */
   private _withTimeout<T>(fn: (opts: { signal: AbortSignal }) => Promise<T>, label: string): Promise<T> {
     if (this._adapterTimeoutMs <= 0) {
@@ -334,32 +306,16 @@ export class IamEngine<
       this._compiledTable = null
       this._compiledTableGen++
     }
+    // Replicas drop the role-limit latch too, or only the instance that deleted roles would recover.
+    if (event.kind === 'all' || event.kind === 'roles') this._clearRoleLimitLatch()
   }
 
   /**
-   * Attach, replace, or detach the cross-instance invalidator after
-   * construction.
-   *
-   * `IConfig.invalidator` is constructor-only, but engines are commonly built
-   * at module import time - before any request-scoped or replica-specific
-   * Redis client exists. Without this, the only way to wire invalidation late
-   * was to hand-roll the pub/sub that `createIamRedisInvalidator` already
-   * implements, and hand-rolled copies drift from the event union they have to
-   * match.
-   *
-   * Replacing unsubscribes the previous invalidator first, so an engine holds
-   * at most one subscription however many times this is called. Pass `null` to
-   * detach and go back to local-only invalidation.
-   *
-   * A transaction-bound view built by {@link withTransaction} deliberately has
-   * no invalidator of its own and is unaffected; its buffered invalidations
-   * broadcast through this engine on `pending.flush()`, so they pick up
-   * whatever is attached here at flush time.
+   * Attaches, replaces or detaches the invalidator after construction, for a client built after the engine.
+   * The previous one is unsubscribed first. Transaction views flush through whatever is attached at flush time.
    *
    * @param invalidator - The broadcaster to attach, or `null` to detach.
-   * @throws When `invalidator` is neither `null` nor an object with `publish`
-   *   and `subscribe` methods - a malformed one would otherwise fail later, at
-   *   the first mutation, as a lost broadcast rather than a bad argument.
+   * @throws When `invalidator` is neither `null` nor an object with `publish` and `subscribe` methods.
    */
   setInvalidator(invalidator: IamEngineTypes.IInvalidator<TRole> | null): void {
     if (invalidator !== null && !isInvalidatorLike(invalidator)) {
@@ -367,9 +323,7 @@ export class IamEngine<
         '[@gentleduck/iam:engine] setInvalidator: expected null or an object with `publish` and `subscribe` methods',
       )
     }
-    // Unsubscribe first and unconditionally: an exception from the new
-    // `subscribe` must not leave the old subscription attached to an
-    // invalidator this engine no longer considers current.
+    // Unsubscribe first, so a throwing `subscribe` cannot leave the old subscription attached.
     this._invalidatorUnsub = disposeInvalidator(this._invalidatorUnsub).unsub
     if (invalidator === null) {
       this._invalidator = undefined
@@ -417,32 +371,22 @@ export class IamEngine<
   /** `cacheTTL` in ms, kept for the compiled table - the LRU caches hold their own copy. */
   private _cacheTTL: number
 
-  /** In-flight rebuild, so concurrent cold callers await the same compile instead of racing/duplicating it. */
+  /** In-flight rebuild, so concurrent cold callers share one compile. */
   private _compiledTableBuild: Promise<CompiledTable> | null = null
   /** The generation `_compiledTableBuild` was started under - see `_rebuildCompiledTable`. */
   private _compiledTableBuildGen = -1
-  /** Bumped by every invalidation; a build that started under an older generation must not overwrite a newer invalidation's null with stale data. */
+  /** Bumped by every invalidation, so a build started earlier cannot overwrite the cleared table with stale data. */
   private _compiledTableGen = 0
 
   /**
-   * Cached table, or a build if none is current. The single read path for every caller.
-   *
-   * The table expires on `cacheTTL` like every other cache. Without that it was cleared
-   * only by an explicit invalidation, so a production engine with no `invalidator` wired -
-   * the default - served a grant revoked by another process forever, while the same
-   * adapter in development converged within `cacheTTL`. The two modes are meant to differ
-   * in speed, not in consistency.
-   */
-  /**
-   * The compiled table, or `null` when this config cannot have one.
-   *
-   * `null` means exactly one thing: the role count exceeds what the 32-bit
-   * grant mask can address, so the caller must use the interpreter. Every other
-   * compile failure still throws and still denies - a malformed policy is a bug,
-   * and answering it with a slower correct path would hide it.
+   * The current compiled table, rebuilt when missing or past `cacheTTL`; `null` routes the caller to the interpreter.
+   * `null` means over 32 roles or `'first-applicable'`. SECURITY: any other compile failure throws, and so denies.
    */
   private async _getCompiledTable(): Promise<CompiledTable | null> {
     if (this._roleLimitExceeded) return null
+    // `lookup()` would fold 'first-applicable' as 'and', and development takes the table as authoritative,
+    // so the interpreter takes the whole combine.
+    if (this._policyCombine === 'first-applicable') return null
     const table = this._compiledTable
     if (table !== null && !this._compiledTableExpired()) return table
     try {
@@ -453,9 +397,7 @@ export class IamEngine<
       this._roleLimitDetail = { limit: err.limit, roleCount: err.roleCount }
       if (!this._roleLimitReported) {
         this._roleLimitReported = true
-        // Loud once, not per request. A silent fall to a slower path is a
-        // performance cliff with no diagnostic - the same shape of defect as
-        // the dev/prod divergence this fallback exists to remove.
+        // Once, not per request, so the slower path is never silent.
         console.warn(err.message)
       }
       return null
@@ -463,28 +405,8 @@ export class IamEngine<
   }
 
   /**
-   * One evaluation, through the same verdict path in every mode.
-   *
-   * This is the fix for the largest recurring defect family in the round-3
-   * audit. Production evaluated through the compiled table and development
-   * through the interpreter, so any disagreement between the two was invisible
-   * until it reached production - and it reached production as an *allow*
-   * against a dev run that denied (A/W-1, B/S-1, B/S-2, B/S-3, B/W-1 were all
-   * this shape). Patching each instance never addressed why they kept arriving.
-   *
-   * Now the compiled table produces the verdict in both modes. Development
-   * additionally runs the interpreter, because the table cannot explain itself:
-   * `CONST_ALLOW`/`CONST_DENY` cells are a single `kind` byte and `allow` is a
-   * raw bitmask, so policy identity is erased at compile time - that erasure is
-   * the optimisation. The interpreter supplies `reason`/`policy`/`rule`, the
-   * table supplies the verdict, and the two are checked against each other.
-   *
-   * A disagreement throws. It means the table and the interpreter answer the
-   * same question differently, which is a duck-iam bug, and the whole point is
-   * that it now surfaces on the developer's machine instead of in production.
-   *
-   * `table === null` (more roles than the 32-bit mask can address) drops both
-   * modes to the interpreter alone. Correct, just slower, and reported once.
+   * One evaluation. The compiled table gives the verdict in both modes; development also runs the interpreter
+   * for `reason`/`policy`/`rule`, and throws if they disagree. With no table, both modes use the interpreter alone.
    */
   private async _evaluateOnce(
     req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
@@ -512,21 +434,8 @@ export class IamEngine<
 
     if (this._mode === 'production') return { allowed: compiled }
 
-    // Development: same verdict path as production, plus the explanation the
-    // table cannot produce.
-    //
-    // The explanatory run must be observationally silent, or running two
-    // evaluators doubles every operator-visible side effect: `onPolicyError`
-    // fired twice per rotten policy, so a handler wired to an alerting pipeline
-    // would page twice for one bad policy, in development only. It is passed
-    // `undefined` here because the authoritative run above already reported.
-    // Safe precisely because the handler is notification-only - `safeEval`'s
-    // control flow (deny-rule present -> Indeterminate deny, else the
-    // `defaultEffect` vote) is identical whether or not one is attached, so the
-    // decision this returns is unchanged.
-    //
-    // It also gets its own `signals`, so a `failOpen` seen only by the
-    // explanatory run cannot rewrite what the authoritative path reported.
+    // The explanatory run is silent: no `onPolicyError` (the table run already reported; the handler never changes
+    // the verdict) and its own `signals`.
     const interpreterSignals: { failOpen?: boolean } = {}
     const decision = await this._interpret(req, undefined, interpreterSignals)
 
@@ -539,23 +448,13 @@ export class IamEngine<
         `(interpreter reason: ${decision.reason}). This is a duck-iam bug - production would have ` +
         `answered "${compiled ? 'allow' : 'deny'}" while this development run says ` +
         `"${decision.allowed ? 'allow' : 'deny'}". Please report it with the policy set that reproduces it.`
-      // Printed as well as thrown. `authorize()` catches everything and returns
-      // a fail-closed deny with `reason: 'Evaluation error'`, which is right for
-      // the verdict and useless as a diagnostic - a developer with no `onError`
-      // wired would see a generic deny and never learn that production would
-      // have answered the other way. That is the same invisibility this whole
-      // path exists to remove, so the message goes to the console too.
-      //
-      // Unbounded on purpose: this cannot fire unless duck-iam has a bug, and
-      // when it does the developer needs to stop, not to have it rate-limited
-      // into the background.
+      // Printed as well as thrown: `authorize()` turns the throw into a generic deny. Not rate-limited, since
+      // it fires only on a duck-iam bug.
       console.error(message)
       throw new Error(message)
     }
 
-    // Verdicts agree, so the reported decision is the interpreter's - it is the
-    // one carrying provenance - and `signals` takes the union: a fail-open seen
-    // by either path is a fail-open.
+    // Report the interpreter's decision for its provenance; a fail-open seen by either run counts.
     if (interpreterSignals.failOpen === true) signals.failOpen = true
     return { allowed: compiled, decision }
   }
@@ -580,39 +479,12 @@ export class IamEngine<
     return Date.now() - this._compiledTableBuiltAt >= this._cacheTTL
   }
 
-  /**
-   * Rebuilds production mode's compiled table from the current roles + raw adapter
-   * policies (NOT `_loadAllPolicies()`'s RBAC-merged view - `compileTable` derives its
-   * own RBAC representation from `roles` and would double-count a pre-merged `__rbac__`
-   * policy). Returns the table directly so a caller never has to re-read `_compiledTable`
-   * after an `await` a concurrent invalidation could have raced.
-   *
-   * Single-flighting is scoped to one generation: an in-flight build is only reused while
-   * `_compiledTableGen` hasn't moved since it started. A caller arriving after an
-   * invalidation bumps the generation must never be handed a promise that resolves to
-   * pre-invalidation data - it starts (or joins) a fresh build against the post-invalidation
-   * generation instead, matching what a caller would get with no single-flighting at all.
-   */
   /** Set once a compile failure has been reported, so the log carries one line, not one per request. */
   private _compileFailureReported = false
 
   /**
-   * Compile, and report a failure the first time it happens.
-   *
-   * A throw here reaches `authorize()`'s catch and denies, so without this the
-   * whole deployment goes to total-deny silently - the operator sees an
-   * authorization outage and no message. The error is still rethrown: the deny
-   * is the correct behaviour, the silence was not.
-   *
-   * Two failures are not that, and are excluded:
-   *
-   * - {@link IamRoleLimitExceededError} denies nothing. `_getCompiledTable`
-   *   catches it and falls back to the interpreter, so the total-deny wording
-   *   here would be a lie, and it carries its own one-time warning.
-   * - {@link IamPolicyCompileError} names the policy at fault, which is what
-   *   `onPolicyError` exists to deliver. Forwarding it there keeps the
-   *   diagnostic the interpreter used to give before both modes moved onto the
-   *   table.
+   * Compiles, logging the first failure once, since every request then denies. Every failure is rethrown.
+   * Not logged: {@link IamRoleLimitExceededError} (it falls back) and {@link IamPolicyCompileError} (`onPolicyError`).
    */
   private _compileOrReport(
     compileTable: (
@@ -629,9 +501,7 @@ export class IamEngine<
     } catch (err) {
       if (err instanceof IamRoleLimitExceededError) throw err
       if (err instanceof IamPolicyCompileError) {
-        // Sync, so `_safeHookCall` (async) is not usable here; the try/catch
-        // does the same job - a buggy operator hook must not replace the
-        // compile error with its own.
+        // Sync, so not `_safeHookCall`; a throwing hook must not replace the compile error.
         try {
           this._hooks.onPolicyError?.(err, err.policyId)
         } catch {}
@@ -648,25 +518,8 @@ export class IamEngine<
   }
 
   /**
-   * The instant this table should be treated as having been built at: now, or
-   * the moment its oldest input was read, whichever is earlier.
-   *
-   * `cacheTTL` is documented as the convergence window for a write made
-   * outside this engine, and with no invalidator wired - the default - it is
-   * the only one. The table is not compiled from the adapter, though; it is
-   * compiled from `roleCache` and `policyCache`. Stamping it `Date.now()`
-   * therefore gave a table built from nearly-expired roles a second, complete
-   * TTL, and the two clocks only separate when something nulls the table
-   * *without* clearing `roleCache` - which is exactly what `savePolicy`,
-   * `deletePolicy` and an inbound `{kind: 'policies'}` event all do. Measured
-   * at `cacheTTL: 60`: a revoke written at t=1s still answered allow at
-   * t=111s, converging at t=119s.
-   *
-   * An input with no cache entry imposes no cap: it was read live, so it is as
-   * fresh as now.
-   *
-   * @param deps - The loader bag whose caches fed this build.
-   * @returns Epoch ms to record as the build time.
+   * The build time to record: now, or when the oldest cached input was read, whichever is earlier.
+   * SECURITY: stamping `Date.now()` would give a table built from nearly expired roles a second full `cacheTTL`.
    */
   private _derivedBuiltAt(deps: {
     roleCache: IamLRUCache<AccessControl.IRole[]>
@@ -678,12 +531,14 @@ export class IamEngine<
       deps.policyCache.expiresAt('all') ?? Number.POSITIVE_INFINITY,
     )
     if (!Number.isFinite(oldestExpiry)) return now
-    // An entry expiring at E was read at E - cacheTTL, unless a `notAfter` cap
-    // shortened it - in which case this reads older still, which is the safe
-    // direction. Never later than now.
+    // An entry expiring at E was read at E - cacheTTL; a capped entry reads older still, the safe direction.
     return Math.min(now, oldestExpiry - this._cacheTTL)
   }
 
+  /**
+   * Builds the table from roles and raw policies (not the RBAC-merged view, which would double-count `__rbac__`).
+   * NOTE: an in-flight build is reused only within its generation, so no caller gets pre-invalidation data.
+   */
   private _rebuildCompiledTable(): Promise<CompiledTable> {
     if (this._compiledTableBuild && this._compiledTableBuildGen === this._compiledTableGen) {
       return this._compiledTableBuild
@@ -694,8 +549,7 @@ export class IamEngine<
       const [roles, policies] = await Promise.all([this._loadRoles(), loadPolicies(deps)])
       const { compileTable } = await import('./compiled/compiled.compile')
       const table = this._compileOrReport(compileTable, roles, policies)
-      // An invalidation that landed mid-build must win: don't resurrect a table
-      // built from data that invalidation has already superseded.
+      // An invalidation that landed mid-build wins; do not store this table.
       if (this._compiledTableGen === gen) {
         this._compiledTable = table
         this._compiledTableBuiltAt = this._derivedBuiltAt(deps)
@@ -704,9 +558,7 @@ export class IamEngine<
     })()
     this._compiledTableBuild = build
     this._compiledTableBuildGen = gen
-    // A separate .finally() chain that nobody awaits still reports the original
-    // rejection as "unhandled" to Node/V8 even though the real caller below
-    // properly awaits `build` itself - swallow that side-chain explicitly.
+    // INFO: an unawaited `.finally()` chain re-reports the rejection as unhandled, so catch it here.
     build
       .finally(() => {
         if (this._compiledTableBuild === build) this._compiledTableBuild = null
@@ -715,30 +567,20 @@ export class IamEngine<
     return build
   }
 
-  /**
-   * Bridges the runtime `this._mode` branch to the static `AccessControl.ModeResult<TMode>`
-   * conditional type. Centralized so the assertion is named and grep-able
-   * instead of scattered across each return statement.
-   */
+  /** Bridges the runtime `this._mode` branch to `AccessControl.ModeResult<TMode>`; the one place that asserts it. */
   private _asResult(value: boolean | AccessControl.IDecision): AccessControl.ModeResult<TMode> {
     return value as AccessControl.ModeResult<TMode>
   }
 
   /**
-   * Full authorization check with a complete {@link IamRequest.IAccessRequest}.
-   *
-   * In `'production'` mode, returns a plain `boolean`.
-   * In `'development'` mode, returns a full {@link AccessControl.IDecision}.
-   *
-   * @param request - The access request to evaluate.
-   * @returns The decision shape determined by the engine's mode.
+   * Checks a complete {@link IamRequest.IAccessRequest}: a `boolean` in production, an `IDecision` in development.
+   * SECURITY: any evaluation error is reported to `onError` and denies.
    */
   async authorize(
     request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
   ): Promise<AccessControl.ModeResult<TMode>> {
     let req = request
-    // Also captured for `afterEvaluate` / `onDeny`, which now fire in production
-    // and need a real `duration` on the decision synthesised for them.
+    // Also for `afterEvaluate`/`onDeny`, whose production decision needs a real `duration`.
     const t0 = this._hooks.onMetrics || this._hooks.afterEvaluate || this._hooks.onDeny ? performance.now() : 0
 
     // Trailing hooks run outside the evaluation try; a thrown hook must not
@@ -758,11 +600,10 @@ export class IamEngine<
       }
 
       if (this._hooks.beforeEvaluate) {
-        req = await this._hooks.beforeEvaluate(req)
+        req = await this._runBeforeEvaluate(req)
       }
 
-      // Default the evaluation clock after the hook so a hook-pinned `now`
-      // (tests, replay) is preserved and a normal request still gets one.
+      // Default the clock after the hook, so a hook-pinned `now` wins.
       req = ensureEnvNow(req)
 
       const onPolicyErrorHook = this._hooks.onPolicyError
@@ -770,13 +611,8 @@ export class IamEngine<
         ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
         : undefined
 
-      // A request naming the reserved refusal token is refused before any
-      // policy is consulted. The framework adapters produce it for a method
-      // they cannot map and a path they cannot safely resolve, and it used to
-      // travel as an ordinary string - which a `'*'` rule matches, so the
-      // refusal became an allow on exactly the requests built to be denied.
-      // Placed inside the try so `onDeny` / `afterEvaluate` / `onMetrics` see
-      // this denial like any other.
+      // SECURITY: the reserved refusal token (an unmappable method or path) denies before any policy, since a `'*'`
+      // rule would match it. Inside the try so the hooks see this denial like any other.
       if (iamIsReservedRefusal(req.action) || iamIsReservedRefusal(req.resource?.type)) {
         const refusal = this._reservedRefusalDecision()
         decisionForHooks = refusal
@@ -803,14 +639,10 @@ export class IamEngine<
       failOpenForMetrics = signals.failOpen === true
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
-      // onError can itself throw. Don't let an operator's onError bug
-      // propagate over the engine's fail-closed behaviour.
+      // Wrapped, so a throwing `onError` cannot escape the fail-closed deny.
       await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
       this._emitMetrics(req, false, t0, false)
-      // NOTE: `afterEvaluate` / `onDeny` deliberately do NOT fire here. They did
-      // not fire on this path in development either, so routing them through it
-      // now would be a second behaviour change wearing the first one's clothes.
-      // The error-path denial is reported by `onError`, as it always was.
+      // NOTE: `afterEvaluate`/`onDeny` do not fire on the error path; `onError` reports it.
       if (this._mode === 'production') return this._asResult(false)
       return this._asResult({
         allowed: false,
@@ -822,17 +654,8 @@ export class IamEngine<
       })
     }
 
-    // Trailing hook block - runs OUTSIDE the evaluation try so a hook throw
-    // cannot rewrite the decision. Each hook is individually wrapped so a
-    // bug in one doesn't suppress the others.
-    //
-    // Both hooks fire in production too. They used to be development-only,
-    // which put a denial log - a production concern if there is one - out of
-    // reach exactly where operators need it. Production has no `IDecision` to
-    // hand over, because the compiled table erases policy identity by design,
-    // so one is synthesised from the verdict: right `allowed`/`effect`, honest
-    // generic `reason`, no `policy`/`rule` provenance. Development still passes
-    // the interpreter's decision, which carries all three.
+    // Outside the evaluation try, each hook wrapped, so a hook throw cannot rewrite the decision or skip the others.
+    // Production has no `IDecision`, so one is built from the verdict.
     if (this._hooks.afterEvaluate || this._hooks.onDeny) {
       const d = decisionForHooks ?? this._verdictOnlyDecision(allowedForMetrics, t0)
       await this._safeHookCall(() => this._hooks.afterEvaluate?.(req, d), 'afterEvaluate')
@@ -844,29 +667,7 @@ export class IamEngine<
     return result
   }
 
-  /**
-   * Build the {@link AccessControl.IDecision} production hands to
-   * `afterEvaluate` / `onDeny`.
-   *
-   * Production evaluates through the compiled table, whose `CONST_ALLOW` /
-   * `CONST_DENY` cells are a single `kind` byte and whose `allow` is a raw
-   * bitmask - policy identity is erased at compile time, and that erasure is
-   * the optimisation. So there is no `policy` or `rule` to report and the
-   * `reason` is generic. Reconstructing them would mean running the interpreter
-   * alongside the table on every production request, which is what development
-   * mode already does and what production exists not to do.
-   *
-   * Called only when one of the two hooks is wired, so the allocation lands on
-   * installs that asked for it and nobody else.
-   */
-  /**
-   * The denial for a request naming the reserved refusal token.
-   *
-   * Shared by `authorize` and `permissions` so the two entry points cannot
-   * report the same refusal differently - `failure: 'input'` because the
-   * request named something that is not an action or a resource, not because
-   * evaluating it went wrong.
-   */
+  /** The denial for the reserved refusal token, shared by `authorize` and `permissions`; an input failure. */
   private _reservedRefusalDecision(): AccessControl.IDecision {
     return {
       allowed: false,
@@ -878,6 +679,10 @@ export class IamEngine<
     }
   }
 
+  /**
+   * The verdict-only decision production passes to `afterEvaluate`/`onDeny`, built only when one is wired.
+   * No `policy` or `rule`: see {@link IamEngineTypes.IHooks.afterEvaluate}.
+   */
   private _verdictOnlyDecision(allowed: boolean, t0: number): AccessControl.IDecision {
     return {
       allowed,
@@ -890,21 +695,38 @@ export class IamEngine<
     }
   }
 
-  /**
-   * Invoke a hook safely. Sync or async throws are caught and routed to
-   * console.error so a buggy operator hook cannot escape into the caller's
-   * path or rewrite a finalised decision. Returning void is intentional -
-   * the engine never surfaces hook bugs as authz failures.
-   */
+  /** {@link safeHookCall} with this engine's `hookTimeoutMs`. */
   private async _safeHookCall(fn: () => unknown, hookName: string): Promise<void> {
-    await safeHookCall(fn, hookName)
+    await safeHookCall(fn, hookName, this._hookTimeoutMs)
   }
 
-  /**
-   * Fires the `onMetrics` hook if configured. Synchronous; takes the start
-   * timestamp captured at the top of `authorize` so the caller doesn't pay
-   * `performance.now()` cost when no hook is wired.
-   */
+  /** Runs `beforeEvaluate` bounded by `hookTimeoutMs`; a timeout rejects into the caller's fail-closed catch. */
+  private async _runBeforeEvaluate(
+    req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+  ): Promise<IamRequest.IAccessRequest<TAction, TResource, TScope>> {
+    const hooks = this._hooks
+    if (hooks.beforeEvaluate === undefined) return req
+    const next = hooks.beforeEvaluate(req)
+    if (this._hookTimeoutMs <= 0 || !isThenable(next)) return next
+    const timeoutMs = this._hookTimeoutMs
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new Error(
+            `[@gentleduck/iam:engine] beforeEvaluate hook did not settle within ${timeoutMs}ms (hookTimeoutMs)`,
+          ),
+        )
+      }, timeoutMs)
+    })
+    try {
+      return await Promise.race([next, expired])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /** Fires `onMetrics`, if set, with the caller's `t0` (`0` when no hook needed `performance.now()`). */
   private _emitMetrics(
     req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
     allowed: boolean,
@@ -915,15 +737,8 @@ export class IamEngine<
   }
 
   /**
-   * Simple boolean check: can this user do this action on this resource?
-   * Always returns a plain `boolean` regardless of engine mode.
-   *
-   * @param subjectId   - Subject ID to resolve via the adapter.
-   * @param action      - Action the subject wants to perform.
-   * @param resource    - Target resource.
-   * @param environment - Optional request-time environment.
-   * @param scope       - Optional scope for multi-tenant checks.
-   * @returns `true` when the subject is authorized to perform the action.
+   * Whether the subject may perform `action` on `resource`, as a `boolean` in every mode.
+   * SECURITY: an invalid `subjectId` or a failed subject load returns `false`, never a rejection.
    */
   async can(
     subjectId: string,
@@ -938,11 +753,9 @@ export class IamEngine<
       const result = await this.authorize({ subject, action, resource, environment, scope })
       return typeof result === 'boolean' ? result : result.allowed
     } catch (error) {
-      // Subject-resolution errors (adapter down, listRoles limit hit) escape
-      // authorize()'s try/catch. Translate to a fail-closed deny so callers
-      // never see an unhandled rejection from the entry-point methods.
+      // Subject resolution runs outside authorize()'s catch, so deny here too.
       const err = error instanceof Error ? error : new Error(String(error))
-      // _safeHookCall so a throwing onError cannot bypass fail-closed `return false`.
+      // Wrapped, so a throwing onError cannot bypass `return false`.
       const errReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
         subject: { id: subjectId, roles: [], attributes: {} },
         action,
@@ -956,14 +769,8 @@ export class IamEngine<
   }
 
   /**
-   * Resolve the roles a subject effectively holds: assigned roles closed over
-   * `inherits`, plus scoped role assignments matching `scope` when given —
-   * same merge `can`/`check` do internally. Uses the same subject cache, so
-   * repeated calls pay the cache TTL instead of a bare adapter round trip.
-   *
-   * @param subjectId - Subject ID to resolve via the adapter.
-   * @param scope     - Optional scope to merge matching scoped roles in.
-   * @returns The subject's effective roles. Empty array for an invalid `subjectId`.
+   * The subject's roles closed over `inherits`, plus scoped roles matching `scope`, as `can`/`check` see them.
+   * Uses the subject cache; returns `[]` for an invalid `subjectId`.
    */
   async getEffectiveRoles(subjectId: string, scope?: TScope): Promise<readonly TRole[]> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
@@ -972,17 +779,7 @@ export class IamEngine<
     return enriched.roles.map((r) => iamAsRoleLiteral<TRole>(r))
   }
 
-  /**
-   * Same as `can` but returns the full {@link AccessControl.IDecision} in development mode,
-   * or a plain boolean in production mode.
-   *
-   * @param subjectId   - Subject ID to resolve via the adapter.
-   * @param action      - Action the subject wants to perform.
-   * @param resource    - Target resource.
-   * @param environment - Optional request-time environment.
-   * @param scope       - Optional scope for multi-tenant checks.
-   * @returns Mode-dependent result: `boolean` in production, `IDecision` in development.
-   */
+  /** {@link can}, returning an {@link AccessControl.IDecision} in development mode and a `boolean` in production. */
   async check(
     subjectId: string,
     action: TAction,
@@ -1014,8 +811,7 @@ export class IamEngine<
         environment,
         scope,
       }
-      // Wrap so a throwing operator onError cannot escape the documented
-      // fail-closed behaviour.
+      // Wrapped, so a throwing onError cannot escape the deny.
       await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
       if (this._mode === 'production') return this._asResult(false)
       return this._asResult({
@@ -1030,23 +826,10 @@ export class IamEngine<
   }
 
   /**
-   * Returns a full evaluation trace showing why a permission was granted or
-   * denied. Shows which policies matched, which rules fired, which conditions
-   * passed/failed with actual vs expected values, and a human-readable summary.
+   * A development-mode trace of why a check was allowed or denied: matched policies, fired rules, condition values.
+   * Runs `beforeEvaluate` but no other hook.
    *
-   * Only available in `'development'` mode. Throws in `'production'` mode.
-   *
-   * Does NOT trigger afterEvaluate/onDeny/onError hooks (read-only).
-   * Does apply beforeEvaluate hook since it affects the evaluation.
-   *
-   * @param subjectId   - Subject ID to resolve via the adapter.
-   * @param action      - Action the subject wants to perform.
-   * @param resource    - Target resource.
-   * @param environment - Optional request-time environment.
-   * @param scope       - Optional scope for multi-tenant checks.
-   * @returns A full {@link Explain.IResult} describing the evaluation.
-   * @throws When the engine is in production mode, or `subjectId` is not a
-   *   non-empty string of at most 1024 chars.
+   * @throws In production mode, or when `subjectId` is not a non-empty string of at most 1024 chars.
    */
   async explain(
     this: IamEngine<TAction, TResource, TRole, TScope, 'development'>,
@@ -1081,7 +864,7 @@ export class IamEngine<
     }
 
     if (this._hooks.beforeEvaluate) {
-      req = await this._hooks.beforeEvaluate(req)
+      req = await this._runBeforeEvaluate(req)
     }
 
     // Default the evaluation clock (after the hook, so a pinned `now` wins).
@@ -1089,9 +872,7 @@ export class IamEngine<
 
     const allPolicies = await this._loadAllPolicies()
 
-    // Lazy import: production mode users (which throw before this point)
-    // pay zero bytes for the explain chunk. Bundlers split this into its
-    // own chunk.
+    // PERF: imported lazily so production bundles can split the explain chunk out.
     const { explainEvaluation } = await import('../explain')
 
     return explainEvaluation(
@@ -1104,21 +885,10 @@ export class IamEngine<
   }
 
   /**
-   * Batch check: evaluate many permissions at once for a single subject.
-   * Returns a map keyed by `[@scope:]action:resource[:resourceId]` (see `iamBuildPermissionKey`).
-   * Loads adapter data once, then evaluates each check.
-   * Each check goes through scoped role enrichment and hooks, consistent with authorize().
+   * Evaluates many checks for one subject, loading its data once; each check gets the same hooks as `authorize()`.
+   * Keyed by `[@scope:]action:resource[:resourceId]` (see `iamBuildPermissionKey`); a load failure denies them all.
    *
-   * In `'production'` mode, returns `Record<string, boolean>`.
-   * In `'development'` mode, returns the full typed {@link IamClient.PermissionMap}.
-   *
-   * @param subjectId   - Subject ID to resolve via the adapter.
-   * @param checks      - Array of {@link IamClient.IPermissionCheck} descriptors.
-   * @param environment - Optional request-time environment shared by all checks.
-   * @returns Mode-dependent permission map.
-   * @throws When `subjectId` is not a non-empty string of at most 1024 chars,
-   *   or `checks` holds more than 1024 entries. Unlike `can`/`check`, an
-   *   invalid batch is a caller bug, not a fail-closed deny.
+   * @throws When `subjectId` is invalid or `checks` exceeds 1024: a caller bug, not a deny.
    */
   async permissions(
     subjectId: string,
@@ -1129,21 +899,17 @@ export class IamEngine<
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
       throw new Error('[@gentleduck/iam:engine] permissions(): subjectId must be a non-empty string <=1024 chars')
     }
-    // Defensive cap: prevents an unbounded batch (e.g. attacker-driven UI gate
-    // that floods checks) from running into thousands of per-check evaluations.
-    // 1024 covers any plausible legitimate batch.
+    // SECURITY: capped so an attacker-driven batch cannot force thousands of evaluations.
     if (checks.length > 1024) {
       throw new Error('[@gentleduck/iam:engine] permissions() refuses batches >1024 checks')
     }
-    // `telemetry: false` skips per-check onMetrics for hot UI gates (~2x throughput).
+    // PERF: `telemetry: false` skips per-check `onMetrics`, only ~3% on a batch of 20 (ARCHITECTURE-PERF.md).
+    // Use it to keep a hot UI gate out of telemetry, not for speed.
     const telemetry = opts.telemetry !== false
     // Outer try synthesises all-deny on subject/policy load failure.
     let subject: IamRequest.ISubject
     try {
-      // The policy load is awaited here rather than per check so a load failure
-      // fails the whole batch closed, instead of surfacing on whichever check
-      // happened to run first. Nothing binds the result: `_evaluateOnce` reads
-      // it back from the merged cache this call just warmed.
+      // Load policies up front so a failure denies the whole batch; `_evaluateOnce` reads the warmed cache.
       ;[subject] = await Promise.all([this._resolveSubject(subjectId), this._loadAllPolicies()])
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
@@ -1165,8 +931,7 @@ export class IamEngine<
     // Memo per scope: N checks sharing a scope must not rebuild the merged role list N times.
     const enrichedByScope = new Map<TScope, IamRequest.ISubject>()
 
-    // Forward onPolicyError to evaluate* so batch checks surface per-policy
-    // throws instead of silently dropping them.
+    // Forward onPolicyError so batch checks report per-policy throws too.
     const onPolicyErrorHook = this._hooks.onPolicyError
     const onPolicyError = onPolicyErrorHook
       ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
@@ -1174,12 +939,9 @@ export class IamEngine<
 
     for (const c of checks) {
       const key = iamBuildPermissionKey(c.action, c.resource, c.resourceId, c.scope)
-      // Per-check metrics: onMetrics fires once per check with failOpen signal
-      // (unless `telemetry: false`).
-      const t0 = telemetry && this._hooks.onMetrics ? performance.now() : 0
+      const t0 =
+        (telemetry && this._hooks.onMetrics) || this._hooks.afterEvaluate || this._hooks.onDeny ? performance.now() : 0
 
-      // Trailing-hooks block runs OUTSIDE the evaluation try so a throwing
-      // afterEvaluate/onDeny cannot rewrite the per-check verdict.
       let decisionForHooks: AccessControl.IDecision | null = null
       let allowedForCheck = false
       let failOpenForCheck = false
@@ -1206,7 +968,7 @@ export class IamEngine<
         }
 
         if (this._hooks.beforeEvaluate) {
-          req = await this._hooks.beforeEvaluate(req)
+          req = await this._runBeforeEvaluate(req)
         }
 
         // Default the evaluation clock per check (after the hook).
@@ -1214,11 +976,7 @@ export class IamEngine<
 
         const signals: { failOpen?: boolean } = {}
 
-        // Same path as `authorize()` - a batch check must never be able to
-        // answer differently from the single check it batches. That includes
-        // the reserved-refusal token: `permissions()` does not route through
-        // `authorize()`, so the refusal has to be repeated here or one entry
-        // point would grant what the other denies.
+        // SECURITY: same path as `authorize()`, including the reserved-refusal check, repeated since this skips it.
         const verdict =
           iamIsReservedRefusal(req.action) || iamIsReservedRefusal(req.resource?.type)
             ? { allowed: false, decision: this._reservedRefusalDecision() }
@@ -1243,10 +1001,9 @@ export class IamEngine<
         continue
       }
 
-      // Trailing-hooks block (outside try) - keeps hook throws from
-      // rewriting the per-check verdict; mirrors authorize().
-      if (decisionForHooks !== null && evalReq !== null) {
-        const d = decisionForHooks
+      // Outside the try, as in authorize(), so a hook throw cannot rewrite the verdict.
+      if (evalReq !== null && (this._hooks.afterEvaluate || this._hooks.onDeny)) {
+        const d = decisionForHooks ?? this._verdictOnlyDecision(allowedForCheck, t0)
         const r = evalReq
         await this._safeHookCall(() => this._hooks.afterEvaluate?.(r, d), 'afterEvaluate')
         if (!d.allowed) {
@@ -1265,8 +1022,7 @@ export class IamEngine<
   get admin(): IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
     this._admin ??= createAdmin<TAction, TResource, TRole, TScope>(this._adapter, {
       cache: this.cache,
-      // Left off entirely when no `onMutation` is wired, so an install that
-      // does not want the audit bus builds no events and pays nothing for it.
+      // PERF: omitted without `onMutation`, so no events are built.
       ...(this._hooks.onMutation !== undefined && {
         mutations: {
           emit: (event: IamEngineTypes.IMutationEvent<TRole, TScope>) =>
@@ -1278,13 +1034,8 @@ export class IamEngine<
   }
 
   /**
-   * Returns a view of this engine whose adapter runs on `client` - a driver
-   * transaction handle - and whose cache invalidations buffer into `pending`
-   * instead of applying and broadcasting immediately.
-   *
-   * Writes go through `.admin`, the same interface as {@link admin}. Reads run
-   * on the returned view's own engine, which carries empty caches and so sees
-   * the transaction's own uncommitted writes.
+   * A view whose adapter runs on the transaction handle `client` and whose invalidations buffer into `pending`.
+   * Reads use empty caches, so they see the transaction's own writes.
    *
    * ```ts
    * let pending
@@ -1297,12 +1048,10 @@ export class IamEngine<
    * await pending.flush() // invalidate and broadcast only after the commit
    * ```
    *
-   * A rollback needs no cleanup: drop the facade and the buffered
-   * invalidations go with it, or call `pending.discard()` to say so explicitly.
+   * A rollback needs no cleanup; `pending.discard()` says so explicitly.
    *
    * @param client - Opaque driver handle, passed straight to the adapter.
-   * @throws When the configured adapter has no `withClient`, rather than
-   *   silently leaving the writes outside the caller's transaction.
+   * @throws When the adapter has no `withClient`, rather than writing outside the transaction.
    */
   withTransaction(client: unknown): Bound.IamEngine<TAction, TResource, TRole, TScope, TMode> {
     const bind = this._adapter.withClient
@@ -1347,6 +1096,7 @@ export class IamEngine<
     invalidateAll(this._cacheBag(), opts)
     this._compiledTable = null
     this._compiledTableGen++
+    this._clearRoleLimitLatch()
   }
 
   /** @internal Clear one subject's cached data. Reached via {@link cache.invalidateSubject}. */
@@ -1361,35 +1111,30 @@ export class IamEngine<
     this._compiledTableGen++
   }
 
+  /**
+   * Lets the compiled table be retried, and a new excursion warned about, once the role set may have changed.
+   * NOTE: only role invalidations call this; otherwise the fallback outlives the role count that caused it.
+   */
+  private _clearRoleLimitLatch(): void {
+    this._roleLimitExceeded = false
+    this._roleLimitReported = false
+    this._roleLimitDetail = null
+  }
+
   /** @internal Clear cached roles + selectively drop affected subjects. Reached via {@link cache.invalidateRoles}. */
   private _invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
     invalidateRoles(this._cacheBag(), roleId, opts)
     this._compiledTable = null
     this._compiledTableGen++
+    this._clearRoleLimitLatch()
   }
 
   /**
-   * Warm `mergedPolicyCache` so the first request after boot doesn't pay the
-   * full load + index cost. Bench shows ~15x speedup on the first call vs
-   * cold. Recommended to call once at app startup.
-   *
-   * **In `'production'` mode it also builds the compiled permission table** -
-   * the structure every production check reads. That is not just warm-up: a
-   * config the table cannot represent (more than 32 roles) throws *here*, at
-   * boot, where an orchestrator sees a failed start, rather than inside the
-   * first authorization request. Development mode has no table and skips it.
-   *
-   * Pass `{ validator: true }` to also eagerly load the lazy validator
-   * chunk (12 KB gzipped). Useful for operators who want to front-load
-   * every cost at boot instead of paying it on first admin write. Read-only
-   * services can leave it off.
+   * Warms policies and the compiled permission table (read in both modes) at startup; call once.
+   * A malformed policy throws here, at boot; over 32 roles warns and falls back. `validator: true` loads validators.
    */
   async preload(opts: { validator?: boolean } = {}): Promise<void> {
     await preloadEngine({
-      // In production the compiled table is what every check reads. Building it
-      // here surfaces a config it cannot represent (over 32 roles) at boot,
-      // instead of throwing inside the first authorization request.
-      // Both modes now evaluate through the table, so both warm it at boot.
       buildCompiledTable: () => this._getCompiledTable(),
       loadAllPolicies: () => this._loadAllPolicies(),
       loadValidator: opts.validator === true,
@@ -1397,45 +1142,47 @@ export class IamEngine<
   }
 
   /**
-   * Liveness + readiness probe. Performs one timed-out adapter round-trip
-   * (`listPolicies`) and snapshots cache hit rates. Cheap enough to wire to
-   * a `/healthz` route at the configured interval; returns `ok: false` if the
-   * adapter is unreachable so an orchestrator can pull the instance out of
-   * rotation.
-   *
-   * @returns A {@link IamEngineTypes.IHealth} snapshot.
+   * Health probe for `/healthz`: one timed `listPolicies` plus a table build; `ok: false` when either fails.
+   * `compiledTable` and `invalidator` report degradations without failing it, and are absent when healthy.
    */
   async healthCheck(): Promise<IamEngineTypes.IHealth> {
     const health = await runHealthCheck(this._cachesForStats(), async () => {
       await this._withTimeout((opts) => this._adapter.listPolicies(opts), 'healthCheck.listPolicies')
-      // An engine whose table cannot be built answers no check, so a green probe
-      // would be a lie. Uses the cached table when there is one. A role-limit
-      // fallback is not a failure - `_getCompiledTable` returns null for it and
-      // it is reported below instead.
+      // A table that cannot build denies every check, so it fails the probe. The role-limit fallback returns null.
       await this._getCompiledTable()
     })
     const detail = this._roleLimitDetail
-    if (detail === null) return health
-    return {
-      ...health,
-      compiledTable: {
-        available: false,
-        limit: detail.limit,
-        reason: 'role-limit-exceeded',
-        roleCount: detail.roleCount,
-      },
+    // Annotated, so `available: false` is not widened to `boolean` in the ternary.
+    const withTable: IamEngineTypes.IHealth =
+      detail === null
+        ? health
+        : {
+            ...health,
+            compiledTable: {
+              available: false,
+              limit: detail.limit,
+              reason: 'role-limit-exceeded',
+              roleCount: detail.roleCount,
+            },
+          }
+    // The adapter probe cannot see a failed subscription; `ok` is left alone, see `IHealth.invalidator`.
+    const status = readInvalidatorSubscribed(this._invalidator)
+    if (!status.ok) {
+      if (status.broken && !this._invalidatorStatusWarned) {
+        this._invalidatorStatusWarned = true
+        console.warn(
+          '[@gentleduck/iam:engine] healthCheck: the attached invalidator has a `status` that is not a function returning `{ subscribed: boolean }`. Its subscription state is omitted from the health report, so a node that stops receiving invalidations will look healthy.',
+        )
+      }
+      return withTable
     }
+    if (status.subscribed) return withTable
+    return { ...withTable, invalidator: { subscribed: false } }
   }
 }
 
 /**
- * Factory around {@link IamEngine}, for callers who prefer functions to `new`.
- *
- * Generic over the same parameters as the class so the caller's action,
- * resource, role, scope and mode types survive the call. In particular a config
- * carrying `mode: 'production'` produces a production-typed engine, on which
- * {@link IamEngine.explain} - development-only, and a runtime throw in
- * production - no longer typechecks.
+ * Factory for {@link IamEngine} that keeps every type parameter, so `mode: 'production'` makes `explain` a type error.
  */
 export function iamEngine<
   TAction extends string = string,

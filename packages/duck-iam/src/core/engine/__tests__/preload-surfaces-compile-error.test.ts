@@ -3,15 +3,8 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
-/**
- * An engine with more roles than the 32-bit grant mask can address still
- * answers every check - through the interpreter - so `preload()` must not
- * throw and the probe must not go red. What it must do is *say so*: an
- * operator running without the compiled table is paying for it in throughput,
- * and a green probe that mentions nothing is how that goes unnoticed for
- * months. `healthCheck().compiledTable` carries the report; `ok` stays true
- * because the engine is serving correct answers.
- */
+// Past the 32-role grant mask the interpreter still answers correctly, so `preload()` resolves and `ok` stays true,
+// but `healthCheck().compiledTable` must report that the fast path is off.
 const rolesOf = (n: number): AccessControl.IRole[] =>
   Array.from({ length: n }, (_, i) => ({
     id: `role-${i}`,

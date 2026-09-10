@@ -106,8 +106,7 @@ describe('createPending', () => {
   })
 
   it('an invalidation recorded during flush survives into the next flush', async () => {
-    // A target that re-enters the sink must not append to the batch currently
-    // draining - that would either lose the entry or loop forever.
+    // Appending to the batch being drained would lose the entry or loop forever.
     const target = sink()
     const { cache, pending } = createPending(target)
     target.invalidatePolicies.mockImplementation(() => cache.invalidateSubject('late'))
@@ -120,14 +119,7 @@ describe('createPending', () => {
   })
 })
 
-/**
- * The buffered entries belong to a transaction that has already committed, and
- * the target fans out to the fleet invalidator - a network call. `flush()` used
- * to empty the buffer before applying and abandon the loop on the first throw,
- * so a broadcast failure silently dropped every remaining invalidation and the
- * retry the "Idempotent" contract invites was a no-op. Every node then kept
- * answering `allow` for a subject the committed transaction had revoked.
- */
+// The entries are already committed: dropping one on a broadcast failure leaves nodes allowing a revoked subject.
 describe('flush() with a throwing target', () => {
   function throwingOn(kind: Pending.Invalidation['kind'] | 'none') {
     const applied: string[] = []
@@ -180,8 +172,7 @@ describe('flush() with a throwing target', () => {
 
     fail = false
     await pending.flush()
-    // The retry applies the dropped entry and nothing else - the two that
-    // already succeeded are not re-broadcast.
+    // The retry applies only the failed entry; the two that succeeded are not re-broadcast.
     expect(applied).toEqual(['policies', 'roles:admin', 'subject:u1'])
     expect(pending.size).toBe(0)
   })
@@ -209,8 +200,7 @@ describe('flush() with a throwing target', () => {
     expect(pending.size).toBe(3)
   })
 
-  // An entry recorded during the drain must not be lost when a sibling throws,
-  // and must not jump ahead of the retry of the failed one.
+  // An entry recorded mid-drain survives a sibling's throw and stays behind the failed entry's retry.
   it('preserves record order across a partial failure', async () => {
     let cacheRef: Pending.ICacheSink | undefined
     const { cache, pending } = createPending({
@@ -230,9 +220,7 @@ describe('flush() with a throwing target', () => {
     ])
   })
 
-  // Control: with a target that never throws, flush still drains completely and
-  // raises nothing. Without this the assertions above would pass on a flush
-  // that simply never cleared the buffer.
+  // Control: without it, the assertions above would pass on a flush that never cleared the buffer.
   it('control: a healthy target drains the whole buffer', async () => {
     const { applied, target } = throwingOn('none')
     const { cache, pending } = createPending(target)
@@ -243,12 +231,6 @@ describe('flush() with a throwing target', () => {
   })
 })
 
-/**
- * The entries belong to a transaction that has already committed, so a failed
- * invalidation must stay buffered - dropping it leaves every node's cache
- * answering from pre-commit state, which is a stale allow after a revoke.
- * Ten cases covered the happy path; none covered a throwing target.
- */
 describe('flush() when the target throws', () => {
   function failingSink(failOn: (entry: string) => boolean) {
     const seen: string[] = []
@@ -323,8 +305,7 @@ describe('flush() when the target throws', () => {
     expect(pending.size).toBe(1)
   })
 
-  // Control: with a healthy target nothing is retained, so the assertions
-  // above are about the failure and not about flush() never draining.
+  // Control: proves the assertions above are about the failure, not a flush that never drains.
   it('retains nothing when every entry applies', async () => {
     const target = failingSink(() => false)
     const { cache, pending } = createPending(target)

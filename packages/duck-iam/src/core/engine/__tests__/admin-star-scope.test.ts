@@ -2,18 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../engine'
 
-/**
- * `'*'` is this package's spelling of "every scope" on the scope a role or a
- * permission *declares*. On a scoped *assignment* it is matched literally, so
- * the grant is stored, the write reports success, and no request the operator
- * meant it for ever sees the role.
- *
- * The adapters refuse it, but the adapter guard runs inside `assignRoles`'
- * write loop, and that batch is documented as validating every row before
- * writing any - "a caller who fixes a malformed row and retries would otherwise
- * double-apply every row that had already landed". These cases pin the refusal
- * to the pre-pass, and pin the revoke and move directions that must stay open.
- */
+// On an assignment `'*'` is matched literally and grants nothing, so admin refuses it in the pre-pass before any
+// write. Revoking or moving a `'*'` row must stay open.
 function engineWith() {
   const adapter = new IamMemoryAdapter<string, string, string, string>({
     roles: [{ id: 'reader', name: 'Reader', permissions: [{ action: 'read', resource: 'post' }] }],
@@ -36,8 +26,7 @@ describe('admin refuses a "*" scope on a grant', () => {
         { roleId: 'reader', scope: '*', subjectId: 'u2' },
       ]),
     ).rejects.toThrow(/must not be "\*"/)
-    // The point of the pre-pass: the good row that preceded the bad one has
-    // not landed, so a retry of the corrected batch cannot double-apply it.
+    // The good row before the bad one has not landed, so retrying the fixed batch cannot double-apply it.
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
     expect(await adapter.getSubjectScopedRoles('u2')).toEqual([])
   })

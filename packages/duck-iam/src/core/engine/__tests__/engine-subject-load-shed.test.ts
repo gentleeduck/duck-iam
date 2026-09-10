@@ -92,9 +92,19 @@ describe('IamEngine: subject load shed under the cap, end-to-end', () => {
   })
 
   it('does not shed once earlier loads have settled (cap only bounds concurrency, not totals)', async () => {
-    const engine = new IamEngine<A, R, Ro, S>({ adapter: makeAdapter(), maxConcurrentSubjectLoads: 1 })
-    await engine.can('s-1', 'read', { type: 'post', attributes: {} })
-    await engine.can('s-2', 'read', { type: 'post', attributes: {} })
-    // Neither call touches the cap since each fully settles before the next starts.
+    // Negative control: a shed resolves `false` instead of throwing, so the role grants the action and the verdict
+    // tells an un-shed load from a shed one.
+    const errors: Error[] = []
+    const adapter = makeAdapter({
+      listRoles: async () => [{ id: 'viewer', name: 'viewer', permissions: [{ action: 'read', resource: 'post' }] }],
+    })
+    const engine = new IamEngine<A, R, Ro, S>({
+      adapter,
+      maxConcurrentSubjectLoads: 1,
+      hooks: { onError: (err) => void errors.push(err) },
+    })
+    expect(await engine.can('s-1', 'read', { type: 'post', attributes: {} })).toBe(true)
+    expect(await engine.can('s-2', 'read', { type: 'post', attributes: {} })).toBe(true)
+    expect(errors).toEqual([])
   })
 })

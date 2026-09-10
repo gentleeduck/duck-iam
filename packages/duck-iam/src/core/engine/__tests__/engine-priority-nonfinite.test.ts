@@ -3,17 +3,8 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
-/**
- * A rule whose `priority` is NaN or absent (a row that bypassed validation -
- * memory and HTTP adapters used to let these through) must rank as 0 rather
- * than silently losing every `>` comparison.
- *
- * Production: the compiled engine handles flat policies itself; a *residual*
- * policy (`post.*`) routes through `evaluatePolicyFast`, where `NaN > -Infinity`
- * was always false, so a lone deny vanished and a fail-open engine allowed.
- * Development: the combiners seeded from `matched[0]`, so the verdict depended
- * on rule order.
- */
+// A NaN or absent `priority` (a row that skipped validation) must rank as 0, not lose every `>` comparison.
+// Production reaches `evaluatePolicyFast` through a residual `post.*` policy; development checks rule order.
 type A = 'read'
 type R = 'post' | 'post.draft'
 type Ro = 'viewer'
