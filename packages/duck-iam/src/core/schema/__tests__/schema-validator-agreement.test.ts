@@ -4,20 +4,9 @@ import { validatePolicy } from '../../validate'
 import { MAX_CONDITION_VALUE_LENGTH, MAX_FIELD_LENGTH, POLICY_LIMITS } from '../../validate/validate.libs'
 import { POLICY_JSON_SCHEMA } from '../'
 
-/**
- * The schema is published at `@gentleduck/iam/core/schema` so operators can gate
- * policies in an admin UI or in CI, which makes "schema-valid" read as "the
- * runtime will accept and honour this". It did not: the schema was stricter on
- * structure (`additionalProperties: false`, the group `oneOf`) and carried none
- * of the limits the runtime enforces, so tooling green-lit policies
- * `admin.import` refuses and refused shapes `admin.import` accepts.
- *
- * The contract pinned here is one-directional and exact: anything
- * `validatePolicy` accepts, the schema accepts. The four checks that JSON
- * Schema cannot express are enumerated below, each with a case.
- */
+// Pins one direction: anything `validatePolicy` accepts, the published schema accepts.
+// The four checks JSON Schema cannot express each get a case below.
 
-/** Minimal Draft 2020-12 evaluator - only the keywords `POLICY_JSON_SCHEMA` uses. */
 function deref(ref: string, root: unknown): unknown {
   let node = root
   for (const segment of ref.split('/').slice(1)) {
@@ -50,6 +39,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** Minimal Draft 2020-12 evaluator - only the keywords `POLICY_JSON_SCHEMA` uses. */
 function matches(schema: unknown, value: unknown, root: unknown): boolean {
   if (typeof schema === 'boolean') return schema
   if (!isRecord(schema)) return true
@@ -99,8 +89,7 @@ function matches(schema: unknown, value: unknown, root: unknown): boolean {
   }
 
   if (isRecord(value)) {
-    // A key set to `undefined` is treated as absent, matching both
-    // `JSON.stringify` and `checkKnownKeys`; nothing else would ever see it.
+    // A key set to `undefined` counts as absent, as in `JSON.stringify` and `checkKnownKeys`.
     const present = Object.entries(value).filter(([, entry]) => entry !== undefined)
     const required = get('required')
     if (Array.isArray(required) && !required.every((key) => present.some(([name]) => name === key))) return false
@@ -172,11 +161,7 @@ describe('the mini evaluator is able to fail', () => {
   })
 })
 
-/**
- * The one guarantee that holds in every case: a policy the runtime honours
- * always passes the published schema, so a schema gate never blocks a policy
- * that would have worked.
- */
+// So a schema gate never blocks a policy that would have worked.
 describe('validatePolicy accepts nothing the schema rejects', () => {
   const CORPUS: readonly [string, unknown][] = [
     ['the base policy', basePolicy()],
@@ -281,19 +266,14 @@ describe('validatePolicy accepts nothing the schema rejects', () => {
     expect(schemaAccepts(policy)).toBe(true)
   })
 
-  // Without this the block above would pass by having the runtime reject
-  // everything, never reaching a schema assertion.
+  // Guard against the runtime rejecting the whole corpus and passing vacuously.
   it('the corpus is one the runtime actually accepts', () => {
     const rejected = CORPUS.filter(([, policy]) => !validatePolicy(policy).valid).map(([label]) => label)
     expect(rejected).toEqual([])
   })
 })
 
-/**
- * The reverse implication does not hold, and the schema's own doc block says
- * so. Each case here is a policy the schema cannot fault and the runtime
- * refuses; adding a fifth means the doc block is out of date.
- */
+// Mirrors the list in `POLICY_JSON_SCHEMA`'s doc; a fifth case means that doc is out of date.
 describe('the four checks JSON Schema cannot express', () => {
   const RUNTIME_ONLY: readonly [string, string, unknown][] = [
     [
@@ -342,7 +322,6 @@ describe('the four checks JSON Schema cannot express', () => {
   })
 })
 
-/** The limits the schema now carries, pinned to the constants they mirror. */
 describe('the schema declares every runtime cap it can express', () => {
   it('caps the rule count at POLICY_LIMITS.rulesPerPolicy', () => {
     expect(POLICY_JSON_SCHEMA.properties.rules.maxItems).toBe(POLICY_LIMITS.rulesPerPolicy)
@@ -429,7 +408,7 @@ describe('the schema declares every runtime cap it can express', () => {
   })
 })
 
-/** The group chain is generated from `MAX_CONDITION_DEPTH`; a drift silently re-opens the gap. */
+// Generated from `MAX_CONDITION_DEPTH`; a drift lets over-deep trees pass the schema again.
 describe('the condition-group $defs chain', () => {
   it(`has exactly MAX_CONDITION_DEPTH (${MAX_CONDITION_DEPTH}) levels`, () => {
     const groups = Object.keys(POLICY_JSON_SCHEMA.$defs).filter((k) => k.startsWith('conditionGroup'))
@@ -451,11 +430,6 @@ describe('the condition-group $defs chain', () => {
   })
 })
 
-/**
- * Each of these was accepted by the runtime and refused by the schema, which is
- * the direction that matters: the operator's tooling said no, the store said
- * yes, and the half of the policy the engine ignores never came up again.
- */
 describe('shapes both the schema and the validator refuse', () => {
   it.each([
     [
@@ -556,8 +530,7 @@ describe('validatePolicy accepts nothing the schema rejects (randomised)', () =>
     expect(failures.slice(0, 1)).toEqual([])
   })
 
-  // Without this the loop could pass by generating only policies the runtime
-  // rejects, never testing the implication on a single accepted one.
+  // Guard against the generator producing only rejected policies and passing vacuously.
   it('generates policies the runtime accepts', () => {
     const next = rng(20260903)
     const pick = <T>(pool: readonly T[]): T | undefined => pool[Math.floor(next() * pool.length)]

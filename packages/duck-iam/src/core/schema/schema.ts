@@ -21,21 +21,17 @@ interface IConditionListDef {
   readonly items: Readonly<Record<string, unknown>>
 }
 
-/** `$defs` name for the group at `level`; level 0 keeps the historical unsuffixed name. */
+/** `$defs` name for the group at `level`; level 0 is the unsuffixed entry point. */
 function groupName(level: number): string {
   return level === 0 ? 'conditionGroup' : `conditionGroup${level}`
 }
 
-/** `$defs` name for the item list at `level`; level 0 keeps the historical unsuffixed name. */
+/** `$defs` name for the item list at `level`; level 0 is the unsuffixed entry point. */
 function listName(level: number): string {
   return level === 0 ? 'conditionList' : `conditionList${level}`
 }
 
-/**
- * Mirrors `hasControlChar`: an action or resource name carrying a control
- * character is invisible in every UI that would show one, so it reads as a
- * different name than it is.
- */
+/** Mirrors `hasControlChar`: control characters are invisible in UIs, so the name would read as a different one. */
 const NO_CONTROL_CHARS = '^[^\\u0000-\\u001F\\u007F]*$'
 
 function conditionGroup(level: number): IConditionGroupDef {
@@ -51,10 +47,8 @@ function conditionGroup(level: number): IConditionGroupDef {
 }
 
 /**
- * A group is only reachable while `evalConditionGroup` is still descending, so
- * the list at the deepest level admits leaves and nothing else. Expressed as a
- * finite `$defs` chain rather than one self-recursive `$ref`, which is what let
- * a 40-deep tree read as schema-valid while the runtime truncated it.
+ * The list at the deepest level admits only leaves, matching where `evalConditionGroup` stops descending.
+ * NOTE: a finite `$defs` chain, not a self-recursive `$ref`, so an over-deep tree fails the schema too.
  */
 function conditionList(level: number): IConditionListDef {
   const leaf = { $ref: '#/$defs/condition' }
@@ -77,20 +71,8 @@ function nestedConditionDefs(): Record<string, IConditionGroupDef | IConditionLi
 
 /**
  * JSON Schema (Draft 2020-12) for {@link AccessControl.IPolicy}; tighten action/resource slots via `$ref` downstream.
- *
- * Anything this schema rejects, `validatePolicy` rejects too - a policy the
- * runtime accepts always validates here. The converse does not hold: four
- * checks are not expressible in JSON Schema and `validatePolicy` remains the
- * authority on them.
- *
- * 1. `matches` patterns are screened for catastrophic backtracking and for
- *    compiling at all (`ERR_REGEX_CATASTROPHIC` / `ERR_REGEX_INVALID`).
- * 2. A rule's `actions x resources` cartesian is capped at
- *    {@link POLICY_LIMITS.cartesianPerRule}; only the per-list caps are here.
- * 3. `targets` naming an (action, resource) pair no allow rule covers is an
- *    error (`UNREACHABLE_TARGET`), which needs the rules to decide.
- * 4. `priority` must be finite; JSON has no `NaN`/`Infinity` literal, so
- *    `type: 'number'` is as close as the schema gets.
+ * Anything it rejects, `validatePolicy` rejects too. Four checks are runtime-only: `matches` regex safety and
+ * compilation, the {@link POLICY_LIMITS.cartesianPerRule} cap, `UNREACHABLE_TARGET`, and a finite `priority`.
  */
 export const POLICY_JSON_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -154,12 +136,8 @@ export const POLICY_JSON_SCHEMA = {
         },
         value: {},
       },
-      // The operand rules `validateConditionItem` enforces, restated for
-      // consumers that validate against the published schema instead. Omitting
-      // `value` used to be legal here, and a missing operand reads as `null` at
-      // evaluation - equal to a missing attribute, so the guard passes for the
-      // subjects it was written to exclude. A `$`-prefixed string resolves from
-      // the request, so it satisfies every operand type.
+      // The operand rules `validateConditionItem` enforces; a `$`-prefixed string satisfies every operand type.
+      // SECURITY: `value` is required, since a missing operand reads as `null` and equals a missing attribute.
       // biome-ignore-start lint/suspicious/noThenProperty: `then` is the JSON Schema keyword paired with `if`; this constant is data, never awaited.
       allOf: [
         {
@@ -182,10 +160,7 @@ export const POLICY_JSON_SCHEMA = {
           if: { required: ['operator'], properties: { operator: { enum: ['before', 'after'] } } },
           then: { properties: { value: { type: ['number', 'string'] } } },
         },
-        // The length caps `validateConditionItem` applies to a string operand
-        // and to the string entries of an array one. Both were runtime-only,
-        // so an admin UI validating against this schema green-lit a 4 KB
-        // pattern the store then refused.
+        // The length caps `validateConditionItem` applies to a string operand and to string entries of an array.
         {
           if: { properties: { value: { type: 'string' } } },
           then: { properties: { value: { maxLength: MAX_CONDITION_VALUE_LENGTH } } },

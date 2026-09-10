@@ -20,13 +20,7 @@ function resourceIssues(result: ReturnType<typeof validatePolicy>): string[] {
   return result.issues.filter((i) => (i.path ?? '').startsWith('rules[0].resources')).map((i) => i.message)
 }
 
-/**
- * A control character is invisible in every UI that would display a rule, so a
- * name carrying one reads as a different name than it is - the reviewer sees
- * `read`, the engine matches something else. Rejected at import rather than
- * normalized: silently rewriting a name would change which requests the rule
- * matches.
- */
+// SECURITY: a control character is invisible in a UI, so a reviewer sees `read` while the engine matches another name.
 describe('validatePolicy rejects control characters in action and resource names', () => {
   it('rejects a NUL in an action', () => {
     const result = validatePolicy(policyWith([`read${NUL}post`], ['post']))
@@ -66,18 +60,7 @@ describe('validatePolicy rejects control characters in action and resource names
   )
 })
 
-/**
- * The same guard on the *role* path, which this file never reached: every case
- * above goes through `validatePolicy`, so `validateRole`'s two control-char
- * checks could each be replaced with `false` and the whole suite stayed green.
- *
- * Both have a concrete reason recorded beside them. A NUL in a role id is the
- * assignment member separator on redis, so `saveRole` stored a role that
- * `assignRole` then threw on; a NUL in a permission's action or resource
- * reaches a rule's `actions`/`resources` through `rolesToPolicy`, which the
- * validator has always refused when the same string was written as a policy -
- * so the identical value was rejected one way and accepted the other.
- */
+// The role path: NUL is redis's assignment separator, and permission names become rule `actions` / `resources`.
 describe('validateRole rejects control characters too', () => {
   function roleWith(over: Record<string, unknown>): unknown {
     return { id: 'r1', name: 'R', permissions: [{ action: 'read', resource: 'post' }], ...over }

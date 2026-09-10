@@ -1,12 +1,8 @@
+// A condition's operand must be present and match the operator's type, and a `matches` pattern must compile.
 import { describe, expect, it } from 'vitest'
 import { POLICY_JSON_SCHEMA } from '../../schema'
 import { validatePolicy } from '../validate'
 
-/**
- * A condition's operand is what the operator compares against. Neither its
- * presence nor its type was checked, and no operator throws on a bad operand -
- * each returns a fixed verdict instead, so a malformed guard passes silently.
- */
 function policyWithCondition(condition: unknown): unknown {
   return {
     id: 'p',
@@ -30,10 +26,8 @@ function codesFor(condition: unknown): string[] {
 }
 
 describe('condition operand presence', () => {
-  // `JSON.stringify` drops an `undefined` value, so this shape is what any
-  // adapter hands back. At evaluation `cond.value ?? null` makes it `null`,
-  // which equals a missing attribute - the rule fires for exactly the subjects
-  // it excluded.
+  // SECURITY: `JSON.stringify` drops `undefined`, so adapters return this shape, and a `null` operand equals a
+  // missing attribute.
   it.each(['eq', 'neq', 'in', 'nin', 'contains', 'not_contains', 'matches', 'gt', 'before'])(
     'rejects "%s" with no value',
     (operator) => {
@@ -51,8 +45,7 @@ describe('condition operand presence', () => {
 })
 
 describe('condition operand type', () => {
-  // `nin` with a non-array returns `true` unconditionally, so an
-  // "allow unless denylisted" rule allows everyone.
+  // A non-array operand can't express a list, so "allow unless denylisted" has nothing to compare against.
   it.each(['in', 'nin', 'subset_of', 'superset_of'])('rejects a string operand on "%s"', (operator) => {
     expect(codesFor({ field: 'subject.attributes.dept', operator, value: 'eng' })).toContain('OPERAND_TYPE_MISMATCH')
   })
@@ -82,8 +75,7 @@ describe('condition operand type', () => {
 })
 
 describe('matches pattern compilability', () => {
-  // An uncompilable pattern does not raise at evaluation; `matches` returns
-  // `false`, which retires a deny-when-matches rule outright.
+  // An uncompilable pattern is refused at evaluation (Indeterminate), so catch it where the author sees it.
   it('rejects a pattern that will not compile', () => {
     expect(codesFor({ field: 'subject.attributes.ua', operator: 'matches', value: '[unclosed' })).toContain(
       'ERR_REGEX_INVALID',
@@ -119,11 +111,7 @@ function declaredKind(branch: unknown): string | null {
   return typeof type === 'string' ? type : null
 }
 
-/**
- * The validator and the published schema are two statements of one rule, and a
- * drift between them is how a policy passes one and fails the other. Rather
- * than exporting the validator's table, drive the validator from the schema.
- */
+// The validator and the published schema state one rule, so drive the validator from the schema to catch drift.
 describe('POLICY_JSON_SCHEMA agrees with the validator', () => {
   it('exempts exactly exists/not_exists from requiring a value', () => {
     const exempt = POLICY_JSON_SCHEMA.$defs.condition.allOf

@@ -1,24 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { definePolicy, defineRule, RuleBuilder } from '..'
 
-/**
- * `PolicyBuilder.rule()` carried the comment "an untouched RuleBuilder has no
- * effect and `build()` refuses it". It did not. `RuleBuilder` starts at
- * `allow` / `['*']` / `['*']` / `{all:[]}` - the broadest possible grant - and
- * `build()` returned it, so `.rule('x', (r) => { ...forgot... })` silently
- * pushed an unconditional allow-everything rule into the policy.
- *
- * The validator already *detects* this shape (`BROAD_ALLOW`,
- * `validate.libs.ts`), but it is `type:'warning'` and `build()` keeps only
- * `type:'error'`, so the verdict was computed and dropped on the floor with no
- * console output and no return channel. Nobody ever saw it.
- *
- * The fix refuses a builder whose *grant shape* was never set. It is
- * deliberately narrower than promoting `BROAD_ALLOW` to an error: a deliberate
- * `allow * *` (an admin policy) still builds, and `validatePolicy` still
- * accepts stored policies that carry one. Only "nobody said anything at all"
- * is refused, which is exactly what the comment always claimed.
- */
+// An untouched RuleBuilder is allow `*` on `*` unconditionally, so `build()` refuses it. `BROAD_ALLOW` is only a
+// warning, so a deliberate `.allow()` broad grant still builds.
 describe('RuleBuilder refuses an untouched builder', () => {
   it('a bare build() throws instead of returning allow-everything', () => {
     expect(() => new RuleBuilder('r1').build()).toThrow(/never configured/)
@@ -46,8 +30,7 @@ describe('RuleBuilder refuses an untouched builder', () => {
   })
 
   it('description/priority/metadata alone do not count as configuring the grant', () => {
-    // None of these narrow what is granted; the rule is still allow * * with
-    // no conditions, so it must still be refused.
+    // None of these narrow the grant, so the rule is still an unconditional allow * *.
     expect(() => defineRule('r1').desc('todo').priority(5).meta({ owner: 'team' }).build()).toThrow(/never configured/)
   })
 
@@ -85,31 +68,15 @@ describe('RuleBuilder refuses an untouched builder', () => {
   })
 })
 
-/**
- * The first cut of the refusal above gated on *which methods were called*, not
- * on what the rule became - so three shapes still built the exact
- * allow-everything rule it exists to refuse. The realistic one is
- * `.forScope(...tenantIds)` with a runtime-empty array: `forScope` set the flag
- * before discovering it had no scope to apply, so a rule meant to be
- * tenant-restricted built global, unconditional, and passed the guard.
- *
- * The asymmetry between `when` and `whenAny` is deliberate and is the reason
- * they are treated differently below. `evalConditionGroup` runs `.every` over
- * an `all` group and `.some` over an `any` group, so on an empty group
- * `{all: []}` is **true** - it matches every request - while `{any: []}` is
- * **false** and matches none. An empty `when` is therefore a silent broad
- * grant; an empty `whenAny` is a rule that can never fire, which is harmless
- * and is a legitimate result of building a condition list from an empty
- * collection.
- */
+// An empty `forScope` or `when` would still build allow-everything, so both are refused. An empty `whenAny`
+// is allowed: `{all: []}` matches every request, `{any: []}` matches none.
 describe('the refusal gates on what the rule became, not on which methods were called', () => {
   it('forScope() with no scopes throws rather than building a global rule', () => {
     expect(() => defineRule('r1').forScope().build()).toThrow(/no scopes/)
   })
 
   it('forScope(...[]) - the runtime-empty spread - throws for the same reason', () => {
-    // The dangerous shape: the author wrote a tenant restriction and the list
-    // was empty, so before this the restriction evaporated into `allow * *`.
+    // The realistic shape: a tenant restriction whose list came back empty.
     const tenantIds: string[] = []
     expect(() =>
       defineRule('r1')
@@ -119,8 +86,7 @@ describe('the refusal gates on what the rule became, not on which methods were c
   })
 
   it('an empty forScope is refused even when the grant was otherwise configured', () => {
-    // `_grantShapeSet` is already true here, so only forScope's own check can
-    // catch this - and this is the shape that actually reaches production.
+    // `_grantShapeSet` is already true here, so only forScope's own check can catch this.
     const tenantIds: string[] = []
     expect(() =>
       defineRule('r1')
@@ -142,8 +108,7 @@ describe('the refusal gates on what the rule became, not on which methods were c
   })
 
   it('whenAny() whose callback adds nothing is allowed - it fails closed', () => {
-    // `{any: []}` matches nothing, so the rule can never grant. Building a
-    // condition list from an empty collection is legitimate and safe.
+    // `{any: []}` matches nothing, so the rule can never grant.
     const rule = defineRule('r1')
       .whenAny((w) => w)
       .build()

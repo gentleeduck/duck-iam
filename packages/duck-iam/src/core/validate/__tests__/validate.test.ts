@@ -226,9 +226,8 @@ describe('validatePolicy()', () => {
   })
 
   it('warns on unresolvable condition field (silent-null at runtime)', () => {
-    // A condition.field that doesn't start with subject/resource/environment
-    // (or action/scope shorthand) silently resolves to null at runtime,
-    // which means the rule never matches. Surface as warning at validate time.
+    // A field outside subject/resource/environment (or the action/scope shorthands) resolves to null at runtime, so
+    // the rule never matches; warn at validate time.
     const policy = {
       ...validPolicy,
       rules: [
@@ -570,8 +569,7 @@ describe('detectCatastrophicRegex() (P1)', () => {
   })
 
   it('does not mistake escaped quantifiers in a group body for nested quantifiers', () => {
-    // The body `\+` is a literal plus; the outer `+` quantifies the group.
-    // No real nested quantifier here.
+    // The body `\+` is a literal plus, so the outer `+` is not a nested quantifier.
     expect(detectCatastrophicRegex('(\\+)+').safe).toBe(true)
   })
 

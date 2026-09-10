@@ -3,10 +3,8 @@ import { validateRole } from '../validate'
 import { iamChosenWhen, When } from './when'
 
 /**
- * The four verbs {@link RoleBuilder.grantCRUD} emits. Exported so a config can
- * spell its `actions` list as `[...IAM_CRUD_ACTIONS, 'publish']` and keep the
- * helper callable, rather than discovering at request time that a grant it
- * wrote can never match.
+ * The four verbs {@link RoleBuilder.grantCRUD} emits. Spread into a config's actions
+ * (`[...IAM_CRUD_ACTIONS, 'publish']`) to keep `grantCRUD` callable.
  */
 export const IAM_CRUD_ACTIONS = ['create', 'read', 'update', 'delete'] as const
 
@@ -14,15 +12,8 @@ export const IAM_CRUD_ACTIONS = ['create', 'read', 'update', 'delete'] as const
 export type IamCrudAction = (typeof IAM_CRUD_ACTIONS)[number]
 
 /**
- * Fluent builder for constructing {@link AccessControl.IRole} objects in duck-iam.
- *
- * Roles are the RBAC side of duck-iam. Each role holds a set of
- * action/resource permissions and an optional inheritance chain. At evaluation
- * time, `rolesToPolicy()` converts every role into ABAC rules that flow through
- * the same engine as hand-written policies, so RBAC and ABAC compose.
- *
- * Prefer the {@link defineRole} factory (or `access.defineRole()` for type-safe
- * variants) over instantiating `RoleBuilder` directly.
+ * Chainable builder for an {@link AccessControl.IRole}: permissions plus optional parent roles.
+ * `rolesToPolicy()` turns roles into ABAC rules, so RBAC and ABAC share one engine.
  *
  * @example
  * ```ts
@@ -65,63 +56,27 @@ export class RoleBuilder<
     this._name = id
   }
 
-  /**
-   * Sets a human-readable display name for the role.
-   *
-   * Defaults to the role ID if not called. Used in admin dashboards,
-   * audit logs, and the engine's explain output.
-   *
-   * @param n - Display name (e.g. `'Content Editor'`)
-   * @returns `this` for chaining
-   */
+  /** Sets the display name; defaults to the role ID. */
   name(n: string): this {
     this._name = n
     return this
   }
 
-  /**
-   * Attaches a human-readable description to the role.
-   *
-   * Stored on the {@link AccessControl.IRole} object for documentation purposes.
-   * Not used during policy evaluation.
-   *
-   * @param d - Description text
-   * @returns `this` for chaining
-   */
+  /** Attaches a description; not used in evaluation. */
   desc(d: string): this {
     this._description = d
     return this
   }
 
   /**
-   * Declares parent roles this role inherits from.
-   *
-   * The role receives all permissions from every listed parent, resolved
-   * recursively. Multiple parents are supported. Inheritance cycles are
-   * handled safely via a visited set - cycles are skipped rather than
-   * causing infinite recursion.
-   *
-   * Note: inherited permissions cannot be selectively removed. To restrict
-   * access below what a parent grants, use an ABAC deny policy instead.
-   *
-   * **Replaces any previously declared parents.** Every neighbouring `grant*`
-   * accumulates across calls, so this method reads like it does too; it does
-   * not. `.inherits('a').inherits('b')` declares `['b']` alone, and a bare
-   * `.inherits()` wipes the list back to empty - and because `build()` omits
-   * an empty list, the result is indistinguishable from a role that never
-   * declared a parent at all.
+   * Declares parent roles to inherit permissions from, recursively. To grant less than a parent, use a deny policy.
+   * WARN: replaces earlier parents rather than appending like `grant*`; a bare `.inherits()` clears them.
    *
    * @example
    * ```ts
-   * // Single parent
    * defineRole('editor').inherits('viewer')
-   *
-   * // Multiple parents
    * defineRole('moderator').inherits('viewer', 'commenter')
    * ```
-   *
-   * @param roleIds - IDs of the parent roles to inherit from
-   * @returns `this` for chaining
    */
   inherits(...roleIds: (TRole | (string & {}))[]): this {
     this._inherits = roleIds
@@ -129,16 +84,8 @@ export class RoleBuilder<
   }
 
   /**
-   * Sets a default scope that applies to every permission in this role.
-   *
-   * When `rolesToPolicy()` converts this role, each generated rule gets an
-   * additional condition on `scope`, so the permission only fires when the
-   * request's scope matches. Under `IConfig.scopeMode: 'hierarchical'` the
-   * scope also covers everything beneath it - `'org-1'` fires for
-   * `'org-1.team-a'` - the same way that flag treats a scoped *assignment*.
-   *
-   * To scope individual permissions rather than the entire role, use
-   * {@link grantScoped} instead.
+   * Scopes every permission in the role; under `scopeMode: 'hierarchical'`, `'org-1'` also covers `'org-1.team-a'`.
+   * To scope a single permission, use {@link grantScoped}.
    *
    * @example
    * ```ts
@@ -148,9 +95,6 @@ export class RoleBuilder<
    *   .grant('update', 'post')
    *   .build()
    * ```
-   *
-   * @param s - The scope string to restrict all permissions to
-   * @returns `this` for chaining
    */
   scope(s: TScope): this {
     this._scope = s
@@ -158,42 +102,23 @@ export class RoleBuilder<
   }
 
   /**
-   * Grants a single unconditional permission on an action/resource pair.
-   *
-   * Pass `'*'` for either argument to match all actions or all resources.
-   * Pass an optional `scope` to restrict this permission to a specific scope
-   * (e.g. a tenant or workspace). Without a scope the permission is global.
+   * Grants an unconditional permission (`'*'` matches all); global unless `scope` is given.
    *
    * @example
    * ```ts
-   * defineRole('viewer')
-   *   .grant('read', 'post')
-   *   .grant('read', 'comment')
-   *
-   * // With permission-level scope
    * defineRole('hybrid')
-   *   .grant('read', 'post')                     // global
-   *   .grant('update', 'post', 'org-1')           // org-1 only
-   *   .grant('create', 'comment', 'org-2')        // org-2 only
+   *   .grant('read', 'post')             // global
+   *   .grant('update', 'post', 'org-1')  // org-1 only
    * ```
-   *
-   * @param action   - The action to permit, or `'*'` for all actions
-   * @param resource - The resource to permit, or `'*'` for all resources
-   * @param scope    - Optional scope to restrict this permission to
-   * @returns `this` for chaining
    */
   grant(action: TAction | '*', resource: TResource | '*', scope?: TScope): this {
-    // `scope !== undefined`, not truthiness: `grant(a, r, '')` used to fall
-    // through to a *global* permission while `grantScoped('', a, r)` threw.
+    // NOTE: `!== undefined`, not truthiness, so an empty scope reaches the validator instead of becoming global.
     this._permissions.push(scope !== undefined ? { action, resource, scope } : { action, resource })
     return this
   }
 
   /**
-   * Grants a single permission restricted to a specific scope.
-   *
-   * Unlike {@link scope}, which scopes the entire role, `grantScoped` lets
-   * you mix global and scoped permissions within the same role.
+   * Grants a permission in one scope, so a role can mix global and scoped permissions (unlike {@link scope}).
    *
    * @example
    * ```ts
@@ -202,11 +127,6 @@ export class RoleBuilder<
    *   .grantScoped('org-1', 'update', 'post')   // org-1 only
    *   .grantScoped('org-2', 'create', 'comment') // org-2 only
    * ```
-   *
-   * @param scope    - The scope this permission is restricted to
-   * @param action   - The action to permit, or `'*'` for all actions
-   * @param resource - The resource to permit, or `'*'` for all resources
-   * @returns `this` for chaining
    */
   grantScoped(scope: TScope, action: TAction | '*', resource: TResource | '*'): this {
     this._permissions.push({ action, resource, scope })
@@ -214,31 +134,20 @@ export class RoleBuilder<
   }
 
   /**
-   * Grants a permission that only applies when a condition holds.
-   *
-   * The callback receives a {@link When} builder. All conditions added inside
-   * the callback must hold simultaneously (`AND` semantics). Use
-   * `w.isOwner()` as a shorthand for checking `resource.attributes.ownerId eq $subject.id`.
+   * Grants a permission that applies only when every condition built in `fn` holds.
    *
    * @example
    * ```ts
    * defineRole('author')
    *   .grant('read', 'post')
    *   .grantWhen('update', 'post', w => w.isOwner())
-   *   .grantWhen('delete', 'post', w => w.isOwner())
    *
-   * // Complex condition
    * defineRole('team-lead')
    *   .grantWhen('approve', 'expense', w => w
    *     .attr('department', 'eq', 'engineering')
    *     .resourceAttr('amount', 'lte', 10000)
    *   )
    * ```
-   *
-   * @param action   - The action to permit conditionally
-   * @param resource - The resource to permit conditionally
-   * @param fn       - Callback that builds the condition using a {@link When} builder
-   * @returns `this` for chaining
    */
   grantWhen<R extends TResource | '*'>(
     action: TAction | '*',
@@ -253,63 +162,38 @@ export class RoleBuilder<
   }
 
   /**
-   * Grants all actions (`'*'`) on a resource.
-   *
-   * Use `grantAll('*')` to grant unrestricted access to everything (typical
-   * for a super-admin role). For a more explicit alternative that only covers
-   * standard CRUD, see {@link grantCRUD}.
+   * Grants every action (`'*'`) on `resource`. For only the four CRUD verbs, see {@link grantCRUD}.
    *
    * @example
    * ```ts
    * defineRole('super-admin').grantAll('*')  // all actions, all resources
    * defineRole('post-admin').grantAll('post') // all actions on posts only
    * ```
-   *
-   * @param resource - The resource to grant all actions on, or `'*'` for all resources
-   * @returns `this` for chaining
    */
   grantAll(resource: TResource | '*'): this {
     return this.grant('*', resource)
   }
 
   /**
-   * Grants `read` access to one or more resources.
-   *
-   * Accepts multiple resource arguments. Equivalent to calling
-   * `.grant('read', resource)` for each.
+   * Grants `read` on each resource.
+   * NOTE: only callable when `TAction` includes `'read'`, so a grant no request could match fails to compile.
    *
    * @example
    * ```ts
    * defineRole('auditor')
    *   .grantRead('post', 'comment', 'user', 'audit-log')
    * ```
-   *
-   * Only callable when the declared action union admits `'read'`. The helper
-   * used to cast straight past `TAction`, so a config declaring
-   * `actions: ['view', 'edit']` still compiled a `read` grant that no request
-   * could ever match - a permission that looks granted and denies. The
-   * conditional parameter type turns that into a compile error at the call
-   * site; `createIam(...).validateRoles` catches the same mistake at runtime
-   * for roles written as plain objects.
-   *
-   * @param resources - One or more resource strings to grant read access on
-   * @returns `this` for chaining
    */
   grantRead(...resources: ('read' extends TAction ? TResource | '*' : never)[]): this {
-    // Sound by construction: the gate above means every call site that
-    // compiles has proven `'read' extends TAction`. TypeScript cannot carry
-    // that proof into the body of a generic method, which is the only reason
-    // the annotation is written rather than inferred.
+    // The parameter gate proves `'read' extends TAction`; TypeScript cannot carry that into a generic body.
     const action: TAction | '*' = 'read' as TAction
     for (const r of resources) this.grant(action, r)
     return this
   }
 
   /**
-   * Grants `create`, `read`, `update`, and `delete` on a resource.
-   *
-   * More explicit than {@link grantAll} - does not include custom actions
-   * like `publish` or `archive`. Equivalent to four separate `.grant()` calls.
+   * Grants `create`, `read`, `update` and `delete` on `resource`; unlike {@link grantAll}, no custom actions.
+   * NOTE: only callable when `TAction` includes all four; see {@link grantRead}.
    *
    * @example
    * ```ts
@@ -317,13 +201,6 @@ export class RoleBuilder<
    *   .grantCRUD('post')
    *   .grantCRUD('comment')
    * ```
-   *
-   * Only callable when the declared action union admits all four verbs - see
-   * {@link grantRead} for why emitting an undeclared action is worse than a
-   * compile error.
-   *
-   * @param resource - The resource to grant CRUD access on
-   * @returns `this` for chaining
    */
   grantCRUD(resource: IamCrudAction extends TAction ? TResource | '*' : never): this {
     for (const a of IAM_CRUD_ACTIONS) {
@@ -334,11 +211,7 @@ export class RoleBuilder<
   }
 
   /**
-   * Attaches arbitrary metadata to the role.
-   *
-   * Metadata is stored on the {@link AccessControl.IRole} object but is never consulted
-   * during policy evaluation. Use it for admin dashboards, audit logs,
-   * UI labels, or any other application-level bookkeeping.
+   * Attaches metadata for app bookkeeping (dashboards, audit logs, UI labels); never used in evaluation.
    *
    * @example
    * ```ts
@@ -346,9 +219,6 @@ export class RoleBuilder<
    *   .meta({ createdBy: 'system', tier: 'beta', maxSeats: 10 })
    *   .grant('read', 'beta-feature')
    * ```
-   *
-   * @param m - Key-value map of metadata attributes
-   * @returns `this` for chaining
    */
   meta(m: IamPrimitives.Attributes): this {
     this._metadata = m
@@ -356,16 +226,12 @@ export class RoleBuilder<
   }
 
   /**
-   * Finalises the builder and returns a plain {@link AccessControl.IRole} object.
+   * Returns the plain {@link AccessControl.IRole}, ready for `engine.admin.saveRole()` or an adapter's `saveRole()`.
    *
-   * The returned object is a plain data record with no builder methods.
-   * Pass it to `engine.admin.saveRole()` or an adapter's `saveRole()`.
-   *
-   * @returns A fully constructed {@link AccessControl.IRole}
+   * @throws If the role fails validation
    */
   build(): AccessControl.IRole<TAction, TResource, TRole, TScope> {
-    // See `PolicyBuilder.build`: an optional key set to `undefined` is a shape
-    // difference between backends, not a value.
+    // Omit unset optional keys; see `PolicyBuilder.build`.
     const role: AccessControl.IRole<TAction, TResource, TRole, TScope> = {
       id: this._id,
       name: this._name,
@@ -375,8 +241,7 @@ export class RoleBuilder<
       ...(this._scope === undefined ? {} : { scope: this._scope }),
       ...(this._metadata === undefined ? {} : { metadata: this._metadata }),
     }
-    // Validate at build time so callers wiring the adapter directly
-    // still see the failure where the bug was introduced.
+    // Validate here too, so a role handed straight to an adapter fails where the bug was written.
     const result = validateRole(role)
     if (!result.valid) {
       const errs = result.issues
@@ -389,14 +254,8 @@ export class RoleBuilder<
 }
 
 /**
- * Creates a new {@link RoleBuilder} for the given role ID.
- *
- * The role ID is preserved as a literal type (`TRole`) so that references to
- * it in `.inherits()` calls and adapter lookups remain type-safe when using
- * `createIam`.
- *
- * For type-safe action, resource, and scope constraints, use
- * `access.defineRole()` returned by `createIam()` instead.
+ * Creates a {@link RoleBuilder}, keeping the role ID as a literal type.
+ * With `createIam`, use `access.defineRole()` for typed actions, resources and scopes.
  *
  * @example
  * ```ts
@@ -410,10 +269,7 @@ export class RoleBuilder<
  *   .build()
  * ```
  *
- * @param id - Unique identifier for this role
- * @returns A new {@link RoleBuilder} instance typed to the given ID
- *
- * @template TRole     - Inferred literal type of the role ID
+ * @template TRole    - Inferred literal type of the role ID
  * @template TAction   - Union of valid action strings (defaults to `string`)
  * @template TResource - Union of valid resource strings (defaults to `string`)
  * @template TScope    - Union of valid scope strings (defaults to `string`)

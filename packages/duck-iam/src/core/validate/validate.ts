@@ -20,9 +20,10 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((item) => typeof item === 'string')
 }
 /**
- * Validate role defs: duplicate ids, dangling/circular inherits, empty roles.
+ * Validate role defs: shape, duplicate ids, dangling/circular/too-deep inherits, empty roles, undeclared targets.
  *
- * @param roles - The role definitions to validate.
+ * @param roles    - Untrusted role definitions; a malformed entry is reported, never thrown on.
+ * @param declared - Config vocabulary to check grants against; omit it to skip that pass.
  * @returns A {@link IamValidate.IResult} listing any issues found.
  */
 export function validateRoles(
@@ -32,7 +33,33 @@ export function validateRoles(
   const issues: IamValidate.IIssue[] = []
   const roleIds = new Set<string>()
 
-  for (const role of roles) {
+  // Input is untrusted (adapter row, config entry, form body), so a malformed entry is an issue, never a `TypeError`.
+  const wellFormed: AccessControl.IRole[] = []
+  for (const [index, role] of roles.entries()) {
+    // Check everything the passes below dereference; a string `inherits` would iterate characters instead of throwing.
+    const why = !isPlainObject(role)
+      ? 'is not an object'
+      : typeof role.id !== 'string' || role.id === ''
+        ? 'has no non-empty string "id"'
+        : !Array.isArray(role.permissions)
+          ? 'has no "permissions" array'
+          : role.inherits !== undefined && !isStringArray(role.inherits)
+            ? 'has an "inherits" that is not an array of strings'
+            : undefined
+    if (why !== undefined) {
+      issues.push({
+        type: 'error',
+        // WARN: reuse `INVALID_TYPE`; consumers switch on the published `ValidationCode` union.
+        code: 'INVALID_TYPE',
+        message: `Role at index ${index} ${why}`,
+        ...(isPlainObject(role) && typeof role.id === 'string' ? { roleId: role.id } : {}),
+      })
+      continue
+    }
+    wellFormed.push(role as unknown as AccessControl.IRole)
+  }
+
+  for (const role of wellFormed) {
     if (roleIds.has(role.id)) {
       issues.push({
         type: 'error',
@@ -44,7 +71,7 @@ export function validateRoles(
     roleIds.add(role.id)
   }
 
-  for (const role of roles) {
+  for (const role of wellFormed) {
     for (const parentId of role.inherits ?? []) {
       if (!roleIds.has(parentId)) {
         issues.push({
@@ -57,10 +84,10 @@ export function validateRoles(
     }
   }
 
-  // Cycles are runtime-safe (handled by visited-set in inheritance walk), so emit as warnings.
-  const rolesMap = new Map(roles.map((r) => [r.id, r]))
+  // Cycles are runtime-safe (cut by `resolveEffectiveRoles`' shallowest-depth memo), so they are warnings.
+  const rolesMap = new Map(wellFormed.map((r) => [r.id, r]))
 
-  for (const role of roles) {
+  for (const role of wellFormed) {
     if (!role.inherits?.length) continue
 
     const visited = new Set<string>()
@@ -89,7 +116,7 @@ export function validateRoles(
     }
   }
 
-  for (const role of roles) {
+  for (const role of wellFormed) {
     if (role.permissions.length === 0 && (!role.inherits || role.inherits.length === 0)) {
       issues.push({
         type: 'warning',
@@ -100,10 +127,8 @@ export function validateRoles(
     }
   }
 
-  // Depth bound: chains deeper than MAX_INHERITANCE_DEPTH silently truncate at
-  // runtime, dropping permissions invisibly. Surface as error so the operator
-  // catches it before deploy instead of debugging missing permissions later.
-  for (const role of roles) {
+  // Chains deeper than MAX_INHERITANCE_DEPTH truncate at runtime, so this is an error caught before deploy.
+  for (const role of wellFormed) {
     const depth = longestInheritanceDepth(role.id, rolesMap)
     if (depth > MAX_INHERITANCE_DEPTH) {
       issues.push({
@@ -115,15 +140,10 @@ export function validateRoles(
     }
   }
 
-  // A grant naming an action, resource or scope the config never declared can
-  // never match a request: `createIam` constrains `engine.check` to the
-  // declared unions, so nothing will ever ask for the pair this grant answers.
-  // It reads as access granted and behaves as access denied, which is the
-  // failure mode operators debug last. `createIam(...).validateRoles` passes
-  // its declared vocabulary in; the bare export takes none and skips the pass,
-  // so a caller validating hand-written roles is unaffected.
+  // `createIam` constrains `engine.check` to the declared unions, so an undeclared grant reads as granted but never
+  // matches. `createIam(...).validateRoles` passes `declared`; the bare export skips this pass.
   if (declared !== undefined) {
-    for (const role of roles) {
+    for (const role of wellFormed) {
       for (const [i, perm] of role.permissions.entries()) {
         const path = `permissions[${i}]`
         undeclared(issues, declared.actions, perm.action, 'action', role.id, path)
@@ -141,13 +161,8 @@ export function validateRoles(
 }
 
 /**
- * Pushes an {@link IamValidate.ValidationCode} `UNREACHABLE_TARGET` error when
- * `value` names something outside the declared vocabulary.
- *
- * Three things are never unreachable and so never reported: an axis the config
- * left empty (it constrains nothing), a `'*'` grant (it is the wildcard, not a
- * member), and an absent value (an unscoped permission is global, not a
- * permission scoped to nowhere).
+ * Push an `UNREACHABLE_TARGET` error when `value` is outside the declared vocabulary.
+ * Never reported: an empty axis, a `'*'` grant, or an absent value (an unscoped permission is global).
  */
 function undeclared(
   issues: IamValidate.IIssue[],
@@ -169,7 +184,7 @@ function undeclared(
   })
 }
 
-/** Longest path from `roleId` up through `inherits`; cycles cut by `seen`, depth capped at `MAX_INHERITANCE_DEPTH + 1`. */
+/** Longest `inherits` path from `roleId`; cycles cut by `seen`, depth capped at `MAX_INHERITANCE_DEPTH + 1`. */
 function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessControl.IRole>): number {
   const seen = new Set<string>()
   function walk(id: string, depth: number): number {
@@ -190,36 +205,25 @@ function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessCon
 }
 
 /**
- * A matched target with no matching rule folds `defaultEffect`, which is `deny` - so a
- * target widens what a policy refuses, not only what it inspects. Denying everything it
- * targets is the point of a restrictive policy, so this only fires once the author has
- * written an allow rule and left a pair it can never reach.
+ * Flag target pairs no allow rule covers, since a matched target with no matching rule folds to `deny`.
+ * Only runs once the policy has an allow rule, so a purely restrictive policy is left alone.
  */
 function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.IIssue[]): void {
   const targets = p.targets
   if (!isPlainObject(targets)) return
 
-  // Only well-formed rows can answer whether a pair is reachable. A malformed
-  // one has already produced its own `INVALID_RULE`, and reading `.effect` off
-  // it is what made this boundary function throw a raw `TypeError` on
-  // `{ rules: [null], targets: {…} }` instead of returning issues.
+  // Only well-formed rules count; a malformed one already has its `INVALID_RULE` and must not throw here.
   const allows = (Array.isArray(p.rules) ? p.rules : []).filter(
     (rule): rule is Record<string, unknown> => isPlainObject(rule) && rule.effect === 'allow',
   )
   if (allows.length === 0) return
 
-  // A list that is absent, empty, or not a list of strings does not constrain
-  // the dimension, so it covers everything - the reading that keeps a row the
-  // caller has already been told about from generating a second, wrong issue.
+  // An absent, empty, or non-string list covers everything, so an already-reported row adds no second issue.
   const covers = (list: unknown, value: string) =>
     !isStringArray(list) || list.length === 0 || list.includes('*') || list.includes(value)
 
-  // A dimension the target omits is one it does not constrain, so the rules decide it.
-  // Expanding it to a literal '*' would instead demand every rule be a wildcard: a target
-  // naming only `impersonate` was called unreachable because its rule allowed `.of('users')`.
-  // Non-array `targets.actions` already errored as `INVALID_TYPE` above; treat
-  // it as unconstrained rather than iterable, or the string `'read'` produces
-  // one `UNREACHABLE_TARGET` per character.
+  // An omitted dimension is left to the rules, not expanded to `'*'`. A non-array list already errored as
+  // `INVALID_TYPE`; treat it as unconstrained, or the string `'read'` yields one issue per character.
   const targetList = (key: 'actions' | 'resources'): string[] | null => {
     const value = Reflect.get(targets, key)
     return isStringArray(value) && value.length > 0 ? value : null
@@ -228,8 +232,7 @@ function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.
   const resources = targetList('resources')
   if (!actions && !resources) return
 
-  // Same worst-case-cartesian budget used for rules: an oversized target would
-  // otherwise push one issue per (action, resource) pair with no cap.
+  // PERF: same cartesian budget as rules, so an oversized target can't push one issue per pair.
   const pairCount = (actions?.length ?? 1) * (resources?.length ?? 1)
   if (pairCount > POLICY_LIMITS.cartesianPerRule) {
     issues.push({
@@ -250,9 +253,7 @@ function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.
 
       const pair = resource === null ? `"${action}"` : `"${action ?? '*'}" on "${resource}"`
       issues.push({
-        // An error, not a warning, so `PolicyBuilder.build()` throws where the
-        // policy is written. As a warning the only visible symptom was a denial,
-        // which reads as the permission system working.
+        // NOTE: an error, so `PolicyBuilder.build()` throws where the policy is written; a denial looks like success.
         type: 'error',
         code: 'UNREACHABLE_TARGET',
         message:
@@ -405,14 +406,8 @@ export function validateRole(input: unknown): IamValidate.IResult {
       path: 'id',
     })
   } else if (hasControlChar(r.id)) {
-    // The published JSON Schema has forbidden control characters in a name
-    // since it was written; the runtime validator only checked rule actions and
-    // resources, so a role id carrying one was accepted here and refused
-    // downstream. On redis that is not cosmetic: NUL is the assignment member
-    // separator, so `saveRole` stored a role `assignRole` then threw on - a
-    // write the store accepted and the contract cannot use. The same id is also
-    // invisible in any UI that would display it, so it reads as a different
-    // role than it is.
+    // SECURITY: refused as the JSON Schema does. NUL is redis's assignment member separator, so `assignRole` would
+    // throw on a saved role, and the character is invisible in any UI.
     issues.push({
       type: 'error',
       code: 'INVALID_TYPE',
@@ -421,11 +416,7 @@ export function validateRole(input: unknown): IamValidate.IResult {
     })
   }
 
-  // Same contract as `permissions[i].scope` below, which was the only one
-  // checked: a role-level `scope: ''` was accepted by the validated write API
-  // and then read as a real scope by the compiler and as "no scope" by nothing
-  // - the two engines had already been reconciled, so the data was simply
-  // unreachable-by-design. Omit the field for a role with no scope.
+  // Same contract as `permissions[i].scope` below: `''` would be an unreachable real scope, so omit the field instead.
   if (r.scope !== undefined && (typeof r.scope !== 'string' || r.scope === '')) {
     issues.push({
       type: 'error',
@@ -443,8 +434,7 @@ export function validateRole(input: unknown): IamValidate.IResult {
       path: 'permissions',
     })
   } else {
-    // Entries were previously unchecked, so `[null]` or `[{}]` passed validation
-    // and reached key building as `undefined:undefined`.
+    // Check each entry, so `[null]` or `[{}]` can't reach key building as `undefined:undefined`.
     for (const [i, perm] of r.permissions.entries()) {
       if (!isPlainObject(perm)) {
         issues.push({
@@ -465,13 +455,7 @@ export function validateRole(input: unknown): IamValidate.IResult {
             path: `permissions[${i}].${field}`,
           })
         } else if (hasControlChar(value)) {
-          // `rolesToPolicy` turns these into a rule's `actions` / `resources`,
-          // which the validator has always held to this rule - so the same
-          // string was refused when an operator wrote it as a policy and
-          // accepted when they wrote it as a role permission. A NUL is the
-          // sharp case: `evaluate.libs.ts`'s literal rule index is keyed by
-          // action then resource precisely because an embedded NUL used to
-          // collide two unrelated rules.
+          // SECURITY: `rolesToPolicy` turns these into rule `actions` / `resources`, so they get the same refusal.
           issues.push({
             type: 'error',
             code: 'INVALID_TYPE',
@@ -480,9 +464,7 @@ export function validateRole(input: unknown): IamValidate.IResult {
           })
         }
       }
-      // `''` is refused, not accepted-and-normalised: the redis encoding spells
-      // "no scope" as the empty string, and `matchesScope` used to read an
-      // empty pattern as global. One contract - omit the field for global.
+      // SECURITY: `''` is refused, not normalised: redis spells "no scope" as `''`. Omit the field for global.
       if (perm.scope !== undefined && (typeof perm.scope !== 'string' || perm.scope === '')) {
         issues.push({
           type: 'error',
@@ -500,19 +482,8 @@ export function validateRole(input: unknown): IamValidate.IResult {
             path: `permissions[${i}].conditions`,
           })
         } else {
-          // The contents were previously unchecked - `isPlainObject` was the
-          // whole of it - so a permission with an unknown operator passed
-          // `admin.import` and then threw at evaluation. The two engines catch
-          // that throw at different granularities (`safeEval` drops the entire
-          // `__rbac__` policy, the compiled path answers from the ROLE_MASK bit
-          // before reaching the group), so the same store denied in development
-          // and allowed in production. Rules have always been checked this way;
-          // role permissions now are too.
-          //
-          // `IAM_RBAC_CONDITION_DEPTH` mirrors `rolesToPolicy`, which nests the
-          // author's group one level inside the generated rule's own `all` - the
-          // same level for every group key. Validating at 0 would accept a group
-          // one level past what `evalConditionGroup` will match.
+          // SECURITY: an unchecked unknown operator throws at evaluation, where the two engines catch it differently.
+          // Start at `IAM_RBAC_CONDITION_DEPTH`, where `rolesToPolicy` nests the group; `0` accepts one level too deep.
           validateConditionGroup(perm.conditions, `permissions[${i}].conditions`, issues, IAM_RBAC_CONDITION_DEPTH)
         }
       }
@@ -546,10 +517,11 @@ export function validateRole(input: unknown): IamValidate.IResult {
 
 /**
  * Parse a single policy row from `unknown`; returns the typed row or `null` on validation failure.
+ * NOTE: the unions are TS-only and trusted at the adapter boundary, not checked at runtime.
  *
- * @template TAction   - Action string union (TS-only constraint; trusted at the adapter boundary).
- * @template TResource - Resource string union (TS-only constraint; trusted at the adapter boundary).
- * @template TRole     - Role string union (TS-only constraint; trusted at the adapter boundary).
+ * @template TAction   - Action string union.
+ * @template TResource - Resource string union.
+ * @template TRole     - Role string union.
  */
 export function parsePolicyRow<
   TAction extends string = string,

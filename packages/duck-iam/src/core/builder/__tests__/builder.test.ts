@@ -166,13 +166,8 @@ describe('When (condition builder)', () => {
 
 describe('RuleBuilder', () => {
   it('builds a rule with defaults', () => {
-    // `.forScope('*')` rather than `.allow()`, which is what this originally
-    // was. `build()` now refuses a builder nobody configured, so the call needs
-    // *something* - but `.allow()` sets the very field the next line asserts,
-    // which turned the only pin on the default effect into a tautology and let
-    // `_effect = 'deny'` survive the whole suite. The wildcard scope is an
-    // explicit statement that narrows nothing and touches no field below, so
-    // every assertion here still reads a genuine default.
+    // `.forScope('*')`, not `.allow()`: it gets past `build()`'s unconfigured check without setting any
+    // field asserted below, so the default effect is really pinned.
     const rule = new RuleBuilder('r1').forScope('*').build()
     expect(rule.id).toBe('r1')
     expect(rule.effect).toBe('allow')

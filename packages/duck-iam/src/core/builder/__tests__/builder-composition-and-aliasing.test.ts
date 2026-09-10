@@ -5,11 +5,7 @@ import { definePolicy } from '../policy'
 import { defineRole } from '../role'
 import { defineRule } from '../rule'
 
-/**
- * A second `.when()` used to overwrite the first, so the narrower of two
- * restrictions silently disappeared and the rule fired for subjects it was
- * written to exclude.
- */
+// A second `.when()` must AND with the first, not replace it.
 describe('RuleBuilder: repeated condition groups', () => {
   const rule = defineRule('post.update')
     .allow()
@@ -80,10 +76,6 @@ describe('RuleBuilder: repeated condition groups', () => {
   })
 })
 
-/**
- * `RuleBuilder.build()` was the only one of the three builders that returned
- * without validating, so a malformed rule surfaced later, in the engine.
- */
 describe('RuleBuilder.build() validates', () => {
   it('rejects a rule with an empty id', () => {
     expect(() => defineRule('').allow().on('read').of('post').build()).toThrow(/rejected by validator/)
@@ -107,11 +99,7 @@ describe('RuleBuilder.build() validates', () => {
   })
 })
 
-/**
- * `grant(a, r, '')` took the falsy branch and produced a *global* permission,
- * while `grantScoped('', a, r)` was rejected by the validator. An empty scope
- * read from config therefore widened a permission instead of failing.
- */
+// An empty scope must reach the validator, not widen into a global permission.
 describe('RoleBuilder.grant with an empty scope', () => {
   it('does not silently produce a global permission', () => {
     expect(() => defineRole('r').grant('read', 'post', '').build()).toThrow(/rejected by validator/)
@@ -133,11 +121,7 @@ describe('RoleBuilder.grant with an empty scope', () => {
   })
 })
 
-/**
- * `build()` handed out the builder's own arrays, so a builder kept alive after
- * a build could still push into a role or policy that had already been
- * validated and registered.
- */
+// A builder kept alive after `build()` must not mutate the already-validated result.
 describe('build() returns copies, not live builder state', () => {
   it('RoleBuilder: a later grant does not reach the built role', () => {
     const builder = defineRole('r').grant('read', 'post')

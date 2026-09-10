@@ -1,17 +1,11 @@
+// Unknown keys and multi-key condition groups are errors, as in `POLICY_JSON_SCHEMA`: a misspelled key is a
+// restriction the engine never applies.
 import { describe, expect, it } from 'vitest'
 import { PolicyBuilder } from '../../builder'
 import { evalConditionGroup } from '../../conditions/conditions'
 import type { IamRequest } from '../../types'
 import { parsePolicyRow, validatePolicy } from '../validate'
 
-/**
- * `POLICY_JSON_SCHEMA` has always set `additionalProperties: false` on the
- * policy, the rule, the target and the condition, and refused a group carrying
- * more than one of `all` / `any` / `none`. The validator accepted all of it, so
- * an operator's schema gate and the store disagreed - and an unknown key is not
- * an inert one: a misspelled `targets` is a scope the policy never narrows to,
- * and a second group key is a restriction `evalConditionGroup` never reads.
- */
 function basePolicy(): Record<string, unknown> {
   return {
     algorithm: 'first-match',
@@ -100,14 +94,12 @@ describe('unknown fields', () => {
     expect(parsePolicyRow({ ...basePolicy(), tenant: 'acme' })).toBeNull()
   })
 
-  // Control: the correctly spelled key is accepted, so the errors above are
-  // about the spelling and not about the field being present at all.
+  // Control: the correctly spelled key is accepted, so the errors above are about spelling.
   it('control: the same policy with the key spelled correctly is valid', () => {
     expect(validatePolicy({ ...basePolicy(), targets: { actions: ['read'] } }).valid).toBe(true)
   })
 
-  // The builders emit every optional slot, `undefined` included. `JSON.stringify`
-  // drops those, so a store and an external validator never see them either.
+  // The builders emit every optional slot; `JSON.stringify` drops the `undefined` ones before any store sees them.
   it('a key explicitly set to undefined is not an unknown field', () => {
     expect(validatePolicy({ ...basePolicy(), tenant: undefined }).valid).toBe(true)
   })
@@ -144,11 +136,7 @@ describe('a condition group carrying more than one key', () => {
     expect(validatePolicy(twoKeys).valid).toBe(false)
   })
 
-  /**
-   * The reason it is an error rather than a warning: the evaluator reads one
-   * key and never looks at the other, so the author's second restriction is
-   * simply gone. Here `any` would have denied and `all` alone allows.
-   */
+  // An error, not a warning: `any` here would deny, but the evaluator reads `all` alone and allows.
   it('because the evaluator honours only the first key it finds', () => {
     const request: IamRequest.IAccessRequest = {
       action: 'read',

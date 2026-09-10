@@ -4,8 +4,7 @@ import type { AccessControl } from '../../types'
 import { POLICY_JSON_SCHEMA } from '../'
 
 describe('POLICY_JSON_SCHEMA', () => {
-  // Smoke checks only - full external validators (ajv, etc.) live in consumer
-  // code. We verify the shape so consumers don't import a malformed schema.
+  // Smoke checks only; consumers bring a full validator (ajv, etc.).
   it('declares Draft 2020-12 + required top-level policy fields', () => {
     expect(POLICY_JSON_SCHEMA.$schema).toBe('https://json-schema.org/draft/2020-12/schema')
     expect(POLICY_JSON_SCHEMA.required).toEqual(['id', 'name', 'algorithm', 'rules'])

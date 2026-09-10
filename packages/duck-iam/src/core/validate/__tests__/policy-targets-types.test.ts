@@ -1,23 +1,8 @@
+// Every `targets` key, `roles` included, is type-checked by direct cases, so coverage doesn't depend on a generator.
 import { describe, expect, it } from 'vitest'
 import type { AccessControl } from '../../types'
 import { validatePolicy } from '../validate'
 
-/**
- * `validatePolicy` checks `targets.actions`, `targets.resources` and
- * `targets.roles` in one loop. Only two of the three were reachable from any
- * test: dropping `'roles'` from that array left the whole suite green, because
- * the fuzz generator that was supposed to cover it
- * (`schema-validator-agreement.test.ts`) produced 147 runtime-accepted policies
- * out of 4000 and only three with a non-empty `rules` array, and its own
- * control measured a different generator.
- *
- * A `targets.roles` that is not an array is not cosmetic: `targets` is how a
- * policy declares who it applies to, and a malformed one that validates clean
- * is a policy whose applicability nobody has checked.
- *
- * These are direct rather than generated, so the coverage does not depend on
- * what a generator happens to emit.
- */
 const KEYS = ['actions', 'resources', 'roles'] as const
 
 /** Parsed from JSON so the wrong-typed target arrives untyped, as a store row does. */
@@ -46,8 +31,7 @@ describe('every key of targets is type-checked, not just the first two', () => {
     })
 
     it(`targets.${key} as an array is accepted`, () => {
-      // Anti-vacuity: the clause above must be about the *type*, not about the
-      // key existing at all.
+      // Anti-vacuity: the clause above is about the type, not the key existing.
       expect(errorPaths(policyWithTargets(`{"${key}":["x"]}`))).not.toContain(`targets.${key}`)
     })
 
