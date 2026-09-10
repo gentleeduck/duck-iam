@@ -2,16 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { evaluate, evaluateFast } from '../../evaluate/evaluate'
 import type { AccessControl, IamRequest } from '../../types'
 import { evalConditionGroup } from '../conditions'
-import { evalCondition } from '../conditions.libs'
+import { evalCondition, IamUserSourcedPatternError } from '../conditions.libs'
 
-/**
- * `evalCondition`'s first line refuses a `$`-resolved operand for `matches`,
- * because letting one through hands the regex source to whoever controls the
- * attribute it resolves from - a subject attribute is enough to pin in a
- * catastrophic pattern the validator screened. Mutation testing replaced that
- * line with `if (false)` and all 2000 tests still passed: the control that the
- * JSDoc calls the ReDoS defence had no assertion anywhere.
- */
+// `matches` never compiles a `$`-resolved pattern (ReDoS) and throws `IamUserSourcedPatternError`.
+// Indeterminate, not `false`, so a deny rule built on it still denies.
 function request(pattern: string, ua: string): IamRequest.IAccessRequest {
   return {
     action: 'read',
@@ -28,13 +22,11 @@ const USER_SOURCED: AccessControl.ICondition = {
 }
 
 describe('`matches` refuses a $-resolved pattern', () => {
-  it('returns false even when the resolved pattern would have matched', () => {
-    expect(evalCondition(request('^curl', 'curl/8.0'), USER_SOURCED)).toBe(false)
+  it('refuses to answer even when the resolved pattern would have matched', () => {
+    expect(() => evalCondition(request('^curl', 'curl/8.0'), USER_SOURCED)).toThrow(IamUserSourcedPatternError)
   })
 
-  // Control: the same field and the same effective pattern, written literally
-  // by the policy author, does match. Without this the assertion above would
-  // pass on any `matches` failure at all.
+  // Without this, the refusal above would pass on any `matches` failure.
   it('control: the same pattern written literally does match', () => {
     expect(
       evalCondition(request('^curl', 'curl/8.0'), {
@@ -47,15 +39,13 @@ describe('`matches` refuses a $-resolved pattern', () => {
 
   it('refuses it inside a group, in every combinator', () => {
     const req = request('^curl', 'curl/8.0')
-    expect(evalConditionGroup(req, { all: [USER_SOURCED] }, 0)).toBe(false)
-    expect(evalConditionGroup(req, { any: [USER_SOURCED] }, 0)).toBe(false)
-    expect(evalConditionGroup(req, { none: [USER_SOURCED] }, 0)).toBe(true)
+    // `none` negates a `false` leaf into a grant, so no verdict works here.
+    for (const group of [{ all: [USER_SOURCED] }, { any: [USER_SOURCED] }, { none: [USER_SOURCED] }]) {
+      expect(() => evalConditionGroup(req, group, 0)).toThrow(IamUserSourcedPatternError)
+    }
   })
 
-  // The refusal is a fixed `false`, so an *allow* rule built on it stops
-  // granting - the safe direction - and a *deny* rule built on it stops
-  // denying. The second is why the pattern must be refused at validate time
-  // too, not only here.
+  // For an allow rule Indeterminate and `false` agree; the deny case below is where they differ.
   it('retires an allow rule that depends on it', () => {
     const policy: AccessControl.IPolicy = {
       algorithm: 'first-match',
@@ -97,20 +87,71 @@ describe('`matches` refuses a $-resolved pattern', () => {
     )
   })
 
-  // A pattern the validator would have refused, arriving through an attribute.
-  // The point of the guard is that it never reaches `getCachedRegex` at all.
+  // The guard stops it before `getCachedRegex`.
   it('never compiles an attacker-supplied catastrophic pattern', () => {
-    expect(evalCondition(request('(a+)+$', 'a'.repeat(40)), USER_SOURCED)).toBe(false)
+    expect(() => evalCondition(request('(a+)+$', 'a'.repeat(40)), USER_SOURCED)).toThrow(IamUserSourcedPatternError)
   })
 
   it.each(['$subject.attributes.pattern', '$resource.attributes.pattern', '$environment.pattern', '$nope'])(
     'refuses %s regardless of which root it names',
     (value) => {
-      expect(
+      expect(() =>
         evalCondition(request('^curl', 'curl/8.0'), { field: 'subject.attributes.ua', operator: 'matches', value }),
-      ).toBe(false)
+      ).toThrow(IamUserSourcedPatternError)
     },
   )
+
+  it('a deny rule built on it still denies', () => {
+    const policy: AccessControl.IPolicy = {
+      algorithm: 'deny-overrides',
+      id: 'p',
+      name: 'p',
+      rules: [
+        {
+          actions: ['read'],
+          conditions: { all: [] },
+          effect: 'allow',
+          id: 'r-allow',
+          priority: 1,
+          resources: ['post'],
+        },
+        {
+          actions: ['read'],
+          conditions: { all: [USER_SOURCED] },
+          effect: 'deny',
+          id: 'r-deny',
+          priority: 10,
+          resources: ['post'],
+        },
+      ],
+    }
+    const req = request('^curl', 'curl/8.0')
+    expect(evaluate([policy], req, 'deny', 'and', vi.fn()).allowed).toBe(false)
+    // The fast engine agrees.
+    expect(evaluateFast([policy], req, 'deny', 'and', vi.fn())).toBe(false)
+  })
+
+  it('reports the refusal rather than swallowing it', () => {
+    const onPolicyError = vi.fn()
+    const policy: AccessControl.IPolicy = {
+      algorithm: 'deny-overrides',
+      id: 'p',
+      name: 'p',
+      rules: [
+        {
+          actions: ['read'],
+          conditions: { all: [USER_SOURCED] },
+          effect: 'deny',
+          id: 'r',
+          priority: 1,
+          resources: ['post'],
+        },
+      ],
+    }
+    evaluate([policy], request('^curl', 'curl/8.0'), 'deny', 'and', onPolicyError)
+    expect(onPolicyError).toHaveBeenCalled()
+    expect(String(onPolicyError.mock.calls[0]?.[0])).toContain('subject.attributes.ua')
+  })
 
   // Only `matches` is refused: every other operator is allowed to read its
   // operand from the request, and narrowing that would break `$`-comparison.

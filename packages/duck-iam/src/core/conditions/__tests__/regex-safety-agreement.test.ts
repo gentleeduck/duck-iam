@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { detectCatastrophicRegex, evalMatchesOp, getCachedRegex } from '../conditions.libs'
 
-/**
- * Validate-time and evaluate-time must refuse exactly the same patterns. When
- * they disagree, a pattern accepted by `admin.import` returns `null` at
- * evaluation time and a deny rule built on it silently never matches.
- */
+/** Validate-time and evaluate-time must refuse the same patterns, or an imported deny rule never matches. */
 const SYNTACTICALLY_VALID = [
   '^admin$',
   'curl',

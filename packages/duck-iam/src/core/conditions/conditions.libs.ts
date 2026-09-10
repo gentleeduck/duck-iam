@@ -2,36 +2,20 @@ import { resolve } from '../resolve'
 import type { AccessControl, IamPrimitives, IamRequest } from '../types'
 
 /**
- * Max allowed regex pattern length to mitigate ReDoS. Catastrophic
- * backtracking patterns are tiny (e.g. `(a+)+$`), so a tight bound here is
- * appropriate - larger patterns only give attackers more rope.
+ * Max `matches` pattern length.
+ * SECURITY: ReDoS patterns are tiny (`(a+)+$`), so a tight bound costs nothing and limits attacker rope.
  */
 export const MAX_REGEX_LENGTH = 128
 
 /**
- * Hard cap on the candidate input string handed to `RegExp.test()`.
- *
- * Even if a catastrophic pattern slips past static detection, capping the
- * input length bounds worst-case backtracking work. Strings longer than this
- * cause the `matches` operator to throw {@link IamRegexInputTooLargeError}.
- * Returning `false` instead would flip `deny`-when-`matches` rules to allow on
- * adversarially-long input.
- *
- * Counted in UTF-16 code units, not bytes - an astral-plane string reaches the
- * cap at a quarter of its UTF-8 size. The cap bounds backtracking work, which
- * scales with the units the engine walks, so units are the right unit.
+ * Max `matches` input length in UTF-16 code units, the unit backtracking work scales with.
+ * SECURITY: bounds backtracking a missed pattern can cause; longer input throws {@link IamRegexInputTooLargeError}.
  */
 export const MAX_REGEX_INPUT_LENGTH = 2048
 
 /**
- * Thrown by the `matches` operator when the candidate string exceeds
- * {@link MAX_REGEX_INPUT_LENGTH}.
- *
- * Carried as a tagged error so every catch site can route it through
- * `onPolicyError` and treat it as Indeterminate: a policy carrying any deny
- * rule votes deny, an allow-only one casts the `defaultEffect` vote it would
- * have cast. Returning `false` instead would read as "condition not met", which
- * flips a `deny`-when-`matches` rule to allow.
+ * Thrown by `matches` when the input exceeds {@link MAX_REGEX_INPUT_LENGTH}.
+ * SECURITY: Indeterminate via `onPolicyError`, not `false`, which would flip a deny-when-`matches` rule to allow.
  */
 export class IamRegexInputTooLargeError extends Error {
   readonly name = 'IamRegexInputTooLargeError'
@@ -48,23 +32,22 @@ export class IamRegexInputTooLargeError extends Error {
 }
 
 /**
- * A condition whose operand does not have the type its operator compares
- * against, so the operator cannot answer the question that was asked.
- *
- * Tagged and thrown for the same reason as {@link IamRegexInputTooLargeError},
- * and for the reason `evalCondition` already gives when it meets an operator it
- * does not know: an unanswerable condition is Indeterminate, not `false`, and
- * answering `false` quietly retires a deny rule. The permissive direction here
- * is worse still. `nin` and `not_contains` return **true** on a wrongly-typed
- * operand, so `allow if tier nin 'banned'` - the author meant `['banned']` -
- * admits every subject the denylist was written to exclude.
- *
- * The validator refuses all of this at `savePolicy` and at `import`, and that
- * was taken to make it unreachable. It does not: `loadPolicies` does not
- * validate, so a row seeded through an adapter constructor, written by direct
- * SQL, or stored before the rule existed is evaluated exactly as authored. That
- * path was measured, not assumed - a seeded denylist allowed a banned subject
- * through `engine.can`.
+ * A condition group nested past {@link MAX_CONDITION_DEPTH}, or with no recognised key.
+ * SECURITY: Indeterminate, not `false`, since `false` inside a `none` is negated into a grant.
+ */
+export class IamConditionGroupError extends Error {
+  readonly name = 'IamConditionGroupError'
+  readonly tag = 'duck-iam/condition-group'
+  readonly reason: 'depth' | 'unknown-keys'
+  constructor(reason: 'depth' | 'unknown-keys', detail: string) {
+    super(`[@gentleduck/iam:conditions] ${detail}; condition is Indeterminate.`)
+    this.reason = reason
+  }
+}
+
+/**
+ * An operand without the type its operator compares against. Checked on read: `loadPolicies` does not validate.
+ * SECURITY: Indeterminate, not an answer, since `nin`/`not_contains` return `true` on a wrong-typed operand.
  */
 export class IamOperandTypeError extends Error {
   readonly name = 'IamOperandTypeError'
@@ -80,20 +63,57 @@ export class IamOperandTypeError extends Error {
   }
 }
 
+/**
+ * A `matches` pattern too long, ReDoS-shaped or invalid; `field` is `'<unknown>'` until `evalCondition` re-throws.
+ * SECURITY: Indeterminate, not `false`, so a deny rule with a refused pattern still fails closed.
+ */
+export class IamPatternRefusedError extends Error {
+  readonly name = 'IamPatternRefusedError'
+  readonly tag = 'duck-iam/pattern-refused'
+  readonly field: string
+  readonly reason: 'too-long' | 'uncompilable'
+  constructor(field: string, reason: 'too-long' | 'uncompilable', detail: string) {
+    super(`[@gentleduck/iam:conditions] matches pattern on field "${field}" ${detail}; condition is Indeterminate.`)
+    this.field = field
+    this.reason = reason
+  }
+}
+
+/**
+ * A `matches` pattern given as a `$`-reference; the read-path twin of `validatePolicy`'s `ERR_REGEX_USER_SOURCED`.
+ * SECURITY: a request-chosen pattern is a ReDoS primitive, so it is never compiled. Indeterminate, not `false`.
+ */
+export class IamUserSourcedPatternError extends Error {
+  readonly name = 'IamUserSourcedPatternError'
+  readonly tag = 'duck-iam/user-sourced-pattern'
+  readonly field: string
+  readonly value: string
+  constructor(field: string, value: string) {
+    super(
+      `[@gentleduck/iam:conditions] matches pattern on field "${field}" is the request-sourced reference ${JSON.stringify(value)}, which is never compiled; condition is Indeterminate.`,
+    )
+    this.field = field
+    this.value = value
+  }
+}
+
 /** Operators that read only the field; an operand on them is meaningless. */
 export const VALUELESS_OPERATORS: ReadonlySet<string> = new Set(['exists', 'not_exists'])
 
 /**
- * The operand type each listed operator compares against. Operators not listed
- * accept any scalar.
- *
- * It lives here, beside the operator table it describes, and `validate.libs`
- * imports it: one table, so the check the author gets at write time and the
- * check the evaluator applies at read time cannot drift apart.
+ * Operand type each listed operator compares against; unlisted operators accept any scalar.
+ * NOTE: `validate.libs` imports this table, so write-time and read-time checks cannot drift.
  */
-export const OPERAND_TYPES: ReadonlyMap<string, 'array' | 'number' | 'string' | 'temporal'> = new Map([
+export const OPERAND_TYPES: ReadonlyMap<string, 'array' | 'number' | 'scalar' | 'string' | 'temporal'> = new Map([
+  // SECURITY: `eq`/`neq` are `===`/`!==`, so an object operand would make `eq` always false and `neq` always true.
+  ['eq', 'scalar'],
+  ['neq', 'scalar'],
   ['in', 'array'],
   ['nin', 'array'],
+  // SECURITY: the operand is the scalar looked for; without these entries `not_contains` answers `true`
+  // for any non-scalar operand.
+  ['contains', 'scalar'],
+  ['not_contains', 'scalar'],
   ['subset_of', 'array'],
   ['superset_of', 'array'],
   ['gt', 'number'],
@@ -107,13 +127,22 @@ export const OPERAND_TYPES: ReadonlyMap<string, 'array' | 'number' | 'string' | 
   ['after', 'temporal'],
 ])
 
+/** Scalar check over `unknown`, for use before anything is narrowed. */
+function isScalarUnknown(value: unknown): boolean {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+}
+
 /** Whether `value` has the operand type `kind`. */
-export function operandHasType(kind: 'array' | 'number' | 'string' | 'temporal', value: unknown): boolean {
+export function operandHasType(kind: 'array' | 'number' | 'scalar' | 'string' | 'temporal', value: unknown): boolean {
   switch (kind) {
     case 'array':
-      return Array.isArray(value)
+      // SECURITY: elements too, since `includes` never matches an object element and the rule would retire.
+      return Array.isArray(value) && value.every(isScalarUnknown)
     case 'number':
       return typeof value === 'number'
+    case 'scalar':
+      // Matches `isScalar`, which the membership operators use on their operand.
+      return isScalarUnknown(value)
     case 'string':
       return typeof value === 'string'
     case 'temporal':
@@ -121,49 +150,32 @@ export function operandHasType(kind: 'array' | 'number' | 'string' | 'temporal',
   }
 }
 
-/**
- * LRU cache capacity for compiled regex patterns. Shared by both the
- * process-wide default cache and per-instance caches an engine may pass in.
- */
+/** LRU capacity of every compiled-regex cache, process-wide or per-Engine. */
 export const REGEX_CACHE_MAX = 256
 
 /**
- * Default process-wide LRU cache for compiled regex patterns. Used when a
- * caller does not pass a per-instance cache. Multi-tenant deployments should
- * prefer per-Engine caches to prevent cross-tenant eviction.
+ * Process-wide LRU of compiled patterns, used when no per-instance cache is passed.
+ * NOTE: multi-tenant deployments should pass per-Engine caches so tenants cannot evict each other.
  */
 export const regexCache = new Map<string, RegExp>()
 
-/**
- * Drop every entry in the process-wide regex cache. Intended for multi-tenant
- * operators who flush periodically to bound any single tenant's eviction
- * influence. Per-instance caches passed via the optional `cache` argument to
- * {@link getCachedRegex} are NOT affected.
- */
+/** Clears the process-wide regex cache; per-instance caches passed to {@link getCachedRegex} are untouched. */
 export function clearRegexCache(): void {
   regexCache.clear()
 }
 
-/**
- * Maximum number of unbounded quantifiers (`+`, `*`, `{n,}`) allowed in a
- * single `matches` pattern. Beyond this the surface area for catastrophic
- * backtracking gets impractical to reason about, so we refuse outright.
- */
+/** Max unbounded quantifiers (`+`, `*`, `{n,}`) in one `matches` pattern before it is refused. */
 export const MAX_UNBOUNDED_QUANTIFIERS = 4
 
 /**
- * Largest finite upper bound permitted in a `{n,m}` quantifier. The matcher
- * walks `m` iterations worst-case, so anything above ~1000 starts to look
- * like a DoS vector even though it isn't technically unbounded.
+ * Longest allowed run of unbounded quantifiers competing for the same characters.
+ * A run of length k backtracks O(n^k), so the run sets the cost, not the total count.
  */
+export const MAX_OVERLAPPING_UNBOUNDED_CHAIN = 2
+
+/** Largest bound allowed in `{n,m}` (upper) or `{n,}` (lower); the matcher can walk that many iterations. */
 export const MAX_BOUNDED_QUANTIFIER = 1_000
 
-/**
- * Cheap heuristic for catastrophic-backtracking regex (nested quantifiers, large bounds, backref-quantifier, etc).
- *
- * @param pattern - Raw regex source.
- * @returns `{ safe: true }` when the pattern looks benign, otherwise `{ safe: false, reason }`.
- */
 /** Index of the `]` closing the character class opened at `start`, or -1. */
 function findClassEnd(pattern: string, start: number): number {
   for (let i = start + 1; i < pattern.length; i++) {
@@ -176,12 +188,7 @@ function findClassEnd(pattern: string, start: number): number {
   return -1
 }
 
-/**
- * Remove escapes and character-class bodies from a fragment before scanning it
- * for quantifiers. Without the class strip, the literal `*` in a glob-shaped
- * pattern like `^([a-z0-9*-])+$` reads as a quantifier and the pattern is
- * refused as a nested quantifier - a scanner bug, not a conservative heuristic.
- */
+/** Strips escapes and class bodies so a literal `*` in `[a-z0-9*-]` is not read as a quantifier. */
 function stripLiterals(fragment: string): string {
   return fragment.replace(/\\./g, '').replace(/\[[^\]]*\]/g, 'C')
 }
@@ -192,19 +199,9 @@ function hasQuantifiedGroup(stripped: string): boolean {
 }
 
 /**
- * Static screen for regex patterns that can backtrack exponentially, applied
- * before a policy-supplied pattern is ever compiled or run.
- *
- * A condition's pattern comes from the policy store, so it is attacker-adjacent
- * whenever policy authorship is: one `(a+)+$` against a crafted attribute is a
- * single-request CPU stall that no timeout on the adapter can catch, because
- * the stall is in this process. Reports the most specific shape it recognises -
- * backreference plus quantifier, a quantified lookaround body, then nested
- * quantifiers - so the reason names what to fix.
- *
- * Conservative in the safe direction: it rejects some patterns that would in
- * fact have been fine. A refused pattern is a policy that fails closed and an
- * author who gets told why; a missed one is an outage.
+ * Static ReDoS screen for a policy-supplied `matches` pattern, run before it is ever compiled.
+ * SECURITY: errs toward refusing; a refused pattern fails closed, a missed one stalls the process.
+ * @returns `{ safe: true }`, or `{ safe: false, reason }` naming the most specific shape found.
  */
 export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
   if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
@@ -215,20 +212,12 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     }
   }
 
-  // Backreference followed by a quantifier - run before the nested-quantifier
-  // scan so the more specific reason wins for shapes like `(\w+)\1+`. Numeric
-  // (`\1+`, `\3*`, `\2{1,5}`) and named (`\k<name>+`) forms can drive
-  // exponential backtracking when the captured group matches a variable-length
-  // pattern. Flag any backref+quantifier pair.
+  // Backreference plus quantifier (`\1+`, `\k<name>*`). Before the nested scan so `(\w+)\1+` gets this reason.
   if (/\\[1-9]\d*\s*[+*?{]/.test(pattern) || /\\k<[^>]+>\s*[+*?{]/.test(pattern)) {
     return { safe: false, reason: 'backref-quantifier' }
   }
 
-  // Lookaround group whose body contains a quantifier. Run before the
-  // nested-quantifier scan so `(?=(a+)+)` is reported with the more specific
-  // reason. JS supports `(?=...)`, `(?!...)`, `(?<=...)`, `(?<!...)`. Walk
-  // paren depth and inspect the body of any lookaround for `+`, `*`, or
-  // `{...}`.
+  // Lookaround bodies. Before the nested scan so `(?=(a+)+)` gets the more specific reason.
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]
     if (ch === '\\') {
@@ -256,20 +245,14 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
       j++
     }
     if (depth !== 0) continue
-    // A quantifier inside a lookaround is not itself a risk: `^(?!.*admin)`
-    // and `(?=.*[A-Z])` are linear, and they are the shapes deny guards get
-    // written in - refusing them pushes authors toward the weaker
-    // `not_contains`. The risk is a *quantified group* in the body,
-    // `(?=(a+)+)`; everything else is left to the passes below.
+    // NOTE: only a quantified group in the body is refused; `^(?!.*admin)` is linear and a common deny guard.
     if (hasQuantifiedGroup(stripLiterals(pattern.slice(bodyStart, j)))) {
       return { safe: false, reason: 'lookaround-with-quantified-group' }
     }
     i = j
   }
 
-  // Bounded `{n,m}` with a very large upper bound, or `{n,}` with a very
-  // large lower bound. Lone repetitions like `a{5}` are fine; only the
-  // comma-form is a range.
+  // `{n,m}` with a large upper bound, or `{n,}` with a large lower bound. Exact `{n}` is fine.
   {
     const re = /(?<!\\)\{(\d+)(?:,(\d*))?\}/g
     let m: RegExpExecArray | null
@@ -291,9 +274,7 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     }
   }
 
-  // Nested quantifiers: a group whose closing `)` is immediately followed by
-  // `+`, `*`, or `{n,}` AND whose body itself contains an unbounded quantifier.
-  // We walk parens with a depth counter so nested groups are inspected too.
+  // Nested quantifiers: a group followed by `+`, `*` or `{n,` whose body has its own quantifier or alternation.
   const stack: number[] = []
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]
@@ -311,8 +292,6 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
       const next = pattern[i + 1]
       const isUnboundedQuant = next === '+' || next === '*' || (next === '{' && /^\{\d+,\}?/.test(pattern.slice(i + 1)))
       if (!isUnboundedQuant) continue
-      // Strip escapes and character classes before scanning, so neither `\+`
-      // nor the literal `*` in `[a-z0-9*-]` reads as a quantifier.
       const bodyStripped = stripLiterals(pattern.slice(openIdx + 1, i))
       if (/[+*]/.test(bodyStripped) || /\{\d+,\d*\}/.test(bodyStripped)) {
         return { safe: false, reason: 'nested quantifier (e.g. `(a+)+`) - catastrophic backtracking risk' }
@@ -323,8 +302,7 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     }
   }
 
-  // Count unbounded quantifiers outside of escapes. `+`, `*`, and `{n,}`
-  // each count once.
+  // Count unbounded quantifiers outside escapes and character classes.
   let unbounded = 0
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]
@@ -368,14 +346,20 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     }
   }
 
+  const chain = findOverlappingUnboundedChain(pattern)
+  if (chain !== null) {
+    return {
+      safe: false,
+      reason: `${MAX_OVERLAPPING_UNBOUNDED_CHAIN + 1}+ unbounded quantifiers competing for the same characters (${chain}) - polynomial backtracking risk`,
+    }
+  }
+
   return { safe: true }
 }
 
 /**
- * Characters used to test whether two atoms can match the same input. Sampling
- * beats parsing character classes by hand: each atom is compiled and probed, so
- * the regex engine itself decides what a class matches. The pattern's own
- * literals are added to the probe set so a class like `[q-s]` is still covered.
+ * Probe characters for atom overlap: atoms are compiled and tested, so the regex engine decides what a class matches.
+ * Callers add the pattern's own literals so a class like `[q-s]` is still covered.
  */
 const OVERLAP_PROBE_CHARS = 'aZ0 _-./@:%\t'.split('')
 
@@ -389,9 +373,8 @@ function atomMatcher(source: string): RegExp | null {
 }
 
 /**
- * Whether two atoms can match the same character. An atom that cannot be
- * compiled or probed in isolation - a group, a backreference - is treated as
- * overlapping, because failing safe here only costs a rejected pattern.
+ * Whether two atoms can match the same character.
+ * SECURITY: an atom that will not compile alone (a group, a backreference) counts as overlapping.
  */
 function atomsOverlap(a: string, b: string, extraProbes: readonly string[]): boolean {
   if (a === b) return true
@@ -405,17 +388,9 @@ function atomsOverlap(a: string, b: string, extraProbes: readonly string[]): boo
 }
 
 /**
- * Find two neighbouring unbounded quantifiers whose atoms can match the same
- * character - `^a+a+$`, `[a-z]+[a-z]+`, `.*.*`. Each such pair multiplies the
- * ways an input can be split between them, so `a+a+a+a+` backtracks O(n^4).
- *
- * The `MAX_REGEX_INPUT_LENGTH` cap does not bound that: 2048^4 is astronomical,
- * and a 513-char input already stalls the loop for 8s. The unbounded-quantifier
- * *count* does not catch it either, because four siblings are within the limit.
- * Separated quantifiers are fine and stay allowed - `[a-z]+@[a-z]+\.[a-z]+` has
- * three, but the mandatory `@` and `.` between them stop the overlap.
- *
- * @returns The offending atom pair as ``\`x\` then \`y\```, or `null` when none is found.
+ * Finds neighbouring unbounded quantifiers whose atoms overlap (`a+a+`, `.*.*`); the input cap does not bound these.
+ * Separated runs are {@link findOverlappingUnboundedChain}'s job.
+ * @returns The offending pair as `` `x` then `y` ``, or `null`.
  */
 function findAdjacentUnboundedOverlap(pattern: string): string | null {
   const atoms = scanQuantifiedAtoms(pattern)
@@ -430,6 +405,48 @@ function findAdjacentUnboundedOverlap(pattern: string): string | null {
   return null
 }
 
+/**
+ * Whether one character is matched by every atom in `sources`.
+ * SECURITY: an atom that will not compile alone counts as matching.
+ */
+function overlapsAll(sources: readonly string[], extraProbes: readonly string[]): boolean {
+  const matchers = sources.map(atomMatcher)
+  if (matchers.some((m) => m === null)) return true
+  for (const c of [...OVERLAP_PROBE_CHARS, ...extraProbes]) {
+    if (matchers.every((m) => m?.test(c) === true)) return true
+  }
+  return false
+}
+
+/**
+ * Finds more than {@link MAX_OVERLAPPING_UNBOUNDED_CHAIN} unbounded quantifiers competing for the same characters.
+ * A separator links two atoms only if optional or matched with both: `.*\/.*\/.*` links, `[a-z]+@[a-z]+` does not.
+ * @returns The offending run as `` `x` then `y` then `z` ``, or `null`.
+ */
+function findOverlappingUnboundedChain(pattern: string): string | null {
+  const atoms = scanQuantifiedAtoms(pattern)
+  const literals = pattern.replace(/[^A-Za-z0-9]/g, '').split('')
+  let chain: QuantifiedAtom[] = []
+  let separators: QuantifiedAtom[] = []
+  for (const atom of atoms) {
+    if (!atom.unbounded) {
+      separators.push(atom)
+      continue
+    }
+    const prev = chain.at(-1)
+    const linked =
+      prev !== undefined &&
+      atomsOverlap(prev.source, atom.source, literals) &&
+      separators.every((sep) => sep.optional || overlapsAll([sep.source, prev.source, atom.source], literals))
+    chain = linked ? [...chain, atom] : [atom]
+    separators = []
+    if (chain.length > MAX_OVERLAPPING_UNBOUNDED_CHAIN) {
+      return chain.map((a) => `\`${a.source}\``).join(' then ')
+    }
+  }
+  return null
+}
+
 interface QuantifiedAtom {
   /** The atom's regex source, without its quantifier. */
   readonly source: string
@@ -437,13 +454,11 @@ interface QuantifiedAtom {
   readonly unbounded: boolean
   /** Immediately follows the previous atom, with nothing in between. */
   readonly adjacent: boolean
+  /** Can match zero characters (`?`, `*`, `{0,...}`), so it separates nothing. */
+  readonly optional: boolean
 }
 
-/**
- * Split a pattern into atoms plus their quantifiers. Groups are opaque - the
- * nested-quantifier check above already covers `(a+)+`, and treating a group as
- * one atom keeps this scan linear.
- */
+/** Splits a pattern into quantified atoms. Groups are opaque (the nested scan covers `(a+)+`), keeping this linear. */
 function scanQuantifiedAtoms(pattern: string): QuantifiedAtom[] {
   const atoms: QuantifiedAtom[] = []
   let i = 0
@@ -472,25 +487,30 @@ function scanQuantifiedAtoms(pattern: string): QuantifiedAtom[] {
     const source = pattern.slice(start, i)
 
     let unbounded = false
+    let optional = false
     const q = pattern[i]
     if (q === '+' || q === '*') {
       unbounded = true
+      optional = q === '*'
       i++
     } else if (q === '{') {
       const close = pattern.indexOf('}', i)
       if (close !== -1) {
-        if (/^\d+,\s*$/.test(pattern.slice(i + 1, close))) unbounded = true
+        const inner = pattern.slice(i + 1, close)
+        if (/^\d+,\s*$/.test(inner)) unbounded = true
+        if (/^0\s*(,|$)/.test(inner)) optional = true
         i = close + 1
       }
     } else if (q === '?') {
+      optional = true
       i++
     }
-    // A lazy or possessive marker does not remove the backtracking.
+    // A lazy `?` marker does not remove the backtracking.
     if (pattern[i] === '?' && unbounded) i++
 
     // Anchors and boundaries are not atoms an input character is split across.
     if (source !== '^' && source !== '$' && source !== '\\b' && source !== '\\B') {
-      atoms.push({ adjacent: start === prevEnd, source, unbounded })
+      atoms.push({ adjacent: start === prevEnd, optional, source, unbounded })
       prevEnd = i
     }
   }
@@ -498,26 +518,13 @@ function scanQuantifiedAtoms(pattern: string): QuantifiedAtom[] {
 }
 
 /**
- * Retrieve a cached compiled regex, or compile and cache it.
- * Returns `null` if the pattern fails to compile, or if
- * {@link detectCatastrophicRegex} rejects it as a ReDoS-shaped pattern. This is
- * the same predicate the validator runs, so a pattern accepted at import time
- * can never be refused at evaluation time (or the reverse).
- *
- * On a cache hit the entry is re-inserted so iteration order becomes recency
- * order; eviction then drops the *least recently used* pattern instead of
- * the oldest-inserted one. Without this, a hot pattern compiled early gets
- * evicted as soon as REGEX_CACHE_MAX cold patterns roll through.
- *
- * @param pattern - Regex source string.
- * @param cache - Optional per-instance Map. Falls back to the module-global
- *   `regexCache` when omitted. Engine instances pass their own cache to
- *   prevent cross-tenant eviction.
- * @returns The compiled `RegExp`, or `null` when the pattern is invalid or rejected.
+ * Compiled regex for `pattern`, or `null` when it is invalid or refused by {@link detectCatastrophicRegex}.
+ * PERF: a hit is re-inserted, so Map order is recency order and eviction is LRU.
+ * @param pattern - Regex source.
+ * @param cache - Per-Engine cache that isolates tenants; defaults to the process-wide `regexCache`.
  */
 export function getCachedRegex(pattern: string, cache: Map<string, RegExp> = regexCache): RegExp | null {
-  // Cache lookup first: an entry only exists because it already passed the
-  // detector, so re-running the walker on every hit would be pure cost.
+  // PERF: only detector-approved patterns are cached, so a hit skips the detector.
   const cached = cache.get(pattern)
   if (cached) {
     cache.delete(pattern)
@@ -543,10 +550,8 @@ function isScalar(v: IamPrimitives.AttributeValue | undefined): v is IamPrimitiv
 }
 
 /**
- * Coerce a value to epoch milliseconds for the temporal operators
- * (`before` / `after`). Numbers pass through as-is (already epoch ms).
- * `Date.parse`-able strings (ISO-8601 etc.) convert. Anything else -> `NaN`,
- * which makes the comparison fail closed rather than silently allow.
+ * Epoch ms for `before`/`after`: numbers pass through, strings go through `Date.parse`, anything else is `NaN`.
+ * SECURITY: `NaN` makes the comparison fail closed.
  */
 function toEpoch(v: IamPrimitives.AttributeValue): number {
   if (typeof v === 'number') return v
@@ -575,15 +580,8 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
     return !isScalar(f) || !v.includes(f)
   },
 
-  // Array membership, which is the contract in `AccessControl`'s operator table
-  // ("Array contains / does not contain the value"). The old string fallthrough
-  // was undocumented and granted on a substring: a `groups` claim arriving as
-  // the CSV string `'not-admins-really'` satisfied `contains 'admins'`, which is
-  // the normal shape of a JWT claim. A field that is present but not an array
-  // cannot answer the question, so both operators return the answer that does
-  // NOT satisfy the guard - otherwise the same type confusion bypasses
-  // `contains` one way and `not_contains` the other. An absent field is a
-  // different case: an empty list contains nothing, so `not_contains` holds.
+  // SECURITY: array membership only, never substring. A present non-array field satisfies neither operator;
+  // an absent field is an empty list, so `not_contains` holds.
   contains: (f, v) => Array.isArray(f) && isScalar(v) && f.includes(v),
   not_contains: (f, v) => {
     if (f === null || f === undefined) return true
@@ -594,18 +592,8 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
   starts_with: (f, v) => typeof f === 'string' && typeof v === 'string' && f.startsWith(v),
   ends_with: (f, v) => typeof f === 'string' && typeof v === 'string' && f.endsWith(v),
 
-  matches: (f, v) => {
-    if (typeof f !== 'string' || typeof v !== 'string') return false
-    if (v.length > MAX_REGEX_LENGTH) return false
-    // Throw on oversize input so `deny`-when-`matches` rules do not flip
-    // to allow on adversarial inputs; evalCondition() routes it through
-    // onPolicyError.
-    if (f.length > MAX_REGEX_INPUT_LENGTH) {
-      throw new IamRegexInputTooLargeError('<unknown>', f.length)
-    }
-    const re = getCachedRegex(v)
-    return re ? re.test(f) : false
-  },
+  // NOTE: delegates so the cached and module-global `matches` paths cannot drift apart.
+  matches: (f, v) => evalMatchesOp(f, v),
 
   exists: (f) => f !== null && f !== undefined,
   not_exists: (f) => f === null || f === undefined,
@@ -619,10 +607,8 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
     return v.every((i) => f.includes(i))
   },
 
-  // Temporal operators. Both operands are coerced to epoch ms via `toEpoch`
-  // (number passthrough, ISO-8601 string parse). Non-temporal operands yield
-  // `NaN`, so the comparison fails closed. Pair with the engine-injected
-  // `$environment.now` for "is X still in the future / already in the past".
+  // Both operands go through `toEpoch`; a non-temporal one is `NaN` and fails closed.
+  // Pair with `$environment.now` for "still in the future" / "already past".
   after: (f, v) => {
     const a = toEpoch(f)
     const b = toEpoch(v)
@@ -638,26 +624,14 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
 /** Maximum nesting depth for condition groups to prevent stack overflow. */
 export const MAX_CONDITION_DEPTH = 10
 
-/**
- * Type guard that distinguishes a flat {@link AccessControl.ICondition} from a nested {@link AccessControl.IConditionGroup}.
- *
- * @param item - Either a leaf condition or a group node.
- * @returns `true` when `item` is a leaf `ICondition`.
- */
+/** Whether `item` is a leaf {@link AccessControl.ICondition} rather than an {@link AccessControl.IConditionGroup}. */
 export function isCondition(
   item: AccessControl.ICondition | AccessControl.IConditionGroup,
 ): item is AccessControl.ICondition {
   return 'field' in item
 }
 
-/**
- * Resolve a condition value, handling `$`-prefixed variable references.
- * e.g. `$subject.id` resolves to the request's subject.id at eval time.
- *
- * @param req   - The access request providing resolution roots.
- * @param value - Raw condition value (possibly `$`-prefixed reference).
- * @returns The resolved value, or `value` unchanged when no `$` prefix is present.
- */
+/** Resolves a `$`-prefixed reference (e.g. `$subject.id`) against the request; other values pass through unchanged. */
 export function resolveValue(
   req: IamRequest.IAccessRequest,
   value: IamPrimitives.AttributeValue,
@@ -670,67 +644,51 @@ export function resolveValue(
 }
 
 /**
- * The `matches` operator compiles the value into a regex. Allowing a
- * `$`-prefixed value to resolve from request attributes would let any
- * attacker who controls a subject/resource/env attribute pin in a
- * catastrophic regex (ReDoS). We refuse `$`-resolved patterns for
- * `matches` regardless of where the attribute came from.
- *
- * @param value - Candidate operand value to inspect.
- * @returns `true` when the value is a `$`-prefixed string reference.
+ * Whether `value` is a `$`-reference resolved from the request.
+ * SECURITY: `matches` refuses these, since a request-controlled pattern is a ReDoS primitive.
  */
 export function isUserSourcedValue(value: IamPrimitives.AttributeValue): boolean {
   return typeof value === 'string' && value.startsWith('$')
 }
 
 /**
- * Evaluate a single flat condition against an access request.
- *
- * @param req  - The access request providing field values.
- * @param cond - The condition to test.
- * @returns `true` when the operator predicate holds against the resolved field.
+ * Evaluates one flat condition against the request.
+ * SECURITY: throws instead of returning `false` when the condition cannot be answered (Indeterminate).
  */
 export function evalCondition(
   req: IamRequest.IAccessRequest,
   cond: AccessControl.ICondition,
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
-  if (cond.operator === 'matches' && isUserSourcedValue(cond.value ?? null)) return false
+  // SECURITY: a `$`-reference pattern is never compiled (ReDoS). Throw rather than return `false`,
+  // which would retire a deny rule, or grant inside a `none`.
+  if (cond.operator === 'matches' && isUserSourcedValue(cond.value ?? null)) {
+    throw new IamUserSourcedPatternError(cond.field, String(cond.value))
+  }
   const fieldVal = resolve(req, cond.field, caches)
   const condVal = resolveValue(req, cond.value ?? null, caches)
   try {
     const op = ops[cond.operator]
-    // An operator we cannot evaluate is indeterminate, not false: returning
-    // false here would quietly retire a deny rule. Throwing routes it through
-    // onPolicyError and the caller's fail-closed handling.
+    // SECURITY: an unknown operator is Indeterminate; `false` would retire a deny rule.
     if (typeof op !== 'function') {
       throw new Error(
         `[@gentleduck/iam:conditions] unknown operator "${String(cond.operator)}" on field "${cond.field}"`,
       )
     }
-    // An operand of the wrong type is the same kind of unanswerable as an
-    // operator nobody implements, and it was the one the operators answered
-    // anyway - each with a fixed verdict, permissive for the negated ones. The
-    // check is here rather than only in the validator because the validator
-    // guards `savePolicy` and `import`, and nothing guards a row that was
-    // seeded, migrated, or written directly to the store.
-    //
-    // `condVal` is the RESOLVED operand, so this also covers what the validator
-    // cannot see: a `$`-prefixed reference is skipped there because its type is
-    // unknowable at authoring time, and it lands here as whatever the request
-    // actually carried.
-    //
-    // The guard runs before every operator, `matches` included. It used to sit
-    // *after* the `matches` early return, which made it dead code for the one
-    // operator whose operand the validator screens hardest: `matches` with an
-    // absent or non-string `value` reached `evalMatchesOp`, failed that
-    // function's own `typeof v !== 'string'` test, and answered `false`. So a
-    // seeded `deny` rule read as "condition not met" and never denied -
-    // exactly the failure OPERAND_TYPES is shared with `validate.libs` to
-    // prevent, in the one place write-time and read-time had drifted apart.
+    // SECURITY: wrong-typed operands are Indeterminate, checked before every operator (`matches` included):
+    // seeded or migrated rows skip the validator, and a `$`-reference only has a type once resolved.
     if (!VALUELESS_OPERATORS.has(cond.operator)) {
       if (cond.value === undefined) {
         throw new IamOperandTypeError(cond.field, cond.operator, 'requires a "value" and the key is absent')
+      }
+      // SECURITY: a `$`-reference that resolved to `null` would let `eq` compare `null === null` and allow.
+      // A literal `value: null` is an explicit null test and still works.
+      if (isUserSourcedValue(cond.value) && condVal === null) {
+        throw new IamOperandTypeError(
+          cond.field,
+          cond.operator,
+          `operand reference ${JSON.stringify(cond.value)} resolved to nothing`,
+        )
       }
       const expected = OPERAND_TYPES.get(cond.operator)
       if (expected !== undefined && !operandHasType(expected, condVal)) {
@@ -745,25 +703,36 @@ export function evalCondition(
     if (err instanceof IamRegexInputTooLargeError && err.field === '<unknown>') {
       throw new IamRegexInputTooLargeError(cond.field, err.length)
     }
+    if (err instanceof IamPatternRefusedError && err.field === '<unknown>') {
+      throw new IamPatternRefusedError(cond.field, err.reason, err.message.replace(/^.*?"<unknown>" /, ''))
+    }
     throw err
   }
 }
 
-/**
- * Per-instance-cache-aware `matches` operator. The module-global `ops.matches`
- * uses the process-wide regex cache; this variant accepts an optional cache
- * override so multi-tenant Engine instances can isolate compile pools.
- */
+/** The `matches` operator with an optional per-Engine regex cache; `ops.matches` uses the process-wide one. */
 export function evalMatchesOp(
   f: IamPrimitives.AttributeValue,
   v: IamPrimitives.AttributeValue,
   cache?: Map<string, RegExp>,
 ): boolean {
+  // NOTE: a non-string field is a miss, not a refusal; making it Indeterminate would change every rule on an
+  // absent attribute. `evalCondition` screens the operand against OPERAND_TYPES before this.
   if (typeof f !== 'string' || typeof v !== 'string') return false
-  if (v.length > MAX_REGEX_LENGTH) return false
+  if (v.length > MAX_REGEX_LENGTH) {
+    throw new IamPatternRefusedError('<unknown>', 'too-long', `is ${v.length} characters (> ${MAX_REGEX_LENGTH})`)
+  }
   if (f.length > MAX_REGEX_INPUT_LENGTH) {
     throw new IamRegexInputTooLargeError('<unknown>', f.length)
   }
   const re = getCachedRegex(v, cache ?? regexCache)
-  return re ? re.test(f) : false
+  // SECURITY: a refused pattern is Indeterminate, like an oversized input; `false` would retire deny rules.
+  if (!re) {
+    throw new IamPatternRefusedError(
+      '<unknown>',
+      'uncompilable',
+      'was refused by the catastrophic-backtracking detector or is not a valid regular expression',
+    )
+  }
+  return re.test(f)
 }

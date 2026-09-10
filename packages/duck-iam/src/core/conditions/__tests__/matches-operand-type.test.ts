@@ -1,19 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { evaluate } from '../../evaluate/evaluate'
 import type { AccessControl, IamRequest } from '../../types'
-import { evalCondition, IamOperandTypeError } from '../conditions.libs'
+import {
+  evalCondition,
+  IamOperandTypeError,
+  IamPatternRefusedError,
+  IamUserSourcedPatternError,
+} from '../conditions.libs'
 
-/**
- * `evalCondition` refuses an operand whose type the operator cannot compare
- * against, and throws so the condition reads as Indeterminate rather than as
- * "not met". `matches` was exempt from that by accident: the operator was
- * dispatched before the guard ran, so a non-string pattern fell into
- * `evalMatchesOp`, failed its own `typeof v !== 'string'` test, and answered a
- * plain `false`.
- *
- * `false` is the permissive answer for a `deny` rule. These tests pin the
- * guard's reach to every operator in `OPERAND_TYPES`, `matches` included.
- */
+// Pins the operand-type guard to every OPERAND_TYPES operator, `matches` included:
+// a wrong-typed operand throws (Indeterminate) instead of answering `false`.
 function request(ua: string): IamRequest.IAccessRequest {
   return {
     action: 'read',
@@ -26,9 +22,7 @@ function request(ua: string): IamRequest.IAccessRequest {
 const FIELD = 'subject.attributes.ua'
 
 describe('`matches` is bound by the operand-type guard', () => {
-  // A malformed condition is what a seeded or migrated row looks like; the
-  // validator refuses all of these, and `loadPolicies` does not validate. The
-  // cast manufactures exactly that deliberately-malformed shape.
+  // The cast builds what a seeded or migrated row can hold; `loadPolicies` does not validate.
   it.each([
     ['a number', 42],
     ['a boolean', true],
@@ -56,23 +50,22 @@ describe('`matches` is bound by the operand-type guard', () => {
     }
   })
 
-  // Control: the guard did not swallow the operator. A literal string pattern
-  // still compiles and still answers.
   it('control: a literal string pattern still matches, and still misses', () => {
     expect(evalCondition(request('curl/8.0'), { field: FIELD, operator: 'matches', value: '^curl' })).toBe(true)
     expect(evalCondition(request('wget/1.0'), { field: FIELD, operator: 'matches', value: '^curl' })).toBe(false)
   })
 
-  // The deliberate refusals `matches` already had are unchanged: both return
-  // `false` without reaching the guard or the regex cache.
-  it('leaves the $-sourced-pattern refusal a plain false', () => {
-    expect(
+  // See `matches-user-sourced-value.test.ts`.
+  it('refuses a $-sourced pattern as Indeterminate', () => {
+    expect(() =>
       evalCondition(request('curl/8.0'), { field: FIELD, operator: 'matches', value: '$subject.attributes.ua' }),
-    ).toBe(false)
+    ).toThrow(IamUserSourcedPatternError)
   })
 
-  it('leaves an uncompilable pattern a plain false', () => {
-    expect(evalCondition(request('curl/8.0'), { field: FIELD, operator: 'matches', value: '(a+)+$' })).toBe(false)
+  it('refuses an uncompilable pattern as Indeterminate', () => {
+    expect(() => evalCondition(request('curl/8.0'), { field: FIELD, operator: 'matches', value: '(a+)+$' })).toThrow(
+      IamPatternRefusedError,
+    )
   })
 })
 
@@ -96,8 +89,7 @@ describe('a seeded deny rule with a non-string pattern still denies', () => {
 
   it('is Indeterminate, so the policy votes deny rather than retiring', () => {
     const onPolicyError = vi.fn()
-    // `defaultEffect: 'allow'` is the hostile setting: before the fix the rule
-    // read as "condition not met" and the request was allowed outright.
+    // `defaultEffect: 'allow'` is the hostile setting: reading the rule as "not met" would allow outright.
     expect(evaluate([policy], request('curl/8.0'), 'allow', 'and', onPolicyError).allowed).toBe(false)
     expect(onPolicyError).toHaveBeenCalled()
   })

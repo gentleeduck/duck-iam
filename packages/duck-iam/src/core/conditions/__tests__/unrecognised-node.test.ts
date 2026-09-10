@@ -16,12 +16,13 @@ describe('an unrecognised condition node does not read as "no conditions"', () =
     expect(evalConditionGroup(req, group({}))).toBe(true)
   })
 
+  // SECURITY: Indeterminate, not `false`, which would retire a deny rule; a deny-bearing policy votes deny.
   it.each([
     ['typo in all', { al: [{ field: 'subject.attributes.dept', operator: 'eq', value: 'sales' }] }],
     ['typo in any', { anyy: [] }],
     ['unrelated key', { foo: 1 }],
-  ])('%s evaluates false', (_label, node) => {
-    expect(evalConditionGroup(req, group(node))).toBe(false)
+  ])('%s is indeterminate, not false', (_label, node) => {
+    expect(() => evalConditionGroup(req, group(node))).toThrow(/no recognised key/)
   })
 
   it('the recognised keys still work', () => {

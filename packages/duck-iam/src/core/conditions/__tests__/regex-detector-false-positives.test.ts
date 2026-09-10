@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { detectCatastrophicRegex } from '../conditions.libs'
 
-/**
- * The detector refused the shapes deny guards are actually written in. Two
- * separate causes: a blanket ban on any quantifier inside a lookaround, and a
- * body scan that stripped escapes but not character classes, so a literal `*`
- * in `[a-z0-9*-]` read as a quantifier. Every pattern below runs in well under
- * a millisecond on a 2048-char adversarial input.
- */
+// Deny-guard shapes must pass: a quantifier inside a lookaround, and a literal `*` inside a character class.
 describe('detectCatastrophicRegex accepts safe lookaround guards', () => {
   it.each([
     ['exclude a substring', '^(?!.*admin).*$'],
@@ -51,8 +45,7 @@ describe('detectCatastrophicRegex reads a character class as literals', () => {
     expect(detectCatastrophicRegex('^[*]a+[*]b+[*]c+[*]d+[*]$').safe).toBe(true)
   })
 
-  // Control: a real nested quantifier outside a class is still refused, so the
-  // class strip did not turn the whole scan off.
+  // Control: the class strip did not turn the whole scan off.
   it('still refuses a real nested quantifier', () => {
     expect(detectCatastrophicRegex('^(a+)+$').safe).toBe(false)
   })
@@ -67,10 +60,7 @@ describe('detectCatastrophicRegex reads a character class as literals', () => {
   })
 })
 
-/**
- * The accepted patterns must actually be fast, or "accept" is the wrong call.
- * Each runs against the longest input the engine will ever hand a regex.
- */
+// Each runs against the longest input the engine hands a regex.
 describe('the newly-accepted patterns are linear on adversarial input', () => {
   const hostile = 'a'.repeat(2048)
 
