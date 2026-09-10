@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluatePolicyFast } from '../evaluate'
 
-/**
- * The ranked (first-match / highest-priority) fast path must use the caller's
- * per-engine caches like the override branches do; falling back to the
- * module-global map lets one tenant evict another's compiled regexes.
- */
+// The ranked fast path must use per-engine caches too; the module-global map lets one tenant evict another's regexes.
 const request: IamRequest.IAccessRequest = {
   subject: { id: 'u1', roles: [], attributes: { department: 'engineering' } },
   action: 'read',

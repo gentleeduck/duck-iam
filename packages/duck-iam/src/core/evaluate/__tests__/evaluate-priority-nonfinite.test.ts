@@ -3,11 +3,7 @@ import type { AccessControl } from '../../types'
 import { combiners } from '../evaluate.libs'
 import type { Evaluate } from '../evaluate.types'
 
-/**
- * A rule whose `priority` is NaN or missing (an adapter row that bypassed
- * validation) must not silently lose every `>` comparison. Before the fix the
- * combiners seeded from `matched[0]`, so the winner depended on source order.
- */
+// A NaN or missing `priority` (an unvalidated adapter row) must not lose every `>` comparison.
 function rule(id: string, effect: AccessControl.Effect, priority: number): AccessControl.IRule {
   return { id, effect, priority, actions: ['read'], resources: ['post'], conditions: { all: [] } }
 }

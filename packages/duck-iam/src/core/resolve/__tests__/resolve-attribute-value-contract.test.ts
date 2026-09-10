@@ -3,15 +3,8 @@ import { ops } from '../../conditions/conditions.libs'
 import type { IamPrimitives, IamRequest } from '../../types'
 import { resolve } from '../resolve'
 
-/**
- * `resolve()` is declared to return `IamPrimitives.AttributeValue` and every
- * `OpFn` is typed on that, but the value came straight off the request behind
- * an `as`. Adapters deserialize JSON and hand the result through, so deeply
- * nested objects, `Date`s and functions genuinely reach here. Nothing but each
- * operator's own `typeof` guard stood between a non-conforming value and a
- * wrong comparison - and a `false` from a deny rule's condition is a silent
- * grant.
- */
+// `resolve()` must deliver only `AttributeValue`: adapters pass nested objects, `Date`s and functions through,
+// and a wrong `false` from a deny rule's condition grants.
 function requestWith(attributes: IamPrimitives.Attributes): IamRequest.IAccessRequest {
   return {
     action: 'read',
@@ -20,10 +13,7 @@ function requestWith(attributes: IamPrimitives.Attributes): IamRequest.IAccessRe
   }
 }
 
-/**
- * Attributes as they actually arrive: an adapter hands back whatever the row
- * held, and nothing between there and here narrows it.
- */
+/** Attributes as they arrive: whatever the adapter row held, un-narrowed. */
 function attributesFrom(value: object): IamPrimitives.Attributes {
   const out: IamPrimitives.Attributes = {}
   for (const [k, v] of Object.entries(value)) out[k] = v
@@ -101,11 +91,7 @@ describe('resolve() still returns everything the contract allows', () => {
   })
 })
 
-/**
- * The point of the narrowing: an operator handed a non-conforming value used
- * to have to guard for itself. `null` is NotApplicable, which is what the
- * whole condition system is built to handle.
- */
+// Operators get `null` for an off-contract value instead of having to guard for themselves.
 describe('operators see null rather than an off-contract value', () => {
   it('contains against a function is false either way, now without the function reaching it', () => {
     const req = requestWith(attributesFrom({ fn: () => 'pwn' }))

@@ -4,20 +4,8 @@ import type { AccessControl, IamPrimitives, IamRequest } from '../../types'
 import { explainEvaluation } from '../explain'
 import type { Explain } from '../explain.types'
 
-/**
- * `explain-evaluate-parity.test.ts` pins the two implementations against each
- * other at the *policy combine* level, and its own docblock records that they
- * had drifted twice there. They had drifted a third time one level down, at the
- * leaf: `traceLeaf` called `evaluateOperator`, which is the raw operator table,
- * while the decision path goes through `evalCondition`.
- *
- * `evalCondition` refuses `matches` when the operand is `$`-sourced, because
- * resolving it lets anyone who controls a subject/resource/environment
- * attribute choose the pattern that gets compiled - a ReDoS pin. The trace
- * resolved the `$` and compiled the result, so `explain()` reported a leaf as
- * satisfied that the engine had refused outright. An operator asking "why was
- * this denied?" was shown the condition that supposedly passed.
- */
+// SECURITY: the same parity one level down, at the leaf. `evalCondition` refuses `matches` on a `$`-sourced operand
+// (a ReDoS pin), so a trace built on the raw operator table would show a leaf as satisfied that the engine refused.
 const subjectInfo: Explain.ISubjectInfo = { subjectId: 'u1', originalRoles: [], scopedRolesApplied: [] }
 
 function requestWith(attributes: Record<string, IamPrimitives.AttributeValue>): IamRequest.IAccessRequest {
@@ -51,6 +39,12 @@ function tracedLeaves(cond: AccessControl.ICondition, req: IamRequest.IAccessReq
   return result.policies.flatMap((p) => p.rules.flatMap((r) => leafResults(r.conditions)))
 }
 
+/** Did the trace record that it could not evaluate the rule's conditions? */
+function tracedRefusal(cond: AccessControl.ICondition, req: IamRequest.IAccessRequest): boolean {
+  const result = explainEvaluation([policyWith(cond)], req, 'deny', subjectInfo, 'and')
+  return result.policies.some((p) => p.rules.some((r) => r.conditionError !== undefined))
+}
+
 describe('a traced leaf agrees with the leaf the engine decided on', () => {
   const cases: { name: string; cond: AccessControl.ICondition; attrs: Record<string, IamPrimitives.AttributeValue> }[] =
     [
@@ -66,11 +60,25 @@ describe('a traced leaf agrees with the leaf the engine decided on', () => {
       },
     ]
 
+  // Tri-state: a boolean cannot tell "did not match" from "refused to answer", and refusals are where the two drift.
   for (const { name, cond, attrs } of cases) {
     it(name, () => {
       const req = requestWith(attrs)
-      const decided = evalCondition(req, cond)
+      let decided: boolean | 'refused'
+      try {
+        decided = evalCondition(req, cond)
+      } catch {
+        decided = 'refused'
+      }
+      if (decided === 'refused') {
+        // The trace records the refusal on the rule and emits no leaf; both are asserted so a tracer that silently
+        // drops the leaf cannot pass.
+        expect(tracedRefusal(cond, req)).toBe(true)
+        expect(tracedLeaves(cond, req)).toEqual([])
+        return
+      }
       expect(tracedLeaves(cond, req)).toEqual([decided])
+      expect(tracedRefusal(cond, req)).toBe(false)
     })
   }
 })

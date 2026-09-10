@@ -4,31 +4,8 @@ import type { AccessControl, IamRequest } from '../../types'
 import { evaluate, evaluateFast, evaluatePolicyFast } from '../evaluate'
 import { indexPolicy } from '../evaluate.libs'
 
-/**
- * Property-based regression guard: generate deterministic-random policy sets
- * and assert `evaluate(...).allowed === evaluateFast(...)` for every
- * `(policies, request)` pair. Locks the contract that the trace path and the
- * zero-alloc fast path agree on every input, so any future optimization that
- * silently breaks one side trips a failing oracle iteration.
- *
- * Deterministic seed -> reproducible failures.
- *
- * **What a passing iteration does and does not prove.** `evaluatePolicyFast`
- * hands any policy carrying a throwable condition (`matches`, or an operator no
- * `ops` entry answers to) straight to `evaluatePolicy` - deliberately, so the
- * two modes agree by construction rather than by two implementations being kept
- * in step. On those iterations this oracle is comparing the interpreter with
- * itself, and agreement is guaranteed: they are a coverage measurement of the
- * *delegation*, not of a second implementation. That is roughly half of them,
- * because the poison policy is mixed in every fourth iteration and the
- * generator draws `matches` conditions besides.
- *
- * So the iterations that actually put two implementations against each other
- * are the ones where no policy in the set is throwable. Those are counted and
- * given a floor below, because "1000 iterations" meant something much smaller
- * than it sounded, and the delegation is pinned directly, on the shape that
- * would diverge without it, in `fast-path-throwable-delegation.test.ts`.
- */
+// Seeded fuzz of `evaluate(...).allowed === evaluateFast(...)`. Throwable policies delegate to the interpreter,
+// so only iterations without one compare two implementations; those get a floor below.
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0
@@ -43,11 +20,7 @@ function mulberry32(seed: number): () => number {
 
 const ACTIONS = ['read', 'write', 'delete', 'posts:read', 'posts:write']
 const RESOURCES = ['post', 'comment', 'user', 'org', 'org:project', 'dashboard.users']
-// Rule-only wildcard patterns (never used for a request's own action/resource -
-// a request is always literal, only a rule pattern can be expansive). Mixed into
-// makeRule below so it exercises indexPolicy's wildcard buckets: two independent
-// picks per rule naturally produce pure-literal, pure-wildcard, single-dimension-
-// wildcard, and mixed literal+wildcard-in-one-list rules, all from one knob.
+// Rule-only wildcard patterns (a request is always literal), mixed into makeRule to reach every wildcard bucket.
 const WILDCARD_ACTIONS = ['posts:*', 'admin:*']
 const WILDCARD_RESOURCES = ['comment:*', 'dashboard.*']
 const ROLES = ['viewer', 'editor', 'admin', 'guest']
@@ -70,12 +43,8 @@ function pick<T>(rng: () => number, xs: readonly T[]): T {
 }
 
 function makeCondition(rng: () => number): AccessControl.ICondition {
-  // Pick from a small set of resolvable field/value combinations so most
-  // conditions evaluate against the generated request state. The `matches`
-  // arm is the only one that can throw, and it does so exactly when the
-  // request's user agent is oversized - the Indeterminate dimension was
-  // otherwise unreachable from this generator, so every dev/prod divergence
-  // that lives on an error path was invisible to the oracle.
+  // Resolvable field/value pairs. The `matches` arm throws exactly when the user agent is oversized, which keeps
+  // the Indeterminate dimension reachable.
   const choice = Math.floor(rng() * 5)
   switch (choice) {
     case 0:
@@ -119,11 +88,7 @@ function makeRule(rng: () => number, idx: number): AccessControl.IRule {
   return {
     id: `r${idx}`,
     effect: rng() < 0.5 ? 'allow' : 'deny',
-    // Deliberately narrow. `first-match` / `highest-priority` break equal
-    // priorities by source order, and that tie-break is where the interpreter
-    // and the indexed fast path can drift apart. Spread over 20 values, ties
-    // were rare enough that a real literal-vs-wildcard divergence went unseen;
-    // 4 values makes collisions the common case without losing ordering cover.
+    // Narrow, so priority ties (where the interpreter and the indexed fast path can drift) are common.
     priority: Math.floor(rng() * 4),
     actions,
     resources,
@@ -168,9 +133,7 @@ function makeRequest(rng: () => number, forceOversized = false): IamRequest.IAcc
       type: pick(rng, RESOURCES),
       attributes: { ownerId: rng() < 0.5 ? 'u0' : 'other' },
     },
-    // 10% of requests carry a user agent past the regex input cap, which makes
-    // any generated `matches` condition throw. That is the shape an attacker
-    // controls: padding a header is enough to turn a deny rule Indeterminate.
+    // 10% of requests pad the user agent past the regex cap, as an attacker can, so any `matches` throws.
     environment: { userAgent: forceOversized || rng() < 0.1 ? OVERSIZED_USER_AGENT : 'curl/8.0' },
     scope: rng() < 0.3 ? pick(rng, SCOPES) : undefined,
   }
@@ -182,12 +145,7 @@ describe('property oracle: evaluate == evaluateFast', () => {
   const ITERATIONS = 1000
 
   /**
-   * `evaluateFast` cannot represent `first-applicable` - it falls through to
-   * `'and'`, and the Engine constructor refuses the pairing - so two of the six
-   * generated tests used to `return` before their first iteration and report
-   * green under the name of the mode they did not cover. The combine loop is
-   * driven against this reference instead, which re-derives the XACML rule from
-   * the *other* engine's per-policy primitive: the first policy that is not
+   * Reference for `first-applicable`, which `evaluateFast` cannot represent: the first policy that is not
    * NotApplicable wins, and an evaluation error is Indeterminate, never a skip.
    */
   function firstApplicableReference(
@@ -209,12 +167,8 @@ describe('property oracle: evaluate == evaluateFast', () => {
   }
 
   /**
-   * A wildcard rule whose only condition is a `matches` on the user agent, so
-   * an oversized agent makes this policy throw whatever else was generated.
-   * Mixed in on a fixed fraction of iterations rather than left to the random
-   * draw: with the draw alone, two of the six generated tests saw zero throwing
-   * evaluations in 1000 iterations, which is how the Indeterminate dimension
-   * stayed unfuzzed even after the generator learned to produce `matches`.
+   * A wildcard rule whose only condition is a `matches` on the user agent, so an oversized agent makes it throw.
+   * Mixed in on a fixed fraction of iterations, since the random draw alone can miss throwing evaluations.
    */
   function poisonPolicy(effect: AccessControl.Effect, idx: number): AccessControl.IPolicy {
     return {
@@ -269,11 +223,8 @@ describe('property oracle: evaluate == evaluateFast', () => {
         // The poison `matches` arm has to actually fire, or the Indeterminate
         // dimension is back to being unfuzzed with the generator none the wiser.
         expect(thrown).toBeGreaterThan(0)
-        // ...and the *other* half has to fire too. Without this floor a
-        // generator change that made every policy throwable would leave 1000
-        // iterations of the interpreter agreeing with itself, reported as 1000
-        // iterations of differential testing. The number is a floor on what the
-        // current generator produces (~450-550), not a target.
+        // ...and the other half too, or the interpreter agreeing with itself passes as differential testing.
+        // A floor on what the current generator produces (~450-550), not a target.
         expect(independent, 'no iteration compared two independent implementations').toBeGreaterThan(300)
       })
     }

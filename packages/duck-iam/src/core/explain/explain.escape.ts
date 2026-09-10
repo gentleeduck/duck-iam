@@ -1,13 +1,8 @@
 /**
- * Escape a value-derived string for safe inclusion in HTML.
+ * Replace `& < > " '` with their HTML entities.
+ * SECURITY: explain summaries and condition leaves carry policy names and request attributes verbatim, so any
+ * consumer rendering a trace into a debug panel must pass them through here first.
  *
- * `Explain.IResult.summary` and condition-leaf `actual` / `expected` strings
- * carry operator-supplied policy names and request-attribute values verbatim.
- * If a consumer renders the explain trace into a debug panel, run those
- * untrusted strings through this helper first. Returns the same input with
- * `& < > " '` replaced by their HTML entities.
- *
- * @param s - Untrusted string from explain output.
  * @returns HTML-safe escaped string.
  */
 export function iamEscapeHtml(s: string): string {

@@ -1,11 +1,7 @@
 import type { AccessControl, IamPrimitives } from '../types'
 /**
- * The decision trace: every policy and rule that was consulted, what each one
- * voted, and which one decided. Type-only.
- *
- * Produced by `engine.explain()` rather than by `can()` - a check answers a
- * boolean on the fast path, and reconstructing why is deliberately a separate,
- * slower call so debugging never taxes production authorization.
+ * The decision trace: every policy and rule consulted, what each voted, and which one decided. Type-only.
+ * PERF: produced by `engine.explain()`, never by `can()`, so reconstructing the reasoning never taxes the fast path.
  */
 export namespace Explain {
   /**
@@ -95,11 +91,8 @@ export namespace Explain {
     readonly conditions: IGroupTrace
     readonly matched: boolean
     /**
-     * Set when tracing this rule's conditions threw - an unknown operator, or a
-     * `conditions` field that is not a group. The decision path treats that as
-     * Indeterminate rather than as a non-match, so the rule reads
-     * `matched: false` here while the *policy* result reflects the Indeterminate
-     * vote. Absent on every rule that evaluated normally.
+     * Set when tracing this rule's conditions threw; absent on every rule that evaluated normally.
+     * NOTE: that is Indeterminate, not a non-match, so the rule reads `matched: false` while the policy result votes.
      */
     readonly conditionError?: string
   }
@@ -161,12 +154,9 @@ export namespace Explain {
     }
     readonly policies: readonly IPolicyTrace[]
     /**
-     * Plain-text human-readable summary. INFO-B: contains policy IDs, subject
-     * IDs, role IDs verbatim - values may be operator-controlled (admin-supplied
-     * policy names) or attacker-influenced (subject IDs from request paths).
-     * Downstream consumers that render this into HTML must HTML-escape it
-     * themselves; the explain pipeline never escapes for any specific
-     * rendering target.
+     * Plain-text human-readable summary.
+     * SECURITY: carries policy, subject and role ids verbatim, some attacker-influenced. The pipeline never escapes
+     * for a rendering target, so a consumer rendering this into HTML must escape it (see `iamEscapeHtml`).
      */
     readonly summary: string
   }
@@ -179,11 +169,8 @@ export namespace Explain {
    * const info: Explain.ISubjectInfo = {
    *   subjectId: 'user-1',
    *   originalRoles: ['editor'],
-   *   // Plain role IDs, never a `scope:role` composite. The engine derives
-   *   // this as `enrichedSubject.roles` minus `originalRoles`, so it names the
-   *   // roles a scoped grant *added* - which scope added them is not encoded
-   *   // here. This example used to show a scope-qualified composite, which is
-   *   // a shape nothing in the package emits.
+   *   // Plain role ids, never a scope-qualified composite: these are the roles a scoped grant added, and which
+   *   // scope added them is not encoded here.
    *   scopedRolesApplied: ['admin'],
    * }
    * ```

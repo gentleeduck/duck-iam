@@ -2,16 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluatePolicy, evaluatePolicyFast } from '../evaluate'
 
-/**
- * `first-match` and `highest-priority` both resolve equal priorities by source
- * order. The interpreter walks `policy.rules` directly, but `evaluatePolicyFast`
- * walks the rule index, which groups literal-resource rules into one bucket and
- * wildcard-resource rules into another and visits the literal bucket first.
- *
- * A deny declared first with an expansive resource therefore lost a priority tie
- * to an allow declared second with a literal resource: development denied and
- * production allowed the same request. These cases pin the two paths together.
- */
+// Equal priorities resolve by source order, but `evaluatePolicyFast` visits the literal bucket before the wildcard
+// one; these cases pin both engines to source order.
 
 const request: IamRequest.IAccessRequest = {
   action: 'read',

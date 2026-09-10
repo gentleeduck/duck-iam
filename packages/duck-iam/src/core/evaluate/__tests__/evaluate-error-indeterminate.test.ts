@@ -3,12 +3,8 @@ import { MAX_REGEX_INPUT_LENGTH } from '../../conditions/conditions.libs'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluate, evaluateFast } from '../evaluate'
 
-/**
- * An evaluation error is Indeterminate, not NotApplicable. Skipping a policy
- * that throws lets an attacker disable a deny rule by padding the field it
- * matches on (a >2048-char User-Agent makes `matches` throw), after which a
- * sibling allow wins. A policy that could have denied must fail closed.
- */
+// SECURITY: an evaluation error is Indeterminate, not NotApplicable; otherwise padding the field a deny rule
+// matches on (a >2048-char User-Agent) disables it and a sibling allow wins.
 const OVERSIZED = 'curl'.padEnd(MAX_REGEX_INPUT_LENGTH + 1, 'x')
 
 function request(userAgent: string): IamRequest.IAccessRequest {
@@ -74,11 +70,7 @@ describe("evaluate ('and') with a throwing deny policy", () => {
     expect(evaluate([allowAll, denyBots], request('curl'), 'deny', 'and').allowed).toBe(false)
   })
 
-  // This previously asserted `allowed === true` on the reasoning that an error
-  // in an allow-only policy cannot grant anything. It can: the policy's vote,
-  // had it evaluated, would have been `defaultEffect` - a deny - and skipping
-  // it drops that deny. Padding the user agent past the regex input cap was
-  // therefore enough to buy an allow.
+  // Skipping it would drop its `defaultEffect` vote - a deny - so padding the user agent would buy an allow.
   it('an allow-only policy that throws still casts its defaultEffect vote', () => {
     const onPolicyError = vi.fn()
     const decision = evaluate([allowAll, allowOnlyThatThrows], request(OVERSIZED), 'deny', 'and', onPolicyError)
@@ -102,18 +94,13 @@ describe("evaluateFast ('and') with a throwing deny policy", () => {
     expect(onPolicyError).toHaveBeenCalledOnce()
   })
 
-  // Mirrors the slow-path correction above: the fast path had its own copy of
-  // the skip, so fixing only one of the two would have left prod and dev
-  // disagreeing on exactly this input.
+  // The fast path must match the slow path, or prod and dev disagree on this input.
   it('an allow-only policy that throws still casts its defaultEffect vote', () => {
     expect(evaluateFast([allowAll, allowOnlyThatThrows], request(OVERSIZED), 'deny', 'and')).toBe(false)
   })
 })
 
-/**
- * With no sibling allow, a throwing deny must not fall through to a
- * `defaultEffect: 'allow'` engine - that is the fail-open the padding buys.
- */
+// With no sibling allow, a throwing deny must not fall through to `defaultEffect: 'allow'`.
 describe.each(['and', 'allow-overrides'] as const)('fail-open engine (%s), lone throwing deny', (combine) => {
   it('evaluate denies', () => {
     expect(evaluate([denyBots], request(OVERSIZED), 'allow', combine).allowed).toBe(false)
@@ -128,13 +115,7 @@ describe.each(['and', 'allow-overrides'] as const)('fail-open engine (%s), lone 
   })
 })
 
-/**
- * The fast path can reach a verdict without ever evaluating the throwing rule -
- * `allow-overrides` returns on its first unconditional allow, and the
- * precomputed map answers before any condition runs - so production allowed
- * what development denied. A 10k-case throw-injection fuzz showed 71 such
- * divergences, every one of them prod-allows/dev-denies.
- */
+/** The fast path could answer this from its first allow without ever running the throwing deny. */
 const allowThenThrowingDeny: AccessControl.IPolicy = {
   id: 'p-early-return',
   name: 'early return',
@@ -160,18 +141,13 @@ describe('a throwing rule the fast path would skip past', () => {
     expect(fast).toBe(false)
   })
 
-  // Control: without the oversized input nothing throws, the deny's condition
-  // is simply false, and both engines allow. If this went red the test above
-  // would be passing only because everything denies.
+  // Control: without the oversized input both engines allow, so the test above is not "everything denies".
   it('still allows both ways on a normal-length user agent', () => {
     expect(evaluate([allowThenThrowingDeny], request('firefox'), 'deny', 'and').allowed).toBe(true)
     expect(evaluateFast([allowThenThrowingDeny], request('firefox'), 'deny', 'and')).toBe(true)
   })
 
-  // The precomputed map is the other way the fast path answers without running
-  // any condition. This shape agreed even before the fix - the throwing rule is
-  // on a cell the request never touches - so it is a control on the delegation
-  // not changing a verdict that was already correct.
+  // Control: the throwing rule is on a cell the request never touches, so delegation must not change this verdict.
   it('agrees on a precomputed cell whose sibling rule throws', () => {
     const policy: AccessControl.IPolicy = {
       id: 'p-precomputed',

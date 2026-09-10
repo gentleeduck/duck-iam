@@ -3,25 +3,8 @@ import { IAM_RBAC_POLICY_ID } from '../../rbac'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluatePolicy } from '../evaluate'
 
-/**
- * `rulesAbstainOnThrow` is gated on TWO things: the policy is the generated
- * `__rbac__` union, AND it carries no deny rule. Fourteen lines of comment
- * explain why the first half is there - `rolesToPolicy` folds independent
- * grants from separate roles into one allow-only policy that the compiled table
- * evaluates first-match-wins, so one rotten permission must not poison the
- * others - and nothing tested it. Deleting `policy.id === IAM_RBAC_POLICY_ID &&`
- * left the whole suite green.
- *
- * The half that was untested is the *negative* one: an operator's own allow-only
- * policy is a single authored unit whose rules were meant to be read together,
- * `evaluateDynamicCell` in the compiled table treats it as one, and letting its
- * rules abstain individually makes the interpreter disagree with the table in
- * the opposite direction from the bug the gate was added to fix.
- *
- * So: a throwing rule in an operator's policy must raise (Indeterminate, which
- * the caller absorbs as a deny vote), and the same rule under the `__rbac__` id
- * must not.
- */
+// `rulesAbstainOnThrow` needs both the `__rbac__` id and no deny rule. A throwing rule in an operator's own policy
+// must raise (Indeterminate), since the compiled table treats that policy as one unit.
 const REQUEST: IamRequest.IAccessRequest = {
   action: 'read',
   environment: {},
@@ -49,9 +32,7 @@ describe('only the generated RBAC union lets a throwing rule abstain', () => {
   })
 
   it("an operator's own allow-only policy raises instead of abstaining", () => {
-    // The negative half of the gate. Without `policy.id === IAM_RBAC_POLICY_ID`
-    // this returned `{allowed: true}` - the unrelated clean rule carrying the
-    // decision for a policy whose author wrote its rules to be read together.
+    // The negative half of the gate: without the id check, an unrelated clean rule would decide this policy.
     expect(() => evaluatePolicy(policyFrom('p-operator'), REQUEST, 'deny')).toThrow()
   })
 
@@ -67,8 +48,7 @@ describe('only the generated RBAC union lets a throwing rule abstain', () => {
   })
 
   it('a deny rule anywhere in the union closes the abstention off again', () => {
-    // The other half of the gate, and the one that was already covered. Kept
-    // here so the two halves are read together.
+    // The other half of the gate, kept here so the two are read together.
     const withDeny = policyFrom(
       IAM_RBAC_POLICY_ID,
       ',{"actions":["write"],"conditions":{"all":[]},"effect":"deny","id":"r-deny","priority":1,"resources":["other"]}',

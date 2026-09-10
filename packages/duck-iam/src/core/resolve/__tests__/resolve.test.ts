@@ -135,8 +135,7 @@ describe('matchesResource()', () => {
   })
 
   it('bare pattern does NOT match sub-resources', () => {
-    // Breaking change vs prior behaviour: a bare "org" no longer implicitly
-    // grants on "org:project". Authors must opt in with "org:*".
+    // A bare "org" does not grant on "org:project"; authors opt in with "org:*".
     expect(matchesResource('org', 'org:project')).toBe(false)
     expect(matchesResource('org', 'org:project:doc')).toBe(false)
     expect(matchesResource('org', 'organization')).toBe(false)
@@ -156,9 +155,7 @@ describe('matchesResource()', () => {
     expect(matchesResource('org:billing:*', 'org:secrets:invoice')).toBe(false)
   })
 
-  // `matchesResource` is called directly by `policyApplies` /
-  // `policyTargetsMatch`, so dot-pattern targets must match dot-style
-  // request resources here. Colon-pattern behaviour is unchanged.
+  // `policyApplies` calls `matchesResource` directly, so dot-pattern targets must match dot-style resources here.
   it('dot wildcard: dashboard.* matches dot children', () => {
     expect(matchesResource('dashboard.*', 'dashboard.users')).toBe(true)
     expect(matchesResource('dashboard.*', 'dashboard.users.list')).toBe(true)
@@ -199,8 +196,7 @@ describe('matchesResourceHierarchical()', () => {
   })
 
   it('bare pattern does NOT match dot-children', () => {
-    // Breaking change vs prior behaviour - bare "dashboard" only matches
-    // the literal "dashboard". Authors must use "dashboard.*" for recursion.
+    // Bare "dashboard" only matches the literal; authors use "dashboard.*" for recursion.
     expect(matchesResourceHierarchical('dashboard', 'dashboard.users')).toBe(false)
     expect(matchesResourceHierarchical('dashboard', 'dashboard.users.settings')).toBe(false)
     expect(matchesResourceHierarchical('dashboard', 'dashboards')).toBe(false)

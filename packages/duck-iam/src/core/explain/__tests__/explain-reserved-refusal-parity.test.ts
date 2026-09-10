@@ -3,19 +3,10 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IAM_RESERVED_REFUSAL } from '../../../shared/reserved'
 import { IamEngine } from '../../engine/engine'
 
-/**
- * The reserved refusal token is denied before any policy is consulted, because
- * a sentinel *string* cannot carry a denial - `'*'` matches it, so a wildcard
- * admin grant used to turn the refusal back into an allow.
- *
- * `authorize()` and `permissions()` each enforce that. `explain()` did not: it
- * ran the combine over the policy traces and reported what the policies said,
- * so the tool an operator opens to find out why a request was refused told them
- * it was allowed.
- */
-// Generics pinned to `string`: inferring them from the wildcard grant narrows
-// `TAction` to `'*'`, and every call below then fails to typecheck against a
-// union that has nothing to do with what is being tested.
+// SECURITY: the reserved refusal token is denied before any policy is consulted - a sentinel string cannot carry a
+// denial, since `'*'` matches it - and `explain()` must report that denial too, not what the policies said.
+
+// Generics pinned to `string`: inferring them from the wildcard grant narrows `TAction` to `'*'`.
 async function adminEngine() {
   const adapter = new IamMemoryAdapter<string, string, string, string>({
     roles: [{ id: 'admin', name: 'Admin', permissions: [{ action: '*', resource: '*' }] }],
@@ -64,8 +55,7 @@ describe('explain() refuses the reserved token the way the decision path does', 
     expect(explained.decision.rule).toBeUndefined()
   })
 
-  // The traces stay. Seeing which wildcard rule *would* have matched is the
-  // reason to open explain() on a refused request; only the verdict is fixed.
+  // The traces stay: which wildcard rule would have matched is why you open explain(). Only the verdict is fixed.
   it('still traces the policies, and the summary reports the denial', async () => {
     const engine = await adminEngine()
     const explained = await engine.explain('u1', IAM_RESERVED_REFUSAL, { attributes: {}, type: 'post' })

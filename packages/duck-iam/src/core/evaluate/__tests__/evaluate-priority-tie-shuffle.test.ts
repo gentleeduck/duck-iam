@@ -2,19 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluate, evaluateFast } from '../evaluate'
 
-/**
- * `evaluate-priority-tie-source-order.test.ts` covers four hand-written
- * orderings. The tie-break is the one place the interpreter's linear scan and
- * the fast path's bucket walk can disagree by construction - the fast path
- * visits literal buckets before wildcard ones, so bucket order is not source
- * order - and four orderings is not a sample.
- *
- * Two separate claims live here. The parity one is a guarantee: for any given
- * order, both engines return the same verdict. The order-dependence one is not
- * a bug but a documented consequence of source order being the tie-break, and
- * it is asserted so the suite says out loud that a policy with equal-priority
- * opposing rules is only as deterministic as the adapter's row order.
- */
+// Shuffled orderings for priority ties, where bucket order and source order differ. Parity across engines is a
+// guarantee; order-dependence is the documented cost of source order being the tie-break.
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0
   return () => {
@@ -116,14 +105,11 @@ describe('equal-priority tie-break under shuffled rule order', () => {
       }
       if (verdicts.size > 1) orderDependent++
     }
-    // Not an assertion about the exact count - only that the phenomenon the
-    // first test guards parity over is real and common, so parity is not
-    // holding trivially because every shuffle produces the same verdict.
+    // Not an exact count: order-dependence must be common, so parity is not holding trivially.
     expect(orderDependent).toBeGreaterThan(MULTISETS / 20)
   })
 
-  // Control: distinct priorities remove the ambiguity entirely, which is the
-  // remedy the type's doc points authors at.
+  // Distinct priorities are the remedy the type's doc recommends.
   it('control: distinct priorities make the verdict order-independent', () => {
     const rules: AccessControl.IRule[] = [
       { actions: ['read'], conditions: { all: [] }, effect: 'deny', id: 'r-deny', priority: 20, resources: ['post'] },

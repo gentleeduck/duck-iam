@@ -2,19 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { AccessControl } from '../../types'
 import { indexPolicy } from '../evaluate.libs'
 
-/**
- * `IRule.conditions` is required by the type and by the JSON schema, but neither
- * `validateRuleShape` nor the memory/http adapters enforce it, so a rule loaded
- * from storage can reach `indexPolicy` without it. Indexing such a rule must not
- * throw, and must not decide it either: the row is flagged as needing
- * evaluation so both engines hit the same `'all' in undefined` TypeError and
- * the engine folds it into a fail-closed Indeterminate.
- */
-/**
- * Built through JSON, the way such a row actually arrives: `conditions` is
- * simply absent. `JSON.parse` returns `any`, so the shape the type says cannot
- * exist reaches `indexPolicy` without a cast standing in for the adapter.
- */
+// A stored rule can lack `conditions`. Indexing must neither throw nor decide it, so both engines reach the same
+// throw and the engine folds it into a fail-closed Indeterminate.
+/** Built through JSON, the way such a row arrives, so no cast stands in for the adapter. */
 function ruleWithoutConditions(overrides: Partial<AccessControl.IRule> = {}): AccessControl.IRule {
   return JSON.parse(
     JSON.stringify({
@@ -37,11 +27,7 @@ describe('indexPolicy with a rule missing `conditions`', () => {
     expect(() => indexPolicy(policyOf([ruleWithoutConditions()]))).not.toThrow()
   })
 
-  // Not "unconditional": `evalConditionGroup` throws on an absent group, and a
-  // fast path that read it as an unconditional match would honour a rule the
-  // interpreter refuses. The entry is flagged as needing evaluation so both
-  // engines reach the same throw, which the engine turns into a fail-closed
-  // Indeterminate.
+  // Not "unconditional": `evalConditionGroup` throws on an absent group, so the fast path must reach the same throw.
   it('flags a missing `conditions` as needing evaluation', () => {
     const index = indexPolicy(policyOf([ruleWithoutConditions()]))
     const entries = index.byActionResource.get('read')?.get('post')

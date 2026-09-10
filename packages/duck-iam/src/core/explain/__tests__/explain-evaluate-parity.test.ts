@@ -4,14 +4,8 @@ import type { AccessControl, IamRequest } from '../../types'
 import { explainEvaluation } from '../explain'
 import type { Explain } from '../explain.types'
 
-/**
- * `explainEvaluation` recomputes the cross-policy combine instead of calling
- * `evaluate`, so the two are only kept in agreement by test. They had drifted
- * twice: both gated `first-applicable` on a deciding rule and so skipped a
- * policy that voted its `defaultEffect`, and explain's applicability test was
- * missing evaluate's second NotApplicable check entirely. Either way an
- * operator was shown the opposite of what the engine decided.
- */
+// `explainEvaluation` recomputes the cross-policy combine rather than calling `evaluate`, so only a test keeps the
+// two in agreement; a drift shows an operator the opposite of what the engine decided.
 const subjectInfo: Explain.ISubjectInfo = {
   subjectId: 'u1',
   originalRoles: [],
@@ -70,10 +64,8 @@ const SETS: ReadonlyArray<readonly [string, AccessControl.IPolicy[]]> = [
 
 const COMBINES: AccessControl.PolicyCombine[] = ['first-applicable', 'and', 'allow-overrides']
 
-// The applicability half of this is not specific to `first-applicable`: explain
-// tested only `policy.targets` where evaluate also requires some rule to be
-// shaped for the request, so `[otherAction]` under `and` reported a deny the
-// engine never returned. Every mode is covered so the two cannot drift again.
+// Applicability is not specific to `first-applicable` - evaluate also requires a rule shaped for the request - so
+// every combine mode is covered.
 describe.each(COMBINES)('explain and evaluate agree under combine=%s', (combine) => {
   describe.each(SETS)('%s', (_label, policies) => {
     it.each(['deny', 'allow'] as const)('under defaultEffect %s', (defaultEffect) => {
