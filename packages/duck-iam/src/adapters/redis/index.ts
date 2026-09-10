@@ -216,7 +216,7 @@ export class IamRedisAdapter<
     // was granted. `assignRole` / `revokeRole` already refuse it at the shared
     // boundary; this is the encoder's own guard, kept because every internal
     // caller of `_encodeAssignment` would otherwise have to remember.
-    iamAssertAssignableScope('redis', scope)
+    iamAssertAssignableScope('redis', scope, 'lookup')
     const s: string = scope ?? ''
     if (r.includes(IamRedisAdapter._SEP) || s.includes(IamRedisAdapter._SEP)) {
       throw new Error('[@gentleduck/iam:redis] role / scope must not contain NUL bytes')
@@ -557,7 +557,7 @@ export class IamRedisAdapter<
    * @returns Resolves once the SREM completes.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    iamAssertAssignableScope('redis', scope)
+    iamAssertAssignableScope('redis', scope, 'lookup')
     const key = this._assignmentsKey(subjectId)
     // Serialise against migration so a racing _migrateLegacyAssignment
     // cannot SADD the migrated form after our SREM lands.

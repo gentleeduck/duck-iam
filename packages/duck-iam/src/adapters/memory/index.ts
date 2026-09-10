@@ -246,7 +246,7 @@ export class IamMemoryAdapter<
    * @returns Resolves once the assignment is removed.
    */
   async revokeRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
-    iamAssertAssignableScope('memory', scope)
+    iamAssertAssignableScope('memory', scope, 'lookup')
     const entries = this._assignments.get(id)
     if (!entries) return
     // Omitting `scope` removes EVERY assignment for the role across all

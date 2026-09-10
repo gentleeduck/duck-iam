@@ -1,4 +1,5 @@
 import { IamValidationError } from '../../shared/errors'
+import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import type { Batch } from '../batch'
 import { appliedRows, batchResult, loopFallback } from '../batch'
@@ -388,10 +389,33 @@ export function createAdmin<
     mutations?: { emit(event: IamEngineTypes.IMutationEvent<TRole, TScope>): void | Promise<void> }
   },
 ): IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
-  const assertTriple = (subjectId: string, roleId: TRole, scope?: TScope): void => {
+  /**
+   * The scope rules the adapters enforce, applied one layer earlier.
+   *
+   * `iamAssertAssignableScope` is the predicate itself rather than a second
+   * copy of it, but where it runs matters as much as what it says. The adapters
+   * guard their own `assignRole`, which for `assignRoles` is *inside* the write
+   * loop - so a batch carrying one `'*'` row would write every row before it
+   * and then throw, which is exactly the half-applied batch the pre-pass at
+   * `assignRoles` exists to prevent ("a caller who fixes a malformed row and
+   * retries would otherwise double-apply every row that had already landed").
+   * Running it in the pre-pass makes the whole batch fail before anything is
+   * written; the adapter guard stays as the backstop for a caller who reaches
+   * the adapter directly.
+   */
+  const assertAssignableScope = (scope: unknown, intent: 'grant' | 'lookup'): void => {
+    iamAssertAssignableScope('engine', scope, intent)
+  }
+  const assertTriple = (
+    subjectId: string,
+    roleId: TRole,
+    scope?: TScope,
+    intent: 'grant' | 'lookup' = 'grant',
+  ): void => {
     assertNonEmptyStringParam('subjectId', subjectId)
     assertNonEmptyStringParam('roleId', roleId)
     assertOptionalNonEmptyStringParam('scope', scope)
+    assertAssignableScope(scope, intent)
   }
   const sink = engine.mutations
   /**
@@ -512,7 +536,10 @@ export function createAdmin<
       })
     },
     async revokeRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IRevokeOptions) {
-      assertTriple(subjectId, roleId, scope)
+      // `'lookup'`: a revoke addresses a row that already exists, and an
+      // operator holding `'*'` rows written before the guard has to be able to
+      // delete them.
+      assertTriple(subjectId, roleId, scope, 'lookup')
       await adapter.revokeRole(subjectId, roleId, scope, opts)
       engine.cache.invalidateSubject(subjectId)
       await emit?.({
@@ -535,6 +562,10 @@ export function createAdmin<
       assertNonEmptyStringParam('roleId', roleId)
       assertOptionalNonEmptyStringParam('fromScope', fromScope)
       assertOptionalNonEmptyStringParam('toScope', toScope)
+      // A move reads one scope and writes the other, so the two ends are not
+      // the same question: `'*'` may be moved *off*, never *to*.
+      assertAssignableScope(fromScope, 'lookup')
+      assertAssignableScope(toScope, 'grant')
       await moveOne(subjectId, roleId, fromScope, toScope, actor)
     },
     async assignRoles(rows: readonly IamEngineTypes.IAssignRow<TRole, TScope>[]) {
@@ -560,7 +591,7 @@ export function createAdmin<
     },
     async revokeRoles(rows: readonly IamEngineTypes.IRevokeRow<TRole, TScope>[]) {
       if (rows.length === 0) return batchResult([])
-      for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope)
+      for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope, 'lookup')
       const revokeRoleMany = adapter.revokeRoleMany?.bind(adapter)
       let changed: readonly number[] | null = null
       if (revokeRoleMany) changed = await revokeRoleMany(rows)
@@ -577,6 +608,8 @@ export function createAdmin<
         assertNonEmptyStringParam('roleId', r.roleId)
         assertOptionalNonEmptyStringParam('fromScope', r.fromScope)
         assertOptionalNonEmptyStringParam('toScope', r.toScope)
+        assertAssignableScope(r.fromScope, 'lookup')
+        assertAssignableScope(r.toScope, 'grant')
       }
       // Delegates per row to the single-row move, which owns the revoke + assign
       // fallback for adapters with no in-place update. There is no set-based

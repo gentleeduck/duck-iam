@@ -825,7 +825,7 @@ export class IamDrizzleAdapter<
    * @returns Resolves once the delete completes.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    iamAssertAssignableScope('drizzle', scope)
+    iamAssertAssignableScope('drizzle', scope, 'lookup')
     const conditions = [
       this._eq(this._t.assignments.subjectId, subjectId),
       this._eq(this._t.assignments.roleId, roleId),
@@ -902,7 +902,7 @@ export class IamDrizzleAdapter<
    * @returns Indices of the rows this call removed a grant for, or `null` on MySQL.
    */
   async revokeRoleMany(rows: readonly IamAdapter.ITripleRow<TRole, TScope>[]): Promise<readonly number[] | null> {
-    for (const r of rows) iamAssertAssignableScope('drizzle', r.scope)
+    for (const r of rows) iamAssertAssignableScope('drizzle', r.scope, 'lookup')
     if (rows.length === 0) return []
     const rowCondition = (r: IamAdapter.ITripleRow<TRole, TScope>): SQLWrapper | undefined => {
       const conditions: (SQLWrapper | undefined)[] = [
