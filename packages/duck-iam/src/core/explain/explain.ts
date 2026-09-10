@@ -1,3 +1,4 @@
+import { iamIsReservedRefusal } from '../../shared/reserved'
 import type { AccessControl, IamRequest } from '../types'
 import { tracePolicy } from './explain.libs'
 import type { Explain } from './explain.types'
@@ -37,12 +38,39 @@ export function explainEvaluation(
     finalRule = decided.rule
   }
 
+  // The reserved refusal token is denied before any policy is consulted, and
+  // `authorize()` / `permissions()` both say so. `explain()` did not: it ran
+  // the combine over the traces and reported whatever the policies said, so a
+  // subject holding the ordinary `.on('*').of('*')` admin grant was explained
+  // as ALLOWED on a request the engine denies - on exactly the requests the
+  // adapters mint this token for, an unmappable method and a path the
+  // traversal guard refused to resolve.
+  //
+  // The traces are kept rather than dropped. Seeing which wildcard rule *would*
+  // have matched is the whole reason to open `explain()` on a refused request;
+  // what must not happen is the summary at the bottom disagreeing with the
+  // engine. `iamIsReservedRefusal` is the predicate the decision path uses, not
+  // a second reading of it - the fourth drift between these two paths came from
+  // a hand-copy.
+  if (iamIsReservedRefusal(request.action) || iamIsReservedRefusal(request.resource.type)) {
+    finalEffect = 'deny'
+    finalReason = 'Denied: the request names the reserved refusal token, which no policy can grant'
+    finalPolicy = undefined
+    finalRule = undefined
+  }
+
   const decision: AccessControl.IDecision = {
     allowed: finalEffect === 'allow',
     effect: finalEffect,
     rule: finalRule,
     policy: finalPolicy,
     reason: finalReason,
+    // `failure: 'input'` for the reserved token, the same tag
+    // `_reservedRefusalDecision` carries, so a caller branching on it reads the
+    // same value from both entry points.
+    ...(iamIsReservedRefusal(request.action) || iamIsReservedRefusal(request.resource.type)
+      ? { failure: 'input' as const }
+      : {}),
     duration: performance.now() - start,
     timestamp: Date.now(),
   }
