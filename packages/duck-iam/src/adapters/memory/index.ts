@@ -67,14 +67,34 @@ export class IamMemoryAdapter<
     // then stored in a different shape.
     for (const p of init?.policies ?? []) this._policies.set(p.id, iamNormalizePolicy(p))
     for (const r of init?.roles ?? []) this._roles.set(r.id, r)
+    // Seeded assignments go through the same refusal `assignRole` applies, for
+    // the same reason the policies above go through `iamNormalizePolicy`: a
+    // seed and a write must not disagree about what the store can hold. They
+    // did. `assignRole` refuses a role that is not stored on all six adapters,
+    // and the seed loop accepted one - `getSubjectRoles` then returned the id,
+    // `resolveEffectiveRoles` kept it (it is a directly assigned role, not the
+    // dangling `inherits` id that case already closes), and a hand-written ABAC
+    // rule testing `subject.roles contains 'ghost'` fired on it. Measured: a
+    // seed of `{ u1: ['ghost'] }` with no roles at all produced an ALLOW.
+    //
+    // This adapter is documented "tests + prototypes only", so this is not a
+    // production grant path - which is the point. A fixture that can reach a
+    // state `assignRole` forbids lets a suite certify behaviour the product
+    // cannot actually produce.
+    //
+    // Roles are seeded above, so an init naming its own roles is unaffected.
     for (const [uid, roles] of Object.entries(init?.assignments ?? {})) {
+      for (const r of roles) iamAssertRoleExists('memory', this._roles.has(r))
       this._assignments.set(
         uid,
         roles.map((r) => ({ role: r })),
       )
     }
+    // Copied, not stored by reference: see `getSubjectAttributes`, which has
+    // the other half of this. `setSubjectAttributes` already builds a fresh
+    // object on every write, so this makes the seed agree with the write.
     for (const [uid, attrs] of Object.entries(init?.attributes ?? {})) {
-      this._attributes.set(uid, attrs)
+      this._attributes.set(uid, { ...attrs })
     }
   }
 
@@ -291,7 +311,15 @@ export class IamMemoryAdapter<
    * @returns The subject's attributes or `{}` when none are recorded.
    */
   async getSubjectAttributes(id: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
-    return this._attributes.get(id) ?? {}
+    // A copy. This used to hand back the live internal bag, so a caller who
+    // read the attributes and then edited what they were given rewrote the
+    // store - no `setSubjectAttributes`, no validation, and nothing to
+    // invalidate a cache from. The other five adapters cannot do this: each
+    // deserializes and rebuilds through `iamNarrowAttributes`, and prisma's
+    // call site says so out loud ("builds a fresh Record, so this also avoids
+    // sharing"). Memory alone aliased, because it has nothing to deserialize.
+    const attrs = this._attributes.get(id)
+    return attrs === undefined ? {} : { ...attrs }
   }
 
   /**

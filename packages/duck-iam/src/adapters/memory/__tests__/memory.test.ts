@@ -199,7 +199,14 @@ describe('IamMemoryAdapter', () => {
 
 describe('iamMemoryAdapter factory', () => {
   it('returns a working IamMemoryAdapter seeded from init', async () => {
-    const adapter = iamMemoryAdapter({ assignments: { 'user-1': ['viewer'] } })
+    // `viewer` is declared here because a seeded assignment naming a role the
+    // init does not define is now refused, exactly as `assignRole` refuses it.
+    // This test is about the factory, and it was seeding a dangling grant only
+    // incidentally - which is how the divergence stayed invisible.
+    const adapter = iamMemoryAdapter({
+      assignments: { 'user-1': ['viewer'] },
+      roles: [{ id: 'viewer', name: 'Viewer', permissions: [] }],
+    })
     expect(adapter).toBeInstanceOf(IamMemoryAdapter)
     expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
   })
