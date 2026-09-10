@@ -11,7 +11,6 @@ describe('creditWrites', () => {
   })
 
   it('credits a write once when two rows ask for the same thing', () => {
-    // One write happened. Crediting both would report two changes for one row.
     expect(creditWrites([{ id: 'a' }, { id: 'a' }], [{ id: 'a' }], accountsFor)).toEqual([0])
   })
 
@@ -19,8 +18,7 @@ describe('creditWrites', () => {
     const requested: Row[] = [{ id: 'a' }, { id: 'a', scope: 'org-1' }]
     const written: Row[] = [{ id: 'a', scope: 'org-1' }]
 
-    // The unscoped row accounts for every scope, so it claims the write and
-    // the narrower row that follows has nothing left to claim.
+    // The unscoped row covers every scope, so it claims the write first.
     expect(creditWrites(requested, written, accountsFor)).toEqual([0])
   })
 
@@ -28,14 +26,11 @@ describe('creditWrites', () => {
     const requested: Row[] = [{ id: 'a' }, { id: 'a' }, { id: 'a' }]
     const credited = creditWrites(requested, [{ id: 'a' }, { id: 'a' }], accountsFor)
 
-    // Two writes, three identical requests: the first two each claim one and
-    // the third has nothing left. Crediting all three would report more
-    // changes than the database made.
+    // Two writes, three identical requests: the third has nothing left to claim.
     expect(credited).toEqual([0, 1])
   })
 
   it('credits a wildcard row once, however many writes it matches', () => {
-    // One request removed three scoped rows. It changed something - once.
     expect(
       creditWrites(
         [{ id: 'a' }],
@@ -65,7 +60,7 @@ describe('appliedRows', () => {
         { ok: true, row: { id: 'b' }, value: { changed: false } },
       ],
     })
-    // The very objects passed in, so identity comparison works for the caller.
+    // The same objects passed in, so callers can compare by identity.
     expect(result.outcomes[0]?.row).toBe(rows[0])
   })
 
@@ -78,8 +73,7 @@ describe('appliedRows', () => {
   })
 
   it('keeps two structurally identical rows as two addressable outcomes', () => {
-    // The old string id collapsed these into one key; the row-carrying outcome
-    // keeps them separate, and the crediting rule answers them honestly.
+    // Only the first is credited with the single write.
     const result = appliedRows([{ id: 'a' }, { id: 'a' }], [0])
 
     expect(result.outcomes).toHaveLength(2)

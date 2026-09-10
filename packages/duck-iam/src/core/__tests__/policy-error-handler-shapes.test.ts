@@ -5,23 +5,8 @@ import { IamEngine } from '../engine/engine'
 import { iamEvaluate } from '../evaluate/evaluate.public'
 import type { AccessControl, IamRequest } from '../types'
 
-/**
- * `onPolicyError` names three different function shapes in this package, two of
- * them reachable from the package root:
- *
- * | Where | Second argument |
- * |---|---|
- * | `iamEvaluate` / `iamEvaluateFast` | the policy **object** |
- * | `IamEngine` `hooks.onPolicyError` | the policy **id**, a string |
- * | adapter configs | `{ adapter, rowId }` |
- *
- * A handler declared with an explicit type is caught by the compiler when it is
- * wired to the wrong one. An inline arrow is not - it is contextually typed and
- * compiles against all three - so the same logging line prints a policy id in
- * one place and `[object Object]` in another. These tests state which argument
- * each caller actually passes, so the shapes cannot drift further apart
- * silently.
- */
+// `onPolicyError` has three shapes (see `AccessControl.PolicyErrorHandler`) and an inline arrow compiles against
+// all of them, so these tests pin which second argument each caller actually passes.
 
 /** A >2048-char field makes the `matches` operator throw. */
 const OVERSIZED = 'curl'.padEnd(MAX_REGEX_INPUT_LENGTH + 1, 'x')
@@ -84,8 +69,7 @@ describe('the engine hook hands its handler the policy id', () => {
     expect(seen).toEqual(['p-deny-bots'])
   })
 
-  // The concrete consequence of the two shapes sharing a name: one inline
-  // arrow, two different rendered strings.
+  // One inline arrow, two different rendered strings.
   it('renders differently from the evaluator handler under the same template', async () => {
     const lines: string[] = []
     const log = (_err: Error, p: unknown) => lines.push(`policy ${p} failed`)
@@ -99,12 +83,6 @@ describe('the engine hook hands its handler the policy id', () => {
   })
 })
 
-/**
- * The hook's own doc block used to say the offending policy is "treated as
- * NotApplicable so the rest of the policy set continues to evaluate" - the
- * pre-round-1 behaviour, and the opposite of what the evaluator does now. An
- * operator reading that would conclude a throwing deny policy is safely skipped.
- */
 describe('a policy that throws stays applicable', () => {
   it('denies rather than abstaining, so a throw cannot retire a deny rule', () => {
     const decision = iamEvaluate([denyBots], request(), 'deny', 'and', () => undefined)

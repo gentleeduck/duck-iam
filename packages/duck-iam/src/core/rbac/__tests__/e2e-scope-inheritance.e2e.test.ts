@@ -1,14 +1,6 @@
 /**
- * E2E: cross-scope role inheritance resolved through REAL Postgres.
- *
- * The area three recent commits touched (2e5f5dc2, 282d6f67): when a role
- * assigned at scope X inherits a role declared at scope Y, which scope does the
- * inherited role carry, and where is it visible? The stated rule is "tagged
- * with its own declared scope, falling back to the assignment row's scope when
- * it declares none". Every case below pins that against a real store, and
- * checks the two evaluators (compiled table + interpreter, both of which run in
- * `mode: 'development'`) never disagree - a disagreement is routed to `onError`
- * and asserted absent.
+ * E2E on real Postgres: an inherited role carries its own declared scope, else the assignment row's scope.
+ * Both evaluators run in development; a disagreement routed to `onError` is asserted absent.
  */
 import { and, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -39,11 +31,8 @@ const OPS = { and, eq, or }
 const DOC = { attributes: {}, type: 'doc' as const }
 
 /**
- * Reads one verdict out of a `permissions()` map. The map's key type is a
- * template literal over the declared action/resource/scope unions, and these
- * scopes are plain strings, so it cannot be indexed directly. Narrowed rather
- * than cast: an absent or non-boolean entry comes back as `undefined` and fails
- * the comparison loudly instead of being asserted into a boolean.
+ * Reads one verdict from a `permissions()` map, whose template-literal key type a plain string can't index.
+ * A missing or non-boolean entry returns `undefined` and fails the comparison.
  */
 function verdictFor(map: object, key: string): boolean | undefined {
   const value = Object.hasOwn(map, key) ? Reflect.get(map, key) : undefined
@@ -145,12 +134,7 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       expect(await engine.can('u1', 'read', DOC, undefined, 'org-a')).toBe(false)
     })
 
-    /**
-     * CROSS-TENANT REACH. A grant made only in org-a produces an allow in
-     * org-b, because the inherited role declares org-b. It is consistent with
-     * what the catalog says, and it is also the shape an operator is most
-     * likely to get wrong - pinned here so any change of semantics is visible.
-     */
+    // NOTE: consistent with the catalog, but the shape an operator most likely gets wrong, so it is pinned.
     it('the inherited role IS visible in org-b, from a grant only ever made in org-a', async () => {
       const engine = makeEngine()
       expect(await engine.can('u1', 'read', DOC, undefined, 'org-b')).toBe(true)
@@ -205,14 +189,8 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       expect(await engine.getEffectiveRoles('u1', 'org-b')).toEqual([])
     })
 
-    /**
-     * SCOPE-CONFINEMENT GAP. `a-lead` declares `scope: 'org-a'`, but the
-     * permission it inherits from the unscoped `base` is evaluated with
-     * `base`'s (absent) scope, so an UNSCOPED assignment of `a-lead` grants
-     * `read doc` in every tenant. The role's own `write doc` is correctly
-     * confined to org-a. Whether this is intended is a product question; the
-     * asymmetry is the finding.
-     */
+    // The inherited permission uses `base`'s absent scope, so it grants everywhere while `a-lead`'s own `write` stays
+    // in org-a. Whether that asymmetry is intended is a product question.
     it('an unscoped assignment lets the inherited permission escape the declared scope', async () => {
       await seedAssignment('u2', 'a-lead', null)
       const engine = makeEngine()
@@ -227,14 +205,7 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
   })
 
   describe('which way inheritance moves a grant through the scope tree', () => {
-    /**
-     * UPWARD ESCALATION. `u1` was only ever granted something at
-     * `org-a.team-1`. The role they hold there inherits `org-lead`, which
-     * DECLARES `org-a`, so `resolveSubject` tags the inherited role with
-     * `org-a` and the subject now holds a role at the PARENT scope that nobody
-     * granted them there. This happens in flat mode too - it is not a
-     * hierarchy-walking effect, it is the retag.
-     */
+    // `resolveSubject` retags inherited `org-lead` with its declared parent scope; not a hierarchy walk, so flat too.
     it('a grant made only at org-a.team-1 answers at org-a when the inherited role declares org-a', async () => {
       await seedRole({ id: 'org-lead', permissions: [{ action: 'admin', resource: 'doc' }], scope: 'org-a' })
       await seedRole({ id: 'team-lead', inherits: ['org-lead'], permissions: [{ action: 'write', resource: 'doc' }] })
@@ -259,10 +230,7 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       expect(engineErrors).toEqual([])
     })
 
-    /**
-     * The same retag widens a grant to an entire subtree when the inherited
-     * role declares a root scope: one grant in `org-a` answers under `org.*`.
-     */
+    // The same retag widens one `org-a` grant to all of `org.*` when the inherited role declares `org`.
     it('an inherited role declared at a root scope widens the grant to that whole subtree', async () => {
       await seedRole({ id: 'platform', permissions: [{ action: 'read', resource: 'doc' }], scope: 'org' })
       await seedRole({ id: 'a-lead', inherits: ['platform'] })
@@ -285,10 +253,8 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       // no scope condition and answers wherever `a-lead` is held.
       expect(await engine.getEffectiveRoles('u1', 'org-a')).toEqual(['a-lead'])
       expect(await engine.can('u1', 'read', DOC, undefined, 'org-a')).toBe(true)
-      // But the retag also files the inherited role under the literal string
-      // `'*'`, and `enrichSubjectWithScopedRoles` compares scopes as plain
-      // strings - so a caller who passes `'*'` as the request scope is handed a
-      // role they hold at no real scope.
+      // The retag also files it under the literal `'*'`, and `enrichSubjectWithScopedRoles` compares plain strings,
+      // so a request scope of `'*'` is handed a role held at no real scope.
       expect(await engine.getEffectiveRoles('u1', '*')).toEqual(['global'])
       expect(await engine.can('u1', 'read', DOC, undefined, '*')).toBe(true)
       // No other tenant, and no unscoped request, sees any of it.
@@ -297,26 +263,8 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       expect(engineErrors).toEqual([])
     })
 
-    /**
-     * An ASSIGNMENT at scope `'*'` is a literal scope, not a global grant - and
-     * a row already carrying one keeps answering exactly as it always did.
-     *
-     * This test used to write the row through `engine.admin.assignRole('u1',
-     * 'admin', '*')` and assert that the call succeeded, under the comment
-     * "`assignRole` accepts '*' - only '' is refused - and stores it verbatim."
-     * That was a reading of the implementation, not a contract: no commit
-     * message, changeset or doc ever claimed a `'*'` assignment was meant to be
-     * writable, and the title it was given - "is a literal scope, NOT a global
-     * grant" - is the shape of a warning, not of an intended feature.
-     * `iamAssertAssignableScope` now refuses it on the write path across all
-     * six adapters and in `createAdmin`, so the write half is asserted here as
-     * a refusal.
-     *
-     * The semantics half is what it always was and is seeded directly, which is
-     * also the state an operator upgrading into that guard is in: rows written
-     * before it exists still have to read back predictably, and still have to
-     * be revocable - which is why `'*'` stays legal on a `'lookup'`.
-     */
+    // `iamAssertAssignableScope` refuses a `'*'` assignment on write. An existing row is a literal scope, not global,
+    // and must stay revocable, which is why `'*'` stays legal on a `'lookup'`.
     it("an ASSIGNMENT at scope '*' is refused on the write path, and an existing row stays literal", async () => {
       await seedRole({ id: 'admin', permissions: [{ action: 'read', resource: 'doc' }] })
       const engine = makeEngine()
@@ -325,16 +273,14 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       // Refused, not half-written: nothing landed for u1.
       expect(await engine.getEffectiveRoles('u1', '*')).toEqual([])
 
-      // A row written before the guard existed - or by anything that talks to
-      // the store directly - is unchanged: matched as the literal tenant `*`.
+      // A pre-existing or directly written row is matched as the literal tenant `*`.
       await seedAssignment('u2', 'admin', '*')
       expect(await engine.can('u2', 'read', DOC, undefined, '*')).toBe(true)
       expect(await engine.can('u2', 'read', DOC, undefined, 'org-a')).toBe(false)
       expect(await engine.can('u2', 'read', DOC, undefined, undefined)).toBe(false)
       expect(await makeEngine({ scopeMode: 'hierarchical' }).can('u2', 'read', DOC, undefined, 'org-a')).toBe(false)
 
-      // ...and it can still be deleted, which is the whole reason the guard
-      // exempts a lookup.
+      // ...and it can still be deleted, which is why the guard exempts a lookup.
       await engine.admin.revokeRole('u2', 'admin', '*')
       expect(await engine.can('u2', 'read', DOC, undefined, '*')).toBe(false)
     })
@@ -355,12 +301,7 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       expect(engineErrors).toEqual([])
     })
 
-    /**
-     * A diamond whose inner role declares NO scope: it falls back to the
-     * assignment row's scope, but the two intermediate roles carry their own
-     * declared scopes, and each of them is a holder of the inner role's
-     * permission. One grant at org-x therefore reads in org-a and org-b too.
-     */
+    // Unscoped `inner` falls back to the row's org-x, but each scoped parent holds its permission in its own scope.
     it('an unscoped inner role reached through two differently-scoped parents grants in all three', async () => {
       await seedRole({ id: 'inner', permissions: [{ action: 'read', resource: 'doc' }] })
       await seedRole({ id: 'left', inherits: ['inner'], scope: 'org-a' })
@@ -414,16 +355,7 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       expect(await engine.can('u1', 'write', DOC, undefined, 'org-a')).toBe(false)
     })
 
-    /**
-     * PHANTOM ROLE, now closed. `resolveEffectiveRoles` used to add an
-     * inherited role id to the effective set BEFORE looking it up in the
-     * catalog, so an id that no role defines landed in `subject.roles` and a
-     * hand-written ABAC policy testing `subject.roles contains 'ghost'` fired
-     * on it. These assertions read the way they do because the product was
-     * changed; the earlier version of this test asserted `true` here under a
-     * docstring calling the behaviour a defect, which is a test certifying a
-     * break. `validateRoles` calls this catalog `DANGLING_INHERIT` / error.
-     */
+    // SECURITY: a dangling inherited id (`DANGLING_INHERIT`) must not reach `subject.roles`.
     it('a nonexistent inherited role id does not appear in subject.roles and cannot satisfy an ABAC policy', async () => {
       await seedRole({ id: 'r', inherits: ['ghost'] })
       await seedAssignment('u1', 'r', null)
@@ -443,13 +375,6 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       expect(engineErrors).toEqual([])
     })
 
-    /**
-     * The same closure reached the way an operator actually reaches it: delete
-     * the role, and the id used to survive in `subject.roles` because another
-     * role still named it in `inherits`. The deleted role's own permissions
-     * were always correctly gone; a policy keyed on the role ID was not, so
-     * the two halves of one deletion disagreed. They now agree.
-     */
     it('deleting a role removes its id from subject.roles even while another role inherits it', async () => {
       await seedRole({ id: 'ghost', permissions: [{ action: 'read', resource: 'doc' }] })
       await seedRole({ id: 'r', inherits: ['ghost'] })
@@ -501,42 +426,8 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       expect(engineErrors).toEqual([])
     })
 
-    /**
-     * FINDING - `MAX_INHERITANCE_DEPTH` bounds the resolved role SET but not the
-     * granted PERMISSIONS, so `getEffectiveRoles` and `can` disagree.
-     *
-     * `resolveEffectiveRoles` walks from each assigned role and drops anything
-     * past depth 32, so `r33` is absent from `subject.roles`. But
-     * `rolesToPolicy` runs `collectPermissions` from EVERY role in the catalog,
-     * and `r33` sits at depth 32 from `r1` - which the subject does hold. The
-     * rule `subject.roles contains 'r1'` therefore carries `r33`'s permission,
-     * and the request is allowed.
-     *
-     * Observed, not desired: the cap is a traversal bound, not the boundary the
-     * doc comment on `MAX_INHERITANCE_DEPTH` describes ("Roles past this depth
-     * are silently dropped from the resolved set").
-     *
-     * The obvious fix does not work, and this is the record of trying it so the
-     * next reader does not spend the afternoon the same way. Making
-     * `rolesToPolicy` emit each role's OWN permissions and letting inheritance
-     * ride on `subject.roles` closes this exactly - inside the cap the two
-     * formulations are identical, because every ancestor within the cap is
-     * itself in the resolved set and emits its own rules - and it passed the
-     * whole default suite bar twelve mechanism tests. It then failed two scoped
-     * cases in this very file: `an inherited role declaring scope '*' grants at
-     * the assignment scope...` and `an unscoped inner role reached through two
-     * differently-scoped parents grants in all three`.
-     *
-     * That is the load-bearing fact: the flattening carries **per-path scope**.
-     * An inherited permission's grant depends on the route it was inherited
-     * through - the same inner role reached through an `org-a` parent and an
-     * `org-b` parent grants in both - and a single rule keyed on the declaring
-     * role cannot express that. So the cap cannot be made consistent by
-     * removing the flattening; it needs either a subject-rooted permission walk
-     * (which a catalog-wide cached policy cannot do) or a different bound
-     * entirely. All three candidates are BREAKING, and picking one is a design
-     * decision rather than a bug fix, so the disagreement stays pinned here.
-     */
+    // NOTE: observed, not desired. `rolesToPolicy` walks from every role, and r33 is 32 deep from the held r1. Emitting
+    // only own permissions would lose per-path scope (two scoped tests above), so every fix is breaking.
     it(`a permission past MAX_INHERITANCE_DEPTH (${MAX_INHERITANCE_DEPTH}) is still granted although the role is not held`, async () => {
       await seedChain(34, {
         32: [{ action: 'read', resource: 'doc' }],

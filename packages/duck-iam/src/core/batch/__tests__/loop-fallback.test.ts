@@ -1,12 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { loopFallback } from '../batch'
 
-/**
- * `loopFallback` backs every adapter with no set-based write form (memory,
- * file, redis, http) and had no test at all. Its docstring makes one claim
- * worth pinning: throws are hard here - iam has no optimistic-lock miss to
- * soften, so an error aborts rather than becoming a per-row failure.
- */
+// Backs every adapter with no set-based write form; a throw must abort, not become a per-row failure.
 describe('loopFallback', () => {
   it('runs once per row, in order', async () => {
     const seen: string[] = []
@@ -21,9 +16,6 @@ describe('loopFallback', () => {
   it('reports every row as applied', async () => {
     const result = await loopFallback([1, 2], async (n) => n * 2)
     expect(result.applied).toBe(2)
-    // There is no `failed` counter any more: it was derived from an `ok: false`
-    // arm nothing could produce, so it read as meaningful while being zero by
-    // construction. `applied` is the row count, and every outcome is `ok`.
     expect(result.outcomes.every((o) => o.ok)).toBe(true)
   })
 
@@ -38,8 +30,7 @@ describe('loopFallback', () => {
       return row
     })
     await expect(loopFallback(['a', 'b', 'c'], run)).rejects.toThrow('write failed')
-    // Hard: `c` is never attempted, so the caller aborts the transaction rather
-    // than the batch swallowing the error and reporting a partial success.
+    // `c` is never attempted.
     expect(run).toHaveBeenCalledTimes(2)
   })
 

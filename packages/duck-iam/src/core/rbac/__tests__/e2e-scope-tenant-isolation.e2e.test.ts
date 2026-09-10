@@ -1,15 +1,6 @@
 /**
- * E2E: tenant isolation for scoped role assignments, resolved through REAL
- * Postgres on the shipped schema.
- *
- * The question every case here asks is the same one: a subject holds `admin`
- * in `org-a` and nothing anywhere else - can any spelling of a request scope
- * make that grant answer for `org-b`? Every row is seeded with raw SQL rather
- * than through `engine.admin`, so the store decides what comes back, including
- * scope strings the write API would have refused.
- *
- * Fails loudly rather than skipping when a database URL is configured but
- * unusable: a silently skipped suite certifies nothing.
+ * E2E on real Postgres: an `admin` grant in `org-a` must not answer for any other request-scope spelling.
+ * Rows are seeded with raw SQL, so scope strings the write API refuses still reach the engine.
  */
 import { and, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -42,11 +33,8 @@ const OPS = { and, eq, or }
 const DOC = { attributes: {}, type: 'doc' as const }
 
 /**
- * Reads one verdict out of a `permissions()` map. The map's key type is a
- * template literal over the declared action/resource/scope unions, and these
- * scopes are plain strings, so it cannot be indexed directly. Narrowed rather
- * than cast: an absent or non-boolean entry comes back as `undefined` and fails
- * the comparison loudly instead of being asserted into a boolean.
+ * Reads one verdict from a `permissions()` map, whose template-literal key type a plain string can't index.
+ * A missing or non-boolean entry returns `undefined` and fails the comparison.
  */
 function verdictFor(map: object, key: string): boolean | undefined {
   const value = Object.hasOwn(map, key) ? Reflect.get(map, key) : undefined
@@ -130,8 +118,7 @@ suite('E2E scope: tenant isolation on real Postgres', () => {
       expect(engineErrors).toEqual([])
     })
 
-    // Every one of these must be a deny. Each is a distinct way an operator or
-    // an attacker can spell "somewhere that is not org-a".
+    // SECURITY: each must deny; each is a distinct way to spell "somewhere that is not org-a".
     const hostileScopes: [label: string, scope: string | undefined][] = [
       ['a different tenant', 'org-b'],
       ['no scope at all', undefined],
@@ -259,9 +246,7 @@ suite('E2E scope: tenant isolation on real Postgres', () => {
     })
 
     it('a permission-level `scope: ""` in jsonb is refused by the role parser, not honoured', async () => {
-      // jsonb has no CHECK constraint, so this shape reaches the engine from the
-      // store even though `saveRole` would have rejected it. It must never read
-      // as "global".
+      // INFO: jsonb has no CHECK constraint, so this reaches the engine though `saveRole` rejects it.
       await seedRole({ id: 'admin', permissions: [{ action: 'read', resource: 'doc', scope: '' }] })
       await seedAssignment('u1', 'admin', 'org-a')
       const engine = makeEngine()
@@ -337,8 +322,7 @@ suite('E2E scope: tenant isolation on real Postgres', () => {
       const engine = makeEngine()
       // At org-b the role is held but its permission is declared for org-a.
       expect(await engine.can('u1', 'read', DOC, undefined, 'org-b')).toBe(false)
-      // At org-a the permission would apply but the role is not held there:
-      // the direct assignment keeps the row's scope (commit 282d6f67).
+      // At org-a the permission would apply, but a direct assignment keeps the row's scope, so the role isn't held.
       expect(await engine.can('u1', 'read', DOC, undefined, 'org-a')).toBe(false)
       expect(await engine.getEffectiveRoles('u1', 'org-a')).toEqual([])
       expect(await engine.getEffectiveRoles('u1', 'org-b')).toEqual(['admin'])
@@ -378,8 +362,7 @@ suite('E2E scope: tenant isolation on real Postgres', () => {
       const engine = makeEngine()
       await engine.admin.revokeRole('alice', 'admin')
       const after = await pool.query('SELECT count(*)::int AS n FROM iam_assignments')
-      // Documented behaviour is what matters here; assert whichever it is so a
-      // change of heart shows up as a failing test rather than a quiet leak.
+      // Pins the current behaviour (one row removed), so a change fails here instead of leaking quietly.
       expect((after.rows[0] as { n: number }).n).toBe((before.rows[0] as { n: number }).n - 1)
       expect(await engine.can('alice', 'write', DOC, undefined, 'org-a')).toBe(false)
     })

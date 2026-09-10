@@ -1,17 +1,6 @@
 /**
- * E2E: production and development must answer scoped RBAC questions
- * identically, against REAL Postgres.
- *
- * `mode: 'production'` returns the compiled table's verdict alone.
- * `mode: 'development'` returns the same verdict AND cross-checks it against
- * the interpreter, throwing on disagreement - which `authorize()` then converts
- * into a fail-closed deny. So a table/interpreter split shows up here as
- * production allowing where development denies, which is exactly the shape the
- * manifesto ranks as failure class #1.
- *
- * Every catalog below is scope-heavy on purpose: role-declared scopes,
- * permission-declared scopes, scoped assignments, and inheritance crossing
- * between them.
+ * E2E on real Postgres: production (compiled table alone) and development (table cross-checked against the
+ * interpreter, fail-closed on a split) must agree on scope-heavy RBAC catalogs.
  */
 import { and, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -146,11 +135,7 @@ suite('E2E scope: production vs development parity on real Postgres', () => {
     return out
   }
 
-  /**
-   * Runs the whole action x scope grid through both modes and both scope modes.
-   * Any production allow that development denies is a compiled/interpreter
-   * split; any `onError` in development is the engine's own disagreement throw.
-   */
+  /** Runs the action x scope grid through both modes and scope modes; any dev `onError` is an engine disagreement. */
   async function assertParity(subjectId: string): Promise<Record<string, boolean>> {
     let devAll: Record<string, boolean> = {}
     for (const scopeMode of ['flat', 'hierarchical'] as const) {
@@ -161,8 +146,7 @@ suite('E2E scope: production vs development parity on real Postgres', () => {
         if (scopeMode === 'flat' && scopeCombine === 'union') devAll = dev
       }
     }
-    // The disagreement message the engine prints when the table and the
-    // interpreter split - it reaches `onError` as an evaluation error.
+    // A table/interpreter split reaches `onError` as an evaluation error.
     expect(devErrors.filter((m) => m.includes('disagree'))).toEqual([])
     expect(devErrors).toEqual([])
     return devAll
@@ -273,12 +257,7 @@ suite('E2E scope: production vs development parity on real Postgres', () => {
     await assertParity('u1')
   })
 
-  /**
-   * Past `IAM_MAX_COMPILED_ROLES` the compiled table cannot be built and BOTH
-   * modes drop to the interpreter. That is a second pair of code paths for the
-   * same question, entered silently by nothing more than adding roles, so the
-   * scope answers have to survive crossing it.
-   */
+  // Past `IAM_MAX_COMPILED_ROLES` both modes drop to the interpreter, a second code path entered just by adding roles.
   it('agrees, and answers the same scoped questions, on either side of the 32-role compiled-table limit', async () => {
     const small: RoleSeed[] = [
       { id: 'b-admin', permissions: [{ action: 'read', resource: 'doc' }], scope: 'org-b' },
@@ -292,8 +271,7 @@ suite('E2E scope: production vs development parity on real Postgres', () => {
     for (let i = 0; i < 40; i++) {
       await seedRole({ id: `filler-${i}`, permissions: [{ action: 'admin', resource: 'doc' }], scope: `org-f${i}` })
     }
-    // Prove the catalog really crossed the limit, or this test compares two
-    // runs of the same code path.
+    // Guard: prove the catalog crossed the limit, or both runs take the same code path.
     const n = await pool.query('SELECT count(*)::int AS n FROM iam_roles')
     expect((n.rows[0] as { n: number }).n).toBeGreaterThan(32)
     devErrors = []

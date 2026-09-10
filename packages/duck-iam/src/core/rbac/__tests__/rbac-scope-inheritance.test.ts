@@ -1,21 +1,11 @@
+// Inheritance crossed with scope: a permission's scope belongs to the role that declared it, never the inheritor,
+// and both engines agree on every cell.
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../engine/engine'
 import type { AccessControl } from '../../types'
 import { rolesToPolicy } from '../rbac'
 
-/**
- * The suite tested inheritance and scope as strictly separate axes: a role that
- * inherits, or a role that is scoped, never one that does both. That is exactly
- * the cell the cross-scope mistagging bug lived in - an inherited permission
- * was attributed to the *inheriting* role and so picked up the wrong scope,
- * which the two engines then disagreed about. Nothing in
- * `compiled.differential.test.ts` compiled such a graph either, so the
- * differential suite that exists to catch dev/prod splits could not see it.
- *
- * The rule is: a permission's scope belongs to the role that **declared** it,
- * never to whoever inherits it. All four cells are below.
- */
 type Cell = {
   readonly childScope?: string
   readonly expected: string | undefined
@@ -38,11 +28,7 @@ function graph(cell: Cell): AccessControl.IRole[] {
   ]
 }
 
-/**
- * The `value` of the `scope` condition on one rule, if it has one. The base
- * conditions sit directly in the rule's `all` for a permission with no
- * conditions of its own, and one level down when the author supplied a group.
- */
+/** The `scope` condition value on one rule; base conditions sit one level down when the author supplied a group. */
 function scopeConditionOf(policy: AccessControl.IPolicy, ruleDescription: RegExp): string | undefined {
   const rule = policy.rules.find((r) => r.description !== undefined && ruleDescription.test(r.description))
   if (rule === undefined) throw new Error(`no rule matching ${ruleDescription}`)
@@ -62,9 +48,7 @@ describe('a permission inherited across a scope boundary keeps its declarer scop
     expect(scopeConditionOf(policy, /^Child: read on post \(via Parent\)$/)).toBe(cell.expected)
   })
 
-  // Control: the parent's own rule always carries the parent's scope, so the
-  // assertions above are about the inherited copy and not about the emission
-  // being scope-blind altogether.
+  // Control: the parent's own rule keeps its scope, so the checks above aren't passing on scope-blind emission.
   it.each(CELLS)('$label: the parent own rule is unaffected', (cell) => {
     const policy = rolesToPolicy(graph(cell))
     expect(scopeConditionOf(policy, /^Parent: read on post$/)).toBe(cell.parentScope)
@@ -101,9 +85,7 @@ describe('the two engines agree on every scope x inheritance cell', () => {
     }
   }
 
-  // Controls: the grant is real at the scope it was declared for, and absent at
-  // the one it was not - without these the agreement above could be "everything
-  // denies in both engines".
+  // Controls: without these, the agreement above could be "everything denies in both engines".
   it('control: a scoped-parent grant fires at the declared scope', async () => {
     const cell = CELLS[0]
     if (cell === undefined) throw new Error('missing cell')

@@ -79,9 +79,8 @@ export namespace DotPath {
   export type DollarPaths<TContext> = `$${DotPaths<TContext>}`
 
   /**
-   * Smart `$`-prefixed path. Preserves known-path autocomplete plus accepts
-   * arbitrary `$`-strings. Must be used at the method-signature site (not
-   * nested in computed types) so the IDE renders the literal suggestions.
+   * {@link DollarPaths} with autocomplete that still accepts any string.
+   * NOTE: use it directly in a method signature; nested in a computed type the IDE drops the suggestions.
    *
    * @template TContext - The full evaluation context type.
    */
@@ -90,10 +89,7 @@ export namespace DotPath {
   // Condition value adapters
 
   /**
-   * Adapts an attribute value type for builder inputs while preserving `$`
-   * references. Non-string values pass through unchanged; string-capable
-   * values gain {@link DollarPaths} so a comparison can reference another
-   * request field.
+   * Builder input for an attribute value: string-capable values also accept {@link DollarPaths} references.
    *
    * @template TContext - The full evaluation context type.
    * @template TValue   - The attribute-compatible value type accepted by the builder.
@@ -290,11 +286,7 @@ export namespace DotPath {
 
   // Internal helpers
 
-  /**
-   * Dot-path string union into attribute-bag `T`; widens to `string` for open bags.
-   *
-   * @template T - The attribute-bag object type.
-   */
+  /** Dot-path union into attribute bag `T`; widens to `string` for open bags. */
   type AttrPaths<T> =
     T extends Record<string, unknown>
       ? string extends keyof T
@@ -304,11 +296,7 @@ export namespace DotPath {
           }[keyof T & string]
       : never
 
-  /**
-   * Detects whether `T` is a plain user-defined object (and therefore worth
-   * recursing into for dot-paths). Arrays, functions, `Date`, `Map`, and
-   * `Set` are treated as leaves.
-   */
+  /** Whether `T` is a plain object worth recursing into; arrays, functions, `Date`, `Map` and `Set` are leaves. */
   type IsPlainObject<T> = T extends object
     ? T extends readonly unknown[]
       ? false
@@ -323,11 +311,7 @@ export namespace DotPath {
               : true
     : false
 
-  /**
-   * Detects whether any branch of `T` contains a string index signature.
-   * Used by {@link FlexibleDotPaths} to decide whether to add the
-   * `(string & {})` fallback for loose path acceptance.
-   */
+  /** Whether any branch of `T` has a string index signature; decides {@link FlexibleDotPaths}'s `string` fallback. */
   type HasOpenIndex<T> = string extends keyof T
     ? true
     : true extends {
@@ -336,35 +320,21 @@ export namespace DotPath {
       ? true
       : false
 
-  /**
-   * Keeps string-based condition inputs `$`-aware without widening narrow
-   * string unions. If `TValue` is already `string`, only `$`-paths are added;
-   * if `TValue` is a literal union, both the literals and `$`-paths are accepted.
-   */
+  /** Adds `$`-paths to a string input: `string` becomes `$`-paths only, a literal union keeps its literals too. */
   type StringConditionValue<TContext, TValue extends string> = string extends TValue
     ? DollarPaths<TContext>
     : TValue | DollarPaths<TContext>
 
-  /**
-   * Collects every attribute key declared across the per-resource map values.
-   * Internal helper for {@link MergedResourceAttrs}.
-   */
+  /** Every attribute key declared across the per-resource map. */
   type AllResourceKeys<M> = M[keyof M] extends infer U
     ? U extends Record<string, any>
       ? keyof U & string
       : never
     : never
 
-  /**
-   * For a given attribute key, unions the value type from every resource that
-   * declares it. Internal helper for {@link MergedResourceAttrs}.
-   */
+  /** Union of `K`'s value type across every resource that declares it. */
   type ResourceKeyValue<M, K extends string> = { [R in keyof M]: K extends keyof M[R] ? M[R][K] : never }[keyof M]
 
-  /**
-   * Merges every per-resource attribute object into a single shape so the
-   * `'*'` wildcard case in {@link ResolvedResourceAttrs} accepts any
-   * attribute defined on any resource.
-   */
+  /** All per-resource attributes merged into one shape, for the `'*'` case of {@link ResolvedResourceAttrs}. */
   type MergedResourceAttrs<M> = { [K in AllResourceKeys<M>]: ResourceKeyValue<M, K> }
 }

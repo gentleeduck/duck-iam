@@ -1,3 +1,5 @@
+// An `any`/`none` permission condition costs the same depth as an `all` one, so neither shape crosses
+// `MAX_CONDITION_DEPTH` alone and fails closed with no validation error.
 import { describe, expect, it } from 'vitest'
 import { MAX_CONDITION_DEPTH } from '../../conditions/conditions.libs'
 import { evaluate } from '../../evaluate/evaluate'
@@ -5,14 +7,6 @@ import type { AccessControl, IamRequest } from '../../types'
 import { validateRole } from '../../validate'
 import { rolesToPolicy } from '../rbac'
 
-/**
- * `rolesToPolicy` spliced an `all` permission condition into the generated
- * rule's own `all` (depth-neutral) but nested `any` and `none` one level
- * deeper. The identical tree therefore crossed `MAX_CONDITION_DEPTH` in one
- * shape and not the other, and the deeper shape then failed closed at runtime
- * with no validation error - role permissions are allow-only, so that is a
- * silent denial.
- */
 type Group = AccessControl.IConditionGroup
 
 /** A group of `wrappers` nesting levels, ending in one leaf that is true. */
@@ -65,8 +59,7 @@ describe('an `any` permission condition costs the same depth as an `all` one', (
     }
   })
 
-  // Control: a shallow condition of either shape still grants, so the parity
-  // above is not "both always deny".
+  // Control: a shallow condition of either shape grants, so the parity above isn't "both always deny".
   it('still grants on a shallow condition of either shape', () => {
     expect(grants(roleWith(nest('all', 1)))).toBe(true)
     expect(grants(roleWith(nest('any', 1)))).toBe(true)
@@ -90,8 +83,7 @@ describe('the author group is passed through whole, whatever its key', () => {
   })
 
   it('an unrecognised group key still fails closed rather than being dropped', () => {
-    // A typo'd key or a hand-edited row: the shared parser reads an unknown
-    // group as `false`, so the grant never becomes unconditional.
+    // SECURITY: the shared parser reads an unknown group key as `false`, so the grant never becomes unconditional.
     const typo: Group = JSON.parse('{"nope":[]}')
     expect(grants(roleWith(typo))).toBe(false)
   })

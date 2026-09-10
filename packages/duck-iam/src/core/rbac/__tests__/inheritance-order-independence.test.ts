@@ -1,22 +1,14 @@
+// Set-equal `inherits` must resolve identically: a role first reached near the depth cut must not block a shallower
+// path, or adapter row order changes authorization answers.
 import { describe, expect, it } from 'vitest'
 import type { AccessControl } from '../../types'
 import { MAX_INHERITANCE_DEPTH, resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 
-/**
- * `inherits` is documented as a set of parents, so two role definitions that
- * are set-equal must resolve to the same permissions. They did not: one
- * `visited` set was shared across sibling branches and pinned a role to
- * whatever depth it was *first* reached at, so a role reached deep (near the
- * cut) blocked the later shallow path from expanding its ancestors. An adapter
- * returning `inherits` in a different order - JSON key order, SQL row order -
- * gave different authorization answers for the same graph.
- */
 const CHAIN = MAX_INHERITANCE_DEPTH - 2
 
 /**
- * `hub` reaches `hinge` two ways: down a long chain (depth CHAIN + 1, one step
- * short of the cut) and directly (depth 1). Only the shallow route leaves room
- * for `hinge`'s own three-deep chain, whose tail holds the only permission.
+ * `hub` reaches `hinge` via a long chain (depth CHAIN + 1) and directly (depth 1). Only the shallow route leaves
+ * room for `hinge`'s three-deep chain, whose tail holds the only permission.
  */
 function graph(hubInherits: string[]): AccessControl.IRole[] {
   const roles: AccessControl.IRole[] = [
@@ -55,8 +47,7 @@ describe('inheritance resolution does not depend on the order of `inherits`', ()
     expect(rulesFor(DEEP_FIRST)).toBeGreaterThan(0)
   })
 
-  // A re-reached role expands its ancestors again; its own permissions must not
-  // be emitted a second time for the same holder.
+  // A re-reached role expands its ancestors again but must not re-emit its own permissions.
   it('does not emit a role reached twice as duplicate permissions', () => {
     const rules = rolesToPolicy(graph(SHALLOW_FIRST)).rules.filter(
       (r) => r.resources.includes('secret') && JSON.stringify(r.conditions).includes('"hub"'),
