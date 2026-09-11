@@ -1,15 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamHttpAdapter } from '../index'
 
-/**
- * Every method routed through `_request`, which called `JSON.parse` on whatever
- * the server sent. `204 No Content` is the canonical answer to a `DELETE` and
- * an ordinary one to a `PUT` or `POST` that returns nothing, so a
- * spec-compliant API made every write throw
- * `SyntaxError: Unexpected end of JSON input` - while the same call succeeded on
- * the other five adapters. Found while pinning the delete-idempotence contract
- * across the six.
- */
+// Pins that a bodiless success (204, or 200 with an empty body) is not a JSON parse error,
+// so writes against a spec-compliant API succeed as they do on the other adapters.
 function adapterFor(res: () => Response) {
   const fetchSpy = vi.fn(async () => res())
   const adapter = new IamHttpAdapter({ baseUrl: 'https://api.test/access', fetch: fetchSpy, retries: 0 })
@@ -44,16 +37,14 @@ describe('a bodiless success is not a parse error', () => {
     await expect(adapter.saveRole({ id: 'r1', name: 'R', permissions: [] })).resolves.toBeUndefined()
   })
 
-  // A bodiless success on a single-row read is the same answer as a 404: the
-  // API acknowledged the request and returned no row.
+  // A bodiless success on a single-row read means no row, the same answer as a 404.
   it('a single-row read treats a bodiless success as a miss', async () => {
     const { adapter } = adapterFor(noContent)
     expect(await adapter.getPolicy('p1')).toBeNull()
     expect(await adapter.getRole('r1')).toBeNull()
   })
 
-  // Controls. A real JSON body must still parse, and malformed JSON must still
-  // be an error - without these the fix could be "never parse anything".
+  // Controls: without these, "never parse anything" would pass.
   it('control: a real body still parses', async () => {
     const { adapter } = adapterFor(
       () =>

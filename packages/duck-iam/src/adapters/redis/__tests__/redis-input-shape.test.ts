@@ -46,8 +46,7 @@ describe('IamRedisAdapter direct-call input shape', () => {
 describe('an empty scope is refused rather than stored as a global assignment', () => {
   function setRedis(): IamRedis.ILike {
     const sets = new Map<string, Set<string>>()
-    // `assignRole` reads the roles hash to refuse a grant naming a role that
-    // does not exist, so the hash commands are real here rather than `unused`.
+    // `assignRole` looks the role up first, so the hash commands are real here, not `unused`.
     const hashes = new Map<string, Map<string, string>>()
     const unused = async () => {
       throw new Error('not exercised')

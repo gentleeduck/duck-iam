@@ -29,13 +29,8 @@ describe('http adapter builds path segments safely', () => {
   })
 })
 
-/**
- * `%2F` is not reliably opaque: Apache with `AllowEncodedSlashes On`, several
- * Java/PHP front controllers, and any handler that decodes a captured segment
- * before dispatch all turn it back into a separator. Encoding a `/` therefore
- * only moves the traversal one hop downstream - `../../admin` still walks the
- * remote API's path there. Ids carrying a separator are refused instead.
- */
+// SECURITY: some servers decode `%2F` back into a separator before routing (e.g. Apache `AllowEncodedSlashes On`),
+// so encoding `/` only moves the traversal downstream; ids with a separator are refused instead.
 describe('http adapter refuses separators in an id', () => {
   const traversals = ['../../admin', 'a/../../b', 'a/b', '..\\..\\admin', 'a\\b']
 
