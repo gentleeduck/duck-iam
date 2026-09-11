@@ -287,6 +287,7 @@
     "dist",
     "src",
     "public",
+    "docs",
     "CHANGELOG.md",
     "README.md",
     "LICENSE",
