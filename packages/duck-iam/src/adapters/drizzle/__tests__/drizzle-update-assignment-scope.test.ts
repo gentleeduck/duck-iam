@@ -1,11 +1,5 @@
-/**
- * `updateAssignmentScope` is the one adapter method whose whole point is a single
- * `UPDATE` instead of revoke + assign, and it needs `ops.isNull` to match the
- * global/unscoped case correctly (`eq(col, null)` is not `IS NULL` in SQL). These
- * tests pin: the happy path moves the row in place, a target-scope conflict drops the
- * source instead of erroring, a missing source returns false, and omitting `ops.isNull`
- * disables the whole feature (so the engine's revoke+assign fallback takes over).
- */
+// INFO: `eq(col, null)` is not `IS NULL` in SQL, so `updateAssignmentScope` needs `ops.isNull` for unscoped rows.
+// Without it the method returns false and the engine falls back to revoke + assign.
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 import { fakeSql } from './fake-sql'

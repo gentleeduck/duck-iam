@@ -1,13 +1,5 @@
-/**
- * `created_by` has been in the pg and mysql schemas since they were written,
- * and nothing ever wrote to it: a grant row recorded who held the role and
- * never who gave it. `IAssignOptions.actor` is what finally fills it.
- *
- * The column is written by spread rather than as an explicit null, so a caller
- * whose table predates the column is untouched unless they name an actor -
- * which is the part worth pinning, since the failure mode is an insert naming a
- * column the table does not have.
- */
+// Pins that `actor` fills `created_by`/`updated_by`, and that no actor names no column,
+// so a table without those columns still accepts the write.
 import { describe, expect, it, vi } from 'vitest'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 import { fakeSql } from './fake-sql'
@@ -52,13 +44,19 @@ function makeMock(ops?: Partial<IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'
           }
         },
       }),
-      select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+      // `limit` answers the attribute read `setSubjectAttributes` does first.
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () => Promise.resolve([]),
+            then: (onFulfilled: (v: unknown[]) => unknown) => Promise.resolve([]).then(onFulfilled),
+          }),
+        }),
+      }),
       update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
     } as unknown as IamDrizzle.AnyDrizzleDb,
     ops: {
-      // These tests only ever reach the insert path, and this mock's `where`
-      // ignores its argument, so `undefined` is a real answer here rather than
-      // a stand-in for one: `and` is declared to return `SQL | undefined`.
+      // This mock's `where` ignores its argument, and `and` is typed `SQL | undefined`.
       and: () => undefined,
       eq: (c: unknown, val: unknown) => fakeSql({ col: colName(c), kind: 'eq', val }),
       ...ops,
@@ -156,9 +154,7 @@ describe('the degraded-ops warning', () => {
       expect(message).toContain('`or`')
       expect(message).toContain('ops: { eq, and, isNull, or }')
 
-      // A second adapter must not re-warn: `withClient` rebuilds one per
-      // transaction, and a per-instance flag would turn one misconfiguration
-      // into one line per transaction.
+      // `withClient` rebuilds the adapter per transaction, so a second one must not re-warn.
       new Fresh<A, R, Ro, S>(makeMock().config)
       expect(warn).toHaveBeenCalledTimes(1)
     } finally {
@@ -171,10 +167,7 @@ describe('the degraded-ops warning', () => {
     const { IamDrizzleAdapter: Fresh } = await import('../index')
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      // The construction-time check asks only whether these are functions; it
-      // never calls them, and no code path in this test does either. A body
-      // that throws says so, instead of dressing up a fake condition object as
-      // a `SQLWrapper` it is not.
+      // The check only asks whether these are functions; a throwing body proves nothing calls them.
       const unused = (): never => {
         throw new Error('the degraded-ops check never calls these')
       }
@@ -188,14 +181,7 @@ describe('the degraded-ops warning', () => {
   })
 })
 
-/**
- * `iam_policies`, `iam_roles` and `iam_subject_attrs` have carried `created_by`
- * and `updated_by` for as long as they have existed and nothing ever wrote to
- * them: six columns, on three dialects, promising a provenance the API could
- * not produce. These pin the split - `created_by` on the insert, `updated_by`
- * on the overwrite - because getting it backwards silently rewrites who
- * authored a policy every time somebody edits it.
- */
+// `created_by` goes on the insert and `updated_by` on the overwrite; swapped, every edit rewrites the author.
 describe('definition writes record their author', () => {
   it('savePolicy stamps created_by on insert and updated_by on overwrite', async () => {
     const mock = makeMock()
@@ -205,8 +191,7 @@ describe('definition writes record their author', () => {
 
     expect(onlyRow(mock.inserted).createdBy).toBe('admin-7')
     expect(mock.updated[0]?.updatedBy).toBe('admin-7')
-    // The insert half must not claim to be an update, or a first write would
-    // record an editor for a row nobody has edited.
+    // The insert half must not carry `updatedBy`, or a first write records an editor nobody was.
     expect('updatedBy' in onlyRow(mock.inserted)).toBe(false)
     expect(mock.updated[0] && 'createdBy' in mock.updated[0]).toBe(false)
   })

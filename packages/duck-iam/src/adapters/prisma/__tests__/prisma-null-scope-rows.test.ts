@@ -1,27 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamPrismaAdapter } from '../index'
 
-/**
- * `getSubjectScopedRoles` returns only the scoped grants, and the unscoped rows
- * it must skip are stored with `scope: null`.
- *
- * The skipping used to be a `.filter((r) => r.scope != null)` whose result was
- * then mapped with `r.scope as TScope`. `filter` with a plain predicate does not
- * narrow the mapped element, so the cast was the only thing making it compile -
- * and it would go on compiling if the predicate were dropped or inverted, at
- * which point every *unscoped* grant would come back carrying `scope: null`.
- * A `null` scope in that list is a scoped grant that matches nothing and hides
- * a global one.
- */
+// `getSubjectScopedRoles` must skip unscoped (`scope: null`) rows, not emit them with a null scope.
+// A null scope in that list matches nothing and hides a global grant.
 function makeAdapter(assignments: Array<{ roleId: string; scope: string | null; subjectId: string }>) {
   const prisma = {
     accessAssignment: {
       create: vi.fn(),
       deleteMany: vi.fn(),
-      // `getSubjectRoles` filters unscoped rows in the query
-      // (`where: { scope: null }`); `getSubjectScopedRoles` asks for every row
-      // and splits them itself. The fake has to honour that difference or it
-      // would not exercise the split at all.
+      // `getSubjectRoles` filters `scope: null` in the query; `getSubjectScopedRoles` splits rows itself,
+      // so the fake honours both.
       findMany: vi.fn(async ({ where }: { where: { scope?: null; subjectId: string } }) =>
         assignments.filter((a) => a.subjectId === where.subjectId && (where.scope === null ? a.scope === null : true)),
       ),

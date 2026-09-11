@@ -31,68 +31,37 @@ export namespace IamDrizzle {
 
   export interface IConfig<TDb extends AnyDrizzleDb, TType extends 'pg' | 'mysql' | 'sqlite'> {
     /**
-     * Which SQL dialect `db` speaks. MySQL has no `ON CONFLICT` clause - its
-     * insert builder exposes `onDuplicateKeyUpdate()`/`ignore()` instead of
-     * `onConflictDoUpdate()`/`onConflictDoNothing()`, so upserts branch on
-     * this at runtime. Defaults to `'pg'`, which shares its conflict API
-     * with `'sqlite'`.
+     * SQL dialect of `db`; defaults to `'pg'`.
+     * INFO: MySQL has no `ON CONFLICT` (it has `onDuplicateKeyUpdate()`/`ignore()`), so upserts branch on this.
      */
     dialect?: TType
-    /** Provides the IamDrizzle database instance with select/insert/delete builders. */
+    /** Drizzle database, or a transaction handle with the same builders. */
     db: TDb
-    /** Provides references to the four IamDrizzle table schemas used by the adapter. */
+    /** The four tables the adapter reads and writes. */
     tables: {
       [key in 'policies' | 'roles' | 'assignments' | 'attrs']: TTable<TType>
     }
-    /** Provides IamDrizzle operator functions for building WHERE clauses. */
+    /** Drizzle operators for building WHERE clauses. */
     ops: {
       /**
-       * Builds an `=` condition. This is drizzle-orm's own `eq`, named by its
-       * own type.
-       *
-       * It was declared `(col: unknown, val: unknown) => unknown`, which is
-       * wrong in both directions. Widening the *parameters* to `unknown` made
-       * drizzle's real `eq` un-assignable under `strictFunctionTypes` - so
-       * `ops: { eq, and }`, the wiring this file's own `@example` shows, did
-       * not compile against the library, and every caller had to hand-write a
-       * re-widening wrapper with two casts in it. Widening the *return* to
-       * `unknown` then cost nine `as SQLWrapper` casts inside this adapter to
-       * get the value back. A cast written nine times is a type that was wrong
-       * once.
+       * drizzle-orm's own `eq`.
+       * NOTE: typed as `BinaryOperator`; widening the params to `unknown` makes the real `eq` unassignable.
        */
       eq: BinaryOperator
       and: (...conditions: (SQLWrapper | undefined)[]) => SQL<unknown> | undefined
-      /**
-       * Builds an `IS NULL` condition - drizzle's own `isNull`. Optional:
-       * required only for `updateAssignmentScope` to match a global (unscoped)
-       * assignment. Same signature correction as `eq`; the old `(col: unknown)`
-       * could not accept the real one.
-       */
+      /** drizzle-orm's `isNull`. Needed only for `updateAssignmentScope` to match an unscoped assignment. */
       isNull?: (col: SQLWrapper) => SQL
-      /**
-       * Builds an `OR` of conditions. Optional - required only to collapse
-       * `revokeRoleMany` into a single `DELETE`; without it that method revokes
-       * one row at a time, which is correct but not one statement.
-       */
+      /** drizzle-orm's `or`. Without it `revokeRoleMany` issues one `DELETE` per row instead of one statement. */
       or?: (...conditions: (SQLWrapper | undefined)[]) => SQL<unknown> | undefined
     }
     /**
-     * JSON column encoding strategy.
-     *
-     * - `'native'` (default) writes plain objects/arrays so Postgres `jsonb`
-     *   and MySQL `json` columns store queryable JSON (enables GIN indexes,
-     *   `jsonb_typeof` checks, and avoids double-encoding).
-     * - `'string'` `JSON.stringify`s every payload - required for SQLite, whose
-     *   columns are TEXT, or any deployment storing JSON in a text column.
-     *
-     * The read path accepts both shapes, so switching is migration-safe.
+     * JSON encoding: `'native'` (default) writes objects for Postgres `jsonb` / MySQL `json`; `'string'` stringifies
+     * for SQLite or text columns. Reads accept both, so switching is migration-safe.
      */
     json?: 'native' | 'string'
     /**
-     * Invoked when a stored row fails JSON parse or shape validation. The
-     * malformed row is dropped from the result set; the rest are returned
-     * intact. Wire this to your alerting pipeline so corrupt rows do not
-     * silently vanish from authorization decisions.
+     * Called when a stored row fails to parse or validate; wire it to alerting.
+     * SECURITY: a bad role row is dropped, but a bad policy row throws so the engine denies.
      */
     onPolicyError?: IamAdapter.RowErrorHandler<'drizzle'>
   }
@@ -111,10 +80,8 @@ export namespace IamDrizzle {
   export type DrizzleTable = PgTableWithColumns<any> | MySqlTableWithColumns<any> | SQLiteTableWithColumns<any>
 
   /**
-   * Structural db interface: all supported Drizzle instances satisfy this.
-   * Using a structural interface (not a union) lets TypeScript call
-   * `db.select()` on a generic `TDb extends AnyDrizzleDb` without the
-   * "each member of the union has incompatible signatures" error.
+   * Structural db shape every supported Drizzle instance satisfies.
+   * NOTE: not a union, which would make `db.select()` uncallable ("incompatible signatures").
    */
   export interface AnyDrizzleDb {
     select(...args: any[]): any
@@ -125,55 +92,15 @@ export namespace IamDrizzle {
 }
 
 /**
- * IamDrizzle-backed adapter; needs 4 tables (policies, roles, assignments, subject attributes) and `{ eq, and }` ops.
- *
- * @template TAction - Constrains valid action strings.
- * @template TResource - Constrains valid resource strings.
- * @template TRole - Constrains valid role strings.
- * @template TScope - Constrains valid scope strings.
- *
- * @example
- * ```ts
- * import { drizzle } from 'drizzle-orm/node-postgres'
- * import { eq, and } from 'drizzle-orm'
- * import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
- *
- * const adapter = new IamDrizzleAdapter({ db: drizzle(pool), tables, ops: { eq, and } })
- * const engine = new IamEngine({ adapter })
- * ```
- */
-/**
- * Which optional `ops` this process has already complained about.
- *
- * Module-level rather than per-instance because {@link IamDrizzleAdapter.withClient}
- * re-constructs the adapter for every transaction: a per-instance flag would
- * turn one misconfiguration into one warning per transaction, which is how a
- * startup diagnostic becomes log noise operators filter out.
+ * Optional `ops` this process has already warned about.
+ * NOTE: module-level because `withClient` re-creates the adapter per transaction; per-instance would warn on each one.
  */
 const warnedMissingOps = new Set<'isNull' | 'or'>()
-// Not exported as a reset seam: this entrypoint ships exactly the adapter class
-// and its factory, and `entrypoint-naming.test.ts` enforces that. Tests that
-// need a fresh warning state re-import the module (`vi.resetModules()`).
+// NOTE: not exported; `entrypoint-naming.test.ts` limits this entrypoint's exports. Tests use `vi.resetModules()`.
 
 /**
- * Warn once per process for each optional operator the caller left out.
- *
- * Both omissions are *correct* but slow, and silently so: without `or`,
- * `revokeRoleMany` degrades from one `DELETE` to one per row; without `isNull`,
- * `updateAssignmentScope` cannot express the `IS NULL` an unscoped assignment
- * needs and falls back to revoke + assign - two writes, and briefly no grant at
- * all. Neither can be derived: `eq(col, null)` is not `IS NULL` in SQL, and
- * there is no way to synthesise an `OR` builder from `eq` and `and`. So the
- * only honest fix is to say so at construction, where the caller can act on it.
- */
-/**
- * Provenance columns for an upsert: `created_by` on the row this call inserts,
- * `updated_by` on the row it overwrites.
- *
- * Split deliberately. `created_by` answers "who first put this here" and must
- * not move on a later edit; `updated_by` answers "who touched it last" and must.
- * Both are spread rather than written as null, so a table predating the columns
- * is untouched unless the caller actually names an actor.
+ * Provenance columns for an upsert: `createdBy` on insert, `updatedBy` on update.
+ * Empty when no actor is named, so a table without the columns is untouched.
  */
 function provenance(actor: string | undefined): {
   insert: Record<string, string>
@@ -183,6 +110,10 @@ function provenance(actor: string | undefined): {
   return { insert: { createdBy: actor }, update: { updatedBy: actor } }
 }
 
+/**
+ * Warns once per process for each optional op left out; both fallbacks are correct but slower.
+ * INFO: neither can be derived - `eq(col, null)` is not `IS NULL` in SQL, and `or` cannot be built from `eq`/`and`.
+ */
 function warnMissingOps(ops: { isNull?: unknown; or?: unknown }): void {
   const missing: string[] = []
   if (typeof ops.isNull !== 'function' && !warnedMissingOps.has('isNull')) {
@@ -207,19 +138,8 @@ function warnMissingOps(ops: { isNull?: unknown; or?: unknown }): void {
 }
 
 /**
- * Epoch ms for an optional timestamp column: `null` when absent, `NaN` when
- * unparseable, and `Infinity` / `-Infinity` passed through as themselves.
- *
- * Postgres spells "never expires" as `infinity`, and node-postgres parses it to
- * the JS number, not a Date. `new Date(Infinity)` is an Invalid Date, so that
- * spelling used to collapse into the same `NaN` an unreadable column produces,
- * and a grant marked as never expiring read as inactive - a wrong deny, on the
- * value an operator writes precisely to mean "always". Kept as numbers, the two
- * bounds compare the way they read: `now < -Infinity` is false, so a
- * `-infinity` start is always begun, and `now >= Infinity` is false, so an
- * `infinity` expiry never lapses. The other two spellings (`starts_at =
- * infinity`, `expires_at = -infinity`) fall out inactive from the same
- * comparisons, which is also what they mean.
+ * Epoch ms for an optional timestamp: `null` when absent, `NaN` when unparseable, `Infinity`/`-Infinity` kept as is.
+ * INFO: Postgres `infinity` arrives as a JS number and `new Date(Infinity)` is invalid; as numbers the bounds compare.
  */
 function epochMs(value: Date | string | number | null | undefined): number | null {
   if (value === null || value === undefined) return null
@@ -231,13 +151,8 @@ function epochMs(value: Date | string | number | null | undefined): number | nul
 type ReturnedTriple = { roleId: string; scope: string | null; subjectId: string }
 
 /**
- * Read the identifying columns out of untyped `RETURNING` rows.
- *
- * `AnyDrizzleDb` types every builder as `any`, so these rows arrive with no
- * shape at all. Reading them defensively rather than asserting a type means a
- * driver that answers with something unexpected loses the `changed` detail
- * instead of corrupting the outcome list: a row that cannot supply string ids
- * is dropped, and an unscoped row's `null` becomes the empty scope.
+ * Reads the identifying columns out of untyped `RETURNING` rows.
+ * A row without string ids is dropped, so an odd driver loses `changed` detail rather than corrupting the outcome list.
  */
 function returnedTriples(returned: unknown): ReturnedTriple[] {
   const rows: unknown[] = Array.isArray(returned) ? returned : []
@@ -253,20 +168,23 @@ function returnedTriples(returned: unknown): ReturnedTriple[] {
 }
 
 /**
- * Backs the engine with Drizzle tables across all three dialects - Postgres,
- * MySQL and SQLite - from one implementation.
+ * Drizzle-backed adapter for Postgres, MySQL and SQLite; needs 4 tables (policies, roles, assignments, subject attrs).
+ * SECURITY: a malformed role row is reported and skipped; a malformed policy row is reported and throws.
  *
- * Drizzle's operators and table types are handed in through
- * {@link IamDrizzle.IConfig} rather than imported, so this package never picks
- * a dialect for the consumer. Two things vary by dialect and are settled once
- * at construction instead of at every call site: whether JSON columns come back
- * parsed or as strings (`json`), and whether the driver can return the rows a
- * write touched (only Postgres and SQLite can, which is why batch writes fall
- * back to counting on MySQL).
+ * @template TAction - Constrains valid action strings.
+ * @template TResource - Constrains valid resource strings.
+ * @template TRole - Constrains valid role strings.
+ * @template TScope - Constrains valid scope strings.
  *
- * Rows are validated on read; a row that fails to parse is reported through
- * `onPolicyError` and replaced with a placeholder granting nothing, so a
- * corrupt row denies rather than throws.
+ * @example
+ * ```ts
+ * import { drizzle } from 'drizzle-orm/node-postgres'
+ * import { eq, and } from 'drizzle-orm'
+ * import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+ *
+ * const adapter = new IamDrizzleAdapter({ db: drizzle(pool), tables, ops: { eq, and } })
+ * const engine = new IamEngine({ adapter })
+ * ```
  *
  * @example
  * ```ts
@@ -298,11 +216,7 @@ export class IamDrizzleAdapter<
   /** Retained whole so {@link withClient} can re-make this adapter with only `db` swapped. */
   private readonly _config: IamDrizzle.IConfig<TDb, TType>
 
-  /**
-   * Creates a new IamDrizzle adapter.
-   *
-   * @param config - Provides the IamDrizzle db, tables, and operator functions.
-   */
+  /** Warns, once per process, when `ops.isNull` or `ops.or` is missing. */
   constructor(config: IamDrizzle.IConfig<TDb, TType>) {
     this._config = config
     this._db = config.db
@@ -318,12 +232,8 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Re-makes this adapter against `client`, keeping every other config field.
-   *
-   * A drizzle transaction handle exposes the same `select`/`insert`/`update`/
-   * `delete` builders as the db it came from, which is why the cast is sound -
-   * and why it lives here, in the layer that owns the driver type, instead of
-   * leaking drizzle into the engine.
+   * Re-creates this adapter on `client` (e.g. a drizzle transaction), keeping the rest of the config.
+   * NOTE: the cast is sound because a transaction handle has the same builders as its db.
    */
   withClient(client: unknown): IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType> {
     return new IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType>({
@@ -333,28 +243,13 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Insert-or-update keyed on `target`'s unique/PK column, currently
-   * `targetValue`. MySQL has no `ON CONFLICT` clause, and its
-   * `onDuplicateKeyUpdate` fires on *any* unique-index violation, not only
-   * `target`'s - `iamPolicies` also has a unique `name`, `iamRoles` a unique
-   * `(name, scope)`. Saving a policy/role with a fresh id but a name (or
-   * name+scope) that already belongs to a *different* row would silently
-   * overwrite that unrelated row's data - including its id - instead of
-   * erroring, where pg/sqlite's `target`-scoped `onConflictDoUpdate` throws
-   * because the conflict isn't on the column it was told to expect.
-   *
-   * So on MySQL this checks for the row by `target` first and issues a
-   * plain update or insert accordingly, rather than a blanket
-   * `onDuplicateKeyUpdate`: a genuine secondary-unique-index collision then
-   * surfaces as a thrown duplicate-entry error from the insert, matching
-   * pg/sqlite's fail-closed behaviour instead of corrupting the other row.
+   * Insert-or-update keyed on `target` = `targetValue`.
+   * NOTE: MySQL reads first instead of `onDuplicateKeyUpdate`, which fires on any unique index and could overwrite
+   * another row.
    */
   private async _upsert(
     table: IamDrizzle.DrizzleTable,
     values: Record<string, unknown>,
-    // A drizzle column, which is an `SQLWrapper`. It was `unknown`, which is
-    // what forced `ops.eq` to declare an `unknown` parameter in the first place
-    // - and that declaration is what made the real `eq` un-assignable.
     target: SQLWrapper,
     targetValue: unknown,
     set: Record<string, unknown>,
@@ -372,9 +267,8 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Insert, silently skipping a row that already exists. MySQL's
-   * insert-ignore is a builder-order modifier (`.ignore()` before
-   * `.values()`), not a trailing call like `onConflictDoNothing()`.
+   * Insert, skipping a row that already exists.
+   * INFO: MySQL's insert-ignore is `.ignore()` before `.values()`, not a trailing call like `onConflictDoNothing()`.
    */
   private _insertOrSkip(table: IamDrizzle.DrizzleTable, values: Record<string, unknown> | Record<string, unknown>[]) {
     return this._dialect === 'mysql'
@@ -382,15 +276,7 @@ export class IamDrizzleAdapter<
       : this._db.insert(table).values(values).onConflictDoNothing()
   }
 
-  /**
-   * Typed SELECT helpers. Drizzle's `select().from()` returns rows whose shape
-   * it cannot know for a table passed as a value, so the row type is named once
-   * here per call site rather than at each of them.
-   *
-   * These no longer contain any `as unknown as RowType[]`; the earlier version
-   * of this comment described that removed behaviour, which is exactly the
-   * comment a reader trusts when deciding not to look.
-   */
+  /** Typed SELECT helpers: `db` is typed `any`, so `T` names the row shape without checking it. */
   private async _selectAll<T>(table: IamDrizzle.DrizzleTable): Promise<T[]> {
     return await this._db.select().from(table)
   }
@@ -415,21 +301,15 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Parse a row's JSON columns + validate the policy shape.
-   *
-   * Throws on any failure - a bad JSON column or an invalid shape - rather than
-   * returning `null` for the caller to skip. See {@link iamUnreadablePolicy}:
-   * a dropped policy may be the one that denies. `_safeParseRole` below still
-   * returns `null`, because role permissions are allow-only.
+   * Parses a policy row's JSON columns and validates its shape.
+   * SECURITY: throws instead of returning `null`, since a dropped policy may be the deny.
+   * See {@link iamUnreadablePolicy}.
    */
   private _safeParsePolicy(row: IamDrizzle.PolicyRow): AccessControl.IPolicy<TAction, TResource, TRole> | null {
     let parsedRules: unknown
     let parsedTargets: unknown
     try {
-      // No cast on the non-string branch. The column is `jsonb`, so its value
-      // is whatever was written to the row - `parsePolicyRow` below is what
-      // decides it is a policy, and asserting the type first only made the
-      // laundering look like a check.
+      // No cast: a native column holds whatever was written, and `parsePolicyRow` below decides it is a policy.
       parsedRules = typeof row.rules === 'string' ? JSON.parse(row.rules) : row.rules
       parsedTargets = row.targets
         ? typeof row.targets === 'string'
@@ -475,22 +355,13 @@ export class IamDrizzleAdapter<
       return null
     }
 
-    // Absent columns are omitted, not set to `undefined`, the way
-    // `_safeParsePolicy` above already does it. A key holding `undefined` is
-    // still a key: `Object.keys` lists it, `JSON.stringify` drops it, and
-    // `toEqual` ignores it, so "does this role have a description" got three
-    // different answers depending which one the consumer asked - and a role
-    // saved as `{id,name,permissions}` read back from Postgres with seven keys
-    // and from memory with three.
+    // Omit absent columns instead of writing `undefined`, so every adapter reads a role back with the same keys.
     const candidate = {
       id: row.id,
       name: row.name,
       ...(row.description === null || row.description === undefined ? {} : { description: row.description }),
       permissions,
-      // An empty `inherits` is what the column's `[]` default produces for a
-      // role saved without one, which is the same thing as not having it.
-      // Anything else - including a value that is not an array - is passed
-      // through for `parseRoleRow` to refuse.
+      // An empty `inherits` is how an absent one is stored. Any other value, even a non-array, goes to `parseRoleRow`.
       ...(Array.isArray(inherits) && inherits.length === 0 ? {} : { inherits }),
       ...(row.scope === null || row.scope === undefined ? {} : { scope: row.scope }),
       ...(metadata === undefined ? {} : { metadata }),
@@ -507,23 +378,9 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * The next instant one of this subject's grants opens or closes.
-   *
-   * Every read here answers as of `Date.now()`, and the engine caches that
-   * answer for its whole `cacheTTL`. Nothing else can see the bounds, so
-   * without this a grant written to expire in thirty seconds went on granting
-   * for as long as the entry lived - up to ninety - and a grant scheduled to
-   * start stayed denied for up to a minute after it opened. See
-   * {@link IamAdapter.ISubjectStore.getSubjectGrantBoundary}.
-   *
-   * Computed in JS over the same subject-indexed rows the other reads select,
-   * rather than as a `MIN()` over a `CASE`: the three dialects spell that
-   * differently, and the row set is the one the adapter already knows how to
-   * read. Unreadable bounds are skipped - `_isActive` already refuses those
-   * rows outright, so they have no boundary to wait for.
-   *
-   * @param subjectId - Identifies the subject whose grants are inspected.
-   * @returns Epoch ms of the earliest future bound, or `null` when there is none.
+   * Epoch ms of the next future `startsAt`/`expiresAt` on the subject's grants (or `null`), so caches expire on time.
+   * Computed in JS because the dialects spell `MIN(CASE ...)` differently.
+   * See {@link IamAdapter.ISubjectStore.getSubjectGrantBoundary}.
    */
   async getSubjectGrantBoundary(subjectId: string): Promise<number | null> {
     const rows = await this._selectWhere<IamDrizzle.AssignmentRow>(
@@ -543,18 +400,14 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * True unless `now` falls outside `[startsAt, expiresAt)`. Both bounds are
-   * optional. A bound that is present but unreadable makes the assignment
-   * inactive: `NaN` fails both comparisons, so an expired row with a corrupt
-   * `expiresAt` would otherwise read as a live grant.
+   * True when `now` is inside `[startsAt, expiresAt)`; a missing bound is open.
+   * SECURITY: an unreadable bound makes the row inactive, since `NaN` fails both comparisons and would read as live.
    */
   private _isActive(row: IamDrizzle.AssignmentRow, now: number): boolean {
     const startsAt = epochMs(row.startsAt)
     const expiresAt = epochMs(row.expiresAt)
-    // `Number.isNaN`, not `!Number.isFinite`: only an *unreadable* bound makes
-    // the row inactive on sight. `±Infinity` is readable - it is how Postgres
-    // spells an open-ended bound - and the comparisons below give it the right
-    // answer on their own.
+    // NOTE: `Number.isNaN`, not `!Number.isFinite`: Postgres spells an open-ended bound as `Infinity`,
+    // which must stay active.
     if (startsAt !== null && Number.isNaN(startsAt)) return false
     if (expiresAt !== null && Number.isNaN(expiresAt)) return false
     if (startsAt !== null && now < startsAt) return false
@@ -563,14 +416,13 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Parses an assignment's `attributes` column. Corruption drops just this field
-   * (reported, not thrown) - unlike subject attributes, a bad value here shouldn't
-   * fail the whole role list.
+   * Parses an assignment's `attributes` column.
+   * A corrupt value is reported and dropped, not thrown, so one bad field does not fail the whole role list.
    */
   private _parseAssignmentAttributes(row: IamDrizzle.AssignmentRow): IamPrimitives.Attributes | undefined {
     const raw = row.attributes
     if (raw === null || raw === undefined) return undefined
-    // mysql's id has no adapter-side default, so AssignmentRow.id is nullable there.
+    // Name the row by subject when it has no `id`.
     const rowId = row.id ?? row.subjectId
     let value: unknown
     try {
@@ -590,12 +442,7 @@ export class IamDrizzleAdapter<
     return attrs
   }
 
-  /**
-   * Lists every policy in the database.
-   *
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns All policies parsed from the policies table.
-   */
+  /** Lists every policy; throws if any policy row is unreadable. */
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const rows = await this._selectAll<IamDrizzle.PolicyRow>(this._t.policies)
     const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
@@ -606,13 +453,7 @@ export class IamDrizzleAdapter<
     return out
   }
 
-  /**
-   * Fetches a single policy by ID.
-   *
-   * @param id - Identifies the policy to look up.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns The matching policy or `null` when absent.
-   */
+  /** Fetches a policy by ID, or `null` when absent. */
   async getPolicy(
     id: string,
     _opts?: IamAdapter.IReadOptions,
@@ -621,12 +462,7 @@ export class IamDrizzleAdapter<
     return row ? this._safeParsePolicy(row) : null
   }
 
-  /**
-   * Upserts a policy (inserts or updates on conflict).
-   *
-   * @param p - Provides the policy to persist.
-   * @returns Resolves once the upsert completes.
-   */
+  /** Upserts a policy; `opts.actor` fills `created_by` on insert and `updated_by` on update. */
   async savePolicy(
     p: AccessControl.IPolicy<TAction, TResource, TRole>,
     opts?: IamAdapter.IActorOptions,
@@ -640,22 +476,12 @@ export class IamDrizzleAdapter<
     })
   }
 
-  /**
-   * Removes a policy by ID.
-   *
-   * @param id - Identifies the policy to delete.
-   * @returns Resolves once the delete completes.
-   */
+  /** Removes a policy by ID. */
   async deletePolicy(id: string): Promise<void> {
     await this._db.delete(this._t.policies).where(this._eq(this._t.policies.id, id))
   }
 
-  /**
-   * Lists every role in the database.
-   *
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns All roles parsed from the roles table.
-   */
+  /** Lists every readable role; unreadable rows are reported and skipped. */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this._selectAll<IamDrizzle.RoleRow>(this._t.roles)
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
@@ -666,13 +492,7 @@ export class IamDrizzleAdapter<
     return out
   }
 
-  /**
-   * Fetches a single role by ID.
-   *
-   * @param id - Identifies the role to look up.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns The matching role or `null` when absent.
-   */
+  /** Fetches a role by ID, or `null` when absent or unreadable. */
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
@@ -681,12 +501,7 @@ export class IamDrizzleAdapter<
     return row ? this._safeParseRole(row) : null
   }
 
-  /**
-   * Upserts a role (inserts or updates on conflict).
-   *
-   * @param r - Provides the role to persist.
-   * @returns Resolves once the upsert completes.
-   */
+  /** Upserts a role; `opts.actor` fills `created_by` on insert and `updated_by` on update. */
   async saveRole(
     r: AccessControl.IRole<TAction, TResource, TRole, TScope>,
     opts?: IamAdapter.IActorOptions,
@@ -697,30 +512,18 @@ export class IamDrizzleAdapter<
     await this._upsert(this._t.roles, { ...data, ...who.insert }, this._t.roles.id, r.id, { ...data, ...who.update })
   }
 
-  /**
-   * Removes a role by ID.
-   *
-   * @param id - Identifies the role to delete.
-   * @returns Resolves once the delete completes.
-   */
+  /** Removes a role by ID. */
   async deleteRole(id: string): Promise<void> {
     await this._db.delete(this._t.roles).where(this._eq(this._t.roles.id, id))
   }
 
-  /**
-   * Lists deduplicated role IDs assigned to a subject.
-   *
-   * @param subjectId - Identifies the subject whose roles are read.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns Deduplicated array of role IDs.
-   */
+  /** Deduplicated IDs of the subject's active *unscoped* roles; scoped ones come from `getSubjectScopedRoles`. */
   async getSubjectRoles(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     const rows = await this._selectWhere<IamDrizzle.AssignmentRow>(
       this._t.assignments,
       this._t.assignments.subjectId,
       subjectId,
     )
-    // Unscoped (global) roles only - mirrors file/memory/redis adapters.
     const now = Date.now()
     return [
       ...new Set(
@@ -729,13 +532,7 @@ export class IamDrizzleAdapter<
     ]
   }
 
-  /**
-   * Lists scoped role assignments for a subject (excludes unscoped).
-   *
-   * @param subjectId - Identifies the subject whose scoped roles are read.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns Array of `(role, scope)` pairs.
-   */
+  /** The subject's active scoped assignments as `(role, scope, attributes?)`; unscoped rows are excluded. */
   async getSubjectScopedRoles(
     subjectId: string,
     _opts?: IamAdapter.IReadOptions,
@@ -746,11 +543,7 @@ export class IamDrizzleAdapter<
       subjectId,
     )
     const now = Date.now()
-    // `filter` with a plain predicate does not narrow the mapped element, so
-    // `r.scope` is still `string | null` here. The old `r.scope as TScope`
-    // erased that: change the predicate and a `null` scope would travel on as a
-    // scope value, matching a scoped check it should never match. Narrowing per
-    // row keeps the two in step.
+    // Narrow per row: a `filter` predicate does not narrow `r.scope`, and a `null` must never pass as a scope.
     const out: IamRequest.IScopedRole<TRole, TScope>[] = []
     for (const r of rows) {
       if (r.scope === null || r.scope === undefined || !this._isActive(r, now)) continue
@@ -764,17 +557,7 @@ export class IamDrizzleAdapter<
     return out
   }
 
-  /**
-   * Grants a role to a subject, optionally restricted to a scope.
-   *
-   * No-ops on duplicate `(subject, role, scope)` rows.
-   *
-   * @param subjectId - Identifies the subject receiving the role.
-   * @param roleId - Specifies the role being granted.
-   * @param scope - Optional scope binding the assignment.
-   * @param opts - Optional temporal bounds and per-grant attributes.
-   * @returns Resolves once the insert completes.
-   */
+  /** Grants a role, optionally scoped, time-bounded and attributed; a duplicate `(subject, role, scope)` is a no-op. */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('drizzle', scope)
     iamAssertValidAssignWindow('drizzle', opts)
@@ -786,26 +569,15 @@ export class IamDrizzleAdapter<
         startsAt: opts?.startsAt ?? null,
         expiresAt: opts?.expiresAt ?? null,
         attributes: opts?.attributes ? encodeJson(opts.attributes, this._json) : null,
-        // Spread rather than written as null, so a table without the column is
-        // untouched unless the caller actually names an actor. The pg and mysql
-        // schemas here declare `created_by`; this is what finally fills it.
+        // Spread rather than written as null, so a table without the column is untouched unless an actor is named.
         ...(opts?.actor !== undefined && { createdBy: opts.actor }),
       }),
     )
   }
 
   /**
-   * Runs a write that may violate `fk_iam_assignments_role` and reports the
-   * violation the way the other five adapters do.
-   *
-   * The database is the check here - checking first would leave a window where
-   * the role is deleted before the insert lands - but drizzle buries the
-   * constraint on `.cause` under a `Failed query: <sql>` message, so without
-   * this an operator sees the statement and never the reason. The original
-   * error is kept as `cause`.
-   *
-   * @param write - The insert to run.
-   * @returns Whatever the write returns.
+   * Runs a write and turns a `fk_iam_assignments_role` violation into the shared unknown-role error, keeping `cause`.
+   * NOTE: the FK is the check, since a pre-read races a role delete; drizzle hides the constraint under `Failed query`.
    */
   private async _refusingUnknownRole<T>(write: () => Promise<T>): Promise<T> {
     try {
@@ -816,14 +588,7 @@ export class IamDrizzleAdapter<
     }
   }
 
-  /**
-   * Removes role assignments matching the given filters.
-   *
-   * @param subjectId - Identifies the subject losing the role.
-   * @param roleId - Specifies the role being revoked.
-   * @param scope - Optional scope filter to narrow the delete.
-   * @returns Resolves once the delete completes.
-   */
+  /** Removes the subject's assignment of `roleId`; with no `scope`, removes it in every scope. */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     iamAssertAssignableScope('drizzle', scope, 'lookup')
     const conditions = [
@@ -835,18 +600,8 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Grants every triple with one multi-row insert, reusing the same
-   * insert-or-skip conflict handling as {@link assignRole}.
-   *
-   * Reports which rows this statement actually created. `RETURNING` on the
-   * insert names them for free - the conflict clause has already skipped the
-   * duplicates, so the driver hands back exactly the new grants on the round
-   * trip the write was making anyway. A duplicate is still `ok` to the caller;
-   * it is reported as `changed: false`, matching {@link assignRole}, which
-   * treats an existing grant as success.
-   *
-   * @param rows - The triples to grant, each with its optional temporal bounds.
-   * @returns Indices of the rows this call granted, or `null` on MySQL - see below.
+   * Grants every row in one multi-row insert, skipping existing grants like {@link assignRole}.
+   * @returns Indices of rows this call inserted (read via `RETURNING`), or `null` on MySQL.
    */
   async assignRoleMany(rows: readonly IamAdapter.IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null> {
     for (const r of rows) {
@@ -854,10 +609,8 @@ export class IamDrizzleAdapter<
       iamAssertValidAssignWindow('drizzle', r.opts)
     }
     if (rows.length === 0) return []
-    // All-or-nothing across the batch: a multi-row insert builds its column
-    // list from the value objects, so including `createdBy` on some rows and
-    // not others would produce rows the driver has to reconcile. If any row
-    // names an actor, every row carries the column - null where it has none.
+    // A multi-row insert takes its column list from the value objects, so if any row names an actor, every row
+    // carries `createdBy` (null where it has none).
     const anyActor = rows.some((r) => r.opts?.actor !== undefined)
     const statement = this._insertOrSkip(
       this._t.assignments,
@@ -871,16 +624,12 @@ export class IamDrizzleAdapter<
         ...(anyActor && { createdBy: r.opts?.actor ?? null }),
       })),
     )
-    // MySQL's insert-ignore has no `RETURNING`. The grants land either way;
-    // `null` says the driver cannot name the new ones, and the engine leaves
-    // `changed` off rather than guessing. Finding out would cost a second
-    // round trip for an answer nobody asked for.
+    // INFO: MySQL's insert-ignore has no `RETURNING`; `null` tells the engine to leave `changed` unset.
     if (this._dialect === 'mysql') {
       await this._refusingUnknownRole(() => Promise.resolve(statement))
       return null
     }
-    // `r.scope ?? null` compares against the column as stored, which keeps an
-    // unscoped row distinct from one scoped to the empty string.
+    // `r.scope ?? null` matches the stored column, keeping an unscoped row distinct from the `''` scope.
     return creditWrites(
       rows,
       returnedTriples(await this._refusingUnknownRole(() => statement.returning())),
@@ -889,17 +638,9 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Revokes every triple with one `DELETE` whose `WHERE` is an `OR` of the
-   * per-triple conditions. Falls back to one delete per row when `ops.or` was
-   * not supplied - same rows removed, more statements.
-   *
-   * Reports which rows this statement actually removed, read off the same
-   * `DELETE` via `RETURNING`. A triple that was never granted is still `ok`,
-   * mirroring {@link revokeRole}: the postcondition ("this subject does not
-   * hold this role here") holds either way. It is reported `changed: false`.
-   *
-   * @param rows - The triples to revoke. A row with no `scope` revokes the role in every scope.
-   * @returns Indices of the rows this call removed a grant for, or `null` on MySQL.
+   * Revokes every row with one `DELETE ... WHERE a OR b`, or one delete per row without `ops.or`.
+   * A row with no `scope` revokes the role in every scope.
+   * @returns Indices of rows that removed a grant (read via `RETURNING`), or `null` on MySQL.
    */
   async revokeRoleMany(rows: readonly IamAdapter.ITripleRow<TRole, TScope>[]): Promise<readonly number[] | null> {
     for (const r of rows) iamAssertAssignableScope('drizzle', r.scope, 'lookup')
@@ -915,7 +656,7 @@ export class IamDrizzleAdapter<
     const or = this._or
     const wheres = or ? [or(...rows.map(rowCondition))] : rows.map(rowCondition)
 
-    // MySQL has no `RETURNING` on `DELETE`; see {@link assignRoleMany}.
+    // INFO: MySQL has no `RETURNING` on `DELETE`.
     if (this._dialect === 'mysql') {
       for (const where of wheres) await this._db.delete(this._t.assignments).where(where)
       return null
@@ -925,10 +666,7 @@ export class IamDrizzleAdapter<
     for (const where of wheres) {
       gone.push(...returnedTriples(await this._db.delete(this._t.assignments).where(where).returning()))
     }
-    // A requested row with no `scope` revokes the role everywhere, so it
-    // accounts for a removed row whatever scope that row held. A scoped
-    // request accounts only for its own scope, and `''` is a scope like any
-    // other - distinct from the unscoped row's `null`.
+    // An unscoped request is credited with any removed scope; a scoped one only with its own (`''` is not `null`).
     return creditWrites(
       rows,
       gone,
@@ -937,9 +675,8 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Moves `(subjectId, roleId, fromScope)` to `toScope` with one `UPDATE`. Requires
-   * `ops.isNull` (the global/unscoped case needs `IS NULL`, not `eq(col, null)`);
-   * without it, or when nothing matches `fromScope`, returns `false` so the engine
+   * Moves `(subjectId, roleId, fromScope)` to `toScope` in place; if `toScope` is already held, drops the source row.
+   * Returns `false` without `ops.isNull` (unscoped needs `IS NULL`) or when nothing matches, so the engine
    * falls back to revoke + assign.
    */
   async updateAssignmentScope(
@@ -950,11 +687,6 @@ export class IamDrizzleAdapter<
     actor?: string,
   ): Promise<boolean> {
     if (!this._isNull) return false
-    // `this._t.assignments` was aliased through
-    // `as unknown as { subjectId: unknown; roleId: unknown; scope: unknown }`
-    // to read its columns. `revokeRoleMany` twenty lines up reads exactly the
-    // same three columns off the same value with no cast at all, so the alias
-    // was asserting a shape the table already had.
     const table = this._t.assignments
     const isNull = this._isNull
     const scopeCondition = (scope: TScope | undefined): SQLWrapper =>
@@ -988,38 +720,47 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Fetches the attribute bag stored for a subject.
-   *
-   * @param subjectId - Identifies the subject whose attributes are read.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns The subject's attributes or `{}` when none are recorded.
+   * The subject's attribute bag, or `{}` when none is stored.
+   * SECURITY: a corrupt bag throws, so the engine fails closed.
    */
   async getSubjectAttributes(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
+    const stored = await this._readStoredAttributes(subjectId)
+    if (!stored.ok) throw stored.error
+    return stored.attrs
+  }
+
+  /** Reads and narrows the stored bag: a failed query rejects, a corrupt row resolves `{ ok: false }`. */
+  private async _readStoredAttributes(
+    subjectId: string,
+  ): Promise<
+    { readonly ok: true; readonly attrs: IamPrimitives.Attributes } | { readonly ok: false; readonly error: Error }
+  > {
     const row = await this._selectFirst<IamDrizzle.AttrRow>(this._t.attrs, this._t.attrs.subjectId, subjectId)
-    if (!row) return {}
+    if (!row) return { ok: true, attrs: {} }
     const data = row.data
     if (typeof data === 'string') {
       let parsed: unknown
       try {
         parsed = JSON.parse(data)
       } catch (err) {
-        // Corruption is not "no attributes" - surface so the engine fails closed.
+        // SECURITY: corruption is not "no attributes"; surface it so the engine fails closed.
         this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-        throw new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (JSON parse failed)`)
+        return {
+          ok: false,
+          error: new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (JSON parse failed)`),
+        }
       }
-      return this._validateAttributesShape(parsed, subjectId)
+      return this._narrowStoredAttributes(parsed, subjectId)
     }
-    // No `data === null -> {}` short circuit. `data` is `.notNull()` in all
-    // three shipped schemas, so a row that exists cannot carry an absent value
-    // - a `null` arriving here is `'null'::jsonb`, a stored value, and the
-    // shape an import or a hand-written migration produces from a missing
-    // field. Answering `{}` for it read as "this subject has no attributes"
-    // and silently retired every deny rule that tests one; prisma's adapter
-    // threw on the identical row. `_validateAttributesShape` refuses it.
-    return this._validateAttributesShape(data ?? null, subjectId)
+    // SECURITY: no `null -> {}` shortcut. `data` is NOT NULL, so `null` here is a stored `'null'::jsonb`, and `{}`
+    // would disable every deny rule that tests an attribute. `_narrowStoredAttributes` refuses it.
+    return this._narrowStoredAttributes(data ?? null, subjectId)
   }
 
-  private _validateAttributesShape(value: unknown, subjectId: string): IamPrimitives.Attributes {
+  private _narrowStoredAttributes(
+    value: unknown,
+    subjectId: string,
+  ): { readonly ok: true; readonly attrs: IamPrimitives.Attributes } | { readonly ok: false; readonly error: Error } {
     const attrs = iamNarrowAttributes(value)
     if (attrs === null) {
       const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
@@ -1027,36 +768,26 @@ export class IamDrizzleAdapter<
         new Error(`Attributes for "${subjectId}" must be a JSON object of scalar values (got ${got})`),
         subjectId,
       )
-      throw new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (not a JSON object)`)
+      return {
+        ok: false,
+        error: new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (not a JSON object)`),
+      }
     }
-    return attrs
+    return { ok: true, attrs }
   }
 
-  /**
-   * Shallow-merges new attributes into the subject's existing bag (upsert).
-   *
-   * @param subjectId - Identifies the subject whose attributes are written.
-   * @param attrs - Provides the partial attribute patch to merge in.
-   * @returns Resolves once the upsert completes.
-   */
+  /** Shallow-merges `attrs` into the subject's stored bag (upsert); a corrupt stored bag is reported and replaced. */
   async setSubjectAttributes(
     subjectId: string,
     attrs: IamPrimitives.Attributes,
     opts?: IamAdapter.IActorOptions,
   ): Promise<void> {
-    // The other four adapters have always called this; without it a non-object
-    // `attrs` spreads into per-character keys and corrupts the ABAC bag, so the
-    // same call errored loudly on memory/file/redis/http and wrote junk here.
+    // Refuse a non-object `attrs`, which would spread into per-character keys.
     iamAssertAttributesParam('drizzle', subjectId, attrs)
-    // Admin overwrite must recover from corrupt existing data instead of
-    // locking the operator out.
-    let existing: IamPrimitives.Attributes
-    try {
-      existing = await this.getSubjectAttributes(subjectId)
-    } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-      existing = {}
-    }
+    // Only a corrupt bag is overwritten; a failed read propagates instead of replacing the bag.
+    const stored = await this._readStoredAttributes(subjectId)
+    if (!stored.ok) this._reportPolicyError(stored.error, subjectId)
+    const existing = stored.ok ? stored.attrs : {}
     const mergedObj = { ...existing, ...attrs }
     const merged = this._json === 'string' ? JSON.stringify(mergedObj) : mergedObj
     const who = provenance(opts?.actor)
@@ -1067,11 +798,7 @@ export class IamDrizzleAdapter<
   }
 }
 
-/**
- * Encodes a JSON payload for storage: `JSON.stringify` in `'string'` mode
- * (SQLite / text columns), or the value untouched in `'native'` mode so
- * IamDrizzle hands a real object to a `jsonb`/`json` column.
- */
+/** Encodes JSON for storage: stringified in `'string'` mode, untouched in `'native'` mode (`jsonb`/`json`). */
 function encodeJson(value: unknown, mode: 'native' | 'string'): unknown {
   return mode === 'string' ? JSON.stringify(value) : value
 }
@@ -1103,15 +830,12 @@ function serializeRole(r: AccessControl.IRole, json: 'native' | 'string'): Recor
 }
 
 /**
- * Creates an IamDrizzleAdapter instance from a Drizzle db instance and
- * IamDrizzle table schema.
+ * Creates an {@link IamDrizzleAdapter} typed from an engine config.
  *
  * @template TEngine - The access control engine configuration.
  * @template TDb - The Drizzle db instance.
  * @template TType - The Drizzle db dialect.
- * @template Params - The access control engine configuration parameters.
- *
- * @param config - Provides the IamDrizzle db, tables, and operator functions.
+ * @template Params - The action, resource, role, scope and env types inferred from `TEngine`.
  */
 export function createIamDrizzleAdapter<
   TEngine extends IamConfig.IAccessConfig<any, any, any, any, any>,

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 
-/** `IConfig` gained <TDb, TType> in the rename these suites were disabled for. */
 type TestConfig = IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>
 
 type A = 'read'
@@ -100,8 +99,6 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     expect(onPolicyErrorMock).toHaveBeenCalled()
     const errArg = onPolicyErrorMock.mock.calls[0]?.[0] as Error | undefined
     expect(errArg).toBeInstanceOf(Error)
-    // The guard now also rejects a bag whose *values* are unstorable, so the
-    // message says "of scalar values"; the `(got array)` suffix is unchanged.
     expect(errArg?.message).toContain('must be a JSON object of scalar values (got array)')
   })
 
@@ -119,15 +116,8 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     )
   })
 
-  // These two asserted `{}` on the reading that a null `data` is a legitimate
-  // empty state. It is not one: `data` is `.notNull()` in all three shipped
-  // schemas, so a row that exists cannot carry an absent value, and a `null`
-  // arriving here is `'null'::jsonb` - a stored value, the shape an import or a
-  // hand-written migration produces from a missing field. Against real
-  // Postgres that `{}` retired the deny rule in
-  // `e2e-adapter-drizzle-pg.e2e.test.ts` and turned a corrupt row into an
-  // allow, while prisma's adapter threw on the identical row. A subject with no
-  // attributes has no row at all, and that case still answers `{}` above.
+  // SECURITY: `data` is `.notNull()`, so a `null` is a stored `'null'::jsonb` and must throw, not read as `{}`
+  // and drop deny rules. A subject with no attributes has no row and still reads `{}`.
   it('throws when the data column holds a stored JSON null', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: null }])
     await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
@@ -157,12 +147,7 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     )
   })
 
-  /**
-   * `iamAssertAttributesParam` is the shared boundary guard every adapter runs
-   * first. Drizzle and Prisma - the two SQL backends - never called it, so
-   * `setSubjectAttributes(id, 'abc')` spread into per-character keys and wrote
-   * `{0:'a',1:'b',2:'c'}` here while the other four threw.
-   */
+  // Without `iamAssertAttributesParam`, a string would spread into per-character keys.
   it.each([
     ['a string', '"abc"'],
     ['an array', '[1,2]'],
@@ -173,9 +158,7 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     await expect(adapter.setSubjectAttributes('user-1', JSON.parse(json))).rejects.toThrow(/must be a plain object/)
   })
 
-  // Control: a plain object gets *past* the guard. The mock has no write path,
-  // so it still fails - but on the write, not on the guard's message, which is
-  // what distinguishes "rejected correctly" from "method became inert".
+  // Control: the mock has no write path, so this still fails, but on the write rather than the guard.
   it('setSubjectAttributes lets a plain object past the guard', async () => {
     let message = ''
     try {

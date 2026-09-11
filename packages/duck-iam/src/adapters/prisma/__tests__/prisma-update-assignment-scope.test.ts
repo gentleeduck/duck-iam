@@ -1,7 +1,6 @@
 /**
- * `updateAssignmentScope` moves an existing grant in place - one write instead of
- * revoke + assign - so the row keeps its `id`/`createdAt`. Returning `false` is the
- * signal the engine uses to fall back to revoke + assign.
+ * `updateAssignmentScope` moves a grant in place, so the row keeps its `id`/`createdAt`.
+ * Returning `false` tells the engine to fall back to revoke + assign.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { IamPrismaAdapter } from '../index'
@@ -147,11 +146,7 @@ describe('IamPrismaAdapter.updateAssignmentScope', () => {
   })
 })
 
-/**
- * The conflict cleanup on the target scope must only run once the source row is
- * known to exist - otherwise a stale `fromScope` destroys the grant the caller
- * was moving *onto* and reports `false` as if nothing happened.
- */
+// The target-scope cleanup runs only once the source row exists, so a stale `fromScope` cannot delete that grant.
 describe('updateAssignmentScope source check', () => {
   it('leaves the target-scope row untouched when the source scope has no row', async () => {
     const { adapter, assignments } = makeMock([{ roleId: 'editor', scope: 'org-2', subjectId: 'sub-1' }])
