@@ -1,14 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { iamExtractEnvironment } from '../index'
 
-/**
- * These all pass `{ trustProxy: true }` now. The normalization they cover is
- * unchanged and still worth pinning - it is what an app behind a real proxy
- * gets - but reading the forwarding headers is opt-in: with nothing in front of
- * the app they are headers the client sets itself, and against real servers a
- * plain `X-Forwarded-For: 10.0.0.1` satisfied an IP-conditioned admin grant on
- * hono, next and the generic helper. The default is pinned separately below.
- */
+// SECURITY: reading forwarding headers is opt-in, since without a proxy the client sets them itself.
+// These pin the normalization an app behind a real proxy gets; the default is pinned below.
 describe('iamExtractEnvironment XFF normalization under trustProxy', () => {
   it('takes the leftmost IP from a multi-proxy XFF', () => {
     const env = iamExtractEnvironment(
@@ -114,9 +108,7 @@ describe('iamExtractEnvironment does not guess the client IP', () => {
   })
 
   it('ignores req.ip by default', () => {
-    // Even the framework-computed value: express reports the socket peer here
-    // and hono/next have nothing to report, so honouring it made the same
-    // policy read one way on two integrations and another way on three.
+    // Even the framework value: only express reports a socket peer, so honouring it would split the integrations.
     expect(iamExtractEnvironment({ ip: '10.0.0.1' }).ip).toBeUndefined()
   })
 

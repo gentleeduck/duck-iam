@@ -7,14 +7,8 @@ import { iamAccessMiddleware as honoMiddleware } from '../hono'
 import { createIamAdminOperations, IamAuthorize, iamNestAccessGuard } from '../nest'
 import { withIamAccess } from '../next'
 
-/**
- * `getUserId` is the extractor most likely to do I/O - JWT verification, a
- * session lookup, an IdP call - and it was the only one called outside the
- * adapters' try blocks. Express 4 does not catch a rejected promise from a
- * middleware, so nothing was written to the socket and the client hung; the
- * other three landed on their framework's boundary instead of their own
- * `onError`. None of them allowed, but only one of the five stopped responding.
- */
+// `getUserId` often does I/O, so its failure must reach each adapter's own `onError`.
+// INFO: Express 4 does not catch a rejected middleware promise, so the client would hang.
 const boom = () => {
   throw new Error('idp down')
 }
@@ -113,8 +107,7 @@ describe('a throwing getUserId denies through the adapter, not the framework', (
     expect(onError).toHaveBeenCalledOnce()
   })
 
-  // Control: a `getUserId` that simply returns null must still be a 401, not a
-  // 500 - the move into the try must not have swallowed the unauthenticated arm.
+  // Control: a `getUserId` that returns null is still a 401, not a 500.
   it('still answers 401 when getUserId returns null', async () => {
     const mw = expressMiddleware(engine(), { getUserId: () => null })
     const res = expressRes()
@@ -123,11 +116,7 @@ describe('a throwing getUserId denies through the adapter, not the framework', (
   })
 })
 
-/**
- * `env.ip` flows into `matches` conditions the same way `userAgent` does, and
- * hono filled it from a raw request header at top precedence, skipping the caps
- * every other IP source goes through.
- */
+// SECURITY: `env.ip` feeds `matches` conditions, so every IP source goes through the same caps.
 describe('iamExtractEnvironment caps every IP source', () => {
   it('drops an oversized req.ip', () => {
     expect(iamExtractEnvironment({ ip: 'x'.repeat(100_000) }, { trustProxy: true }).ip).toBeUndefined()
@@ -142,21 +131,13 @@ describe('iamExtractEnvironment caps every IP source', () => {
     expect(iamExtractEnvironment({ ip: '203.0.113.7' }, { trustProxy: true }).ip).toBe('203.0.113.7')
   })
 
-  // The parity this describe exists for is now flat: with no `trustProxy` the
-  // ip is undefined on every integration, so no IP-conditioned rule can read
-  // one way on express and another on hono.
+  // Without `trustProxy` the ip is undefined on every integration, so IP rules cannot differ between them.
   it('reports no ip at all unless the app opts in', () => {
     expect(iamExtractEnvironment({ ip: '203.0.113.7' }).ip).toBeUndefined()
   })
 })
 
-/**
- * Nest's base exception filter routes a non-`HttpException` to
- * `handleUnknownError`, whose only non-500 branch duck-types
- * `err.statusCode && err.message`. With `status` alone, every unauthenticated
- * poke at an admin endpoint got a 500 plus an error-level stack trace in the
- * log, where express, hono and next all answer 401/403.
- */
+// INFO: Nest's base filter maps a non-`HttpException` to a non-500 only when it has `statusCode` and `message`.
 describe('nest admin gate throws an error Nest can map', () => {
   const ops = () => createIamAdminOperations(engine(), { authorize: () => false, csrfCheck: false })
 
@@ -174,8 +155,7 @@ describe('nest admin gate throws an error Nest can map', () => {
     expect(err).toMatchObject({ status: 403, statusCode: 403 })
   })
 
-  // Control: an authorized call still resolves, so the two above are not
-  // passing because every call now throws.
+  // Control: an authorized call still resolves, so the two above do not pass because every call throws.
   it('resolves when authorize passes', async () => {
     const allowed = createIamAdminOperations(engine(), { authorize: () => true, csrfCheck: false })
     await expect(allowed.listPolicies({ method: 'GET' })).resolves.toBeDefined()

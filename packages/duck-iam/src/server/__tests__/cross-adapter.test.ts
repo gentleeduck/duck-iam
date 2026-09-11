@@ -8,19 +8,8 @@ import { iamGuard as honoGuard, iamAccessMiddleware as honoMiddleware } from '..
 import { IamAuthorize, iamNestAccessGuard, type NestRequest } from '../nest'
 import { createIamNextMiddleware, withIamAccess } from '../next'
 
-/**
- * The five framework integrations each build their own `(action, resource,
- * environment, scope)` tuple from a request and hand it to the same engine. A
- * policy is written once and expected to mean the same thing behind all five;
- * every divergence found so far - nest reading the last path segment, next's
- * middleware passing no environment, next's middleware skipping the
- * double-encoding residue check - was a place where one of them quietly built a
- * different tuple than the rest on the same bytes.
- *
- * Per-adapter suites cannot catch that: each one asserts its own answer. This
- * file drives one hostile-request table through all of them against a recording
- * engine and compares the tuples to each other.
- */
+// Drives one hostile-request table through all five integrations and compares the (action, resource, environment,
+// scope) tuples they hand a recording engine, so one policy means the same thing behind each.
 
 const USER = 'u1'
 
@@ -35,9 +24,8 @@ interface RecordedCall {
 }
 
 /**
- * Records the tuple instead of deciding it. Subclasses the real engine rather
- * than standing in for it structurally, so a change to `can()`'s signature
- * breaks this file instead of being absorbed by a hand-rolled double.
+ * Records the tuple instead of deciding it.
+ * NOTE: subclasses the real engine so a change to `can()`'s signature breaks this file.
  */
 class RecordingEngine extends IamEngine {
   readonly calls: RecordedCall[] = []
@@ -66,10 +54,7 @@ class RecordingEngine extends IamEngine {
   }
 }
 
-/**
- * Paths a router resolves one way and a naive authorization check reads
- * another, plus the plain controls that prove the table is not all one answer.
- */
+/** Paths a router and a naive authorization check read differently, plus plain controls. */
 const HOSTILE_REQUESTS = [
   { method: 'GET', path: '/posts/42' },
   { method: 'DELETE', path: '/posts/../admin/secret' },
@@ -126,9 +111,7 @@ function nestCtx(request: NestRequest, handler: () => null) {
 }
 
 describe('the path-deriving integrations build the same tuple', () => {
-  // Positive control. Every assertion below is a three-way equality, which a
-  // table that produced one constant answer would satisfy without pinning
-  // anything - including the `unknown` refusal, the answer most worth pinning.
+  // Positive control: a table with one constant answer would satisfy every three-way equality below.
   it('the table produces more than one answer, including a refusal', () => {
     const types = new Set(HOSTILE_REQUESTS.map((r) => iamDefaultResource(r.path).type))
     const actions = new Set(HOSTILE_REQUESTS.map((r) => iamActionForMethod(r.method)))
@@ -147,8 +130,7 @@ describe('the path-deriving integrations build the same tuple', () => {
       const hono = new RecordingEngine()
       await honoMiddleware(hono)(honoCtx(path, method), async () => undefined)
 
-      // No `request.route`: the fallback branch every nest test supplied a
-      // `routePath` for, and the one platform-fastify actually takes.
+      // No `request.route`: the fallback branch, which platform-fastify takes.
       const nest = new RecordingEngine()
       await iamNestAccessGuard(nest, { getUserId: () => USER })(
         nestCtx({ method, params: {}, path }, inferringHandler()),
@@ -167,20 +149,14 @@ describe('createIamNextMiddleware refuses exactly what the others call `unknown`
   for (const { method, path } of HOSTILE_REQUESTS) {
     it(`${method} ${path}`, async () => {
       const engine = new RecordingEngine()
-      // A catch-all rule, so the decision under test is the residue check and
-      // not whether some prefix happened to match.
+      // A catch-all rule, so the result depends on the residue check, not a prefix match.
       const mw = createIamNextMiddleware(engine, {
         getUserId: () => USER,
         rules: [{ pattern: '/', resource: 'any' }],
       })
 
       const req = new Request(`https://example.com${path}`, { method })
-      // The expectation is computed from the path the middleware can actually
-      // see, not the one written above. `new Request(...)` resolves dot
-      // segments while constructing the URL, so a traversal never reaches next
-      // middleware to be refused - a Fetch-API limitation the express and
-      // generic integrations do not share, recorded as a divergence in
-      // `e2e-http-servers.e2e.test.ts`.
+      // INFO: `new Request(...)` resolves dot segments, so expect from the path the middleware actually sees.
       const seenPath = new URL(req.url).pathname
       const res = await mw(req)
 
@@ -200,13 +176,9 @@ describe('nest route templates agree with the shared resource helper', () => {
   const TEMPLATES: ReadonlyArray<{ expected: string; template: string }> = [
     { expected: 'posts', template: '/posts/:id' },
     { expected: 'posts', template: 'posts' },
-    // `'*'` is the engine's wildcard *pattern* sentinel: returned verbatim it
-    // matched every `resources: ['*']` allow and no targeted deny.
+    // SECURITY: `'*'` is the engine's wildcard sentinel; returned as-is it would match every `resources: ['*']` allow.
     { expected: IAM_UNKNOWN_RESOURCE, template: '/*' },
-    // A wildcard *after* the first segment is harmless: `/files/*path` only
-    // ever routes under `/files`, which is exactly what a concrete request to
-    // it resolves to in express and hono. Only a non-literal first segment
-    // leaves the resource unnamed.
+    // A wildcard after the first segment only routes under `/files`; a non-literal first segment leaves it unnamed.
     { expected: 'files', template: '/files/*path' },
     { expected: IAM_UNKNOWN_RESOURCE, template: '/*path' },
     { expected: IAM_UNKNOWN_RESOURCE, template: '/%61dmin' },
@@ -230,10 +202,7 @@ describe('nest route templates agree with the shared resource helper', () => {
 })
 
 describe('every integration passes a defined environment', () => {
-  // The one that did not was `createIamNextMiddleware`: a rule keyed on
-  // `environment.ip` / `.userAgent` / `.hour` never fired there while firing in
-  // the other four on the same request, so a time-of-day or IP deny was absent
-  // exactly where a next app puts its edge checks.
+  // Without one, a rule on `environment.ip`, `.userAgent` or `.hour` never fires in that integration.
   it('all five hand `can` an environment object', async () => {
     const express = new RecordingEngine()
     await expressMiddleware(express, { getUserId: () => USER })(
@@ -269,9 +238,7 @@ describe('every integration passes a defined environment', () => {
 })
 
 describe('a throwing getUserId stays inside the integration', () => {
-  // `adapter-failure-mode-parity.test.ts` covers express (both entry points),
-  // hono's middleware, nest and `withIamAccess`. These are the two remaining
-  // rows of that table.
+  // `adapter-failure-mode-parity.test.ts` covers the other entry points; these are the remaining two.
   const boom = () => {
     throw new Error('idp down')
   }
@@ -300,12 +267,7 @@ describe('a throwing getUserId stays inside the integration', () => {
 })
 
 describe('the authz try wraps the check, not the downstream handler', () => {
-  // Hono was the only one of the five that `await`ed the downstream handler
-  // inside its own try. A business-logic error thrown by the route came back
-  // out of `await next()`, was caught here, and was reported through the
-  // middleware's `onError` - documented as "handles thrown errors during
-  // evaluation" - which pre-empted the app's own `app.onError` and turned every
-  // route failure into an authorization-shaped 500.
+  // A route's own error must reach the app's `app.onError`, not turn into an authorization-shaped 500.
   const routeBlewUp = async () => {
     throw new Error('route blew up')
   }
@@ -324,8 +286,7 @@ describe('the authz try wraps the check, not the downstream handler', () => {
     expect(onError).not.toHaveBeenCalled()
   })
 
-  // Control: the same `onError` still fires for a failure inside the check, so
-  // moving `next()` out did not simply disconnect the hook.
+  // Control: `onError` still fires for a failure inside the check.
   it('hono still routes an evaluation error to onError', async () => {
     const onError = vi.fn((_err: Error) => new Response(null, { status: 500 }))
     const mw = honoMiddleware(new RecordingEngine(), {
@@ -341,10 +302,7 @@ describe('the authz try wraps the check, not the downstream handler', () => {
 })
 
 describe('express never offers `next` to an error hook', () => {
-  // `onError` used to receive express's `next`, and the obvious handler to
-  // write with it - `(err, req, res, next) => next()` - continues the chain,
-  // which is a fail-open on the exact path where the check did not complete.
-  // The hook cannot be handed what it must not call.
+  // SECURITY: calling `next()` from the hook would fail open exactly when the check did not complete.
   const boom = () => {
     throw new Error('idp down')
   }
@@ -364,9 +322,7 @@ describe('express never offers `next` to an error hook', () => {
 })
 
 describe('createIamNextMiddleware answers through its hooks', () => {
-  // The three literal responses here were the only unhookable ones of the five:
-  // an app that renders its own sign-in redirect or problem+json got a bare
-  // `{"error":"Unauthorized"}` from next's middleware and nothing else.
+  // An app that renders its own sign-in redirect or problem+json needs every refusal to go through a hook.
   it('routes the 401 through onUnauthorized', async () => {
     const onUnauthorized = vi.fn(() => new Response(null, { status: 302 }))
     const mw = createIamNextMiddleware(new RecordingEngine(), {
@@ -401,24 +357,8 @@ describe('createIamNextMiddleware answers through its hooks', () => {
   })
 })
 
-/**
- * `iamIsSubjectId` is `typeof value === 'string' && value.trim().length > 0`,
- * and it is the only layer that refuses a blank or non-string subject id -
- * `engine.can` guards `length === 0`, not `trim()`, so `'   '` is a perfectly
- * good key to it and any assignment stored under that key grants its
- * permissions.
- *
- * Six of the seven call sites were pinned by nothing: mutating `!iamIsSubjectId(userId)`
- * to `userId == null` at all of them survived the suite, and only express's
- * middleware had a test. The predicate itself had no direct test either. This
- * drives every entry point through the same table so one weakened guard cannot
- * hide behind the others.
- *
- * The `null`/`undefined` rows do not discriminate on their own - `== null`
- * catches those too. The blank strings and the non-strings are the half that
- * fails under the mutant, and they are also the half a real `getUserId` returns
- * by accident: a header that arrived as spaces, or a numeric id from a JWT.
- */
+// SECURITY: `iamIsSubjectId` is the only layer refusing a blank id; `engine.can` checks `length === 0`, not `trim()`.
+// The blank and non-string rows are what a `userId == null` guard would let through.
 describe('no integration lets a blank or non-string subject id reach the engine', () => {
   const REFUSED: readonly [string, unknown][] = [
     ['a whitespace-only string', '   '],
@@ -432,8 +372,7 @@ describe('no integration lets a blank or non-string subject id reach the engine'
     ['undefined', undefined],
   ]
 
-  // `unknown`, not `Promise<unknown>`: express's middleware and guard return
-  // `void` while the other five return a promise. `await` handles both.
+  // `unknown`, not `Promise<unknown>`: express returns `void`, the others a promise, and `await` handles both.
   const ENTRY_POINTS: readonly [string, (engine: RecordingEngine, getUserId: () => never) => unknown][] = [
     [
       'express middleware',
@@ -490,8 +429,7 @@ describe('no integration lets a blank or non-string subject id reach the engine'
     }
 
     it(`${entry} still asks the engine for a real subject id`, async () => {
-      // Positive control per entry point: an integration that refused every
-      // request would satisfy every row above.
+      // Positive control: an integration that refused every request would satisfy every row above.
       const engine = new RecordingEngine()
       await run(engine, (() => USER) as never)
       expect(engine.calls.map((c) => c.subjectId)).toEqual([USER])

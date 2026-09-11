@@ -113,8 +113,7 @@ describe('iamAccessMiddleware (hono)', () => {
       ctx,
       vi.fn(async () => undefined),
     )
-    // No `c.set('userId', ...)` was called upstream, so default getUserId
-    // returns null and middleware fails closed at 401.
+    // No upstream `c.set('userId', ...)`, so the default getUserId returns null and the middleware fails closed.
     expect(res?.status).toBe(401)
   })
 
@@ -161,8 +160,7 @@ describe('iamAccessMiddleware (hono)', () => {
     can.mockRestore()
   })
 
-  // `cf-connecting-ip` is a request header, and hono has no framework-computed
-  // socket address to fall back on, so it is read only on opt-in.
+  // SECURITY: `cf-connecting-ip` is client-writable and hono has no socket address to fall back on, so it is opt-in.
   it('ignores cf-connecting-ip unless trustCloudflareHeaders is set', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
@@ -196,9 +194,7 @@ describe('iamAccessMiddleware (hono)', () => {
     can.mockRestore()
   })
 
-  // Same reasoning as cf-connecting-ip above: with nothing in front of the app
-  // the client writes this header itself, so it is only read once the app says
-  // a proxy it trusts is rewriting it.
+  // SECURITY: without a trusted proxy in front, the client writes this header itself.
   it('ignores x-forwarded-for unless trustCloudflareHeaders is set', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
@@ -427,16 +423,7 @@ describe('iamBindAdminRouter (hono)', () => {
     expect(authorizeCalled).toBe(false)
   })
 
-  /**
-   * The explicit case above pins that a supplied `csrfCheck` is honoured. It
-   * says nothing about the default, and `csrfCheck ?? iamDefaultCsrfCheck` ->
-   * `csrfCheck ?? null` survived the whole suite here - only express pinned it
-   * (`express.test.ts`). So the admin gate that is on by default could be
-   * removed entirely while the "(2.1.0 behavior change) default CSRF check
-   * enabled" notice kept printing, and every cross-site browser mutation would
-   * be accepted. This supplies no `csrfCheck` at all, which is the shape real
-   * callers have.
-   */
+  // SECURITY: pins the default gate itself; the case above only shows a supplied `csrfCheck` is honoured.
   it('the default csrfCheck blocks a cross-site mutation with no csrfCheck supplied', async () => {
     const engine = makeEngine()
     let authorizeCalled = false

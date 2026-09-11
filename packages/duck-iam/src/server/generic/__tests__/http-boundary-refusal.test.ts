@@ -7,6 +7,7 @@ import { IamEngine } from '../../../core/engine'
 import {
   IAM_UNKNOWN_ACTION,
   IAM_UNKNOWN_RESOURCE,
+  type IamAdminAuthzAnswer,
   iamActionForMethod,
   iamDefaultCsrfCheck,
   iamDefaultResource,
@@ -15,21 +16,10 @@ import {
   iamRunAdminAuthz,
 } from '../index'
 
-/**
- * The HTTP boundary is where an attacker-controlled string becomes the
- * `(action, resource)` a decision is made about. Two things have to hold: the
- * mapping must never name a *different* object than the one the router will
- * serve, and every refusal on this path has to be an actual refusal.
- */
+// Pins the HTTP boundary where request strings become `(action, resource)`: the mapping must never name a different
+// object than the router serves, and every refusal on this path must actually refuse.
 
-/**
- * `IAM_UNKNOWN_ACTION` and `IAM_UNKNOWN_RESOURCE` are documented as denials -
- * "must match no permission and be denied", "matches no policy target, so the
- * request is denied". A *string* cannot carry that guarantee, because `'*'`
- * exists and matches every string including these two. Any deployment with a
- * wildcard admin rule - the ordinary shape for an admin role - turns both
- * sentinels back into allows, which is precisely the code path built to refuse.
- */
+// SECURITY: `'*'` matches every string, so the sentinels must still be refused under an ordinary wildcard admin rule.
 describe('the unknown-action and unknown-resource sentinels are real refusals', () => {
   async function wildcardEngine() {
     const adapter = new IamMemoryAdapter<string, string, string, string>()
@@ -67,15 +57,8 @@ describe('the unknown-action and unknown-resource sentinels are real refusals', 
   })
 })
 
-/**
- * `iamPathIsAmbiguous` already treats a decoded `\` as a separator - `%5C` is
- * refused. A *literal* backslash was not checked, and the WHATWG URL parser
- * converts `\` to `/` in a special-scheme URL before resolving dot segments:
- * `new URL('http://x/posts\\..\\admin').pathname` is `/admin`. So one layer
- * reads the type as `posts\..\admin` and any layer that parses through `URL`
- * reads `/admin` - authorized as one resource, served as another, which is the
- * bypass this function exists to refuse.
- */
+// INFO: the WHATWG URL parser turns `\` into `/` before resolving dot segments, so
+// `new URL('http://x/posts\\..\\admin').pathname` is `/admin`.
 describe('a literal backslash is as ambiguous as its encoded twin', () => {
   it.each([['/posts\\..\\admin'], ['/posts\\admin'], ['/a/..\\admin'], ['/a\\b']])('refuses to resolve %s', (raw) => {
     expect(iamPathIsAmbiguous(raw)).toBe(true)
@@ -92,14 +75,7 @@ describe('a literal backslash is as ambiguous as its encoded twin', () => {
   })
 })
 
-/**
- * HTTP header names are case-insensitive. Node lowercases what it parses, but
- * this predicate is exported and documented as taking "any object the adapter
- * can extract a header from", and it read exactly one spelling out of a
- * Record. Handed the wire casing, it found no header, concluded "non-browser
- * caller" and returned `true` - the cross-site request it exists to reject was
- * allowed.
- */
+// SECURITY: header names are case-insensitive, and a missed header reads as "non-browser caller" and is allowed.
 describe('the default CSRF check reads the header whatever its case', () => {
   it.each([['sec-fetch-site'], ['Sec-Fetch-Site'], ['SEC-FETCH-SITE'], ['sec-Fetch-Site']])(
     'rejects cross-site sent as %s',
@@ -129,12 +105,7 @@ describe('the default CSRF check reads the header whatever its case', () => {
   })
 })
 
-/**
- * A throwing `authorize` becomes `phase: 'error'`; a throwing `csrfCheck` used
- * to propagate out of the function entirely, so whether the request was refused
- * depended on the framework adapter's outer catch. A predicate that cannot
- * answer has not said yes.
- */
+// SECURITY: a throwing `authorize` or `csrfCheck` is a refusal, not left to the framework adapter's outer catch.
 describe('the admin gate answers for both of its phases', () => {
   it('treats a throwing CSRF predicate as forbidden rather than letting it escape', async () => {
     const result = await iamRunAdminAuthz(
@@ -170,28 +141,25 @@ describe('the admin gate answers for both of its phases', () => {
   })
 })
 
-/**
- * `actor` is what the admin audit event records as the person who changed a
- * policy, and the gate accepted anything truthy and passed it straight through.
- *
- * `authorize: (req) => req.user?.role === 'admin'` is the *documented* shape -
- * it is the `@example` on `iamAdminRouter` - so a boolean has to keep
- * authorizing the mutation; that is not the bug. The bug is that `true` was
- * then written into the audit event as the actor, and an audit trail naming
- * `true` cannot attribute the change to anybody. A value that names no one is
- * recorded as no one.
- */
+// A boolean `authorize` is the documented shape and still authorizes, but a value that names no one is not audited
+// as the actor.
 describe('the admin gate records an actor only when it has one', () => {
+  /** An `authorize` returning a value the type excludes, as an untyped JavaScript caller still can. */
+  const returning =
+    (actor: unknown): (() => IamAdminAuthzAnswer) =>
+    () =>
+      actor as IamAdminAuthzAnswer
+
   it.each([[true], [42], [[]], [Symbol.iterator], ['   ']])(
     'still authorizes when authorize returns %s, because truthy means allowed',
     async (actor) => {
-      const result = await iamRunAdminAuthz({}, null, () => actor)
+      const result = await iamRunAdminAuthz({}, null, returning(actor))
       expect(result.phase).toBe('ok')
     },
   )
 
   it.each([[true], [42], [[]], ['   ']])('does not record %s as the actor', async (actor) => {
-    const result = await iamRunAdminAuthz({}, null, () => actor)
+    const result = await iamRunAdminAuthz({}, null, returning(actor))
     expect(result.phase).toBe('ok')
     if (result.phase === 'ok') expect(result.actor).toBeUndefined()
   })
@@ -199,7 +167,7 @@ describe('the admin gate records an actor only when it has one', () => {
   it.each([[false], [0], [''], [null], [undefined], [Number.NaN]])(
     'still reports %s as unauthorized',
     async (actor) => {
-      const result = await iamRunAdminAuthz({}, null, () => actor)
+      const result = await iamRunAdminAuthz({}, null, returning(actor))
       expect(result.phase).toBe('unauthorized')
     },
   )
@@ -207,7 +175,7 @@ describe('the admin gate records an actor only when it has one', () => {
   it.each([['admin-1'], [{ id: 'admin-1' }], [{ id: 'admin-1', email: 'a@b.c' }]])(
     'keeps %s, which does name someone',
     async (actor) => {
-      const result = await iamRunAdminAuthz({}, null, () => actor)
+      const result = await iamRunAdminAuthz({}, null, returning(actor))
       expect(result.phase).toBe('ok')
       if (result.phase === 'ok') expect(result.actor).toEqual(actor)
     },
@@ -219,14 +187,8 @@ describe('the admin gate records an actor only when it has one', () => {
   })
 })
 
-/**
- * `IAM_METHOD_ACTION_MAP` is a plain object literal, so `__proto__`,
- * `constructor` and `toString` are reachable through it. `.toUpperCase()` is
- * what currently saves the lookup - every inherited key is lowercase - which
- * makes the uppercase load-bearing for a reason no reader would guess. Pinned
- * here so it cannot be "simplified" into a bypass that returns a function
- * where an action string belongs.
- */
+// NOTE: `IAM_METHOD_ACTION_MAP` is a plain object, so `.toUpperCase()` is what keeps lowercase inherited keys like
+// `constructor` from returning a function.
 describe('the method map cannot be walked into its prototype', () => {
   it.each([['__proto__'], ['constructor'], ['toString'], ['valueOf'], ['hasOwnProperty']])(
     'maps %s to the unknown action',
@@ -247,14 +209,7 @@ describe('the method map cannot be walked into its prototype', () => {
   })
 })
 
-/**
- * `permissions()` does not route through `authorize()` - it has its own
- * evaluation loop - and its own comment says a batch check "must never be able
- * to answer differently from the single check it batches". The refusal is
- * therefore asserted through both entry points, in both engine modes, because
- * one of them granting what the other denies is the bug this package keeps
- * finding.
- */
+// `permissions()` has its own evaluation loop, so the refusal is checked through it and `authorize()` in both modes.
 describe('every entry point refuses the reserved token identically', () => {
   async function wildcardAdapter() {
     const adapter = new IamMemoryAdapter<string, string, string, string>()

@@ -7,26 +7,8 @@ import { iamBindAdminRouter } from '../hono'
 import { createIamAdminOperations } from '../nest'
 import { createIamAdminHandlers } from '../next'
 
-/**
- * One malformed admin request, four adapters, four different answers.
- *
- * `POST /subjects/:id/roles` with `{"roleId": ""}` was a **400** on hono, which
- * hand-rolled its own checks inline, and a **500** on express, next and nest,
- * whose shared validators threw a bare `Error` that every generic `catch`
- * routes to `onError`. `{"roleId": "   "}` was a **write** on all four: the
- * checks read `length === 0`, so a blank id became a real grant on a role that
- * renders as nothing at all in an admin UI. And a 200-char `roleId` was a 400
- * on hono, which capped at 128, and a write on the other three, which let the
- * engine's own 1024 decide.
- *
- * A client cannot be written against "the admin API" while the status code and
- * the length limit depend on which adapter the operator mounted. These tests
- * drive the same body through all four and require one answer.
- *
- * Each adapter is exercised through its real entry point rather than through
- * the shared validator directly - the validator agreeing with itself proves
- * nothing about the adapter that has to call it.
- */
+// Drives one malformed admin request through all four admin routers' real entry points and requires one answer:
+// the same status and the same length limit, whichever adapter is mounted.
 type Action = 'read' | 'create'
 type ResourceType = 'post'
 type RoleId = 'editor'
@@ -81,9 +63,7 @@ function recordingRouter(): { handlers: Record<string, Handler>; router: Record<
 async function expressAssign(body: unknown, id = 'u1'): Promise<Attempt> {
   const { adapter, engine } = makeEngine()
   const { handlers, router } = recordingRouter()
-  // Express never sees raw bytes: its host parses the body and answers 400 for
-  // malformed JSON before any handler runs. `onError` answers 500, which is
-  // what these cases used to reach.
+  // INFO: the Express host parses the body and answers 400 for malformed JSON before any handler runs.
   iamAdminRouter(engine, { authorize: () => true, onError: (_e, _q, res) => res.status(500).json({}) })(
     () => router as never,
   )
@@ -101,10 +81,7 @@ async function expressAssign(body: unknown, id = 'u1'): Promise<Attempt> {
   return { status: res.statusCode, written: await written(adapter) }
 }
 
-/**
- * @param json - Stands in for hono's own parser, so a case can make it throw
- *   the way a truncated upload does.
- */
+/** @param json - Stands in for hono's parser, so a case can make it throw like a truncated upload. */
 async function honoAssign(json: () => Promise<unknown>, id = 'u1'): Promise<Attempt> {
   const { adapter, engine } = makeEngine()
   const { handlers, router } = recordingRouter()
@@ -145,8 +122,7 @@ async function nextAssign(rawBody: string, id = 'u1'): Promise<Attempt> {
 async function nestAssign(body: unknown, id = 'u1'): Promise<Attempt> {
   const { adapter, engine } = makeEngine()
   const ops = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, { authorize: () => true })
-  // Nest throws rather than writing a response, and its own filter reads
-  // `statusCode` off the thrown error - so that field *is* the status here.
+  // Nest throws rather than writing a response, and its filter reads the status off the error's `statusCode`.
   const req = { method: 'POST', path: '/admin/subjects/u1/roles', route: { path: '/admin/subjects/:id/roles' } }
   let status = 200
   try {
@@ -169,8 +145,7 @@ async function allFour(body: unknown, id = 'u1'): Promise<Record<string, Attempt
 }
 
 describe('the four admin routers answer one bad request the same way', () => {
-  // Control. Without this every assertion below is satisfied by an adapter that
-  // refuses everything, which is not what is being claimed.
+  // Control: an adapter that refused everything would satisfy every assertion below.
   it('a well-formed assignment is written by all four', async () => {
     for (const [name, attempt] of Object.entries(await allFour({ roleId: 'editor', scope: 'org-1' }))) {
       expect(attempt.written, name).toEqual(['editor'])
@@ -203,15 +178,9 @@ describe('the four admin routers answer one bad request the same way', () => {
 })
 
 describe('the length cap on an admin id is the same on all four', () => {
-  /**
-   * Hono capped at 128 and the others did not cap at all. 1024 is the engine's
-   * own cap (`assertNonEmptyStringParam`), so the edge now refuses exactly what
-   * the engine would refuse and no adapter refuses an id another accepts.
-   */
+  // 1024 is the engine's own cap (`assertNonEmptyStringParam`), so the edge refuses exactly what the engine would.
   it('a 200-char roleId is not refused for its length by any adapter', async () => {
-    // 200 is over hono's old 128 and under the shared 1024. It is not a role
-    // that exists, so the engine refuses it - the point is that all four now
-    // fail the same way, rather than one failing earlier than the rest.
+    // Under the cap but not a real role: the engine refuses it, and all four must fail the same way.
     const statuses = Object.values(await allFour({ roleId: 'x'.repeat(200) })).map((a) => a.status)
     expect(new Set(statuses).size).toBe(1)
     expect(statuses[0]).not.toBe(400)
@@ -225,16 +194,8 @@ describe('the length cap on an admin id is the same on all four', () => {
   })
 })
 
-/**
- * Hono and next call the parser *inside* the audited handler, so a `SyntaxError`
- * from a truncated upload or a form post carrying a JSON content-type landed in
- * the generic `catch`, was handed to `onError` as though the package had broken,
- * and answered 500 - telling the client to retry bytes that will never parse.
- *
- * Express and nest are absent here on purpose: their hosts parse the body and
- * answer 400 themselves, so neither ever sees the raw bytes. That is the
- * behaviour the other two now match.
- */
+// Hono and next parse inside the handler, so a `SyntaxError` must be a 400, not a retryable 500.
+// Express and nest hosts parse the body and answer 400 themselves.
 describe("a body that is not JSON is the caller's mistake on the adapters that parse it", () => {
   it('hono answers 400 rather than routing a SyntaxError to onError', async () => {
     const attempt = await honoAssign(() => Promise.reject(new SyntaxError('Unexpected end of JSON input')))
@@ -249,8 +210,7 @@ describe("a body that is not JSON is the caller's mistake on the adapters that p
   })
 
   it('the refusal does not echo the unparsable bytes back to the caller', async () => {
-    // The parser's message quotes the offending input, which is
-    // caller-controlled content on its way into an operator's log.
+    // SECURITY: the parser's message quotes the caller-controlled input.
     const { engine } = makeEngine()
     const handlers = createIamAdminHandlers<Action, ResourceType, RoleId, Scope>(engine, { authorize: () => true })
     const req = new Request('https://example.com/api/admin/subjects/u1/roles', {

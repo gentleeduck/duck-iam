@@ -99,9 +99,7 @@ describe('iamExtractEnvironment()', () => {
   })
 
   it('leaves ip undefined unless the app opts in', () => {
-    // The forwarding headers are client-settable without a proxy in front, and
-    // `req.ip` only exists on express, so inferring from either made the same
-    // IP-conditioned policy decide differently per integration.
+    // SECURITY: forwarding headers are client-settable without a proxy, and `req.ip` exists only on express.
     expect(iamExtractEnvironment({ ip: '192.168.1.1' }).ip).toBeUndefined()
     expect(iamExtractEnvironment({ headers: { 'x-forwarded-for': '10.0.0.1' } }).ip).toBeUndefined()
     expect(iamExtractEnvironment({ headers: { 'x-real-ip': '10.0.0.2' } }).ip).toBeUndefined()

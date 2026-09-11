@@ -1,9 +1,15 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamRequest } from '../../core/types'
 import { iamIsValidationError } from '../../shared/errors'
-import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
+import {
+  iamAsActionLiteral,
+  iamAsRoleLiteral,
+  iamAsScopeLiteral,
+  iamResourceAtCallerType,
+} from '../../shared/tenant-literals'
 import {
   type IamAdminAudit,
+  type IamAdminAuthzAnswer,
   iamActionForMethod,
   iamAuditIdOf,
   iamDefaultCsrfCheck,
@@ -20,7 +26,7 @@ import {
 } from '../generic'
 
 /** Minimal Hono context shape. */
-interface HonoContext {
+export interface HonoContext {
   req: {
     method: string
     path: string
@@ -35,39 +41,35 @@ interface HonoContext {
 }
 /**
  * A context the admin router can read a body from.
- *
- * Separate from {@link HonoContext} because only the admin router needs a body
- * parser: the access middleware never reads one, and a consumer testing it with
- * a hand-built context should not have to supply a `json()` it will never call.
- * The router reached this method through `c as unknown as { req: { json(): ...
- * } }` at three sites, which typed away nothing the real hono context lacks and
- * only hid that the interface was incomplete for this use.
+ * NOTE: kept apart from {@link HonoContext} so a hand-built context for the access middleware needs no `json()`.
  */
 interface HonoAdminContext extends HonoContext {
   req: HonoContext['req'] & { json(): Promise<unknown> }
 }
 
 /** Hono next function. */
-type HonoNext = () => Promise<void>
+export type HonoNext = () => Promise<void>
 /** Hono middleware function. */
-type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Response | undefined>
+export type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Response | undefined>
 
 /** Hono server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamHono {
   /**
-   * Describes options for the Hono {@link iamAccessMiddleware} and {@link iamGuard}.
-   *
-   * Every extractor has a sensible default.
+   * Options for the Hono {@link iamAccessMiddleware} and {@link iamGuard}; every extractor has a default.
    *
    * @template TScope - Constrains valid scope strings.
    */
-  export interface IOptions<TScope extends string = string> {
+  export interface IOptions<
+    TScope extends string = string,
+    TAction extends string = string,
+    TResource extends string = string,
+  > {
     /** Extracts the current user ID from the context. */
     getUserId?: (c: HonoContext) => string | null
     /** Derives the target resource from the context. */
-    getResource?: (c: HonoContext) => IamRequest.IResource
+    getResource?: (c: HonoContext) => IamRequest.IResource<TResource>
     /** Derives the action being performed from the context. */
-    getAction?: (c: HonoContext) => string
+    getAction?: (c: HonoContext) => TAction
     /** Extracts environment context (IP, user-agent, etc.) from the context. */
     getEnvironment?: (c: HonoContext) => IamRequest.IEnvironment
     /** Determines the scope used for the access check. */
@@ -77,19 +79,17 @@ export namespace IamHono {
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
     onError?: (err: Error, c: HonoContext) => Response
     /**
-     * Read `cf-connecting-ip` as the client IP. Off by default: the header is
-     * only trustworthy when Cloudflare is the sole ingress, and a Hono app
-     * exposed directly lets any client set it.
+     * Reads `cf-connecting-ip` as the client IP. Off by default.
+     * SECURITY: trust it only when Cloudflare is the sole ingress; on a directly exposed app any client can set it.
      */
     trustCloudflareHeaders?: boolean
   }
 
   /**
-   * Required iamGuard callback for the Hono admin router.
-   *
-   * Returning `false` (or throwing) blocks the request.
+   * Required admin gate: a falsy answer or a throw blocks the request, a truthy one lets it proceed.
+   * Prefer returning the actor over `true`, so the audit event records who acted; see {@link IamAdminAuthzAnswer}.
    */
-  export type IAdminAuthorize = (c: HonoContext) => boolean | Promise<boolean>
+  export type IAdminAuthorize = (c: HonoContext) => IamAdminAuthzAnswer | Promise<IamAdminAuthzAnswer>
 
   /** Describes options for {@link iamBindAdminRouter}. `authorize` is required. */
   export interface IAdminOptions extends IamAdminAudit.IOptions {
@@ -99,25 +99,11 @@ export namespace IamHono {
     onUnauthorized?: (c: HonoContext) => Response
     /** Overrides the 500 internal error response. */
     onError?: (err: Error, c: HonoContext) => Response
-    /**
-     * Optional audit hook fired AFTER every mutation handler (PUT/POST/
-     * DELETE/PATCH) completes - success or failure. The hook is
-     * fire-and-forget: a slow or throwing implementation never blocks the
-     * request and can never alter the response. GET handlers do not fire it.
-     *
-     * See {@link IamAdminAudit.IOptions} for additional hardening knobs:
-     * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
-     */
+    /** Audit hook fired after every mutation, on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
   }
 
-  /**
-   * Describes the minimal Hono router surface used by {@link iamBindAdminRouter}.
-   *
-   * The handlers take a context carrying hono's body parser, because the admin
-   * routes read request bodies. The access middleware's context type is
-   * unchanged and still needs no parser.
-   */
+  /** The minimal Hono router surface {@link iamBindAdminRouter} uses; handlers get a context with a body parser. */
   export interface IRouterLike {
     get(path: string, handler: (c: HonoAdminContext) => Promise<Response> | Response): unknown
     put(path: string, handler: (c: HonoAdminContext) => Promise<Response> | Response): unknown
@@ -127,18 +113,8 @@ export namespace IamHono {
 }
 
 /**
- * Extract environment from a Hono context.
- *
- * `environment.ip` stays `undefined` unless `trustCloudflareHeaders` is set,
- * and then it is `cf-connecting-ip` - a header Cloudflare overwrites on every
- * request, which is what makes it usable. `x-forwarded-for` and `x-real-ip`
- * are still passed through to {@link iamExtractEnvironment} so it can decide,
- * and it declines by default: with nothing in front of the app those are
- * headers the client sets itself, and reading them unconditionally let a plain
- * `X-Forwarded-For: 10.0.0.1` satisfy an IP-conditioned admin grant here.
- *
- * An app that terminates behind its own proxy supplies the value through
- * `opts.getEnvironment` instead.
+ * Extracts the environment from a Hono context; apps behind their own proxy supply `ip` via `getEnvironment`.
+ * SECURITY: `ip` is `undefined` unless `trustCloudflareHeaders` is set, since forwarding headers are client-set.
  */
 function defaultEnv(c: HonoContext, trustCloudflareHeaders = false): IamRequest.IEnvironment {
   return iamExtractEnvironment(
@@ -157,9 +133,7 @@ function defaultEnv(c: HonoContext, trustCloudflareHeaders = false): IamRequest.
 }
 
 /**
- * Builds Hono middleware that runs `engine.can(...)` on every request.
- *
- * Replies 401 when no user is present and 403 when denied.
+ * Builds Hono middleware that runs `engine.can(...)` on every request: 401 without a user, 403 on deny.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -180,12 +154,15 @@ export function iamAccessMiddleware<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamHono.IOptions<TScope> = {}): HonoMiddleware {
+>(
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
+  opts: IamHono.IOptions<NoInfer<TScope>, NoInfer<TAction>, NoInfer<TResource>> = {},
+): HonoMiddleware {
   const {
     // Read only from upstream-set `c.get('userId')`; never trust client headers.
     getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
-    getResource = (c) => iamDefaultResource(c.req.path),
-    getAction = (c) => iamActionForMethod(c.req.method),
+    getResource = (c) => iamResourceAtCallerType<TResource>(iamDefaultResource(c.req.path)),
+    getAction = (c) => iamAsActionLiteral<TAction>(iamActionForMethod(c.req.method)),
     trustCloudflareHeaders = false,
     getEnvironment = (c: HonoContext) => defaultEnv(c, trustCloudflareHeaders),
     getScope,
@@ -195,36 +172,23 @@ export function iamAccessMiddleware<
 
   return async (c, next) => {
     try {
-      // Inside the try, like every other extractor: a throwing `getUserId` must
-      // reach `onError` rather than the framework's boundary.
+      // Inside the try, like every other extractor, so a throwing `getUserId` reaches `onError`.
       const userId = getUserId(c)
       if (!iamIsSubjectId(userId)) return c.json({ error: 'Unauthorized' }, 401)
 
-      const allowed = await engine.can(
-        userId,
-        getAction(c) as TAction,
-        getResource(c) as IamRequest.IResource<TResource>,
-        getEnvironment(c),
-        getScope?.(c),
-      )
+      const allowed = await engine.can(userId, getAction(c), getResource(c), getEnvironment(c), getScope?.(c))
 
       if (!allowed) return onDenied(c)
     } catch (err) {
       return onError(err instanceof Error ? err : new Error(String(err)), c)
     }
-    // Outside the try, deliberately. Express / nest / next never wrap the
-    // downstream handler; hono did, so a business-logic error thrown by the
-    // route reached this middleware's `onError` - documented as "handles thrown
-    // errors during evaluation" - and pre-empted the app's own `app.onError`.
+    // NOTE: outside the try, so a route's own error reaches the app's `app.onError`, not this `onError`.
     await next()
   }
 }
 
 /**
- * Wires admin CRUD endpoints onto a Hono router.
- *
- * `authorize` is required and runs before every handler. Throws when the
- * callback is missing.
+ * Wires admin CRUD endpoints onto a Hono router; the required `authorize` runs before every handler.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -246,8 +210,7 @@ export function iamAccessMiddleware<
  * app.route('/admin', admin)
  * ```
  * @example
- * Rate limiting is out of scope; compose at the mount point with a Hono
- * middleware before the admin sub-app. Pseudocode:
+ * Rate limiting is out of scope; mount a Hono middleware before the admin sub-app (pseudocode):
  * ```ts
  * import { rateLimit } from 'some-hono-rate-limit'
  * app.use('/admin/*', rateLimit({ windowMs: 60_000, max: 30 }))
@@ -275,22 +238,8 @@ export function iamBindAdminRouter<
   const onError = opts.onError ?? ((_, c) => c.json({ error: 'Internal server error' }, 500))
 
   /**
-   * Read gate. Runs the same CSRF + `authorize` phase as {@link mutate}, and
-   * emits no audit event - a read is not a mutation.
-   *
-   * The CSRF check used to be skipped here on express, hono and next while nest
-   * ran it, so `GET /policies` with `Sec-Fetch-Site: cross-site` returned the
-   * full policy list on three adapters and 403 on the fourth. A browser cannot
-   * read a cross-origin response without CORS, so that was not an exploitable
-   * read - but `csrfCheck` is an operator-supplied predicate, and an operator
-   * whose predicate carries any part of an authorization decision had it
-   * enforced on reads on exactly one of four adapters, undocumented. The four
-   * now answer the same question the same way.
-   *
-   * Not a new refusal for API clients: `iamDefaultCsrfCheck` returns `true`
-   * when there is no `Sec-Fetch-Site` header at all, which is every non-browser
-   * caller. What is now refused is a genuine cross-site browser read, and
-   * `csrfCheck: false` still turns the whole phase off.
+   * Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event.
+   * NOTE: CSRF runs on reads too, so an operator's `csrfCheck` is enforced alike on all four adapters.
    */
   const gate =
     (handler: (c: HonoAdminContext) => Promise<Response> | Response) =>
@@ -306,10 +255,7 @@ export function iamBindAdminRouter<
       }
     }
 
-  /**
-   * Mutation gate: unlike {@link gate} it runs the CSRF check first, then emits
-   * an `onAdminMutation` audit event whether the handler resolves or rejects.
-   */
+  /** Mutation gate: the CSRF and `authorize` phase, then an `onAdminMutation` event on success or failure. */
   const mutate =
     (
       action: IamAdminAudit.Action,
@@ -323,12 +269,8 @@ export function iamBindAdminRouter<
       if (authz.phase === 'forbidden') return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
       if (authz.phase === 'unauthorized') return onUnauthorized(c)
       if (authz.phase === 'error') return onError(authz.error, c)
-      // Mutable, and read by `iamWithAdminAudit` in its `finally` rather than
-      // at call time. `getTargetId` can only see the request, which is enough
-      // for a role assignment (the subject is in the path) and useless for
-      // `PUT /policies`, where the id is in a body nobody has parsed yet - so
-      // those two events recorded that *a* policy had been replaced without
-      // saying which one. The handler fills it in once it knows.
+      // NOTE: mutable and read in `finally`, so a handler can set `targetId` once it has parsed the body
+      // (`PUT /policies` and `/roles` carry the id there, not in the path).
       const auditCtx = {
         actor: authz.actor,
         action,
@@ -369,10 +311,7 @@ export function iamBindAdminRouter<
   router.put(
     '/policies',
     mutate('replace', 'policy', undefined, async (c, setTargetId) => {
-      // Shape-checked by `savePolicy`, which runs the validator before it
-      // writes and throws `IamValidationError` - the same 400 this router
-      // already answers for. Express, next and nest all read the body the same
-      // way for the same reason.
+      // Shape-checked by `savePolicy`, whose validator throws `IamValidationError`, answered here as 400.
       const body = (await iamReadJsonBody(() => c.req.json())) as AccessControl.IPolicy<TAction, TResource, TRole>
       setTargetId(iamAuditIdOf(body))
       await engine.admin.savePolicy(body)
@@ -396,10 +335,6 @@ export function iamBindAdminRouter<
       'role-assignment',
       (c) => c.req.param('id'),
       async (c) => {
-        // These checks were hand-rolled here, with a 128-char cap the other
-        // three adapters and the engine itself did not share, so the same
-        // `roleId` was a 400 on hono and a write everywhere else. The shared
-        // validators are the same checks with one cap and one status code.
         const raw: unknown = await iamReadJsonBody(() => c.req.json())
         const scope = iamOptionalStringField(raw, 'scope')
         await engine.admin.assignRole(
@@ -431,8 +366,7 @@ export function iamBindAdminRouter<
 }
 
 /**
- * Builds Hono middleware that checks `(action, resourceType)` for the current
- * user, pulling the resource ID from the `:id` route param.
+ * Builds Hono middleware that checks `(action, resourceType)` for the current user, with the id from `:id`.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -492,10 +426,7 @@ export function iamGuard<
     } catch (err) {
       return onError(err instanceof Error ? err : new Error(String(err)), c)
     }
-    // Outside the try, deliberately. Express / nest / next never wrap the
-    // downstream handler; hono did, so a business-logic error thrown by the
-    // route reached this middleware's `onError` - documented as "handles thrown
-    // errors during evaluation" - and pre-empted the app's own `app.onError`.
+    // NOTE: outside the try, so a route's own error reaches the app's `app.onError`, not this `onError`.
     await next()
   }
 }

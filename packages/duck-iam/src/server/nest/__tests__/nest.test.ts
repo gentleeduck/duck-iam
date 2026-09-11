@@ -288,16 +288,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
     expect(savedPolicy).toBe(false)
   })
 
-  /**
-   * The explicit case above pins that a supplied `csrfCheck` is honoured. It
-   * says nothing about the default, and `csrfCheck ?? iamDefaultCsrfCheck` ->
-   * `csrfCheck ?? null` survived the whole suite here - only express pinned it
-   * (`express.test.ts`). So the admin gate that is on by default could be
-   * removed entirely while the "(2.1.0 behavior change) default CSRF check
-   * enabled" notice kept printing, and every cross-site browser mutation would
-   * be accepted. This supplies no `csrfCheck` at all, which is the shape real
-   * callers have.
-   */
+  // SECURITY: pins the default gate itself; the case above only shows a supplied `csrfCheck` is honoured.
   it('the default csrfCheck blocks a cross-site mutation with no csrfCheck supplied', async () => {
     const engine = makeEngine()
     let authorizeCalled = false
@@ -322,8 +313,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
   })
 
   it('a same-origin mutation still gets through the default check', async () => {
-    // Positive control: a default that refused everything would pass the test
-    // above without gating anything correctly.
+    // Positive control: a default that refused everything would pass the test above.
     const engine = makeEngine()
     const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: (() => ({ id: 'admin-1' })) as never,
@@ -380,10 +370,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
         events.push(e)
       },
     })
-    // What escapes is the adapter's own 500, not the engine's message -
-    // express, hono and next all answer the fixed `Internal server error`
-    // here, and nest used to be the one adapter that re-threw the original.
-    // The original is still reachable as `cause`, so a logger loses nothing.
+    // The adapter's own 500 escapes, like the other adapters' fixed `Internal server error`; the original is `cause`.
     const thrown = await h
       .savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
       .then(
@@ -505,9 +492,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
         events.push(e)
       },
     })
-    // The message is a SQL fragment naming a password column. It must not be
-    // in the event (asserted below) and must not be what the framework is
-    // handed either - which is where it used to go, in full.
+    // SECURITY: the message is a SQL fragment naming a password column; neither the event nor the framework gets it.
     const thrown = await h
       .savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
       .then(
@@ -544,8 +529,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
         () => null,
         (err: unknown) => err,
       )
-    // `includeErrorMessage` governs the *audit string*, not the response, on
-    // every adapter. The message reaches the event and still not the caller.
+    // `includeErrorMessage` governs the audit string, not the response, on every adapter.
     expect(String(thrown)).not.toContain('full-detailed-message')
     await flushMicrotasks()
     engine.admin.savePolicy = original

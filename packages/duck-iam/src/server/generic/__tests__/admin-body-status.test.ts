@@ -6,13 +6,8 @@ import { iamAdminRouter } from '../../express'
 import { iamBindAdminRouter } from '../../hono'
 import { createIamAdminHandlers } from '../../next'
 
-/**
- * A body the validator rejects is the caller's error. It used to be reported as
- * the server's: the routers catch whatever a handler throws and hand it to
- * `onError`, which answers 500. The write was refused correctly either way, so
- * this was never a way in — but 500 tells a client to retry a request that can
- * never succeed, and hides a client bug behind an apparent outage.
- */
+// A body the validator rejects is the caller's error: a 400, not a 500 from `onError` that invites retries and
+// hides a client bug behind an apparent outage.
 
 type Res = {
   statusCode: number
@@ -37,8 +32,7 @@ function makeRes(): Res {
 }
 
 function makeEngine() {
-  // The admin routers are typed against a production-mode engine; admin
-  // operations do not evaluate policies, so the mode is immaterial here.
+  // The admin routers are typed for a production-mode engine; admin operations do not evaluate, so mode is moot.
   return new IamEngine({ adapter: new IamMemoryAdapter(), mode: 'production' })
 }
 
@@ -64,8 +58,7 @@ describe('IamValidationError', () => {
   })
 
   it('is recognised by name, not only by identity', () => {
-    // A duplicated copy of the package produces a distinct class; `instanceof`
-    // answers false for the copy that did not throw, the name check does not.
+    // A duplicated copy of the package has a distinct class, so `instanceof` fails where the name check does not.
     const impostor = new Error('boom')
     impostor.name = 'IamValidationError'
     expect(iamIsValidationError(impostor)).toBe(true)

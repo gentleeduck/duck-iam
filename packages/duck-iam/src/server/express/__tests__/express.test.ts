@@ -246,8 +246,8 @@ describe('iamGuard (express)', () => {
     can.mockRestore()
   })
 
-  // Was `next(err)`: with no app error handler and NODE_ENV !== 'production',
-  // Express's finalhandler writes `err.stack` into the response body.
+  // SECURITY: not `next(err)`: without an app error handler, Express's finalhandler writes `err.stack` into the body
+  // outside production.
   it('answers 500 rather than handing the engine error to the framework', async () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('engine err secret=hunter2'))
     const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'u' })
@@ -371,8 +371,7 @@ describe('iamAdminRouter (express)', () => {
   it('rejects mutation with 403 when csrfCheck returns false', async () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
-    // Even if authorize() would allow, csrfCheck blocks cross-site requests
-    // before authorize ever runs.
+    // csrfCheck blocks cross-site requests before authorize() runs, even if it would allow.
     let authorizeCalled = false
     iamAdminRouter(engine, {
       authorize: () => {
@@ -690,15 +689,7 @@ describe('iamAdminRouter (express)', () => {
   })
 })
 
-/**
- * The admin router used to take `body.roleId as TRole` and
- * `req.params?.id as string` straight from the request. `assertTriple` inside
- * the engine does catch a non-string and throw, so nothing unwritable was
- * written - but the cast put a domain type on an unvalidated request field
- * several calls before anything looked at it. The `scope` field is the one
- * that matters most: a bad value must be an error, never a dropped field,
- * because a dropped scope turns a scoped grant into a global one.
- */
+// SECURITY: a bad `scope` must be an error, never a dropped field, because a dropped scope makes a scoped grant global.
 describe('iamAdminRouter validates the fields it used to cast', () => {
   type RouteHandler = (req: never, res: never) => Promise<void> | void
 
@@ -734,31 +725,17 @@ describe('iamAdminRouter validates the fields it used to cast', () => {
     }
   }
 
-  /**
-   * Two things are asserted of every refusal below, and the second is the one
-   * that changed.
-   *
-   * Nothing is written - that was always true. And the caller is told it sent
-   * something wrong, with **400**, not told the server broke, with 500. These
-   * validators threw a bare `Error`, which every adapter's generic `catch`
-   * routes to `onError`, so a body missing `roleId` was a 500 on express, next
-   * and nest, and a 400 on hono alone, which hand-rolled the same checks
-   * inline. `onError` is now asserted *not* to fire: a 500 here would page an
-   * operator for a client's typo, and a client that retries a 500 will retry
-   * this forever.
-   */
+  /** A client mistake is a 400 and never reaches `onError`, which would page an operator and invite endless retries. */
   function expectRefusedAsBadRequest(res: MockRes, onError: ReturnType<typeof vi.fn>): void {
     expect(res.statusCode).toBe(400)
     expect(onError).not.toHaveBeenCalled()
   }
 
-  // Control: the well-formed call still works, so the assertions below are not
-  // just "everything is rejected".
+  // Control: a well-formed call still works, so the refusals below are not a blanket reject.
   it('accepts a well-formed assignment', async () => {
     const { onError, scoped } = await assign({ roleId: 'editor', scope: 'org-1' })
     expect(onError).not.toHaveBeenCalled()
-    // A scoped grant, so it comes back from `getSubjectScopedRoles`, not the
-    // unscoped list.
+    // A scoped grant comes back from `getSubjectScopedRoles`, not the unscoped list.
     expect(scoped).toEqual([{ role: 'editor', scope: 'org-1' }])
   })
 
@@ -776,8 +753,7 @@ describe('iamAdminRouter validates the fields it used to cast', () => {
   })
 
   it('refuses a blank roleId rather than granting a role nobody can name', async () => {
-    // `'   '` is not `''`, so every `length === 0` check passed it through and
-    // a real grant landed on a role id that renders as nothing at all.
+    // `'   '` passes a `length === 0` check but names no role.
     const { onError, res, roles, scoped } = await assign({ roleId: '   ' })
     expectRefusedAsBadRequest(res, onError)
     expect(roles).toEqual([])
@@ -785,8 +761,7 @@ describe('iamAdminRouter validates the fields it used to cast', () => {
   })
 
   it('refuses a blank scope rather than making the grant global', async () => {
-    // The dangerous direction: a blank scope that reached the adapter would be
-    // stored as a scope nobody can select, or dropped into a tenant-wide grant.
+    // A blank scope reaching the adapter would be unselectable or dropped into a tenant-wide grant.
     const { onError, res, roles, scoped } = await assign({ roleId: 'editor', scope: ' ' })
     expectRefusedAsBadRequest(res, onError)
     expect(roles).toEqual([])
@@ -802,8 +777,7 @@ describe('iamAdminRouter validates the fields it used to cast', () => {
   it('accepts a roleId of exactly the cap - the boundary is not off by one', async () => {
     const atCap = 'e'.repeat(1024)
     const { onError, res } = await assign({ roleId: atCap })
-    // Not a known role, so the engine refuses it on its own terms; what matters
-    // is that the *length* check did not fire.
+    // Not a known role, so the engine refuses it; only the length check must not fire.
     expect(res.body).not.toEqual(expect.objectContaining({ error: 'Invalid request' }))
     expect(String(onError.mock.calls[0]?.[0] ?? '')).not.toContain('1024-char cap')
   })
@@ -822,15 +796,7 @@ describe('iamAdminRouter validates the fields it used to cast', () => {
     expect(absent.roles).toEqual(['editor'])
   })
 
-  /**
-   * This used to assert the opposite, in the same test as the absent case.
-   * "No scope" is a tenant-wide grant, so reading a client's explicit `null`
-   * as absent made express the only integration that widened a grant on a body
-   * the other three refused: hono answers 400, and next and nest hand it to the
-   * engine, which rejects `null` by name. A client written against any of those
-   * that spells "unset" as `scope: null` would have silently started making
-   * global grants the day its deployment moved to express.
-   */
+  // SECURITY: reading `null` as absent would make a tenant-wide grant from a body the other integrations refuse.
   it('refuses an explicit null scope rather than granting globally', async () => {
     const { onError, res, roles, scoped } = await assign({ roleId: 'editor', scope: null })
     expectRefusedAsBadRequest(res, onError)
@@ -839,10 +805,7 @@ describe('iamAdminRouter validates the fields it used to cast', () => {
   })
 
   it('says how to spell "unset" in the refusal', async () => {
-    // The message has to name the fix, or the change reads as a bug to whoever
-    // hits it.
-    // Read off the *response*, not off `onError`: the client is who needs to
-    // know, and the operator hook no longer fires for a caller's mistake.
+    // Read off the response, not `onError`: the client needs the fix, and the operator hook does not fire here.
     const { res } = await assign({ roleId: 'editor', scope: null })
     expect(JSON.stringify(res.body)).toContain('omit the field')
   })
