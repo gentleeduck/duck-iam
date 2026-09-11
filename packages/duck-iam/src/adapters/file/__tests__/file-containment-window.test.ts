@@ -1,17 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type IamFile, IamFileAdapter } from '../index'
 
-/**
- * `_assertWithinRoot` is documented as running on the read and write paths.
- * It ran on *every* write and on reads that reach the filesystem - not on a
- * read served from `_cache`, which returns one line earlier
- * (`file/index.ts:312`). The class comment used to claim "every I/O", which is
- * exactly the claim that makes a reviewer stop looking.
- *
- * These pin the real window: a symlink swapped in after the first read is not
- * re-detected by later reads, and is caught by the next write, which throws
- * rather than following it.
- */
+// Pins the containment window: `_assertWithinRoot` runs on cache misses and every write, not on cached reads,
+// so a symlink swapped in after the first read is caught by the next write.
 
 type Fs = IamFile.IFS & { realpaths: Map<string, string>; calls: string[] }
 
@@ -68,7 +59,7 @@ describe('file adapter containment is checked on a cache miss and on every write
     expect(afterFirst).toBeGreaterThan(0)
     await adapter.listPolicies()
     await adapter.listRoles()
-    // The documented-but-untrue claim was that every I/O re-checks. It does not.
+    // Cached reads do not re-check.
     expect(fs.calls.length).toBe(afterFirst)
   })
 
@@ -80,7 +71,7 @@ describe('file adapter containment is checked on a cache miss and on every write
     // The attacker's swap: the store path now resolves outside the root.
     fs.realpaths.set('/root/store.json', '/elsewhere/store.json')
 
-    // A cached read is unaffected - this is the window the comment hid.
+    // A cached read is unaffected; this is the window.
     await expect(adapter.listPolicies()).resolves.toEqual([])
 
     // The write path checks unconditionally and refuses to follow the link.

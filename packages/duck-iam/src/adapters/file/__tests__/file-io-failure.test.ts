@@ -57,12 +57,7 @@ describe('IamFileAdapter I/O failure handling', () => {
   })
 
   it('surfaces a writeFile failure from every mutating method', async () => {
-    // The store is seeded with `viewer` because `assignRole` refuses a role
-    // that is not stored, and the failure under test here is the write, not
-    // the grant target. It is not `editor`: the `deleteRole('editor')` line
-    // below removes the role from the loaded state before its flush fails, so
-    // granting `editor` afterwards would fail on the missing role instead of
-    // on the write.
+    // Seeded with `viewer` since `assignRole` refuses an unstored role; `editor` never lands, as its `saveRole` fails.
     const seed = JSON.stringify({
       assignments: {},
       attributes: {},

@@ -3,22 +3,8 @@ import type { AccessControl } from '../../core/types'
 import { iamAssertSavablePolicy, iamAssertSavableRole } from '../../shared/rows'
 import { IamMemoryAdapter } from '../memory'
 
-/**
- * Shape validation ran on the *read* path for four of the six adapters, never
- * for memory, and only-after-a-restart for file:
- *
- * ```
- * savePolicy(malformed: rules not array) -> getPolicy
- *     memory   {"algorithm":"deny-overrides","id":"p1","name":"P","rules":"nope"}
- *     file     {... "rules":"nope"}     (same process; `null` after a restart)
- *     redis/prisma/drizzle/http   null
- * ```
- *
- * Memory is the adapter every test suite and every prototype runs on, and it
- * was the one handing the engine a policy whose `rules` is a string. File gave
- * two different answers for one store depending on whether the process had
- * restarted - a dev-vs-prod split produced by a single deploy.
- */
+// Pins save-time shape validation: a row the read path would drop is refused on write by every adapter,
+// so memory and file cannot hand the engine a row that redis/prisma/drizzle/http would read back as `null`.
 const ADAPTERS = ['memory', 'file', 'redis', 'prisma', 'drizzle', 'http'] as const
 
 /** `rules` is a string - the shape that arrives from an untyped source. */
@@ -39,9 +25,7 @@ describe('every adapter refuses to save a row its reads would drop', () => {
     expect(() => iamAssertSavablePolicy('redis', MALFORMED_POLICY)).toThrow(/iam:redis/)
   })
 
-  // Controls: a well-formed row must save, and a *warning*-level issue must not
-  // block a write - `valid` is defined as "no error-level issues", and an empty
-  // role is a warning.
+  // Controls: a well-formed row saves, and a warning-level issue (an empty role) does not block the write.
   it('control: a well-formed policy passes', () => {
     expect(() =>
       iamAssertSavablePolicy('memory', { algorithm: 'deny-overrides', id: 'p1', name: 'P', rules: [] }),
@@ -55,15 +39,8 @@ describe('every adapter refuses to save a row its reads would drop', () => {
 
 describe('the memory adapter refuses the write instead of storing it', () => {
   /**
-   * A rule whose `actions` list is empty - `MISSING_FIELD`, an error-level
-   * issue. Fully typed: the adapter's own `savePolicy` parameter is `IPolicy`,
-   * so an end-to-end test cannot hand it `rules: 'nope'` without a cast, and
-   * the untyped shapes are covered against the guard above. A rule that names
-   * no action can never match a request, so this is the same class of dead row
-   * by a different route.
-   *
-   * Duplicate rule ids and an unresolvable condition field were both tried
-   * first and are *warnings*, which by design do not block a write.
+   * An empty `actions` list is an error-level `MISSING_FIELD`, and stays typed so no cast is needed.
+   * NOTE: duplicate rule ids or an unresolvable condition field are only warnings and would not block the write.
    */
   const noActions: AccessControl.IPolicy = {
     algorithm: 'deny-overrides',

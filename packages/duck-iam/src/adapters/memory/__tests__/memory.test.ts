@@ -1,20 +1,24 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
+import { runEngineCapabilityCompliance } from '../../__compliance__/engine-capability'
+import { OPTIONAL_SUPPORT } from '../../__compliance__/optional-support'
 import { IamMemoryAdapter, iamMemoryAdapter } from '../index'
 
 // Shared adapter compliance suite - every adapter must pass.
-runAdapterCompliance('IamMemoryAdapter', () => new IamMemoryAdapter())
+runAdapterCompliance('IamMemoryAdapter', () => new IamMemoryAdapter(), {
+  supports: OPTIONAL_SUPPORT.IamMemoryAdapter,
+})
+
+// The capabilities the engine provides on top of any adapter.
+runEngineCapabilityCompliance('IamMemoryAdapter', () => new IamMemoryAdapter())
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'
 type Ro = 'viewer' | 'editor'
 type S = 'org-1'
 
-/**
- * `assignRole` refuses a role id nothing is stored under, so the assignment
- * cases below seed their roles rather than granting them out of thin air.
- */
+// `assignRole` refuses an unstored role, so the assignment cases seed these first.
 const GRANTABLE: AccessControl.IRole<A, R, Ro, S>[] = [
   { id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] },
   { id: 'editor', name: 'Editor', permissions: [{ action: 'write', resource: 'post' }] },
@@ -39,10 +43,7 @@ describe('IamMemoryAdapter', () => {
       expect(await adapter.listPolicies()).toEqual([])
     })
 
-    // `version: 1` is supplied on the write path now, so a policy stored
-    // without one reads back the same on all six adapters instead of `1` on
-    // the two SQL backends and `undefined` on the other four. Asserting the
-    // caller's object verbatim here was pinning that divergence.
+    // The write path supplies `version: 1`, so a policy saved without one reads back the same on every adapter.
     it('savePolicy + listPolicies', async () => {
       await adapter.savePolicy(policy)
       expect(await adapter.listPolicies()).toEqual([{ ...policy, version: 1 }])
@@ -185,8 +186,7 @@ describe('IamMemoryAdapter', () => {
         attributes: { 'user-1': { level: 5 } },
       })
 
-      // Seeded rows are normalised exactly as written ones are, so this is the
-      // same `version: 1` the write path supplies - not a second shape.
+      // Seeds are normalised like writes, so this is the same `version: 1`.
       expect(await adapter.listPolicies()).toEqual([
         { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [], version: 1 },
       ])
@@ -199,10 +199,7 @@ describe('IamMemoryAdapter', () => {
 
 describe('iamMemoryAdapter factory', () => {
   it('returns a working IamMemoryAdapter seeded from init', async () => {
-    // `viewer` is declared here because a seeded assignment naming a role the
-    // init does not define is now refused, exactly as `assignRole` refuses it.
-    // This test is about the factory, and it was seeding a dangling grant only
-    // incidentally - which is how the divergence stayed invisible.
+    // `viewer` is declared because a seeded assignment to an unstored role is refused, as in `assignRole`.
     const adapter = iamMemoryAdapter({
       assignments: { 'user-1': ['viewer'] },
       roles: [{ id: 'viewer', name: 'Viewer', permissions: [] }],

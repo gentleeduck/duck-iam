@@ -1,19 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { IamFile, IamFileAdapter } from '../index'
 
-/**
- * `getSubjectAttributes` throws on a corrupt row because "corruption != empty;
- * `{}` would silently strip ABAC" - redis and http re-derive that from the
- * stored bytes on every read, so they keep throwing forever.
- *
- * The file adapter's marker lived in `_cache` only. The next `_flushNow`
- * serialised the whole cache: the `Set` stringified to `{}`, and the corrupt row
- * had already been dropped from `attributes`, so the flush wrote a store in
- * which the row simply did not exist - quietly repairing it into the "empty"
- * state the read had just refused to serve. An ABAC deny resting on that
- * subject's attributes failed closed on the first process and open on the next,
- * triggered by nothing but an unrelated write and a restart.
- */
+// Pins that a corrupt attributes row still throws after a flush and reload, as on redis/http;
+// losing it on flush would make an ABAC deny fail open after a restart.
 function makeFs(initial: string): { fs: IamFile.IFS; read: () => string } {
   const files = new Map<string, string>([['/store.json', initial]])
   return {
@@ -36,8 +25,7 @@ const CORRUPT = JSON.stringify({
   assignments: { 'someone-else': [{ role: 'viewer' }] },
   attributes: { bad: 'not-an-object', good: { tier: 'gold' } },
   policies: {},
-  // `assignRole` refuses a role that is not stored, and the unrelated write
-  // below has to be a write that succeeds.
+  // `assignRole` refuses an unstored role, and the unrelated write below must succeed.
   roles: { editor: { id: 'editor', name: 'Editor', permissions: [] } },
 })
 
@@ -52,7 +40,7 @@ describe('file adapter: a corrupt attributes row survives a flush', () => {
     const first = adapterOn(fs)
     await expect(first.getSubjectAttributes('bad')).rejects.toThrow(/corrupted attributes/)
 
-    // An unrelated write is all it took: this is the flush that used to erase it.
+    // An unrelated write, whose flush must not erase the corrupt row.
     await first.assignRole('someone-else', 'editor')
 
     const second = adapterOn(fs)
