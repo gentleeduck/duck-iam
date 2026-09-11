@@ -6,11 +6,7 @@ type A = 'read' | 'delete'
 type R = 'post'
 type S = 'org-1'
 
-/**
- * A deps-aware fake React. The harness in `react.test.ts` runs each effect at
- * most once, so it cannot express a refetch at all - which is why the stale
- * window below went unnoticed.
- */
+/** A deps-aware fake React; `react.test.ts`'s harness runs each effect at most once, so it cannot refetch. */
 function makeReact() {
   const states: { value: unknown }[] = []
   const effects: { deps?: readonly unknown[]; cleanup?: () => void }[] = []
@@ -39,11 +35,7 @@ function makeReact() {
       })
     },
     useMemo: <T>(factory: () => T): T => factory(),
-    // Honours the lazy initialiser, because `ReactLike` declares
-    // `initialState: T | (() => T)` and real React runs the function once. A
-    // double that stored the function itself would hand the hook a function
-    // where it expects the value - a failure that says nothing about the code
-    // under test.
+    // Honours the lazy initialiser, as real React does and `ReactLike` declares.
     useState<T>(initial: T | (() => T)): [T, (v: T) => void] {
       const i = stateIdx++
       states[i] ??= { value: typeof initial === 'function' ? (initial as () => T)() : initial }
@@ -147,13 +139,7 @@ describe('usePermissions does not serve a previous subject', () => {
   })
 })
 
-/**
- * Vue's `usePermissions` returns a `refetch` and its docblock says the two
- * frameworks are "the same shape". React's returned no such thing: the only way
- * to reload was to change `deps`, so a sign-out or an account switch that did
- * not happen to move a dependency left the previous subject's grants in place -
- * the exact case the reset above exists for, unreachable.
- */
+// Like Vue's, React's hook must expose `refetch`, or a sign-out that moves no dep keeps the old grants.
 describe('usePermissions can be refetched the way vue can', () => {
   it('refetch reloads without any deps change', async () => {
     const { React, beginRender, flush } = makeReact()
@@ -169,8 +155,7 @@ describe('usePermissions can be refetched the way vue can', () => {
     const first = usePermissions(fetchFn, ['same'])
     expect(first.can('delete', 'post')).toBe(true)
 
-    // The grant is revoked server-side. Deps are unchanged, so only `refetch`
-    // can reach it.
+    // Revoked server-side with deps unchanged, so only `refetch` can pick it up.
     served = {}
     await first.refetch()
     beginRender()
@@ -181,10 +166,7 @@ describe('usePermissions can be refetched the way vue can', () => {
     const { React, beginRender, flush } = makeReact()
     const { usePermissions } = createIamAccessControl<A, R, S>(React as never)
 
-    // Two loads in flight at once, the *earlier* one resolving last. A teardown
-    // flag cannot see this: no deps changed, so no effect was ever cleaned up.
-    // Without the monotonic run id, alice's late answer lands on top of bob's
-    // and `can()` serves the previous subject's grants indefinitely.
+    // Two loads overlap and the earlier resolves last. No deps changed, so no teardown ran; only the run id stops it.
     const gates: ((map: Record<string, boolean>) => void)[] = []
     const fetchFn = () =>
       new Promise<IamClient.PermissionMap<A, R, S>>((resolve) => {
@@ -222,8 +204,7 @@ describe('usePermissions can be refetched the way vue can', () => {
     const { React, beginRender, flush } = makeReact()
     const { usePermissions } = createIamAccessControl<A, R, S>(React as never)
 
-    // A rejected fetch chain can carry anything; `error` is declared
-    // `Error | null`, so a bare string used to make that declaration false.
+    // A rejected fetch chain can carry anything; `error` is declared `Error | null`.
     const rejecting = (): Promise<IamClient.PermissionMap<A, R, S>> => Promise.reject('gateway said no')
 
     beginRender()

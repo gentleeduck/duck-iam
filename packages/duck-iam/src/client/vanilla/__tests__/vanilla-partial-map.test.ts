@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { IamAccessClient } from '../index'
 
-/**
- * The server only returns the keys that were batched. A full `PermissionMap`
- * (`Record` over every action×resource) forced callers to cast; the client
- * must accept the partial map directly, defaulting missing keys to `false`.
- */
+// The server returns only the batched keys, so the client takes a partial map and denies missing keys.
 describe('IamAccessClient partial permission map', () => {
   it('accepts a map missing some combinations without a cast', () => {
     const client = new IamAccessClient<'read' | 'write', 'post'>({ 'read:post': true })

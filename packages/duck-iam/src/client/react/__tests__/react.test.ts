@@ -259,12 +259,7 @@ describe('createIamPermissionChecker', () => {
   })
 })
 
-/**
- * The suite tested that the happy path answers correctly and never that the
- * unhappy path answers `false`. `can()` is declared `: boolean` and used to
- * gate UI, so what it returns while loading and after a failed fetch is the
- * whole contract.
- */
+// `can()` gates UI, so its answer while loading and after a failed fetch is the contract.
 describe('usePermissions fails closed', () => {
   const fetcher = () => Promise.resolve({ 'read:post': true })
 
@@ -309,12 +304,7 @@ describe('usePermissions fails closed', () => {
   })
 })
 
-/**
- * The permission map is unvalidated server JSON. The `as Record<string,
- * boolean>` cast these checks replace was the only thing asserting the value
- * was a boolean, so `{"read:post": "false"}` - a plausible server slip - read
- * as a grant and `<Can>` rendered.
- */
+// The map is unvalidated server JSON; `{"read:post": "false"}` must not read as a grant.
 describe('react: a non-boolean map value denies', () => {
   // Built the way a hostile map actually arrives: unvalidated server JSON.
   const hostile: IamClient.PartialPermissionMap<A, R, S> = JSON.parse(
