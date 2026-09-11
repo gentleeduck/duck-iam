@@ -2,20 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IamEngineTypes } from '../../../core/engine/engine.types'
 import { createIamRedisInvalidator, type IamRedisInvalidator } from '../index'
 
-/**
- * The signed receive path, which the existing suite exercises almost entirely
- * through `{ kind: 'all' }` - the one event shape with no optional properties.
- *
- *     $ grep -oh "kind: '[a-z]*'" src/invalidators/redis/__tests__/*.ts | sort | uniq -c
- *       21 kind: 'all'   3 kind: 'policies'   3 kind: 'roles'   6 kind: 'subject'
- *
- * so 34 tests passed while the signed path was broken for two of the four
- * kinds. The rest of this file covers the guards a mutation run found unpinned:
- * the whole guard band of the HMAC comparator (a `return true` on its length
- * check is a complete signature bypass and killed no test), `_isValidEvent` on
- * the *signed* branch, the replay-window boundary, and the pre-auth wire cap's
- * byte-length semantics.
- */
+// Signed receive path for every event kind, plus the HMAC comparator guards, signed-branch event validation,
+// the replay-window edges and the byte-based wire cap.
 
 function makeBus(): {
   client: IamRedisInvalidator.IPubSubLike
@@ -56,11 +44,7 @@ function pair() {
   return { a, b, publisher, received }
 }
 
-/**
- * Builds an event the way a tampered wire message carries one - as parsed JSON.
- * `publish` signs whatever it is handed and does not validate, which is exactly
- * how a validly-signed invalid event reaches the receiver's own guard.
- */
+/** Parses an event from JSON. `publish` signs without validating, so a signed invalid event reaches the guard. */
 function asEvent(json: string): IamEngineTypes.IInvalidateEvent {
   return JSON.parse(json)
 }
@@ -84,10 +68,7 @@ describe('a signed round-trip carries every event kind', () => {
     { expected: { kind: 'all' }, name: 'all', sent: { kind: 'all' } },
     { expected: { kind: 'policies' }, name: 'policies', sent: { kind: 'policies' } },
     { expected: { kind: 'roles' }, name: 'roles with roleId omitted', sent: { kind: 'roles' } },
-    // `cache.invalidateRoles()` with no argument publishes exactly this shape.
-    // The signing pre-image JSON-round-trips first, so the key disappears on
-    // both sides; signing the live object made publisher and verifier hash
-    // different byte strings and a blanket role revoke never propagated.
+    // `cache.invalidateRoles()` with no argument publishes this; the pre-image round-trip drops the key on both sides.
     { expected: { kind: 'roles' }, name: 'roles with roleId: undefined', sent: { kind: 'roles', roleId: undefined } },
     {
       expected: { kind: 'roles', roleId: 'editor' },
@@ -119,23 +100,19 @@ describe('the HMAC comparator rejects every malformed signature', () => {
     return { deliveredCount: received.length }
   }
 
-  // Control first: without it every assertion below passes for a harness that
-  // simply never delivers anything.
+  // Control: guards against a harness that never delivers anything.
   it('delivers the untouched envelope', () => {
     expect(withSig((sig) => sig).deliveredCount).toBe(1)
   })
 
   const REJECTED: ReadonlyArray<{ name: string; replace: (sig: string) => string }> = [
-    // The length pre-check. A mutant turning it into `return true` accepts any
-    // wrong-length signature - `sig: "00"` verifies - and killed no test.
+    // The length pre-check: a `return true` there would accept any wrong-length signature.
     { name: 'a truncated signature', replace: (sig) => sig.slice(0, -2) },
     { name: 'an over-long signature', replace: (sig) => `${sig}00` },
     { name: 'a two-character signature', replace: () => '00' },
-    // The empty-buffer check: `Buffer.from('', 'hex')` is zero-length on both
-    // sides, and `timingSafeEqual` calls two empty buffers equal.
+    // The empty-buffer check: `timingSafeEqual` calls two empty buffers equal.
     { name: 'an empty signature', replace: () => '' },
-    // Non-hex of the right *string* length. `Buffer.from` stops at the first
-    // invalid pair, so this decodes to an empty buffer too.
+    // Right string length but non-hex: `Buffer.from` stops at the first invalid pair, giving an empty buffer.
     { name: 'a same-length non-hex signature', replace: (sig) => 'z'.repeat(sig.length) },
     { name: 'a flipped nibble', replace: (sig) => (sig.startsWith('0') ? `1${sig.slice(1)}` : `0${sig.slice(1)}`) },
   ]
@@ -148,10 +125,7 @@ describe('the HMAC comparator rejects every malformed signature', () => {
 })
 
 describe('a valid signature is not a valid event', () => {
-  // `_isValidEvent`'s own doc says it exists "so a tampered payload cannot
-  // trigger an invalidate with an undefined `subjectId`". On the signed branch
-  // that guarantee had no test: forcing the check to `if (false)` killed
-  // nothing, because every signed test published a well-formed event.
+  // A correct signature must not let a malformed event past `_isValidEvent`.
   const MALFORMED = [
     '{"kind":"subject"}',
     '{"kind":"subject","subjectId":""}',
@@ -202,8 +176,7 @@ describe('the replay window is closed at its stated edge', () => {
     return received.length
   }
 
-  // `age > WINDOW` vs `age >= WINDOW` is one character and no test could tell
-  // them apart.
+  // Pins `age > WINDOW` against `age >= WINDOW`.
   it('accepts a message exactly at the window edge', () => {
     expect(deliverAfter(WINDOW_MS)).toBe(1)
   })
@@ -235,8 +208,7 @@ describe('the pre-auth wire cap counts bytes, not code units', () => {
   }
 
   it('drops a message under the cap in characters but over it in bytes', () => {
-    // '€' is three UTF-8 bytes and one UTF-16 code unit, so `s.length` reads
-    // this as comfortably inside the cap while it is not.
+    // '€' is three UTF-8 bytes but one UTF-16 code unit, so `s.length` would read this as under the cap.
     const out = deliverPadded('€', 6000)
     expect(out.units).toBeLessThan(MAX_WIRE_BYTES)
     expect(out.bytes).toBeGreaterThan(MAX_WIRE_BYTES)

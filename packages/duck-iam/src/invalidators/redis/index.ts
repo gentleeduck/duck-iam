@@ -4,39 +4,15 @@ import type { IamEngineTypes } from '../../core/engine/engine.types'
 /** Redis invalidator integration types. Type-only namespace - zero bundle cost. */
 export namespace IamRedisInvalidator {
   /**
-   * Describes the minimum pub/sub surface needed by the Redis invalidator.
-   *
-   * Both ioredis and node-redis v4+ implement this shape; call sites stay
-   * intentionally narrow to avoid pulling in either as a hard dependency.
-   * Pass two clients - Redis requires a separate connection per subscriber.
+   * Minimal pub/sub surface; ioredis and node-redis v4+ both fit, so neither is a hard dependency.
+   * INFO: back it with two connections - Redis allows no other commands on a subscribed connection.
    */
   export interface IPubSubLike {
-    /**
-     * Publishes the JSON payload on the given channel for every local admin
-     * mutation. Synchronous return is fine; the caller does not await.
-     *
-     * @param channel - Names the channel to publish on.
-     * @param message - Serialised JSON payload to broadcast.
-     * @returns Whatever the underlying client returns; ignored by the invalidator.
-     */
+    /** Publishes `message` on `channel`. A returned promise's rejection goes to `onPublishError`. */
     publish(channel: string, message: string): unknown
-    /**
-     * Subscribes the handler to incoming messages on the channel. The factory
-     * calls this once with the channel name and a raw-message handler.
-     *
-     * @param channel - Names the channel to subscribe to.
-     * @param handler - Receives each raw message string from the channel.
-     * @returns Void synchronously or a promise the caller may await on startup.
-     */
+    /** Subscribes `handler` to raw messages on `channel`. A throw or rejection goes to `onSubscribeError`. */
     subscribe(channel: string, handler: (message: string) => void): void | Promise<void>
-    /**
-     * Tears down the subscription. Engine calls this on `dispose()`. Optional -
-     * passing a no-op stub is fine if your client manages connection lifecycle
-     * out of band.
-     *
-     * @param channel - Names the channel to detach from.
-     * @returns Void synchronously or a promise.
-     */
+    /** Detaches from `channel` once the last handler leaves (e.g. on engine `dispose()`). Optional. */
     unsubscribe?(channel: string): void | Promise<void>
   }
 
@@ -45,22 +21,13 @@ export namespace IamRedisInvalidator {
     /** Redis pub/sub adapter implementing {@link IPubSubLike}. */
     client: IPubSubLike
     /**
-     * Channel name. Every engine subscribing to the same channel shares an
-     * invalidate broadcast group. Defaults to `'duck-iam:invalidate'`. Use
-     * {@link tenantId} for the common multi-tenant case instead of building
-     * the channel name yourself.
+     * Channel name; engines on the same channel share invalidations. Defaults to `'duck-iam:invalidate'`.
+     * Prefer {@link tenantId} to building per-tenant names by hand.
      */
     channel?: string
     /**
-     * Convenience helper for multi-tenant deployments. When set,
-     * the effective channel becomes `duck-iam:invalidate:tenant:${tenantId}`
-     * (or `${channel}:tenant:${tenantId}` if `channel` is also given). This
-     * guarantees tenant isolation on a shared Redis instance - tenant A's
-     * revoke cannot wipe tenant B's cache.
-     *
-     * Validates against `/^[A-Za-z0-9_-]{1,64}$/` to keep channel names
-     * pub/sub-safe and prevent injection via attacker-controlled tenant
-     * identifiers.
+     * Scopes the channel to `<channel>:tenant:<tenantId>`; must match `/^[A-Za-z0-9_-]{1,64}$/`.
+     * SECURITY: set `secret` too - routing alone does not stop a relayed envelope; the signed channel binding does.
      *
      * @example
      * ```ts
@@ -69,131 +36,107 @@ export namespace IamRedisInvalidator {
      */
     tenantId?: string
     /**
-     * Shared HMAC secret. When set, every published envelope is signed with
-     * `HMAC-SHA256(secret, canonicalJSON(payload))` and incoming envelopes
-     * without a verifying signature are dropped (silent - one `console.warn`
-     * per channel on the first rejection). When `null` or omitted (default),
-     * the invalidator falls back to legacy unsigned envelopes and warns once
-     * at construction. Any party with PUBLISH rights to the channel can wipe
-     * caches in that mode; set a secret in production.
+     * Shared HMAC-SHA256 secret; inbound envelopes that do not verify are dropped.
+     * SECURITY: unset (the default), anyone with PUBLISH rights on the channel can wipe caches. Set it in production.
      */
     secret?: string | null
     /**
-     * Invoked when the underlying `client.publish(...)` throws *or rejects*.
-     * Both matter and only the first used to be caught: ioredis publishes
-     * asynchronously, so a dead broker rejects the returned promise rather
-     * than throwing, and the failure this hook exists to report went to an
-     * unhandled rejection instead - fatal under Node's default
-     * `--unhandled-rejections=throw`.
-     *
-     * The publish failure is non-fatal for the local engine (it already
-     * applied the invalidation), but cross-instance invalidations are lost -
-     * wire this to your alerting pipeline so a long-lived Redis outage does
-     * not silently desync caches across nodes.
+     * Called when `client.publish` throws or rejects. Local caches are already cleared, but peers miss the event.
+     * Without it, a coalesced warning is logged.
      */
     onPublishError?: (err: Error, channel: string) => void
     /**
-     * Invoked when `client.subscribe(...)` rejects or throws. Losing the
-     * subscription is strictly worse than losing a publish - a failed publish
-     * drops one event, a failed subscribe drops every future one - so wire
-     * this up alongside {@link onPublishError}. The next `subscribe()` call
-     * retries; with no handler a warning is logged instead.
+     * Called when `client.subscribe` fails; `healthCheck()` then reports `subscribed: false` until a retry succeeds.
+     * WARN: retries ride on `publish` (at most every 5s), so a node that never writes never recovers.
      */
     onSubscribeError?: (err: Error, channel: string) => void
     /**
-     * Invoked when an inbound message is dropped without being applied.
-     *
-     * Until this existed, a drop had exactly one channel out: a `console.warn`
-     * coalesced to one line per minute. That is adequate for the case it was
-     * written for - somebody with PUBLISH rights sending junk - and inadequate
-     * for the one that actually takes a deployment down, which is a `secret`
-     * rolled out to some nodes and not others. Every peer invalidation is then
-     * dropped by every node, in both directions and for the whole rollout:
-     * `'v:1 envelope received without secret configured'` on the nodes without
-     * it, `'unsigned message with secret configured'` on the nodes with it.
-     * Caches never converge, and stale *allow* is the failure - a revoked role
-     * keeps working until each node's own TTL retires it. Nothing failed, no
-     * request errored, and one log line a minute said so.
-     *
-     * `reason` is one of this module's own fixed strings, never anything from
-     * the message: a drop reason reaching a log or an alert must not be
-     * attacker-composed. `suppressed` counts the drops coalesced since the
-     * last report on this channel, so a hook wired to a counter sees the true
-     * rate rather than one event per window.
-     *
-     * Called on the same coalescing schedule as the warning it replaces, and
-     * deliberately so - inbound traffic is attacker-driven, and a hook invoked
-     * per message would be an amplifier pointed at the operator's own
-     * alerting. A throwing hook is swallowed, as with the other two.
+     * Replaces the drop warning, coalesced per channel per 60s; `suppressed` counts drops since the last call.
+     * Also receives publish failures when `onPublishError` is unset. A throwing hook is ignored.
+     * SECURITY: `reason` never carries inbound message content, and coalescing stops inbound traffic flooding the hook.
      */
     onMessageDropped?: (reason: string, channel: string, suppressed: number) => void
+    /**
+     * Accepts pre-v2 envelopes, whose signature does not cover the channel, during a rolling upgrade.
+     * SECURITY: while on, an envelope signed for any channel sharing this secret verifies here; warns at construction.
+     */
+    acceptLegacyUnboundEnvelopes?: boolean
   }
 }
 
 const DEFAULT_CHANNEL = 'duck-iam:invalidate'
 
-/**
- * Does this value carry a callable `then`, so a rejection can still arrive?
- *
- * `IPubSubLike.publish` is typed `unknown` on purpose - ioredis and node-redis
- * resolve a number, a synchronous test double returns nothing - and the only
- * property this module needs from the return value is whether it can fail
- * later. A `then` that takes handlers is exactly that question, so this asks
- * it rather than assuming a shape.
- */
+/** Whether `value` has a callable `then`, i.e. can still reject later; client return types vary. */
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return false
   return typeof Reflect.get(value, 'then') === 'function'
 }
 
-/** Replay window in milliseconds. Signed envelopes older than this are dropped. */
+/** Replay window in ms. Signed envelopes whose `ts` is further than this from now, either way, are dropped. */
 const REPLAY_WINDOW_MS = 30_000
 
-/** Wire-format version. Bump when the envelope shape changes incompatibly. */
-const ENVELOPE_V = 1
+/** Cap on remembered signatures, so a flood costs bounded memory rather than unbounded. */
+const MAX_SEEN_SIGNATURES = 5_000
+
+/** Signatures already applied on this channel, so a verbatim envelope is not replayed inside the window. */
+interface ISeenEnvelopes {
+  /** `false` when this signature was already accepted; recording it otherwise. */
+  accept(sig: string, now: number): boolean
+}
+
+/** Entries are inserted in time order, so pruning stops at the first one still inside the window. */
+function createSeenEnvelopes(): ISeenEnvelopes {
+  const seen = new Map<string, number>()
+  return {
+    accept(sig, now) {
+      for (const [seenSig, at] of seen) {
+        if (now - at <= REPLAY_WINDOW_MS) break
+        seen.delete(seenSig)
+      }
+      if (seen.has(sig)) return false
+      seen.set(sig, now)
+      // Oldest first, matching insertion order; the window prune above usually gets there first.
+      while (seen.size > MAX_SEEN_SIGNATURES) {
+        const oldest = seen.keys().next()
+        if (oldest.done) break
+        seen.delete(oldest.value)
+      }
+      return true
+    },
+  }
+}
 
 /**
- * Channels already reported as running unsigned.
- *
- * Per channel, not per process. `tenantId` exists so one process builds one
- * invalidator per tenant, and a single process-wide latch meant the second and
- * every later unsigned invalidator constructed in silence - while the one
- * warning that did fire named no channel, so an operator who fixed "the"
- * unsigned invalidator had no way to learn the other forty were still unsigned.
- *
- * Still a latch rather than a warn per construction: an app that rebuilds its
- * invalidator on reconnect would otherwise print the same line forever. Keyed
- * on the full channel, so two tenants report separately and one tenant reports
- * once.
+ * Wire-format version. Bump when the envelope shape changes incompatibly.
+ * SECURITY: v2 signs the channel, so an envelope signed for one channel does not verify on another sharing the secret.
+ */
+const ENVELOPE_V = 2
+
+/** The pre-v2 wire version, accepted only under `acceptLegacyUnboundEnvelopes`. */
+const ENVELOPE_V_UNBOUND = 1
+
+/** Channels already reported as accepting pre-v2, channel-unbound envelopes. */
+const _UNBOUND_WARNED = new Set<string>()
+
+/**
+ * Channels already warned about running unsigned.
+ * NOTE: keyed per channel so each tenant's invalidator warns once; a process-wide latch would hide all but the first.
  */
 const _UNSIGNED_WARNED = new Set<string>()
 
-/**
- * Per-channel rate-limited warn state. Rate-limits warns at a tunable
- * interval and surfaces a coalesced suppressed-count so operators see
- * sustained abuse instead of silence after a single benign first warn.
- */
+/** Drop-warn coalescing state per key: time of the last warn and drops suppressed since. */
 const _DROP_WARN_STATE = new Map<string, { lastWarn: number; suppressed: number }>()
 /** Minimum gap between drop warns for a single channel. */
 const DROP_WARN_WINDOW_MS = 60_000
+/**
+ * Minimum gap between `subscribe` retries after a failure.
+ * NOTE: retries ride on `publish`, so without a floor an outage during a write burst issues one subscribe per write.
+ */
+const RESUBSCRIBE_MIN_INTERVAL_MS = 5_000
 
 /**
- * The channel as it is safe to print. A tenant-scoped channel is
- * `<base>:tenant:<tenantId>`, and the drop warning it appears in is written on
- * a path an outsider drives - anyone holding PUBLISH rights emits unverifiable
- * messages at will - so logging the id verbatim turned stderr into a directory
- * of which tenants exist and which are being probed. Shared log aggregators
- * make that everyone's disclosure, not just the affected tenant's.
- *
- * The base channel is the operator's own constant and stays readable; only the
- * tenant segment is replaced, by a truncated SHA-256 of the id. A digest rather
- * than a redaction marker because operators still need to tell two tenants'
- * warnings apart, and it is derived from the id alone - no per-process salt -
- * so the same tenant reads as the same token across restarts and hosts.
- *
- * Not a confidentiality boundary: the tenant id space is usually small enough
- * to enumerate offline. It stops incidental disclosure to whoever can read
- * logs, which is the exposure that actually happens.
+ * Log-safe channel name: the tenant segment becomes a truncated, unsalted SHA-256, so it still matches across hosts.
+ * SECURITY: drop warnings are attacker-triggerable, so logs must not name tenants. Not a confidentiality boundary.
  */
 function redactChannel(channelName: string): string {
   const marker = ':tenant:'
@@ -204,21 +147,16 @@ function redactChannel(channelName: string): string {
   return `${channelName.slice(0, at)}${marker}${digest}`
 }
 
-/**
- * Guard limits applied to incoming wire messages BEFORE the HMAC verifier
- * (pre-auth - must be cheap and stack-safe).
- */
+/** SECURITY: pre-auth limits on inbound messages, checked before the HMAC, so keep them cheap and stack-safe. */
 const MAX_WIRE_BYTES = 16 * 1024
 const MAX_PAYLOAD_DEPTH = 8
 const MAX_PAYLOAD_KEYS = 64
-/** Depth-of-defence cap on {@link canonicalJSON} recursion itself. */
+/** Recursion cap on {@link canonicalJSON} itself, for callers without the wire guard in front. */
 const CANONICAL_MAX_DEPTH = 16
 
 /**
- * Iterative walker counting nesting depth + total key count of an
- * already-parsed JSON value. Non-recursive so the guard itself cannot stack-
- * overflow even on adversarial input. Returns `null` if either cap is
- * exceeded.
+ * Nesting depth and total key count of a parsed JSON value, or `null` once either cap is exceeded.
+ * SECURITY: iterative, so hostile nesting cannot overflow the stack.
  */
 function _measurePayload(root: unknown): { depth: number; keys: number } | null {
   if (root === null || typeof root !== 'object') return { depth: 0, keys: 0 }
@@ -251,15 +189,8 @@ function _measurePayload(root: unknown): { depth: number; keys: number } | null 
 }
 
 /**
- * Canonical JSON serializer with stable key order. Used as the HMAC pre-image
- * so publisher and verifier agree on the exact byte string regardless of how
- * the host JSON engine orders object keys. Arrays preserve order; objects sort
- * keys lexicographically.
- *
- * Defence in depth: bounded recursion. Callers in the verify path
- * additionally enforce a depth/size/key-count guard on the parsed payload
- * before invoking this function - `_depth` here protects the publish path
- * and any future caller that bypasses the wire guard.
+ * JSON with sorted object keys, so publisher and verifier hash the same bytes whatever the key order.
+ * Depth-capped for the publish path, which has no wire guard in front of it.
  */
 function canonicalJSON(v: unknown, _depth = 0): string {
   if (_depth > CANONICAL_MAX_DEPTH) throw new Error('canonicalJSON: max depth exceeded')
@@ -270,33 +201,19 @@ function canonicalJSON(v: unknown, _depth = 0): string {
 }
 
 /**
- * HMAC pre-image for the publish path. The receiver only ever sees the value
- * after a JSON round-trip, so the publisher has to sign *that* value, not the
- * in-memory one. `canonicalJSON` walks the live object, where an `undefined`
- * property contributes the literal token `undefined` while `JSON.stringify`
- * drops the key outright - so the two sides hashed different byte strings and
- * the signature could never match. `cache.invalidateRoles()` with no argument
- * publishes exactly that shape (`{kind: 'roles', roleId: undefined}`), so a
- * blanket role revoke never propagated once signing was enabled.
- *
- * Round-tripping first also covers every other JSON-lossy construct - `Date`,
- * `toJSON`, functions, symbols, array holes - without enumerating them. For a
- * value that survives JSON unchanged the pre-image is byte-identical to the
- * old one, so signatures that verify today keep verifying.
+ * HMAC pre-image for publishing: canonical JSON of the value after a JSON round-trip, which is what the receiver sees.
+ * NOTE: without the round-trip, JSON-lossy values such as `roleId: undefined` hash differently and never verify.
  */
 function signingPreimage(value: unknown): string {
   return canonicalJSON(JSON.parse(JSON.stringify(value)))
 }
 
-/**
- * Internal envelope produced by the publisher. Wire layout:
- *   { v: 1, sig: <hex>, payload: { instanceId, event, ts } }
- * For unsigned mode, the legacy shape `{ instanceId, event }` is used.
- */
+/** Signed wire envelope `{ v, sig, payload }`; unsigned mode sends `{ instanceId, event }` instead. */
 interface SignedEnvelope<TRole extends string> {
-  readonly v: 1
+  readonly v: 2
   readonly sig: string
   readonly payload: {
+    readonly channel: string
     readonly instanceId: string
     readonly event: IamEngineTypes.IInvalidateEvent<TRole>
     readonly ts: number
@@ -304,9 +221,8 @@ interface SignedEnvelope<TRole extends string> {
 }
 
 /**
- * Constant-time hex string compare. Wraps Buffer construction so callers don't
- * have to handle length mismatch (which would short-circuit `timingSafeEqual`
- * and leak a timing oracle on signature length).
+ * Compares two hex strings; `false` on any type, length or decode mismatch.
+ * SECURITY: constant-time via `timingSafeEqual`, never `===`. Lengths go first because it throws on a mismatch.
  */
 function safeHexEqual(a: string, b: string): boolean {
   if (typeof a !== 'string' || typeof b !== 'string') return false
@@ -319,30 +235,15 @@ function safeHexEqual(a: string, b: string): boolean {
   } catch {
     return false
   }
-  // `ab.length === 0` is defence-in-depth, not a reachable branch: the only
-  // caller passes a full-length hex HMAC as `b`, so two empty buffers require
-  // the string-length check above to have been removed first. Keep it - it is
-  // what stops `timingSafeEqual` from calling two empty buffers equal if this
-  // ever compares two caller-supplied strings. No test can reach it through
-  // the public path.
+  // SECURITY: `ab.length === 0` is unreachable today (the caller's `b` is a full HMAC) but stops two empty
+  // buffers comparing equal.
   if (ab.length !== bb.length || ab.length === 0) return false
   return timingSafeEqual(ab, bb)
 }
 
 /**
- * Creates a cross-instance cache-invalidation broadcaster backed by Redis pub/sub.
- *
- * Delivery is at-least-once: every engine's local invalidate methods are
- * idempotent so re-applying the same event is safe. Filters self-published
- * events via an instance UUID embedded in the payload - without this guard
- * every local invalidate would echo back through the subscriber and re-clear
- * caches we just rebuilt.
- *
- * When `init.secret` is set, envelopes are signed with HMAC-SHA256 and
- * verified on receive with a 30-second replay window keyed off `payload.ts`.
- * Without a secret the invalidator falls back to legacy unsigned envelopes
- * (logged once); anyone with PUBLISH rights on the channel can then wipe
- * caches -> set a secret in production.
+ * Cross-instance cache invalidation over Redis pub/sub. Delivery is at-least-once; invalidation is idempotent.
+ * SECURITY: set `secret` in production; signed envelopes are held to a 30s replay window and applied at most once.
  *
  * @template TRole - Role identifier union the engine is parameterised over.
  * @param config - Supplies the client and optional channel; see {@link IamRedisInvalidator.IConfig}.
@@ -364,7 +265,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   config: IamRedisInvalidator.IConfig,
 ): IamEngineTypes.IInvalidator<TRole> {
   const baseChannel = config.channel ?? DEFAULT_CHANNEL
-  // Tenant slug shape-validated to prevent pub/sub wildcard injection.
+  // SECURITY: shape-check the tenant slug so it cannot inject pub/sub wildcards.
   let channel = baseChannel
   if (config.tenantId !== undefined) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(config.tenantId)) {
@@ -379,6 +280,14 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   const instanceId = generateInstanceId()
   const handlers = new Set<(event: IamEngineTypes.IInvalidateEvent<TRole>) => void>()
   const secret = config.secret ?? null
+  const acceptLegacyUnbound = config.acceptLegacyUnboundEnvelopes === true
+
+  if (acceptLegacyUnbound && secret !== null && !_UNBOUND_WARNED.has(channel)) {
+    _UNBOUND_WARNED.add(channel)
+    console.warn(
+      `[@gentleduck/iam:invalidator:redis] \`acceptLegacyUnboundEnvelopes\` is on for channel ${JSON.stringify(redactChannel(channel))} - pre-v2 envelopes are accepted, and their signature does not cover the channel. Any party holding this secret for any channel can forge messages here. Turn it off once every node publishes v:${ENVELOPE_V}.`,
+    )
+  }
 
   if (secret === null && !_UNSIGNED_WARNED.has(channel)) {
     _UNSIGNED_WARNED.add(channel)
@@ -388,21 +297,12 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   }
 
   /**
-   * Reports a dropped inbound message, at most once per channel per window.
-   *
-   * The `kind` prefix on the latch key is not cosmetic. `_DROP_WARN_STATE` is
-   * module-level and was keyed on the channel alone, so inbound drops and
-   * publish failures shared one 60s budget on the same channel - and inbound
-   * drops are the half an attacker controls. Sending one junk message a minute
-   * claimed the window and coalesced away the publish-failure warning for a
-   * broker outage happening at the same time: the report an operator needs
-   * most, suppressed by traffic anyone with PUBLISH rights can generate.
-   * Separate keys mean neither kind can silence the other.
+   * Reports an inbound drop or publish failure, at most once per kind and channel per window.
+   * SECURITY: each kind has its own budget, so attacker-sent junk cannot coalesce away a publish-failure warning.
    */
   function reportDrop(kind: 'inbound' | 'publish', channelName: string, reason: string): void {
     const now = Date.now()
-    // A NUL cannot occur in a channel name, so the two namespaces cannot
-    // collide however a channel is named.
+    // NUL-separated, so the two kinds never share a key.
     const key = `${kind}\u0000${channelName}`
     const state = _DROP_WARN_STATE.get(key)
     const emit = (suppressed: number, tail: string): void => {
@@ -434,8 +334,11 @@ export function createIamRedisInvalidator<TRole extends string = string>(
     emit(suppressed, `${suppressed} prior drops coalesced.`)
   }
 
-  /** Inbound drops. Passed to {@link parseIncoming}, which knows no other reporter. */
+  /** Inbound-drop reporter handed to {@link parseIncoming}. */
   const warnDropOnce = (channelName: string, reason: string): void => reportDrop('inbound', channelName, reason)
+
+  // Only signed envelopes carry a signature to remember; without a secret nothing here is authentic anyway.
+  const seenEnvelopes = secret === null ? null : createSeenEnvelopes()
 
   function reportSubscribeFailure(err: unknown): void {
     const error = err instanceof Error ? err : new Error(String(err))
@@ -446,32 +349,39 @@ export function createIamRedisInvalidator<TRole extends string = string>(
     }
     if (!config.onSubscribeError) {
       console.warn(
-        `[@gentleduck/iam:invalidator:redis] subscribe to ${JSON.stringify(redactChannel(channel))} failed (${error.message}) - this node will not receive invalidations until a later subscribe() succeeds. Pass \`onSubscribeError\` to handle this.`,
+        `[@gentleduck/iam:invalidator:redis] subscribe to ${JSON.stringify(redactChannel(channel))} failed (${error.message}) - this node receives no invalidations and serves stale allow decisions until a retry succeeds. A retry is attempted from publish() (at most once every ${RESUBSCRIBE_MIN_INTERVAL_MS}ms) and from any further subscribe(); an engine calls subscribe() once at setup and never again, so a node that never writes never retries. engine.healthCheck() reports \`invalidator: { subscribed: false }\` meanwhile. Pass \`onSubscribeError\` to handle this.`,
       )
     }
   }
 
-  // Two latches, not one. `subscribed` was previously set before the call could
-  // fail, so a rejected `subscribe()` (NOAUTH, a wrong ACL, a reconnect window)
-  // left the node permanently deaf to invalidations - serving stale allow for
-  // its whole lifetime - with the rejection unhandled and nothing retrying.
-  // `subscribing` keeps a second concurrent `subscribe()` from double-issuing.
+  // NOTE: `subscribed` latches only once `subscribe()` resolves, so a failed attempt stays retryable.
+  // A publish-driven (`opportunistic`) retry is floored and never initiates: a subscribed client cannot publish.
   let subscribed = false
   let subscribing = false
-  const ensureSubscribed = () => {
+  let lastAttemptAt = 0
+  const ensureSubscribed = (opportunistic: boolean) => {
     if (subscribed || subscribing) return
+    const now = Date.now()
+    if (opportunistic) {
+      if (lastAttemptAt === 0) return
+      if (now - lastAttemptAt < RESUBSCRIBE_MIN_INTERVAL_MS) return
+    }
+    lastAttemptAt = now
     subscribing = true
     try {
       void Promise.resolve(
         config.client.subscribe(channel, (message) => {
-          const parsed = parseIncoming<TRole>(message, secret, channel, warnDropOnce)
-          // Drop messages that originated on this instance - local mutations
-          // already cleared local caches; replaying would just double the work
-          // and risk an invalidation storm under high write QPS.
+          const parsed = parseIncoming<TRole>(
+            message,
+            secret,
+            channel,
+            warnDropOnce,
+            acceptLegacyUnbound,
+            seenEnvelopes,
+          )
+          // NOTE: skip our own messages by instance id; local caches are already cleared.
           if (!parsed || parsed.instanceId === instanceId) return
-          // Per-handler, like every other callback boundary in the package.
-          // Two engines commonly share one invalidator, and an unguarded loop
-          // means engine A's buggy handler leaves engine B on a stale allow.
+          // Guard each handler: engines sharing an invalidator must not miss a revoke because another threw.
           for (const h of handlers) {
             try {
               h(parsed.event)
@@ -499,15 +409,15 @@ export function createIamRedisInvalidator<TRole extends string = string>(
     publish(event) {
       let payload: string
       if (secret !== null) {
-        const inner = { event, instanceId, ts: Date.now() }
+        // SECURITY: sign the channel too; on a shared secret a signature alone only proves "some tenant".
+        const inner = { channel, event, instanceId, ts: Date.now() }
         const sig = createHmac('sha256', secret).update(signingPreimage(inner)).digest('hex')
         const envelope: SignedEnvelope<TRole> = { payload: inner, sig, v: ENVELOPE_V }
         payload = JSON.stringify(envelope)
       } else {
         payload = JSON.stringify({ event, instanceId })
       }
-      // Publish failure is non-fatal; route it to onPublishError so a
-      // long-lived outage does not silently desync caches.
+      // Non-fatal, but reported so a long outage does not desync nodes unnoticed.
       const reportPublishFailure = (err: unknown): void => {
         const error = err instanceof Error ? err : new Error(String(err))
         try {
@@ -516,37 +426,32 @@ export function createIamRedisInvalidator<TRole extends string = string>(
           /* operator hook itself threw - preserve fail-soft contract */
         }
         if (!config.onPublishError) {
-          // Its own latch namespace: see `reportDrop`. Under the shared key an
-          // attacker's junk message suppressed exactly this line.
+          // Separate budget from inbound drops; see `reportDrop`.
           reportDrop('publish', channel, `publish failed (${error.message})`)
         }
       }
+      // Retry a failed subscribe here; a no-op unless one was already attempted and failed.
+      ensureSubscribed(true)
       try {
         const result = config.client.publish(channel, payload)
-        // The `catch` below only ever saw a *synchronous* throw, and a real
-        // client does not fail that way: ioredis returns a promise and rejects
-        // it (`MaxRetriesPerRequestError` against a dead broker). So the one
-        // failure this hook exists for was the one it never reported, and the
-        // rejection went unhandled - which under Node's default
-        // `--unhandled-rejections=throw` takes the process down over a lost
-        // cache message.
+        // NOTE: ioredis rejects rather than throws; left unhandled, that crashes Node under
+        // `--unhandled-rejections=throw`.
         if (isThenable(result)) result.then(undefined, reportPublishFailure)
       } catch (err) {
         reportPublishFailure(err)
       }
     },
+    status() {
+      return { subscribed }
+    },
     subscribe(handler) {
-      ensureSubscribed()
+      ensureSubscribed(false)
       handlers.add(handler)
       return () => {
         handlers.delete(handler)
         if (handlers.size === 0) {
           subscribed = false
-          // Same asynchronous-failure trap as `publish` above: `void` discards
-          // the promise without attaching a handler, so an unsubscribe against
-          // a dead broker rejected into nothing. There is no operator hook for
-          // this one - tearing down a subscription that is already gone is not
-          // an incident - so it warns and stops there.
+          // Catch an async rejection, as in `publish`. A failed teardown only warns; there is no hook for it.
           const unsubscribed = config.client.unsubscribe?.(channel)
           if (isThenable(unsubscribed)) {
             unsubscribed.then(undefined, (err: unknown) => {
@@ -563,28 +468,19 @@ export function createIamRedisInvalidator<TRole extends string = string>(
 }
 
 /**
- * Decodes and validates an incoming wire message.
- *
- * When `secret` is `null` we accept legacy `{instanceId, event}` only. v:1
- * envelopes are dropped in unsigned mode - accepting them without verifying
- * the HMAC would let an attacker forge the `instanceId` field, which the
- * self-filter uses to ignore own-process replays. A forged match would
- * suppress legitimate cross-instance invalidations. When `secret` is set we
- * require a v:1 envelope, verify the HMAC, and enforce the replay window.
- * Anything else is dropped silently after a one-shot warn per channel.
- *
- * Returned shape is normalized to `{instanceId, event}` so the caller doesn't
- * branch on wire format.
+ * Decodes and verifies an inbound message into `{ instanceId, event }`, or reports the drop and returns `null`.
+ * SECURITY: a secret admits only verified, in-window envelopes; no secret admits only the unsigned legacy shape.
  */
 function parseIncoming<TRole extends string>(
   s: string,
   secret: string | null,
   channel: string,
   warnDropOnce: (channel: string, reason: string) => void,
+  acceptLegacyUnbound: boolean,
+  seenEnvelopes: ISeenEnvelopes | null,
 ): { instanceId: string; event: IamEngineTypes.IInvalidateEvent<TRole> } | null {
-  // Pre-auth size cap; canonicalJSON runs before HMAC verify.
   if (typeof s !== 'string') return null
-  // Byte length (not `s.length`); surrogate pairs would sneak past the cap.
+  // SECURITY: pre-auth size cap in UTF-8 bytes; `s.length` undercounts multi-byte text.
   if (Buffer.byteLength(s, 'utf8') > MAX_WIRE_BYTES) {
     warnDropOnce(channel, 'oversize wire message')
     return null
@@ -597,17 +493,26 @@ function parseIncoming<TRole extends string>(
     return null
   }
   if (typeof parsed !== 'object' || parsed === null) return null
-  // Iterative depth/key-count cap so canonicalJSON pre-image is always safe.
+  // Depth/key cap, so `canonicalJSON` below is safe on hostile input.
   if (_measurePayload(parsed) === null) {
     warnDropOnce(channel, 'payload exceeds depth/key limits')
     return null
   }
 
-  // v:1 signed envelope path
-  if (Reflect.get(parsed, 'v') === ENVELOPE_V) {
-    // Refuse v:1 without secret; forged instanceId would silence invalidations.
+  const wireVersion = Reflect.get(parsed, 'v')
+  const isUnbound = wireVersion === ENVELOPE_V_UNBOUND
+
+  // Signed envelope path.
+  if (wireVersion === ENVELOPE_V || isUnbound) {
+    // SECURITY: unverifiable without a secret, and a forged `instanceId` would suppress real events.
+    // Checked before the version so the reason names the misconfiguration.
     if (secret === null) {
-      warnDropOnce(channel, 'v:1 envelope received without secret configured')
+      warnDropOnce(channel, `v:${String(wireVersion)} envelope received without secret configured`)
+      return null
+    }
+    if (isUnbound && !acceptLegacyUnbound) {
+      // Correctly signed, but the signature does not name its channel.
+      warnDropOnce(channel, `v:${ENVELOPE_V_UNBOUND} envelope is not channel-bound`)
       return null
     }
     const sig = Reflect.get(parsed, 'sig')
@@ -616,13 +521,23 @@ function parseIncoming<TRole extends string>(
       warnDropOnce(channel, 'malformed envelope')
       return null
     }
-    // Verify against the canonical pre-image. `payload` is already the
-    // round-tripped value, which is what `signingPreimage` hashes on publish.
-    // Constant-time compare.
+    // SECURITY: `payload` is already round-tripped, matching `signingPreimage`; compared in constant time.
     const expected = createHmac('sha256', secret).update(canonicalJSON(payload)).digest('hex')
     if (!safeHexEqual(sig, expected)) {
       warnDropOnce(channel, 'signature mismatch')
       return null
+    }
+    // SECURITY: a valid signature only proves the sender holds the secret, so the signed channel must be this one.
+    if (!isUnbound) {
+      const signedChannel = Reflect.get(payload, 'channel')
+      if (typeof signedChannel !== 'string') {
+        warnDropOnce(channel, 'malformed inner payload (channel)')
+        return null
+      }
+      if (signedChannel !== channel) {
+        warnDropOnce(channel, 'envelope was signed for a different channel')
+        return null
+      }
     }
     // Replay window check.
     const ts = Reflect.get(payload, 'ts')
@@ -633,6 +548,12 @@ function parseIncoming<TRole extends string>(
     const age = Date.now() - ts
     if (age > REPLAY_WINDOW_MS || age < -REPLAY_WINDOW_MS) {
       warnDropOnce(channel, 'replay window exceeded')
+      return null
+    }
+    // SECURITY: in-window verbatim replay. The signature covers the payload, so the same one twice is the same
+    // publish twice, and anyone with channel access could otherwise repeat it for the whole window.
+    if (seenEnvelopes !== null && !seenEnvelopes.accept(sig, Date.now())) {
+      warnDropOnce(channel, 'replayed envelope (this signature was already applied)')
       return null
     }
     // Shape-check inner payload.
@@ -667,11 +588,7 @@ function parseIncoming<TRole extends string>(
   return { event: ev, instanceId: legacyInstanceId }
 }
 
-/**
- * Type predicate for the {@link IamEngineTypes.IInvalidateEvent} discriminated
- * union. Enforces per-kind required fields so a tampered payload cannot
- * trigger an invalidate with an undefined `subjectId` or `roleId`.
- */
+/** Per-kind shape check for an invalidate event: `subjectId` required, `roleId` optional, neither empty. */
 function _isValidEvent<TRole extends string>(ev: unknown): ev is IamEngineTypes.IInvalidateEvent<TRole> {
   if (typeof ev !== 'object' || ev === null || Array.isArray(ev)) return false
   const kind = Reflect.get(ev, 'kind')

@@ -1,25 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createIamRedisInvalidator, type IamRedisInvalidator } from '../index'
 
-/**
- * Two failures that shared one symptom: a dropped invalidation nobody could
- * see.
- *
- * The first is a `secret` rolled out to some nodes and not others. Each side
- * refuses the other's envelopes - `'v:1 envelope received without secret
- * configured'` one way, `'unsigned message with secret configured'` the other -
- * so no invalidation crosses in either direction for the whole rollout. Caches
- * never converge and the failure is stale **allow**: a revoked role keeps
- * working on every node until its own TTL retires it. Nothing threw, no request
- * errored, and the only report was a `console.warn` coalesced to one line per
- * minute. `onMessageDropped` is the channel that was missing.
- *
- * The second is the coalescing budget itself. `_DROP_WARN_STATE` is
- * module-level and was keyed on the channel alone, so inbound drops and publish
- * failures shared one 60s window - and inbound is the half an attacker
- * controls. One junk message a minute claimed the window and suppressed the
- * publish-failure warning for a broker outage running at the same time.
- */
+// `onMessageDropped` reports both sides of a half-rolled-out `secret`, and inbound drops cannot coalesce away a
+// publish-failure warning.
+
 type Handler = (message: string) => void
 
 /** A bus that lets a test deliver a message as if a peer had published it. */
@@ -76,9 +60,7 @@ describe('an inbound drop is reported to the operator, not only to the log', () 
   })
 
   it('a signed peer talking to an unsigned node reports the mismatch', () => {
-    // The node has no secret; the peer signs. Every one of the peer's
-    // invalidations is refused, which is the rollout half that keeps serving
-    // stale allow.
+    // The node has no secret and the peer signs, so every peer invalidation is refused.
     const channel = uniqueChannel()
     const bus = makeBus()
     const seen: { reason: string; channel: string }[] = []
@@ -119,8 +101,7 @@ describe('an inbound drop is reported to the operator, not only to the log', () 
   })
 
   it('the handler is never called for a dropped message', () => {
-    // The reporting is the point, but so is the refusal: a mismatch must not
-    // become "apply it anyway".
+    // Reporting must not turn into applying: a mismatch is still refused.
     const channel = uniqueChannel()
     const bus = makeBus()
     const applied: unknown[] = []
@@ -144,8 +125,7 @@ describe('an inbound drop is reported to the operator, not only to the log', () 
   })
 
   it('a throwing hook does not escape into the message handler', () => {
-    // Fail-soft, as with onPublishError and onSubscribeError. A pub/sub
-    // callback that throws takes the client's listener down with it.
+    // Fail-soft like the other hooks; a throwing pub/sub callback takes the client's listener down with it.
     const channel = uniqueChannel()
     const bus = makeBus()
     const inv = createIamRedisInvalidator({
@@ -162,8 +142,7 @@ describe('an inbound drop is reported to the operator, not only to the log', () 
   })
 
   it('a matching secret still applies the peer event - the control', () => {
-    // Without this every assertion above is satisfied by an invalidator that
-    // drops everything.
+    // Guards against an invalidator that drops everything.
     const channel = uniqueChannel()
     const bus = makeBus()
     const applied: unknown[] = []

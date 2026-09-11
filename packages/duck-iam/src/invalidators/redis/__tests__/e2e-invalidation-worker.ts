@@ -1,12 +1,6 @@
 /**
- * A second duck-iam instance in a SEPARATE OS PROCESS.
- *
- * Run by `e2e-invalidation-cross-instance.e2e.test.ts` via `bun`. Two engines in
- * one process share a heap, a module registry and an event loop; this removes
- * all three so the cross-process claim is literally true. Speaks newline-
- * delimited JSON on stdin/stdout.
- *
- * Env: PG_URL, REDIS_PORT, CHANNEL, SECRET (empty string = unsigned), TTL_SECONDS, MODE.
+ * A second duck-iam engine in a separate OS process, spawned by `e2e-invalidation-cross-instance.e2e.test.ts`.
+ * Newline-delimited JSON over stdio. Env: PG_URL, REDIS_PORT, CHANNEL, SECRET (empty = unsigned), TTL_SECONDS.
  */
 import { and, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'

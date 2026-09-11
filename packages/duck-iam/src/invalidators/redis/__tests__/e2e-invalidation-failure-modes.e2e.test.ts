@@ -1,19 +1,6 @@
 /**
- * E2E: what a second instance does when invalidation does NOT arrive.
- *
- * The happy path is covered by `e2e-invalidation-cross-instance.e2e.test.ts`.
- * This suite is the other half, and it is the half that decides severity: a
- * revoked grant that keeps being honoured is only acceptable if something
- * bounds how long, and only diagnosable if something says so.
- *
- * Every case here manufactures a real delivery failure against a real Redis -
- * a server-side `CLIENT KILL`, a rejecting `subscribe()`, a fleet where half
- * the nodes hold the HMAC secret and half do not - and then measures how long
- * the stale allow survives.
- *
- * Cases that assert "B still allows" are also the negative control for the
- * whole exercise: they are what proves the passing convergence tests next door
- * are measuring invalidation rather than passing by construction.
+ * E2E: what a second instance does when invalidation does NOT arrive (killed subscriber, failed subscribe, mixed
+ * secrets, forged or replayed envelopes), and how long the stale allow survives.
  */
 import { createHmac } from 'node:crypto'
 import { and, eq, or } from 'drizzle-orm'
@@ -56,29 +43,14 @@ interface Instance {
   engine: IamEngine<Action, Res, Role, string, 'production'>
   pub: RedisConn
   sub: RedisConn
-  /**
-   * `can()` swallows adapter errors and returns `false` (correctly - fail
-   * closed). That makes a bare `false` ambiguous in a staleness test: it could
-   * be convergence, or it could be a transient Postgres blip. Every instance
-   * records its errors so a measurement taken over an error is rejected rather
-   * than reported.
-   */
+  /** Adapter errors seen; `can()` fails closed to `false`, so a deny taken over an error is not convergence. */
   errors: Error[]
   close(): Promise<void>
 }
 
 const suite = HAS_DOCKER ? describe : describe.skip
 
-/**
- * The gate above is the docker probe itself, so it cannot complain about its
- * own answer - "a skipped suite is not a passing suite" was written next to it
- * and was not actually enforced by anything. This is the part that enforces it.
- *
- * In CI the workflow pulls the images and probes the daemon before vitest
- * starts, so "docker is unavailable" there is a broken runner, not a reason to
- * take failure-modes quiet. Locally the probe's answer is accepted, but the wiring
- * between it and the gate is still checked.
- */
+// Guard against a silent skip: CI requires docker, and locally a running docker must not leave the suite gated off.
 describe('E2E reachability (invalidation: failure-modes)', () => {
   it('does not skip while docker is available', () => {
     if (process.env.CI) {
@@ -190,15 +162,8 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
   }
 
   /**
-   * Warm `inst`'s caches for `subjectId` and prove the entry actually landed.
-   *
-   * Not ceremony. `resolveSubject` deliberately refuses to cache a load that an
-   * invalidation superseded mid-flight (`runSingleFlightKeyed` only writes back
-   * when the in-flight slot still holds its own promise), so a `can()` issued
-   * immediately after the grant that caused the broadcast frequently leaves the
-   * cache EMPTY. A staleness test warmed that way measures nothing: the node
-   * re-reads Postgres on every call and "converges" instantly for the wrong
-   * reason. Settling first, then reading twice, makes the warm state real.
+   * Warms `inst`'s cache for `subjectId` and proves the entry landed.
+   * NOTE: a load superseded mid-flight by an invalidation is not cached, so settle first and read twice.
    */
   async function warm(inst: Instance, subjectId: string, expected: boolean): Promise<void> {
     await new Promise((r) => setTimeout(r, 250))
@@ -211,7 +176,7 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
     await adminPool.query('DELETE FROM iam_assignments WHERE subject_id = $1', [subjectId])
   }
 
-  // ── delivery loss ────────────────────────────────────────────────────────
+  // --- delivery loss ---
 
   it('NEGATIVE CONTROL: with the subscriber killed server-side, a revoke on A is honoured indefinitely on B', async () => {
     const ch = channel('killed')
@@ -222,8 +187,7 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
     await a.engine.admin.assignRole('k1', 'admin')
     await warm(b, 'k1', true)
 
-    // Exactly what a redis restart, a failover, or `CLIENT KILL` maintenance
-    // does to a subscriber. B's invalidator has already latched `subscribed`.
+    // What a Redis restart, failover or `CLIENT KILL` does to a subscriber; B has already latched `subscribed`.
     await a.pub.command('CLIENT', 'KILL', 'TYPE', 'pubsub')
     const closedMs = await waitFor(() => b.sub.closed, 5_000)
     expect(closedMs, 'the subscriber connection was never actually killed').not.toBeNull()
@@ -234,8 +198,7 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
       async () => (await b.engine.can('k1', 'read', READ_POST)) === false,
       STALENESS_WINDOW_MS,
     )
-    // If this ever starts passing (i.e. `converged !== null`), the product grew
-    // a resubscribe or a heartbeat and this test should be re-read, not deleted.
+    // If `converged` ever becomes non-null, the product grew a resubscribe: re-read this test, do not delete it.
     expect(
       b.errors.map((e) => e.message),
       'B hit adapter errors; the deny below would be fail-closed, not convergence',
@@ -260,8 +223,7 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
     const closed = await waitFor(() => b.sub.closed, 5_000)
     expect(closed, 'the subscriber connection was never actually killed').not.toBeNull()
 
-    // Redis is healthy again immediately - the server never went away. Give the
-    // invalidator every chance: further admin writes, further reads on B.
+    // The server never went away; give the invalidator further writes and reads to recover on.
     await a.engine.admin.revokeRole('k2', 'admin')
     for (let i = 0; i < 5; i++) {
       await a.engine.admin.assignRole(`noise-${i}`, 'admin')
@@ -312,7 +274,7 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
     expect(tableMs).toBeLessThan(SHORT_TTL_SECONDS * 1000 * 4)
   }, 90_000)
 
-  // ── subscribe failure ────────────────────────────────────────────────────
+  // --- subscribe failure ---
 
   it('a rejecting subscribe() reports once and is never retried; the node is deaf for its whole life', async () => {
     const ch = channel('subfail')
@@ -353,20 +315,17 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
       'B hit adapter errors during the staleness window',
     ).toEqual([])
     expect(converged, 'a node whose subscribe failed somehow converged').toBeNull()
-    // One attempt. Nothing in the engine or the invalidator retries it.
+    // One attempt: B never publishes, so the publish-driven retry never fires.
     expect(subscribeCalls, 'subscribe was retried').toBe(1)
 
-    // And the node reports itself healthy while permanently deaf.
+    // `ok` stays true; the deaf state shows only as `invalidator: { subscribed: false }`.
     const health = await b.engine.healthCheck()
     expect(health.ok, 'healthCheck already knows about the dead subscription').toBe(true)
   }, 60_000)
 
   it('recovery after a kill is entirely the client library job - a self-resubscribing client converges again', async () => {
-    // Scope for the finding above: the invalidator latches `subscribed` and
-    // never re-issues SUBSCRIBE, so whether a node comes back depends on
-    // whether the redis client resubscribes on reconnect (ioredis and
-    // node-redis v4 do). Modelled here, the node recovers. Wired to a client
-    // that does not, it stays deaf - and nothing in duck-iam notices either way.
+    // A subscription lost after success leaves `subscribed` true, so neither the retry nor `healthCheck()` sees it.
+    // Recovery is the client's job (ioredis and node-redis v4 resubscribe on reconnect); modelled here.
     const ch = channel('resub')
     const a = await makeInstance({ channel: ch })
 
@@ -422,7 +381,7 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
     console.info(`[measure] client-driven resubscribe restored delivery; converged in ${ms}ms`)
   }, 90_000)
 
-  // ── fleet misconfiguration ───────────────────────────────────────────────
+  // --- fleet misconfiguration ---
 
   it('a half-rolled-out secret splits the fleet: the signed node and the unsigned node never hear each other', async () => {
     const ch = channel('mixedsecret')
@@ -446,8 +405,7 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
       async () => (await signed.engine.can('m2', 'read', READ_POST)) === false,
       STALENESS_WINDOW_MS,
     )
-    // Both directions are dropped: the unsigned node refuses v:1 envelopes, and
-    // the signed node refuses legacy ones.
+    // Both directions drop: the unsigned node refuses signed envelopes, the signed node refuses unsigned ones.
     expect(unsigned.errors.map((e) => e.message)).toEqual([])
     expect(signed.errors.map((e) => e.message)).toEqual([])
     expect(unsignedSaw, 'unsigned node accepted a v:1 envelope it cannot verify').toBeNull()
@@ -455,14 +413,9 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
     console.info('[measure] mixed-secret fleet: neither direction converged within 1500ms; TTL is the only backstop')
   }, 60_000)
 
-  // ── forged and replayed messages ─────────────────────────────────────────
+  // --- forged and replayed messages ---
 
-  /**
-   * Warm B with an allow, then remove the grant with raw SQL so no invalidation
-   * is published. B keeps saying allow until *something* clears its cache. Any
-   * message that flips B to deny was accepted; any that leaves it on allow was
-   * dropped. That makes acceptance directly observable.
-   */
+  /** Warms B with an allow, then revokes via raw SQL, so B flips to deny only if some message is accepted. */
   async function armForgeryProbe(subjectId: string, ch: string): Promise<{ a: Instance; b: Instance }> {
     const a = await makeInstance({ channel: `${ch}-writer` })
     const b = await makeInstance({ channel: ch })
@@ -474,8 +427,8 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
     return { a, b }
   }
 
+  /** Signs like the publisher (canonical JSON after a round-trip); the payload must carry its target `channel`. */
   function sign(payload: unknown): string {
-    // Mirrors the publisher's pre-image: canonical JSON of the round-tripped value.
     const canonical = (v: unknown): string => {
       if (v === null || typeof v !== 'object') return JSON.stringify(v)
       if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`
@@ -495,50 +448,100 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
     await a.pub.command('PUBLISH', ch, 'not json at all')
     // 2. Legacy unsigned envelope while a secret is configured.
     await a.pub.command('PUBLISH', ch, JSON.stringify({ event: { kind: 'all' }, instanceId: 'attacker' }))
-    // 3. v:1 with a wrong signature.
-    const badPayload = { event: { kind: 'all' }, instanceId: 'attacker', ts: Date.now() }
-    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: badPayload, sig: 'ab'.repeat(32), v: 1 }))
+    // 3. Correctly shaped v:2 with a wrong signature.
+    const badPayload = { channel: ch, event: { kind: 'all' }, instanceId: 'attacker', ts: Date.now() }
+    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: badPayload, sig: 'ab'.repeat(32), v: 2 }))
     // 4. Correctly signed but outside the 30 s replay window.
-    const oldPayload = { event: { kind: 'all' }, instanceId: 'attacker', ts: Date.now() - 60_000 }
-    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: oldPayload, sig: sign(oldPayload), v: 1 }))
+    const oldPayload = { channel: ch, event: { kind: 'all' }, instanceId: 'attacker', ts: Date.now() - 60_000 }
+    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: oldPayload, sig: sign(oldPayload), v: 2 }))
     // 5. Correctly signed but dated into the future beyond the window.
-    const futurePayload = { event: { kind: 'all' }, instanceId: 'attacker', ts: Date.now() + 60_000 }
-    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: futurePayload, sig: sign(futurePayload), v: 1 }))
+    const futurePayload = { channel: ch, event: { kind: 'all' }, instanceId: 'attacker', ts: Date.now() + 60_000 }
+    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: futurePayload, sig: sign(futurePayload), v: 2 }))
+    // 6. Correctly signed and in-window, but bound to a channel it was not
+    //    published on - a valid envelope relayed off its own tenant.
+    const relayed = { channel: `${ch}-writer`, event: { kind: 'all' }, instanceId: 'attacker', ts: Date.now() }
+    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: relayed, sig: sign(relayed), v: 2 }))
+    // 7. A pre-v2 envelope: correctly signed for the old channel-free
+    //    pre-image, refused because this node did not opt into unbound ones.
+    const unbound = { event: { kind: 'all' }, instanceId: 'attacker', ts: Date.now() }
+    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: unbound, sig: sign(unbound), v: 1 }))
 
     await new Promise((r) => setTimeout(r, 400))
     expect(await b.engine.can('f1', 'read', READ_POST), 'a forged or replayed envelope was accepted').toBe(true)
 
-    // Control: a correctly signed, in-window envelope IS accepted, which proves
-    // the probe above can detect acceptance.
-    const goodPayload = { event: { kind: 'all' }, instanceId: 'another-node', ts: Date.now() }
-    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: goodPayload, sig: sign(goodPayload), v: 1 }))
+    // Control: a correctly signed, in-window envelope is accepted, so the probe can detect acceptance.
+    const goodPayload = { channel: ch, event: { kind: 'all' }, instanceId: 'another-node', ts: Date.now() }
+    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: goodPayload, sig: sign(goodPayload), v: 2 }))
     const ms = await waitFor(async () => (await b.engine.can('f1', 'read', READ_POST)) === false, 3_000)
     expect(ms, 'the probe cannot detect an accepted envelope - the negative results above are worthless').not.toBeNull()
   }, 60_000)
 
-  it('an in-window signed envelope can be replayed verbatim by anyone who can read the channel', async () => {
+  it('an in-window signed envelope is refused when replayed verbatim onto the channel it was signed for', async () => {
+    // One shared channel: the relay check passes for a verbatim replay, so only the seen-signature set refuses it.
     const ch = channel('replay')
-    const { a, b } = await armForgeryProbe('f2', ch)
+    const a = await makeInstance({ channel: ch })
+    const b = await makeInstance({ channel: ch })
+    await seedAdminRole(a)
+    await a.engine.admin.assignRole('f2', 'admin')
 
-    // An eavesdropper on the channel captures one real envelope...
+    // An eavesdropper captures one real envelope: a role write, `{ kind: 'roles', roleId: 'admin' }`, which evicts f2.
     const spy = await RedisConn.open(redisPort)
     spare.push(spy)
     const captured: string[] = []
-    await spy.subscribeChannel(`${ch}-writer`, (m) => captured.push(m))
-    // A role write, so the captured envelope is `{kind:'roles', roleId:'admin'}` -
-    // an event that would evict f2 on any node that accepts it.
+    await spy.subscribeChannel(ch, (m) => captured.push(m))
     await a.engine.admin.saveRole({ id: 'admin', name: 'admin', permissions: [{ action: 'read', resource: 'post' }] })
     const got = await waitFor(() => captured.length > 0, 5_000)
     expect(got).not.toBeNull()
 
-    // ...and replays it onto B's channel. Within 30 s it verifies.
+    // Arm only after that envelope's own in-order delivery has landed, so the
+    // replay is the only thing that can explain an eviction below.
+    await new Promise((r) => setTimeout(r, 400))
+    await warm(b, 'f2', true)
+    await silentlyRevoke('f2')
+    expect(await b.engine.can('f2', 'read', READ_POST), 'probe not armed').toBe(true)
+
     const raw = captured[0]
     if (raw === undefined) throw new Error('no envelope captured')
     await a.pub.command('PUBLISH', ch, raw)
+    const replayed = await waitFor(
+      async () => (await b.engine.can('f2', 'read', READ_POST)) === false,
+      STALENESS_WINDOW_MS,
+    )
+    expect(b.errors.map((e) => e.message)).toEqual([])
+    expect(replayed, 'a verbatim replay inside the 30 s window was applied a second time').toBeNull()
+
+    // Control: a fresh envelope for the same event still evicts, so the negative result above is not a dead probe.
+    const fresh = { channel: ch, event: { kind: 'roles', roleId: 'admin' }, instanceId: 'another-node', ts: Date.now() }
+    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: fresh, sig: sign(fresh), v: 2 }))
     const ms = await waitFor(async () => (await b.engine.can('f2', 'read', READ_POST)) === false, 3_000)
-    // This is a cache-wipe replay, not a privilege grant: the event vocabulary
-    // has no "allow" verb. Recorded so the blast radius is on the record.
-    expect(ms, 'a verbatim replay inside the 30 s window was rejected').not.toBeNull()
+    expect(ms, 'the probe cannot detect an accepted envelope - the negative result above is worthless').not.toBeNull()
+  }, 60_000)
+
+  it('a valid envelope relayed onto another channel is refused', async () => {
+    // The cross-tenant case: two deployments sharing a secret, told apart only by channel.
+    const ch = channel('relay')
+    const { a, b } = await armForgeryProbe('f5', ch)
+
+    const spy = await RedisConn.open(redisPort)
+    spare.push(spy)
+    const captured: string[] = []
+    await spy.subscribeChannel(`${ch}-writer`, (m) => captured.push(m))
+    await a.engine.admin.saveRole({ id: 'admin', name: 'admin', permissions: [{ action: 'read', resource: 'post' }] })
+    const got = await waitFor(() => captured.length > 0, 5_000)
+    expect(got).not.toBeNull()
+
+    const raw = captured[0]
+    if (raw === undefined) throw new Error('no envelope captured')
+    await a.pub.command('PUBLISH', ch, raw)
+    await new Promise((r) => setTimeout(r, 400))
+    expect(await b.engine.can('f5', 'read', READ_POST), 'an envelope from another channel was accepted').toBe(true)
+
+    // Control: the same node accepts an envelope bound to its own channel, so
+    // the negative above is a refusal and not a dead probe.
+    const good = { channel: ch, event: { kind: 'all' }, instanceId: 'another-node', ts: Date.now() }
+    await a.pub.command('PUBLISH', ch, JSON.stringify({ payload: good, sig: sign(good), v: 2 }))
+    const ms = await waitFor(async () => (await b.engine.can('f5', 'read', READ_POST)) === false, 3_000)
+    expect(ms, 'the probe cannot detect an accepted envelope - the negative above is worthless').not.toBeNull()
   }, 60_000)
 
   it('UNSIGNED mode: anyone with PUBLISH rights wipes the caches of every node on the channel', async () => {
@@ -566,11 +569,12 @@ suite('E2E invalidation failure modes (real Redis, real Postgres)', () => {
 
     for (const kind of ['all', 'policies', 'roles', 'subject'] as const) {
       const payload = {
+        channel: ch,
         event: kind === 'subject' ? { kind, subjectId: 'f4' } : { kind },
         instanceId: 'attacker',
         ts: Date.now(),
       }
-      await a.pub.command('PUBLISH', ch, JSON.stringify({ payload, sig: sign(payload), v: 1 }))
+      await a.pub.command('PUBLISH', ch, JSON.stringify({ payload, sig: sign(payload), v: 2 }))
     }
     await new Promise((r) => setTimeout(r, 400))
     // The invalidate vocabulary is drop-only; it cannot manufacture a grant.
