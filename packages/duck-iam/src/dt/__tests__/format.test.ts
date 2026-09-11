@@ -48,9 +48,6 @@ describe('formatAttrValue', () => {
 })
 
 describe('safeParseJson', () => {
-  // No `fallback` parameter and no caller-named `T` any more: it returned
-  // `JSON.parse`'s `any` under whatever type the call site asked for, and the
-  // value went on to `admin.setAttributes`. Call sites narrow it now.
   it('returns the parsed value with no error', () => {
     expect(safeParseJson('{"a":1}')).toEqual({ value: { a: 1 } })
   })

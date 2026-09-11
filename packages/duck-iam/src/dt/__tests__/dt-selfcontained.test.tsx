@@ -18,38 +18,13 @@ import { IamRolesPanel } from '../panels/roles'
 import { IamSubjectsPanel } from '../panels/subjects'
 import { IamTraceTree } from '../panels/trace-tree'
 
-/**
- * `@gentleduck/iam` publishes `./dt`, and `@gentleduck/registry-ui` and
- * `@gentleduck/libs` are *optional* peer dependencies. Six devtools modules
- * imported them unconditionally, so `import '@gentleduck/iam/dt'` threw
- * `ERR_MODULE_NOT_FOUND` for any consumer who installed the package and not
- * those two - and the ones that resolved still rendered unstyled, because the
- * Tailwind utility classes on them only name real CSS if the consumer's
- * Tailwind is configured to scan this package's `dist`, and the `iam-dt-*`
- * rules read `var(--card)` and `var(--border)` with no fallback.
- *
- * None of that is visible from inside this monorepo, where both peers are
- * installed and Tailwind does scan the source - which is why it survived. The
- * checks here are the ones that fail from *here* when the coupling comes back:
- * a source sweep for the peer imports, a sweep for the host tokens, and a
- * cross-check that every `iam-dt-*` class the components emit has a rule in
- * the stylesheet that ships with them.
- */
+// `./dt` must work without the optional peers or a Tailwind build: no peer imports, no host CSS vars,
+// and a stylesheet rule for every `iam-dt-*` class the components emit.
 const dtDir = dirname(dirname(fileURLToPath(import.meta.url)))
 
 /**
- * `src/dt/v2` is the *other* devtools, and it is excluded from every sweep in
- * this file on purpose.
- *
- * v1 and v2 have deliberately opposite dependency contracts: v1 owns its
- * stylesheet and imports no optional peer, v2 is built on duck-ui and imports
- * three of them. Both ship, under separate subpath exports, so a consumer
- * picks the trade they want (`src/dt/v2/index.ts` states both). Sweeping v2
- * with v1's rules would fail every check here for doing exactly what it is
- * for - so the exclusion is real, and
- * `v2/__tests__/v2-contract.test.tsx` is what stops it from becoming a hole:
- * it asserts from the other side that v2 still exists, still imports duck-ui,
- * and is still outside this sweep.
+ * `src/dt/v2` has the opposite contract (duck-ui and optional peers), so every sweep here skips it.
+ * `v2/__tests__/v2-contract.test.tsx` guards that exclusion from the other side.
  */
 const V2_DIR = 'v2'
 
@@ -69,22 +44,14 @@ function dtSources(): [string, string][] {
   return out
 }
 
-/**
- * The class tokens the components actually emit.
- *
- * Read out of quoted string literals rather than by matching `iam-dt-` in the
- * raw text, so prose in a docblock and the `data-iam-dt-theme` attribute name
- * are not mistaken for classes.
- */
+/** Class tokens the components emit, read from quoted literals (comments included) so bare prose is skipped. */
 function emittedClasses(sources: [string, string][]): Set<string> {
   const classes = new Set<string>()
   for (const [file, src] of sources) {
     if (file === 'lib/styles.ts') continue // the stylesheet itself, not a consumer of it
     for (const literal of src.match(/'[^'\n]*'|"[^"\n]*"/g) ?? []) {
       for (const token of literal.slice(1, -1).split(/\s+/)) {
-        // Underscores included: most of these are BEM, and a pattern that
-        // stopped at the hyphen silently dropped every `__element` class -
-        // three quarters of the sheet - from the cross-check below.
+        // Underscores included, so BEM `__element` classes are cross-checked too.
         if (/^iam-dt[a-z0-9_-]*$/.test(token)) classes.add(token)
       }
     }
@@ -106,9 +73,7 @@ describe('the devtools do not need the optional peer dependencies', () => {
   })
 
   it('excludes v2 and nothing else', () => {
-    // The exclusion is one directory at the top level. A sweep that had
-    // quietly grown to skip `panels/` too would still satisfy every check in
-    // this file, so name what is missing rather than only what is present.
+    // A sweep that also skipped `panels/` would pass every other check, so assert what is missing too.
     expect(dtSources().filter(([file]) => file.startsWith(`${V2_DIR}/`))).toEqual([])
     expect(
       readdirSync(join(dtDir, V2_DIR)).length,
@@ -153,9 +118,7 @@ describe('the devtools stylesheet is self-contained', () => {
   })
 
   it('declares its tokens only on the outermost root', () => {
-    // Every panel carries `.iam-dt` because each is exported individually, so
-    // a nested block would re-derive the theme from `prefers-color-scheme` and
-    // overrule the `theme` the root was given.
+    // Every panel carries `.iam-dt`, so a nested token block would re-derive the theme and override the root.
     const tokenBlocks = css.match(/^\s*\.iam-dt[^{\n]*\{\s*$\n\s*--iam-dt-bg:/gm) ?? []
     expect(tokenBlocks.length, 'expected the dark default, the media light and the attribute light blocks').toBe(3)
     for (const block of tokenBlocks) {
@@ -176,11 +139,7 @@ describe('the devtools stylesheet is self-contained', () => {
   })
 })
 
-/**
- * A real engine in `development` mode over a real adapter, so the guard lets
- * the panels through on their own signal and the rows they render are the ones
- * the engine actually produces.
- */
+/** A real development-mode engine, so the guard passes on its own signal and the rows are engine-produced. */
 const engine = new IamEngine<'read', 'post', 'reader', string, 'development'>({
   adapter: new IamMemoryAdapter<'read', 'post', 'reader', string>({
     assignments: { u1: ['reader'] },
@@ -207,13 +166,7 @@ beforeAll(async () => {
   trace = await engine.explain('u1', 'read', { attributes: {}, type: 'post' })
 })
 
-/**
- * Every panel that can be mounted on its own, with the props it needs.
- *
- * `IamFlowPanel` takes a recorder rather than the engine, and `IamTraceTree`
- * takes an already-computed trace, so neither is engine-guarded - but both are
- * exported from `./dt` and both must still bring their own styling.
- */
+/** Every individually mountable panel; `IamFlowPanel` and `IamTraceTree` take no engine but still need styling. */
 function standalonePanels(): readonly (readonly [string, () => React.ReactElement])[] {
   return [
     ['IamPoliciesPanel', () => <IamPoliciesPanel engine={engine} />],
@@ -229,15 +182,12 @@ function standalonePanels(): readonly (readonly [string, () => React.ReactElemen
 describe('a panel mounted on its own is its own themed root', () => {
   it.each(standalonePanels())('%s renders an .iam-dt root', (_name, element) => {
     const html = renderToString(element())
-    // The tokens live on `.iam-dt`. A panel whose outermost element lacks the
-    // class renders every colour as an unresolved `var()` - transparent text
-    // on a transparent ground.
+    // Tokens live on `.iam-dt`; without it on the outermost element every colour is an unresolved `var()`.
     expect(html.slice(0, 200)).toMatch(/^<[a-z]+ class="iam-dt(\s|")/)
   })
 
   it('every panel module injects the stylesheet', () => {
-    // `ensureStylesInjected` used to be called by the two shells only, so a
-    // directly imported panel rendered with no `<style>` in the document.
+    // A directly imported panel must inject the stylesheet itself.
     const offenders = dtSources()
       .filter(
         ([file]) => file.startsWith('panels/') || file === 'iam-devtools.tsx' || file === 'iam-devtools-panel.tsx',
@@ -258,9 +208,7 @@ describe('the theme prop reaches the DOM', () => {
   })
 
   it('the default leaves the choice to prefers-color-scheme', () => {
-    // Absent, not `auto`: the stylesheet keys its light palette off the media
-    // query *unless* an explicit value is present, so a value the CSS ignores
-    // would pin dark on a light desktop.
+    // Absent, not `auto`: a value the CSS ignores would pin dark on a light desktop.
     const html = renderToString(<IamDevtools engine={engine} initialIsOpen />)
     expect(html).not.toContain('data-iam-dt-theme')
     expect(html, 'the panel did not render at all, so the check above is vacuous').toContain('iam-dt-dock')

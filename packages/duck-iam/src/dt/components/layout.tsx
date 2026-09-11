@@ -1,25 +1,10 @@
-/**
- * The shared skeleton every devtools panel is built from: a list on the left, a
- * detail pane on the right, and the filter / section / empty-state pieces that
- * go inside them.
- *
- * Factored out because five of the six panels are the same shape, and a panel
- * that reuses this one gets keyboard and overflow behaviour right for free
- * rather than re-deriving it. Purely presentational - each export does what its
- * name says.
- */
+/** The two-pane skeleton the panels share: list, detail pane, and the filter, section and empty-state pieces. */
 import React from 'react'
 import { ChevronDown, ChevronRight, Search } from './icons'
 
 /**
- * The two-pane frame the panels sit in: a fixed 300px list beside a fluid
- * detail pane, both scrolling independently, stacking to rows under 720px so a
- * panel docked to a narrow left or right edge stays usable.
- *
- * It carries the `iam-dt` root class as well as the layout one. Every panel is
- * exported individually from `./dt`, so a panel mounted on its own has no
- * ancestor to inherit the theme tokens from; the stylesheet only declares them
- * on the *outermost* `.iam-dt`, so the duplicate under `IamDevtools` is inert.
+ * Two-pane frame: a 300px list beside a fluid detail pane, stacking into rows at 720px and below.
+ * NOTE: carries the `iam-dt` root class so a panel mounted on its own still gets the theme tokens.
  */
 export function SplitView({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
   return (
@@ -30,7 +15,7 @@ export function SplitView({ left, right }: { left: React.ReactNode; right: React
   )
 }
 
-/** A scrolling list under a fixed header carrying its title, item count and toolbar - so the header stays put while the list moves. */
+/** A scrolling list under a fixed header with its title, item count and toolbar. */
 export function ListShell({
   title,
   count,
@@ -56,14 +41,7 @@ export function ListShell({
   )
 }
 
-/**
- * One selectable row.
- *
- * `active` is the caller's selection state, not internal: the panels keep the
- * selected id, so the list stays consistent when the underlying data reloads.
- * It is mirrored onto `aria-current`, so the selected row is announced as such
- * and not merely tinted.
- */
+/** One selectable row. `active` is owned by the caller and mirrored to `aria-current`. */
 export function ListItem({
   active,
   onClick,
@@ -96,14 +74,7 @@ export function ListItem({
   )
 }
 
-/**
- * A collapsible block in a detail pane.
- *
- * Open state is internal and seeded once from `defaultOpen`, so a re-render
- * from polling cannot snap a section the reader opened back shut. The toggle
- * reports `aria-expanded` and owns the body through `aria-controls`, so the
- * disclosure is navigable rather than just clickable.
- */
+/** A collapsible detail-pane block. Open state is seeded once from `defaultOpen`, so polling re-renders keep it. */
 export function Section({
   title,
   defaultOpen = true,
@@ -147,14 +118,7 @@ export function DetailEmpty({ message }: { message: string }) {
   return <div className="iam-dt-empty iam-dt-empty--fill">{message}</div>
 }
 
-/**
- * The search input above a list.
- *
- * Fully controlled - the panel owns the filter string, since it also decides
- * what filtering means for its own data. `type="search"` so the browser offers
- * its clear affordance, and the placeholder is mirrored into `aria-label`,
- * because a placeholder alone is not a label.
- */
+/** Controlled search input above a list; the placeholder doubles as its `aria-label`. */
 export function FilterBar({
   value,
   onChange,

@@ -1,14 +1,4 @@
-/**
- * The icons the devtools use, hand-inlined as SVG.
- *
- * A devtools panel that pulled in an icon package would put that package in the
- * dependency tree of every consumer of `@gentleduck/iam`, for artwork most
- * builds drop entirely. Each is a plain component over the shared `base`
- * stroke attributes at a default 12px (`Close` at 14). Each carries a single line saying what
- * it marks rather than what it draws - the glyph is evident from the name, the
- * meaning it carries in a trace is not. {@link Dot} and {@link Spinner} break
- * the shared pattern and say why.
- */
+/** The devtools' icons, inlined as SVG so consumers get no icon-package dependency. */
 import type { CSSProperties } from 'react'
 
 interface IconProps {
@@ -17,12 +7,7 @@ interface IconProps {
   style?: CSSProperties
 }
 
-/**
- * Every icon here is decorative - each sits beside the text that carries the
- * meaning, or inside a control that has its own label - so all of them are
- * hidden from assistive technology and taken out of the tab order rather than
- * being announced as unnamed graphics.
- */
+/** Shared stroke attributes. Every icon is decorative, so all are hidden from assistive tech and unfocusable. */
 const base = {
   'aria-hidden': true,
   fill: 'none',
@@ -97,7 +82,7 @@ export function CornerUpRight({ size = 12, className, style }: IconProps) {
   )
 }
 
-/** The odd one out: a filled circle, so it takes none of the shared `base` stroke attributes and defaults to 4px rather than 12. */
+/** A filled circle, so it skips the shared `base` stroke attributes; defaults to 4px. */
 export function Dot({ size = 4, className, style }: IconProps) {
   return (
     <svg aria-hidden focusable="false" width={size} height={size} viewBox="0 0 4 4" className={className} style={style}>
@@ -106,11 +91,7 @@ export function Dot({ size = 4, className, style }: IconProps) {
   )
 }
 
-/**
- * The one animated icon. Spins via the `.iam-dt-spin` class from
- * `lib/styles.ts` rather than an inline `animation`, which it used to
- * duplicate - two copies of the same 0.9s timing that could drift apart.
- */
+/** The one animated icon; spins via the `.iam-dt-spin` class in `lib/styles.ts`, not an inline animation. */
 export function Spinner({ size = 12, className, style }: IconProps) {
   return (
     <svg

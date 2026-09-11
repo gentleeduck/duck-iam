@@ -43,10 +43,7 @@ function CacheCard({ hits, misses, name, size }: { hits: number; misses: number;
 
 /**
  * Live cache and decision counters, re-read every `pollMs`.
- *
- * Polls rather than subscribes: the engine publishes no metrics event, and a
- * hook firing per decision would put devtools rendering on the hot path of
- * every authorization check.
+ * PERF: polls instead of subscribing, so devtools rendering stays off the authorization hot path.
  */
 export function IamMetricsPanelV2({
   engine,
@@ -68,8 +65,7 @@ export function IamMetricsPanelV2({
     return () => clearInterval(id)
   }, [engine, metrics, pollMs])
 
-  // Below every hook. This one writes too - the reset button clears the
-  // engine's own counters.
+  // Below every hook. Also guards a write: reset clears the engine's counters.
   if (!isDevtoolsAllowed(engine)) return null
 
   const allowRate = snapshot && snapshot.total > 0 ? Math.round((snapshot.allow / snapshot.total) * 100) : 0

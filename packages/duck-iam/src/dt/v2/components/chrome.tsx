@@ -22,34 +22,12 @@ import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, In
 import React from 'react'
 import { IAM_V2_MONO, type IamV2Tone, iamV2Chip, iamV2Dot, iamV2Track } from '../lib/tone'
 
-/**
- * The layout vocabulary the six v2 panels are assembled from.
- *
- * Everything here composes duck-ui components and Tailwind utilities and owns
- * no stylesheet of its own - the deliberate inverse of v1's `lib/styles.ts`.
- * The upshot for a consumer is that v2 needs `@gentleduck/registry-ui`,
- * `@gentleduck/libs`, `lucide-react` and a Tailwind build that scans this
- * package; v1 needs none of that. `../index.ts` states the contract, and
- * `../__tests__/v2-contract.test.tsx` holds both halves of it in place.
- *
- * The rule for adding to this file: if duck-ui ships the component, use it and
- * pass a density class, rather than rebuilding it a few pixels tighter. A
- * `Card` at `py-2` is still a card the host's theme can restyle; a `div` with
- * a border is a thing only we know about.
- */
+// Layout building blocks for the v2 panels: duck-ui components plus Tailwind, no stylesheet of their own.
+// NOTE: if duck-ui ships a component, use it with a density class so the host theme can still restyle it.
 
 /**
- * The outermost element of anything mountable on its own.
- *
- * Carries `data-iam-dt-v2` so a host can find, style or hide the devtool from
- * its own CSS without knowing any class name of ours, and so the render tests
- * can assert that every individually exported panel really is a root - the
- * same guarantee v1 gets from requiring `.iam-dt` on its outermost node.
- *
- * It is also where `TooltipProvider` goes. Every panel is exported on its own,
- * so a tooltip cannot rely on a provider some outer shell happened to mount;
- * nesting providers is cheap and supported, and the alternative is icon
- * buttons whose tooltips silently never open.
+ * Outermost element of anything mountable on its own; `data-iam-dt-v2` lets hosts and tests find it.
+ * NOTE: every panel is exported alone, so each root mounts its own `TooltipProvider`.
  */
 export function IamV2Root({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -64,12 +42,8 @@ export function IamV2Root({ children, className }: { children: React.ReactNode; 
 }
 
 /**
- * Master/detail. Stacks on a narrow viewport, because the panel is routinely
- * docked to a 320px-wide edge where two columns would leave neither readable.
- *
- * `side` picks which column is the fixed one. `start` is the default reading
- * order - a list you filter, then a detail pane. `end` flips it for the Flow
- * panel, whose "list" is a full data table and needs the flexible column.
+ * Master/detail layout that stacks on narrow viewports (the panel is often docked to a 320px edge).
+ * `side` picks the fixed-width column; Flow uses `end` so its data table gets the flexible one.
  */
 export function IamV2Split({
   detail,
@@ -162,12 +136,7 @@ export function IamV2Search({
   )
 }
 
-/**
- * One selectable row, on duck-ui's `Item`.
- *
- * `aria-current` rather than a class alone: the list is a set of buttons, and
- * without it the selected row is announced identically to the other twenty.
- */
+/** One selectable row, on duck-ui's `Item`. `aria-current` makes the selection audible to screen readers. */
 export function IamV2ListRow({
   active,
   description,
@@ -208,12 +177,7 @@ export function IamV2ListRow({
 
 /**
  * A collapsible titled block in a detail pane, on duck-ui's `Card`.
- *
- * The disclosure itself is hand-rolled on a button rather than duck-ui's
- * `Collapsible`, which drives its open state through a DOM attribute read back
- * out on click - correct for a trigger the user owns, wrong for a section
- * whose default open state is a prop, and it renders closed on the server
- * either way. The card around it is the real component, at devtools density.
+ * NOTE: not duck-ui's `Collapsible`, whose DOM-attribute state fights a prop default and renders closed on SSR.
  */
 export function IamV2Section({
   children,
@@ -231,9 +195,7 @@ export function IamV2Section({
   return (
     <Card className="gap-0 overflow-hidden rounded-lg py-0">
       <CardHeader className="grid-cols-[1fr_auto] items-center gap-0 px-0 pe-2">
-        {/* The title *is* the trigger, so `CardTitle` wraps the button rather
-            than sitting beside it - a `div` inside a `button` would not be
-            phrasing content, and `CardTitle` has no `asChild`. */}
+        {/* `CardTitle` wraps the button: a `div` inside a `button` is invalid and `CardTitle` has no `asChild`. */}
         <CardTitle className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
           <button
             aria-controls={bodyId}
@@ -358,10 +320,7 @@ export function IamV2Stat({ hint, label, value }: { hint?: string; label: string
 
 /**
  * A labelled percentage bar, on duck-ui's `Progress`.
- *
- * `Progress` carries `role="progressbar"` and the aria value triple itself, so
- * the number is announced once, from the bar - which is why the caption beside
- * it is plain text and not a second live region.
+ * `Progress` already announces the value, so the caption stays plain text.
  */
 export function IamV2Meter({
   caption,
@@ -443,11 +402,7 @@ export function IamV2Empty({
 
 /**
  * An inline message, on duck-ui's `Alert`.
- *
- * duck-ui hard-codes `role="alert"`, correct for its default use and wrong for
- * a success line - a screen reader would be interrupted every time an
- * attribute save went fine. The prop spread there runs after the role, so
- * passing `role` overrides it, and only a failure keeps the assertive one.
+ * NOTE: duck-ui hard-codes `role="alert"`; the passed `role` overrides it so only errors are announced assertively.
  */
 export function IamV2Alert({ children, tone }: { children: React.ReactNode; tone: 'error' | 'success' | 'info' }) {
   const mapped: IamV2Tone = tone === 'error' ? 'deny' : tone === 'success' ? 'allow' : 'info'
@@ -486,10 +441,7 @@ export function IamV2Notice({
   )
 }
 
-/**
- * A toolbar button, pinned to one size so every pane header lines up, with the
- * label as a tooltip as well as an accessible name.
- */
+/** A fixed-size toolbar button; `label` is both its tooltip and its accessible name. */
 export function IamV2Action({
   children,
   disabled,
@@ -528,10 +480,7 @@ export function IamV2Toolbar({ children, label }: { children: React.ReactNode; l
   )
 }
 
-/**
- * A boolean filter, on duck-ui's `Switch` - a real checkbox with `role`
- * `switch`, so it is operable and announced without any wiring of ours.
- */
+/** A boolean filter, on duck-ui's `Switch` (accessible `role="switch"` out of the box). */
 export function IamV2Toggle({
   checked,
   count,
@@ -562,12 +511,7 @@ export function IamV2Toggle({
   )
 }
 
-/**
- * A keyboard hint, on duck-ui's `Kbd`.
- *
- * `aria-hidden`: every shortcut shown here is already reachable through a
- * labelled control, so reading the glyphs out adds nothing but noise.
- */
+/** A keyboard hint, on duck-ui's `Kbd`. `aria-hidden` because every shortcut also has a labelled control. */
 export function IamV2Hint({ children, keys }: { children?: React.ReactNode; keys: readonly string[] }) {
   return (
     <span aria-hidden className="inline-flex items-center gap-1 text-[0.6875rem] text-muted-foreground">

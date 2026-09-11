@@ -1,7 +1,7 @@
 import React from 'react'
 import { ChevronDown, ChevronRight } from './icons'
 
-/** Props for {@link JsonTree}. `level` is supplied by its own recursion; callers pass `data` and optionally a `label`. */
+/** Props for {@link JsonTree}. `level` is set by its own recursion; callers pass `data` and an optional `label`. */
 export interface IJsonTreeProps {
   data: unknown
   label?: string
@@ -37,14 +37,8 @@ function Primitive({ value }: { value: unknown }) {
 }
 
 /**
- * Collapsible viewer for arbitrary JSON-ish values - attributes, environments,
- * policy bodies.
- *
- * Everything is collapsed by default except the root, so a subject with a large
- * attribute bag opens as a summary rather than a wall. Non-JSON values
- * (`undefined`, functions) are rendered rather than dropped, because this is a
- * debugging surface and "the field is a function" is exactly the kind of thing
- * worth seeing.
+ * Collapsible viewer for JSON-ish values; only the root starts open unless `defaultOpen` is set.
+ * Renders `undefined` and functions instead of dropping them, since seeing them is the point of a debugger.
  */
 export function JsonTree({ data, label, defaultOpen = false, level = 0 }: IJsonTreeProps) {
   const t = typeOf(data)

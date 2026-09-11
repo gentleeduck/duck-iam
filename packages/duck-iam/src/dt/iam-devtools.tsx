@@ -11,15 +11,8 @@ import { IamRolesPanel } from './panels/roles'
 import { IamSubjectsPanel } from './panels/subjects'
 
 /**
- * Props for the panel body - the tab strip and whichever panel is open.
- *
- * `engine` is the only requirement. `metrics` and `flow` are the two optional
- * data sources: without them the Telemetry and Flow tabs render empty rather
- * than break, because both are opt-in wiring on the consumer's side (see
- * {@link iamCreateFlowRecorder}). `pollMs` sets how often the live panels
- * re-read the engine; `embedded` drops the panel chrome for a consumer framing
- * it themselves; `theme` pins the palette, and defaults to following the
- * viewer's `prefers-color-scheme`.
+ * Props for the panel body. Only `engine` is required; without `metrics`/`flow` those tabs show an empty state.
+ * `theme` defaults to following `prefers-color-scheme`.
  */
 export interface IIamDevtoolsInnerProps {
   engine: IamIDevtoolsEngine
@@ -41,9 +34,8 @@ const TABS: { key: IamPanelKey; label: string; dot: string }[] = [
   { dot: '#f778ba', key: 'metrics', label: 'Metrics' },
 ]
 
-// Hard-no in production: admin reads here would leak the full auth model.
-// No prop escape hatch by design - see lib/guard.ts. The guard sits in a thin
-// wrapper so the inner component's hook order stays unconditional.
+// SECURITY: renders nothing unless `isDevtoolsAllowed` passes; the admin reads here expose the whole auth model.
+// NOTE: the guard lives in this wrapper so the inner component's hook order stays unconditional.
 export function IamDevtoolsInner(props: IIamDevtoolsInnerProps) {
   if (!isDevtoolsAllowed(props.engine)) return null
   return <IamDevtoolsInnerImpl {...props} />
@@ -64,14 +56,7 @@ function IamDevtoolsInnerImpl({
   const tabsId = React.useId()
   const tabRefs = React.useRef(new Map<IamPanelKey, HTMLButtonElement>())
 
-  /**
-   * Arrow keys move between tabs, Home/End jump to the ends.
-   *
-   * Required by the tablist pattern this markup now claims: only the selected
-   * tab is in the tab order, so without this the other five panels are
-   * unreachable from the keyboard - the strip would announce itself as a
-   * tablist and then behave like six unrelated buttons, one of them focusable.
-   */
+  // Arrows and Home/End move between tabs; only the selected tab is tabbable, so the rest need this to be reachable.
   const onTabKeyDown = (e: React.KeyboardEvent) => {
     const idx = TABS.findIndex((t) => t.key === active)
     let next = -1

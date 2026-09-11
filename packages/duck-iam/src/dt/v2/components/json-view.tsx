@@ -4,19 +4,8 @@ import { cn } from '@gentleduck/libs/cn'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import React from 'react'
 
-/**
- * A collapsible JSON reader for the raw-value sections.
- *
- * Written for v2 rather than shared with v1's `components/json-tree`: that one
- * paints itself with `iam-dt-json*` classes out of the injected stylesheet, and
- * the whole point of v2 is that no stylesheet is injected. The traversal is
- * small enough that a shared abstraction over two colour systems would cost
- * more than it saved.
- *
- * Never throws. The values reaching it are policy documents, request attribute
- * bags and engine traces - all caller-controlled - and this renders inside a
- * React tree with no error boundary of its own.
- */
+// Collapsible JSON reader for v2; not shared with v1's `components/json-tree`, which needs the injected stylesheet.
+// NOTE: must never throw - values are caller-controlled and there is no error boundary here.
 
 /** What kind of thing a value is, for both the colour and the traversal. */
 type JsonKind = 'array' | 'boolean' | 'null' | 'number' | 'object' | 'string' | 'other'
@@ -42,13 +31,7 @@ const SCALAR_COLOR: Record<JsonKind, string> = {
   string: 'text-emerald-700 dark:text-emerald-300',
 }
 
-/**
- * A scalar as source text.
- *
- * `JSON.stringify` throws on a cyclic structure and on a `BigInt`, and both
- * are reachable from a request attribute bag, so the throw is caught and
- * rendered rather than allowed to take the panel down.
- */
+/** A scalar as source text. `JSON.stringify` throws on cycles and `BigInt`, so that throw is caught. */
 function scalarText(value: unknown): string {
   if (value === undefined) return 'undefined'
   if (value === null) return 'null'
@@ -83,8 +66,7 @@ function Branch({ depth, label, value }: { depth: number; label?: string; value:
     )
   }
 
-  // `Object.entries` covers both branch kinds: an array's own keys are its
-  // indices, which is exactly the label wanted here.
+  // Covers arrays too: their own keys are the indices, used as labels.
   const entries = Object.entries(value as Record<string, unknown>)
 
   return (
@@ -116,7 +98,6 @@ function Branch({ depth, label, value }: { depth: number; label?: string; value:
 
 /**
  * Renders any JSON-ish value as a collapsible tree.
- *
  * @param data - The value to render. Anything, including cyclic objects.
  * @param label - Optional name for the root node.
  */

@@ -28,14 +28,8 @@ import { IamV2Json } from '../components/json-view'
 import { IAM_V2_MONO } from '../lib/tone'
 
 /**
- * Inspects one subject - its attributes and its role assignments - and, unlike
- * every other v2 panel, edits them: assigning and revoking roles and saving
- * attributes through `engine.admin`.
- *
- * The panel that writes the most, and the reason `isDevtoolsAllowed` blocks by
- * default. Without an explicit development signal this would ship as a
- * role-assignment UI with no authorization in front of it, reachable straight
- * from the `./dt/v2` export.
+ * Inspects one subject and edits it: assigns/revokes roles and saves attributes through `engine.admin`.
+ * SECURITY: this is a role-assignment UI with no authorization, so it must stay behind `isDevtoolsAllowed`.
  */
 export function IamSubjectsPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
   const [subjectId, setSubjectId] = React.useState('')
@@ -48,8 +42,7 @@ export function IamSubjectsPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
   const [status, setStatus] = React.useState<string | null>(null)
   const fieldId = React.useId()
 
-  // Below every hook. `engine` does not change identity across renders of a
-  // mounted panel, so this cannot flip mid-life either.
+  // Below every hook so hook order is stable.
   if (!isDevtoolsAllowed(engine)) return null
 
   /** Every mutation shares this frame: clear both messages, run, report. */
@@ -79,8 +72,7 @@ export function IamSubjectsPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
   const saveAttrs = () => {
     const parsed = safeParseJson(attrsDraft)
     if (parsed.error) return setError(`attributes JSON: ${parsed.error}`)
-    // Narrowed before it reaches the adapter: `setAttributes` writes whatever
-    // it is handed, and this value came out of a textarea.
+    // Narrow first: `setAttributes` writes whatever it is given, and this came from a textarea.
     const attributes = parsed.value === undefined ? {} : iamNarrowAttributes(parsed.value)
     if (attributes === null) return setError('attributes JSON: expected an object of scalar values')
     return attempt(async () => {

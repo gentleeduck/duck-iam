@@ -133,14 +133,7 @@ describe('iamCreateFlowRecorder', () => {
   })
 })
 
-/**
- * `iamCreateMetricsAggregator` validates `sampleSize`; this factory took the
- * same shape of option and validated nothing. `NaN`/`Infinity` made the trim
- * `buffer.length > bufferSize` permanently false, so the "ring buffer" grew
- * without bound; a negative threw `Invalid array length` from inside
- * `record()`, which `safeHookCall` swallows - a recorder that silently
- * records nothing while bound to `afterEvaluate`.
- */
+// `NaN`/`Infinity` would disable the buffer trim, and a negative would throw inside `record()` where hooks swallow it.
 describe('iamCreateFlowRecorder validates bufferSize', () => {
   const bad = [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]
 

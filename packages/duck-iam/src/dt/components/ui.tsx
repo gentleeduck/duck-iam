@@ -1,23 +1,11 @@
 /**
- * The devtools' own control set - a card with a title slot, a button at the
- * sizes these panels use, the form controls, the status pill.
- *
- * They used to be thin wrappers over `@gentleduck/registry-ui` carrying
- * Tailwind utility classes. Both halves of that were wrong for a published
- * package: `@gentleduck/registry-ui` is an *optional* peer, so importing
- * `@gentleduck/iam/dt` without it threw at module load, and the utilities only
- * name real CSS if the consumer's Tailwind happens to scan this package's
- * `dist`. These are plain elements over the `iam-dt-*` classes in
- * `lib/styles.ts`, which the devtools inject themselves - so they look the same
- * in a consumer's app as they do in this monorepo.
- *
- * Each is presentational and does what its name says; anything with behaviour
- * worth knowing about says so on the export.
+ * The devtools' own controls: plain elements over the `iam-dt-*` classes in `lib/styles.ts`.
+ * NOTE: no `@gentleduck/registry-ui` or Tailwind - both are optional for consumers of `./dt`.
  */
 import type React from 'react'
 import { cn } from '../lib/cn'
 
-/** A titled box. Header renders only when there is a `title` or `actions` to put in it, so an untitled card is just a bordered body. */
+/** A titled box; the header renders only when there is a `title` or `actions`. */
 export function Card({
   title,
   children,
@@ -47,14 +35,7 @@ const BUTTON_VARIANT = {
   primary: 'iam-dt-btn--primary',
 } as const
 
-/**
- * A button at the sizes these panels use.
- *
- * `type` defaults to `'button'`, so one inside a panel form cannot submit it by
- * accident. `title` and `aria-label` are passed through because several call
- * sites render an icon alone, which is unreadable to a screen reader without
- * one.
- */
+/** A devtools button. `type` defaults to `'button'` so it never submits a surrounding form by accident. */
 export function Button({
   children,
   onClick,
@@ -87,14 +68,7 @@ export function Button({
   )
 }
 
-/**
- * A labelled form row.
- *
- * The label is a real `<label>` wrapping its control rather than a `<span>`
- * beside it, so clicking the caption focuses the input and a screen reader
- * announces the two together - the panels label every field this way and none
- * of them were associated before.
- */
+/** A form row whose `<label>` wraps its control, so clicking the caption focuses it and screen readers pair them. */
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: the control is the `children` this wraps, which is an implicit association the rule cannot see through.
@@ -105,7 +79,7 @@ export function Field({ label, children }: { label: string; children: React.Reac
   )
 }
 
-/** An `input` at devtools scale. Passes every native prop through, so callers keep full control of the element. */
+/** An `input` at devtools scale; every native prop passes through. */
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cn('iam-dt-input', props.className)} />
 }
@@ -123,12 +97,7 @@ const BADGE_TONE = {
   warn: 'iam-dt-badge--warn',
 } as const
 
-/**
- * A small status pill. `tone` is semantic rather than a colour: `'allow'` and
- * `'deny'` are the two the panels lean on, and they read the same here as in
- * the trace tree and the flow log, so a green pill means the same thing
- * wherever it appears.
- */
+/** A small status pill. `tone` is semantic, so `allow` and `deny` look the same wherever they appear. */
 export function Badge({
   children,
   tone = 'neutral',
@@ -141,18 +110,13 @@ export function Badge({
   return <span className={cn('iam-dt-badge', BADGE_TONE[tone], className)}>{children}</span>
 }
 
-/** The dashed placeholder for a list with nothing in it - distinct from {@link DetailEmpty}, which fills a detail pane. */
+/** Dashed placeholder for an empty list; {@link DetailEmpty} is the detail-pane version. */
 export function Empty({ message }: { message: string }) {
   return <div className="iam-dt-empty iam-dt-empty--dashed">{message}</div>
 }
 
 /**
- * An inline error or success banner, used for the results of the writes the
- * Subjects panel makes.
- *
- * An error carries `role="alert"`, so a failed save is announced rather than
- * only drawn; a success is `role="status"`, which is polite enough not to
- * interrupt whatever the reader is doing.
+ * Inline result banner. Errors use `role="alert"` so they are announced; successes use the politer `role="status"`.
  */
 export function Alert({ kind, children }: { kind: 'error' | 'success'; children: React.ReactNode }) {
   return (

@@ -10,26 +10,8 @@ import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
 /**
- * Inspects one subject - its attributes and role assignments - and, unlike the
- * other panels, edits them: assigning and revoking roles and saving attributes
- * through `engine.admin`.
- *
- * The panel that writes the most, and the reason `isDevtoolsAllowed` blocks by
- * default: without an explicit development signal from both `NODE_ENV` and the
- * engine's own mode, this would ship as a role-assignment UI with no
- * authorization in front of it. It is not the *only* writer - `IamMetricsPanel`
- * calls `engine.stats.reset()` - and it is no longer the only panel carrying
- * the guard: every panel handed an engine calls it now, because the readers
- * leak the policy corpus and the role catalog through exactly the same
- * direct-import route this docblock describes.
- *
- * It calls that guard itself rather than relying on `IamDevtools` having called
- * it. `package.json` exports every panel individually under `./dt`, so
- * `import { IamSubjectsPanel } from '@gentleduck/iam/dt'` and rendering it is a
- * supported thing to do - and it put the one writing panel on screen with no
- * check anywhere in its path. The guard is idempotent and cheap, so running it
- * twice under `IamDevtools` costs nothing; running it zero times cost the whole
- * protection.
+ * Loads one subject's attributes and edits them and its role assignments through `engine.admin`.
+ * SECURITY: writes with no auth of its own and is exported individually, so it runs `isDevtoolsAllowed` itself.
  */
 export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   useIamDevtoolsStyles()
@@ -42,9 +24,7 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   const [error, setError] = React.useState<string | null>(null)
   const [status, setStatus] = React.useState<string | null>(null)
 
-  // Below every hook, so the hook order is the same on both branches. `engine`
-  // does not change identity across renders of a mounted panel, so this cannot
-  // flip mid-life either.
+  // Below every hook, so the hook order is the same on both branches.
   if (!isDevtoolsAllowed(engine)) return null
 
   async function load() {
@@ -68,8 +48,7 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
     setStatus(null)
     const parsed = safeParseJson(attrsDraft)
     if (parsed.error) return setError(`attributes JSON: ${parsed.error}`)
-    // Narrowed before it reaches the adapter: `setAttributes` writes whatever
-    // it is handed, and this value came out of a textarea.
+    // Narrow before `setAttributes`, which writes whatever it is given.
     const attributes = parsed.value === undefined ? {} : iamNarrowAttributes(parsed.value)
     if (attributes === null) return setError('attributes JSON: expected an object of scalar values')
     setBusy(true)

@@ -19,10 +19,7 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
 
 /**
  * Live cache and decision counters, re-read every `pollMs`.
- *
- * Polls rather than subscribes: the engine publishes no metrics event, and a
- * hook that fired per decision would put devtools rendering on the hot path of
- * every authorization check.
+ * PERF: polls instead of hooking each decision, so devtools rendering stays off the authorization hot path.
  */
 export function IamMetricsPanel({
   engine,
@@ -45,13 +42,7 @@ export function IamMetricsPanel({
     return () => clearInterval(id)
   }, [engine, metrics, pollMs])
 
-  // Below every hook, so the hook order is the same on both branches. The same
-  // guard `IamSubjectsPanel` runs, and for the same reason: `package.json`
-  // exports every panel individually under `./dt`, so rendering this one
-  // straight from `@gentleduck/iam/dt` is a supported thing to do, and it
-  // reaches the engine with no check anywhere in its path. `isDevtoolsAllowed`
-  // is idempotent and cheap, so running it again under `IamDevtools` costs
-  // nothing; running it zero times cost the whole protection.
+  // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
   if (!isDevtoolsAllowed(engine)) return null
 
   const allowRate = snap && snap.total > 0 ? Math.round((snap.allow / snap.total) * 100) : 0

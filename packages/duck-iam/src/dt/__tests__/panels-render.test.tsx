@@ -15,26 +15,8 @@ import { IamRolesPanel } from '../panels/roles'
 import { IamSubjectsPanel } from '../panels/subjects'
 import { IamTraceTree } from '../panels/trace-tree'
 
-/**
- * `package.json` publishes `./dt` and `src/dt/index.ts` exports all seven
- * panels individually, so each one is a supported entry point. Only
- * `IamMetricsPanel` was ever rendered by a test - and it earned that test by
- * throwing on first render against a real engine, which took the whole devtools
- * overlay down the moment an operator opened Telemetry.
- *
- * That is a bug class, not an incident: a panel that reads the engine wrongly
- * fails at render, and six of the seven had nothing that would render them.
- * These do, against a real `IamEngine` over a real `IamMemoryAdapter` rather
- * than a hand-shaped stub, because a stub cannot disagree with the engine.
- *
- * The guard blocks below cover every panel handed an engine. `IamSubjectsPanel`
- * is the one that *writes* the most - `assignRole`, `revokeRole`,
- * `setAttributes` - and it was the first to carry `isDevtoolsAllowed` itself,
- * because importing it directly, which the export invites, put an
- * unauthenticated role-assignment UI on screen with no guard anywhere in its
- * path. The same route was still open on the readers, which is what the blocks
- * below now close.
- */
+// Every exported panel renders against a real `IamEngine` (a stub cannot disagree with the engine),
+// and every panel handed an engine carries the production guard itself.
 type Action = 'read'
 type ResourceType = 'post'
 type RoleId = 'org-reader'
@@ -46,11 +28,7 @@ const orgReader: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   permissions: [{ action: 'read', resource: 'post' }],
 }
 
-/**
- * A stored policy, so the panels have rows to render and `explain()` produces a
- * trace with a policy in it. A panel that renders an empty list correctly can
- * still throw on the first row it is handed.
- */
+/** A stored policy, so panels render real rows and `explain()` yields a trace with a policy in it. */
 const readPosts: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
   algorithm: 'deny-overrides',
   id: 'read-posts',
@@ -78,10 +56,7 @@ afterEach(() => {
   else process.env.NODE_ENV = originalNodeEnv
 })
 
-/**
- * A real trace, produced by the engine rather than written by hand, so
- * `IamTraceTree` is rendered against the shape it actually receives.
- */
+/** A real engine trace, so `IamTraceTree` renders the shape it actually receives. */
 let trace: Explain.IResult
 
 beforeAll(async () => {
@@ -89,11 +64,7 @@ beforeAll(async () => {
   trace = await engine.explain('u1', 'read', { attributes: {}, type: 'post' })
 })
 
-/**
- * Every panel with the props its own signature asks for. `flow` and
- * `trace-tree` take a recorder and a result rather than an engine, so the list
- * is element factories rather than a component array.
- */
+/** Element factories, since `flow` and `trace-tree` take a recorder or a result instead of an engine. */
 function readOnlyPanels(): readonly (readonly [string, () => React.ReactElement])[] {
   return [
     ['IamDecisionInspector', () => <IamDecisionInspector engine={engineIn('development')} />],
@@ -112,8 +83,7 @@ describe('every exported panel renders against a real engine', () => {
   })
 
   it.each(readOnlyPanels())('%s produces markup rather than an empty string', (_name, element) => {
-    // Anti-vacuity: "did not throw" is also true of a component that renders
-    // nothing at all, which is exactly what a mis-fired guard looks like.
+    // Anti-vacuity: an empty render also "does not throw", and that is what a mis-fired guard produces.
     process.env.NODE_ENV = 'development'
     expect(renderToString(element()).length).toBeGreaterThan(0)
   })
@@ -126,24 +96,8 @@ describe('every exported panel renders against a real engine', () => {
   })
 })
 
-/**
- * Every panel that is handed the engine, and the four states the guard has to
- * get right for each of them.
- *
- * This started as one block for `IamSubjectsPanel`, because it is the panel
- * that writes. But `isDevtoolsAllowed`'s own docblock says it blocks so "the
- * policy/role/subject **readers** cannot leak into raw-browser bundles
- * (CWE-200)", and two of those three readers did not call it: `IamPoliciesPanel`
- * hands back the entire policy corpus through `engine.admin.listPolicies()`,
- * `IamRolesPanel` the whole role catalog, and `IamDecisionInspector` is an
- * oracle that will answer `explain()` for any subject, action and resource
- * typed into it. Each is exported individually under `./dt`, so each is a
- * supported way to put that on a production screen with no check in its path -
- * blocked through `IamDevtools`, wide open through its own export.
- *
- * `IamMetricsPanel` is here too, and it retires the "only panel that writes"
- * framing: its Reset button calls `engine.stats.reset()`.
- */
+// Each engine panel is importable on its own and exposes policies, roles, an `explain()` oracle or
+// `stats.reset()`, so each must block by itself.
 function enginePanels(): readonly (readonly [string, (mode: 'development' | 'production') => React.ReactElement])[] {
   return [
     ['IamDecisionInspector', (m) => <IamDecisionInspector engine={engineIn(m)} />],
@@ -172,22 +126,14 @@ describe('every panel that touches the engine carries the production guard itsel
   })
 
   it.each(enginePanels())('%s renders for a development engine under NODE_ENV=development', (_name, element) => {
-    // The control. Without it every assertion above is satisfied by a panel
-    // that never renders at all.
+    // Control: without it, a panel that never renders satisfies every assertion above.
     process.env.NODE_ENV = 'development'
     expect(renderToString(element('development')).length).toBeGreaterThan(0)
   })
 })
 
-/**
- * The list above is written by hand, so it cannot notice a panel added next
- * year. This can: any panel module that reaches for the engine has to call the
- * guard, and the check reads the source rather than the export list.
- *
- * `flow` and `trace-tree` are not exempted by name - they are simply not
- * matched, because they take a recorder and a result and never touch an engine.
- * If either ever does, this fails until it is guarded.
- */
+// Catches future panels: any `panels/` module that touches `engine.` must call the guard.
+// `flow` and `trace-tree` are not exempt by name; they just never touch an engine.
 describe('no panel can reach the engine without the guard', () => {
   it('every panel module that uses the engine calls isDevtoolsAllowed', async () => {
     const { readdirSync, readFileSync } = await import('node:fs')
@@ -203,8 +149,7 @@ describe('no panel can reach the engine without the guard', () => {
       if (!src.includes('isDevtoolsAllowed(engine)')) offenders.push(file)
     }
     expect(offenders, 'these panels read the engine with no production guard').toEqual([])
-    // Anti-vacuity: an empty sweep would pass the assertion above while
-    // checking nothing - a renamed directory, or a regex that stopped matching.
+    // Guard against an empty sweep passing vacuously.
     expect(checked, 'the sweep matched no panel at all').toBeGreaterThanOrEqual(5)
   })
 })

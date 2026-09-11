@@ -3,34 +3,8 @@ import React from 'react'
 const STYLE_ID = '__iam_dt_styles__'
 
 /**
- * The devtools' entire visual layer, as one string.
- *
- * It used to be a handful of chrome rules plus Tailwind utility classes on the
- * components, reading `var(--card)` / `var(--border)` / `var(--foreground)`
- * straight out of the host's theme. That worked in this monorepo and nowhere
- * else. `@gentleduck/iam` publishes `./dt`, and both `@gentleduck/registry-ui`
- * and `@gentleduck/libs` are *optional* peers, so a consumer who installs the
- * package and imports the devtools has neither the components nor a Tailwind
- * build that scans `node_modules/@gentleduck/iam/dist` - the utility classes
- * name rules nobody generated, and the bare `var(--card)` has no fallback, so
- * unstyled boxes render on a transparent ground.
- *
- * So the devtools own their appearance outright: every colour is an
- * `--iam-dt-*` token defined here, every component has a class here, and the
- * only thing asked of the host page is that it not forbid a `<style>` tag.
- *
- * Two themes, because a devtools overlay lands on whatever the app looks like.
- * `data-iam-dt-theme="dark" | "light"` on the root pins one; without it the
- * tokens follow `prefers-color-scheme`. The palette is GitHub Primer's, chosen
- * for having accessible foreground/background pairs already worked out in both
- * directions rather than for looking like GitHub - the previous hardcoded
- * `#60a5fa` / `#fbbf24` / `#84cc16` were tuned against a dark ground and
- * dropped to roughly 2:1 against a white one.
- *
- * Everything is namespaced under `.iam-dt`, which also carries a small reset,
- * so a host's `button {}` or `* { font-family }` cannot reach inside. A host
- * that wants to restyle the panel can set any `--iam-dt-*` token with a
- * selector that beats a single class (`:root .iam-dt { --iam-dt-accent: … }`).
+ * The devtools' whole visual layer, scoped under `.iam-dt`; hosts restyle via `:root .iam-dt { --iam-dt-*: ... }`.
+ * NOTE: never read host CSS vars or Tailwind here - consumers of `./dt` may have neither.
  */
 const CSS = `
 /* Tokens land on the outermost \`.iam-dt\` only. Every panel carries the class,
@@ -604,13 +578,8 @@ const CSS = `
 `
 
 /**
- * Injects the devtools stylesheet into `document.head` once per document.
- *
- * A `<style>` tag rather than imported CSS: the devtools ship inside a library,
- * and a bare `import './x.css'` would force every consumer's bundler to have a
- * CSS pipeline for a component most builds drop entirely. Guarded on both
- * `document` (so an SSR render is a no-op instead of a crash) and the existing
- * tag id, so mounting several panels does not stack duplicates.
+ * Injects the devtools stylesheet into `document.head` once per document; a no-op under SSR.
+ * NOTE: a `<style>` tag, not a CSS import, so consumer bundlers need no CSS pipeline.
  */
 export function ensureStylesInjected() {
   if (typeof document === 'undefined') return
@@ -621,31 +590,20 @@ export function ensureStylesInjected() {
   document.head.appendChild(style)
 }
 
-/**
- * Which palette to paint with. `'auto'` - the default everywhere - leaves the
- * choice to the viewer's `prefers-color-scheme`, so the overlay does not glare
- * white on someone running a dark desktop, or vice versa.
- */
+/** Which palette to use; `'auto'` (the default) follows `prefers-color-scheme`. */
 export type IamDevtoolsTheme = 'auto' | 'dark' | 'light'
 
 /**
  * The `data-iam-dt-theme` value for a theme, or `undefined` for `'auto'`.
- *
- * `undefined` rather than `'auto'` on purpose: the stylesheet keys its light
- * palette off `prefers-color-scheme` *unless* an explicit value is present, so
- * the attribute has to be absent, not set to something the CSS ignores.
+ * NOTE: the attribute must be absent for `'auto'`; the CSS follows `prefers-color-scheme` only when it is unset.
  */
 export function iamDevtoolsThemeAttr(theme: IamDevtoolsTheme = 'auto'): 'dark' | 'light' | undefined {
   return theme === 'auto' ? undefined : theme
 }
 
 /**
- * Injects the stylesheet on mount.
- *
- * A hook rather than a call at the top of each render, so it runs once per
- * document and never during SSR. Every panel calls it, not just the two
- * shells: each panel is exported individually from `./dt`, and one mounted on
- * its own used to render with no stylesheet in the document at all.
+ * Injects the stylesheet on mount, never during SSR.
+ * NOTE: every panel calls this, since each is exported individually and may be the only one mounted.
  */
 export function useIamDevtoolsStyles(): void {
   React.useEffect(() => {
