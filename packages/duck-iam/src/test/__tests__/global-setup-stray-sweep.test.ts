@@ -1,16 +1,6 @@
 /**
- * The aged-stray sweep has to run even when this process starts no containers.
- *
- * Suites that own their own backends - `e2e-invalidation-redis.ts` starts both a
- * Redis and a Postgres of its own - label them `OWNED_LABEL` and start them
- * whether or not `globalSetup` starts anything. The sweep that collects those
- * after a crashed run used to sit *below* the `DUCKIAM_E2E_DATABASE_URL` early
- * return, so for anyone with that variable in `.env.test` - the normal local
- * setup - it never ran at all, and their orphans accumulated indefinitely.
- *
- * Nothing asserted the ordering, which is exactly why it could be wrong in
- * plain sight. These tests drive `setup()` with `execFile` stubbed, so they
- * assert what docker was actually asked to do without needing a daemon.
+ * The aged-stray sweep in `setup()` runs even when `DUCKIAM_E2E_DATABASE_URL` is preset and nothing is started.
+ * `execFile` is stubbed, so the tests check docker argv without a daemon.
  */
 import { describe, expect, it, vi } from 'vitest'
 
@@ -77,8 +67,7 @@ describe('globalSetup stray sweep', () => {
 
     await setup()
 
-    // With the sweep below the early return this list is empty, which is how
-    // the bug survived: every other assertion about setup() still passed.
+    // With the sweep below the early return, this list is empty.
     expect(calls.map((c) => c[0])).toContain('ps')
     vi.unstubAllEnvs()
   })
