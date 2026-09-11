@@ -2,14 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { IamAccessClient } from '../../client/vanilla'
 import { iamBuildPermissionKey, iamParsePermissionKey } from '../keys'
 
-/**
- * "Well-formed" must mean "in the image of the builder". The splitter treats an
- * unrecognised `\x` literally - right for tokenising, but it left the parser
- * non-injective on the canonical image, so a hand-built key could parse into a
- * tuple the builder would have encoded differently. Inside one client that is a
- * live disagreement: `can()` builds a canonical key and misses, while
- * `allowedActions()` / `hasAnyOn()` parse the raw key and hit.
- */
+// Keys that split cleanly but that the builder would never emit.
 const NON_CANONICAL = ['create:post\\', ':\\', ':@', 'a:\\', 'read:po\\st', '@org:read:@post', 'read:post:\\x']
 
 describe('iamParsePermissionKey rejects anything outside the builder image', () => {
@@ -51,11 +44,6 @@ describe('iamParsePermissionKey rejects anything outside the builder image', () 
   })
 })
 
-/**
- * The consequence at client level: a menu shown because `hasAnyOn` is true and
- * populated from `allowedActions` rendered empty, and a raw key that `can()`
- * denies was reported as an allowed action.
- */
 describe('the vanilla client agrees with itself', () => {
   it('keeps an empty-string action that hasAnyOn and can both honour', () => {
     const client = new IamAccessClient({ [iamBuildPermissionKey('', 'post')]: true })

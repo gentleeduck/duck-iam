@@ -5,34 +5,19 @@
 const SCOPE_PREFIX = '@'
 
 /**
- * Permission map key: `[@scope:]action:resource[:resourceId]`. Inside a segment
- * `:` and `\` are backslash-escaped, and a leading `@` is escaped too.
- *
- * The `@` on the scope is what disambiguates a three-segment key. Without it
- * `('read', 'doc', '42')` and `('doc', '42', undefined, 'read')` both produced
- * `read:doc:42`, so two different checks in one `checkMany` shared a map entry
- * and one could answer for the other.
- *
- * @param action - Identifies the action (for example `'read'`).
- * @param resource - Identifies the resource (for example `'document'`).
- * @param resourceId - Optionally pins the key to a concrete resource instance.
- * @param scope - Optionally prefixes a scope for tenant or namespace partitioning.
- * @returns Composed colon-delimited key with hostile segments escaped.
+ * Permission map key `[@scope:]action:resource[:resourceId]`, with `:`, `\` and a leading `@` backslash-escaped.
+ * NOTE: the `@` marker keeps `('read', 'doc', '42')` and `('doc', '42', undefined, 'read')` from sharing a key.
  */
 export function iamBuildPermissionKey(action: string, resource: string, resourceId?: string, scope?: string): string {
   const e = escapeSegment
   const tail = resourceId !== undefined ? `${e(action)}:${e(resource)}:${e(resourceId)}` : `${e(action)}:${e(resource)}`
-  // `!== undefined`, not truthiness: an empty-string scope or resourceId is a
-  // distinct segment, otherwise it silently collides with the unscoped key.
+  // `!== undefined`, not truthiness: an empty scope or resourceId is a distinct segment, not the shorter key.
   return scope !== undefined ? `${SCOPE_PREFIX}${e(scope)}:${tail}` : tail
 }
 
 /**
- * Reverse of {@link iamBuildPermissionKey}. Returns `null` for a string that is
- * not a well-formed key, so a hand-built one is rejected rather than guessed at.
- *
- * @param key - Permission key to parse.
- * @returns The original fields, or `null` when `key` is not in this format.
+ * Reverse of {@link iamBuildPermissionKey}. Returns `null` for a string that is not a well-formed key, so a hand-built
+ * one is rejected rather than guessed at.
  */
 export function iamParsePermissionKey(key: string): {
   scope: string | undefined
@@ -50,13 +35,8 @@ export function iamParsePermissionKey(key: string): {
   const [action, resource, resourceId] = parts
   if (action === undefined || resource === undefined) return null
 
-  // "Well-formed" has to mean "in the image of the builder", not "splittable".
-  // The splitter treats an unrecognised `\x` literally, which is right for
-  // tokenising but leaves the parser non-injective on the canonical image: a
-  // lone `\`, an unescaped `@` inside a segment and any `\x` sequence all
-  // parsed into tuples the builder would have encoded differently. That put a
-  // live disagreement inside one client - `can()` builds a canonical key and
-  // misses, while `allowedActions()`/`hasAnyOn()` parse the raw key and hit.
+  // NOTE: well-formed means the builder emits exactly this key. A merely splittable key would let
+  // `allowedActions()` / `hasAnyOn()` report a grant that `can()` misses.
   if (iamBuildPermissionKey(action, resource, resourceId, scope) !== key) return null
 
   return { action, resource, resourceId, scope }
@@ -70,14 +50,10 @@ function escapeSegment(s: string): string {
 }
 
 /**
- * Splits a permission key produced by {@link iamBuildPermissionKey} into its
- * original segments, honouring the `\:`, `\\` and `\@` escape sequences. Naive
- * `.split(':')` would mis-tokenise any segment containing a literal `:` or
- * `\`. The leading `@` of a scoped key is not a segment and is not stripped
- * here; use {@link iamParsePermissionKey} for that.
+ * Splits a key from {@link iamBuildPermissionKey} into unescaped segments, honouring `\:`, `\\` and `\@`.
+ * A scoped key's leading `@` is not stripped; use {@link iamParsePermissionKey} for that.
  *
  * @param key - Permission key, e.g. `'read:document'` or `'write:doc\\:42'`.
- * @returns Array of unescaped segments in declaration order.
  */
 export function iamSplitPermissionKey(key: string): string[] {
   const out: string[] = []
@@ -86,10 +62,7 @@ export function iamSplitPermissionKey(key: string): string[] {
   while (i < key.length) {
     const ch = key[i]
     if (ch === undefined) break
-    // Only the three escape sequences are recognised; anything else is treated
-    // literally so an attacker-crafted `\x` doesn't silently become `x`. Past
-    // the last character `next` is `undefined`, which matches none of them, so
-    // no separate bounds check is needed.
+    // Only the three escapes are recognised, so a crafted `\x` stays literal. Past the end `next` is `undefined`.
     const next = key[i + 1]
     if (ch === '\\' && (next === ':' || next === '\\' || next === SCOPE_PREFIX)) {
       current += next

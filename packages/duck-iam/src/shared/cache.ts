@@ -1,6 +1,6 @@
 import type { IamEngine } from '../core'
 /**
- * LRU cache with TTL expiration; relies on `Map` insertion order. Used by {@link IamEngine} for policies/roles/subjects.
+ * LRU cache with TTL expiry, ordered by `Map` insertion. Used by {@link IamEngine} for policies, roles and subjects.
  *
  * @template V - Type of cached values.
  */
@@ -12,9 +12,9 @@ export class IamLRUCache<V> {
   private _misses = 0
 
   /**
-   * @param maxSize - Sets the maximum number of entries before LRU eviction.
-   * @param ttlMs - Sets time-to-live in milliseconds for each entry.
-   * @throws `RangeError` when `maxSize < 1` or `ttlMs < 0`.
+   * @param maxSize - Max entries before the least recently used one is evicted.
+   * @param ttlMs - Time-to-live per entry, in milliseconds.
+   * @throws `RangeError` when either is non-finite, `maxSize < 1`, or `ttlMs < 0`.
    */
   constructor(maxSize: number, ttlMs: number) {
     if (!Number.isFinite(maxSize) || maxSize < 1)
@@ -24,22 +24,14 @@ export class IamLRUCache<V> {
     this._ttl = ttlMs
   }
 
-  /**
-   * Get + refresh LRU; `undefined` when missing or expired.
-   *
-   * @param key - Looks up the entry under this cache key.
-   * @returns The stored value, or `undefined` when missing or expired.
-   */
+  /** Returns the value and marks it most recently used; `undefined` when missing or expired. */
   get(key: string): V | undefined {
     const entry = this._map.get(key)
     if (!entry) {
       this._misses++
       return undefined
     }
-    // `>=`, not `>`: `expiresAt` is an exclusive upper bound everywhere else in
-    // this package - a grant is inactive at the exact millisecond it expires -
-    // and a `notAfter` cap is only worth anything if the cache agrees. At the
-    // TTL's own boundary the difference is one millisecond of extra freshness.
+    // NOTE: `>=`, not `>`: `expiresAt` is exclusive, as it is for grants, so a `notAfter` cap holds to the millisecond.
     if (Date.now() >= entry.expiresAt) {
       this._map.delete(key)
       this._misses++
@@ -52,23 +44,8 @@ export class IamLRUCache<V> {
   }
 
   /**
-   * When the entry under `key` stops being served, or `undefined` when there
-   * is none (or it has already lapsed).
-   *
-   * Exists so a *derived* cache can inherit its source's expiry through
-   * {@link set}'s `notAfter`. Without that, a value computed from cached
-   * inputs is stamped with a full fresh TTL no matter how old those inputs
-   * are, and the derived entry outlives what it was derived from - the engine
-   * saw an out-of-band revocation take up to two full `cacheTTL`s to converge
-   * because the compiled table was rebuilt from a nearly-expired `roleCache`
-   * and then declared fresh.
-   *
-   * Neither LRU order nor the hit/miss counters move: this is bookkeeping
-   * about an entry, not a read of it, and counting it would make the stats
-   * lie about how often the cache actually served a value.
-   *
-   * @param key - Looks up the entry under this cache key.
-   * @returns Epoch ms the entry expires at, or `undefined`.
+   * Epoch ms the entry under `key` expires at, or `undefined` when absent or lapsed. Moves neither LRU order nor stats.
+   * NOTE: lets a derived cache inherit its source's expiry via {@link set}'s `notAfter` instead of a fresh full TTL.
    */
   expiresAt(key: string): number | undefined {
     const entry = this._map.get(key)
@@ -88,20 +65,11 @@ export class IamLRUCache<V> {
   }
 
   /**
-   * Set + TTL refresh; evicts the oldest at capacity.
+   * Stores `value` with a fresh TTL, evicting the least recently used entry at capacity.
    *
-   * `notAfter` caps the entry's life below the cache's own TTL, for a value
-   * that is only true until a known instant. A time-boxed grant is exactly
-   * that: the adapter answers `[startsAt, expiresAt)` to the millisecond, and
-   * without the cap the snapshot of that answer outlived it by up to a full
-   * `cacheTTL` - 60 seconds by default - so a grant issued to expire in 30
-   * seconds kept granting for 90.
-   *
-   * @param key - Stores the entry under this cache key.
-   * @param value - Associates this value with the key.
-   * @param notAfter - Epoch ms this value stops being true, when that is
-   *   known. Ignored unless it is a finite instant earlier than the TTL would
-   *   give; an instant already past stores nothing at all.
+   * @param key - Cache key.
+   * @param value - Value to store.
+   * @param notAfter - Epoch ms the value stops being true; caps the TTL, and a past instant stores nothing.
    */
   set(key: string, value: V, notAfter?: number): void {
     this._map.delete(key)
@@ -118,12 +86,7 @@ export class IamLRUCache<V> {
     this._map.set(key, { value, expiresAt })
   }
 
-  /**
-   * Remove a single entry.
-   *
-   * @param key - Removes the entry stored under this cache key.
-   * @returns `true` when the entry existed and was deleted.
-   */
+  /** Removes one entry; `true` when it existed. */
   delete(key: string): boolean {
     return this._map.delete(key)
   }
@@ -137,17 +100,7 @@ export class IamLRUCache<V> {
     return this._map.size
   }
 
-  /**
-   * Iterate non-expired entries; does NOT refresh LRU order.
-   *
-   * `>=` matches {@link get}: `expiresAt` is an exclusive upper bound, so at
-   * the entry's own expiry millisecond `get` already refuses to serve it. This
-   * used to be `>`, which made the iterator yield an entry the reader could
-   * not then fetch - one millisecond wide, and only visible to whoever trusted
-   * the iterator's "non-expired" claim. The current caller evicts rather than
-   * serves, so the disagreement cost nothing yet; it is the next caller that
-   * would have paid.
-   */
+  /** Iterates non-expired entries without refreshing LRU order; expiry uses `>=` to agree with {@link get}. */
   *entries(): IterableIterator<[string, V]> {
     const now = Date.now()
     for (const [key, entry] of this._map) {

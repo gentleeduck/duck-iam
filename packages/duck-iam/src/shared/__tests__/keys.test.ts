@@ -28,8 +28,6 @@ describe('iamBuildPermissionKey()', () => {
   })
 
   it('escapes `:` in segments so action "post:read" does not collide', () => {
-    // Segments containing `:` are escaped (`:` -> `\:`) so two structurally
-    // different inputs map to two distinct keys.
     const a = iamBuildPermissionKey('post:read', 'post')
     const b = iamBuildPermissionKey('post', 'read:post')
     expect(a).not.toBe(b)
@@ -60,8 +58,7 @@ describe('iamSplitPermissionKey()', () => {
   })
 
   it('leaves an unrecognised escape sequence literal', () => {
-    // `\x` must not silently become `x` - an attacker could otherwise craft a
-    // key that unescapes onto a different permission.
+    // SECURITY: if `\x` became `x`, a crafted key could unescape onto a different permission.
     expect(iamSplitPermissionKey('a\\xb')).toEqual(['a\\xb'])
   })
 
@@ -162,16 +159,7 @@ describe('iamParsePermissionKey - arity is no longer ambiguous', () => {
   })
 })
 
-/**
- * `IamClient.PermissionKey` is the type the server->client payload is declared
- * with. It carried the pre-`@` scoped form long after the builder moved on, so
- * a consumer using literal generics - the documented pattern - could not assign
- * a real `engine.permissions()` result without a cast, while a hand-written map
- * in the retired ambiguous format type-checked clean.
- *
- * These bind the two together: each constant is annotated with the type and
- * assigned the builder's output, so a drift in either direction fails.
- */
+// Each row pairs a `PermissionKey`-typed literal with the builder's output, so drift in either one fails.
 describe('iamBuildPermissionKey() output matches IamClient.PermissionKey', () => {
   type Key = IamClient.PermissionKey<'read', 'doc', 'org'>
 

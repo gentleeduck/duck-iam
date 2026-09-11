@@ -215,10 +215,7 @@ describe('IamLRUCache', () => {
       }
     })
 
-    // At the entry's own expiry millisecond `get` refuses to serve it, because
-    // `expiresAt` is an exclusive bound everywhere else in this package. The
-    // iterator used to disagree by one millisecond and yield it, which would
-    // hand any reader a value it could not then fetch.
+    // `expiresAt` is exclusive, so the iterator must not yield an entry `get` already refuses.
     it('agrees with get() at the exact expiry millisecond', () => {
       vi.useFakeTimers()
       try {

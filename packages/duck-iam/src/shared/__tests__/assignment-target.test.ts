@@ -1,20 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { iamAssertRoleExists, iamIsForeignKeyViolation, iamUnknownRoleError } from '../assignment-target'
 
-/**
- * `iamIsForeignKeyViolation` had no test file at all, and its only call site is
- * `drizzle/index.ts`, whose mock throws a *flat* Postgres-English error. So the
- * two things its docblock actually promises - that the cause chain is walked,
- * and that MySQL and SQLite wordings count as well as Postgres - were pinned by
- * nothing. Narrowing the regex to Postgres-only, deleting the cause walk, and
- * corrupting the SQLSTATE constant all survived the full suite.
- *
- * That is also the mechanism by which the SQLite gap stayed invisible: there is
- * no MySQL or SQLite suite anywhere in the package, so the only dialect ever
- * exercised end-to-end is the one the mock hard-codes. These cases are written
- * from the driver strings the docblock names, so the claim and the test say the
- * same thing.
- */
+// No MySQL or SQLite suite exists, so these real driver strings are the only coverage for those dialects.
 describe('iamIsForeignKeyViolation recognises every dialect its docblock claims', () => {
   it('Postgres: "violates foreign key constraint"', () => {
     expect(
@@ -39,8 +26,7 @@ describe('iamIsForeignKeyViolation recognises every dialect its docblock claims'
   })
 
   it('Postgres SQLSTATE 23503 counts even when the text does not match', () => {
-    // The docblock's stated reason: `lc_messages` can translate the message, so
-    // the code is checked as well. A localised server is the case this covers.
+    // `lc_messages` can translate the message, so the SQLSTATE must match on its own.
     const localised = Object.assign(new Error('Einfügen oder Aktualisieren verletzt Fremdschlüssel'), {
       code: '23503',
     })
@@ -48,8 +34,7 @@ describe('iamIsForeignKeyViolation recognises every dialect its docblock claims'
   })
 
   it('walks the cause chain, which is where drizzle puts the real error', () => {
-    // Drizzle reports `Failed query: <sql>` and hangs the constraint violation
-    // off `.cause`. Reading only the outermost message finds nothing.
+    // Drizzle reports `Failed query: <sql>` and hangs the violation off `.cause`.
     const wrapped = new Error('Failed query: insert into "iam_assignments" ...', {
       cause: new Error('insert or update on table "iam_assignments" violates foreign key constraint'),
     })
@@ -86,8 +71,7 @@ describe('the unknown-role refusal is worded identically on every adapter', () =
   const EXPECTED = 'cannot assign a role that is not stored; save the role before granting it'
 
   it('carries the shared wording and the adapter name', () => {
-    // The conformance suite asserts only `rejects.toThrow()`, so the shared
-    // wording this function exists to guarantee was replaceable with anything.
+    // The conformance suite only asserts `rejects.toThrow()`, so the wording is pinned here.
     expect(iamUnknownRoleError('drizzle').message).toBe(`[@gentleduck/iam:drizzle] ${EXPECTED}`)
     expect(iamUnknownRoleError('memory').message).toBe(`[@gentleduck/iam:memory] ${EXPECTED}`)
   })

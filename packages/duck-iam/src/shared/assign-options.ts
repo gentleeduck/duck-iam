@@ -2,29 +2,13 @@ import type { IamAdapter } from '../core/types'
 
 /**
  * The fields of {@link IamAdapter.IAssignOptions} an adapter has to store to honour.
- *
- * `actor` is deliberately NOT in this list, and the difference is not an
- * oversight. Dropping `expiresAt` changes what the store will *answer*: the
- * grant outlives the bound the caller asked for, so the write has to fail.
- * Dropping `actor` changes nothing about any future authorization decision -
- * the engine emits it on the `role.assigned` / `role.revoked` mutation event
- * whether or not a column exists, so the audit trail the caller wanted is
- * intact. Five of the six adapters have no provenance column at all; refusing
- * their writes would make `actor` unusable everywhere except drizzle for no
- * safety gain.
+ * NOTE: not `actor`: dropping it changes no decision, and the engine still emits it on the mutation event.
  */
 const ASSIGN_OPTION_FIELDS = ['startsAt', 'expiresAt', 'attributes'] as const
 
 /**
- * Adapter-boundary guard for `assignRole`'s `opts`. Only Drizzle has the columns
- * for temporal bounds and per-grant attributes; the other five used to take the
- * argument and drop it on the floor, so a break-glass grant issued with
- * `expiresAt` was **permanent** and `engine.admin.assignRoles` still reported
- * `ok: true, applied: 1`.
- *
- * Refusing is the fix rather than a no-op: the caller asked for a bound the
- * store cannot keep, and the failure has to be visible at the write. An adapter
- * that gains the columns drops the call.
+ * Adapter-boundary guard for `assignRole`'s `opts` on adapters without the columns (all but Drizzle).
+ * SECURITY: refuses rather than drops them, or a grant given an `expiresAt` would be permanent.
  */
 export function iamAssertNoAssignOptions(adapter: string, opts?: IamAdapter.IAssignOptions): void {
   if (opts === undefined) return
@@ -38,24 +22,8 @@ export function iamAssertNoAssignOptions(adapter: string, opts?: IamAdapter.IAss
 }
 
 /**
- * Adapter-boundary guard for the one adapter that *can* store a window.
- *
- * `[startsAt, expiresAt)` is half-open, so `startsAt >= expiresAt` describes an
- * empty interval: no instant is ever inside it and the grant is dead the moment
- * it is written - while the write resolves and the batch API reports
- * `ok: true, applied: 1`. That is the same silent-success shape
- * {@link iamAssertNoAssignOptions} exists to stop, arriving by a different
- * route. An `Invalid Date` is the same again: it reaches the driver as garbage
- * instead of reaching the caller as a refusal.
- *
- * The shipped pg, mysql and sqlite schemas all carry
- * `ch_iam_assignments_starts_before_expires`, but this adapter is table-config
- * driven - a caller can point it at a table of their own - so the database
- * check is a second line, not the only one.
- *
- * The message names the fields and never their values: an authorization error
- * that echoes its input is a log-injection surface, and the caller already
- * holds what it passed.
+ * Adapter-boundary guard for a `[startsAt, expiresAt)` window: refuses an unusable Date or an empty window.
+ * NOTE: the shipped schemas CHECK this too, but the table is caller-configurable. Messages name fields, never values.
  */
 export function iamAssertValidAssignWindow(adapter: string, opts?: IamAdapter.IAssignOptions): void {
   if (opts === undefined) return
@@ -71,12 +39,8 @@ export function iamAssertValidAssignWindow(adapter: string, opts?: IamAdapter.IA
 }
 
 /**
- * One bound as milliseconds, or `null` when it was not given.
- *
- * Refuses anything that is not a usable `Date`. The declared type says `Date`,
- * so this only fires for a caller who got past the compiler - a JSON body
- * deserialised without reviving its dates, most often - and for them a refusal
- * is the whole point: a bound the store cannot read is a bound it cannot keep.
+ * One bound as epoch ms, or `null` when it was not given.
+ * Throws on anything but a valid `Date`, such as a JSON date that was never revived.
  */
 function readInstant(adapter: string, field: 'startsAt' | 'expiresAt', value: unknown): number | null {
   if (value === undefined || value === null) return null
