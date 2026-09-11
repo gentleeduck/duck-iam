@@ -3,21 +3,8 @@ import { glob } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-/**
- * Everything below the package root lives behind a subpath import, so a module
- * reaches consumers only if it appears in **both** `tsdown.config.ts` (it gets
- * built) and `package.json#exports` (it can be imported). Neither file knows
- * about the other.
- *
- * Get it wrong in one direction and the subpath is dead on arrival -
- * `ERR_PACKAGE_PATH_NOT_EXPORTED` at the consumer, from a package whose own
- * test suite is green because tests import through relative paths. Get it wrong
- * in the other and `exports` points at a `dist/` file the build never emits.
- *
- * A round-3 finding claimed `./adapters/http` was missing from `exports`. It is
- * not, and was not - but nothing held the two lists together, so the claim was
- * one commit away from becoming true. This test is what holds them.
- */
+// A subpath reaches consumers only if it is in both `tsdown.config.ts` (built) and `package.json#exports`
+// (importable). Tests import relatively, so a mismatch passes the suite and breaks consumers.
 
 const ROOT = join(import.meta.dirname, '../..')
 
@@ -46,8 +33,7 @@ function buildEntries(): Array<{ source: string; subpath: string }> {
 
 describe('every built module is importable, and every import is built', () => {
   it('finds entries in both files', () => {
-    // Control: a regex that silently matched nothing would make both set
-    // comparisons below pass.
+    // Guard against an empty sweep passing vacuously.
     expect(buildEntries().length).toBeGreaterThan(20)
     expect(exportSubpaths().length).toBeGreaterThan(20)
   })
@@ -70,18 +56,8 @@ describe('every built module is importable, and every import is built', () => {
   })
 })
 
-/**
- * `index.ts` under `src/core/**` says what a module publishes; it never says
- * what it does. Two of them had grown implementation - `core/explain/index.ts`
- * carried `iamEscapeHtml`, and `core/schema/index.ts` was 232 lines of JSON
- * Schema builders - which puts code in the one file a reader opens to find out
- * where the code is, and makes the barrel un-treeshakeable from its own
- * re-exports.
- *
- * The entrypoint `index.ts` files under `adapters/`, `server/`, `client/`,
- * `invalidators/`, `observability/` and `dt/` are deliberately different: each
- * is a tsdown entry and *is* the module.
- */
+// `src/core/**/index.ts` only re-exports. The entrypoint `index.ts` files elsewhere (`adapters/`, `server/`, ...)
+// are tsdown entries and hold real code.
 describe('core barrels re-export and nothing else', () => {
   async function coreBarrels(): Promise<string[]> {
     const out: string[] = []

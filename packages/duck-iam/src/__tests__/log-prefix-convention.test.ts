@@ -3,17 +3,8 @@ import { glob } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-/**
- * Every message this package writes to a console, or throws, is tagged
- * `[@gentleduck/iam:<module>]`. The module segment is the whole point: these
- * strings surface in a consumer's aggregated logs, where "something in
- * @gentleduck/iam threw about a missing `authorize` callback" is not an
- * actionable line - four different server integrations raise that same
- * sentence, and the tag is what says which one.
- *
- * Seven bare `[@gentleduck/iam]` prefixes had accumulated, all of them in
- * `src/server/**`, i.e. exactly where the ambiguity bites.
- */
+// Every logged or thrown message is tagged `[@gentleduck/iam:<module>]`: several server integrations raise the same
+// sentence, and the module segment says which one.
 
 const ROOT = join(import.meta.dirname, '../..')
 

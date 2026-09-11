@@ -2,12 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AccessControl, IamRequest } from '../core/types'
 import * as Iam from '../index'
 
-/**
- * `IamEngine`'s constructor refuses `defaultEffect: 'allow'` without
- * `allowFailOpen: true`. The evaluator is equally public, so that guard was one
- * import away from being bypassed: `evaluate(policies, req, 'allow')` off the
- * package root returned an allow with no opt-in, no warning and no engine.
- */
+// SECURITY: the public evaluator must refuse `defaultEffect: 'allow'` without the opt-in, as `IamEngine` does.
 const req: IamRequest.IAccessRequest = {
   action: 'read',
   environment: {},
@@ -56,11 +51,6 @@ describe('the evaluator applies the same fail-open opt-in as the engine', () => 
   })
 })
 
-/**
- * The unprefixed names were also the only evaluator symbols on the root
- * namespace not following the `Iam*` / `iam*` convention, and `evaluate` is very
- * easy to reach for by accident.
- */
 describe('public surface: the evaluator is exported under prefixed names only', () => {
   for (const name of ['evaluate', 'evaluateFast', 'evaluatePolicy', 'evaluatePolicyFast', 'indexPolicy']) {
     it(`does not export \`${name}\``, () => {

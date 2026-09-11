@@ -3,22 +3,8 @@ import { glob } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-/**
- * Round 2's J findings were, almost without exception, the same defect: a doc
- * page naming a symbol the package does not export. `nestAccessGuard`,
- * `createEngineProvider`, `generatePermissionMap`, `createTypedAuthorize`,
- * `MemoryAdapter`, `PermissionMap`, `IamRedisInvalidator`-as-a-class - nine of
- * them across the guides and the example app, every one of them a first-run
- * failure for whoever copied the snippet.
- *
- * They accumulated because nothing checked. The 5.0.0 `Iam*` rename touched the
- * source and the tests; the prose was invisible to both. This test makes the
- * prose visible: every `import { … } from '@gentleduck/iam[/subpath]'` in a
- * markdown or MDX code fence must name a real export of a real subpath.
- *
- * It reads the *source* barrels rather than `dist/`, so it runs without a build
- * and fails the moment a rename lands - not at the next release.
- */
+// Every `import { ... } from '@gentleduck/iam[/subpath]'` in the docs must name a real export of a real subpath.
+// Reads the source barrels, not `dist/`, so it runs without a build.
 
 const ROOT = join(import.meta.dirname, '../..')
 const REPO = join(ROOT, '../..')
@@ -27,21 +13,21 @@ const REPO = join(ROOT, '../..')
 const DOC_GLOBS = [
   'packages/duck-iam/README.md',
   'packages/duck-iam/FAQ.md',
+  // Carries live imports a reader copies while hardening.
+  'packages/duck-iam/SECURITY.md',
+  // The reference set: the densest import surface in the repo.
+  'packages/duck-iam/docs/**/*.md',
   'guides/**/*.md',
   'apps/duck-iam-docs/content/**/*.mdx',
   'examples/**/README.md',
-  // The example app's *source*, not just its README. Six of round 2's nine
-  // dead imports were here - it is the "does this work end to end" reference,
-  // and it did not build against the package it demonstrates.
+  // The example app's source, not just its README: it is the end-to-end reference.
   'examples/**/*.ts',
   'examples/**/*.tsx',
 ] as const
 
 /**
- * `@gentleduck/iam/x/y` -> the source barrel implementing it. Derived from
- * `package.json#exports` so a new subpath cannot be documented before it is
- * exported, and `package-exports-parity.test.ts` already holds `exports`
- * against the build.
+ * `@gentleduck/iam/x/y` -> the source barrel implementing it, derived from `package.json#exports`.
+ * `package-exports-parity.test.ts` holds `exports` against the build.
  */
 function subpathToSource(): Map<string, string> {
   const raw: unknown = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
@@ -61,10 +47,8 @@ function subpathToSource(): Map<string, string> {
 }
 
 /**
- * Names a barrel makes reachable, following `export * from './x'` one hop at a
- * time. Deliberately syntactic: importing the modules would pull `react`,
- * `vue`, `ioredis` and every driver into the test process, and the question
- * here is only "is this name spelled somewhere reachable".
+ * Names a barrel makes reachable, following `export * from './x'` one hop at a time.
+ * NOTE: syntactic, because importing would pull `react`, `vue`, `ioredis` and every driver into the test process.
  */
 function exportedNames(entry: string, seen = new Set<string>()): Set<string> {
   const names = new Set<string>()
@@ -116,7 +100,7 @@ interface IDocImport {
 }
 
 /**
- * Only value/type imports with a named clause. A bare `import '…'` or a
+ * Only value/type imports with a named clause. A bare `import '...'` or a
  * default import names nothing to check.
  */
 function collectDocImports(file: string): IDocImport[] {
@@ -159,11 +143,7 @@ function codeFences(text: string): string {
   return out.join('\n')
 }
 
-/**
- * The shape checks below describe duck-iam's types. `guides/duck-auth-setup.md`
- * documents a different package whose validators legitimately return `ok`, so
- * it is not in scope for them.
- */
+/** Excludes `guides/duck-auth-setup.md` from the shape checks: its validators legitimately return `ok`. */
 function isIamDoc(file: string): boolean {
   return !file.includes('duck-auth-setup.md')
 }
@@ -219,16 +199,8 @@ describe('documented imports resolve', () => {
     expect(total).toBeGreaterThan(10)
   })
 
-  /**
-   * The other half of round 2's J findings were not dead imports but dead
-   * *shapes*: `decision.reasons`, `trace.matchedPolicies`, `result.ok`,
-   * `admin.listAssignments`, `permissions()` returning an array. Each one reads
-   * `undefined` at runtime and fails silently - `if (!result.ok)` fires on every
-   * valid policy, and nobody notices until an audit.
-   *
-   * An import checker cannot see these, so they are pinned as phrases. Each
-   * entry names the real shape so a future reader knows what to write instead.
-   */
+  // A wrong shape reads `undefined` at runtime and an import check cannot see it, so these are pinned as phrases,
+  // each with the real shape to use instead.
   it('no doc page describes a shape the code does not return', async () => {
     const DEAD_SHAPES: readonly (readonly [string, string])[] = [
       ['decision.reasons', 'IDecision has singular `reason`'],
@@ -254,21 +226,14 @@ describe('documented imports resolve', () => {
     expect(bad).toEqual([])
   })
 
-  /**
-   * `withIamAccess` made `opts.getUserId` mandatory in round 1 - deriving
-   * identity from a request header is spoofable. Both the README snippet and
-   * the JSDoc `@example` kept the four-argument form, so the single
-   * most-copied Next.js snippet in the package threw on first run.
-   */
+  // `getUserId` is mandatory, since identity from a request header is spoofable.
   it('every documented withIamAccess call passes getUserId', async () => {
     const sources = [...(await allDocFiles()), join(ROOT, 'src/server/next/index.ts')]
     const bad: string[] = []
     for (const file of sources) {
       const text = readFileSync(file, 'utf8')
       const rel = file.slice(REPO.length + 1)
-      // Strip JSDoc gutters first: inside `/** … */` every line of the
-      // `@example` is prefixed with ` * `, which no `\s*` will match, so the
-      // shipped JSDoc example would silently never be checked.
+      // Strip JSDoc gutters first, or the ` * ` prefix hides the `@example` from the matcher.
       const flat = text.replace(/^\s*\*[ \t]?/gm, '')
       // Requires a real first argument: `withIamAccess()` appears in prose as a
       // bare mention and is not a call site.
@@ -280,12 +245,7 @@ describe('documented imports resolve', () => {
     expect(bad).toEqual([])
   })
 
-  /**
-   * `allowFailOpen` is checked before mode is consulted at all
-   * (`engine.ts:193`), so scoping it to production in prose understates it: a
-   * developer reading that expects `defaultEffect: 'allow'` to work unguarded
-   * in development, and gets a constructor throw.
-   */
+  // `allowFailOpen` is checked before mode, so `defaultEffect: 'allow'` needs it in development too.
   it('no doc scopes the allowFailOpen requirement to production', async () => {
     const bad: string[] = []
     for (const file of await allDocFiles()) {
@@ -300,7 +260,6 @@ describe('documented imports resolve', () => {
   })
 
   it('the removed 5.0.0 names stay removed from the docs', async () => {
-    // Every one of these was live in a shipped doc page in round 2.
     const GONE = [
       'createTypedAuthorize',
       'createEngineProvider',
