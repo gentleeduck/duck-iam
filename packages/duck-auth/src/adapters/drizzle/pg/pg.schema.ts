@@ -1,4 +1,4 @@
-import { isNull, sql } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 import {
   boolean,
   check,
@@ -13,33 +13,13 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
-import type { SqlBridge } from '~/adapters/sql'
-import {
-  fromJsonColumn,
-  parseActingAs,
-  parseFactors,
-  parseProviders,
-  type StoredFactor,
-  type StoredProviderLink,
-} from '~/adapters/sql/stored-json'
+import { fromJsonColumn, parseActingAs, parseFactors } from '~/adapters/drizzle/drizzle.stored-json'
 import { AUTH_CREDENTIAL_KINDS, type Credential } from '~/core/credentials/credentials.types'
+import { authUuidV7 } from '~/core/crypto'
+import type { Identities } from '~/core/identities/identities.types'
 import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
 
-/**
- * `jsonb` columns holding `Date`s. `$type<T>()` is a compile-time assertion and
- * nothing more, so a table whose `providers` column claimed `addedAt: Date` was
- * handing direct `db.select()` callers an ISO string under that name -
- * `addedAt.getTime()` threw, and `addedAt < new Date()` was quietly always
- * `false`. `fromDriver` is the runtime half that makes the claim true. Same SQL
- * type as the `jsonb` it replaces, so this is not a migration.
- */
-const providersColumn = customType<{ data: StoredProviderLink[]; driverData: string }>({
-  dataType: () => 'jsonb',
-  fromDriver: (value) => parseProviders(fromJsonColumn(value)),
-  toDriver: (value) => JSON.stringify(value),
-})
-
-const factorsColumn = customType<{ data: StoredFactor[]; driverData: string }>({
+const factorsColumn = customType<{ data: Sessions.Factor[]; driverData: string }>({
   dataType: () => 'jsonb',
   fromDriver: (value) => parseFactors(fromJsonColumn(value)),
   toDriver: (value) => JSON.stringify(value),
@@ -54,9 +34,8 @@ const actingAsColumn = customType<{ data: Sessions.ActingAs | null; driverData: 
 export const authIdentities = pgTable(
   'auth_identities',
   {
-    id: uuid('id').primaryKey(),
-    profile: jsonb('profile').notNull().$type<SqlBridge.ProfileMetadataBase>(),
-    providers: providersColumn('providers').notNull().default([]),
+    id: uuid('id').primaryKey().$defaultFn(authUuidV7),
+    profile: jsonb('profile').notNull().$type<Identities.ProfileMetadataBase>(),
     version: integer('version').notNull().default(1),
     emailVerified: boolean('email_verified').notNull().default(false),
     createdBy: text('created_by'),
@@ -69,20 +48,56 @@ export const authIdentities = pgTable(
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     deletedBy: text('deleted_by'),
   },
-  (t) => [
-    check('chk_auth_identities_profile_shape', sql`profile ? 'username' AND profile ? 'email'`),
-    index('auth_identities_deleted_at').on(t.deletedAt).where(isNull(t.deletedAt)),
-    uniqueIndex('uq_auth_identities_email').on(sql`((lower(profile->>'email')))`).where(isNull(t.deletedAt)),
-    uniqueIndex('uq_auth_identities_username').on(sql`((lower(profile->>'username')))`).where(isNull(t.deletedAt)),
-    index('auth_identities_providers').using('gin', t.providers),
+  () => [
+    // A profile names an account, so both keys must be a string that says something. WARN: coalesced and
+    // type-checked, a CHECK passes on NULL, and MySQL unquotes a JSON null to the text 'null'.
+    check(
+      'chk_auth_identities_profile_shape',
+      sql`coalesce(jsonb_typeof(profile->'username'), '') = 'string' and coalesce(profile->>'username', '') <> ''
+        and coalesce(jsonb_typeof(profile->'email'), '') = 'string' and coalesce(profile->>'email', '') <> ''`,
+    ),
+    // NOTE: full, not partial on `deletedAt`, since a hidden row keeps its address until erased, so nobody can take it.
+    uniqueIndex('uq_auth_identities_email').on(sql`((lower(profile->>'email')))`),
+    uniqueIndex('uq_auth_identities_username').on(sql`((lower(profile->>'username')))`),
     check('chk_auth_identities_version', sql`version >= 1`),
+  ],
+)
+
+export const authIdentityProviders = pgTable(
+  'auth_identity_providers',
+  {
+    id: uuid('id').primaryKey().$defaultFn(authUuidV7),
+    identityId: uuid('identity_id').notNull(),
+    /** Which party issued the login, namespaced so two of them cannot collide on a shared sub: this is
+     *  ours - 'oauth:authGoogle', 'saml:acme' - where the sub below is theirs. */
+    providerId: text('provider_id').notNull(),
+    /** The issuing party's own stable subject id for the account. NOT NULL: a row without one answers no
+     *  login, and a credential kept here is a `credentials` row, never one of these. */
+    providerSub: text('provider_sub').notNull(),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // SECURITY: one sub, one row. A hidden row keeps its logins until it is erased, as it keeps its address.
+    uniqueIndex('uq_auth_identity_providers_sub').on(t.providerId, t.providerSub),
+    // One row per provider: `link` refuses a provider the identity holds, and `unlink` takes no sub, so a
+    // second row at the same provider is one nothing could address.
+    uniqueIndex('uq_auth_identity_providers_owned').on(t.identityId, t.providerId),
+    index('auth_identity_providers_identity').on(t.identityId, t.addedAt),
+    // Neither half of the pair may be blank: a blank names nobody, and the pair is what a lookup matches.
+    check('chk_auth_identity_providers_provider_not_blank', sql`provider_id <> ''`),
+    check('chk_auth_identity_providers_sub_not_blank', sql`provider_sub <> ''`),
+    foreignKey({
+      name: 'fk_auth_identity_providers_identity',
+      columns: [t.identityId],
+      foreignColumns: [authIdentities.id],
+    }).onDelete('cascade'),
   ],
 )
 
 export const authCredentials = pgTable(
   'auth_credentials',
   {
-    id: uuid('id').primaryKey(),
+    id: uuid('id').primaryKey().$defaultFn(authUuidV7),
     identityId: uuid('identity_id').notNull(),
     /** Tenant whose provider/policy config governs this credential. Scoping only. */
     tenantId: text('tenant_id'),
@@ -102,11 +117,15 @@ export const authCredentials = pgTable(
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
   (t) => [
-    // Compound index covers listByIdentity(id, kind) and listByIdentity(id) both
     index('auth_credentials_identity_kind').on(t.identityId, t.kind),
     index('auth_credentials_kind_secret').on(t.kind, t.secret),
     index('auth_credentials_tenant').on(t.tenantId),
-    // Partial index for GC: DELETE WHERE expires_at < now()
+    // An empty tenant is a scope of its own that matches no global row, so it is refused outright.
+    check('chk_auth_credentials_tenant_not_blank', sql`tenant_id IS NULL OR tenant_id <> ''`),
+    // PERF: `findByProviderSub` reads these two out of `metadata`, so without this every social sign-in scans the table.
+    index('auth_credentials_oauth')
+      .on(sql`((metadata->>'provider'))`, sql`((metadata->>'sub'))`)
+      .where(sql`kind = 'oauth'`),
     index('auth_credentials_expires_at').on(t.expiresAt).where(sql`expires_at IS NOT NULL`),
     check('chk_auth_credentials_kind', sql.raw(`kind IN (${AUTH_CREDENTIAL_KINDS.map((k) => `'${k}'`).join(', ')})`)),
     check('chk_auth_credentials_version', sql`version >= 1`),
@@ -125,7 +144,6 @@ export const authCredentials = pgTable(
 export const authSessions = pgTable(
   'auth_sessions',
   {
-    // SHA-256 hash of the raw session token, kept as text (not a UUID)
     id: text('id').primaryKey(),
     identityId: uuid('identity_id'),
     /** Tenant this session is acting under, drives tenant security policy. Scoping only. */
@@ -149,15 +167,14 @@ export const authSessions = pgTable(
     actingAs: actingAsColumn('acting_as'),
   },
   (t) => [
-    // Single-column for deleteAllForIdentity; composite for listActive(identity, expires)
     index('auth_sessions_identity').on(t.identityId),
     index('auth_sessions_identity_expires').on(t.identityId, t.expiresAt),
     index('auth_sessions_expires').on(t.expiresAt),
     index('auth_sessions_absolute_expires').on(t.absoluteExpiresAt),
     index('auth_sessions_tenant').on(t.tenantId),
+    check('chk_auth_sessions_tenant_not_blank', sql`tenant_id IS NULL OR tenant_id <> ''`),
     check('chk_auth_sessions_kind', sql.raw(`kind IN (${AUTH_SESSION_KINDS.map((k) => `'${k}'`).join(', ')})`)),
     check('chk_auth_sessions_aal', sql`aal BETWEEN 1 AND 3`),
-    // SHA-256 hex is always exactly 64 characters
     check('chk_auth_sessions_id_length', sql`length(id) = 64`),
     check('chk_auth_sessions_expires_after_created', sql`expires_at >= created_at`),
     check('chk_auth_sessions_absolute_expires_after_expires', sql`absolute_expires_at >= expires_at`),
@@ -170,49 +187,39 @@ export const authSessions = pgTable(
   ],
 )
 
-/** Append-only audit log. Identity FK is SET NULL on hard-delete so the record survives erasure. */
-export const authEvents = pgTable(
-  'auth_events',
-  {
-    id: uuid('id').primaryKey(),
-    identityId: uuid('identity_id'),
-    sessionId: text('session_id'),
-    /** Tenant this event occurred under. Descriptive only, never drives behavior. */
-    tenantId: text('tenant_id'),
-    /** Dot-namespaced event name, e.g. 'login.success', 'mfa.enrolled', 'session.revoked'. */
-    event: text('event').notNull(),
-    /** Credential kind that produced the event, when applicable. */
-    method: text('method'),
-    ip: text('ip'),
-    userAgent: text('user_agent'),
-    /**
-     * Who performed the action, when that differs from `identity_id` - an admin
-     * revoking someone else's session, a support agent resetting a password.
-     * `identity_id` is the subject; this is the operator.
-     */
-    actorId: text('actor_id'),
-    /** Provider-specific extra fields (error codes, device hints, etc.). */
-    metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    // Primary query paths: "all events for identity" and "all events in tenant window"
-    index('auth_events_identity_created').on(t.identityId, t.createdAt),
-    index('auth_events_tenant_created').on(t.tenantId, t.createdAt),
-    // "Everything operator X did, newest first" - the question `actor_id`
-    // exists to answer. `auth_events` is append-only and unbounded, so without
-    // this the one query the column was added for is a full scan of the log.
-    index('auth_events_actor_created').on(t.actorId, t.createdAt),
-    // GC / retention scans
-    index('auth_events_created').on(t.createdAt),
-    check(
-      'chk_auth_events_method',
-      sql.raw(`method IS NULL OR method IN (${AUTH_CREDENTIAL_KINDS.map((k) => `'${k}'`).join(', ')})`),
-    ),
-    foreignKey({
-      name: 'fk_auth_events_identity',
-      columns: [t.identityId],
-      foreignColumns: [authIdentities.id],
-    }).onDelete('set null'),
-  ],
-)
+/**
+ * The schema as drizzle's relational queries read it. Registering these is what lets a caller who passed the
+ * schema to `drizzle()` write `db.query.authIdentities.findFirst({ with: { providers: true } })`.
+ */
+export const authIdentitiesRelations = relations(authIdentities, ({ many }) => ({
+  providers: many(authIdentityProviders),
+  credentials: many(authCredentials),
+  sessions: many(authSessions),
+}))
+
+export const authIdentityProvidersRelations = relations(authIdentityProviders, ({ one }) => ({
+  identity: one(authIdentities, { fields: [authIdentityProviders.identityId], references: [authIdentities.id] }),
+}))
+
+export const authCredentialsRelations = relations(authCredentials, ({ one }) => ({
+  identity: one(authIdentities, { fields: [authCredentials.identityId], references: [authIdentities.id] }),
+}))
+
+export const authSessionsRelations = relations(authSessions, ({ one }) => ({
+  identity: one(authIdentities, { fields: [authSessions.identityId], references: [authIdentities.id] }),
+}))
+
+/**
+ * Pass this whole object to `drizzle(client, { schema: authPgSchema })`. Drizzle keys its relational queries off
+ * the object's own names, so spreading this one is what makes `db.query.authIdentities` resolve.
+ */
+export const authPgSchema = {
+  authCredentials,
+  authCredentialsRelations,
+  authIdentities,
+  authIdentitiesRelations,
+  authIdentityProviders,
+  authIdentityProvidersRelations,
+  authSessions,
+  authSessionsRelations,
+}

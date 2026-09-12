@@ -18,12 +18,13 @@ import { drizzle as drizzleMysql } from 'drizzle-orm/mysql2'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { mysqlUrl } from '~/test/e2e-env'
 import {
+  runAdapterRebindCompliance,
   runCredentialStoreCompliance,
   runIdentityStoreCompliance,
   runSessionStoreCompliance,
 } from '~/test/store-compliance'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
-import { authIdentities, authSessions, drizzleMysqlStorage } from '../index'
+import { authIdentities, authIdentityProviders, authSessions, DrizzleMysqlAdapter } from '../index'
 
 const URL = mysqlUrl()
 const suite = URL ? describe : describe.skip
@@ -35,13 +36,16 @@ const OWNER = randomUUID()
 const OTHER = randomUUID()
 
 suite('DrizzleMysql compliance matrix (real MySQL)', () => {
-  let stores: ReturnType<typeof drizzleMysqlStorage<Profile>>
+  let stores: DrizzleMysqlAdapter
   let conn: import('mysql2/promise').Connection
+  // A real handle for the rebind check: `withClient` refuses anything that is not one.
+  let handle: unknown
 
   beforeAll(async () => {
     const mysql = await import('mysql2/promise')
     conn = await mysql.createConnection(URL as string)
-    stores = drizzleMysqlStorage<Profile>(URL as string)
+    handle = drizzleMysql(conn, { mode: 'default' })
+    stores = new DrizzleMysqlAdapter(URL as string)
   }, 60_000)
 
   afterAll(async () => {
@@ -51,7 +55,7 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
   beforeEach(async () => {
     // FK order matters, and MySQL has no CASCADE on TRUNCATE.
     await conn.query('SET FOREIGN_KEY_CHECKS = 0')
-    for (const t of ['auth_events', 'auth_sessions', 'auth_credentials', 'auth_identities']) {
+    for (const t of ['auth_sessions', 'auth_credentials', 'auth_identities']) {
       await conn.query(`TRUNCATE TABLE ${t}`)
     }
     await conn.query('SET FOREIGN_KEY_CHECKS = 1')
@@ -60,14 +64,18 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       [OTHER, 'other'],
     ]) {
       await conn.query(
-        `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-         VALUES (?, ?, ?, 1, 1, NOW(3), NOW(3))`,
-        [id, JSON.stringify({ email: `${name}@fk.local`, username: name }), JSON.stringify([])],
+        `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+         VALUES (?, ?, 1, 1, NOW(3), NOW(3))`,
+        [id, JSON.stringify({ email: `${name}@fk.local`, username: name })],
       )
     }
   })
 
   runIdentityStoreCompliance<Profile>(() => stores.identities)
+  runAdapterRebindCompliance<Profile>(
+    () => stores,
+    () => handle,
+  )
   runSessionStoreCompliance(() => stores.sessions, { identityId: OWNER, otherIdentityId: OTHER, sessionId })
   runCredentialStoreCompliance(() => stores.credentials, { identityId: OWNER })
 
@@ -84,7 +92,7 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       expect(updated.profile.username).toBe('ret-updated')
       expect(updated.version).toBe(created.version + 1)
       // And the re-select must agree with what a fresh read sees.
-      expect((await stores.identities.findById(created.id))?.profile.username).toBe('ret-updated')
+      expect((await stores.identities.find({ id: created.id }))?.profile.username).toBe('ret-updated')
     })
 
     it('restore hands back the un-deleted row', async () => {
@@ -94,7 +102,7 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       await stores.identities.softDelete(created.id, 60_000)
       const restored = await stores.identities.restore(created.id)
       expect(restored?.id).toBe(created.id)
-      expect(await stores.identities.findById(created.id)).not.toBeNull()
+      expect(await stores.identities.find({ id: created.id })).not.toBeNull()
     })
 
     it('credential rotate hands back the rotated row', async () => {
@@ -118,7 +126,7 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
         providerId: 'oauth:authGoogle',
         providerSub: 'sub-mysql-1',
       })
-      const found = await stores.identities.findByProviderSub('oauth:authGoogle', 'sub-mysql-1')
+      const found = await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub: 'sub-mysql-1' })
       expect(found?.id).toBe(created.id)
     })
 
@@ -130,13 +138,13 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       await stores.identities.link(created.id, { addedAt: new Date(), providerId: 'oauth:b', providerSub: 's-b' })
       await stores.identities.unlink(created.id, 'oauth:a')
 
-      expect(await stores.identities.findByProviderSub('oauth:a', 's-a')).toBeNull()
-      expect((await stores.identities.findByProviderSub('oauth:b', 's-b'))?.id).toBe(created.id)
+      expect(await stores.identities.find({ providerId: 'oauth:a', providerSub: 's-a' })).toBeNull()
+      expect((await stores.identities.find({ providerId: 'oauth:b', providerSub: 's-b' }))?.id).toBe(created.id)
     })
 
     it('findByEmail reads through the json path', async () => {
       await stores.identities.create(identityInput<Profile>({ profile: { email: 'path@x.com', username: 'path' } }))
-      expect((await stores.identities.findByEmail('path@x.com'))?.profile.email).toBe('path@x.com')
+      expect((await stores.identities.find({ email: 'path@x.com' }))?.profile.email).toBe('path@x.com')
     })
 
     it('a soft-deleted identity is invisible to every lookup', async () => {
@@ -146,9 +154,9 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       await stores.identities.link(created.id, { addedAt: new Date(), providerId: 'oauth:c', providerSub: 's-c' })
       await stores.identities.softDelete(created.id, 60_000)
 
-      expect(await stores.identities.findById(created.id)).toBeNull()
-      expect(await stores.identities.findByEmail('gone@x.com')).toBeNull()
-      expect(await stores.identities.findByProviderSub('oauth:c', 's-c')).toBeNull()
+      expect(await stores.identities.find({ id: created.id })).toBeNull()
+      expect(await stores.identities.find({ email: 'gone@x.com' })).toBeNull()
+      expect(await stores.identities.find({ providerId: 'oauth:c', providerSub: 's-c' })).toBeNull()
     })
 
     it('preserves a nested profile through the json column', async () => {
@@ -158,7 +166,7 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
         username: 'nested',
       } as unknown as Profile
       const created = await stores.identities.create(identityInput<Profile>({ profile }))
-      expect((await stores.identities.findById(created.id))?.profile).toEqual(profile)
+      expect((await stores.identities.find({ id: created.id }))?.profile).toEqual(profile)
     })
   })
 
@@ -230,7 +238,7 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
 
 /**
  * As in the pg suite: the tables are a public export, so a direct
- * `db.select()` is a supported read that never touches `createSqlStores`.
+ * `db.select()` is a supported read that never goes through the adapter.
  * MySQL's `json` columns come back parsed, so the ISO string a `Date` was
  * written as arrived under a type promising `Date` until the columns carried
  * their own codec.
@@ -238,14 +246,14 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
 suite('the exported tables hand back the types they declare (real MySQL)', () => {
   let conn: import('mysql2/promise').Connection
   let db: ReturnType<typeof drizzleMysql<Record<string, never>, import('mysql2/promise').Connection>>
-  let stores: ReturnType<typeof drizzleMysqlStorage<Profile>>
+  let stores: DrizzleMysqlAdapter
   const ID = randomUUID()
 
   beforeAll(async () => {
     const mysql = await import('mysql2/promise')
     conn = await mysql.createConnection(URL as string)
     db = drizzleMysql(conn)
-    stores = drizzleMysqlStorage<Profile>(URL as string)
+    stores = new DrizzleMysqlAdapter(URL as string)
   }, 60_000)
 
   afterAll(async () => {
@@ -254,24 +262,26 @@ suite('the exported tables hand back the types they declare (real MySQL)', () =>
 
   beforeEach(async () => {
     await conn.query('SET FOREIGN_KEY_CHECKS = 0')
-    for (const t of ['auth_events', 'auth_sessions', 'auth_credentials', 'auth_identities']) {
+    for (const t of ['auth_sessions', 'auth_credentials', 'auth_identities']) {
       await conn.query(`TRUNCATE TABLE ${t}`)
     }
     await conn.query('SET FOREIGN_KEY_CHECKS = 1')
     await conn.query(
-      `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-       VALUES (?, ?, ?, 1, 1, NOW(3), NOW(3))`,
-      [ID, JSON.stringify({ email: 'tbl@fk.local', username: 'tbl' }), JSON.stringify([])],
+      `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+       VALUES (?, ?, 1, 1, NOW(3), NOW(3))`,
+      [ID, JSON.stringify({ email: 'tbl@fk.local', username: 'tbl' })],
     )
   })
 
-  it('gives providers[].addedAt as a Date on a direct select', async () => {
+  it('gives auth_identity_providers.added_at as a Date on a direct select', async () => {
     const addedAt = new Date('2026-01-02T03:04:05.000Z')
     await stores.identities.link(ID, { addedAt, providerId: 'google', providerSub: 'sub-1' })
 
-    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, ID))
-    expect(row?.providers[0]?.addedAt).toBeInstanceOf(Date)
-    expect(row?.providers[0]?.addedAt?.getTime()).toBe(addedAt.getTime())
+    // A real `datetime(3)` now, not a date inside a JSON column: what is under test is the driver handing
+    // back a Date, and at millisecond precision rather than truncated to the second.
+    const [row] = await db.select().from(authIdentityProviders).where(eq(authIdentityProviders.identityId, ID))
+    expect(row?.addedAt).toBeInstanceOf(Date)
+    expect(row?.addedAt?.getTime()).toBe(addedAt.getTime())
   })
 
   it('gives factors[].completedAt and both actingAs dates as Dates on a direct select', async () => {
@@ -300,19 +310,5 @@ suite('the exported tables hand back the types they declare (real MySQL)', () =>
     expect(row?.factors[0]?.completedAt?.getTime()).toBe(completedAt.getTime())
     expect(row?.actingAs?.startedAt).toBeInstanceOf(Date)
     expect(row?.actingAs?.expiresAt.getTime()).toBe(expiresAt.getTime())
-  })
-
-  it('reads an unparseable addedAt as null at the table and as createdAt through the store', async () => {
-    await conn.query('UPDATE auth_identities SET providers = ? WHERE id = ?', [
-      JSON.stringify([{ addedAt: 'not-a-date', providerId: 'google', providerSub: 'sub-1' }]),
-      ID,
-    ])
-
-    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, ID))
-    expect(row?.providers[0]?.addedAt).toBeNull()
-
-    const viaStore = await stores.identities.findById(ID)
-    expect(viaStore?.providers[0]?.addedAt).toBeInstanceOf(Date)
-    expect(viaStore?.providers[0]?.addedAt.getTime()).toBe(row?.createdAt.getTime())
   })
 })

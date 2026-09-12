@@ -15,19 +15,21 @@
  * Skips when DUCKAUTH_E2E_DATABASE_URL is unset; `globalSetup` provisions a
  * container when docker is available.
  */
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { authUuidV7 } from '~/core/crypto'
 import { applyPgSchema, databaseUrl, isolatedDatabaseUrl } from '~/test/e2e-env'
 import {
+  runAdapterRebindCompliance,
   runCredentialStoreCompliance,
   runIdentityStoreCompliance,
   runSessionStoreCompliance,
 } from '~/test/store-compliance'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
-import { authIdentities, authSessions, drizzlePgStorage } from '../index'
+import { authIdentities, authIdentityProviders, authSessions, DrizzlePgAdapter } from '../index'
 
 const URL = databaseUrl()
 const suite = URL ? describe : describe.skip
@@ -38,12 +40,14 @@ type Profile = { username: string; email: string }
 const sessionId = (label: string) => createHash('sha256').update(label).digest('hex')
 
 /** `auth_identities.id` is `uuid`, and sessions/credentials carry an FK to it. */
-const OWNER = randomUUID()
-const OTHER = randomUUID()
+const OWNER = authUuidV7()
+const OTHER = authUuidV7()
 
 suite('DrizzlePg compliance matrix (real Postgres)', () => {
   let pool: Pool
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  let stores: DrizzlePgAdapter
+  // A real handle for the rebind check: `withClient` refuses anything that is not one.
+  let handle: unknown
 
   beforeAll(async () => {
     // Owned database: this suite truncates between cases, and the other pg suites
@@ -51,7 +55,8 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
     const own = (await isolatedDatabaseUrl('pg_compliance')) as string
     pool = new Pool({ connectionString: own })
     await applyPgSchema(pool)
-    stores = drizzlePgStorage<Profile>(own)
+    handle = drizzle(pool)
+    stores = new DrizzlePgAdapter(own)
   }, 60_000)
 
   afterAll(async () => {
@@ -64,20 +69,24 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
    * identity rows the session + credential foreign keys point at.
    */
   beforeEach(async () => {
-    await pool.query('TRUNCATE auth_events, auth_sessions, auth_credentials, auth_identities CASCADE')
+    await pool.query('TRUNCATE auth_sessions, auth_credentials, auth_identities CASCADE')
     for (const [id, name] of [
       [OWNER, 'owner'],
       [OTHER, 'other'],
     ]) {
       await pool.query(
-        `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-         VALUES ($1, $2::jsonb, '[]'::jsonb, 1, true, now(), now())`,
+        `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+         VALUES ($1, $2::jsonb, 1, true, now(), now())`,
         [id, JSON.stringify({ email: `${name}@fk.local`, username: name })],
       )
     }
   })
 
   runIdentityStoreCompliance<Profile>(() => stores.identities)
+  runAdapterRebindCompliance<Profile>(
+    () => stores,
+    () => handle,
+  )
   runSessionStoreCompliance(() => stores.sessions, { identityId: OWNER, otherIdentityId: OTHER, sessionId })
   runCredentialStoreCompliance(() => stores.credentials, { identityId: OWNER })
 
@@ -117,7 +126,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
       for (const r of settled.filter((x) => x.status === 'rejected')) {
         expect((r as PromiseRejectedResult).reason).toMatchObject({ code: 'AUTH_STALE_WRITE' })
       }
-      const final = await stores.identities.findById(created.id)
+      const final = await stores.identities.find({ id: created.id })
       expect(final?.version).toBe(created.version + 1)
     })
 
@@ -137,35 +146,40 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
     })
   })
 
-  describe('partial unique indexes on the profile jsonb', () => {
+  describe('unique indexes on the profile jsonb', () => {
     it('refuses a second live identity with the same email', async () => {
       await stores.identities.create(identityInput<Profile>({ profile: { email: 'dup@x.com', username: 'dup-a' } }))
       await expect(
         stores.identities.create(identityInput<Profile>({ profile: { email: 'dup@x.com', username: 'dup-b' } })),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
     })
 
     it('treats email case-insensitively, because the index is on lower()', async () => {
       await stores.identities.create(identityInput<Profile>({ profile: { email: 'Case@X.com', username: 'case-a' } }))
       await expect(
         stores.identities.create(identityInput<Profile>({ profile: { email: 'case@x.com', username: 'case-b' } })),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
     })
 
     it('refuses a duplicate username case-insensitively too', async () => {
       await stores.identities.create(identityInput<Profile>({ profile: { email: 'u1@x.com', username: 'Taken' } }))
       await expect(
         stores.identities.create(identityInput<Profile>({ profile: { email: 'u2@x.com', username: 'taken' } })),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({ code: 'AUTH_USERNAME_TAKEN' })
     })
 
-    it('frees the address once the holder is soft-deleted, because the index is partial', async () => {
-      // `WHERE deleted_at IS NULL`: a soft-deleted row must stop reserving its
-      // address, or an account deletion locks the email out forever.
+    it('keeps the address while the holder is hidden, and frees it on erase', async () => {
+      // The index carries no `WHERE deleted_at IS NULL`: handing the address out during the grace window
+      // would leave the row no way back, which is the one thing the window promises.
       const first = await stores.identities.create(
         identityInput<Profile>({ profile: { email: 'reuse@x.com', username: 'reuse-a' } }),
       )
       await stores.identities.softDelete(first.id, 60_000)
+      await expect(
+        stores.identities.create(identityInput<Profile>({ profile: { email: 'reuse@x.com', username: 'reuse-b' } })),
+      ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+
+      await stores.identities.erase(first.id)
       const second = await stores.identities.create(
         identityInput<Profile>({ profile: { email: 'reuse@x.com', username: 'reuse-b' } }),
       )
@@ -177,7 +191,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
         identityInput<Profile>({ profile: { email: 'hidden@x.com', username: 'hidden' } }),
       )
       await stores.identities.softDelete(first.id, 60_000)
-      expect(await stores.identities.findByEmail('hidden@x.com')).toBeNull()
+      expect(await stores.identities.find({ email: 'hidden@x.com' })).toBeNull()
     })
   })
 
@@ -190,7 +204,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
         nested: { list: [1, 2, { deep: true }], unicode: 'naïve 🦆', when: '2026-01-01T00:00:00.000Z' },
       } as unknown as Profile
       const created = await stores.identities.create(identityInput<Profile>({ profile }))
-      const read = await stores.identities.findById(created.id)
+      const read = await stores.identities.find({ id: created.id })
       expect(read?.profile).toEqual(profile)
     })
 
@@ -242,7 +256,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
       const created = await stores.identities.create(
         identityInput<Profile>({ profile: { email: 'time@x.com', username: 'time' } }),
       )
-      const read = await stores.identities.findById(created.id)
+      const read = await stores.identities.find({ id: created.id })
       expect(read?.createdAt).toBeInstanceOf(Date)
       expect(read?.updatedAt).toBeInstanceOf(Date)
       expect(Number.isFinite(read?.createdAt.getTime())).toBe(true)
@@ -304,12 +318,12 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
             factors: [],
             fresh: true,
             id: sessionId('orphan'),
-            identityId: randomUUID(),
+            identityId: authUuidV7(),
             kind: 'user',
             rotatedAt: now,
           }),
         ),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
     it('refuses an out-of-range aal', async () => {
@@ -330,7 +344,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
             rotatedAt: now,
           }),
         ),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('refuses an expiry that precedes creation', async () => {
@@ -352,7 +366,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
             rotatedAt: now,
           }),
         ),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('refuses a session id that is not 64 chars', async () => {
@@ -372,7 +386,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
             rotatedAt: now,
           }),
         ),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('refuses an unrecognised session kind', async () => {
@@ -393,7 +407,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
             rotatedAt: now,
           }),
         ),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('refuses a profile missing the required keys', async () => {
@@ -401,7 +415,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
       await expect(
         // biome-ignore lint/suspicious/noExplicitAny: violating the typed shape on purpose
         stores.identities.create(identityInput<Profile>({ profile: { nickname: 'nope' } as any })),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
   })
 
@@ -477,7 +491,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
 
 /**
  * The tables are a public export, so a `db.select().from(authIdentities)` is a
- * supported way to read - and it does not go through `createSqlStores`. Until
+ * supported way to read - and it does not go through the adapter. Until
  * the columns carried their own codec, `$type<ProviderLink[]>()` promised
  * `addedAt: Date` over a value Postgres handed back as an ISO string:
  * `addedAt.getTime()` threw, `addedAt < new Date()` was always `false`, and
@@ -487,15 +501,15 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
 suite('the exported tables hand back the types they declare (real Postgres)', () => {
   let pool: Pool
   let db: ReturnType<typeof drizzle>
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
-  const ID = randomUUID()
+  let stores: DrizzlePgAdapter
+  const ID = authUuidV7()
 
   beforeAll(async () => {
     const own = (await isolatedDatabaseUrl('pg_table_types')) as string
     pool = new Pool({ connectionString: own })
     await applyPgSchema(pool)
     db = drizzle(pool)
-    stores = drizzlePgStorage<Profile>(own)
+    stores = new DrizzlePgAdapter(own)
   }, 60_000)
 
   afterAll(async () => {
@@ -503,22 +517,23 @@ suite('the exported tables hand back the types they declare (real Postgres)', ()
   })
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE auth_events, auth_sessions, auth_credentials, auth_identities CASCADE')
+    await pool.query('TRUNCATE auth_sessions, auth_credentials, auth_identities CASCADE')
     await pool.query(
-      `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-       VALUES ($1, $2::jsonb, '[]'::jsonb, 1, true, now(), now())`,
+      `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+       VALUES ($1, $2::jsonb, 1, true, now(), now())`,
       [ID, JSON.stringify({ email: 'tbl@fk.local', username: 'tbl' })],
     )
   })
 
-  it('gives providers[].addedAt as a Date on a direct select', async () => {
+  it('gives auth_identity_providers.added_at as a Date on a direct select', async () => {
     const addedAt = new Date('2026-01-02T03:04:05.000Z')
     await stores.identities.link(ID, { addedAt, providerId: 'google', providerSub: 'sub-1' })
 
-    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, ID))
-    const link = row?.providers[0]
-    expect(link?.addedAt).toBeInstanceOf(Date)
-    expect(link?.addedAt?.getTime()).toBe(addedAt.getTime())
+    // A real `timestamptz` now, not a date inside jsonb: what is under test is the driver handing back a
+    // Date rather than the string it read off the wire.
+    const [row] = await db.select().from(authIdentityProviders).where(eq(authIdentityProviders.identityId, ID))
+    expect(row?.addedAt).toBeInstanceOf(Date)
+    expect(row?.addedAt?.getTime()).toBe(addedAt.getTime())
   })
 
   it('gives factors[].completedAt and both actingAs dates as Dates on a direct select', async () => {
@@ -550,28 +565,8 @@ suite('the exported tables hand back the types they declare (real Postgres)', ()
     expect(row?.actingAs?.expiresAt.getTime()).toBe(expiresAt.getTime())
   })
 
-  /**
-   * The column is `NOT NULL jsonb` and nothing more, so an older migration or a
-   * hand-run `UPDATE` can leave an unparseable date in it. `null` is the honest
-   * answer at the column - `new Date('nope')` would be an `Invalid Date`, which
-   * satisfies `instanceof Date` and compares `false` against everything - and
-   * the store, which can see the row's own `createdAt`, is where the fallback
-   * belongs.
-   */
-  it('reads an unparseable addedAt as null at the table and as createdAt through the store', async () => {
-    await pool.query(`UPDATE auth_identities SET providers = $1::jsonb WHERE id = $2`, [
-      JSON.stringify([{ addedAt: 'not-a-date', providerId: 'google', providerSub: 'sub-1' }]),
-      ID,
-    ])
-
-    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, ID))
-    expect(row?.providers[0]?.addedAt).toBeNull()
-
-    const viaStore = await stores.identities.findById(ID)
-    expect(viaStore?.providers[0]?.addedAt).toBeInstanceOf(Date)
-    expect(viaStore?.providers[0]?.addedAt.getTime()).toBe(row?.createdAt.getTime())
-  })
-
+  /** The column is `NOT NULL jsonb` and nothing more, so a hand-run `UPDATE` can leave an unreadable date in it.
+   *  The link stays - dropping it would remove a way into the account - dated at the epoch, and nothing reads it again. */
   /** An impersonation window whose end cannot be read is not one anyone should be inside. */
   it('drops an actingAs whose dates are unreadable rather than carrying an Invalid Date', async () => {
     const id = sessionId('acting-corrupt')

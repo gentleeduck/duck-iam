@@ -16,7 +16,10 @@ CREATE TABLE `auth_credentials` (
 	`last_used_at` datetime(3),
 	`expires_at` datetime(3),
 	`revoked_at` datetime(3),
+	`oauth_provider` varchar(191) GENERATED ALWAYS AS ((metadata ->> '$.provider')) STORED,
+	`oauth_sub` varchar(255) GENERATED ALWAYS AS ((metadata ->> '$.sub')) STORED,
 	CONSTRAINT `auth_credentials_id` PRIMARY KEY(`id`),
+	CONSTRAINT `chk_auth_credentials_tenant_not_blank` CHECK(tenant_id IS NULL OR tenant_id <> ''),
 	CONSTRAINT `chk_auth_credentials_kind` CHECK(kind IN ('password', 'passkey', 'webauthn-mfa', 'oauth', 'magic-link', 'totp', 'recovery', 'api-key')),
 	CONSTRAINT `chk_auth_credentials_version` CHECK(version >= 1),
 	CONSTRAINT `chk_auth_credentials_secret_not_blank` CHECK(secret REGEXP '[^[:space:]]'),
@@ -25,26 +28,9 @@ CREATE TABLE `auth_credentials` (
 	CONSTRAINT `chk_auth_credentials_last_used_after_created` CHECK(last_used_at IS NULL OR last_used_at >= created_at)
 );
 
-CREATE TABLE `auth_events` (
-	`id` varchar(64) NOT NULL,
-	`identity_id` varchar(64),
-	`session_id` varchar(64),
-	`tenant_id` varchar(64),
-	`event` varchar(128) NOT NULL,
-	`method` varchar(32),
-	`ip` varchar(45),
-	`user_agent` text,
-	`actor_id` varchar(191),
-	`metadata` json,
-	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-	CONSTRAINT `auth_events_id` PRIMARY KEY(`id`),
-	CONSTRAINT `chk_auth_events_method` CHECK(method IS NULL OR method IN ('password', 'passkey', 'webauthn-mfa', 'oauth', 'magic-link', 'totp', 'recovery', 'api-key'))
-);
-
 CREATE TABLE `auth_identities` (
 	`id` varchar(64) NOT NULL,
 	`profile` json NOT NULL,
-	`providers` json NOT NULL DEFAULT ('[]'),
 	`version` int NOT NULL DEFAULT 1,
 	`email_verified` boolean NOT NULL DEFAULT false,
 	`created_by` varchar(191),
@@ -53,13 +39,27 @@ CREATE TABLE `auth_identities` (
 	`updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`deleted_at` datetime(3),
 	`deleted_by` varchar(191),
-	`email_norm` varchar(320) GENERATED ALWAYS AS ((if(deleted_at is null, lower(profile ->> '$.email'), null))) STORED,
-	`username_norm` varchar(191) GENERATED ALWAYS AS ((if(deleted_at is null, lower(profile ->> '$.username'), null))) STORED,
+	`email_norm` varchar(320) GENERATED ALWAYS AS ((lower(profile ->> '$.email'))) STORED,
+	`username_norm` varchar(191) GENERATED ALWAYS AS ((lower(profile ->> '$.username'))) STORED,
 	CONSTRAINT `auth_identities_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uq_auth_identities_email` UNIQUE(`email_norm`),
 	CONSTRAINT `uq_auth_identities_username` UNIQUE(`username_norm`),
-	CONSTRAINT `chk_auth_identities_profile_shape` CHECK(profile is null or (profile ->> '$.username' is not null and profile ->> '$.email' is not null)),
+	CONSTRAINT `chk_auth_identities_profile_shape` CHECK(coalesce(json_type(json_extract(profile, '$.username')), '') = 'STRING' and coalesce(profile ->> '$.username', '') <> ''
+        and coalesce(json_type(json_extract(profile, '$.email')), '') = 'STRING' and coalesce(profile ->> '$.email', '') <> ''),
 	CONSTRAINT `chk_auth_identities_version` CHECK(version >= 1)
+);
+
+CREATE TABLE `auth_identity_providers` (
+	`id` varchar(64) NOT NULL,
+	`identity_id` varchar(64) NOT NULL,
+	`provider_id` varchar(191) NOT NULL,
+	`provider_sub` varchar(255) NOT NULL,
+	`added_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+	CONSTRAINT `auth_identity_providers_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_auth_identity_providers_sub` UNIQUE(`provider_id`,`provider_sub`),
+	CONSTRAINT `uq_auth_identity_providers_owned` UNIQUE(`identity_id`,`provider_id`),
+	CONSTRAINT `chk_auth_identity_providers_provider_not_blank` CHECK(provider_id <> ''),
+	CONSTRAINT `chk_auth_identity_providers_sub_not_blank` CHECK(provider_sub <> '')
 );
 
 CREATE TABLE `auth_sessions` (
@@ -81,6 +81,7 @@ CREATE TABLE `auth_sessions` (
 	`fresh` boolean NOT NULL,
 	`acting_as` json,
 	CONSTRAINT `auth_sessions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `chk_auth_sessions_tenant_not_blank` CHECK(tenant_id IS NULL OR tenant_id <> ''),
 	CONSTRAINT `chk_auth_sessions_kind` CHECK(kind IN ('guest', 'user', 'apikey')),
 	CONSTRAINT `chk_auth_sessions_aal` CHECK(aal BETWEEN 1 AND 3),
 	CONSTRAINT `chk_auth_sessions_id_length` CHECK(length(id) = 64),
@@ -90,17 +91,14 @@ CREATE TABLE `auth_sessions` (
 );
 
 ALTER TABLE `auth_credentials` ADD CONSTRAINT `fk_auth_credentials_identity` FOREIGN KEY (`identity_id`) REFERENCES `auth_identities`(`id`) ON DELETE cascade ON UPDATE no action;
-ALTER TABLE `auth_events` ADD CONSTRAINT `fk_auth_events_identity` FOREIGN KEY (`identity_id`) REFERENCES `auth_identities`(`id`) ON DELETE set null ON UPDATE no action;
+ALTER TABLE `auth_identity_providers` ADD CONSTRAINT `fk_auth_identity_providers_identity` FOREIGN KEY (`identity_id`) REFERENCES `auth_identities`(`id`) ON DELETE cascade ON UPDATE no action;
 ALTER TABLE `auth_sessions` ADD CONSTRAINT `fk_auth_sessions_identity` FOREIGN KEY (`identity_id`) REFERENCES `auth_identities`(`id`) ON DELETE cascade ON UPDATE no action;
 CREATE INDEX `auth_credentials_identity_kind` ON `auth_credentials` (`identity_id`,`kind`);
+CREATE INDEX `auth_credentials_oauth` ON `auth_credentials` (`oauth_provider`,`oauth_sub`);
 CREATE INDEX `auth_credentials_kind_secret` ON `auth_credentials` (`kind`,`secret`);
 CREATE INDEX `auth_credentials_tenant` ON `auth_credentials` (`tenant_id`);
 CREATE INDEX `auth_credentials_expires_at` ON `auth_credentials` (`expires_at`);
-CREATE INDEX `auth_events_identity_created` ON `auth_events` (`identity_id`,`created_at`);
-CREATE INDEX `auth_events_tenant_created` ON `auth_events` (`tenant_id`,`created_at`);
-CREATE INDEX `auth_events_actor_created` ON `auth_events` (`actor_id`,`created_at`);
-CREATE INDEX `auth_events_created` ON `auth_events` (`created_at`);
-CREATE INDEX `auth_identities_deleted_at` ON `auth_identities` (`deleted_at`);
+CREATE INDEX `auth_identity_providers_identity` ON `auth_identity_providers` (`identity_id`,`added_at`);
 CREATE INDEX `auth_sessions_identity` ON `auth_sessions` (`identity_id`);
 CREATE INDEX `auth_sessions_identity_expires` ON `auth_sessions` (`identity_id`,`expires_at`);
 CREATE INDEX `auth_sessions_expires` ON `auth_sessions` (`expires_at`);
