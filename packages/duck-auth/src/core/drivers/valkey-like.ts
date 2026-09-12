@@ -1,4 +1,4 @@
-import type { RedisLike } from '../redis/redis-like'
+import type { RedisLike } from './redis-like'
 
 /**
  * The subset of `ioredis` this adapter needs. Valkey speaks the same protocol and

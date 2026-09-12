@@ -9,7 +9,7 @@
  * the write paths that let the index and the record drift apart.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FakeRedis } from '~/adapters/redis/redis-like'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { RedisSessionImpl } from '../sessions.redis'
 

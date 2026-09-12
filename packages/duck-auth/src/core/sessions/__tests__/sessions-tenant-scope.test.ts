@@ -22,7 +22,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { FakeRedis } from '~/adapters/redis/redis-like'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { RedisSessionImpl } from '~/core/sessions/sessions.redis'

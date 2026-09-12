@@ -1,5 +1,5 @@
-import type { RedisLike } from '~/adapters/redis/redis-like'
 import { isFiniteNumber } from '~/core/credentials/credentials'
+import type { RedisLike } from '~/core/drivers/redis-like'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import { IdempotencyImpl } from './idempotency'

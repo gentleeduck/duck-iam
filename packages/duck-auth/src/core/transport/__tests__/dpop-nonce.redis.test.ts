@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FakeRedis } from '~/adapters/redis/redis-like'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import { RedisDPoPNonceStore } from '../dpop-nonce.redis'
 
 describe('RedisDPoPNonceStore', () => {
