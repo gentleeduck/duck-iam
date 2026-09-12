@@ -39,6 +39,10 @@ describe('invalidateRoles drops in-flight subject loads', () => {
   it('a resolved subject holding an unrelated role is still spared', () => {
     // Narrowing still applies to entries the sweep can inspect; this must not become a wholesale clear.
     const bag = makeBag()
+    bag.roleCache.set('all', [
+      { id: 'editor', name: 'Editor', permissions: [] },
+      { id: 'viewer', name: 'Viewer', permissions: [] },
+    ])
     bag.subjectCache.set('u-editor', { attributes: {}, id: 'u-editor', roles: ['editor'] })
     bag.subjectCache.set('u-viewer', { attributes: {}, id: 'u-viewer', roles: ['viewer'] })
     invalidateRoles(bag, 'editor', { broadcast: false })
