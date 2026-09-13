@@ -9,14 +9,42 @@
  * the subscriber on change.
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto'
-import { AuthError } from '../errors'
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { AuthError, redactSecrets } from '../errors'
 import type { Events } from '../events'
+import { EVERY_EVENT } from '../events'
+import { assertResolvedHostIsPublic, assertSafeOutboundUrl } from '../url-validators'
+import {
+  BACKOFF_BASE_MAX_MS,
+  BACKOFF_DEFAULT_MS,
+  backoffFor,
+  HEADER_TOKEN,
+  jitterSource,
+  MAX_ATTEMPTS,
+  PAYLOAD_MAX_BYTES,
+  sanitiseEndpointUrl,
+  TIMEOUT_DEFAULT_MS,
+  TOLERANCE_DEFAULT_MS,
+} from './webhooks.constants'
 
 /**
  * Subscribe the bus, sign + POST each emit to the configured endpoints,
  * retry with exponential backoff, dead-letter on permanent failure.
  */
+const BYTES = new TextEncoder()
+
+/**
+ * Whether repeating the request could ever change the answer.
+ *
+ * 4xx is the consumer saying the request itself is wrong - a rejected body, a bad signature header,
+ * an endpoint that is gone - and the request is byte-identical on every attempt. The two exceptions
+ * are the two 4xx codes that explicitly mean "later": 408 and 429.
+ */
+function isPermanentStatus(status: number): boolean {
+  if (status === 408 || status === 429) return false
+  return status >= 400 && status < 500
+}
+
 export class WebhookDeliverer {
   private readonly _endpoints: Array<
     Required<Omit<WebhookDeliverer.IEndpoint, 'events' | 'signatureHeader' | 'id'>> & {
@@ -30,6 +58,11 @@ export class WebhookDeliverer {
   private readonly _timeoutMs: number
   private readonly _fetch: typeof globalThis.fetch
   private readonly _deadLetter: WebhookDeliverer.IDeadLetterSink | undefined
+  private readonly _resolveHost: ((hostname: string) => Promise<string[]>) | undefined
+  private readonly _redact: (payload: unknown) => unknown
+  private readonly _random: () => number
+  private readonly _attached = new WeakMap<Events.IBus, () => void>()
+  private readonly _inflight = new Set<Promise<unknown>>()
 
   constructor(cfg: WebhookDeliverer.Cfg) {
     if (!cfg.endpoints?.length) {
@@ -44,31 +77,54 @@ export class WebhookDeliverer {
         })
       }
       // SSRF guard; rejects non-HTTPS + loopback/private/link-local/metadata hosts.
-      assertSafeWebhookUrl(e.url, cfg.allowInsecure ?? false)
+      assertSafeOutboundUrl(e.url, { allowInsecure: cfg.allowInsecure ?? false, label: 'webhook url' })
+      // The name reaches `fetch` as a header key, so a typo carrying a space or a colon throws on
+      // every request for every event, forever. Refused once here instead.
+      if (e.signatureHeader !== undefined && !HEADER_TOKEN.test(e.signatureHeader)) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `AuthWebhookDeliverer signatureHeader must be a valid header name (got ${JSON.stringify(e.signatureHeader)})`,
+        })
+      }
     }
     this._endpoints = cfg.endpoints.map((e) => ({
       url: e.url,
       secret: e.secret,
       events: e.events ?? '*',
       signatureHeader: e.signatureHeader ?? 'X-Duck-Signature',
-      id: e.id ?? e.url,
+      // The default identifier is read by an operator and stored with every failure, so it gets the
+      // part of the URL that names the endpoint and not the query string that may authorise it.
+      id: e.id ?? sanitiseEndpointUrl(e.url),
     }))
-    // Bound maxAttempts so backoff `_backoffMs * 2^(attempt-1)` cannot overflow
-    // setTimeout (max ~2^31 ms). 20 attempts at 500ms backoff = ~150 hours total
-    // wall time worst case, which is well past any practical retry policy.
-    this._maxAttempts = Math.min(Math.max(1, cfg.maxAttempts ?? 5), 20)
-    this._backoffMs = cfg.backoffMs ?? 500
-    this._timeoutMs = cfg.timeoutMs ?? 5_000
+    this._maxAttempts = Math.min(Math.max(1, cfg.maxAttempts ?? 5), MAX_ATTEMPTS)
+    // A negative base makes every wait negative, which `setTimeout` floors to zero, so the ladder
+    // that exists to spare a struggling consumer hammers it instead.
+    const backoff = cfg.backoffMs ?? BACKOFF_DEFAULT_MS
+    if (!Number.isFinite(backoff) || backoff < 0 || backoff > BACKOFF_BASE_MAX_MS) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `AuthWebhookDeliverer backoffMs must be a finite number between 0 and ${BACKOFF_BASE_MAX_MS}`,
+      })
+    }
+    this._backoffMs = backoff
+    this._timeoutMs = cfg.timeoutMs ?? TIMEOUT_DEFAULT_MS
     this._fetch = cfg.fetch ?? globalThis.fetch
     this._deadLetter = cfg.deadLetter
+    this._resolveHost = cfg.resolveHost
+    this._redact = cfg.redact ?? redactSecrets
+    this._random = cfg.random ?? jitterSource
   }
 
   /**
    * Attach to every relevant event on the bus. Returns a cleanup that
    * detaches every listener.
+   *
+   * Attaching the same bus twice is the same subscription: a reload path that re-attaches without
+   * calling the previous cleanup would otherwise double the load on every consumer and double the
+   * retries too.
    */
   attach(bus: Events.IBus): () => void {
-    // Collect the union of subscribed event names across all endpoints.
+    const existing = this._attached.get(bus)
+    if (existing) return existing
+
     const allNames = new Set<Events.EventName>()
     for (const e of this._endpoints) {
       if (e.events === '*') {
@@ -80,14 +136,34 @@ export class WebhookDeliverer {
     const subs: Events.Unsubscribe[] = []
     for (const name of allNames) {
       subs.push(
-        bus.on(name, async (payload) => {
-          await this.deliverOne(name, payload)
+        bus.on(name, (payload) => {
+          // Not awaited: `emit` awaits each handler in turn, so awaiting the retry ladder here puts
+          // every backoff and every request timeout on the clock of the sign-in that emitted the
+          // event. A dead consumer would add half a minute to an authentication. `drain` is how a
+          // shutdown or a test waits for what is still in flight.
+          this._track(this.deliverOne(name, payload))
         }),
       )
     }
-    return () => {
-      for (const off of subs) off()
+    const off = () => {
+      this._attached.delete(bus)
+      for (const unsubscribe of subs) unsubscribe()
     }
+    this._attached.set(bus, off)
+    return off
+  }
+
+  /** Settle every delivery still in flight. For a graceful shutdown, and for tests. */
+  async drain(): Promise<void> {
+    while (this._inflight.size > 0) await Promise.allSettled([...this._inflight])
+  }
+
+  private _track(work: Promise<unknown>): void {
+    const tracked = work.catch((err) => {
+      console.error('[@gentleduck/auth] webhook delivery failed outside the retry loop', err)
+    })
+    this._inflight.add(tracked)
+    void tracked.finally(() => this._inflight.delete(tracked))
   }
 
   /**
@@ -115,56 +191,102 @@ export class WebhookDeliverer {
     },
   ): Promise<WebhookDeliverer.Delivery> {
     const firstAttemptAt = Date.now()
+    const deliveryId = randomUUID()
     let lastError = ''
     let attempt = 0
+
+    // Serialised once, before the first attempt. Inside the loop a circular payload or a bigint
+    // read as a failed transport attempt, so nothing was ever sent and the caller still waited
+    // through every backoff for an answer that could not change.
+    let body: string
+    try {
+      body = JSON.stringify({
+        deliveryId,
+        event: name,
+        payload: this._redact(payload),
+        timestamp: firstAttemptAt,
+      })
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err)
+      await this._deadLetterPut(endpoint, name, payload, { attempts: 0, firstAttemptAt, lastError })
+      return { attempts: 0, delivered: false, endpointId: endpoint.id, lastError }
+    }
+    // The construction-time guard sees the spelling of the host and nothing else, so a name that
+    // resolves inward passes it. Checked once, before the ladder: a name pointing inward will point
+    // inward again in eight seconds, so retrying it only delays the same refusal.
+    try {
+      await this._assertEndpointResolvesOutward(endpoint.url)
+    } catch (err) {
+      lastError = err instanceof AuthError ? String(err.meta.detail ?? err.code) : String(err)
+      await this._deadLetterPut(endpoint, name, payload, { attempts: 0, firstAttemptAt, lastError })
+      return { attempts: 0, delivered: false, endpointId: endpoint.id, lastError }
+    }
+    if (BYTES.encode(body).length > PAYLOAD_MAX_BYTES) {
+      console.error(`[@gentleduck/auth] webhook payload for "${name}" exceeds the ${PAYLOAD_MAX_BYTES} byte cap`)
+      lastError = `payload exceeds ${PAYLOAD_MAX_BYTES} byte cap`
+      await this._deadLetterPut(endpoint, name, payload, { attempts: 0, firstAttemptAt, lastError })
+      return { attempts: 0, delivered: false, endpointId: endpoint.id, lastError }
+    }
+
     while (attempt < this._maxAttempts) {
       attempt++
       try {
-        const ok = await this._dispatch(name, payload, endpoint)
-        if (ok) return { attempts: attempt, delivered: true, endpointId: endpoint.id }
-        lastError = 'non-2xx response'
+        const outcome = await this._dispatch(body, firstAttemptAt, deliveryId, endpoint)
+        if (outcome.state === 'delivered') return { attempts: attempt, delivered: true, endpointId: endpoint.id }
+        lastError = outcome.reason
+        // A rejected body, a gone endpoint or a payload over the cap answer the same way however
+        // many times they are asked, so the remaining attempts buy nothing but delay before the
+        // dead letter that was always coming.
+        if (outcome.state === 'permanent') break
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err)
       }
       if (attempt < this._maxAttempts) {
-        const wait = this._backoffMs * 2 ** (attempt - 1)
-        await new Promise((r) => setTimeout(r, wait))
+        await new Promise((r) => setTimeout(r, backoffFor(this._backoffMs, attempt, this._random)))
       }
     }
-    if (this._deadLetter) {
-      await this._deadLetter
-        .put({
-          endpointId: endpoint.id,
-          endpointUrl: endpoint.url,
-          eventName: name,
-          payload,
-          attempts: attempt,
-          lastError,
-          firstAttemptAt,
-          lastAttemptAt: Date.now(),
-        })
-        .catch(() => {
-          // Dead-letter sink failure is non-fatal; log + drop.
-        })
-    }
+    await this._deadLetterPut(endpoint, name, payload, { attempts: attempt, firstAttemptAt, lastError })
     return { attempts: attempt, delivered: false, endpointId: endpoint.id, lastError }
   }
 
-  private async _dispatch(
-    name: Events.EventName,
-    payload: unknown,
-    endpoint: { url: string; secret: string; signatureHeader: string },
-  ): Promise<boolean> {
-    const timestamp = Date.now()
-    const body = JSON.stringify({ event: name, payload, timestamp })
-    // Refuse oversize payloads at dispatch so a runaway event source can't
-    // POST multi-MB bodies to every endpoint (would multiply outbound load).
-    if (body.length > 1_048_576) {
-      console.error(`[@gentleduck/auth] webhook payload for "${name}" exceeds 1 MiB cap; dropping`)
-      return false
+  private async _assertEndpointResolvesOutward(url: string): Promise<void> {
+    if (!this._resolveHost) return
+    for (const address of await this._resolveHost(new URL(url).hostname)) {
+      assertResolvedHostIsPublic(address, 'webhook url')
     }
-    // HMAC covers the body + timestamp so verifiers can reject replays
-    // outside a freshness window without trusting the body claim.
+  }
+
+  private async _deadLetterPut(
+    endpoint: { url: string; id: string },
+    eventName: Events.EventName,
+    payload: unknown,
+    meta: { attempts: number; firstAttemptAt: number; lastError: string },
+  ): Promise<void> {
+    if (!this._deadLetter) return
+    await this._deadLetter
+      .put({
+        attempts: meta.attempts,
+        endpointId: endpoint.id,
+        endpointUrl: sanitiseEndpointUrl(endpoint.url),
+        eventName,
+        firstAttemptAt: meta.firstAttemptAt,
+        lastAttemptAt: Date.now(),
+        lastError: meta.lastError,
+        payload: this._redact(payload),
+      })
+      .catch(() => {
+        // Dead-letter sink failure is non-fatal; log + drop.
+      })
+  }
+
+  private async _dispatch(
+    body: string,
+    timestamp: number,
+    deliveryId: string,
+    endpoint: { url: string; secret: string; signatureHeader: string },
+  ): Promise<{ state: 'delivered' } | { state: 'retry' | 'permanent'; reason: string }> {
+    // HMAC covers the body, which carries the timestamp and the delivery id, so a verifier can
+    // reject a stale delivery and a consumer can key its idempotency store on a single use.
     const signature = signWebhookBody(endpoint.secret, body, timestamp)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this._timeoutMs)
@@ -172,103 +294,60 @@ export class WebhookDeliverer {
       // `redirect: 'error'` so the SSRF check at construction holds; otherwise
       // a remote can 30x-redirect to an internal IP we never approved.
       const res = await this._fetch(endpoint.url, {
-        method: 'POST',
         body,
         headers: {
           'content-type': 'application/json',
           [endpoint.signatureHeader]: signature,
-          'x-duck-timestamp': String(timestamp),
           'user-agent': '@gentleduck/auth-webhook',
+          'x-duck-delivery-id': deliveryId,
+          'x-duck-timestamp': String(timestamp),
         },
-        signal: controller.signal,
+        method: 'POST',
         redirect: 'error',
+        signal: controller.signal,
       })
-      return res.ok
+      if (res.ok) return { state: 'delivered' }
+      return {
+        reason: `non-2xx response (${res.status})`,
+        state: isPermanentStatus(res.status) ? 'permanent' : 'retry',
+      }
     } finally {
       clearTimeout(timer)
     }
   }
 }
 
-/** Refuse loopback / private / link-local / cloud-metadata hosts. */
-function assertSafeWebhookUrl(rawUrl: string, allowInsecure: boolean): void {
-  let parsed: URL
-  try {
-    parsed = new URL(rawUrl)
-  } catch {
-    throw new AuthError('AUTH_MISCONFIGURED', { detail: `webhook url is not a valid URL: ${rawUrl}` })
-  }
-  if (parsed.protocol !== 'https:' && !(allowInsecure && parsed.protocol === 'http:')) {
-    throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `webhook url must use HTTPS (${parsed.protocol}). Pass allowInsecure: true for dev only.`,
-    })
-  }
-  const host = parsed.hostname.toLowerCase()
-  // Block IPv4/IPv6 loopback + link-local + private + cloud-metadata.
-  // Conservative regex-only guard; over-blocks `::ffff:` / `64:ff9b:` /
-  // `2002:` literals since no legitimate webhook needs them.
-  const danger = [
-    /^localhost$/,
-    /^127\./,
-    /^0\./,
-    /^10\./,
-    /^192\.168\./,
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-    /^169\.254\./, // link-local + AWS/GCP metadata 169.254.169.254
-    /^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./, // CGNAT 100.64/10
-    /^0x/i, // hex IPv4 like 0x7f.0.0.1 (URL parser does NOT canonicalize)
-    /^::1$/,
-    /^\[?::\]?$/, // all-zeros IPv6 unspecified (often routes to local) - URL().hostname returns `[::]` with brackets
-    /^\[?0:0:0:0:0:0:0:0\]?$/, // expanded all-zeros form
-    /^\[?0:0:0:0:0:0:0:1\]?$/, // expanded loopback form
-    /^fe80:/i,
-    /^fc[0-9a-f]{2}:/i,
-    /^fd[0-9a-f]{2}:/i,
-    /^\[?::1\]?$/,
-    /^\[?fe80::/i,
-    // IPv4-mapped IPv6 `::ffff:...` routes to embedded v4; over-block.
-    /^\[?::ffff:/i,
-    /^\[?0:0:0:0:0:ffff:/i, // fully-expanded form
-    // NAT64 well-known prefix `64:ff9b::/96` carries an inner IPv4
-    // in the last 32 bits. Used to translate IPv6-only clients to IPv4
-    // servers - operator misuse could route to loopback via this prefix.
-    /^\[?64:ff9b:/i,
-    /^\[?0064:ff9b:/i, // non-canonical leading-zero form
-    // 6to4 prefix `2002::/16` carries an inner IPv4 in the next
-    // 32 bits. Linux ships 6to4 by default - `2002:7f00:1::` routes to
-    // 127.0.0.1. Over-block all 2002:: literals.
-    /^\[?2002:/i,
-  ]
-  for (const pat of danger) {
-    if (pat.test(host)) {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `webhook url host ${host} is private / loopback / link-local - refused (SSRF guard)`,
-      })
-    }
-  }
-}
-
 /**
- * Sign a webhook body for transport. Caller-side consumers verify via
- * `authVerifyWebhookSignature`. Algorithm: `sha256=` + lowercase hex
- * digest, matching the convention most webhook tooling uses. When
- * `timestamp` is supplied, the HMAC covers `${timestamp}.${body}` -
- * pair it with the `X-Duck-Timestamp` header so verifiers can reject
- * replays outside a freshness window.
+ * Sign a webhook body for transport. Consumers verify with `verifyWebhookSignature`.
+ *
+ * Format: `authSha256=` + lowercase hex digest. Not `sha256=`: the prefix differs from the GitHub
+ * and Stripe convention on purpose, because those carry a different payload under the same name,
+ * and a verifier that read the prefix as theirs would check the wrong string. `verifyWebhookSignature`
+ * accepts either spelling so a consumer migrating from one of those tools is not silently refused.
+ *
+ * When `timestamp` is supplied the HMAC covers `${timestamp}.${body}`. The deliverer also writes it
+ * to `X-Duck-Timestamp` and into the body, which are the same number: verify against the header, or
+ * against the value inside the signed body, never against one a caller invented.
  *
  * Two-arg form (no timestamp) is retained for backwards compatibility
  * with consumers that already verify body-only signatures.
  */
 export function signWebhookBody(secret: string, body: string, timestamp?: number): string {
+  assertSecret(secret)
   const payload = timestamp === undefined ? body : `${timestamp}.${body}`
-  return `authSha256=${createHmac('sha256', secret).update(payload).digest('hex')}`
+  return `${SIGNATURE_PREFIX}${createHmac('sha256', secret).update(payload).digest('hex')}`
 }
 
 /**
- * Constant-time verify a webhook signature against the raw body. Apps
- * call this in their handler before parsing the JSON. When the
- * `X-Duck-Timestamp` header was supplied, pass `timestamp` + tolerance
- * to defend against replays. Default tolerance: 5 minutes.
+ * Constant-time verify a webhook signature against the raw body. Apps call this in their handler
+ * before parsing the JSON.
+ *
+ * `timestamp` must be the value from `X-Duck-Timestamp`, which the signature covers; a stale one is
+ * refused. That bounds a replay to the window but does not prevent one inside it, so a handler that
+ * must act once per delivery keys an idempotency store on the `X-Duck-Delivery-Id` header, which is
+ * unique per delivery and carried in the signed body.
+ *
+ * Default tolerance: 5 minutes.
  */
 export function verifyWebhookSignature(
   secret: string,
@@ -276,40 +355,39 @@ export function verifyWebhookSignature(
   signature: string,
   opts: { timestamp?: number; toleranceMs?: number } = {},
 ): boolean {
+  assertSecret(secret)
+  const tolerance = opts.toleranceMs ?? TOLERANCE_DEFAULT_MS
+  // A negative window refuses every signature including a fresh one, so the sign error in a
+  // consumer's config would present as every delivery being rejected for a bad secret.
+  if (!Number.isFinite(tolerance) || tolerance < 0) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: 'verifyWebhookSignature toleranceMs must be a non-negative finite number',
+    })
+  }
   if (opts.timestamp !== undefined) {
     // NaN timestamp would silently bypass `Math.abs(...) > tolerance`.
     if (typeof opts.timestamp !== 'number' || !Number.isFinite(opts.timestamp)) return false
-    const tolerance = opts.toleranceMs ?? 5 * 60_000
     if (Math.abs(Date.now() - opts.timestamp) > tolerance) return false
   }
-  const expected = signWebhookBody(secret, body, opts.timestamp)
-  const a = Buffer.from(signature)
-  const b = Buffer.from(expected)
-  return a.length === b.length && timingSafeEqual(a, b)
+  const prefix = ACCEPTED_PREFIXES.find((p) => signature.startsWith(p))
+  if (prefix === undefined) return false
+  const supplied = Buffer.from(signature.slice(prefix.length))
+  const expected = Buffer.from(signWebhookBody(secret, body, opts.timestamp).slice(SIGNATURE_PREFIX.length))
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
 }
 
-/** Every event name in the Events.EventMap; used to materialize `'*'` subscriptions. */
-const EVERY_EVENT: Events.EventName[] = [
-  'session.created',
-  'session.rotated',
-  'session.revoked',
-  'signin.success',
-  'signin.failed',
-  'signup.completed',
-  'lockout',
-  'mfa.enrolled',
-  'mfa.removed',
-  'identity.linked',
-  'identity.unlinked',
-  'identity.merged',
-  'identity.impersonated',
-  'recovery.password.requested',
-  'recovery.password.completed',
-  'recovery.mfa.escalated',
-  'suspicious',
-  'maintenance.on',
-  'maintenance.off',
-]
+const SIGNATURE_PREFIX = 'authSha256='
+const ACCEPTED_PREFIXES = [SIGNATURE_PREFIX, 'sha256=']
+
+/**
+ * An empty secret produces a signature anyone can compute, and the helpers are what a consumer
+ * calls: construction refuses one on an endpoint, so refusing it here too closes the other half.
+ */
+function assertSecret(secret: string): void {
+  if (typeof secret !== 'string' || secret.length === 0) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'webhook signing requires a non-empty secret' })
+  }
+}
 
 export namespace WebhookDeliverer {
   /** What one endpoint made of one event. Returned by `deliverOne`. */
@@ -342,6 +420,23 @@ export namespace WebhookDeliverer {
      * regardless of this flag.
      */
     allowInsecure?: boolean
+    /**
+     * Resolve an endpoint hostname to its addresses, checked against the same ranges before each
+     * request. Without it the guard sees only the spelling of the host, so a name pointing at
+     * 127.0.0.1 is accepted; with it, only a name that still resolves outward is delivered to.
+     *
+     * `dns.promises.lookup(hostname, { all: true })` mapped to its addresses is the Node wiring.
+     * This closes the name, not the race: `fetch` resolves again when it connects.
+     */
+    resolveHost?: (hostname: string) => Promise<string[]>
+    /**
+     * Redact a payload before it is signed, sent and dead-lettered. Defaults to blanking every
+     * secret-bearing key at any depth, because a `session.created` payload carries the session row
+     * and the identity, and both go to a third party verbatim otherwise.
+     */
+    redact?: (payload: unknown) => unknown
+    /** Jitter source for the retry backoff. Tests pin it; nothing else should pass it. */
+    random?: () => number
   }
 
   export interface IEndpoint {
