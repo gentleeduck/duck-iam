@@ -45,52 +45,55 @@ function makeFacet(cfg: Partial<Anomaly.Cfg> = {}) {
 const run = (facet: AnomalyFacet, req: Partial<Anomaly.RequestSnapshot> = {}) =>
   facet.evaluate({ identity, req: { now: NOW, ...req }, session })
 
-describe('the aggregate is a plain sum, and a sum can be steered', () => {
-  it('FINDING: a negative score from one detector cancels a real signal from another', async () => {
-    // `isValidSignal` accepts any finite number, and `sumScores` adds it as-is.
-    // A detector that returns a negative score, whether buggy or hostile, is a
-    // veto over every other detector: it subtracts from the aggregate until the
-    // ladder reads `allow`. Scores are documented as 0..1 and never clamped.
+describe('the aggregate saturates, so it cannot be steered by count or by sign', () => {
+  it('a negative score is clamped away rather than vetoing another detector', async () => {
     const { facet, emitted } = makeFacet({ denyAt: 0.95, stepUpAt: 0.7, threshold: 0.7 })
     facet.register(detectorOf('honest', [signalOf('impossible-travel', 1)]))
     facet.register(detectorOf('hostile', [signalOf('new-device', -5)]))
 
     const result = await run(facet)
-    expect(result.score).toBe(-4)
-    expect(result.decision).toBe('allow')
-    expect(emitted).toHaveLength(0)
+    expect(result.score).toBe(1)
+    expect(result.decision).toBe('deny')
+    expect(emitted).toHaveLength(1)
   })
 
-  it('FINDING: many weak signals add up to a deny no single detector asked for', async () => {
-    // Five detectors each reporting a mild 0.2 cross `denyAt` together. Summing
-    // unbounded scores means the ladder is calibrated against the number of
-    // registered detectors, not against their severity.
-    const { facet } = makeFacet()
-    for (let i = 0; i < 5; i++) facet.register(detectorOf(`d${i}`, [signalOf('off-hours', 0.2)]))
-    expect((await run(facet)).decision).toBe('deny')
-  })
-
-  it('FINDING: registering the same detector twice counts it twice', async () => {
-    // `register` appends without checking the id, so a module loaded twice, or a
-    // plugin re-registering on reload, silently doubles that detector's weight.
-    const { facet } = makeFacet()
-    const d = detectorOf('new-device', [signalOf('new-device', 0.5)])
-    facet.register(d)
-    facet.register(d)
-
-    expect(facet.list()).toEqual(['new-device', 'new-device'])
+  it('a score above one is clamped too, so it cannot outrun the ladder', async () => {
+    const { facet } = makeFacet({ denyAt: 0.95, stepUpAt: 0.7 })
+    facet.register(detectorOf('a', [signalOf('new-device', 50)]))
     expect((await run(facet)).score).toBe(1)
   })
 
-  it('FINDING: unregister removes only the first detector holding an id', async () => {
+  it('many weak signals saturate instead of summing into a deny nothing asked for', async () => {
+    const { facet } = makeFacet()
+    for (let i = 0; i < 5; i++) facet.register(detectorOf(`d${i}`, [signalOf('off-hours', 0.2)]))
+    // 1 - 0.8^5 = 0.67232, under stepUpAt. A plain sum made this 1.0 and a deny.
+    const result = await run(facet)
+    expect(result.score).toBe(0.67232)
+    expect(result.decision).toBe('allow')
+  })
+
+  it('but enough strong signals still reach deny', async () => {
+    const { facet } = makeFacet()
+    for (let i = 0; i < 4; i++) facet.register(detectorOf(`d${i}`, [signalOf('off-hours', 0.6)]))
+    expect((await run(facet)).decision).toBe('deny')
+  })
+
+  it('refuses a second detector under an id already registered', async () => {
     const { facet } = makeFacet()
     const d = detectorOf('new-device', [signalOf('new-device', 0.5)])
     facet.register(d)
-    facet.register(d)
-    facet.unregister('new-device')
+    expect(() => facet.register(d)).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
 
     expect(facet.list()).toEqual(['new-device'])
     expect((await run(facet)).score).toBe(0.5)
+  })
+
+  it('a reload path unregisters first, and then the id is free again', async () => {
+    const { facet } = makeFacet()
+    facet.register(detectorOf('new-device', [signalOf('new-device', 0.5)]))
+    expect(facet.unregister('new-device')).toBe(true)
+    expect(() => facet.register(detectorOf('new-device', [signalOf('new-device', 0.5)]))).not.toThrow()
+    expect(facet.list()).toEqual(['new-device'])
   })
 
   it('a single signal at exactly denyAt denies', async () => {
@@ -122,65 +125,59 @@ describe('the aggregate is a plain sum, and a sum can be steered', () => {
 })
 
 describe('the event and the decision are computed separately', () => {
-  it('FINDING: a NaN score denies the request but emits no suspicious event', async () => {
-    // `decide` fails closed on a non-finite score, which is right. But
-    // `sumScores` skips the same signal, so the aggregate is 0, the threshold is
-    // never crossed, and the strongest decision the facet can return is taken
-    // with nothing written to the audit trail.
+  it('records a NaN-driven deny, even though the score it reports is zero', async () => {
     const { facet, emitted } = makeFacet()
     facet.register(detectorOf('a', [signalOf('impossible-travel', Number.NaN)]))
 
     const result = await run(facet)
     expect(result.decision).toBe('deny')
     expect(result.score).toBe(0)
-    expect(emitted).toHaveLength(0)
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0]).toMatchObject({ meta: { decision: 'deny' } })
   })
 
-  it('FINDING: a threshold above stepUpAt makes step-up decisions invisible to audit', async () => {
-    // `threshold` gates the event and `stepUpAt` gates the decision, with no
-    // relation enforced between them. An operator who raises the event threshold
-    // to cut noise also blinds the log to every step-up it caused.
+  it('records a step-up that a raised event threshold would otherwise have hidden', async () => {
     const { facet, emitted } = makeFacet({ denyAt: 0.95, stepUpAt: 0.5, threshold: 0.9 })
     facet.register(detectorOf('a', [signalOf('new-device', 0.6)]))
 
     expect((await run(facet)).decision).toBe('step-up')
-    expect(emitted).toHaveLength(0)
+    expect(emitted).toHaveLength(1)
   })
 
-  it('FINDING: a reaction override denies without ever emitting an event', async () => {
-    // The per-kind override bypasses the score entirely, so the loudest possible
-    // outcome, deny on a single low-scoring signal, leaves no record at all.
+  it('records a deny that came from a reaction override rather than from the score', async () => {
     const { facet, emitted } = makeFacet({ reactions: { 'new-device': 'deny' } })
     facet.register(detectorOf('a', [signalOf('new-device', 0.01)]))
 
     expect((await run(facet)).decision).toBe('deny')
-    expect(emitted).toHaveLength(0)
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0]).toMatchObject({ meta: { decision: 'deny' }, score: 0.01 })
   })
 
   it('the emitted event names every contributing signal kind', async () => {
     const { facet, emitted } = makeFacet({ threshold: 0.5 })
     facet.register(detectorOf('a', [signalOf('new-device', 0.4), signalOf('off-hours', 0.4)]))
     await run(facet)
-    expect(emitted[0]).toMatchObject({ score: 0.8, signal: 'new-device+off-hours' })
+    expect(emitted[0]).toMatchObject({ score: 0.64, signal: 'new-device+off-hours' })
   })
 
-  it('FINDING: an empty identity id drops the identity from the event entirely', async () => {
-    // The spread is guarded on truthiness, so an empty-string id produces a
-    // suspicious record with no subject rather than one naming the empty id.
+  it('names the identity the request actually carried, empty id included', async () => {
     const { facet, emitted } = makeFacet({ threshold: 0.1 })
     facet.register(detectorOf('a', [signalOf('new-device', 0.5)]))
     await facet.evaluate({ identity: makeIdentity({ id: '' }), req: { now: NOW }, session })
-    expect(emitted[0]).not.toHaveProperty('identityId')
+    expect(emitted[0]).toHaveProperty('identityId', '')
   })
 })
 
 describe('per-kind reactions can raise but not lower', () => {
-  it('FINDING: an explicit allow override cannot hold back a score-driven step-up', async () => {
-    // `severity[kindDecision] > 0` means an `allow` override is indistinguishable
-    // from no override, so an operator who writes `{ 'new-device': 'allow' }` to
-    // stop a noisy detector forcing step-up gets step-up anyway.
+  it('an allow override mutes that signal, and only that signal', async () => {
     const { facet } = makeFacet({ reactions: { 'new-device': 'allow' }, stepUpAt: 0.7 })
     facet.register(detectorOf('a', [signalOf('new-device', 0.8)]))
+    const muted = await run(facet)
+    expect(muted.score).toBe(0)
+    expect(muted.decision).toBe('allow')
+
+    // A detector that was not muted still scores and still raises the ladder.
+    facet.register(detectorOf('b', [signalOf('off-hours', 0.8)]))
     expect((await run(facet)).decision).toBe('step-up')
   })
 
@@ -208,14 +205,30 @@ describe('per-kind reactions can raise but not lower', () => {
     expect((await run(facet)).decision).toBe('allow')
   })
 
-  it('FINDING: a plugin can name its own kind and claim any reaction key', async () => {
-    // `isValidSignal` deliberately accepts kinds outside the union so plugins can
-    // extend it. Combined with reactions being keyed by that same free string, a
-    // detector chooses which configured reaction applies to it by picking a kind,
-    // including one the operator wrote for a different detector.
-    const { facet } = makeFacet({ reactions: { 'impossible-travel': 'deny' } })
-    facet.register(detectorOf('impostor', [{ evidence: {}, kind: 'impossible-travel', score: 0 } as Anomaly.Signal]))
-    expect((await run(facet)).decision).toBe('deny')
+  it('a reaction can be scoped to the detector that earned it, so a plugin cannot claim it', async () => {
+    // `isValidSignal` deliberately accepts kinds outside the union so plugins can extend it, and a
+    // bare key still applies to whoever names that kind. The scoped key is the remedy.
+    const impostor = () =>
+      detectorOf('impostor', [{ evidence: {}, kind: 'impossible-travel', score: 0 } as Anomaly.Signal])
+
+    const bare = makeFacet({ reactions: { 'impossible-travel': 'deny' } })
+    bare.facet.register(impostor())
+    expect((await run(bare.facet)).decision).toBe('deny')
+
+    const scoped = makeFacet({ reactions: { 'travel.detector#impossible-travel': 'deny' } })
+    scoped.facet.register(impostor())
+    expect((await run(scoped.facet)).decision).toBe('allow')
+
+    scoped.facet.register(
+      detectorOf('travel.detector', [{ evidence: {}, kind: 'impossible-travel', score: 0 } as Anomaly.Signal]),
+    )
+    expect((await run(scoped.facet)).decision).toBe('deny')
+  })
+
+  it('stamps every accepted signal with the detector that produced it', async () => {
+    const { facet } = makeFacet()
+    facet.register(detectorOf('travel.detector', [signalOf('impossible-travel', 0.1)]))
+    expect((await run(facet)).signals[0]).toMatchObject({ source: 'travel.detector' })
   })
 })
 
@@ -242,10 +255,7 @@ describe('a misbehaving detector must not take authentication with it', () => {
     vi.restoreAllMocks()
   })
 
-  it('FINDING: detectors run one after another with no timeout, so one slow plugin stalls every sign-in', async () => {
-    // The loop awaits each detector in turn. A detector that hangs on a network
-    // call holds the request open indefinitely, and even well-behaved ones add
-    // their latencies rather than overlapping.
+  it('runs detectors concurrently, so their latencies overlap rather than add', async () => {
     const { facet } = makeFacet()
     const order: string[] = []
     for (const id of ['a', 'b', 'c']) {
@@ -260,13 +270,25 @@ describe('a misbehaving detector must not take authentication with it', () => {
       })
     }
     await run(facet)
-    expect(order).toEqual(['start-a', 'end-a', 'start-b', 'end-b', 'start-c', 'end-c'])
+    expect(order.slice(0, 3)).toEqual(['start-a', 'start-b', 'start-c'])
   })
 
-  it('FINDING: a detector can mutate the request snapshot the later detectors read', async () => {
-    // The same object is handed to every detector, so the first one registered
-    // decides what the rest see. A plugin can blank the ip and disable the
-    // fingerprint detector that runs after it.
+  it('abandons a detector that overruns its timeout, and scores the rest', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { facet } = makeFacet({ detectorTimeoutMs: 10, threshold: 0.4 })
+    facet.register({ evaluate: () => new Promise(() => undefined), id: 'hangs' })
+    facet.register(detectorOf('fast', [signalOf('new-device', 0.5)]))
+
+    const started = Date.now()
+    const result = await run(facet)
+    expect(Date.now() - started).toBeLessThan(200)
+    expect(result.score).toBe(0.5)
+    expect(result.signals.map((s) => s.source)).toEqual(['fast'])
+    vi.restoreAllMocks()
+  })
+
+  it('hands every detector a frozen snapshot, so none can edit what the others read', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const { facet } = makeFacet()
     facet.register({
       evaluate: async ({ req }) => {
@@ -283,8 +305,9 @@ describe('a misbehaving detector must not take authentication with it', () => {
       },
       id: 'observer',
     })
-    await run(facet, { ip: '203.0.113.9' })
-    expect(observed).toBeUndefined()
+    await run(facet, { geo: { country: 'FR' }, ip: '203.0.113.9' })
+    expect(observed).toBe('203.0.113.9')
+    vi.restoreAllMocks()
   })
 
   it('a signal whose evidence is missing is still counted', async () => {
@@ -320,53 +343,59 @@ describe('impossible travel: what the detector agrees not to look at', () => {
     expect(signal?.score).toBe(1)
   })
 
-  it('FINDING: the same hop inside the minimum window is exempt entirely', async () => {
-    // `minElapsedMs` defaults to 60s to forgive NAT mobility, but it is applied
-    // before any distance check. Two sign-ins from opposite sides of the planet
-    // fifty seconds apart, the least plausible pattern there is, produce no
-    // signal at all, while the same pair seventy seconds apart scores 1.
+  it('treats the minimum window as a floor on the interval, not as an exemption', async () => {
     const quick = detector({ ...NYC, at: NOW - 50_000 })
-    expect(await evaluate(quick, TOKYO)).toEqual([])
+    expect((await evaluate(quick, TOKYO))[0]?.score).toBe(1)
 
     const slower = detector({ ...NYC, at: NOW - 70_000 })
     expect((await evaluate(slower, TOKYO))[0]?.score).toBe(1)
   })
 
-  it('FINDING: a last-seen timestamp in the future silences the detector', async () => {
-    // Elapsed time is absolute to tolerate clock skew, so a future stamp reads as
-    // a long gap and the speed comes out plausible. Wherever last-seen is written
-    // from a client-supplied clock, writing tomorrow's date turns detection off.
+  it('still forgives a short hop inside the window, which is what the floor is for', async () => {
+    // Five km in ten seconds is NAT mobility, and dividing it by ten seconds would call it 1800
+    // km/h. Divided by the 60s floor it is 300 km/h and no signal.
+    const d = detector({ ...NYC, at: NOW - 10_000 })
+    expect(await evaluate(d, { lat: NYC.lat + 0.045, lon: NYC.lon })).toEqual([])
+  })
+
+  it('does not let a last-seen stamp in the future read as a long gap', async () => {
+    // Where last-seen is written from a client-supplied clock, tomorrow's date used to turn the
+    // detector off: the elapsed time was absolute, so a day in the future was a day of travel.
     const d = detector({ ...NYC, at: NOW + 86_400_000 })
-    expect(await evaluate(d, TOKYO)).toEqual([])
+    expect((await evaluate(d, TOKYO))[0]?.score).toBe(1)
   })
 
-  it('FINDING: coordinates outside the valid range are scored rather than rejected', async () => {
-    // Only `Number.isFinite` is checked. A latitude of 900 is not a place, but
-    // haversine returns a number for it, so the detector reports a distance and a
-    // speed derived from nonsense.
+  it('skips coordinates that are not a place on earth, on either side of the comparison', async () => {
     const d = detector({ ...NYC, at: NOW - 3_600_000 })
-    const [signal] = await evaluate(d, { lat: 900, lon: 4000 })
-    expect(signal).toBeDefined()
-    expect(Number.isFinite(signal?.evidence.distanceKm as number)).toBe(true)
+    for (const geo of [
+      { lat: 900, lon: 4000 },
+      { lat: 91, lon: 0 },
+      { lat: 0, lon: -181 },
+    ]) {
+      expect(await evaluate(d, geo)).toEqual([])
+    }
+    const stored = detector({ at: NOW - 3_600_000, lat: 900, lon: 0 })
+    expect(await evaluate(stored, TOKYO)).toEqual([])
   })
 
-  it('FINDING: the score is near zero for anything under twice the speed limit', async () => {
-    // The score is `(speed / max) - 1`, so crossing the limit is worth almost
-    // nothing and only a 2x overshoot reaches 1. With the default ladder a
-    // sustained 1500 km/h, impossible for a person, still decides `allow`.
+  it('scores from half a point upward the moment the limit is crossed', async () => {
+    // The old curve was `(speed / max) - 1`, so crossing the limit was worth almost nothing and a
+    // sustained 1500 km/h still decided allow.
     const d = detector({ ...NYC, at: NOW - 3_600_000 }, { maxKmPerHour: 900 })
-    // 1000 km due east of New York, covered in one hour.
-    const [signal] = await evaluate(d, { lat: NYC.lat, lon: NYC.lon + 11.8 })
-    expect(signal?.score).toBeLessThan(0.2)
+    // 1000 km due east of New York, covered in one hour: a plausible ground speed, so a mild score.
+    const [mild] = await evaluate(d, { lat: NYC.lat, lon: NYC.lon + 11.8 })
+    expect(mild?.score).toBeGreaterThan(0.5)
+    expect(mild?.score).toBeLessThan(0.6)
 
+    // 1500 km in the same hour is not a person travelling, and now says so.
     const { facet } = makeFacet()
     facet.register(detector({ ...NYC, at: NOW - 3_600_000 }))
     const result = await facet.evaluate({
       identity,
-      req: { geo: { lat: NYC.lat, lon: NYC.lon + 11.8 }, now: NOW },
+      req: { geo: { lat: NYC.lat, lon: NYC.lon + 17.7 }, now: NOW },
       session,
     })
-    expect(result.decision).toBe('allow')
+    expect(result.decision).toBe('step-up')
   })
 
   it('a zero coordinate is a real place, not a missing one', async () => {
@@ -412,12 +441,17 @@ describe('impossible travel: what the detector agrees not to look at', () => {
     ).toThrow()
   })
 
-  it('FINDING: a zero minimum elapsed time makes any gap divide by an interval of zero', async () => {
-    // `minElapsedMs: 0` is accepted with no validation. Two samples at the same
-    // instant give an infinite speed, which the finite check then discards, so
-    // the most extreme possible teleport is the one case that reports nothing.
-    const d = detector({ ...NYC, at: NOW }, { minElapsedMs: 0 })
-    expect(await evaluate(d, TOKYO)).toEqual([])
+  it('refuses a non-positive minimum interval at construction', () => {
+    // Zero is what the speed is divided by, so it turned the most extreme possible teleport into an
+    // infinite speed that the finite check then discarded.
+    for (const minElapsedMs of [0, -1, Number.NaN]) {
+      expect(() => detector(null, { minElapsedMs })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    }
+  })
+
+  it('two samples at the same instant are the floor interval, and a teleport across them scores', async () => {
+    const d = detector({ ...NYC, at: NOW })
+    expect((await evaluate(d, TOKYO))[0]?.score).toBe(1)
   })
 
   it('reports the raw signed elapsed time in evidence, not the absolute one used for the maths', async () => {
@@ -438,44 +472,51 @@ describe('device fingerprint: what counts as the same device', () => {
 
   const UA = 'Mozilla/5.0 (Macintosh) Safari/605'
 
-  it('FINDING: omitting the user agent turns the detector off instead of flagging it', async () => {
-    // A request with no `User-Agent` cannot be fingerprinted, so the composer
-    // returns null and no signal is emitted. Sending no header is entirely under
-    // an attacker's control, and it is also the one thing no real browser does,
-    // so the evasion is both free and the opposite of the signal it suppresses.
+  it('flags a request that omits the user agent instead of going quiet', async () => {
     const { detector } = make()
     expect(await seen(detector, { ip: '203.0.113.9', userAgent: UA })).toHaveLength(1)
-    expect(await seen(detector, { ip: '198.51.100.4', userAgent: undefined })).toEqual([])
+    expect(await seen(detector, { ip: '198.51.100.4', userAgent: undefined })).toHaveLength(1)
+    // A second header-less request from the same subnet is the same device, not a new one, so the
+    // bucket is shared rather than one per sighting.
     expect(await seen(detector, { ip: '198.51.100.4', userAgent: '   ' })).toEqual([])
   })
 
-  it('FINDING: an over-long user agent also silences the detector', async () => {
-    // The 1024-character guard exists to bound the hash input, but it returns
-    // null rather than truncating, so padding the header past the limit is a
-    // second way to opt out of being fingerprinted.
+  it('truncates an over-long user agent rather than letting padding switch it off', async () => {
     const { detector } = make()
-    expect(await seen(detector, { ip: '198.51.100.4', userAgent: 'x'.repeat(1025) })).toEqual([])
-    expect(await seen(detector, { ip: '198.51.100.4', userAgent: 'x'.repeat(1024) })).toHaveLength(1)
+    expect(await seen(detector, { ip: '198.51.100.4', userAgent: 'x'.repeat(1025) })).toHaveLength(1)
+    // Same first 1024 characters, so the cap cannot be used to mint a second device either.
+    expect(await seen(detector, { ip: '198.51.100.4', userAgent: 'x'.repeat(2048) })).toEqual([])
   })
 
-  it('FINDING: a flagged device is remembered, so the second attempt from it is silent', async () => {
-    // `checkAndRemember` inserts on first sight regardless of what the caller
-    // decides afterwards. A sign-in that the application denied on a `new-device`
-    // signal has already whitelisted that fingerprint, and the retry passes
-    // unremarked. There is no way to record a sighting conditionally.
-    const { detector } = make()
-    expect(await seen(detector, { ip: '203.0.113.9', userAgent: 'curl/8.4.0' })).toHaveLength(1)
-    expect(await seen(detector, { ip: '203.0.113.9', userAgent: 'curl/8.4.0' })).toEqual([])
-  })
-
-  it('FINDING: the memory store keeps every fingerprint forever, with no cap and no expiry', async () => {
-    // One request per rotated user agent grows the set without bound. It is the
-    // reference implementation, but it is exported and it is what the default
-    // wiring reaches for.
+  it('lets an application undo a sighting it refused, so the retry is a new device again', async () => {
     const { detector, store } = make()
-    for (let i = 0; i < 2000; i++) await seen(detector, { ip: '203.0.113.9', userAgent: `ua-${i}` })
-    const known = (store as unknown as { _known: Map<string, Set<string>> })._known
-    expect(known.get('u')?.size).toBe(2000)
+    const req = { ip: '203.0.113.9', userAgent: 'curl/8.4.0' }
+    const [signal] = await seen(detector, req)
+    expect(signal).toBeDefined()
+    // Without the undo, the denied attempt had already whitelisted the fingerprint.
+    expect(await seen(detector, req)).toEqual([])
+
+    await store.forget('u', signal?.evidence.fingerprint as string)
+    expect(await seen(detector, req)).toHaveLength(1)
+  })
+
+  it('caps what the memory store remembers per identity, evicting the oldest', async () => {
+    const store = new AuthMemoryDeviceFingerprintStore({ maxPerIdentity: 3 })
+    const d = deviceFingerprintDetector({ authSha256: sha, store })
+    for (let i = 0; i < 2000; i++) await seen(d, { ip: '203.0.113.9', userAgent: `ua-${i}` })
+
+    // The most recent three are still known; the first is not.
+    expect(await seen(d, { ip: '203.0.113.9', userAgent: 'ua-1999' })).toEqual([])
+    expect(await seen(d, { ip: '203.0.113.9', userAgent: 'ua-0' })).toHaveLength(1)
+  })
+
+  it('forgets a sighting older than the ttl', async () => {
+    const store = new AuthMemoryDeviceFingerprintStore({ ttlMs: 1 })
+    const d = deviceFingerprintDetector({ authSha256: sha, store })
+    const req = { ip: '203.0.113.9', userAgent: UA }
+    expect(await seen(d, req)).toHaveLength(1)
+    await new Promise((r) => setTimeout(r, 5))
+    expect(await seen(d, req)).toHaveLength(1)
   })
 
   it('a copied user agent from the same /24 reads as the same device', async () => {
@@ -492,13 +533,10 @@ describe('device fingerprint: what counts as the same device', () => {
     expect(await seen(detector, { ip: '203.0.114.9', userAgent: UA })).toHaveLength(1)
   })
 
-  it('FINDING: a zero-padded ipv4 is a different device from the same address unpadded', async () => {
-    // The subnet is taken by splitting on dots with no normalisation, so
-    // `203.000.113.009` and `203.0.113.9` hash differently. A proxy that
-    // normalises differently from the origin re-flags a known device.
+  it('reads a zero-padded ipv4 as the same device as the address unpadded', async () => {
     const { detector } = make()
     await seen(detector, { ip: '203.0.113.9', userAgent: UA })
-    expect(await seen(detector, { ip: '203.000.113.009', userAgent: UA })).toHaveLength(1)
+    expect(await seen(detector, { ip: '203.000.113.009', userAgent: UA })).toEqual([])
   })
 
   it('collapses ipv6 addresses in the same /48 whichever way they are written', async () => {
@@ -513,19 +551,25 @@ describe('device fingerprint: what counts as the same device', () => {
     expect(await seen(detector, { ip: '2001:db8:2::1', userAgent: UA })).toHaveLength(1)
   })
 
-  it('FINDING: an unparseable address is fingerprinted as-is rather than refused', async () => {
-    // `expandIpv6` returns its input when the shape is wrong, so junk in the ip
-    // position becomes part of the key. Two different junk values are two
-    // different devices, which is a way to force a `new-device` signal on demand
-    // wherever the ip is taken from a header.
+  it('collapses every unparseable address into one bucket', async () => {
+    // Junk used to be hashed as-is, so two junk values were two devices and a caller who controls
+    // the ip could mint a `new-device` signal on demand.
     const { detector } = make()
     expect(await seen(detector, { ip: 'not-an-ip', userAgent: UA })).toHaveLength(1)
-    expect(await seen(detector, { ip: 'also-not-an-ip', userAgent: UA })).toHaveLength(1)
+    expect(await seen(detector, { ip: 'also-not-an-ip', userAgent: UA })).toEqual([])
+    expect(await seen(detector, { ip: '999.1.1.1', userAgent: UA })).toEqual([])
   })
 
-  it('refuses an address longer than the guard allows', async () => {
+  it('buckets an address longer than the guard allows rather than going quiet', async () => {
     const { detector } = make()
-    expect(await seen(detector, { ip: 'a'.repeat(65), userAgent: UA })).toEqual([])
+    expect(await seen(detector, { ip: 'a'.repeat(65), userAgent: UA })).toHaveLength(1)
+  })
+
+  it('still reduces a dual-stack ipv4 client to its /24, as stored fingerprints expect', async () => {
+    const { detector } = make()
+    expect(await seen(detector, { ip: '::ffff:192.0.2.7', userAgent: UA })).toHaveLength(1)
+    expect(await seen(detector, { ip: '::ffff:192.0.2.9', userAgent: UA })).toEqual([])
+    expect(await seen(detector, { ip: '::ffff:198.51.100.9', userAgent: UA })).toHaveLength(1)
   })
 
   it('emits nothing when no hashing helper was supplied and no composer overrides it', async () => {
@@ -534,13 +578,12 @@ describe('device fingerprint: what counts as the same device', () => {
     expect(await seen(detector, { ip: '203.0.113.9', userAgent: UA })).toEqual([])
   })
 
-  it('FINDING: the evidence carries the raw ip and user agent into the event', async () => {
-    // The fingerprint is a hash, but the values it was built from ride alongside
-    // it, so a `suspicious` record contains the address and header verbatim
-    // wherever the bus is persisted.
+  it('keeps the raw ip and user agent out of the evidence, and so out of the event', async () => {
     const { detector } = make()
     const [signal] = await seen(detector, { ip: '203.0.113.9', userAgent: UA })
-    expect(signal?.evidence).toMatchObject({ ip: '203.0.113.9', userAgent: UA })
+    // Asserted on the keys, not on a substring: this suite's `authSha256` stub echoes its input, so
+    // a substring check here would be checking the stub rather than the evidence.
+    expect(Object.keys(signal?.evidence ?? {})).toEqual(['fingerprint'])
   })
 
   it('a custom composer returning the same value for every request never flags anyone twice', async () => {

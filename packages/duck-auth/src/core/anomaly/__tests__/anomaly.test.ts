@@ -36,7 +36,7 @@ describe('AnomalyFacet', () => {
     expect(facet.list()).toEqual(['a', 'b'])
   })
 
-  it('aggregate score = sum of signal scores; emits suspicious above threshold', async () => {
+  it('aggregate score saturates rather than summing; emits suspicious above threshold', async () => {
     const fakeSignal: Anomaly.Signal = { kind: 'new-device', score: 0.5, evidence: {} }
     facet.register({
       id: 'a',
@@ -55,7 +55,8 @@ describe('AnomalyFacet', () => {
     events.on('suspicious', handler)
 
     const r = await facet.evaluate({ session, identity, req: { now: Date.now() } })
-    expect(r.score).toBeCloseTo(1.0, 5)
+    // Two independent 0.5 signals: 1 - 0.5 * 0.5, not 1.0. A plain sum reached deny on two mild ones.
+    expect(r.score).toBeCloseTo(0.75, 5)
     expect(r.signals).toHaveLength(2)
     expect(handler).toHaveBeenCalledOnce()
     expect(handler.mock.calls[0]?.[0].signal).toContain('new-device')
