@@ -54,7 +54,8 @@ describe('AuthNoopChannel', () => {
       tenant: {},
     })
     expect(result.ok).toBe(true)
-    expect(result.providerMessageId).toMatch(/^noop:/)
+    // No id: a caller storing one for support diagnostics recorded a delivery that never happened.
+    expect(result.providerMessageId).toBeUndefined()
   })
 })
 

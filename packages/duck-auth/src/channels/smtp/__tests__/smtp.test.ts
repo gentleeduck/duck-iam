@@ -58,7 +58,7 @@ describe('AuthSmtpChannel', () => {
         new AuthSmtpChannel({
           transporter: makeTransporter(),
           from: '',
-          templates: () => ({ subject: 'x' }),
+          templates: () => ({ subject: 'x', text: 'body' }),
         }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
@@ -67,7 +67,7 @@ describe('AuthSmtpChannel', () => {
     const channel = new AuthSmtpChannel({
       transporter: makeTransporter(),
       from: 'noreply@app.test',
-      templates: () => ({ subject: 'x' }),
+      templates: () => ({ subject: 'x', text: 'body' }),
     })
     const result = await channel.send({
       identity: makeIdentity(undefined),
@@ -103,7 +103,7 @@ describe('AuthSmtpChannel', () => {
         throw new Error('smtp-timeout')
       }),
       from: 'noreply@app.test',
-      templates: () => ({ subject: 'x' }),
+      templates: () => ({ subject: 'x', text: 'body' }),
     })
     const result = await channel.send({
       identity: makeIdentity('user@x.com'),

@@ -3,7 +3,20 @@
  * sink. Built for local development + tests; never wire into production.
  */
 
+import { randomUUID } from 'node:crypto'
+import { env } from 'node:process'
 import type { Channel } from '~/channels/channels.types'
+import { AuthError, redactSecrets } from '~/core/errors'
+
+/**
+ * Same shape as `AuthNullCaptchaVerifier`: each of these is exported from the package and satisfies
+ * the channel interface, so nothing but this stops one being wired where real delivery was meant.
+ */
+function refuseInProduction(name: string, what: string, development?: boolean): void {
+  if (env.NODE_ENV === 'production' && !development) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: `${name} ${what} and is not production ready` })
+  }
+}
 
 export namespace AuthConsoleChannel {
   /**
@@ -20,6 +33,8 @@ export namespace AuthConsoleChannel {
     id?: string
     /** Override the sink (e.g. for tests). Default `console.log`. */
     sink?: ISink
+    /** Escape hatch to allow this channel under `NODE_ENV=production`. */
+    development?: boolean
   }
 }
 
@@ -36,19 +51,19 @@ export class AuthConsoleChannel implements Channel.Channel {
   private readonly _sink: AuthConsoleChannel.ISink
 
   constructor(cfg: AuthConsoleChannel.Cfg = {}) {
+    refuseInProduction('AuthConsoleChannel', 'writes every message to a log', cfg.development)
     this.kind = cfg.kind ?? 'email'
     this.id = cfg.id ?? 'console'
     this._sink = cfg.sink ?? ((line) => console.log(line))
   }
 
   /**
-   * Serialize the send envelope to a single JSON line and flush. PII is
-   * redacted before logging: the identity's profile is stringified to
-   * `<identityId>` only; full payloads stay in the `vars` field which
-   * the caller controls.
+   * Serialize the send envelope to a single JSON line and flush. The profile is reduced to the
+   * identity id, and `vars` is redacted by key name: it carries the signed magic link and the
+   * one-time code, so the whole object used to be a working credential in stdout.
    */
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
-    const messageId = `console:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`
+    const messageId = `console:${Date.now()}:${randomUUID()}`
     this._sink(
       JSON.stringify({
         channel: this.kind,
@@ -57,7 +72,7 @@ export class AuthConsoleChannel implements Channel.Channel {
         templateId: input.templateId,
         identityId: input.identity.id,
         tenantId: input.tenant.tenantId ?? null,
-        vars: input.vars,
+        vars: redactSecrets(input.vars),
       }),
     )
     return { ok: true, providerMessageId: messageId }
@@ -74,13 +89,17 @@ export class AuthNoopChannel implements Channel.Channel {
   readonly id: string
 
   constructor(cfg: AuthNoopChannel.Cfg = {}) {
+    refuseInProduction('AuthNoopChannel', 'reports every send as delivered', cfg.development)
     this.kind = cfg.kind ?? 'email'
     this.id = cfg.id ?? 'noop'
   }
 
-  /** Drop the send on the floor. Always returns ok with a stub message id. */
+  /**
+   * Drop the send on the floor. No `providerMessageId`: a caller storing one for support
+   * diagnostics was recording a delivery that never happened.
+   */
   async send(_input: Channel.SendInput): Promise<Channel.SendResult> {
-    return { ok: true, providerMessageId: `noop:${Date.now()}` }
+    return { ok: true }
   }
 }
 
@@ -88,6 +107,8 @@ export namespace AuthNoopChannel {
   export interface Cfg {
     kind?: Channel.Kind
     id?: string
+    /** Escape hatch to allow this channel under `NODE_ENV=production`. */
+    development?: boolean
   }
 }
 
@@ -101,6 +122,7 @@ export class AuthTestChannel implements Channel.Channel {
   readonly outbox: AuthTestChannel.IOutboxEntry[] = []
 
   constructor(cfg: AuthTestChannel.Cfg = {}) {
+    refuseInProduction('AuthTestChannel', 'keeps every message in memory', cfg.development)
     this.kind = cfg.kind ?? 'email'
     this.id = cfg.id ?? 'test'
   }
@@ -124,6 +146,8 @@ export namespace AuthTestChannel {
   export interface Cfg {
     kind?: Channel.Kind
     id?: string
+    /** Escape hatch to allow this channel under `NODE_ENV=production`. */
+    development?: boolean
   }
   export interface IOutboxEntry {
     templateId: string
