@@ -124,7 +124,7 @@ describe('IdentitiesFacet', () => {
     it('link emits identity.linked + persists the provider entry', async () => {
       const i = await facet.create({
         profile: { username: 'a@x.com', email: 'a@x.com' },
-        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
+        providers: [{ providerId: 'password', providerSub: 'local-1', addedAt: new Date() }],
       })
       const handler = vi.fn()
       events.on('identity.linked', handler)
@@ -137,9 +137,9 @@ describe('IdentitiesFacet', () => {
     it('link rejects duplicate providerId for same identity', async () => {
       const i = await facet.create({
         profile: { username: 'a@x.com', email: 'a@x.com' },
-        providers: [{ providerId: 'oauth:authGoogle', providerSub: null, addedAt: new Date() }],
+        providers: [{ providerId: 'oauth:authGoogle', providerSub: 'local-2', addedAt: new Date() }],
       })
-      await expect(facet.link(i.id, { providerId: 'oauth:authGoogle', providerSub: null })).rejects.toMatchObject({
+      await expect(facet.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'local-3' })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
       })
     })
@@ -147,7 +147,7 @@ describe('IdentitiesFacet', () => {
     it('unlink refuses the last provider (leaves account inaccessible)', async () => {
       const i = await facet.create({
         profile: { username: 'a@x.com', email: 'a@x.com' },
-        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
+        providers: [{ providerId: 'password', providerSub: 'local-4', addedAt: new Date() }],
       })
       await expect(facet.unlink(i.id, 'password')).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
@@ -158,8 +158,8 @@ describe('IdentitiesFacet', () => {
       const i = await facet.create({
         profile: { username: 'a@x.com', email: 'a@x.com' },
         providers: [
-          { providerId: 'password', providerSub: null, addedAt: new Date() },
-          { providerId: 'oauth:authGoogle', providerSub: null, addedAt: new Date() },
+          { providerId: 'password', providerSub: 'local-5', addedAt: new Date() },
+          { providerId: 'oauth:authGoogle', providerSub: 'local-6', addedAt: new Date() },
         ],
       })
       const unlinked = await facet.unlink(i.id, 'oauth:authGoogle')
@@ -171,7 +171,7 @@ describe('IdentitiesFacet', () => {
     it('link answers with the identity carrying the new provider', async () => {
       const i = await facet.create({
         profile: { username: 'a@x.com', email: 'a@x.com' },
-        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
+        providers: [{ providerId: 'password', providerSub: 'local-7', addedAt: new Date() }],
       })
 
       const linked = await facet.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'g-1' })
@@ -193,7 +193,7 @@ describe('IdentitiesFacet', () => {
     it('refuses to merge into a survivor that does not exist', async () => {
       const dup = await facet.create({
         profile: { username: 'd@x.com', email: 'd@x.com' },
-        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
+        providers: [{ providerId: 'password', providerSub: 'local-8', addedAt: new Date() }],
       })
       const handler = vi.fn()
       events.on('identity.merged', handler)
@@ -211,7 +211,7 @@ describe('IdentitiesFacet', () => {
     it('merges dup into survivor and emits identity.merged', async () => {
       const survivor = await facet.create({
         profile: { username: 's@x.com', email: 's@x.com' },
-        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
+        providers: [{ providerId: 'password', providerSub: 'local-9', addedAt: new Date() }],
       })
       const dup = await facet.create({
         profile: { username: 'd@x.com', email: 'd@x.com' },
@@ -305,7 +305,7 @@ describe('IdentitiesFacet', () => {
     it('merge appends new providers to existing identity', async () => {
       const i = await facet.create({
         profile: { username: 'a@x.com', email: 'a@x.com' },
-        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
+        providers: [{ providerId: 'password', providerSub: 'local-10', addedAt: new Date() }],
       })
       await facet.bulkCreate(
         [
@@ -404,7 +404,7 @@ describe('IdentitiesFacet', () => {
       const i = await facet.create({ profile: { email: 'e@x.com', username: 'e@x.com' } })
       const inner = adapter.identities.erase.bind(adapter.identities)
       let seen: string | null = 'nothing-ran'
-      adapter.identities.erase = async (id: string) => {
+      adapter.identities.erase = (id: string) => {
         seen = actorId()
         return inner(id)
       }
@@ -418,7 +418,7 @@ describe('IdentitiesFacet', () => {
       const i = await facet.create({ profile: { email: 'e2@x.com', username: 'e2@x.com' } })
       const inner = adapter.identities.erase.bind(adapter.identities)
       let seen: string | null = 'nothing-ran'
-      adapter.identities.erase = async (id: string) => {
+      adapter.identities.erase = (id: string) => {
         seen = actorId()
         return inner(id)
       }

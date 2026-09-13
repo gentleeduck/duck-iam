@@ -1,4 +1,3 @@
-import type { Batch } from '~/core/batch'
 import type { Credential } from '~/core/credentials/credentials.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 
@@ -8,11 +7,20 @@ import type { Sessions } from '~/core/sessions/sessions.types'
  * auth core; application-specific shape carried in `profile`.
  */
 export namespace Identities {
+  /**
+   * One external login this identity answers to. A credential kept here - a password, a magic link, a
+   * passkey - is not one of these: it is a row in `credentials`, and nothing ever looks it up by subject.
+   */
   export type ProviderLink = {
+    /** Which party issued the login, namespaced: 'oauth:authGoogle', 'saml:acme', 'okta'. Ours, not theirs. */
     providerId: string
-    providerSub: string | null
+    /** That party's own stable subject id for the account, such as a Google `sub`. Theirs, not ours. */
+    providerSub: string
     addedAt: Date
   }
+
+  /** `addedAt` is the table's default; only a caller restoring a link it removed brings its own. */
+  export type ProviderLinkInput = Omit<ProviderLink, 'addedAt'> & { addedAt?: Date }
 
   export type ProfileMetadataBase = {
     username: string
@@ -29,22 +37,8 @@ export namespace Identities {
     emailVerified: boolean
     createdAt: Date
     updatedAt: Date
-    /** Soft-delete grace; identity hidden from queries when set, hard-purged after window. */
     deletedAt: Date | null
-    /**
-     * Who soft-deleted the row, from the ambient {@link ActorContext}. Set
-     * alongside `deletedAt` and cleared by `restore`, so the two always agree:
-     * a `deletedBy` on a live row would name someone for a deletion that is no
-     * longer in effect. `null` on a live row, and on a deletion no actor was
-     * bound for.
-     */
     deletedBy: string | null
-    /**
-     * Who created / last wrote this row, from the ambient {@link ActorContext}
-     * at write time. `null` when no actor was bound - the schema has declared
-     * these columns since 5.x and nothing could fill them, so a NULL now means
-     * "no actor was in scope" rather than "the library cannot say".
-     */
     createdBy: string | null
     updatedBy: string | null
   }
@@ -56,16 +50,26 @@ export namespace Identities {
    */
   export type CreateInput<Profile> = {
     profile: Profile
-    providers: ProviderLink[]
+    providers: ProviderLinkInput[]
     emailVerified: boolean
   }
 
+  /** What an update may change; the row owns its id, version, timestamps and audit columns. */
+  export type UpdateInput<Profile extends ProfileMetadataBase> = Partial<Pick<Me<Profile>, 'emailVerified' | 'profile'>>
+
+  /**
+   * How a caller names the row it wants: by id, by address, or by the login it holds.
+   *
+   * Several addresses match any of them, which is how a row stored before addresses were
+   * normalised is still found under the canonical spelling of the same address.
+   */
+  export type By = { id: string } | { email: string | readonly string[] } | { providerId: string; providerSub: string }
+
   export type Store<Profile extends ProfileMetadataBase> = {
-    findById(id: string): Promise<Me<Profile> | null>
-    findByEmail(email: string): Promise<Me<Profile> | null>
-    findByProviderSub(providerId: string, sub: string): Promise<Me<Profile> | null>
+    /** The one read: a live identity, by whichever of {@link By} the caller named it with. */
+    find(by: By): Promise<Me<Profile> | null>
     create(input: CreateInput<Profile>): Promise<Me<Profile>>
-    update(id: string, patch: Partial<Me<Profile>>, expectedVersion: number): Promise<Me<Profile>>
+    update(id: string, patch: UpdateInput<Profile>, expectedVersion: number): Promise<Me<Profile>>
     /**
      * Every mutating write answers with the row it touched, `null` when no row
      * matched, rather than `void`. A caller that needs to know what a write did
@@ -76,44 +80,17 @@ export namespace Identities {
     /**
      * Clears a soft delete. `null` means the id matched nothing, the same as
      * {@link softDelete} and {@link erase}. A row that WAS matched and then
-     * refused throws instead, carrying which rule refused it -
-     * `AUTH_GRACE_EXPIRED` when the window has closed, `AUTH_EMAIL_TAKEN` when
-     * a live row now holds its address.
+     * refused throws `AUTH_GRACE_EXPIRED` instead. There is no freeness check:
+     * the unique indexes are unconditional, so a hidden row held its address,
+     * its handle and its logins the whole time and nothing can have taken them.
      */
     restore(id: string): Promise<Me<Profile> | null>
     /** Returns the row as it was immediately before deletion. */
     erase(id: string): Promise<Me<Profile> | null>
-    link(identityId: string, link: ProviderLink): Promise<Me<Profile> | null>
+    link(identityId: string, link: ProviderLinkInput): Promise<Me<Profile> | null>
     unlink(identityId: string, providerId: string): Promise<Me<Profile> | null>
     /** Merges a duplicate global identity into the survivor, repointing ALL of the dup's tenant-scoped rows (credentials/sessions) before erasing it. */
     merge(survivorId: string, dupId: string): Promise<Me<Profile> | null>
-    /**
-     * Re-bind this store to a caller-supplied driver client - a transaction
-     * handle. The client is opaque to duck-auth and is handed straight back to
-     * the adapter that produced this store, so the library never learns what
-     * driver is in use.
-     *
-     * Absent means the store cannot join a transaction; `AuthEngine.withTransaction`
-     * throws `AUTH_MISCONFIGURED` naming the store rather than silently leaving
-     * it outside the caller's transaction.
-     */
-    withClient?(client: unknown): Store<Profile>
-
-    /**
-     * Set-based forms of the single-row writes above. Each is optional: the
-     * facet loops over the single-row method when the store omits it, so the
-     * memory and redis adapters need no change. A store that implements one
-     * must apply it as ONE statement, atomic with any transaction the store is
-     * bound to, and return one outcome per input row in input order.
-     */
-    softDeleteMany?(ids: readonly string[], gracePeriodMs: number): Promise<Batch.Result>
-    restoreMany?(ids: readonly string[]): Promise<Batch.Result<Me<Profile>>>
-    eraseMany?(ids: readonly string[]): Promise<Batch.Result>
-    updateProfileMany?(
-      rows: readonly { id: string; profile: Profile; expectedVersion: number }[],
-    ): Promise<Batch.Result<Me<Profile>>>
-    linkMany?(links: readonly { identityId: string; link: ProviderLink }[]): Promise<Batch.Result>
-    unlinkMany?(links: readonly { identityId: string; providerId: string }[]): Promise<Batch.Result>
   }
 
   /** IdentitiesFacet tuning. */
@@ -128,7 +105,7 @@ export namespace Identities {
     profileMaxBytes?: number
   }
 
-  /** GDPR Article 20 export envelope produced by {@link IdentitiesFacet.exportForIdentity}. */
+  /** GDPR Article 20 export envelope produced by {@link IdentitiesImpl.exportAll}. */
   export interface ExportBlob<Profile extends ProfileMetadataBase> {
     identity: Me<Profile>
     credentials: Array<Omit<Credential.Me, 'secret'>>
