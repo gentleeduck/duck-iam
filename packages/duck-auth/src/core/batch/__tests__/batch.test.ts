@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { AdapterStore } from '~/adapters/adapter'
 import { MemoryAdapter } from '~/adapters/memory'
+import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
 import { IdentitiesImpl } from '~/core/identities'
 import { DEFAULT_IDENTITIES_CONFIG } from '~/core/identities/identities.constants'
@@ -50,6 +52,36 @@ describe('batch operations', () => {
     // The winner really landed; the loser really did not.
     expect((await identities.getById(b.id))?.profile.username).toBe('b2')
     expect((await identities.getById(a.id))?.profile.username).toBe('a')
+  })
+
+  it('updateProfileMany reports a clash its own read found as a per-row outcome', async () => {
+    const { identities } = makeIdentities()
+    const holder = await identities.create({ profile: { email: 'held@x', username: 'held' } })
+    const mover = await identities.create({ profile: { email: 'mover@x', username: 'mover' } })
+
+    const result = await identities.updateProfileMany([
+      { expectedVersion: mover.version, id: mover.id, patch: { email: 'held@x' } },
+    ])
+
+    expect(result.outcomes[0]).toMatchObject({ ok: false, reason: 'email-taken' })
+    expect((await identities.getById(holder.id))?.profile.email).toBe('held@x')
+  })
+
+  /**
+   * The same code from a driver is the opposite case. The statement has already run and failed, which on
+   * postgres leaves the caller's transaction aborted: COMMIT turns into a silent ROLLBACK and every row the
+   * batch reported as applied is gone. Carrying the driver error is what tells the two apart.
+   */
+  it('updateProfileMany rethrows the same code when a driver refused the write', async () => {
+    const { adapter, identities } = makeIdentities()
+    const a = await identities.create({ profile: { email: 'd@x', username: 'd' } })
+    const refused = new AuthError('AUTH_EMAIL_TAKEN')
+    refused.cause = new Error('duplicate key value violates unique constraint "uq_auth_identities_email"')
+    adapter.identities.update = () => AdapterStore.answer(Promise.reject(refused))
+
+    await expect(
+      identities.updateProfileMany([{ expectedVersion: a.version, id: a.id, patch: { username: 'd2' } }]),
+    ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
   })
 
   it('revokeAllForIdentities emits one session.revoked per actually-revoked session', async () => {
@@ -128,38 +160,30 @@ describe('batch operations', () => {
   })
 
   /**
-   * The loop fallback - every store with no set-based `restoreMany`, memory and
-   * redis among them - used to catch all three of `restore`'s refusals and call
-   * them `not-found`. Only the first of them is absent; the other two rows are
-   * still there and still restorable once the clash is resolved, and a caller
-   * told `not-found` has no way to learn that.
+   * The loop used to catch both of `restore`'s refusals and call them `not-found`. Only one of them
+   * is absent; an expired row is still there, and a caller told `not-found` has no way to learn that.
    */
   it('restoreMany names the reason each row was refused', async () => {
     const { adapter, identities } = makeIdentities()
     const ok = await identities.create({ profile: { email: 'rr-ok@x', username: 'rrok' } })
     const expired = await identities.create({ profile: { email: 'rr-exp@x', username: 'rrexp' } })
-    const clashing = await identities.create({ profile: { email: 'rr-dup@x', username: 'rrdup' } })
     await identities.softDelete(ok.id)
     await identities.softDelete(expired.id)
-    await identities.softDelete(clashing.id)
 
     // Wind this one's window shut. `softDelete` always stamps a deadline in the
     // future, so nothing in the public API can produce an expired row directly.
     const hidden = adapter.raw.identities.get(expired.id)
     if (hidden) hidden.deletedAt = new Date(Date.now() - 1000)
-    // Free to take while the row holding it is hidden, which is what blocks the
-    // restore: two live rows must not answer to one address.
-    await identities.create({ profile: { email: 'rr-dup@x', username: 'rrdup2' } })
 
-    const result = await identities.restoreMany([ok.id, expired.id, clashing.id, 'missing-id'])
+    // No clash case: a hidden row keeps its address and its logins until it is erased, so there is
+    // nothing a restore can come back to find taken.
+    const result = await identities.restoreMany([ok.id, expired.id, 'missing-id'])
 
     expect(result.applied).toBe(1)
     expect(result.outcomes[0]?.ok).toBe(true)
     expect(result.outcomes[1]).toMatchObject({ ok: false, reason: 'grace-expired' })
-    expect(result.outcomes[2]).toMatchObject({ ok: false, reason: 'email-taken' })
-    expect(result.outcomes[3]).toMatchObject({ ok: false, reason: 'not-found' })
+    expect(result.outcomes[2]).toMatchObject({ ok: false, reason: 'not-found' })
     expect(await identities.getById(expired.id)).toBeNull()
-    expect(await identities.getById(clashing.id)).toBeNull()
   })
 
   it('a hard failure in restoreMany still aborts the batch', async () => {
@@ -169,11 +193,12 @@ describe('batch operations', () => {
     // Dropping the blanket catch means an unexpected error propagates again.
     // That is the documented hard/soft split - a driver fault is not a per-row
     // outcome - so pin it rather than let a future catch-all creep back in.
-    adapter.identities.restore = async () => {
-      throw new Error('connection reset')
-    }
+    adapter.identities.restore = () => AdapterStore.answer(Promise.reject(new Error('connection reset')))
 
-    await expect(identities.restoreMany([a.id])).rejects.toThrow('connection reset')
+    await expect(identities.restoreMany([a.id])).rejects.toMatchObject({
+      cause: { message: 'connection reset' },
+      code: 'AUTH_ADAPTER_FAILED',
+    })
   })
 
   it('eraseMany hard-deletes each identity', async () => {

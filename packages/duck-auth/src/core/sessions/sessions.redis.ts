@@ -1,3 +1,4 @@
+import { type Batch, batchResult, outcomesFromAffected } from '~/core/batch'
 import type { RedisLike } from '~/core/drivers/redis-like'
 import { AuthError } from '~/core/errors'
 import { stripUndefined } from '~/core/patch'
@@ -89,6 +90,37 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
    * The split is on the first `:`, which is why `create` refuses an id
    * containing one.
    */
+  /** One round trip where the client has `MGET`, one per key where it does not. Values come back in
+   *  the order asked, so a miss is positional rather than something to look up. */
+  private _getMany(ids: readonly string[]): Promise<(string | null)[]> {
+    if (ids.length === 0) return Promise.resolve([])
+
+    return this._redis.mget
+      ? this._redis.mget(...ids.map((id) => this._sessKey(id)))
+      : Promise.all(ids.map((id) => this._redis.get(this._sessKey(id))))
+  }
+
+  /**
+   * The rows behind `ids`, missing and corrupted ones dropped.
+   *
+   * No `srem` for a miss. A missing record may be a `create` between its index write and its record
+   * write, and pruning the entry would orphan the session it is about to store - nothing else names
+   * it yet, not even the expiry index. Retiring entries is `gc`'s job, and it does that on the
+   * session's own deadline rather than on one absent read.
+   */
+  private async _readMany(ids: readonly string[]): Promise<Sessions.Me[]> {
+    const raws = await this._getMany(ids)
+    const rows: Sessions.Me[] = []
+    ids.forEach((id, i) => {
+      const raw = raws[i]
+      if (!raw) return
+      const row = parseStoredSession(raw, id)
+      if (row) rows.push(row)
+    })
+
+    return rows
+  }
+
   private _expMember(sessionId: string, identityId: string | null): string {
     return `${sessionId}:${identityId ?? ''}`
   }
@@ -275,29 +307,18 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
 
   async listByIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
-    if (ids.length === 0) return []
-    // Concurrent, not sequential. This backs the active-devices request and runs
-    // inside `revokeAllForIdentity`, so N sequential round-trips are N latencies
-    // a user waits through.
-    const rows = await Promise.all(
-      ids.map(async (id): Promise<Sessions.Me | null> => {
-        const raw = await this._redis.get(this._sessKey(id))
-        // No `srem` here. A missing record may be a `create` between its index
-        // write and its record write, and pruning the entry would orphan the
-        // session it is about to store - nothing else names it yet, not even
-        // the expiry index. Retiring entries is `gc`'s job, and it does that on
-        // the session's own deadline rather than on one absent read.
-        if (!raw) return null
-        // A corrupted row is skipped, not returned: the caller treats it as
-        // absent and the next write replaces it.
-        return parseStoredSession(raw, id)
-      }),
-    )
     // The index is keyed by identity, not by identity+tenant, so the filter is
     // applied to the rows rather than to the read. Identities are global; a
     // tenant asking for its own device list must not be shown the same person's
     // sessions in another tenant.
-    return rows.filter((row): row is Sessions.Me => row !== null && inTenant(row, ctx))
+    return (await this._readMany(ids)).filter((row) => inTenant(row, ctx))
+  }
+
+  /** The union over several identities, unscoped by tenant like the other set-based forms. */
+  async listByIdentities(identityIds: readonly string[]): Promise<Sessions.Me[]> {
+    const ids = await Promise.all(identityIds.map((identityId) => this._redis.smembers(this._idxKey(identityId))))
+
+    return this._readMany(ids.flat())
   }
 
   async deleteAllForIdentity(identityId: string, ctx?: TenantContext): Promise<void> {
@@ -334,6 +355,70 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     // filed under this key, and dropping it would make them unreachable by every
     // later read and sweep - alive, and impossible to sign out.
     await this._redis.srem(this._idxKey(identityId), ...doomed)
+  }
+
+  /**
+   * Sign out every one of `identityIds`. Three round trips for the whole set rather than three per
+   * identity, which is what makes an org-wide revocation usable.
+   *
+   * Unscoped by tenant, like the rest of the set-based forms, so each index key goes with its rows.
+   */
+  async deleteAllForIdentities(identityIds: readonly string[]): Promise<Batch.Result> {
+    if (identityIds.length === 0) return batchResult([])
+    const found = await Promise.all(
+      identityIds.map(async (identityId) => ({
+        identityId,
+        ids: await this._redis.smembers(this._idxKey(identityId)),
+      })),
+    )
+    const live = found.filter((f) => f.ids.length > 0)
+    if (live.length > 0) {
+      await this._redis.del(...live.flatMap((f) => f.ids.map((id) => this._sessKey(id))))
+      // Every member is known exactly here, so none of these rows has to wait for
+      // its deadline to leave the expiry index.
+      await this._redis.zrem(
+        this._expKey(),
+        ...live.flatMap((f) => f.ids.map((id) => this._expMember(id, f.identityId))),
+      )
+    }
+    await this._redis.del(...found.map((f) => this._idxKey(f.identityId)))
+
+    return outcomesFromAffected(
+      identityIds,
+      live.map((f) => f.identityId),
+    )
+  }
+
+  /**
+   * Revoke by session id. The records are read first because the index entry and the expiry member
+   * are both keyed by the owning identity, which only the record names.
+   */
+  async deleteMany(ids: readonly string[]): Promise<Batch.Result> {
+    if (ids.length === 0) return batchResult([])
+    const raws = await this._getMany(ids)
+    // Presence is the key existing, not the row parsing: a corrupted record is still a record, and
+    // leaving it behind would make `deleteMany` the one delete that cannot clear one.
+    const present: { id: string; identityId: string | null }[] = []
+    ids.forEach((id, i) => {
+      const raw = raws[i]
+      if (!raw) return
+      present.push({ id, identityId: parseStoredSession(raw, id)?.identityId ?? null })
+    })
+    if (present.length === 0) return outcomesFromAffected(ids, [])
+
+    await this._redis.del(...present.map((p) => this._sessKey(p.id)))
+    await this._redis.zrem(this._expKey(), ...present.map((p) => this._expMember(p.id, p.identityId)))
+    const byIdentity = new Map<string, string[]>()
+    for (const p of present) {
+      if (p.identityId === null) continue
+      byIdentity.set(p.identityId, [...(byIdentity.get(p.identityId) ?? []), p.id])
+    }
+    await Promise.all([...byIdentity].map(([identityId, sids]) => this._redis.srem(this._idxKey(identityId), ...sids)))
+
+    return outcomesFromAffected(
+      ids,
+      present.map((p) => p.id),
+    )
   }
 
   /**
@@ -561,7 +646,7 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
   return session
 }
 
-/** Factory around {@link SessionImpl} for functional-style config. */
+/** Factory around {@link RedisSessionImpl} for functional-style config. */
 export function session<TRedis extends RedisLike.Client = RedisLike.Client>(
   cfg: RedisSession.Cfg<TRedis>,
 ): RedisSessionImpl<TRedis> {

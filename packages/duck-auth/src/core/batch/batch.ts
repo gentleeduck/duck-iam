@@ -49,6 +49,10 @@ export async function loopFallback<T>(
 /** Maps a thrown error to a soft outcome reason, or `null` when it is hard. */
 export function toSoftReason(err: unknown): Batch.FailureReason | null {
   if (!(err instanceof AuthError)) return null
+  // A driver refusal is hard whatever code it maps to, and carrying the driver error is what tells one apart from
+  // a refusal our own read decided. Postgres leaves the transaction aborted once a statement has failed, so a row
+  // reported softly makes COMMIT a silent ROLLBACK and the caller is told that everything before it applied.
+  if (err.cause !== undefined) return null
   if (err.code === 'AUTH_STALE_WRITE') return 'stale-write'
   if (err.code === 'AUTH_UNAUTHENTICATED') return 'not-found'
   // Both are per-row refusals of a row that WAS found, which is why neither can
@@ -59,4 +63,23 @@ export function toSoftReason(err: unknown): Batch.FailureReason | null {
   if (err.code === 'AUTH_USERNAME_TAKEN') return 'username-taken'
   if (err.code === 'AUTH_PROVIDER_TAKEN') return 'provider-taken'
   return null
+}
+
+/**
+ * Builds per-row outcomes for a set-based write from the ids it actually
+ * affected. An id in `requested` that is not in `affected` matched no row, which
+ * is the only thing one statement can tell us about it.
+ *
+ * `affected` admits null because a returning clause on a nullable column hands
+ * them back; no requested id is null, so they match nothing.
+ */
+export function outcomesFromAffected(requested: readonly string[], affected: Iterable<string | null>): Batch.Result {
+  const hit = new Set(affected)
+  return batchResult(
+    requested.map((id) =>
+      hit.has(id)
+        ? { id, ok: true as const, value: undefined }
+        : { id, ok: false as const, reason: 'not-found' as const },
+    ),
+  )
 }

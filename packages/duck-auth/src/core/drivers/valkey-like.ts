@@ -10,9 +10,11 @@ import type { RedisLike } from './redis-like'
 export namespace ValkeyClient {
   export type Me = {
     get(key: string): Promise<string | null>
+    mget(...keys: string[]): Promise<(string | null)[]>
     del(...keys: string[]): Promise<number>
     expire(key: string, seconds: number): Promise<number>
     incr(key: string): Promise<number>
+    incrby(key: string, by: number): Promise<number>
     sadd(key: string, ...members: string[]): Promise<number>
     srem(key: string, ...members: string[]): Promise<number>
     smembers(key: string): Promise<string[]>
@@ -41,6 +43,7 @@ export namespace ValkeyClient {
 export function valkeyAdapter(client: ValkeyClient.Me): RedisLike.Client {
   return {
     get: (key) => client.get(key),
+    mget: (...keys) => client.mget(...keys),
 
     set: async (key, value, opts) => {
       const args: (string | number)[] = []
@@ -60,6 +63,7 @@ export function valkeyAdapter(client: ValkeyClient.Me): RedisLike.Client {
     },
 
     incr: (key) => client.incr(key),
+    incrby: (key, by) => client.incrby(key, by),
     sadd: (key, ...members) => client.sadd(key, ...members),
     srem: (key, ...members) => client.srem(key, ...members),
     smembers: (key) => client.smembers(key),
