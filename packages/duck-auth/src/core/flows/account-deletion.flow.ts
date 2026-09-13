@@ -10,6 +10,7 @@ import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Identities } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
+import { deliver } from './flows.delivery'
 import type { Flows } from './flows.types'
 
 export async function requestAccountDeletion<Profile extends Identities.ProfileMetadataBase>(
@@ -25,7 +26,7 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
     })
   }
 
-  const identity = await ctx.stores.identities.findById(opts.identityId)
+  const identity = await ctx.stores.identities.find({ id: opts.identityId })
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   // Below the lookup, the way `requestEmailVerification` was already ordered.
@@ -71,7 +72,7 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
   )
 
   const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-  await channelImpl.send({
+  await deliver(ctx.events, 'account-deletion', channelImpl, {
     identity,
     templateId: 'account-deletion',
     vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
@@ -158,7 +159,7 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
   if (channelImpl) {
     const callbackPath = isSafeCallbackPath(input.callbackPath) ? input.callbackPath : '/auth/cancel-deletion'
     const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(cancellationToken)}`
-    await channelImpl.send({
+    await deliver(ctx.events, 'account-deletion-cancel', channelImpl, {
       identity,
       templateId: 'account-deletion-cancel',
       vars: { url, restorableUntil, ttlMin: Math.max(0, Math.round((restorableUntil - Date.now()) / 60_000)) },
@@ -173,11 +174,8 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
  * the undo token `completeAccountDeletion` minted (the user's route), or an
  * `authorize` callback (the operator's).
  *
- * Both, or neither, is a wiring mistake and is refused. Resolving "both" in
- * favour of one gate would mean a bad token silently falling back to a callback
- * that says yes - which is the ambiguity this function used to be, when it took
- * an id and no gate at all and un-deleted any account for anyone who could reach
- * it.
+ * Both, or neither, is a wiring mistake and is refused. Resolving "both" in favour of one gate
+ * would mean a bad token silently falling back to a callback that says yes.
  */
 export async function cancelAccountDeletion<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
@@ -199,10 +197,8 @@ export async function cancelAccountDeletion<Profile extends Identities.ProfileMe
   if (typeof input.identityId !== 'string' || input.identityId.length === 0 || input.identityId.length > 256) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
-  // A missing callback is a wiring mistake, not a failed authentication, so it
-  // reports as one - and loudly. This used to check that `identityId` was a
-  // plausible string and then restore the account: no token, no session, no
-  // callback. Anyone who could reach the function un-deleted any account by id.
+  // A missing callback is a wiring mistake, not a failed authentication, so it reports as one.
+  // Without it an id alone un-deletes any account, for anyone who can reach the function.
   if (typeof input.authorize !== 'function') {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'cancelAccountDeletion: an authorize(identityId) callback is required',

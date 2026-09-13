@@ -1,5 +1,5 @@
 /**
- * The last four open findings in `plans/C6-flows/AUDIT.md`, pinned.
+ * The last four open findings in `docs/superpowers/plans/C6-flows/AUDIT.md`, pinned.
  *
  *   F1  - `requestPasswordReset` was a timing oracle: one sha256 on the
  *         unknown-address branch against a write plus two reads on the known
@@ -48,12 +48,12 @@ function build(limit = 50) {
 /** Count every store round trip the flow makes, in order. */
 function traceStores(adapter: MemoryAdapter<MyProfile>): string[] {
   const calls: string[] = []
-  for (const [store, names] of [
-    ['credentials', ['upsert', 'listByIdentity', 'delete', 'findByHashedSecret', 'deleteByKind']],
-    ['identities', ['findById', 'findByEmail', 'create', 'update']],
-  ] as const) {
+  for (const store of ['credentials', 'identities'] as const) {
     const target = adapter[store] as unknown as Record<string, (...a: unknown[]) => unknown>
-    for (const name of names) {
+    // Every method the store has, rather than a list of names. A list stops counting the moment the
+    // flow grows a call nobody added to it, which is silent: this assertion went on passing against
+    // a call shape it could no longer see.
+    for (const name of Object.keys(target)) {
       const original = target[name]
       if (typeof original !== 'function') continue
       target[name] = (...args: unknown[]) => {
@@ -99,9 +99,13 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
     // sha256; the real one made three. Same count now, and the only difference
     // is the write the foreign key makes impossible to mirror.
     expect(miss).toHaveLength(knownCalls.length)
-    expect(knownCalls[0]).toBe('credentials.upsert')
-    expect(miss[0]).toBe('credentials.listByIdentity')
-    expect(miss.slice(1)).toEqual(knownCalls.slice(1))
+    // Both branches open with the one round trip that retires the older reset tokens, so the
+    // divergence is at index 1 and nowhere else.
+    expect(knownCalls[0]).toBe('credentials.deleteByKindAndPurpose')
+    expect(miss[0]).toBe('credentials.deleteByKindAndPurpose')
+    expect(knownCalls[1]).toBe('credentials.upsert')
+    expect(miss[1]).toBe('credentials.listByIdentity')
+    expect(miss.slice(2)).toEqual(knownCalls.slice(2))
   })
 
   it('an unconfigured channel fails the same way for a real address and a fictional one', async () => {
@@ -255,8 +259,8 @@ describe('F27 - beginSignUp builds a profile the identity store accepts', () => 
 })
 
 describe('what these fixes did NOT close', () => {
-  it('FINDING: beginSignUp still writes a real identity for an address nobody proved they own', async () => {
-    // The residue of F21. Deferring the write is not buildable -
+  it('beginSignUp writes a real identity for an address nobody proved they own', async () => {
+    // Pinned as the residue of F21 rather than fixed. Deferring the write is not buildable -
     // `fk_auth_credentials_identity` is a NOT NULL foreign key to the very row
     // the deferral removes - so the row is still written on an unauthenticated
     // request. What is closed is that it can no longer be a claim (D1): the next
@@ -266,8 +270,8 @@ describe('what these fixes did NOT close', () => {
     expect(await auth.identities.getByEmail('victim@corp.com')).not.toBeNull()
   })
 
-  it('FINDING: signup still answers whether an address is an established account', async () => {
-    // Reduced, not closed. A squat is reclaimed silently, so the old "any row
+  it('signup still answers whether an address is an established account', async () => {
+    // Pinned as reduced, not closed. A squat is reclaimed silently, so the old "any row
     // exists" oracle is gone; an address behind a real account still has to be
     // refused, because the unique index means a second account for it cannot be
     // created and the caller has to be told something. Closing it needs a channel
@@ -282,8 +286,8 @@ describe('what these fixes did NOT close', () => {
     })
   })
 
-  it('FINDING: requestPasswordReset still spends a write on one branch and a read on the other', async () => {
-    // The round-trip counts match and the crypto matches; what does not is that
+  it('requestPasswordReset spends a write on one branch and a read on the other', async () => {
+    // Pinned: the round-trip counts match and the crypto matches; what does not is that
     // the known-address branch writes a credential row and the unknown one reads
     // the same table instead. A write cannot be mirrored - the foreign key means
     // there is no row to hang a decoy on - so the residue is one write against
@@ -296,15 +300,15 @@ describe('what these fixes did NOT close', () => {
       findIdentityByEmail: async () => ({ id: ident.id }),
       input: { email: 'real@x.com' },
     })
-    expect(calls[0]).toBe('credentials.upsert')
+    // Index 1: both branches spend index 0 on the delete that retires the older tokens.
+    expect(calls[1]).toBe('credentials.upsert')
   })
 
-  it('FINDING: a password reset cannot be served at all unless the mfa provider is registered', async () => {
-    // `requireMfa()` throws when the provider is absent, and the reset flow reads
-    // it on every request to decide one template variable. A deployment with no
-    // MFA gets AUTH_PROVIDER_NOT_REGISTERED out of a public endpoint rather than
-    // a reset mail. Uniform across both branches now, which is what stops it
-    // being an oracle, but it is still a hard dependency nothing declares.
+  it('serves a password reset with no mfa provider registered', async () => {
+    // `requireMfa()` throws when the provider is absent, and the reset flow reads it on every
+    // request to decide one template variable. A deployment with no MFA answered a public endpoint
+    // with AUTH_PROVIDER_NOT_REGISTERED instead of sending a reset mail. There is no second factor
+    // to require when nobody wired one, which is what the flow now reads.
     const adapter = new MemoryAdapter<MyProfile>()
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
@@ -319,6 +323,6 @@ describe('what these fixes did NOT close', () => {
         findIdentityByEmail: async () => null,
         input: { email: 'ghost@x.com' },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_NOT_REGISTERED' })
+    ).resolves.toEqual({ ok: true })
   })
 })

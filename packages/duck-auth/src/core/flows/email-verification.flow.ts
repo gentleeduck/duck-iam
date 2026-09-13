@@ -10,6 +10,7 @@ import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Identities } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
+import { deliver } from './flows.delivery'
 import type { Flows } from './flows.types'
 
 export async function requestEmailVerification<Profile extends Identities.ProfileMetadataBase>(
@@ -20,7 +21,7 @@ export async function requestEmailVerification<Profile extends Identities.Profil
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
   const callbackPath = isSafeCallbackPath(opts.callbackPath) ? opts.callbackPath : '/auth/verify-email'
 
-  const identity = await ctx.stores.identities.findById(opts.identityId)
+  const identity = await ctx.stores.identities.find({ id: opts.identityId })
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   if (identity.emailVerified) {
@@ -78,7 +79,7 @@ export async function requestEmailVerification<Profile extends Identities.Profil
   )
 
   const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-  await channelImpl.send({
+  await deliver(ctx.events, 'email-verification', channelImpl, {
     identity,
     templateId: 'email-verification',
     vars: { url, ttlMin: Math.round(ttlMs / 60_000) },

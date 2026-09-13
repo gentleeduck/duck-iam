@@ -1,5 +1,5 @@
 /**
- * The fifteen findings `plans/C6-flows/AUDIT.md` still had open, pinned - plus
+ * The fifteen findings `docs/superpowers/plans/C6-flows/AUDIT.md` still had open, pinned - plus
  * one the work turned up.
  *
  *   F2  - password reset stored the raw address a second time, in credential
@@ -30,6 +30,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AdapterStore } from '~/adapters/adapter'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'
 import { AuthTestChannel } from '~/channels/console'
@@ -69,8 +70,6 @@ function tokenFrom(channel: AuthTestChannel): string {
   const url = (channel.outbox.at(-1)?.vars as { url: string }).url
   return new URL(url).searchParams.get('token') ?? ''
 }
-
-// --- impersonation -----------------------------------------------------------
 
 describe('F14 / F15 - impersonation neither carries nor returns assurance', () => {
   let auth: AuthEngine<MyProfile>
@@ -149,8 +148,6 @@ describe('F14 / F15 - impersonation neither carries nor returns assurance', () =
     expect(await auth.sessions.getBySid(out.sid)).toBeNull()
   })
 })
-
-// --- provider linking --------------------------------------------------------
 
 describe('F17 / F18 / F19 / F20 - provider linking', () => {
   let auth: AuthEngine<MyProfile>
@@ -276,15 +273,13 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
   })
 })
 
-// --- signup ------------------------------------------------------------------
-
 describe('F23 / F24 / F25 / F26 - signup', () => {
   it('F25 - an oversized initialProfile is refused before anything is stored', async () => {
     const { adapter, auth } = build({ profileMaxBytes: 256 })
     await expect(
       auth.flows.beginSignUp({ email: 'big@x.com', initialProfile: { bio: 'x'.repeat(400) } as Partial<MyProfile> }),
     ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
-    const ident = await adapter.identities.findByEmail('big@x.com')
+    const ident = await adapter.identities.find({ email: 'big@x.com' })
     expect(await adapter.credentials.listByIdentity(ident?.id ?? 'none', 'recovery', {})).toEqual([])
   })
 
@@ -378,8 +373,6 @@ describe('F23 / F24 / F25 / F26 - signup', () => {
   })
 })
 
-// --- email verification ------------------------------------------------------
-
 describe('F10 / F11 / F26 - email verification', () => {
   it('F10 - an unknown identity does not spend the limiter', async () => {
     const { auth } = build({ limit: 2 })
@@ -429,14 +422,17 @@ describe('F10 / F11 / F26 - email verification', () => {
     const store = adapter.identities
     const original = store.update.bind(store)
     let raced = false
-    store.update = async (id, patch, expectedVersion) => {
-      if (!raced && 'emailVerified' in patch) {
-        raced = true
-        const cur = await store.findById(id)
-        if (cur) await original(id, { profile: { ...cur.profile, touched: true } }, cur.version)
-      }
-      return original(id, patch, expectedVersion)
-    }
+    store.update = (id, patch, expectedVersion) =>
+      AdapterStore.answer(
+        (async () => {
+          if (!raced && 'emailVerified' in patch) {
+            raced = true
+            const cur = await store.find({ id })
+            if (cur) await original(id, { profile: { ...cur.profile, touched: true } }, cur.version)
+          }
+          return original(id, patch, expectedVersion)
+        })(),
+      )
     try {
       const out = await auth.flows.completeEmailVerification({ token: tokenFrom(channel) })
       expect(raced).toBe(true)
@@ -446,8 +442,6 @@ describe('F10 / F11 / F26 - email verification', () => {
     }
   })
 })
-
-// --- password reset ----------------------------------------------------------
 
 describe('F2 / F6 / F7 / F28 - password reset', () => {
   let auth: AuthEngine<MyProfile>

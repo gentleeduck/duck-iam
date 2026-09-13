@@ -5,6 +5,7 @@ import type { PasswordsImpl } from '~/providers/passwords'
 import { AuthError } from '../errors'
 import type { Identities, IdentitiesImpl } from '../identities'
 import type { Provider } from '../provider'
+import { canonicalProviderId, echoableProviderId } from '../provider/provider.constants'
 import type { Sessions, SessionsImpl } from '../sessions'
 import type { TenantContext } from '../tenant/tenant.types'
 import type { Transport } from '../transport'
@@ -62,15 +63,16 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
   async signIn(opts: Flows.SignInOptions): Promise<Flows.SignInOutcome> {
     const { sessions, identities, providers, transport, events, ctxFactory, cfg } = this._deps
 
-    if (!isProviderIdSafe(opts.providerId) || !providers.has(opts.providerId)) {
+    const providerId = canonicalProviderId(opts.providerId)
+    if (providerId === null || !providers.has(providerId)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: isProviderIdSafe(opts.providerId) ? opts.providerId : 'invalid',
+        providerId: echoableProviderId(opts.providerId),
         detail: 'unknown provider id',
       })
     }
 
     const ctx = ctxFactory(opts.tenantId)
-    const rawIntents = await providers.complete(opts.providerId, ctx, opts.input)
+    const rawIntents = await providers.complete(providerId, ctx, opts.input)
 
     const startIntent = rawIntents.find(
       (i): i is Extract<Provider.InternalIntent, { type: 'startSession' }> => i.type === 'startSession',
@@ -124,13 +126,14 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     opts: { tenantId?: string } = {},
   ): Promise<Provider.Intent[]> {
     const { providers, ctxFactory } = this._deps
-    if (!isProviderIdSafe(providerId) || !providers.has(providerId)) {
+    const canonical = canonicalProviderId(providerId)
+    if (canonical === null || !providers.has(canonical)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: isProviderIdSafe(providerId) ? providerId : 'invalid',
+        providerId: echoableProviderId(providerId),
         detail: 'unknown provider id',
       })
     }
-    return providers.begin(providerId, ctxFactory(opts.tenantId), input)
+    return providers.begin(canonical, ctxFactory(opts.tenantId), input)
   }
 
   /** Revoke the current session and emit Transport.revoke intents. */
@@ -143,8 +146,6 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     }
     return { intents: transport.revoke() }
   }
-
-  // --- Step-up flow -----------------------------------------
 
   /**
    * Check whether the current session satisfies a step-up requirement.
@@ -178,19 +179,10 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
    * Complete a step-up by verifying the supplied factor and rotating the
    * session to the higher AAL with the new factor recorded.
    *
-   * The factor is looked up in the session's own tenant, and there is no second
-   * input that could name a different one. There used to be: an optional
-   * `tenantId` scoped the credential read while `resolved.tenantId` scoped the
-   * session, and nothing bound them. Worse than a mismatch - the default was
-   * `{}`, an *unscoped* read, so with no `tenantId` supplied a factor enrolled
-   * in any tenant at all satisfied a step-up in any other. Credentials are
-   * tenant-scoped and identities are not, so a user enrolled in tenant B reached
-   * AAL 2 in tenant A, where A had never seen a factor for them and `hasTotp`
-   * therefore never demanded one.
-   *
-   * Same shape as F28 on the reset flow's MFA gate: the check resolved its scope
-   * from one input and acted on another. Removing the parameter is the fix - one
-   * source of truth cannot disagree with itself.
+   * SECURITY: the factor is looked up in the session's own tenant, and no parameter can name a
+   * different one. Credentials are tenant-scoped and identities are not, so a second input would
+   * let a factor enrolled in tenant B satisfy a step-up in tenant A, which has never seen one for
+   * that user and so never demanded it.
    */
   async completeStepUp(opts: {
     currentSid: string
@@ -239,8 +231,6 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return { session, sid, intents }
   }
 
-  // --- Password reset ------------------------------------
-
   /**
    * Request a password reset. Always responds successfully (no enumeration);
    * if the identity exists, a single-use token is minted, hashed at rest,
@@ -282,8 +272,6 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return completePasswordResetImpl(this._deps, input)
   }
 
-  // --- Email verification ---------------------------------------------------
-
   /**
    * Mint + dispatch an email-verification token. Idempotent under the
    * rate-limit window: callers can re-trigger from a "didn't get the
@@ -311,8 +299,6 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
   ): Promise<{ identity: Identities.Me<Profile>; identityId: string }> {
     return completeEmailVerificationImpl(this._deps, input)
   }
-
-  // --- Account deletion -----------------------------------------------------
 
   /**
    * Request account deletion. Mints a confirmation token, dispatches
@@ -352,8 +338,6 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return cancelAccountDeletionImpl(this._deps, input)
   }
 
-  // --- Signup state machine -----------------------------
-
   /**
    * Begin a multi-step signup. Creates the identity with
    * `emailVerified=false` and returns a flow handle the caller
@@ -361,7 +345,7 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
    * `complete()` issues the session.
    *
    * Rate-limited on the canonical address. The identity row is written before
-   * anything proves the caller owns that address - see `DECISIONS.md` D1 for
+   * anything proves the caller owns that address - see `docs/superpowers/DECISIONS.md` D1 for
    * why it still is, and what it would take not to.
    *
    * `username` is derived from the email local part when `initialProfile` does
@@ -407,14 +391,12 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return completeSignUpImpl(this._deps, opts)
   }
 
-  // --- Impersonation ------------------------------------
-
   /**
    * Start an impersonation. Library refuses to issue an actingAs session
    * without first checking the caller's authorisation via the supplied
    * `authorize` callback. iam consumers wire engine.authorize() here; non-
    * iam apps supply their own predicate. NEVER pass `() => true` - that
-   * defeats audit and DESIGN section 38's invariant.
+   * defeats audit and the invariant it exists to keep.
    */
   async impersonate(
     opts: Flows.ImpersonateOptions & {
@@ -454,10 +436,6 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
   ): Promise<{ session: Sessions.Me | null; sid: string; intents: Provider.Intent[] }> {
     return releaseImpersonationImpl(this._deps, impersonationSid)
   }
-}
-
-function isProviderIdSafe(providerId: unknown): providerId is string {
-  return typeof providerId === 'string' && providerId.length > 0 && providerId.length <= 128
 }
 
 /** Factory around {@link Flows} for functional-style config. */

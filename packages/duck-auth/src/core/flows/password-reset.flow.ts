@@ -13,15 +13,32 @@ import {
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
+  RECOVERY_PURPOSES,
   toCredentialUpsert,
 } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
-import type { Identities } from '~/core/identities'
+import { canonicalEmail, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { isSafeCallbackPath } from '~/core/url-validators'
+import type { MfaFacet } from '~/providers/mfa'
 import { NO_IDENTITY_SENTINEL } from '~/providers/passwords/passwords.constants'
 import type { Flows } from './flows.types'
+
+/**
+ * The MFA facet if one is registered. A deployment without it has no second factor to require, and
+ * reading it through `requireMfa()` answered a public reset endpoint with AUTH_PROVIDER_NOT_REGISTERED
+ * for every caller, on both branches. Only the resolution is guarded: what `hasTotp` itself raises is
+ * a real failure and still travels.
+ */
+function optionalMfa<Profile extends Identities.ProfileMetadataBase>(deps: Flows.Deps<Profile>): MfaFacet | null {
+  try {
+    return deps.requireMfa()
+  } catch (err) {
+    if (err instanceof AuthError && err.code === 'AUTH_PROVIDER_NOT_REGISTERED') return null
+    throw err
+  }
+}
 
 export async function requestPasswordReset<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
@@ -45,7 +62,7 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
     return { ok: true }
   }
 
-  const emailCanonical = email.trim().toLowerCase()
+  const emailCanonical = canonicalEmail(email) ?? ''
   const limited = await ctx.limiter.consume(`recovery:password:${emailCanonical}`)
   // No subject, deliberately. Resolving this address means calling the host's
   // `findIdentityByEmail` - arbitrary code, unknown cost - on every refused
@@ -73,11 +90,26 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
   // the same order. `passwords.ts` established this discipline with the same
   // sentinel: the unknown-address path has to cost what the known one costs, or
   // the response time answers the question the response body refuses to.
-  // What is left asymmetric is one write against one read on the credentials
-  // table - not the "one sha256 versus three round-trips" this branch used to be.
+  // What is left asymmetric is one write against one read on the credentials table.
   const token = ctx.crypto.authRandomToken(32)
   const tokenHash = ctx.crypto.authSha256(token)
   const subjectId = identity ? identity.id : NO_IDENTITY_SENTINEL
+
+  // Retire the tokens issued before this one, or ten requests leave ten working keys to the account
+  // sitting in ten inboxes and an old message forwarded or leaked stays a way in.
+  //
+  // Hoisted above the branch, and by purpose rather than by kind, for two separate reasons.
+  // `recovery` also holds the account's MFA backup codes, its trusted devices and its verification
+  // mail, so a delete by kind alone would void six things nobody asked to touch. And the call has to
+  // be one round trip made by *both* branches: this flow keeps the known and unknown paths to the
+  // same number of store calls so response time cannot answer what the response body refuses to,
+  // which a list-then-delete-each pass would break by leaking how many tokens the address has.
+  await ctx.stores.credentials.deleteByKindAndPurpose(
+    subjectId,
+    'recovery',
+    RECOVERY_PURPOSES.passwordReset,
+    ctx.tenant,
+  )
 
   if (identity) {
     await ctx.stores.credentials.upsert(
@@ -103,8 +135,8 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
   }
 
   const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-  const identityRow = await ctx.stores.identities.findById(subjectId)
-  const requiresMfa = await deps.requireMfa().hasTotp(subjectId, ctx.tenant)
+  const identityRow = await ctx.stores.identities.find({ id: subjectId })
+  const requiresMfa = (await optionalMfa(deps)?.hasTotp(subjectId, ctx.tenant)) ?? false
   if (!identity || !identityRow) {
     return { ok: true }
   }
@@ -172,7 +204,7 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   // rather than a distinct code, so a reset link is not a way to ask whether an
   // account still exists. `findById` filters soft-deleted rows, so a missing row
   // is exactly "deleted or erased".
-  const identity = await ctx.stores.identities.findById(row.identityId)
+  const identity = await ctx.stores.identities.find({ id: row.identityId })
   if (!identity) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   }
@@ -185,7 +217,7 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   const currentSession = input.currentSid === undefined ? null : await deps.sessions.getBySid(input.currentSid)
   const callerSession = currentSession?.identityId === row.identityId ? currentSession : null
 
-  if (await deps.requireMfa().hasTotp(row.identityId, ctx.tenant)) {
+  if (await optionalMfa(deps)?.hasTotp(row.identityId, ctx.tenant)) {
     if (!callerSession || callerSession.aal < 2 || !callerSession.fresh) {
       // Bounded, then burnt. A failed gate cannot consume the token outright -
       // the documented flow is exactly to be refused here, step up, and call

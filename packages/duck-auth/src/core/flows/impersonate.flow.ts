@@ -79,18 +79,10 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
 /**
  * End an impersonation and hand the operator back a session of their own.
  *
- * This used to revoke the impersonation session and call `transport.revoke()`,
- * which clears the bearer outright - so ending a support session logged the
- * admin out. The real session `impersonate-start` deliberately leaves alive is
- * no help: `impersonate` overwrote the cookie with the impersonation sid, so its
- * plaintext is gone from the client and nothing can present it again. There is
- * nothing to return *to*; a session has to be minted.
- *
- * Which is what `impersonate-release` is for. It has sat unused in the rotation
- * matrix since the matrix was written, with exactly the semantics needed here -
- * mint, then delete the sid that was presented - and routing through it puts
- * this transition back on the single rotation path the rest of the library
- * promises.
+ * A session has to be minted, not restored: `impersonate` overwrote the cookie with the
+ * impersonation sid, so the operator's own session is still alive but its plaintext is gone from
+ * the client and nothing can present it again. `impersonate-release` is the rotation that does it -
+ * mint, then delete the sid presented - which keeps this on the single rotation path.
  *
  * The new session starts at AAL 1 with no factors, for the same reason the
  * impersonation session did: nobody has authenticated since. An operator

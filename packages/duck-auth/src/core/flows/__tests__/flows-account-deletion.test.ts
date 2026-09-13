@@ -71,7 +71,7 @@ describe('FlowsImpl - account deletion', () => {
     expect(result.identity.emailVerified).toBe(false)
 
     // Identity hidden from finds + sessions revoked.
-    expect(await adapter.identities.findById(identityId)).toBeNull()
+    expect(await adapter.identities.find({ id: identityId })).toBeNull()
     expect(await auth.sessions.getBySid(sid)).toBeNull()
   })
 
@@ -82,12 +82,12 @@ describe('FlowsImpl - account deletion', () => {
     })
     const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
-    expect(await adapter.identities.findById(identityId)).toBeNull()
+    expect(await adapter.identities.find({ id: identityId })).toBeNull()
 
     const cancelled = await auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId })
     expect(cancelled.identity.id).toBe(identityId)
     expect(cancelled.identity.deletedAt).toBeNull()
-    expect(await adapter.identities.findById(identityId)).not.toBeNull()
+    expect(await adapter.identities.find({ id: identityId })).not.toBeNull()
   })
 
   it('cancel refuses when authorize() says no, and leaves the account deleted', async () => {
@@ -101,7 +101,7 @@ describe('FlowsImpl - account deletion', () => {
     await expect(auth.flows.cancelAccountDeletion({ authorize: async () => false, identityId })).rejects.toMatchObject({
       code: 'AUTH_UNAUTHENTICATED',
     })
-    expect(await adapter.identities.findById(identityId)).toBeNull()
+    expect(await adapter.identities.find({ id: identityId })).toBeNull()
   })
 
   it('cancel asks authorize() about the identity it is being asked to restore', async () => {

@@ -49,7 +49,7 @@ describe('FlowsImpl - signup state machine', () => {
     expect(flow.identityId).toBeTruthy()
     expect(flow.completed).toEqual(['email-collected'])
 
-    const identity = await adapter.identities.findById(flow.identityId)
+    const identity = await adapter.identities.find({ id: flow.identityId })
     expect(identity?.profile?.email).toBe('new@x.com')
     expect(identity?.emailVerified).toBe(false)
   })
@@ -118,7 +118,7 @@ describe('FlowsImpl - signup state machine', () => {
     const out = await auth.flows.completeSignUp({ flowToken })
     expect(out.session!.identityId).toBe(flow.identityId)
 
-    const fresh = await adapter.identities.findById(flow.identityId)
+    const fresh = await adapter.identities.find({ id: flow.identityId })
     expect(fresh?.profile?.emailVerified).toBe(true)
     expect(fresh?.profile?.acceptedTerms).toBe(true)
 

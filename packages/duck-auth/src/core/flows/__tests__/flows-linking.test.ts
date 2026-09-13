@@ -67,7 +67,7 @@ describe('FlowsImpl - account linking', () => {
       expect.objectContaining({ providerId: 'authGoogle', providerSub: 'authGoogle|111' }),
     )
     expect(handler).toHaveBeenCalledOnce()
-    const ident = await adapter.identities.findById(identityA)
+    const ident = await adapter.identities.find({ id: identityA })
     expect(ident?.providers).toEqual([
       expect.objectContaining({ providerId: 'authGoogle', providerSub: 'authGoogle|111' }),
     ])
@@ -86,7 +86,7 @@ describe('FlowsImpl - account linking', () => {
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',
     })
-    const ident = await adapter.identities.findById(identityA)
+    const ident = await adapter.identities.find({ id: identityA })
     expect(ident?.providers).toHaveLength(1)
   })
 
@@ -131,7 +131,7 @@ describe('FlowsImpl - account linking', () => {
       {},
     )
     await auth.flows.unlinkProvider({ identityId: identityA, providerId: 'authGoogle' })
-    const ident = await adapter.identities.findById(identityA)
+    const ident = await adapter.identities.find({ id: identityA })
     expect(ident?.providers).toEqual([])
   })
 
@@ -159,7 +159,7 @@ describe('FlowsImpl - account linking', () => {
       providerId: 'authGoogle',
       allowLockout: true,
     })
-    const ident = await adapter.identities.findById(identityA)
+    const ident = await adapter.identities.find({ id: identityA })
     expect(ident?.providers).toEqual([])
   })
 
