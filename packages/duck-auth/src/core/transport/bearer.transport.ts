@@ -1,3 +1,4 @@
+import { AuthError } from '../errors'
 import type { Provider } from '../provider/provider.types'
 import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
@@ -22,6 +23,19 @@ export class BearerTransport implements Transport.ITransport {
   constructor(cfg: BearerTransport.Cfg = {}) {
     this._header = cfg.header ?? 'authorization'
     this._scheme = cfg.scheme ?? 'Bearer'
+    // A blank scheme makes the prefix a single space, and `Headers` strips leading whitespace from a
+    // value, so nothing could ever match it: the transport extracts nothing, forever, and inside a
+    // composite that is indistinguishable from the credential not having been presented.
+    if (this._scheme.trim() === '' || this._scheme !== this._scheme.trim()) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `@gentleduck/auth BearerTransport: scheme must be non-blank and carry no surrounding whitespace (got ${JSON.stringify(cfg.scheme)})`,
+      })
+    }
+    if (this._header.trim() === '') {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: '@gentleduck/auth BearerTransport: header must be a non-blank header name',
+      })
+    }
   }
 
   extract(req: { headers: Headers }): string | null {

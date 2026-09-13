@@ -35,7 +35,6 @@ function authDerToJoseEs256(der: Buffer): Buffer {
   // strip leading 0x00 padding from negative-bit guard
   if (r[0] === 0 && r.length === 33) r = r.subarray(1)
   if (s[0] === 0 && s.length === 33) s = s.subarray(1)
-  // pad up to 32
   const rPad = Buffer.concat([Buffer.alloc(32 - r.length), r])
   const sPad = Buffer.concat([Buffer.alloc(32 - s.length), s])
   return Buffer.concat([rPad, sPad])
