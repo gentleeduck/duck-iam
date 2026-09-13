@@ -9,7 +9,7 @@ import type { Hijack } from './hijack.types'
  * caller (server adapter) compares the inbound request's IP / UA with
  * the session's recorded values and applies the chosen reaction.
  *
- * DESIGN section T1. Emits the canonical `suspicious` event regardless
+ * Emits the canonical `suspicious` event regardless
  * of the reaction so audit pipelines see every drift.
  */
 export class HijackFacet {
@@ -21,6 +21,7 @@ export class HijackFacet {
   ) {
     this._policy = {
       onIpChange: cfg.onIpChange ?? DEFAULT_HIJACK_POLICY.onIpChange,
+      onMissingSignal: cfg.onMissingSignal ?? DEFAULT_HIJACK_POLICY.onMissingSignal,
       onUserAgentChange: cfg.onUserAgentChange ?? DEFAULT_HIJACK_POLICY.onUserAgentChange,
     }
   }
@@ -37,9 +38,9 @@ export class HijackFacet {
     session: Sessions.Me,
     request: { ip?: string | null; userAgent?: string | null },
   ): Promise<Hijack.Evaluation> {
-    // Evaluate IP + UA drift independently and return the strongest
-    // reaction. One-sided absence (missing baseline or stripped header)
-    // is downgraded to `'rotate'` so audit fires without forcing step-up.
+    // Evaluate IP + UA drift independently and return the strongest reaction. A missing baseline is
+    // downgraded to `'rotate'` so audit fires without forcing step-up; a value the request dropped
+    // follows `onMissingSignal`, because that side is the caller's to choose.
     type DriftSignal = 'ip-change' | 'user-agent-change'
     const drifts: Array<{
       signal: DriftSignal
@@ -51,8 +52,7 @@ export class HijackFacet {
 
     const ipDrift = isDrift(session.ip, request.ip)
     if (ipDrift) {
-      const reaction =
-        ipDrift === 'asymmetric' ? downgradeForAsymmetric(this._policy.onIpChange) : this._policy.onIpChange
+      const reaction = this._reactionFor(ipDrift, this._policy.onIpChange)
       drifts.push({
         signal: 'ip-change',
         reaction,
@@ -63,10 +63,7 @@ export class HijackFacet {
     }
     const uaDrift = isDrift(session.userAgent, request.userAgent)
     if (uaDrift) {
-      const reaction =
-        uaDrift === 'asymmetric'
-          ? downgradeForAsymmetric(this._policy.onUserAgentChange)
-          : this._policy.onUserAgentChange
+      const reaction = this._reactionFor(uaDrift, this._policy.onUserAgentChange)
       drifts.push({
         signal: 'user-agent-change',
         reaction,
@@ -104,6 +101,12 @@ export class HijackFacet {
     }
   }
 
+  private _reactionFor(drift: Exclude<Drift, null>, configured: Hijack.Reaction): Hijack.Reaction {
+    if (drift === 'mismatch') return configured
+    if (drift === 'no-baseline') return soften(configured)
+    return this._policy.onMissingSignal === 'strict' ? configured : soften(configured)
+  }
+
   /**
    * Translate a reaction into the throw the caller should bubble.
    * `'rotate'` is non-throwing; caller schedules a rotation via
@@ -121,24 +124,29 @@ export class HijackFacet {
   }
 }
 
-/** Compare a session baseline to a request value, three-state.
+/** Compare a session baseline to a request value.
  *
- *   - `null`        - no drift (either both null/undefined or both equal)
- *   - `'mismatch'`  - both present, different values
- *   - `'asymmetric'`- one present, the other not (treated as a softer drift) */
-function isDrift(baseline: string | null, current: string | null | undefined): null | 'mismatch' | 'asymmetric' {
+ *   - `null`         - no drift (either both null/undefined or both equal)
+ *   - `'mismatch'`   - both present, different values
+ *   - `'no-baseline'`- the session recorded nothing to compare against
+ *   - `'stripped'`   - the session recorded a value and the request omitted it
+ *
+ * The last two are kept apart because only one of them is the caller's choice. */
+type Drift = null | 'mismatch' | 'no-baseline' | 'stripped'
+
+function isDrift(baseline: string | null, current: string | null | undefined): Drift {
   // Treat null and undefined as equivalent absence.
   const b = baseline ?? undefined
   const c = current ?? undefined
   if (b === c) return null
-  if (b === undefined || c === undefined) return 'asymmetric'
+  if (b === undefined) return 'no-baseline'
+  if (c === undefined) return 'stripped'
   return 'mismatch'
 }
 
-/** Asymmetric drift (one side missing) is downgraded one notch so a
- * UA-less guest session does not force MFA on every request. Caller can
+/** One notch down, so a UA-less guest session does not force MFA on every request. A caller can
  * still configure `'ignore'` explicitly to suppress entirely. */
-function downgradeForAsymmetric(reaction: Hijack.Reaction): Hijack.Reaction {
+function soften(reaction: Hijack.Reaction): Hijack.Reaction {
   if (reaction === 'revoke' || reaction === 'mfa') return 'rotate'
   return reaction
 }

@@ -201,20 +201,44 @@ describe('one side missing is softened, deliberately', () => {
     expect(await facet.evaluate(session(), { ip: null, userAgent: BASE_UA })).toMatchObject({ reaction: 'rotate' })
   })
 
-  it('FINDING: a stripped header softens a revoke even when the other signal is a real mismatch', async () => {
-    // The asymmetric downgrade is per-signal. An attacker on a different address
-    // who also omits the User-Agent turns a `revoke` on user-agent-change into a
-    // `rotate`, and the surviving reaction is whatever the ip policy says. With
-    // the default policy (ip: rotate, ua: mfa) the result is `rotate` rather than
-    // the `mfa` an operator configured for a changed browser. Sending no header
-    // is entirely within an attacker's control.
+  it('still softens a stripped header under the default, which is what a proxy needs', async () => {
     const { facet } = makeFacet({ onIpChange: 'rotate', onUserAgentChange: 'mfa' })
     const stripped = await facet.evaluate(session(), { ip: OTHER_IP, userAgent: null })
     expect(stripped).toMatchObject({ ok: false, reaction: 'rotate' })
 
-    // Whereas presenting a different user agent honestly gets the stronger answer.
+    // Presenting a different user agent honestly has always got the stronger answer.
     const honest = await facet.evaluate(session(), { ip: OTHER_IP, userAgent: OTHER_UA })
     expect(honest).toMatchObject({ ok: false, reaction: 'mfa' })
+  })
+})
+
+describe('strict closes the free downgrade a dropped header used to buy', () => {
+  it('carries the configured reaction in full when the request omits the value', async () => {
+    // Under `soften` an attacker on another address who also drops the User-Agent turns the `mfa`
+    // configured for a changed browser into a `rotate` - and rotating leaves a stolen session in
+    // the attacker's hands under a new id.
+    const { facet } = makeFacet({ onIpChange: 'rotate', onMissingSignal: 'strict', onUserAgentChange: 'mfa' })
+    expect(await facet.evaluate(session(), { ip: OTHER_IP, userAgent: null })).toMatchObject({
+      ok: false,
+      reaction: 'mfa',
+    })
+  })
+
+  it('escalates a stripped ip to the full revoke as well', async () => {
+    const { facet } = makeFacet({ onIpChange: 'revoke', onMissingSignal: 'strict', onUserAgentChange: 'ignore' })
+    expect(await facet.evaluate(session(), { ip: null, userAgent: BASE_UA })).toMatchObject({ reaction: 'revoke' })
+  })
+
+  it('still softens a missing baseline, which no caller can arrange', async () => {
+    const { facet } = makeFacet({ onIpChange: 'mfa', onMissingSignal: 'strict', onUserAgentChange: 'ignore' })
+    expect(await facet.evaluate(session({ ip: null }), { ip: OTHER_IP, userAgent: BASE_UA })).toMatchObject({
+      reaction: 'rotate',
+    })
+  })
+
+  it('leaves an explicit ignore alone rather than promoting it', async () => {
+    const { facet } = makeFacet({ onIpChange: 'ignore', onMissingSignal: 'strict', onUserAgentChange: 'ignore' })
+    expect(await facet.evaluate(session(), { ip: null, userAgent: null })).toEqual({ ok: true })
   })
 })
 
