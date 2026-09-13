@@ -47,7 +47,7 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
   async decrypt(cipherText: string, ctx: DataAtRest.Context): Promise<string> {
     const parts = cipherText.split('$')
     if (parts.length !== 7 || parts[0] !== 'kms-env' || parts[1] !== 'v1') {
-      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'kms-envelope: malformed ciphertext' })
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: malformed ciphertext' })
     }
     const [, , , wrappedB64, ivB64, tagB64, ctB64] = parts as [string, string, string, string, string, string, string]
     const wrapped = Buffer.from(wrappedB64, 'base64url')
@@ -65,6 +65,10 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
       decipher.setAuthTag(tag)
       const plain = Buffer.concat([decipher.update(ct), decipher.final()])
       return plain.toString('utf8')
+    } catch {
+      // A forged or corrupt ciphertext reached `final()`. Unwrapped, it leaves as Node's own
+      // "Unsupported state or unable to authenticate data", which no error map knows and no caller can match.
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: auth-tag mismatch' })
     } finally {
       // Always zero the unwrapped DEK, even on failure.
       dekPlain.fill(0)

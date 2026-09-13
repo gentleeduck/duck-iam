@@ -64,14 +64,14 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
   it('rejects ciphertext with wrong version header', async () => {
     const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
     await expect(a.decrypt('kms-env$v9$k$a$b$c$d', { field: 'x', identityId: 'u' })).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
     })
   })
 
   it('rejects ciphertext with truncated parts', async () => {
     const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
     await expect(a.decrypt('kms-env$v1$k$a$b', { field: 'x', identityId: 'u' })).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
     })
   })
 
@@ -84,7 +84,11 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
     body[0] = body[0]! ^ 0x01
     parts[6] = body.toString('base64url')
     const tampered = parts.join('$')
-    await expect(a.decrypt(tampered, { field: 'x', identityId: 'u' })).rejects.toThrow()
+    // Typed, not Node's own wording: an unwrapped `final()` failure leaves as a message no error map knows.
+    await expect(a.decrypt(tampered, { field: 'x', identityId: 'u' })).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: expect.stringContaining('auth-tag mismatch') },
+    })
   })
 
   it('zeroes the plaintext DEK after encrypt (memory-disclosure hygiene)', async () => {
@@ -126,7 +130,9 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
       id: 'watch',
     }
     const b = new AuthKmsEnvelopeDataAtRest({ kms: watchKms })
-    await expect(b.decrypt(ct, { field: 'x', identityId: 'u' })).rejects.toThrow()
+    await expect(b.decrypt(ct, { field: 'x', identityId: 'u' })).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+    })
     expect(leakedAfter).not.toBeNull()
     expect((leakedAfter as unknown as Uint8Array).every((byte) => byte === 0)).toBe(true)
   })

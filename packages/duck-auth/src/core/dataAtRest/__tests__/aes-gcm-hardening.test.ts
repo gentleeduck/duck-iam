@@ -23,7 +23,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     const eightByteIv = Buffer.alloc(8).toString('base64url')
     const tampered = `${parts[0]}$${parts[1]}$${eightByteIv}$${parts[3]}$${parts[4]}`
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: IV must be 12 bytes' },
     })
   })
@@ -35,7 +35,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     const eightByteTag = Buffer.alloc(8).toString('base64url')
     const tampered = `${parts[0]}$${parts[1]}$${parts[2]}$${eightByteTag}$${parts[4]}`
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: auth tag must be 16 bytes' },
     })
   })
@@ -50,7 +50,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     ctBytes[0] = ctBytes[0]! ^ 0xff
     const tampered = `${parts[0]}$${parts[1]}$${parts[2]}$${parts[3]}$${ctBytes.toString('base64url')}`
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: auth-tag mismatch' },
     })
   })
@@ -65,7 +65,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     const tamperedTag = tagBytes.toString('base64url')
     const tampered = `${parts[0]}$${parts[1]}$${parts[2]}$${tamperedTag}$${parts[4]}`
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: auth-tag mismatch' },
     })
   })
@@ -74,7 +74,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     const a = makeAdapter()
     const ct = await a.encrypt('original', ctx)
     await expect(a.decrypt(ct, { identityId: 'other-identity', field: ctx.field })).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: auth-tag mismatch' },
     })
   })
@@ -82,7 +82,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
   it('rejects malformed ciphertext (wrong prefix)', async () => {
     const a = makeAdapter()
     await expect(a.decrypt('not-the-right-shape', ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: malformed ciphertext' },
     })
   })

@@ -1,5 +1,5 @@
 /**
- * The DEK here is deterministic: `sha256(masterKey || identityId || field)`. The
+ * The DEK here is deterministic: HKDF over the master key and the context. The
  * same field of the same identity is always encrypted under the same key, which
  * means the twelve-byte IV is the only thing keeping two ciphertexts apart.
  *
@@ -15,6 +15,7 @@
  * cannot be decrypted as another's.
  */
 import { Buffer } from 'node:buffer'
+import { createCipheriv, createHash, randomBytes } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { AuthAesGcmDataAtRest } from '../aes-gcm'
 
@@ -23,7 +24,17 @@ const KEY_B = Buffer.alloc(32, 2)
 const adapter = new AuthAesGcmDataAtRest({ kid: 'k1', masterKey: KEY_A })
 const ctx = { field: 'ssn', identityId: 'user-1' }
 
-/** `aes-256-gcm$<kid>$<iv>$<tag>$<ct>` */
+/** What the adapter wrote before the context was length-prefixed, built the way it built it. */
+function legacyCiphertext(plain: string, masterKey: Buffer, kid: string, context: typeof ctx): string {
+  const dek = createHash('sha256').update(masterKey).update(context.identityId).update(context.field).digest()
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', dek, iv)
+  const body = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return `aes-256-gcm$${kid}$${iv.toString('base64url')}$${tag.toString('base64url')}$${body.toString('base64url')}`
+}
+
+/** `<alg>$<kid>$<iv>$<tag>$<ct>` */
 const parts = (ciphertext: string) => ciphertext.split('$')
 const ivOf = (ciphertext: string) => parts(ciphertext)[2] as string
 const tagOf = (ciphertext: string) => parts(ciphertext)[3] as string
@@ -126,15 +137,42 @@ describe('the context separates keys', () => {
     await expect(stranger.decrypt(encrypted, ctx)).rejects.toThrow()
   })
 
-  it('FINDING: the context is concatenated, so a boundary can be shifted', async () => {
-    // The DEK is sha256(key || identityId || field) with no separator, so
-    // ('ab', 'c') and ('a', 'bc') hash the same bytes and derive the same key.
-    // Reaching it needs an identityId and a field an attacker controls together,
-    // and field names come from the library rather than a request, so this is a
-    // property of the construction rather than a live hole. Pinned because a
-    // future caller passing a user-supplied field name would make it one.
+  it('a shifted boundary is a different key', async () => {
+    // ('ab', 'c') and ('a', 'bc') flatten to the same bytes unless each component
+    // carries its own length.
     const encrypted = await adapter.encrypt('secret', { field: 'c', identityId: 'ab' })
-    expect(await adapter.decrypt(encrypted, { field: 'bc', identityId: 'a' })).toBe('secret')
+    await expect(adapter.decrypt(encrypted, { field: 'bc', identityId: 'a' })).rejects.toThrow()
+  })
+})
+
+describe('the legacy format is read but never written', () => {
+  it('writes the versioned algorithm', async () => {
+    expect(parts(await adapter.encrypt('secret', ctx))[0]).toBe('aes-256-gcm.v2')
+  })
+
+  it('still decrypts a ciphertext written before the context was length-prefixed', async () => {
+    expect(await adapter.decrypt(legacyCiphertext('secret', KEY_A, 'k1', ctx), ctx)).toBe('secret')
+  })
+
+  it('reports one for re-encryption even under the current kid', () => {
+    expect(adapter.needsReEncrypt(legacyCiphertext('secret', KEY_A, 'k1', ctx))).toBe(true)
+  })
+
+  it('does not report a current ciphertext', async () => {
+    expect(adapter.needsReEncrypt(await adapter.encrypt('secret', ctx))).toBe(false)
+  })
+
+  it('binds the kid, so one master key under two kids is two keys', async () => {
+    const underK1 = await new AuthAesGcmDataAtRest({ kid: 'k1', masterKey: KEY_A }).encrypt('secret', ctx)
+    const relabelled = underK1.replace('$k1$', '$k2$')
+    const underK2 = new AuthAesGcmDataAtRest({ kid: 'k2', masterKey: KEY_A })
+    await expect(underK2.decrypt(relabelled, ctx)).rejects.toThrow()
+  })
+
+  it('refuses an algorithm it does not know', async () => {
+    const encrypted = await adapter.encrypt('secret', ctx)
+    const [, kid, iv, tag, body] = parts(encrypted)
+    await expect(adapter.decrypt(`aes-256-gcm.v3$${kid}$${iv}$${tag}$${body}`, ctx)).rejects.toThrow()
   })
 })
 
@@ -238,21 +276,25 @@ describe('the values it is asked to protect', () => {
     }
   })
 
-  it('FINDING: a value between about 786KB and 1MiB encrypts and can never be decrypted', async () => {
-    // `encrypt` caps the PLAINTEXT at 1 MiB. `decrypt` caps the CIPHERTEXT
-    // ENVELOPE at the same 1 MiB. Base64 expands by about a third, so a 1 MiB
-    // plaintext produces a 1,398,157 character envelope that `decrypt` refuses
-    // as oversize. The write succeeds and the row is stored; the read throws.
-    // Measured break point: 786,000 bytes round-trips, 800,000 does not.
-    const doomed = 'x'.repeat(1_000_000)
-    const encrypted = await adapter.encrypt(doomed, ctx)
+  it('round-trips a value whose envelope is larger than the plaintext cap', async () => {
+    // `decrypt` used to cap the ENVELOPE at the cap `encrypt` puts on the PLAINTEXT, and base64
+    // expands by a third: anything over about 786,000 characters was written and then refused by
+    // every read of itself.
+    const big = 'x'.repeat(1_000_000)
+    const encrypted = await adapter.encrypt(big, ctx)
     expect(encrypted.length).toBeGreaterThan(1_048_576)
-    await expect(adapter.decrypt(encrypted, ctx)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    expect(await adapter.decrypt(encrypted, ctx)).toBe(big)
   })
 
-  it('round-trips the largest value that survives the envelope expansion', async () => {
-    const safe = 'x'.repeat(786_000)
-    expect(await adapter.decrypt(await adapter.encrypt(safe, ctx), ctx)).toBe(safe)
+  it('round-trips the largest plaintext it accepts', async () => {
+    const largest = 'x'.repeat(1_048_576)
+    expect(await adapter.decrypt(await adapter.encrypt(largest, ctx), ctx)).toBe(largest)
+  })
+
+  it('still refuses an envelope past what any accepted plaintext could produce', async () => {
+    await expect(adapter.decrypt(`aes-256-gcm$k1$a$b$${'c'.repeat(4_200_000)}`, ctx)).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+    })
   })
 
   it('refuses a value past the size cap rather than encrypting it', async () => {
