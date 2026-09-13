@@ -20,7 +20,7 @@ export async function authRefreshoauthToken(opts: {
    * Required. Without it this refreshes tokens for an identity that has since
    * been deleted and hands its id back to the caller, because nothing on the
    * credential-first path looks at the identity - the same gap that let an API
-   * key outlive its owner. `findById` filters soft-deleted rows, so a `null`
+   * key outlive its owner. `find` filters soft-deleted rows, so a `null`
    * means deleted or erased.
    *
    * It used to be optional, documented as "should be supplied". Nothing in the
@@ -29,7 +29,7 @@ export async function authRefreshoauthToken(opts: {
    * was opt-in. `apiKeyProvider` passes `stores.identities` unconditionally for
    * the identical check; this is the same guarantee, made unskippable.
    */
-  identities: { findById(id: string): Promise<unknown | null> }
+  identities: { find(by: { id: string }): Promise<unknown | null> }
 }): Promise<{ tokens: OAuth.TokenResponse; identityId: string; familyId: string }> {
   const presentedHash = sha256(opts.presentedRefreshToken)
   const row = await opts.credentials.findByHashedSecret(presentedHash, 'oauth', opts.tenant)
@@ -52,14 +52,14 @@ export async function authRefreshoauthToken(opts: {
   }
   // Explicit `!== undefined`: falsy chain would let `revokedAt: 0` slip past.
   if (meta.revokedAt !== undefined || isRevoked(row)) {
-    await revokeFamily(opts.credentials, opts.tenant, meta.familyId)
+    const moved = await opts.credentials.revokeFamily(meta.familyId, opts.tenant)
     await opts.events.emit('suspicious', {
       ...(row.identityId && { identityId: row.identityId }),
       signal: 'oauth-refresh-reuse',
       score: 1,
       meta: { familyId: meta.familyId, provider: meta.provider, sub: meta.sub },
     })
-    throw new AuthError('AUTH_OAUTH_REUSE_DETECTED', { familyRevoked: true })
+    throw new AuthError('AUTH_OAUTH_REUSE_DETECTED', { familyRevoked: moved > 0 })
   }
 
   // Checked before the CAS and before the exchange, so a refresh for a deleted
@@ -68,7 +68,7 @@ export async function authRefreshoauthToken(opts: {
   // tokens should work again if the account comes back within its grace window.
   // `row.identityId` is empty for a client-credentials grant, which has no
   // identity to outlive.
-  if (row.identityId && !(await opts.identities.findById(row.identityId))) {
+  if (row.identityId && !(await opts.identities.find({ id: row.identityId }))) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
 
@@ -79,14 +79,14 @@ export async function authRefreshoauthToken(opts: {
   } catch (err) {
     if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') {
       // CAS loser still revokes the family (RFC 6749 10.4 reuse detection).
-      await revokeFamily(opts.credentials, opts.tenant, meta.familyId)
+      const moved = await opts.credentials.revokeFamily(meta.familyId, opts.tenant)
       await opts.events.emit('suspicious', {
         ...(row.identityId && { identityId: row.identityId }),
         signal: 'oauth-refresh-race',
         score: 1,
         meta: { familyId: meta.familyId, provider: meta.provider, sub: meta.sub },
       })
-      throw new AuthError('AUTH_OAUTH_REUSE_DETECTED', { familyRevoked: true })
+      throw new AuthError('AUTH_OAUTH_REUSE_DETECTED', { familyRevoked: moved > 0 })
     }
     throw err
   }
@@ -128,13 +128,6 @@ export async function authRefreshoauthToken(opts: {
   )
   await opts.credentials.revoke(row.id, opts.tenant)
   return { tokens: fresh, identityId: row.identityId, familyId: meta.familyId }
-}
-
-async function revokeFamily(credentials: Credential.Store, ctx: TenantContext, familyId: string): Promise<void> {
-  // Reflect.get + typeof: avoids a runtime-incorrect `as Store & {__familyRevoke?}` shape.
-  const method: unknown = Reflect.get(credentials, '__familyRevoke')
-  if (typeof method !== 'function') return
-  await method.call(credentials, familyId, ctx)
 }
 
 /**

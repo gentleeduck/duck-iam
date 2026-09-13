@@ -7,8 +7,6 @@ import type { OAuthClient } from './client'
  * `./client`; refresh/state/provider helpers keep their function names.
  */
 export namespace OAuth {
-  // --- client ------------------------------------------------------------
-
   /**
    * OIDC / oauth2 endpoints. Supplied directly (Google, GitHub, static
    * well-known providers) or resolved at runtime via discovery for generic
@@ -52,8 +50,6 @@ export namespace OAuth {
     scope?: string
   }
 
-  // --- provider ----------------------------------------------------------
-
   /**
    * Canonical profile shape after a provider extracts it from
    * userinfo / id_token / provider-specific endpoint. Providers
@@ -81,6 +77,8 @@ export namespace OAuth {
     redirectUri: string
     /** Per-AuthEngine signing secret for the oauth `state` parameter. */
     stateSigningSecret: string
+    /** Cookie that binds a callback to the browser that began the flow. See {@link StateCookie}. */
+    stateCookie?: StateCookie
     /** Override IdP scopes; falls back to provider default. */
     scopes?: string[]
     /** Override fetch impl (test stubs). */
@@ -103,6 +101,16 @@ export namespace OAuth {
     onFederationConflict?: Options<AppProfile>['onFederationConflict']
   }
 
+  /**
+   * The pre-auth cookie's own settings. `secure` defaults to true and the name to `__Host-duck-oauth`,
+   * which the browser only accepts over https - an http development host has to name both.
+   */
+  export interface StateCookie {
+    name?: string
+    secure?: boolean
+    domain?: string
+  }
+
   /** Full options surface consumed by `oProvider`. */
   export interface Options<AppProfile = unknown> {
     /** Stable id; library prefixes with `oauth:` for consistency. */
@@ -113,6 +121,8 @@ export namespace OAuth {
     redirectUri: string
     /** Secret used to sign the oauth `state` parameter. */
     stateSigningSecret: string
+    /** Cookie that binds a callback to the browser that began the flow. See {@link StateCookie}. */
+    stateCookie?: StateCookie
     /** Extract a canonical profile from the token response + userinfo. */
     fetchProfile: (tokens: { access_token: string; id_token?: string }, client: OAuthClient) => Promise<Profile>
     /** Map Profile -> consumer Profile shape on first sign-in. */
@@ -160,6 +170,12 @@ export namespace OAuth {
     code: string
     /** Opaque state value the library issued at begin. */
     state: string
+    /**
+     * The callback request's `Cookie` header, verbatim. Without it the signed state verifies from
+     * any browser, which is a login CSRF: an attacker completes their own flow in the victim's
+     * session and the victim is signed in as the attacker.
+     */
+    cookieHeader?: string
   }
 
   /** Shape stored in `Credential.metadata` for oauth credentials. */
@@ -173,12 +189,9 @@ export namespace OAuth {
     accessTokenExpiresAt?: number
   }
 
-  // --- state -------------------------------------------------------------
-
   /**
-   * Signed `state` parameter payload. Carries the PKCE verifier + an opaque
-   * nonce tied to the user's pre-auth cookie so an attacker cannot stitch a
-   * stolen authorisation code to a different browser.
+   * Signed `state` parameter payload. Carries the PKCE verifier and the digest of the cookie
+   * `begin` left in the browser, so an authorisation code cannot be stitched to another one.
    *
    * Encoding: `<payload-base64url>.<sig-base64url>`. HMAC-SHA256 over the
    * payload with the per-AuthEngine signing secret.
@@ -190,13 +203,17 @@ export namespace OAuth {
     verifier: string
     /** Provider id; library refuses if it doesn't match the callback. */
     providerId: string
+    /**
+     * Digest of the value `begin` set as a cookie. The state is signed but not secret - it travels
+     * through the IdP in a URL - so the digest is what is carried and the cookie is what proves the
+     * callback reached the browser that started the flow.
+     */
+    binding: string
     /** Optional return-to path on the app. */
     returnTo?: string
     /** Issued-at; signer rejects after `maxAgeMs`. Default 10 minutes. */
     iat: number
   }
-
-  // --- refresh -----------------------------------------------------------
 
   /**
    * Refresh-token family metadata. Persisted under `kind: 'oauth'` credentials
@@ -216,8 +233,6 @@ export namespace OAuth {
     /** Index signature for Credential.metadata assignment. */
     [k: string]: unknown
   }
-
-  // --- vendors -----------------------------------------------------------
 
   /** Google-specific options. Default scopes `['openid', 'email', 'profile']`. */
   export interface GoogleOptions<AppProfile = unknown> extends OptionsBase<AppProfile> {

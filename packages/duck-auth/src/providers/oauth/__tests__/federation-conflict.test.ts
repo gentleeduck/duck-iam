@@ -3,6 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
+import { afterOAuthBegin } from '~/test/oauth-browser'
 import type { OAuth } from '../core/oauth.types'
 import { google } from '../google/google'
 
@@ -63,11 +64,10 @@ async function buildAuth(
   return { adapter, auth, existingId: existing.id }
 }
 
-/** Round-trip a real `state` through `begin` so the PKCE verifier matches. */
+/** Round-trip a real `state` and its pre-auth cookie through `begin`, the way a browser does. */
 async function signInThroughGoogle(auth: AuthEngine<MyProfile>) {
-  const intents = await auth.flows.beginProvider('oauth:authGoogle', {})
-  const state = new URL((intents[0] as { url: string }).url).searchParams.get('state') ?? ''
-  return auth.flows.signIn({ input: { code: 'authcode', state }, providerId: 'oauth:authGoogle' })
+  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:authGoogle', {}))
+  return auth.flows.signIn({ input: { code: 'authcode', state, cookieHeader }, providerId: 'oauth:authGoogle' })
 }
 
 const VERIFIED = { email: EMAIL, email_verified: true, sub: 'g-1' }
@@ -83,7 +83,7 @@ describe('federation conflict policy, through a shipped provider', () => {
   it('rejects by default, leaving the existing identity unlinked', async () => {
     const { auth, adapter, existingId } = await buildAuth(VERIFIED)
     await expect(signInThroughGoogle(auth)).rejects.toThrow(/PROVIDER_FAILED/)
-    const row = await adapter.identities.findById(existingId)
+    const row = await adapter.identities.find({ id: existingId })
     expect(row?.providers).toEqual([])
   })
 
@@ -91,7 +91,7 @@ describe('federation conflict policy, through a shipped provider', () => {
     const { auth, adapter, existingId } = await buildAuth(VERIFIED, 'link-if-verified')
     const result = await signInThroughGoogle(auth)
     expect(result.session?.identityId).toBe(existingId)
-    const row = await adapter.identities.findById(existingId)
+    const row = await adapter.identities.find({ id: existingId })
     expect(row?.providers.map((p) => p.providerSub)).toEqual(['g-1'])
   })
 
@@ -100,7 +100,7 @@ describe('federation conflict policy, through a shipped provider', () => {
     // emit an unverified address gets the account that owns it.
     const { auth, adapter, existingId } = await buildAuth(UNVERIFIED, 'link-if-verified')
     await expect(signInThroughGoogle(auth)).rejects.toThrow(/PROVIDER_FAILED/)
-    const row = await adapter.identities.findById(existingId)
+    const row = await adapter.identities.find({ id: existingId })
     expect(row?.providers).toEqual([])
   })
 
@@ -118,14 +118,14 @@ describe('federation conflict policy, through a shipped provider', () => {
         providerId: 'oauth:authGoogle',
       },
     ])
-    const row = await adapter.identities.findById(existingId)
+    const row = await adapter.identities.find({ id: existingId })
     expect(row?.providers.map((p) => p.providerSub)).toEqual(['g-1'])
   })
 
   it("honours a callback that answers 'reject'", async () => {
     const { auth, adapter, existingId } = await buildAuth(VERIFIED, async () => 'reject')
     await expect(signInThroughGoogle(auth)).rejects.toThrow(/PROVIDER_FAILED/)
-    const row = await adapter.identities.findById(existingId)
+    const row = await adapter.identities.find({ id: existingId })
     expect(row?.providers).toEqual([])
   })
 })
