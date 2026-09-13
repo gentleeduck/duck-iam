@@ -15,6 +15,7 @@ export const AUTH_SESSION_FACTOR_METHODS = [
   'passkey',
   'totp',
   'oauth',
+  'saml',
   'magic-link',
   'webauthn',
   'sms',
@@ -122,8 +123,6 @@ export namespace Sessions {
      * `absoluteExpiresAt`.
      */
     gc(now: number): Promise<{ deleted: number }>
-    /** See `Identities.Store.withClient`. Absent means this store cannot join a transaction. */
-    withClient?(client: unknown): Store
 
     /**
      * Set-based forms of the deletes above, plus the read the facet needs to
@@ -146,7 +145,7 @@ export namespace Sessions {
     freshnessMs: number
   }
 
-  /** Facet-level mint input to {@link SessionsFacet.create}; the facet coalesces these into a `CreateInput`. */
+  /** Facet-level mint input to {@link SessionsImpl.create}; the facet coalesces these into a `CreateInput`. */
   export type MintInput = {
     identityId: string | null
     kind: Kind
@@ -158,11 +157,17 @@ export namespace Sessions {
     fingerprint?: string | null
     actingAs?: ActingAs | null
     identity?: Identities.Me | null
+    /**
+     * An upper bound on `expiresAt`, never an extension: the row still expires at the facet's own
+     * ttl when that one is sooner. The m2m grant sets it so a session expires with the token it was
+     * minted for rather than outliving it by the sessions facet's longer default.
+     */
+    maxExpiresAt?: Date
   }
 
   export interface RotateInput extends MintInput {
     /**
-     * DESIGN section 37 rotation matrix. Drives whether the previous SID is revoked
+     * The rotation matrix. Drives whether the previous SID is revoked
      * outright, downgraded (step-up old-SID kept alive at lower AAL), or left
      * alone (impersonation start runs alongside the original session).
      */

@@ -62,6 +62,17 @@ export class SessionsImpl {
         })
       }
     }
+    // A window that has already closed, or closes before it opens, is refused here where it can be
+    // named. It used to be written and then refused by every read of the row it was written to.
+    if (input.actingAs) {
+      const startedAt = input.actingAs.startedAt?.getTime() ?? Number.NaN
+      const expiresAt = input.actingAs.expiresAt?.getTime() ?? Number.NaN
+      if (!(expiresAt > Date.now()) || !(expiresAt > startedAt)) {
+        throw new AuthError('AUTH_INVALID_PARAMETERS', {
+          detail: 'sessions.create: actingAs must open before it closes, and close in the future',
+        })
+      }
+    }
     const sid = randomToken(32)
     // Mint plaintext for the cookie, store only the hash on the row.
     const csrfToken = randomToken(32)
@@ -88,7 +99,11 @@ export class SessionsImpl {
       csrfHash: sha256(csrfToken),
       createdAt: nowDate,
       rotatedAt: nowDate,
-      expiresAt: new Date(now + this._cfg.ttlMs),
+      expiresAt: new Date(
+        input.maxExpiresAt === undefined
+          ? now + this._cfg.ttlMs
+          : Math.min(now + this._cfg.ttlMs, input.maxExpiresAt.getTime()),
+      ),
       absoluteExpiresAt: new Date(now + this._cfg.absoluteTtlMs),
       fresh: true,
     }
@@ -99,7 +114,7 @@ export class SessionsImpl {
   }
 
   /**
-   * DESIGN section 37 rotation matrix. Single code path for every transition that
+   * The rotation matrix. Single code path for every transition that
    * changes a session's identity, AAL, or privilege. The library asserts that
    * flow handlers always route through this method so fixation is structurally
    * impossible to forget.
@@ -333,8 +348,6 @@ export class SessionsImpl {
     })
   }
 
-  // --- batch ----------------------------------------------------------
-
   /**
    * Revokes every session for each of `identityIds`. One statement when the
    * store supports it, otherwise one sweep per identity.
@@ -478,7 +491,7 @@ export async function resolveBySid<Profile extends Identities.ProfileMetadataBas
     await sessions.delete(session.id)
     return null
   }
-  const identity = session.identityId ? await identities.findById(session.identityId) : null
+  const identity = session.identityId ? await identities.find({ id: session.identityId }) : null
   if (session.identityId && !identity) {
     // Identity erased while session was live; surface as missing" rather than misleading "expired".
     throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'identity-erased' })
