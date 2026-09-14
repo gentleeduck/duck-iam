@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { AuthError } from '~/core/errors'
 
 export namespace Totp {
   export type Params = {
@@ -47,7 +48,8 @@ export function base32Decode(s: string): Buffer {
   // for-of yields `string` (not `string|undefined`); avoids index-cast.
   for (const ch of cleaned) {
     const idx = BASE32_ALPHABET.indexOf(ch)
-    if (idx < 0) throw new Error(`invalid base32 character: ${ch}`)
+    // NOTE: the character is not named - it is a character of the shared secret.
+    if (idx < 0) throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'invalid base32 character' })
     value = (value << 5) | idx
     bits += 5
     if (bits >= 8) {
@@ -103,6 +105,20 @@ export function totpAt(secretB32: string, stepIndex: number, params: Totp.Params
 }
 
 /**
+ * Whether a secret decodes at all. A verification path reads its secret from storage, and a row that was
+ * corrupted there can verify nothing - so it is refused, the way an unusable row already is, rather than
+ * throwing a raw Error out of whatever HTTP handler asked.
+ */
+function decodable(secretB32: string): boolean {
+  try {
+    base32Decode(secretB32)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Verify a code against the configured drift window. Constant-time across
  * all candidate steps so an attacker cannot infer where in the window the
  * legitimate code lives by timing the response.
@@ -118,6 +134,7 @@ export function verifyTotp(
   const nowMs = opts.nowMs ?? Date.now()
   if (code.length !== params.digits) return false
   if (!/^\d+$/.test(code)) return false
+  if (!decodable(secretB32)) return false
 
   const currentStep = Math.floor(nowMs / 1000 / params.periodSec)
   const candidates: string[] = []
@@ -154,6 +171,7 @@ export function matchTotpStep(
   const nowMs = opts.nowMs ?? Date.now()
   if (code.length !== params.digits) return null
   if (!/^\d+$/.test(code)) return null
+  if (!decodable(secretB32)) return null
 
   const currentStep = Math.floor(nowMs / 1000 / params.periodSec)
   let matchedStep: number | null = null
