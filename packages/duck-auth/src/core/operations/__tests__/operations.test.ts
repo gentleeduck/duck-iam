@@ -53,8 +53,8 @@ describe('OperationsFacet', () => {
 
     it('exempt routes pass through during maintenance', async () => {
       await ops.maintenance(true)
-      expect(() => ops.assertOperationsForRoute('GET', { healthz: true })).not.toThrow()
-      expect(() => ops.assertOperationsForRoute('GET', { session: true })).not.toThrow()
+      expect(() => ops.assertOperationsForRoute('GET', { maintenance: true })).not.toThrow()
+      expect(() => ops.assertOperationsForRoute('POST', { maintenance: true })).not.toThrow()
     })
   })
 
