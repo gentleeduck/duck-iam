@@ -15,6 +15,7 @@ import type { Identities } from '~/core'
 import { getProfileString, isFiniteNumber } from '~/core/credentials/credentials'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
+import { AuthError } from '~/core/errors'
 import {
   AuthMemoryAccessTokenStore,
   AuthMemoryClientStore,
@@ -88,7 +89,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
 
   constructor(cfg: OidcOP.Cfg, deps: IDeps<Profile>, dcr?: OidcOP.DcrCfg) {
     this.dcrCfg = dcr ?? { enabled: false }
-    if (!cfg.issuer) throw new Error('AuthOidcOP: issuer required')
+    if (!cfg.issuer) throw new AuthError('AUTH_MISCONFIGURED', { detail: 'AuthOidcOP: issuer required' })
     const parsed = parseIssuer(cfg.issuer, cfg.allowHttp ?? false)
     this.issuer = parsed
     const scopes = new Set(cfg.supportedScopes)
@@ -117,9 +118,10 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
     client_uri?: string
     logo_uri?: string
   }): Promise<{ client_id: string; client_secret: string | null }> {
-    if (!input.client_id) throw new Error('registerClient: client_id required')
+    if (!input.client_id)
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'registerClient: client_id required' })
     if (input.redirect_uris.length === 0) {
-      throw new Error('registerClient: at least one redirect_uri required')
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'registerClient: at least one redirect_uri required' })
     }
     for (const uri of input.redirect_uris) assertValidRedirect(uri)
     const method = input.token_endpoint_auth_method ?? (input.client_secret ? 'client_secret_basic' : 'none')
@@ -350,7 +352,6 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
         body: { error: 'invalid_request', error_description: 'PKCE required for public clients', state: req.state },
       }
     }
-    // Resolve session for the host's browser.
     const resolved = await this.deps.auth.resolveSession(httpReq)
     if (!resolved?.identity) {
       if (req.prompt === 'none') {
@@ -363,7 +364,6 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
       }
       return { kind: 'login_required', reason: req.prompt === 'login' ? 'prompt_login' : 'no_session' }
     }
-    // Consent gate.
     const consent = await this.deps.consents.find(resolved.identity.id, client.client_id)
     const consentCoversRequest = consent !== null && requested.every((s) => consent.scope.includes(s))
     if (!consentCoversRequest || req.prompt === 'consent') {
@@ -775,10 +775,12 @@ function parseIssuer(input: string, allowHttp: boolean): string {
   try {
     parsed = new URL(input)
   } catch {
-    throw new Error(`AuthOidcOP: issuer '${input}' is not a valid URL`)
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: `AuthOidcOP: issuer '${input}' is not a valid URL` })
   }
   if (parsed.protocol !== 'https:' && !allowHttp) {
-    throw new Error(`AuthOidcOP: issuer must use HTTPS (${parsed.protocol}); pass allowHttp: true for dev only`)
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `AuthOidcOP: issuer must use HTTPS (${parsed.protocol}); pass allowHttp: true for dev only`,
+    })
   }
   return `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
 }
@@ -788,12 +790,43 @@ function assertValidRedirect(uri: string): void {
   try {
     url = new URL(uri)
   } catch {
-    throw new Error(`registerClient: redirect_uri '${uri}' is not a valid absolute URL`)
+    throw new AuthError('AUTH_INVALID_PARAMETERS', {
+      detail: `registerClient: redirect_uri '${uri}' is not a valid absolute URL`,
+    })
   }
-  if (url.hash !== '') throw new Error(`registerClient: redirect_uri must not include a fragment`)
+  if (url.hash !== '')
+    throw new AuthError('AUTH_INVALID_PARAMETERS', {
+      detail: 'registerClient: redirect_uri must not include a fragment',
+    })
   if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
-    throw new Error(`registerClient: non-loopback http redirect_uri rejected: ${uri}`)
+    throw new AuthError('AUTH_INVALID_PARAMETERS', {
+      detail: `registerClient: non-loopback http redirect_uri rejected: ${uri}`,
+    })
   }
+  if (url.username !== '' || url.password !== '') {
+    throw new AuthError('AUTH_INVALID_PARAMETERS', {
+      detail: `registerClient: redirect_uri must not carry userinfo: ${uri}`,
+    })
+  }
+  assertUsableScheme(url, uri)
+}
+
+/**
+ * https, loopback http, or a private-use scheme in the reverse-DNS form RFC 8252 section 7.1 asks
+ * native clients for. Stated as a rule rather than a denylist: `javascript:`, `data:`, `file:`,
+ * `blob:`, `about:` and every future sibling have no dot in the scheme, so one condition turns all of
+ * them down and none can be missed by a list that went stale.
+ *
+ * Sending a browser to `javascript:` with the code in scope is an XSS sink wearing a redirect's
+ * clothes, and nothing here refused one before.
+ */
+function assertUsableScheme(url: URL, uri: string): void {
+  if (url.protocol === 'https:' || url.protocol === 'http:') return
+  // `protocol` keeps the trailing colon, which is not part of the scheme name.
+  if (url.protocol.slice(0, -1).includes('.')) return
+  throw new AuthError('AUTH_INVALID_PARAMETERS', {
+    detail: `registerClient: redirect_uri scheme '${url.protocol}' is not https, loopback http, or a reverse-DNS private-use scheme: ${uri}`,
+  })
 }
 
 function isLoopbackHost(hostname: string): boolean {
