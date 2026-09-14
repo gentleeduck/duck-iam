@@ -36,7 +36,7 @@ export namespace AuthDefine {
     OrgMeta = unknown,
   > = PluginRegistry.Plugin<Profile, Tenant, OrgMeta> | false | null | undefined | ''
 
-  /** Storage triple returned by `authMemoryStorage()` / `authDrizzlePgStorage()` / etc. */
+  /** Storage bundle returned by `authMemoryStorage()` / `authDrizzlePgStorage()` / etc. */
   export interface IStorage<
     Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
     OrgMeta = unknown,
@@ -81,7 +81,12 @@ export namespace AuthDefine {
     providers?: IProviderEntry<Profile, Tenant, OrgMeta>[]
     /** Plugins applied via `auth.plugins.install(p)`. Falsy entries skipped. */
     plugins?: IPluginEntry<Profile, Tenant, OrgMeta>[]
-    /** When set, runs `auth.strict({ env })` at end of construction. */
-    strict?: 'development' | 'production' | 'test'
+    /**
+     * Which environment's checks `auth.strict({ env })` runs at the end of construction.
+     *
+     * Omitted, it follows `NODE_ENV`, so a production deploy is checked without anyone having
+     * remembered to ask. `false` opts out.
+     */
+    strict?: 'development' | 'production' | 'test' | false
   }
 }
