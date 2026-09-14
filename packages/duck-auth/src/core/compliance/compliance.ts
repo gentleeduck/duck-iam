@@ -16,19 +16,38 @@ const DEFAULT_OVERRIDES: Compliance.Overrides = {
 
 /** Resolve overrides for one or more presets; multiple presets compose by taking the stricter field. */
 export function resolveCompliance(presets: Compliance.Preset | Compliance.Preset[] | undefined): Compliance.Overrides {
-  if (!presets) return DEFAULT_OVERRIDES
+  // A fresh copy every time. The no-preset branch handed back the module singleton by reference, so
+  // a caller adjusting what it believed was its own copy edited it for every later resolution in
+  // the process - and the two presets that spread it shared its nested objects, so the same edit
+  // rewrote them too.
+  if (!presets) return copyOverrides(DEFAULT_OVERRIDES)
   const list = Array.isArray(presets) ? presets : [presets]
-  let acc: Compliance.Overrides = { ...DEFAULT_OVERRIDES, requiredStrictChecks: [] }
+  let acc: Compliance.Overrides = { ...copyOverrides(DEFAULT_OVERRIDES), requiredStrictChecks: [] }
   for (const p of list) {
-    const overlay = PRESETS[p]
-    acc = mergeStricter(acc, overlay)
+    if (!Object.hasOwn(PRESETS, p)) {
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: `unknown compliance preset: ${String(p)}` })
+    }
+    acc = mergeStricter(acc, PRESETS[p])
   }
   return acc
 }
 
+function copyOverrides(o: Compliance.Overrides): Compliance.Overrides {
+  return {
+    apiKeys: { ...o.apiKeys },
+    mfa: { ...o.mfa },
+    minAal: o.minAal,
+    passwords: { ...o.passwords },
+    requireChannelForReset: o.requireChannelForReset,
+    requireDataAtRest: o.requireDataAtRest,
+    requiredStrictChecks: [...o.requiredStrictChecks],
+    sessions: { ...o.sessions },
+  }
+}
+
 const PRESETS: Record<Compliance.Preset, Compliance.Overrides> = {
   gdpr: {
-    ...DEFAULT_OVERRIDES,
+    ...copyOverrides(DEFAULT_OVERRIDES),
     requiredStrictChecks: ['exportAvailable', 'softDeleteEnabled'],
     requireDataAtRest: true,
     requireChannelForReset: true,
@@ -48,7 +67,7 @@ const PRESETS: Record<Compliance.Preset, Compliance.Overrides> = {
     requireChannelForReset: true,
   },
   soc2: {
-    ...DEFAULT_OVERRIDES,
+    ...copyOverrides(DEFAULT_OVERRIDES),
     requiredStrictChecks: ['lockoutListener', 'limiterRequired', 'auditLogRetained7y'],
   },
   fips: {
@@ -77,7 +96,10 @@ function mergeStricter(a: Compliance.Overrides, b: Compliance.Overrides): Compli
     },
     mfa: { backupCodeCount: Math.max(a.mfa.backupCodeCount, b.mfa.backupCodeCount) },
     apiKeys: { randomBytes: Math.max(a.apiKeys.randomBytes, b.apiKeys.randomBytes) },
-    requiredStrictChecks: Array.from(new Set([...a.requiredStrictChecks, ...b.requiredStrictChecks])),
+    // Sorted, because the set is built by concatenation and otherwise comes back in whichever order
+    // the presets were listed - so anything fingerprinting a resolved policy saw two values for one
+    // deployment while every numeric field was already order independent.
+    requiredStrictChecks: Array.from(new Set([...a.requiredStrictChecks, ...b.requiredStrictChecks])).sort(),
     minAal: maxAal(a.minAal, b.minAal),
     requireDataAtRest: a.requireDataAtRest || b.requireDataAtRest,
     requireChannelForReset: a.requireChannelForReset || b.requireChannelForReset,
@@ -100,6 +122,12 @@ export function applyCompliancePreset<
   // preset to `passwords({ compliance })` / `mfaProvider({ compliance })`
   // / `apiKeyProvider({ compliance })` and each ratchets its own field. Only
   // engine-core capabilities (session) are ratcheted here.
+  // Layered, not replaced. Each call spread the config, which dropped the non-enumerable brand,
+  // then stamped its own - so calling the helper twice, the obvious way to add a preset to an
+  // existing one, kept only the last while the session windows stayed ratcheted from both, and the
+  // config and its brand ended up describing different policies.
+  const existing = readCompliancePreset(base)
+  const layered = dedupePresets([...(existing === null ? [] : [existing].flat()), ...[preset].flat()])
   const out = {
     ...base,
     session: {
@@ -109,16 +137,19 @@ export function applyCompliancePreset<
       freshnessMs: Math.min(base.session?.freshnessMs ?? Infinity, overrides.sessions.freshnessMs),
     },
   }
-  // Mark the config so downstream `AuthEngine.strict()` knows to assert
-  // the strict checks. Read-only; cast to never to keep this off the
-  // public type surface.
+  // Enumerable, so an ordinary `{ ...cfg, extra }` carries it. Non-enumerable meant the most
+  // ordinary thing a caller does silently stripped the marker saying which preset applied.
   Object.defineProperty(out, '__compliancePreset', {
-    value: preset,
-    enumerable: false,
+    value: layered.length === 1 ? layered[0] : layered,
+    enumerable: true,
     configurable: false,
     writable: false,
   })
   return out
+}
+
+function dedupePresets(list: Compliance.Preset[]): Compliance.Preset[] {
+  return [...new Set(list)]
 }
 
 /**
@@ -133,15 +164,21 @@ export function readCompliancePreset(cfg: unknown): Compliance.Preset | Complian
   if (!('__compliancePreset' in cfg)) return null
   const value = cfg.__compliancePreset
   if (isPreset(value)) return value
+  // A brand that is present but not readable is a typo, and returning `null` for it reported the
+  // config as unbranded - so one misspelt entry in a two-preset list turned compliance off
+  // altogether instead of narrowing it.
   if (Array.isArray(value)) {
-    const presets: Compliance.Preset[] = []
-    for (const v of value) {
-      if (!isPreset(v)) return null
-      presets.push(v)
+    const bad = value.filter((v) => !isPreset(v))
+    if (bad.length > 0) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `unknown compliance preset in brand: ${bad.map((b) => String(b)).join(', ')}`,
+      })
     }
-    return presets.length > 0 ? presets : null
+    return value.length > 0 ? (value as Compliance.Preset[]) : null
   }
-  return null
+  throw new AuthError('AUTH_MISCONFIGURED', {
+    detail: `compliance brand is not a preset or a list of presets: ${String(value)}`,
+  })
 }
 
 const PRESET_VALUES: ReadonlySet<string> = new Set<Compliance.Preset>(['gdpr', 'hipaa', 'soc2', 'fips'])
@@ -161,29 +198,44 @@ function maxAal(a: 1 | 2 | 3, b: 1 | 2 | 3): 1 | 2 | 3 {
   return 1
 }
 
-/** Validate runtime wiring against a compliance preset; throws `AUTH/MISCONFIGURED` listing every gap. */
+/** What each check demands, said in the words an operator can act on. */
+const CHECK_DEMANDS: Record<Compliance.Check, string> = {
+  auditLogRetained7y: 'audit-log listener required (7y retention)',
+  baaCompliantChannel: 'every channel must be covered by a signed BAA',
+  dataAtRest: 'dataAtRest adapter required',
+  exportAvailable: 'a subject-access export path must be reachable',
+  fipsValidatedHasher: 'FIPS-validated hasher required (Argon2id with FIPS params)',
+  limiterRequired: 'a real limiter must be wired (AuthNoopLimiter does not count)',
+  lockoutListener: 'a `lockout` event handler must be subscribed',
+  softDeleteEnabled: 'identity deletion must be soft, so erasure can be honoured and audited',
+  webauthnAttestationDirect: 'webauthn registration must request direct attestation',
+}
+
+/**
+ * Validate runtime wiring against a compliance preset; throws `AUTH/MISCONFIGURED` listing every gap.
+ *
+ * Driven off what the preset declares rather than a fixed list of four. Four of the nine names the
+ * presets use were checked and the other five were strings nothing read, so `soc2` passed on one of
+ * its three requirements and `gdpr` passed without either of the two things it names.
+ *
+ * `wired` is partial and an absent entry counts as unsatisfied: a check nobody supplied evidence
+ * for is not a check that passed.
+ */
 export function assertComplianceStrict(opts: {
   preset: Compliance.Preset | Compliance.Preset[]
-  wired: {
-    dataAtRest: boolean
-    mailerChannel: boolean
-    auditListener: boolean
-    fipsValidatedHasher: boolean
-  }
+  wired: Partial<Compliance.Wired>
 }): void {
   const overrides = resolveCompliance(opts.preset)
   const errors: string[] = []
-  if (overrides.requireDataAtRest && !opts.wired.dataAtRest) {
-    errors.push('compliance: dataAtRest adapter required')
+  if (overrides.requireDataAtRest && opts.wired.dataAtRest !== true) {
+    errors.push(`compliance: ${CHECK_DEMANDS.dataAtRest}`)
   }
-  if (overrides.requireChannelForReset && !opts.wired.mailerChannel) {
+  if (overrides.requireChannelForReset && opts.wired.mailerChannel !== true) {
     errors.push('compliance: mailer/channel adapter required for password-reset + magic-link flows')
   }
-  if (overrides.requiredStrictChecks.includes('auditLogRetained7y') && !opts.wired.auditListener) {
-    errors.push('compliance: audit-log listener required (7y retention)')
-  }
-  if (overrides.requiredStrictChecks.includes('fipsValidatedHasher') && !opts.wired.fipsValidatedHasher) {
-    errors.push('compliance: FIPS-validated hasher required (Argon2id with FIPS params)')
+  for (const check of overrides.requiredStrictChecks) {
+    if (check === 'dataAtRest' && overrides.requireDataAtRest) continue
+    if (opts.wired[check] !== true) errors.push(`compliance: ${check} - ${CHECK_DEMANDS[check]}`)
   }
   if (errors.length > 0) {
     throw new AuthError('AUTH_MISCONFIGURED', {
