@@ -1,4 +1,5 @@
 import { env } from 'node:process'
+import { AuthError } from '~/core/errors'
 import { isExpiredAt } from '../credentials/credentials'
 import type { TenantContext } from '../tenant/tenant.types'
 import { IdempotencyImpl } from './idempotency'
@@ -27,7 +28,7 @@ export class MemoryIdempotency implements Idempotency.Store {
     // Only production is refused. Requiring `development: true` everywhere made the
     // no-arg constructor unusable, including the engine's own fallback.
     if (env.NODE_ENV === 'production' && !this.cfg?.development) {
-      throw new Error('MemoryIdempotency is not production ready')
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'MemoryIdempotency is not production ready' })
     }
   }
 

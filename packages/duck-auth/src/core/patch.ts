@@ -16,3 +16,17 @@ export function stripUndefined<T extends object>(obj: T): Partial<T> {
   }
   return out
 }
+
+/**
+ * The same patch, or `undefined` when it names nothing a store can write.
+ *
+ * A patch that says nothing must move nothing, and the column it would have
+ * touched is the tell: `metadata` is NULL until something is put in it, and
+ * `coalesce(metadata, '{}') || '{}'` quietly makes it `{}` instead. Two
+ * dialects already skipped the write and two did not, which is a `null` a
+ * caller branches on turning into an object on half the adapters.
+ */
+export function patchOrNone<T extends object>(obj: T): Partial<T> | undefined {
+  const kept = stripUndefined(obj)
+  return Object.keys(kept).length === 0 ? undefined : kept
+}

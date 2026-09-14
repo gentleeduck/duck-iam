@@ -45,7 +45,13 @@ describe('authAssertComplianceStrict', () => {
     expect(() =>
       assertComplianceStrict({
         preset: 'hipaa',
-        wired: { dataAtRest: true, mailerChannel: true, auditListener: true, fipsValidatedHasher: true },
+        wired: {
+          auditLogRetained7y: true,
+          baaCompliantChannel: true,
+          dataAtRest: true,
+          fipsValidatedHasher: true,
+          mailerChannel: true,
+        },
       }),
     ).not.toThrow()
   })
@@ -54,7 +60,7 @@ describe('authAssertComplianceStrict', () => {
     try {
       assertComplianceStrict({
         preset: 'hipaa',
-        wired: { dataAtRest: false, mailerChannel: false, auditListener: false, fipsValidatedHasher: false },
+        wired: {},
       })
       expect.fail('expected throw')
     } catch (err) {
@@ -70,7 +76,7 @@ describe('authAssertComplianceStrict', () => {
     expect(() =>
       assertComplianceStrict({
         preset: 'fips',
-        wired: { dataAtRest: true, mailerChannel: true, auditListener: false, fipsValidatedHasher: false },
+        wired: { dataAtRest: true, mailerChannel: true, webauthnAttestationDirect: true },
       }),
     ).toThrow()
   })
@@ -98,18 +104,37 @@ describe('readCompliancePreset - SEC: brand validation', () => {
     expect(readCompliancePreset({ __compliancePreset: ['gdpr', 'soc2'] })).toEqual(['gdpr', 'soc2'])
   })
 
-  it('returns null when the brand value is an unknown string (e.g. tampered)', () => {
-    expect(readCompliancePreset({ __compliancePreset: 'evil-preset' })).toBeNull()
+  it('refuses a brand value that is an unknown string (e.g. tampered)', () => {
+    // Was null, which reported a tampered config as carrying no preset at all - so editing the
+    // brand was a way to turn compliance off rather than a way to be caught doing it.
+    expect(() => readCompliancePreset({ __compliancePreset: 'evil-preset' })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 
-  it('returns null when the brand value is a non-string (object/number)', () => {
-    expect(readCompliancePreset({ __compliancePreset: { fake: true } })).toBeNull()
-    expect(readCompliancePreset({ __compliancePreset: 1 })).toBeNull()
+  it('refuses a brand value that is a non-string (object/number)', () => {
+    for (const value of [{ fake: true }, 1]) {
+      expect(() => readCompliancePreset({ __compliancePreset: value })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+    }
   })
 
-  it('returns null when an array contains a non-preset entry', () => {
-    expect(readCompliancePreset({ __compliancePreset: ['gdpr', 'evil-preset'] })).toBeNull()
-    expect(readCompliancePreset({ __compliancePreset: ['hipaa', 42] })).toBeNull()
+  it('refuses an array containing a non-preset entry, naming it', () => {
+    // One misspelt entry in a two-preset list used to report the whole config as unbranded, so a
+    // typo turned compliance off instead of narrowing it.
+    const err = (() => {
+      try {
+        readCompliancePreset({ __compliancePreset: ['gdpr', 'evil-preset'] })
+        return null
+      } catch (e) {
+        return e as Error & { meta: { detail: string } }
+      }
+    })()
+    expect(err?.meta.detail).toContain('evil-preset')
+    expect(() => readCompliancePreset({ __compliancePreset: ['hipaa', 42] })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 
   it('returns null on an empty array (would otherwise have run no checks under "presets")', () => {

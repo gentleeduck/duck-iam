@@ -113,7 +113,7 @@ describe('createAuth', () => {
           autoCreateProfile: (email) => ({ username: email, email }),
           callbackPath: '/AUTH/magic-link/callback',
           channels: { email: new AuthConsoleChannel() },
-          findIdentityByEmail: (email) => storage.identities.findByEmail(email),
+          findIdentityByEmail: (email) => storage.identities.find({ email }),
         }),
         google({
           clientId: 'authGoogle-client',
@@ -129,7 +129,7 @@ describe('createAuth', () => {
         }),
         passkey({
           expectedOrigins: 'http://x',
-          findIdentityByEmail: (email) => storage.identities.findByEmail(email),
+          findIdentityByEmail: (email) => storage.identities.find({ email }),
           rpID: 'localhost',
           rpName: 'demo',
         }),

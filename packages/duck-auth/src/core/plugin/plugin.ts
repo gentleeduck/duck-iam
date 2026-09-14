@@ -1,3 +1,4 @@
+import { AuthError } from '~/core/errors'
 import type { Events } from '~/core/events/events.types'
 import type { Provider } from '~/core/provider/provider.types'
 import type { AuthEngine } from '../engine'
@@ -26,18 +27,22 @@ export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tena
     plugin: PluginRegistry.Plugin<Profile, Tenant, OrgMeta>,
   ): Promise<void> {
     if (typeof plugin?.id !== 'string' || plugin.id.length === 0 || plugin.id.length > 128) {
-      throw new Error('@gentleduck/auth: plugin.id must be a non-empty string <=128 chars')
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: '@gentleduck/auth: plugin.id must be a non-empty string <=128 chars',
+      })
     }
     if (this._plugins.has(plugin.id)) {
-      throw new Error(`@gentleduck/auth: plugin "${plugin.id}" already installed`)
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `@gentleduck/auth: plugin "${plugin.id}" already installed`,
+      })
     }
 
     // Providers first: a duplicate provider id throws here, before the plugin id is
     // committed, so the author can fix the collision and install under the same id.
-    // `Providers` has no unregister, so anything registered by a plugin that fails
-    // later stays; the rollback below covers what can be undone.
+    // `registerAll` takes the list or none of it, because `Providers` has no unregister
+    // and a partial list would stay for the life of the engine.
     if (plugin.providers) {
-      for (const p of plugin.providers) auth.providers.register(p)
+      auth.providers.registerAll(plugin.providers)
     }
 
     const unsubs: Array<() => void> = []
