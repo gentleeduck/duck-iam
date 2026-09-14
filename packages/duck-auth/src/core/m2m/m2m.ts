@@ -11,13 +11,18 @@
  * `{ access_token, token_type, expires_in, scope }` token envelope.
  */
 
-import type { ApiKeysFacet } from '~/providers/api-key'
+import { type ApiKeysFacet, isScopeToken } from '~/providers/api-key'
 import { AuthError } from '../errors'
 import type { Provider } from '../provider/provider.types'
 import type { SessionsImpl } from '../sessions/sessions'
-import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
-import { DEFAULT_M2M_CONFIG } from './m2m.constants'
+import {
+  DEFAULT_M2M_CONFIG,
+  M2M_SCOPE_MAX_LENGTH,
+  M2M_SCOPE_MAX_TOKENS,
+  M2M_TTL_MAX_MS,
+  M2M_TTL_MIN_MS,
+} from './m2m.constants'
 import type { M2m } from './m2m.types'
 
 /**
@@ -39,7 +44,13 @@ export class M2MImpl {
     private readonly _sessions: SessionsImpl,
     private readonly _transport: Transport.ITransport,
     private readonly _cfg: M2m.Cfg = DEFAULT_M2M_CONFIG,
-  ) {}
+  ) {
+    if (!Number.isFinite(_cfg.ttlMs) || _cfg.ttlMs < M2M_TTL_MIN_MS || _cfg.ttlMs > M2M_TTL_MAX_MS) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `m2m: ttlMs must be a finite number between ${M2M_TTL_MIN_MS} and ${M2M_TTL_MAX_MS}`,
+      })
+    }
+  }
 
   /**
    * Run the client_credentials exchange. Returns the standard oauth2
@@ -64,14 +75,21 @@ export class M2MImpl {
     }
     const effectiveTenantId = input.tenantId ?? verified.tenantId
 
-    // Cap scope (4KB / 64 tokens) before split since it's attacker-controllable.
+    // An absent `scope` is "no opinion, grant what the key holds". A present one is a request, and a
+    // request naming nothing is not the same thing: reading `scope=` as absence handed a client
+    // every scope on the key when it had explicitly asked for none.
     let requested: string[] = []
-    if (input.scope) {
-      if (typeof input.scope !== 'string' || input.scope.length > 4096) {
+    if (input.scope !== undefined) {
+      if (typeof input.scope !== 'string' || input.scope.length > M2M_SCOPE_MAX_LENGTH) {
         throw new AuthError('AUTH_INVALID_CREDENTIALS')
       }
-      requested = input.scope.split(/\s+/).filter(Boolean)
-      if (requested.length > 64) {
+      // Deduplicate before the cap is counted, or sixty-four copies of one scope exhaust the budget
+      // and push out the scopes that follow them in the same request.
+      requested = [...new Set(input.scope.split(/\s+/).filter(Boolean))]
+      if (requested.length === 0 || requested.length > M2M_SCOPE_MAX_TOKENS) {
+        throw new AuthError('AUTH_INVALID_CREDENTIALS')
+      }
+      if (!requested.every(isScopeToken)) {
         throw new AuthError('AUTH_INVALID_CREDENTIALS')
       }
     }
@@ -83,56 +101,72 @@ export class M2MImpl {
       identityId: verified.identityId,
       kind: 'apikey',
       aal: 1,
-      factors: [{ method: 'api-key', completedAt: new Date() }],
+      factors: [{ method: 'api-key', completedAt: new Date(now) }],
+      // A ceiling, never an extension, so the row expires with the token it was minted for. Nobody
+      // ever signs out of an m2m session, so a row outliving its token is a row nothing will ever
+      // remove; capped, the ordinary expiry sweep collects it.
+      maxExpiresAt: new Date(now + this._cfg.ttlMs),
       ...(effectiveTenantId !== undefined && { tenantId: effectiveTenantId }),
     })
-    // Cap the session's expiry at the M2M ttl so the issued JWT lifetime
-    // tracks the configured M2M policy rather than the SessionsFacet default.
-    const sessionExpiresMs =
-      session.expiresAt instanceof Date ? session.expiresAt.getTime() : (session.expiresAt as number)
-    const issuedSession: Sessions.Me = {
-      ...session,
-      expiresAt: new Date(Math.min(sessionExpiresMs, now + this._cfg.ttlMs)),
-    }
     // Project granted scope onto the JWT or `scopeMode: intersect` is wire-noop.
-    const intents = this._transport.issue(sid, issuedSession, {
+    const intents = this._transport.issue(sid, session, {
       fresh: true,
       absolute: false,
       scope: granted.join(' '),
     })
     const jsonIntent = intents.find((i): i is Extract<Provider.Intent, { type: 'json' }> => i.type === 'json')
     if (!jsonIntent) {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: 'M2MFacet requires JwtTransport (or equivalent) - cookie transports do not work here',
-      })
+      return this._abandon(
+        session.id,
+        'M2MFacet requires JwtTransport (or equivalent) - cookie transports do not work here',
+      )
     }
     // Validate body shape; transport must emit `{access_token, expires_in?}`.
     const parsedBody = parseM2MBody(jsonIntent.body)
     if (!parsedBody) {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: 'transport did not emit an access_token; check JwtTransport config',
-      })
+      return this._abandon(session.id, 'transport did not emit an access_token; check JwtTransport config')
     }
+    // Read back what the session actually got rather than recomputing from `ttlMs`: the sessions
+    // facet's own ttl may be the shorter of the two, and reporting the configured one then
+    // overstates the lifetime of a token that is already going to be refused sooner.
+    const expiresIn = Math.max(0, Math.floor((session.expiresAt.getTime() - now) / 1000))
     return {
       access_token: parsedBody.access_token,
       token_type: 'Bearer',
-      expires_in: parsedBody.expires_in ?? Math.floor(this._cfg.ttlMs / 1000),
+      // A transport may cap a token shorter than the m2m policy; it can never extend one past it.
+      expires_in: Math.min(parsedBody.expires_in ?? expiresIn, expiresIn),
       scope: granted.join(' '),
     }
   }
 
+  /**
+   * A transport is only found to be misconfigured after the session has been written, and leaving
+   * the row behind let every rejected exchange against a wrongly wired transport persist a session
+   * no token was ever issued for.
+   */
+  private async _abandon(sessionId: string, detail: string): Promise<never> {
+    await this._sessions.revokeByHash(sessionId)
+    throw new AuthError('AUTH_MISCONFIGURED', { detail })
+  }
+
   /** Intersect / strict mode for the requested -> granted scope mapping. */
   private _resolveScopes(requested: string[], have: string[]): string[] {
-    if (requested.length === 0) return have
+    if (requested.length === 0) return [...new Set(have)]
     if (this._cfg.scopeMode === 'intersect') {
-      return requested.filter((s) => have.includes(s))
+      const granted = requested.filter((s) => have.includes(s))
+      // RFC 6749 section 3.3 offers the server two answers, fail or issue the scopes it is willing
+      // to grant. A token carrying an empty scope claim is neither, and leaves the resource server
+      // to decide what a scopeless bearer token means - the ambiguity that resolves to an allow.
+      if (granted.length === 0) {
+        throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', { required: requested, missing: requested })
+      }
+      return granted
     }
     const missing = requested.filter((s) => !have.includes(s))
     if (missing.length > 0) {
-      throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', {
-        required: requested,
-        have,
-      })
+      // `missing` names back only scopes the caller already asked for. Reporting `have` told a
+      // caller probing with one scope every other scope the key holds.
+      throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', { required: requested, missing })
     }
     return requested
   }
