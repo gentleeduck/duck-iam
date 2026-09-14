@@ -35,7 +35,5 @@ export namespace Org {
      */
     removeMember(orgId: string, identityId: string, ctx: TenantContext): Promise<Membership | null>
     setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext): Promise<Membership | null>
-    /** See `Identities.Store.withClient`. Absent means this store cannot join a transaction. */
-    withClient?(client: unknown): Store<Meta>
   }
 }

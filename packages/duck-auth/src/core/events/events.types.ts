@@ -29,8 +29,6 @@ export namespace Events {
      * a session, support resetting a password. Absent when no actor was bound.
      */
     actorId?: string
-    /** Optional iam decision id when an action was authorized via iam-auth-bridge. */
-    iamDecisionId?: string
   }
 
   export interface EventMap {
@@ -103,7 +101,6 @@ export namespace Events {
       realIdentityId: string
       targetIdentityId: string
       reason: string
-      iamDecisionId?: string
     }
     'recovery.password.requested': { identityId: string; audit?: Envelope }
     'recovery.password.completed': { identityId: string; audit?: Envelope }
@@ -127,6 +124,8 @@ export namespace Events {
     'authz.revoked': { identityId: string; at: number }
     'maintenance.on': { message?: string; retryAfter?: number }
     'maintenance.off': Record<string, never>
+    'readonly.on': Record<string, never>
+    'readonly.off': Record<string, never>
   }
 
   export type EventName = keyof EventMap

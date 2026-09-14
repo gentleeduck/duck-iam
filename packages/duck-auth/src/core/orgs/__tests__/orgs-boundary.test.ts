@@ -170,7 +170,7 @@ describe('leaving and rejoining', () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['member'] })
     await expect(orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner'] })).rejects.toMatchObject({
-      code: 'AUTH_PROVIDER_FAILED',
+      code: 'AUTH_ALREADY_EXISTS',
     })
   })
 
@@ -219,20 +219,26 @@ describe('the role list is bounded, and what that does not include', () => {
     expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual([])
   })
 
-  it('FINDING: duplicates are kept, and count against the sixty-four cap', async () => {
-    // `sanitizeRoles` filters by type and length but does not deduplicate, so a
-    // caller can pad a list with one role repeated. Harmless for an `includes`
-    // check, but sixty-four copies of `viewer` fill the budget and silently push
-    // out the roles that follow, so a padded list can drop a real grant.
+  it('deduplicates before counting the cap, so padding cannot push out a real grant', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['admin', 'admin', 'admin'] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['admin', 'admin', 'admin'])
+    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['admin'])
 
+    // Sixty-four copies of one role used to fill the budget on their own and drop everything
+    // behind them, which is a padded list silently deleting a grant.
     const padded = [...Array.from({ length: 64 }, () => 'viewer'), 'owner']
     await orgs.addMember({ identityId: 'u2', orgId: ORG, roles: padded })
-    const roles = (await orgs.resolveMembership(ORG, 'u2'))?.roles ?? []
+    expect((await orgs.resolveMembership(ORG, 'u2'))?.roles).toEqual(['viewer', 'owner'])
+  })
+
+  it('keeps first-seen order and still stops at sixty-four distinct roles', async () => {
+    const orgs = makeOrgs()
+    const many = Array.from({ length: 70 }, (_, i) => `r${i}`)
+    await orgs.addMember({ identityId: 'u3', orgId: ORG, roles: many })
+    const roles = (await orgs.resolveMembership(ORG, 'u3'))?.roles ?? []
     expect(roles).toHaveLength(64)
-    expect(roles).not.toContain('owner')
+    expect(roles[0]).toBe('r0')
+    expect(roles.at(-1)).toBe('r63')
   })
 
   it('keeps roles as opaque strings, without folding case or trimming', async () => {

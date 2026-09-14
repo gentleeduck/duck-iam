@@ -67,8 +67,6 @@ function tokenFrom(channel: AuthTestChannel): string {
   return new URL(url).searchParams.get('token') ?? ''
 }
 
-// --- the helper itself -------------------------------------------------------
-
 describe('refuseRateLimited', () => {
   it('never hands back Retry-After: 0', async () => {
     const events = new InMemoryEvents()
@@ -109,8 +107,6 @@ describe('refuseRateLimited', () => {
     expect(handler).not.toHaveBeenCalled()
   })
 })
-
-// --- the sites that name a subject -------------------------------------------
 
 describe('lockout is emitted where the refusal knows whose account it is', () => {
   it('password sign-in - the brute-force bucket names the account being ground', async () => {
@@ -219,8 +215,6 @@ describe('lockout is emitted where the refusal knows whose account it is', () =>
   })
 })
 
-// --- the sites that deliberately stay silent ---------------------------------
-
 describe('lockout is withheld where the refusal has no subject', () => {
   it('beginSignUp - the address has no account behind it yet', async () => {
     const { auth, seen } = build(1)
@@ -265,7 +259,7 @@ describe('lockout is withheld where the refusal has no subject', () => {
     auth.providers.register(
       magicLink<MyProfile>({
         channels: { email: channel },
-        findIdentityByEmail: (email) => adapter.identities.findByEmail(email),
+        findIdentityByEmail: (email) => adapter.identities.find({ email }),
       }),
     )
     await auth.identities.create({ profile: { email: 'frank@x.com', username: 'frank@x.com' } })

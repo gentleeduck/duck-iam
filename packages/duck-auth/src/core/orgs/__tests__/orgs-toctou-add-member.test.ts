@@ -27,7 +27,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     const firstRejected = rejected[0]
     if (firstRejected && firstRejected.status === 'rejected') {
       expect(firstRejected.reason).toMatchObject({
-        code: 'AUTH_PROVIDER_FAILED',
+        code: 'AUTH_ALREADY_EXISTS',
         meta: { detail: 'identity already a member of this org' },
       })
     } else {
@@ -40,7 +40,6 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
       facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['admin'] }),
       facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['viewer'] }),
     ])
-    // Identify the winner by status.
     const winner = a.status === 'fulfilled' ? a.value : b.status === 'fulfilled' ? b.value : null
     expect(winner).not.toBeNull()
     // The persisted state must equal the winner's roles, NOT a silent
@@ -75,7 +74,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     // surprise type / DB constraint blow-up.
     for (const r of rejected) {
       if (r.status === 'rejected') {
-        expect(r.reason).toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
+        expect(r.reason).toMatchObject({ code: 'AUTH_ALREADY_EXISTS' })
       }
     }
   })
@@ -98,7 +97,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     await expect(
       adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [], invitedAt: null, leftAt: null }, {}),
     ).rejects.toMatchObject({
-      code: 'AUTH_PROVIDER_FAILED',
+      code: 'AUTH_ALREADY_EXISTS',
       meta: { detail: 'identity already a member of this org' },
     })
   })
