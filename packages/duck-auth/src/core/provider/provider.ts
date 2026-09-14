@@ -1,14 +1,14 @@
 import { AuthError } from '../errors'
 import type { Events } from '../events/events.types'
 import type { Identities } from '../identities'
+import {
+  canonicalProviderId,
+  describeProviderId,
+  echoableProviderId,
+  isSignInCapability,
+  isUnreachableCapability,
+} from './provider.constants'
 import type { Provider } from './provider.types'
-
-/** Type guard: a capability that exposes begin/complete is a sign-in provider. */
-function isSignInCapability<Profile extends Identities.ProfileMetadataBase>(
-  cap: Provider.Capability,
-): cap is Provider.Me<unknown, unknown, Profile> {
-  return typeof cap.begin === 'function' && typeof cap.complete === 'function'
-}
 
 /**
  * Provider/capability registry + sign-in dispatch. Holds every configured
@@ -19,17 +19,22 @@ export class Providers<Profile extends Identities.ProfileMetadataBase = Identiti
   private readonly _byId = new Map<string, Provider.Capability>()
 
   constructor(capabilities: Provider.Capability[] = []) {
-    for (const c of capabilities) this.register(c)
+    this.registerAll(capabilities)
   }
 
   /** Allow plugins to register a capability at runtime. */
   register(cap: Provider.Capability): void {
-    if (this._byId.has(cap.id)) {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `provider id "${cap.id}" registered twice`,
-      })
-    }
-    this._byId.set(cap.id, cap)
+    this.registerAll([cap])
+  }
+
+  /**
+   * Register a whole list, or none of it. There is no way to take a capability back out, so a list
+   * that raised on its third entry used to leave the first two behind for the life of the engine.
+   */
+  registerAll(capabilities: Provider.Capability[]): void {
+    const staged = new Map<string, Provider.Capability>()
+    for (const cap of capabilities) staged.set(this._assertRegistrable(cap, staged), cap)
+    for (const [id, cap] of staged) this._byId.set(id, cap)
   }
 
   /**
@@ -37,44 +42,57 @@ export class Providers<Profile extends Identities.ProfileMetadataBase = Identiti
    * the rest as they are. Preserves registration order and every id, so
    * `resolve()` and `list()` behave identically on the copy.
    */
-  withClient(client: unknown, events: Events.IBus): Providers<Profile> {
+  withClient(stores: Provider.Stores, events: Events.IBus): Providers<Profile> {
     const rebound: Provider.Capability[] = []
     for (const cap of this._byId.values()) {
-      rebound.push(cap.withClient?.(client, events) ?? cap)
+      rebound.push(cap.withClient?.(stores, events) ?? cap)
     }
     // `register` throws on a duplicate id, so a withClient that returned a
     // capability under a different id fails loudly instead of shadowing one.
     return new Providers<Profile>(rebound)
   }
 
-  /** The registered capability that is an instance of `ctor`, or null. */
+  /**
+   * The registered capability that is an instance of `ctor`, or null.
+   *
+   * Two answers is a configuration error rather than a preference: a plugin that subclasses a
+   * shipped facet would otherwise decide what `auth.passwords` returns by registering first.
+   */
   resolve<T>(ctor: new (...args: never[]) => T): T | null {
-    for (const cap of this._byId.values()) {
-      if (cap instanceof ctor) return cap
+    let found: { cap: T; id: string } | null = null
+    for (const [id, cap] of this._byId) {
+      if (!(cap instanceof ctor)) continue
+      if (found) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `capabilities "${found.id}" and "${id}" both answer ${ctor.name}; register one of them`,
+        })
+      }
+      found = { cap, id }
     }
-    return null
+    return found ? found.cap : null
   }
 
   /** Sign-in grid: only capabilities that can actually complete a sign-in. */
   list(): { id: string; kind: string }[] {
-    return [...this._byId.values()]
-      .filter((c) => typeof c.complete === 'function')
-      .map((c) => ({ id: c.id, kind: c.kind }))
+    return [...this._byId.values()].filter(isSignInCapability).map((c) => ({ id: c.id, kind: c.kind }))
   }
 
   has(id: string): boolean {
-    return this._byId.has(id)
+    const canonical = canonicalProviderId(id)
+    return canonical !== null && this._byId.has(canonical)
   }
 
   get(id: string): Provider.Capability {
-    const p = this._byId.get(id)
-    if (!p) {
+    const canonical = canonicalProviderId(id)
+    const cap = canonical === null ? undefined : this._byId.get(canonical)
+    if (!cap) {
+      // The id came from a request, so only one that could have been registered is quoted back.
       throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: id,
+        providerId: echoableProviderId(id),
         detail: 'unknown provider id',
       })
     }
-    return p
+    return cap
   }
 
   /** Narrow a registered capability to a sign-in provider, or throw. */
@@ -83,9 +101,37 @@ export class Providers<Profile extends Identities.ProfileMetadataBase = Identiti
     // Type-guard narrows without a cast AND returns the original instance, so
     // `this` stays bound when begin/complete run (facet-style providers).
     if (!isSignInCapability<Profile>(cap)) {
-      throw new AuthError('AUTH_PROVIDER_FAILED', { providerId: id, detail: 'not a sign-in provider' })
+      // Its own code: "there is no such provider" and "that one signs nobody in" are different
+      // things to have done wrong, and `detail` is not a contract a caller can branch on.
+      throw new AuthError('AUTH_PROVIDER_UNSUPPORTED', {
+        providerId: cap.id,
+        detail: 'provider does not sign anyone in',
+      })
     }
     return cap
+  }
+
+  private _assertRegistrable(cap: Provider.Capability, staged: ReadonlyMap<string, Provider.Capability>): string {
+    const id = canonicalProviderId(cap?.id)
+    if (id === null) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `provider id ${describeProviderId(cap?.id)} is not a usable id`,
+      })
+    }
+    if (this._byId.has(id) || staged.has(id)) {
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: `provider id "${id}" registered twice` })
+    }
+    if ((typeof cap.begin === 'function') !== (typeof cap.complete === 'function')) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `provider "${id}" implements one of begin/complete; signing in needs both`,
+      })
+    }
+    if (isUnreachableCapability(cap)) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `capability "${id}" has no begin/complete and no prototype, so nothing can reach it`,
+      })
+    }
+    return id
   }
 
   async begin(id: string, ctx: Provider.Context<Profile>, input: unknown): Promise<Provider.Intent[]> {
