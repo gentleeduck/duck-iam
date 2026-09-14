@@ -63,13 +63,11 @@ function sessionStore(row: Sessions.Me | null) {
 }
 
 function identityStore(row: Identities.Me | null | undefined) {
-  const findById = vi.fn(async () => row as Identities.Me | null)
+  const find = vi.fn(async () => row as Identities.Me | null)
   const store: Identities.Store<Identities.ProfileMetadataBase> = {
     create: unexpected('identities.create'),
     erase: unexpected('identities.erase'),
-    findByEmail: unexpected('identities.findByEmail'),
-    findById,
-    findByProviderSub: unexpected('identities.findByProviderSub'),
+    find,
     link: unexpected('identities.link'),
     merge: unexpected('identities.merge'),
     restore: unexpected('identities.restore'),
@@ -77,7 +75,7 @@ function identityStore(row: Identities.Me | null | undefined) {
     unlink: unexpected('identities.unlink'),
     update: unexpected('identities.update'),
   }
-  return { findById, store }
+  return { find, store }
 }
 
 type Engine = Parameters<typeof resolveSession>[0]
@@ -104,7 +102,7 @@ function makeEngine(opts: {
     transport,
   } as unknown as Engine
 
-  return { engine, evaluate, findById: identities.findById, getByHash: sessions.getByHash, transport }
+  return { engine, evaluate, find: identities.find, getByHash: sessions.getByHash, transport }
 }
 
 const PATHS = ['verify', 'sid'] as const
@@ -124,7 +122,7 @@ describe('resolveSession() revocation, on both resolution paths', () => {
     })
   })
 
-  /** `findById` returning undefined rather than null is the same erasure. */
+  /** `find` returning undefined rather than null is the same erasure. */
   it.each(PATHS)('%s: an undefined identity is refused, not just a null one', async (path) => {
     const { engine } = makeEngine({ path, session: session('i1'), identity: undefined })
     await expect(resolveSession(engine, req)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
@@ -144,9 +142,9 @@ describe('resolveSession() revocation, on both resolution paths', () => {
   })
 
   it.each(PATHS)('%s: a guest session never looks an identity up at all', async (path) => {
-    const { engine, findById } = makeEngine({ path, session: session(null), identity: null })
+    const { engine, find } = makeEngine({ path, session: session(null), identity: null })
     await resolveSession(engine, req)
-    expect(findById).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
   })
 
   /** Tenant before identity, on both paths: a foreign token looks absent rather than erased. */
@@ -156,9 +154,9 @@ describe('resolveSession() revocation, on both resolution paths', () => {
   })
 
   it.each(PATHS)('%s: a cross-tenant token never looks the identity up at all', async (path) => {
-    const { engine, findById } = makeEngine({ path, session: session('i1', 'tenant-a'), identity: null })
+    const { engine, find } = makeEngine({ path, session: session('i1', 'tenant-a'), identity: null })
     await resolveSession(engine, req, { expectedTenantId: 'tenant-b' })
-    expect(findById).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
   })
 
   it.each(PATHS)('%s: a cross-tenant token with a live identity returns null', async (path) => {
@@ -200,7 +198,7 @@ describe('resolveSession() revocation, on both resolution paths', () => {
   })
 
   it('no token resolves to null without touching either store', async () => {
-    const { engine, findById, getByHash, transport } = makeEngine({
+    const { engine, find, getByHash, transport } = makeEngine({
       path: 'sid',
       session: session('i1'),
       identity: null,
@@ -208,7 +206,7 @@ describe('resolveSession() revocation, on both resolution paths', () => {
     transport.extract.mockReturnValue(null)
 
     await expect(resolveSession(engine, req)).resolves.toBeNull()
-    expect(findById).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
     expect(getByHash).not.toHaveBeenCalled()
   })
 
@@ -242,7 +240,7 @@ describe('resolveSession() revocation, on both resolution paths', () => {
     const stores = (row: Sessions.Me | null, identity: Identities.Me | null) => {
       const identities = identityStore(identity)
       const sessions = sessionStore(row)
-      return { findById: identities.findById, identities: identities.store, sessions: sessions.store }
+      return { find: identities.find, identities: identities.store, sessions: sessions.store }
     }
 
     it('refuses an erased identity without help from the caller', async () => {
@@ -258,9 +256,9 @@ describe('resolveSession() revocation, on both resolution paths', () => {
     })
 
     it('returns null for a foreign tenant, before looking the identity up', async () => {
-      const { sessions, identities, findById } = stores(session('i1', 'tenant-a'), null)
+      const { sessions, identities, find } = stores(session('i1', 'tenant-a'), null)
       await expect(resolveBySid('sid', sessions, identities, { expectedTenantId: 'tenant-b' })).resolves.toBeNull()
-      expect(findById).not.toHaveBeenCalled()
+      expect(find).not.toHaveBeenCalled()
     })
   })
 

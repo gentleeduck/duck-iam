@@ -17,8 +17,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { createDrizzlePgBridge } from '~/adapters/drizzle/pg'
-import { createSqlStores } from '~/adapters/sql'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import type { Batch } from '~/core/batch'
 import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
@@ -74,7 +73,7 @@ suite('E2E withTransaction on real Postgres', () => {
       baseUrl: 'http://localhost:0',
       events: bus,
       providers: [passwords({ hasher: new ScryptHasher() }), mfaProvider(), apiKeyProvider()],
-      stores: createSqlStores<P>(createDrizzlePgBridge<P>(db)),
+      stores: new DrizzlePgAdapter(db),
       transport: new BearerTransport(),
     })
   })
@@ -234,9 +233,9 @@ suite('E2E withTransaction on real Postgres', () => {
     const a = await engine.identities.create({ profile: { email: 'ba@x', username: 'ba' } })
     const b = await engine.identities.create({ profile: { email: 'bb@x', username: 'bb' } })
     // The address the bad row will collide with. `auth_identities` carries a
-    // partial unique index on lower(profile->>'email'), so this is a hard
-    // constraint violation - the kind that must abort the caller's transaction
-    // rather than be reported as a per-row miss.
+    // unique index on lower(profile->>'email'), so this is a hard constraint
+    // violation - the kind that must abort the caller's transaction rather than
+    // be reported as a per-row miss.
     await engine.identities.create({ profile: { email: 'taken@x', username: 'taken' } })
     published = []
 

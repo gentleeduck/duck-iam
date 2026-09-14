@@ -7,6 +7,7 @@ import { setDefaultActorResolver } from '../actor'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
 import type { Anomaly } from '../anomaly/anomaly.types'
 import { type AuthCaptcha, AuthUnconfiguredCaptchaVerifier } from '../captcha'
+import type { Compliance } from '../compliance/compliance.types'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { type Events, InMemoryEvents, withAuditStamping } from '../events'
@@ -105,11 +106,16 @@ export class AuthEngine<
       absoluteTtlMs: cfg.session?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
       freshnessMs: cfg.session?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
     })
-    this.identities = new IdentitiesImpl<Profile>(cfg.stores.identities, this.events, {
-      softDeleteGracePeriodMs:
-        cfg.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
-      profileMaxBytes: cfg.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
-    })
+    this.identities = new IdentitiesImpl<Profile>(
+      cfg.stores.identities,
+      this.events,
+      {
+        softDeleteGracePeriodMs:
+          cfg.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
+        profileMaxBytes: cfg.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
+      },
+      cfg.stores.credentials,
+    )
     this.providers = new Providers<Profile>()
     for (const entry of cfg.providers ?? []) {
       if (!entry) continue
@@ -182,7 +188,7 @@ export class AuthEngine<
         freshnessMs: this.cfg.session?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
       },
       stores: this.cfg.stores,
-      buildProviders: (bus) => this.providers.withClient(client, bus),
+      buildProviders: (bus, stores) => this.providers.withClient(stores, bus),
       buildFlows: ({ sessions, identities, providers, events, stores }) =>
         new FlowsImpl<Profile>(
           sessions,
@@ -250,7 +256,7 @@ export class AuthEngine<
   }
 
   /** Boot-time strict validation; throws `AUTH/MISCONFIGURED` on any production footgun. */
-  strict(opts: { env: 'development' | 'production' | 'test' }): void {
+  strict(opts: { env: 'development' | 'production' | 'test'; compliance?: Partial<Compliance.Wired> }): void {
     assertStrict(this, opts)
   }
 }

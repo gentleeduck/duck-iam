@@ -13,6 +13,25 @@ import type { Transport } from '../transport/transport.types'
 
 export namespace Engine {
   /**
+   * What the engine is handed: an adapter, or facets picked off one and mixed (redis sessions beside a
+   * drizzle identities store, say).
+   *
+   * `withClient` rebinds the whole bag onto a transaction handle in one call, because the facets share the
+   * adapter's connection. A hand-built mix has none, and `withTransaction` refuses rather than leaving a
+   * facet on the engine's own connection.
+   */
+  export type Stores<
+    Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+    OrgMeta = unknown,
+  > = {
+    identities: Identities.Store<Profile>
+    sessions: Sessions.Store
+    credentials: Credential.Store
+    orgs?: Org.Store<OrgMeta>
+    withClient?(client: unknown): Stores<Profile, OrgMeta>
+  }
+
+  /**
    * Cfguration for creating an {@link Engine} instance.
    *
    * @template Profile  - Shape of the user profile stored on identities.
@@ -26,12 +45,7 @@ export namespace Engine {
   > = {
     baseUrl: string
     transport: Transport.ITransport
-    stores: {
-      identities: Identities.Store<Profile>
-      sessions: Sessions.Store
-      credentials: Credential.Store
-      orgs?: Org.Store<OrgMeta>
-    }
+    stores: Stores<Profile, OrgMeta>
     limiter?: Limiter.Me
     /**
      * Capabilities (sign-in providers + attach-only facets), or thunks that
