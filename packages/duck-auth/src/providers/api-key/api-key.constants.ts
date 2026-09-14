@@ -20,3 +20,14 @@ export function toApiKeysCfg(cfg?: ApiKeys.CfgInput): ApiKeys.Cfg {
     randomBytes: Math.max(cfg?.randomBytes ?? DEFAULT_APIKEYS_CONFIG.randomBytes, floor),
   }
 }
+
+/**
+ * RFC 6749 section 3.3: `scope-token = 1*( %x21 / %x23-5B / %x5D-7E )`. The three gaps in that
+ * range are the space, the double quote and the backslash, which is exactly what keeps a
+ * space-delimited scope string unambiguous to whatever parses it back out of a token response.
+ */
+const SCOPE_TOKEN = /^[\u0021\u0023-\u005b\u005d-\u007e]+$/
+
+export function isScopeToken(value: string): boolean {
+  return SCOPE_TOKEN.test(value)
+}

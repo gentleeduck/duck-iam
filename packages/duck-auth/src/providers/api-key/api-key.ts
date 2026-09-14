@@ -7,7 +7,7 @@ import type { Events } from '~/core/events/events.types'
 import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
-import { DEFAULT_APIKEYS_CONFIG, toApiKeysCfg } from './api-key.constants'
+import { DEFAULT_APIKEYS_CONFIG, isScopeToken, toApiKeysCfg } from './api-key.constants'
 import type { ApiKeys } from './api-key.types'
 
 /**
@@ -67,17 +67,12 @@ export class ApiKeysFacet {
   ) {}
 
   /**
-   * Re-bind to a caller's transaction. Must live inside the class:
-   * `_credentials`, `_crypto` and `_cfg` are private, so nothing outside can
-   * reconstruct the facet. Returns `null` when the store cannot join.
+   * Re-bind to a caller's transaction. Must live inside the class: `_credentials`, `_crypto` and `_cfg` are
+   * private, so nothing outside can reconstruct the facet. The probe comes off the same bound bag, so a key
+   * verified inside the transaction sees that transaction's deletions too.
    */
-  withClient(client: unknown, events: Events.IBus): ApiKeysFacet | null {
-    const credentials = this._credentials.withClient?.(client)
-    if (!credentials) return null
-    // The probe follows the credentials onto the caller's transaction, so a key
-    // verified inside it sees that transaction's deletions too.
-    const identities = this._identities?.withClient?.(client) ?? this._identities
-    return new ApiKeysFacet(credentials, events, this._crypto, this._cfg, identities)
+  withClient(stores: Provider.Stores, events: Events.IBus): ApiKeysFacet {
+    return new ApiKeysFacet(stores.credentials, events, this._crypto, this._cfg, stores.identities)
   }
 
   /** Create a new API key. Returns plaintext exactly once. */
@@ -96,6 +91,11 @@ export class ApiKeysFacet {
       if (typeof s !== 'string' || s.length === 0 || s.length > 128) {
         throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'apikeys.create: each scope must be a non-empty string <=128 chars',
+        })
+      }
+      if (!isScopeToken(s)) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: 'apikeys.create: each scope must match the RFC 6749 scope-token grammar',
         })
       }
     }
@@ -192,9 +192,9 @@ export class ApiKeysFacet {
     // `flows.signIn` re-reads the identity behind the `startSession` intent, but
     // nothing re-reads it here - `verify` hands the id straight back, and
     // `M2MImpl.exchange` mints a session from it - so a soft-deleted account
-    // kept full API access. `findById` filters `deletedAt`, so a missing row is
+    // kept full API access. `find` filters `deletedAt`, so a missing row is
     // exactly "deleted or erased".
-    if (this._identities && !(await this._identities.findById(row.identityId))) {
+    if (this._identities && !(await this._identities.find({ id: row.identityId }))) {
       // Same error as an unknown key: whether an id still exists is not
       // something an unauthenticated caller should be able to probe.
       throw new AuthError('AUTH_APIKEY_INVALID')
@@ -215,14 +215,14 @@ export class ApiKeysFacet {
    */
   requireScopes(have: string[], required: string[]): void {
     if (!Array.isArray(have) || !Array.isArray(required)) {
-      throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', { required: [], have: [] })
+      throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', { required: [], missing: [] })
     }
     const missing = required.filter((s) => !have.includes(s))
     if (missing.length > 0) {
-      throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', {
-        required,
-        have,
-      })
+      // `missing` is a subset of `required`, which the caller supplied. The set the key actually
+      // holds is not reported: an error body forwarded to a client, or written to a shared log,
+      // would otherwise spread every scope the key has to whoever probed it with one.
+      throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', { required, missing })
     }
   }
 }
@@ -265,10 +265,8 @@ export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Ide
    * which calls `this.opts.apiKeys.verify`), so re-binding the context is not
    * enough - swap in a facet bound to the caller's client.
    */
-  withClient(client: unknown, events: Events.IBus): AuthApiKeyImpl<Profile> | null {
-    const apiKeys = this.opts.apiKeys.withClient(client, events)
-    if (!apiKeys) return null
-    return new AuthApiKeyImpl<Profile>({ ...this.opts, apiKeys })
+  withClient(stores: Provider.Stores, events: Events.IBus): AuthApiKeyImpl<Profile> {
+    return new AuthApiKeyImpl<Profile>({ ...this.opts, apiKeys: this.opts.apiKeys.withClient(stores, events) })
   }
 
   async begin(): Promise<Provider.Intent[]> {
