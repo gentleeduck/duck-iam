@@ -46,6 +46,11 @@ export namespace Saml {
     nameIDFormat?: string
     email?: string
     attributes?: Record<string, string | string[]>
+    /** What the IdP says it did to authenticate. Decides the session's aal; see `mfaAuthnContexts`. */
+    authnContext?: string
+    /** Assertion id, when the client surfaces one. Consumed once by `replayStore`. */
+    ID?: string
+    sessionIndex?: string
   }
 
   /** Cfg knobs for {@link saml}. */
@@ -64,10 +69,51 @@ export namespace Saml {
     /**
      * Callback URL the IdP POSTs the SAMLResponse to. Must exactly
      * match the AssertionConsumerService URL registered with the IdP.
+     *
+     * Checked against the client's own `callbackUrl` at construction: nothing here parses the
+     * response, so the client is what validates `Destination` and `Recipient`, and the two
+     * disagreeing meant this one was a presence test and nothing more.
      */
     callbackUrl: string
-    /** Translate the SAML profile into the app's `Profile` shape. */
+    /**
+     * Translate the SAML profile into the app's `Profile` shape, and refuse the sign-in by throwing.
+     * Called before `onSignIn`, which is what makes a projection written to sanitise IdP attributes
+     * something other than dead code.
+     */
     profileToIdentityProfile?: (profile: Profile) => AppProfile
+    /**
+     * Check the relay state the IdP echoed back against the one `begin` issued, and against the
+     * tenant the response is being consumed under.
+     *
+     * This is the counterpart the CSRF guard never had. Without it an assertion an attacker obtained
+     * for their own account, POSTed into a victim's browser, is indistinguishable from one the
+     * victim asked for, and one provider instance serving several tenants accepts the same assertion
+     * under any of them.
+     */
+    verifyRelayState?: (input: { relayState: string; tenantId?: string }) => Promise<boolean>
+    /**
+     * Accept a response carrying no relay state, which is the IdP-initiated flow. Default false.
+     * Nothing binds an unsolicited assertion to a request or to a tenant, so it is opt-in.
+     */
+    allowUnsolicited?: boolean
+    /**
+     * Consume an assertion id exactly once. Returns false when it has been seen before.
+     *
+     * Replay protection otherwise lives in the client's InResponseTo cache, which this wrapper
+     * neither configures nor requires, so one captured POST body minted a fresh session per repeat.
+     */
+    replayStore?: { consume: (assertionId: string) => Promise<boolean> }
+    /**
+     * NameID formats the SP accepts. Defaults to the one `DEFAULT_SAML_CONFIG` asks for. A transient
+     * nameID changes on every login, so provisioning keyed on it creates a new account each time.
+     */
+    allowedNameIdFormats?: readonly string[]
+    /** AuthnContextClassRefs that earn aal 2. Defaults to {@link SAML_MFA_AUTHN_CONTEXTS}. */
+    mfaAuthnContexts?: readonly string[]
+    /** Attribute names passed through to the hooks. Absent means every attribute the IdP sent. */
+    allowedAttributes?: readonly string[]
+    /** Limiter key for both phases. Defaults to one budget per tenant, which is coarse but bounded. */
+    limiterKey?: (ctx: { tenantId?: string }, phase: 'begin' | 'complete') => string
     /**
      * onSignIn hook fires after a successful SAMLResponse. Use to
      * just-in-time provision identities (lookup by `nameID` or
@@ -93,6 +139,11 @@ export namespace Saml {
   export interface CompleteInput {
     /** Raw SAMLResponse param from the IdP POST. */
     SAMLResponse: string
+    /**
+     * RelayState the IdP echoed back. Required unless `allowUnsolicited` is set: the value `begin`
+     * issued as a CSRF guard had no counterpart on the way back.
+     */
+    relayState?: string
   }
 
   /** Input to {@link samlSloController}.beginSp. */

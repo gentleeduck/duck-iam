@@ -28,7 +28,9 @@ function makeClient(overrides: Partial<Saml.Client> = {}): Saml.Client {
   return {
     getAuthorizeUrlAsync: vi.fn(async () => 'https://idp.example/sso?SAMLRequest=AAA'),
     validatePostResponseAsync: vi.fn(async () => ({
-      profile: { nameID: 'sso-user-1', email: 'user@x.com' } as Saml.Profile,
+      // The default nameIDFormat is emailAddress, so an email that disagrees with the nameID is a
+      // refusal, not a fixture.
+      profile: { nameID: 'user@x.com', email: 'user@x.com' } as Saml.Profile,
       loggedOut: false,
     })),
     ...overrides,
@@ -46,19 +48,21 @@ describe('samlProvider - input caps', () => {
     it('rejects oversize relayState (>256 chars)', async () => {
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
       })
       await expect(
         provider.begin(ctxFor(adapter), { relayState: 'A'.repeat(257), host: 'app.test' }),
-      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
       expect(client.getAuthorizeUrlAsync).not.toHaveBeenCalled()
     })
 
     it('accepts relayState at the cap (256 chars)', async () => {
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -70,24 +74,26 @@ describe('samlProvider - input caps', () => {
     it('rejects empty relayState', async () => {
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
       })
       await expect(provider.begin(ctxFor(adapter), { relayState: '', host: 'app.test' })).rejects.toMatchObject({
-        code: 'AUTH_MISCONFIGURED',
+        code: 'AUTH_INVALID_PARAMETERS',
       })
     })
 
     it('rejects oversize host (>253 chars)', async () => {
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
       })
       await expect(provider.begin(ctxFor(adapter), { relayState: 'rs', host: 'a'.repeat(254) })).rejects.toMatchObject({
-        code: 'AUTH_MISCONFIGURED',
+        code: 'AUTH_INVALID_PARAMETERS',
       })
       expect(client.getAuthorizeUrlAsync).not.toHaveBeenCalled()
     })
@@ -95,18 +101,20 @@ describe('samlProvider - input caps', () => {
     it('rejects empty host', async () => {
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
       })
       await expect(provider.begin(ctxFor(adapter), { relayState: 'rs', host: '' })).rejects.toMatchObject({
-        code: 'AUTH_MISCONFIGURED',
+        code: 'AUTH_INVALID_PARAMETERS',
       })
     })
 
     it('rejects non-string relayState without crashing', async () => {
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -114,7 +122,7 @@ describe('samlProvider - input caps', () => {
       await expect(
         // simulate a malformed body parsed as { relayState: 42, host: 'app.test' }
         provider.begin(ctxFor(adapter), { relayState: 42 as unknown as string, host: 'app.test' }),
-      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
   })
 
@@ -122,6 +130,7 @@ describe('samlProvider - input caps', () => {
     it('rejects oversize SAMLResponse (>1 MiB) BEFORE calling validatePostResponseAsync', async () => {
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -129,7 +138,7 @@ describe('samlProvider - input caps', () => {
       const oversize = 'A'.repeat(1_048_577)
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: oversize })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
-        meta: { detail: 'invalid SAMLResponse' },
+        meta: { detail: 'SAMLResponse rejected' },
       })
       expect(client.validatePostResponseAsync).not.toHaveBeenCalled()
     })
@@ -141,6 +150,7 @@ describe('samlProvider - input caps', () => {
       )
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: ident.id }),
@@ -154,13 +164,14 @@ describe('samlProvider - input caps', () => {
     it('rejects empty SAMLResponse', async () => {
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
       })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '' })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
-        meta: { detail: 'invalid SAMLResponse' },
+        meta: { detail: 'SAMLResponse rejected' },
       })
       expect(client.validatePostResponseAsync).not.toHaveBeenCalled()
     })
@@ -168,6 +179,7 @@ describe('samlProvider - input caps', () => {
     it('rejects non-string SAMLResponse without crashing', async () => {
       const client = makeClient()
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -176,7 +188,7 @@ describe('samlProvider - input caps', () => {
         provider.complete(ctxFor(adapter), { SAMLResponse: null as unknown as string }),
       ).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
-        meta: { detail: 'invalid SAMLResponse' },
+        meta: { detail: 'SAMLResponse rejected' },
       })
     })
   })
@@ -189,6 +201,7 @@ describe('samlProvider - input caps', () => {
         }),
       })
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -199,7 +212,7 @@ describe('samlProvider - input caps', () => {
       } catch (err) {
         const e = err as { code: string; meta: { detail: string } }
         expect(e.code).toBe('AUTH_PROVIDER_FAILED')
-        expect(e.meta.detail).toBe('SAMLResponse validation failed')
+        expect(e.meta.detail).toBe('SAMLResponse rejected')
         // The leaky bits MUST NOT appear in the wire detail.
         expect(e.meta.detail).not.toContain('<saml:Assertion>')
         expect(e.meta.detail).not.toContain('secret-attribute')
@@ -219,6 +232,7 @@ describe('samlProvider - input caps', () => {
         }),
       })
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -245,6 +259,7 @@ describe('samlProvider - input caps', () => {
         }),
       })
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -254,7 +269,7 @@ describe('samlProvider - input caps', () => {
         throw new Error('expected throw')
       } catch (err) {
         const e = err as { meta: { detail: string } }
-        expect(e.meta.detail).toBe('SAMLResponse validation failed')
+        expect(e.meta.detail).toBe('SAMLResponse rejected')
         expect(e.meta.detail).not.toContain('internal-saml-state-blob')
       }
       expect(seen).toEqual(['internal-saml-state-blob'])
@@ -270,10 +285,10 @@ describe('samlProvider - input caps', () => {
         })),
       })
       const onSignIn = vi.fn(async () => ({ identityId: 'x' }))
-      const provider = saml({ client, callbackUrl: 'https://app/acs', onSignIn })
+      const provider = saml({ allowUnsolicited: true, client, callbackUrl: 'https://app/acs', onSignIn })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '<SAMLResponse/>' })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
-        meta: { detail: 'invalid SAML profile' },
+        meta: { detail: 'SAMLResponse rejected' },
       })
       // onSignIn must NOT fire when nameID is invalid - otherwise
       // app code receives an attacker-shaped profile and provisions
@@ -289,10 +304,10 @@ describe('samlProvider - input caps', () => {
         })),
       })
       const onSignIn = vi.fn(async () => ({ identityId: 'x' }))
-      const provider = saml({ client, callbackUrl: 'https://app/acs', onSignIn })
+      const provider = saml({ allowUnsolicited: true, client, callbackUrl: 'https://app/acs', onSignIn })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '<SAMLResponse/>' })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
-        meta: { detail: 'invalid SAML profile' },
+        meta: { detail: 'SAMLResponse rejected' },
       })
       expect(onSignIn).not.toHaveBeenCalled()
     })
@@ -310,6 +325,7 @@ describe('samlProvider - input caps', () => {
         })),
       })
       const provider = saml({
+        allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -327,12 +343,12 @@ describe('samlProvider - input caps', () => {
       )
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
-          profile: { nameID: 'legit-sso-id-123', email: 'u@x.com' } as Saml.Profile,
+          profile: { nameID: 'u@x.com', email: 'u@x.com' } as Saml.Profile,
           loggedOut: false,
         })),
       })
       const onSignIn = vi.fn(async () => ({ identityId: ident.id }))
-      const provider = saml({ client, callbackUrl: 'https://app/acs', onSignIn })
+      const provider = saml({ allowUnsolicited: true, client, callbackUrl: 'https://app/acs', onSignIn })
       const intents = await provider.complete(ctxFor(adapterInner), { SAMLResponse: '<SAMLResponse/>' })
       expect(intents[0]!.type).toBe('startSession')
       expect(onSignIn).toHaveBeenCalledOnce()
