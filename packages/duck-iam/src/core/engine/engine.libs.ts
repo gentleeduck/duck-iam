@@ -641,11 +641,11 @@ export function createAdmin<
         }
       }
       for (const p of snapshot.policies) {
-        await adapter.savePolicy(p)
+        await adapter.savePolicy(p, opts)
         if (emit) imported.push({ type: 'policy.saved', at, policyId: p.id, ...actorOf(opts) })
       }
       for (const r of snapshot.roles) {
-        await adapter.saveRole(r)
+        await adapter.saveRole(r, opts)
         if (emit) imported.push({ type: 'role.saved', at, roleId: r.id, ...actorOf(opts) })
       }
       // Bulk write touched every cache; invalidate once instead of per-row.

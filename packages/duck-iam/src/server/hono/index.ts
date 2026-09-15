@@ -8,9 +8,11 @@ import {
   iamResourceAtCallerType,
 } from '../../shared/tenant-literals'
 import {
+  type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
   iamActionForMethod,
+  iamAdminActorOptions,
   iamAuditIdOf,
   iamDefaultCsrfCheck,
   iamDefaultResource,
@@ -87,7 +89,8 @@ export namespace IamHono {
 
   /**
    * Required admin gate: a falsy answer or a throw blocks the request, a truthy one lets it proceed.
-   * Prefer returning the actor over `true`, so the audit event records who acted; see {@link IamAdminAuthzAnswer}.
+   * Prefer returning the actor over `true`, so the audit event and the write itself record who acted; a string
+   * answer also reaches `engine.admin`. See {@link IamAdminAuthzAnswer} and `getMutationActor`.
    */
   export type IAdminAuthorize = (c: HonoContext) => IamAdminAuthzAnswer | Promise<IamAdminAuthzAnswer>
 
@@ -101,6 +104,11 @@ export namespace IamHono {
     onError?: (err: Error, c: HonoContext) => Response
     /** Audit hook fired after every mutation, on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
+    /**
+     * Names the caller for `engine.admin`, which reaches the adapter's `created_by` / `updated_by`.
+     * A string `authorize` answer is forwarded without this; an object one names no one until this picks the field.
+     */
+    getMutationActor?: (actor: IamAdminActor) => string | undefined
   }
 
   /** The minimal Hono router surface {@link iamBindAdminRouter} uses; handlers get a context with a body parser. */
@@ -233,7 +241,8 @@ export function iamBindAdminRouter<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[@gentleduck/iam:hono] iamBindAdminRouter requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
+    opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
@@ -264,7 +273,11 @@ export function iamBindAdminRouter<
       action: IamAdminAudit.Action,
       target: IamAdminAudit.Target,
       getTargetId: ((c: HonoAdminContext) => string | undefined) | undefined,
-      handler: (c: HonoAdminContext, setTargetId: (id: string | undefined) => void) => Promise<Response> | Response,
+      handler: (
+        c: HonoAdminContext,
+        setTargetId: (id: string | undefined) => void,
+        who: { actor?: string },
+      ) => Promise<Response> | Response,
     ) =>
     async (c: HonoAdminContext): Promise<Response> => {
       // Shared CSRF + authorize phase.
@@ -289,9 +302,13 @@ export function iamBindAdminRouter<
       try {
         return await iamWithAdminAudit(auditCtx, () =>
           Promise.resolve(
-            handler(c, (id) => {
-              auditCtx.targetId = id
-            }),
+            handler(
+              c,
+              (id) => {
+                auditCtx.targetId = id
+              },
+              iamAdminActorOptions(authz.actor, getMutationActor),
+            ),
           ),
         )
       } catch (err) {
@@ -313,21 +330,21 @@ export function iamBindAdminRouter<
   )
   router.put(
     '/policies',
-    mutate('replace', 'policy', undefined, async (c, setTargetId) => {
+    mutate('replace', 'policy', undefined, async (c, setTargetId, who) => {
       // Shape-checked by `savePolicy`, whose validator throws `IamValidationError`, answered here as 400.
       const body = (await iamReadJsonBody(() => c.req.json())) as AccessControl.IPolicy<TAction, TResource, TRole>
       setTargetId(iamAuditIdOf(body))
-      await engine.admin.savePolicy(body)
+      await engine.admin.savePolicy(body, who)
       return c.json({ ok: true })
     }),
   )
   router.put(
     '/roles',
-    mutate('replace', 'role', undefined, async (c, setTargetId) => {
+    mutate('replace', 'role', undefined, async (c, setTargetId, who) => {
       // Shape-checked by `saveRole`; see the note on `PUT /policies` above.
       const body = (await iamReadJsonBody(() => c.req.json())) as AccessControl.IRole<TAction, TResource, TRole, TScope>
       setTargetId(iamAuditIdOf(body))
-      await engine.admin.saveRole(body)
+      await engine.admin.saveRole(body, who)
       return c.json({ ok: true })
     }),
   )
@@ -337,13 +354,14 @@ export function iamBindAdminRouter<
       'create',
       'role-assignment',
       (c) => c.req.param('id'),
-      async (c) => {
+      async (c, _setTargetId, who) => {
         const raw: unknown = await iamReadJsonBody(() => c.req.json())
         const scope = iamOptionalStringField(raw, 'scope')
         await engine.admin.assignRole(
           iamRequirePathParam(c.req.param('id'), 'id'),
           iamAsRoleLiteral<TRole>(iamRequireStringField(raw, 'roleId')),
           scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+          who,
         )
         return c.json({ ok: true })
       },
@@ -355,10 +373,12 @@ export function iamBindAdminRouter<
       'delete',
       'role-assignment',
       (c) => c.req.param('id'),
-      async (c) => {
+      async (c, _setTargetId, who) => {
         await engine.admin.revokeRole(
           iamRequirePathParam(c.req.param('id'), 'id'),
           iamAsRoleLiteral<TRole>(iamRequirePathParam(c.req.param('roleId'), 'roleId')),
+          undefined,
+          who,
         )
         return c.json({ ok: true })
       },

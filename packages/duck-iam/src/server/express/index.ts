@@ -8,9 +8,11 @@ import {
   iamResourceAtCallerType,
 } from '../../shared/tenant-literals'
 import {
+  type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
   iamActionForMethod,
+  iamAdminActorOptions,
   iamAuditIdOf,
   iamDefaultCsrfCheck,
   iamDefaultResource,
@@ -90,7 +92,8 @@ export namespace IamExpress {
 
   /**
    * Required admin gate: a falsy answer or a throw blocks the request, a truthy one lets it proceed.
-   * Prefer returning the actor over `true`, so the audit event records who acted; see {@link IamAdminAuthzAnswer}.
+   * Prefer returning the actor over `true`, so the audit event and the write itself record who acted; a string
+   * answer also reaches `engine.admin`. See {@link IamAdminAuthzAnswer} and `getMutationActor`.
    */
   export type IAdminAuthorize = (req: Req) => IamAdminAuthzAnswer | Promise<IamAdminAuthzAnswer>
 
@@ -104,6 +107,11 @@ export namespace IamExpress {
     onError?: (err: Error, req: Req, res: Res) => void
     /** Audit hook fired after every mutation, on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
+    /**
+     * Names the caller for `engine.admin`, which reaches the adapter's `created_by` / `updated_by`.
+     * A string `authorize` answer is forwarded without this; an object one names no one until this picks the field.
+     */
+    getMutationActor?: (actor: IamAdminActor) => string | undefined
   }
 }
 
@@ -284,7 +292,8 @@ export function iamAdminRouter<
       '[@gentleduck/iam:express] iamAdminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
     )
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
+    opts
   const onUnauthorized = opts.onUnauthorized ?? ((_, res) => res.status(401).json({ error: 'Unauthorized' }))
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
   const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
@@ -316,7 +325,7 @@ export function iamAdminRouter<
       action: IamAdminAudit.Action,
       target: IamAdminAudit.Target,
       getTargetId: ((req: Req) => string | undefined) | undefined,
-      handler: (req: Req, res: Res) => Promise<void>,
+      handler: (req: Req, res: Res, who: { actor?: string }) => Promise<void>,
     ) =>
     async (req: Req, res: Res) => {
       // Shared CSRF + authorize phase.
@@ -338,7 +347,7 @@ export function iamAdminRouter<
             onAuditHookError,
             includeErrorMessage,
           },
-          () => handler(req, res),
+          () => handler(req, res, iamAdminActorOptions(authz.actor, getMutationActor)),
         )
       } catch (err) {
         // A rejected body is the caller's mistake: answer 400, since a 500 invites retrying what can never succeed.
@@ -371,9 +380,9 @@ export function iamAdminRouter<
         'policy',
         // NOTE: not a cast on `body.id`: the event fires even for a refused policy, so the id needs its own check.
         (req) => iamAuditIdOf(req.body),
-        async (req, res) => {
+        async (req, res, who) => {
           // The document is not checked here: `savePolicy` validates it before writing.
-          await engine.admin.savePolicy(req.body as AccessControl.IPolicy<TAction, TResource, TRole>)
+          await engine.admin.savePolicy(req.body as AccessControl.IPolicy<TAction, TResource, TRole>, who)
           res.json({ ok: true })
         },
       ),
@@ -386,8 +395,8 @@ export function iamAdminRouter<
         'role',
         // See the note on `PUT /policies` above.
         (req) => iamAuditIdOf(req.body),
-        async (req, res) => {
-          await engine.admin.saveRole(req.body as AccessControl.IRole<TAction, TResource, TRole, TScope>)
+        async (req, res, who) => {
+          await engine.admin.saveRole(req.body as AccessControl.IRole<TAction, TResource, TRole, TScope>, who)
           res.json({ ok: true })
         },
       ),
@@ -399,12 +408,13 @@ export function iamAdminRouter<
         'create',
         'role-assignment',
         (req) => req.params?.id,
-        async (req, res) => {
+        async (req, res, who) => {
           const scope = iamOptionalStringField(req.body, 'scope')
           await engine.admin.assignRole(
             iamRequirePathParam(req.params?.id, 'id'),
             iamAsRoleLiteral<TRole>(iamRequireStringField(req.body, 'roleId')),
             scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+            who,
           )
           res.json({ ok: true })
         },
@@ -417,10 +427,12 @@ export function iamAdminRouter<
         'delete',
         'role-assignment',
         (req) => req.params?.id,
-        async (req, res) => {
+        async (req, res, who) => {
           await engine.admin.revokeRole(
             iamRequirePathParam(req.params?.id, 'id'),
             iamAsRoleLiteral<TRole>(iamRequirePathParam(req.params?.roleId, 'roleId')),
+            undefined,
+            who,
           )
           res.json({ ok: true })
         },

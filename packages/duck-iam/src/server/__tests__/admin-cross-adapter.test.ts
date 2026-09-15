@@ -275,12 +275,13 @@ describe.each(RUNNERS.map((r) => [r.name, r] as const))('admin parity: %s', (_na
     // Control: an adapter that refused everything would satisfy every clause above.
     it('a well-formed grant does reach the engine', async () => {
       const out = await runner.assignRole({}, { id: 'user-1' }, { roleId: 'editor', scope: 'org-1' })
-      expect(out.assigned).toEqual([['user-1', 'editor', 'org-1']])
+      // The 4th argument is the actor options; `authorize` here answers `true`, which names no one.
+      expect(out.assigned).toEqual([['user-1', 'editor', 'org-1', {}]])
     })
 
     it('a well-formed grant with no scope reaches the engine unscoped', async () => {
       const out = await runner.assignRole({}, { id: 'user-1' }, { roleId: 'editor' })
-      expect(out.assigned).toEqual([['user-1', 'editor', undefined]])
+      expect(out.assigned).toEqual([['user-1', 'editor', undefined, {}]])
     })
   })
 
