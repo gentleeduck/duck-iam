@@ -21,7 +21,7 @@
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { AuthTestChannel } from '~/channels/console'
 import { randomToken, sha256 } from '~/core/crypto'
@@ -71,7 +71,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
   let raw: Redis
   let prefix: string
   let auth: AuthEngine<Profile>
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  let stores: DrizzlePgAdapter
   let keys: ApiKeysFacet
   const planted: string[] = []
 
@@ -87,7 +87,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
   async function resetToken(email: string, channel = new AuthTestChannel()): Promise<string> {
     await auth.flows.requestPasswordReset({
       channels: { email: channel },
-      findIdentityByEmail: async (e) => stores.identities.findByEmail(e),
+      findIdentityByEmail: async (e) => stores.identities.find({ email: e }),
       input: { email },
     })
     const entry = channel.outbox.at(-1)
@@ -101,7 +101,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
     raw = new Redis(REDIS_URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
-    stores = drizzlePgStorage<Profile>(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL as string)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       limiter: new RedisLimiter({
@@ -268,19 +268,20 @@ suite('E2E token quality on real Postgres + Redis', () => {
       expect(rows[0].n).toBe(0)
     })
 
-    it('FINDING: issuing a new reset token leaves every earlier one live', async () => {
-      // Ten requests, ten working keys to the account, sitting in ten inboxes.
-      // Each is single use and time limited, so this is not unbounded, but the
-      // usual expectation is that a fresh request retires the ones before it: an
-      // old message forwarded, archived or leaked should stop being a way in.
+    it('issuing a new reset token retires every earlier one', async () => {
+      // Otherwise ten requests leave ten working keys to the account sitting in ten inboxes, and an
+      // old message forwarded, archived or leaked stays a way in.
       const user = await newUser('reset-accumulate')
       const channel = new AuthTestChannel()
       const tokens: string[] = []
       for (let i = 0; i < 10; i++) tokens.push(await resetToken(user.email, channel))
 
-      // The first token, issued before nine others, still resets the password.
       await expect(
         auth.flows.completePasswordReset({ newPassword: 'a-brand-new-password', token: tokens[0] as string }),
+      ).rejects.toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
+      // The newest one is what still works, so retiring the rest did not retire the whole family.
+      await expect(
+        auth.flows.completePasswordReset({ newPassword: 'a-brand-new-password', token: tokens[9] as string }),
       ).resolves.toEqual({ intents: [], ok: true })
     })
 
@@ -306,7 +307,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
         await limited.flows
           .requestPasswordReset({
             channels: { email: channel },
-            findIdentityByEmail: async (e) => stores.identities.findByEmail(e),
+            findIdentityByEmail: async (e) => stores.identities.find({ email: e }),
             input: { email: user.email },
           })
           .catch(() => undefined)
@@ -323,12 +324,12 @@ suite('E2E token quality on real Postgres + Redis', () => {
 
       const known = await auth.flows.requestPasswordReset({
         channels: { email: knownChannel },
-        findIdentityByEmail: async (e) => stores.identities.findByEmail(e),
+        findIdentityByEmail: async (e) => stores.identities.find({ email: e }),
         input: { email: user.email },
       })
       const unknown = await auth.flows.requestPasswordReset({
         channels: { email: unknownChannel },
-        findIdentityByEmail: async (e) => stores.identities.findByEmail(e),
+        findIdentityByEmail: async (e) => stores.identities.find({ email: e }),
         input: { email: `ghost-${e2ePrefix()}@test.local` },
       })
 

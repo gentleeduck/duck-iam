@@ -17,7 +17,7 @@
  */
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { InMemoryEvents } from '~/core/events'
 import { TOTP_DEFAULTS, totpAt } from '~/providers/mfa/internal/totp'
 import { MfaImpl } from '~/providers/mfa/mfa'
@@ -32,7 +32,7 @@ type Profile = { username: string; email: string }
 
 suite('E2E one-shot credentials on real Postgres', () => {
   let pool: Pool
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  let stores: DrizzlePgAdapter
   let mfa: MfaImpl
   const planted: string[] = []
 
@@ -59,7 +59,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL })
     await applyPgSchema(pool)
-    stores = drizzlePgStorage<Profile>(URL as string)
+    stores = new DrizzlePgAdapter(URL as string)
     mfa = new MfaImpl(stores.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
   }, 60_000)
 

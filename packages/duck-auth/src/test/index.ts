@@ -13,11 +13,8 @@ export namespace Test {
   export interface Overrides<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
     /** Drop-in replacement for the bundled AuthMemoryAdapter. */
     adapter?: MemoryAdapter<Profile, OrgMeta>
-    /** Override the identities store individually (adapter still backs the rest). */
-    identities?: Engine.Cfg<Profile>['stores']['identities']
-    sessions?: Engine.Cfg<Profile>['stores']['sessions']
-    credentials?: Engine.Cfg<Profile>['stores']['credentials']
-    orgs?: Engine.Cfg<Profile, string, OrgMeta>['stores']['orgs']
+    /** Replace the whole store bag, the way a real deployment hands the engine an adapter. */
+    stores?: Engine.Cfg<Profile, Tenant, OrgMeta>['stores']
     transport?: Engine.Cfg<Profile>['transport']
     limiter?: Engine.Cfg<Profile>['limiter']
     events?: Engine.Cfg<Profile>['events']
@@ -44,12 +41,7 @@ export function createTest<Profile extends Identities.ProfileMetadataBase = Iden
   const cfg: Engine.Cfg<Profile, Tenant, OrgMeta> = {
     baseUrl: overrides.baseUrl ?? 'http://localhost:0',
     transport,
-    stores: {
-      identities: overrides.identities ?? adapter.identities,
-      sessions: overrides.sessions ?? adapter.sessions,
-      credentials: overrides.credentials ?? adapter.credentials,
-      ...(overrides.orgs !== undefined && { orgs: overrides.orgs }),
-    },
+    stores: overrides.stores ?? adapter,
     limiter,
     providers: [
       passwords(overrides?.passwords?? {

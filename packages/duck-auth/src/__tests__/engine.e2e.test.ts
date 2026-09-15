@@ -17,7 +17,7 @@
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { verifyCsrf } from '~/core/csrf'
 import { AuthEngine } from '~/core/engine'
@@ -40,7 +40,7 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
   let raw: Redis
   let prefix: string
   let auth: AuthEngine<Profile>
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  let stores: DrizzlePgAdapter
 
   /** Everything a Nest guard reads off the request, from a cookie header. */
   const requestFor = (cookie: string, method = 'GET') => ({
@@ -79,7 +79,7 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
     await raw.connect()
     prefix = e2ePrefix()
 
-    stores = drizzlePgStorage<Profile>(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL as string)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       idempotency: redisIdempotency({ prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me) }),

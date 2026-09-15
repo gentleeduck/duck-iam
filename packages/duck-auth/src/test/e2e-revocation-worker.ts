@@ -1,7 +1,7 @@
 /**
  * Child process for the multi-instance revocation e2e test.
  *
- * Plan `C3-engine/01-jwt-instant-revocation.md` keeps an in-memory revocation
+ * Plan `docs/superpowers/plans/C3-engine/01-jwt-instant-revocation.md` keeps an in-memory revocation
  * registry fresh over pub/sub. That design **cannot be validated in one
  * process**, a single instance both publishes and subscribes, and `RedisEvents`
  * dedupes its own messages by instance id, so the fan-out path never executes.

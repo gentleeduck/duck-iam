@@ -11,6 +11,11 @@
  *   2. Docker available - throwaway containers on ephemeral ports, removed on exit.
  *   3. Neither - the variables stay unset and every e2e suite skips itself.
  *
+ * A skip is silent, so `bun run test:e2e` exits 0 on a machine with no docker having proved nothing
+ * about pg, mysql or valkey - the three backends that have no in-process substitute. Set
+ * `DUCKAUTH_E2E_REQUIRE=1` to turn that into a failure. CI sets it; locally it stays off so the
+ * suites remain runnable without docker.
+ *
  * Containers publish to port 0 so the host picks a free port; nothing can collide
  * with a dev stack already sitting on 6379 or 5432.
  */
@@ -187,9 +192,11 @@ export async function setup(): Promise<void> {
   const haveRedis = Boolean(process.env.DUCKAUTH_E2E_REDIS_URL)
   const havePg = Boolean(process.env.DUCKAUTH_E2E_DATABASE_URL)
   const haveMysql = Boolean(process.env.DUCKAUTH_E2E_MYSQL_URL)
+  const required = process.env.DUCKAUTH_E2E_REQUIRE === '1'
   if (haveRedis && havePg && haveMysql) return
 
   if (!(await dockerAvailable())) {
+    if (required) throw new Error('[e2e] DUCKAUTH_E2E_REQUIRE=1 but docker is unavailable and no DUCKAUTH_E2E_* url is set')
     console.info('[e2e] docker unavailable; e2e suites will skip themselves')
     return
   }
@@ -205,6 +212,7 @@ export async function setup(): Promise<void> {
     delete process.env.DUCKAUTH_E2E_REDIS_URL
     delete process.env.DUCKAUTH_E2E_DATABASE_URL
     delete process.env.DUCKAUTH_E2E_MYSQL_URL
+    if (required) throw err
     console.info(`[e2e] container setup failed, suites will skip: ${err instanceof Error ? err.message : err}`)
   }
 }
