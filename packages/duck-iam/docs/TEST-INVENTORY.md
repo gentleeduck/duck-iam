@@ -144,9 +144,11 @@ drift the way the hand-maintained version did.
 | `core/conditions/__tests__/unrecognised-node.test.ts` | 9 | an unrecognised condition node does not read as "no conditions" |
 | `core/config/__tests__/config.test.ts` | 18 | createIam() |
 | `core/config/__tests__/declared-surface.test.ts` | 17 | createIam().validateRoles checks grants against the declared vocabulary |
+| `core/engine/__tests__/adapter-interchangeability.test.ts` | 5 | the memory and file adapters |
 | `core/engine/__tests__/admin-star-scope.test.ts` | 7 | admin refuses a "*" scope on a grant |
 | `core/engine/__tests__/admin-write-cache-coherence.test.ts` | 7 | a long-lived engine after every admin write |
 | `core/engine/__tests__/admin.batch.test.ts` | 9 | IAdmin batch writes |
+| `core/engine/__tests__/broken-adapter-fail-closed.test.ts` | 5 | a broken store read |
 | `core/engine/__tests__/compile-failure-is-reported.test.ts` | 12 | a role count past the compiled table capacity falls back and says so |
 | `core/engine/__tests__/decision-failure-discriminant.test.ts` | 6 | IDecision distinguishes a policy deny from a broken engine |
 | `core/engine/__tests__/e2e-resilience-db-kill.e2e.test.ts` | 11 | E2E fail-closed: Postgres frozen (docker pause) mid-flight |
@@ -189,9 +191,12 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/policy-combine-validation.test.ts` | 11 | policyCombine validation |
 | `core/engine/__tests__/preload-surfaces-compile-error.test.ts` | 6 |  |
 | `core/engine/__tests__/role-created-after-subject-cached.test.ts` | 4 | a role created after a subject was cached |
+| `core/engine/__tests__/role-limit-fallback-parity.test.ts` | 5 | the compiled table and the interpreter it falls back to |
 | `core/engine/__tests__/role-limit-latch.test.ts` | 6 | the role-limit latch clears when the role set changes |
 | `core/engine/__tests__/scope-covers-contract.test.ts` | 45 | scopeCovers agrees with matchesScope on the flat axis |
+| `core/engine/__tests__/surface-parity.test.ts` | 4 | every way of asking for a verdict |
 | `core/engine/__tests__/transaction.pg.e2e.test.ts` | 17 |  |
+| `core/engine/__tests__/two-node-convergence.test.ts` | 4 | two nodes on one store |
 | `core/engine/__tests__/unevaluable-condition-group.test.ts` | 7 | a condition group nobody can evaluate does not retire the deny holding it |
 | `core/engine/__tests__/unified-verdict-path.test.ts` | 11 | development keeps the rich decision while the table supplies the verdict |
 | `core/engine/__tests__/unvalidated-policy-operand.test.ts` | 12 | a policy that never passed the validator still cannot over-grant |
@@ -259,7 +264,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2346** | |
+| **Subtotal** | **2369** | |
 
 ---
 
@@ -395,7 +400,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 140 | 2346 |
+| Core | 145 | 2369 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -403,4 +408,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **284** | **5643** |
+| **Total** | **289** | **5666** |
