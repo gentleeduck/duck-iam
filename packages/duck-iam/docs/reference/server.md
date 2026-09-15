@@ -143,11 +143,26 @@ createIamSubjectCan(engine, subjectId, environment?)
 
 Both are one-line delegations to the engine, kept for terseness inside handlers. `generateIamPermissionMap` infers `TMode` from the engine, so a development-mode engine returns a typed `IamClient.PermissionMap` and a production one returns `Record<string, boolean>` — whatever `engine.permissions` itself returns in that mode. Forward the map to the React provider described in [`client.md`](./client.md).
 
-### 2.6 What a guard cannot see: the row's own attributes
+### 2.6 A guard and the row it has not loaded
 
-A guard runs before the handler loads anything, so every integration evaluates a resource built from the route alone: `{ type, id, attributes: {} }`. A rule conditioned on `resource.attributes.*` is therefore evaluated against an instance that has no attributes, and it cannot fire. A policy whose deny reads `resource.attributes.archived` does not stop `DELETE /posts/42` at the middleware; the same `can()` call inside the handler, with the loaded row, refuses it.
+A guard runs before the handler has loaded anything, so unless the call site supplies them the resource is built from the route alone: `{ type, id, attributes: {} }`. A rule conditioned on `resource.attributes.*` is then evaluated against an instance that has none and cannot fire — a deny reading `resource.attributes.archived` does not stop `DELETE /posts/42`, while the same `can()` inside the handler, with the row in hand, refuses it.
 
-This is structural, not a bug to route around: `iamAccessMiddleware`, `iamGuard`, `iamNestAccessGuard`, `createIamNextMiddleware`, `checkIamAccess` and `createIamSubjectCan` all share it, and `src/server/__tests__/guard-resource-attributes.test.ts` pins them together so one cannot drift. Enforce attribute-dependent rules with `engine.can(...)` once the row is in hand, and treat the guard as the coarse gate on type, id and scope. `engine.permissions()` is the one batch surface that *can* carry them: pass `attributes` on the check (see [`core-engine.md`](./core-engine.md) §3.4).
+Every surface can be told. *How* differs, and the difference is the part worth reading:
+
+| Surface | How the attributes get in |
+| --- | --- |
+| `iamAccessMiddleware` (express, hono) | `getResource` returns the whole `{ type, id, attributes }` — **synchronous**, so attributes an earlier middleware already attached work, loading the row here does not |
+| `iamGuard` (express, hono) | `opts.getResourceAttributes(req, { action, resource, scope })`, may be async |
+| `iamNestAccessGuard` | `opts.getResourceAttributes(request, { action, resource, scope })`, may be async |
+| `withIamAccess` | `opts.getResourceAttributes(req, { action, resource, resourceId, scope })`, may be async |
+| `createIamNextMiddleware` | `opts.getResourceAttributes(req, { action, resource, scope })`, may be async |
+| `checkIamAccess` | 8th positional argument |
+| `createIamSubjectCan` | 5th argument of the returned checker |
+| `engine.permissions()` | `attributes` on each check (see [`core-engine.md`](./core-engine.md) §3.4) |
+
+Values must be `AttributeValue`: `null` means absent, `undefined` is rejected.
+
+It stays opt-in because supplying attributes costs the load the guard exists to skip. Without the callback the guard remains the coarse gate on type, id and scope, and the attribute-dependent rule belongs in `engine.can(...)` after the fetch. `src/server/__tests__/guard-resource-attributes.test.ts` puts all eight surfaces through one archived-post policy and pins both halves: the default lets the read through, the supplied attributes refuse it, and a control shows the deny is the engine's rather than any integration's.
 
 ---
 
@@ -420,7 +435,7 @@ const canEdit = await checkIamAccess(engine, session.userId, 'update', 'post', p
 const perms   = await getIamPermissions(engine, session.userId, [{ action: 'update', resource: 'post' }])
 ```
 
-`checkIamAccess` passes `undefined` as the environment (`src/server/next/index.ts:244`). Any rule keyed on `environment.userAgent`, `environment.ip` or a custom key reads as a non-match there — only `environment.now`, injected by the engine, is available. If a policy depends on the environment, use `engine.can` directly with one you built.
+Both take the environment: `checkIamAccess(engine, subjectId, action, resource, resourceId?, scope?, environment?, attributes?)` and `getIamPermissions(engine, subjectId, checks, environment?)`. A Server Component has no `Request` to derive one from, so build it from `headers()` yourself. Omit it and only `environment.now`, injected by the engine, is available, so a rule keyed on `environment.userAgent`, `environment.ip` or a custom key reads as a non-match — a deny on the environment is inert here while the same policy fires in middleware. `attributes` is the same story for the row; see §2.6.
 
 ### 6.3 Edge Middleware — `createIamNextMiddleware`
 
@@ -447,7 +462,7 @@ It returns `Response | null` — `null` means "no opinion, carry on". Order insi
 3. `path.includes('%')` → `onDenied`. `iamNormalizePathname` decodes exactly once; the residue check that makes that safe lives in `iamDefaultResource`, and this call site has to reproduce it. Without it, `/posts/%252e%252e/admin` was checked as `posts` while routing to `/admin` — or matched no rule at all, and no rule means `return null`, passing the request through with **no authorization call**.
 4. `rules.find(...)`. A string `pattern` is a **prefix** (`path.startsWith`), not a substring, and `find` takes the first match. Under substring matching, `/admin/public-report` would match a `/public` rule listed first and be authorized as `public`. Pinned by `src/server/next/__tests__/next-middleware-rule-matching.test.ts`.
 5. No rule → `return null`, unauthorized. A rule list is opt-in; a path that merely contains a pattern mid-string (`/notes/admin-draft`) matches nothing and passes through.
-6. Otherwise `engine.can(userId, rule.action ?? iamActionForMethod(req.method), { type: rule.resource, attributes: {} }, getEnvironment(req), rule.scope)`.
+6. Otherwise `engine.can(userId, rule.action ?? iamActionForMethod(req.method), { type: rule.resource, attributes }, getEnvironment(req), rule.scope)`, where `attributes` is what `opts.getResourceAttributes` returned, or `{}`.
 
 The resource carries **no id** here — only `type`. And `getEnvironment` defaults to `iamExtractEnvironment({ headers, method, url })`; this was the one integration that passed no environment at all, so a rule keyed on `environment.userAgent` was inert exactly where a Next app puts its edge checks.
 

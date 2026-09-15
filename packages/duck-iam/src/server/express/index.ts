@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import type { AccessControl, IamRequest } from '../../core/types'
+import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import { type IamValidationError, iamIsValidationError } from '../../shared/errors'
 import {
   iamAsActionLiteral,
@@ -110,8 +110,8 @@ export namespace IamExpress {
 /**
  * Builds global Express middleware that runs `engine.can(...)` on every request: 401 without a user, 403 on deny.
  *
- * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
- * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ * SECURITY: a rule reading `resource.attributes.*` sees only what `getResource` puts there, and it is synchronous:
+ * attributes an earlier middleware already attached work, loading the row here does not.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -168,8 +168,8 @@ export function iamAccessMiddleware<
  * Builds per-route middleware that checks `(action, resourceType)` for the
  * current user, pulling the resource ID from `req.params.id`.
  *
- * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
- * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ * SECURITY: a rule reading `resource.attributes.*` sees only what `getResourceAttributes` returns; without it the
+ * resource is the route's type and id alone, and such a rule cannot fire.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -197,6 +197,14 @@ export function iamGuard<
   resourceType: TResource,
   opts: Pick<IamExpress.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & {
     scope?: TScope
+    /**
+     * The resource's own attributes for this check; receives the request and the resolved tuple.
+     * Declared here, not on {@link IamExpress.IOptions}, because `iamAccessMiddleware` takes them from `getResource`.
+     */
+    getResourceAttributes?: (
+      req: Req,
+      ctx: { action: TAction; resource: TResource; scope: TScope | undefined },
+    ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
   } = {},
 ): Middleware {
   const {
@@ -206,6 +214,7 @@ export function iamGuard<
     // SECURITY: a fixed 500 body, not `next(err)`: without an app error handler, express's finalhandler writes
     // `err.stack` into the response outside production.
     onError = (_err, _, res) => res.status(500).json({ error: 'Internal server error' }),
+    getResourceAttributes,
     scope,
   } = opts
 
@@ -217,10 +226,13 @@ export function iamGuard<
         return
       }
 
+      const attributes = getResourceAttributes
+        ? await getResourceAttributes(req, { action, resource: resourceType, scope })
+        : {}
       const allowed = await engine.can(
         userId,
         action,
-        { type: resourceType, id: req.params?.id, attributes: {} },
+        { type: resourceType, id: req.params?.id, attributes },
         getEnvironment(req),
         scope,
       )

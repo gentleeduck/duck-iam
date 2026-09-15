@@ -328,7 +328,7 @@ drift the way the hand-maintained version did.
 | `server/__tests__/admin-request-validation-parity.test.ts` | 15 | the four admin routers answer one bad request the same way |
 | `server/__tests__/cross-adapter.test.ts` | 108 | the path-deriving integrations build the same tuple |
 | `server/__tests__/e2e-http-servers.e2e.test.ts` | 172 | harness |
-| `server/__tests__/guard-resource-attributes.test.ts` | 4 | a route guard and the row it has not loaded |
+| `server/__tests__/guard-resource-attributes.test.ts` | 17 | a guard and the row it has not loaded |
 | `server/express/__tests__/express-path-bypass.test.ts` | 12 | iamAccessMiddleware refuses a path it cannot map, even for a wildcard admin |
 | `server/express/__tests__/express.test.ts` | 51 | iamAccessMiddleware (express) |
 | `server/generic/__tests__/admin-audit-target-id.test.ts` | 9 | admin audit targetId is read, not asserted |
@@ -345,10 +345,10 @@ drift the way the hand-maintained version did.
 | `server/nest/__tests__/nest-infer-resource-parity.test.ts` | 23 | no route template: agrees with iamDefaultResource |
 | `server/nest/__tests__/nest.test.ts` | 28 | @IamAuthorize decorator |
 | `server/next/__tests__/next-middleware-encoded-path.test.ts` | 6 | next middleware: a path with encoding residue |
-| `server/next/__tests__/next-middleware-environment.test.ts` | 4 | createIamNextMiddleware environment |
+| `server/next/__tests__/next-middleware-environment.test.ts` | 8 | createIamNextMiddleware environment |
 | `server/next/__tests__/next-middleware-rule-matching.test.ts` | 4 | next middleware: a string rule pattern matches as a prefix |
 | `server/next/__tests__/next.test.ts` | 31 | withIamAccess |
-| **Subtotal** | **787** | |
+| **Subtotal** | **804** | |
 
 ---
 
@@ -406,8 +406,8 @@ drift the way the hand-maintained version did.
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
-| Server | 25 | 787 |
+| Server | 25 | 804 |
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **291** | **5675** |
+| **Total** | **291** | **5692** |
