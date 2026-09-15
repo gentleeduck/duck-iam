@@ -102,14 +102,14 @@
         "default": "./dist/adapters/redis/index.cjs"
       }
     },
-    "./adapters/sql": {
+    "./adapters/drizzle": {
       "import": {
-        "types": "./dist/adapters/sql/index.d.ts",
-        "default": "./dist/adapters/sql/index.js"
+        "types": "./dist/adapters/drizzle/index.d.ts",
+        "default": "./dist/adapters/drizzle/index.js"
       },
       "require": {
-        "types": "./dist/adapters/sql/index.d.cts",
-        "default": "./dist/adapters/sql/index.cjs"
+        "types": "./dist/adapters/drizzle/index.d.cts",
+        "default": "./dist/adapters/drizzle/index.cjs"
       }
     },
     "./adapters/drizzle/pg": {
@@ -638,7 +638,9 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "test": "vitest run --project unit",
+    "test:coverage": "vitest run --project unit --coverage",
     "benchmark": "bun run scripts/benchmark.ts",
+    "bench:adapters": "bun run scripts/bench-adapters.ts",
     "findings": "bun run scripts/collect-findings.ts",
     "dead-keys": "bun run scripts/audit-dead-keys.ts",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
@@ -646,7 +648,7 @@
     "format": "biome format --write ./",
     "clean": "rimraf dist .cache .turbo node_modules",
     "test:e2e": "vitest run --project e2e",
-    "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-sqlite.config.ts && node src/test/sqlite-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && node src/test/oidc-e2e-schema.mjs"
+    "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-sqlite.config.ts && node src/test/sqlite-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-sqlite.config.ts && node src/test/oidc-e2e-schema.mjs"
   },
   "dependencies": {
     "@types/node": "^26.1.0"

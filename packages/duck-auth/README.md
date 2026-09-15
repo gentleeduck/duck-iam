@@ -51,11 +51,11 @@ Optional peer dependencies (install only what you wire):
 
 ```typescript
 import { createAuth } from '@gentleduck/auth/core/config'
-import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
+import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
 import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { password } from '@gentleduck/auth/providers/password'
 
-const storage = new MemoryAuthAdapter()
+const storage = new MemoryAdapter()
 
 export const auth = createAuth({
   baseUrl: 'http://localhost:3000',
@@ -63,7 +63,7 @@ export const auth = createAuth({
   limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
   providers: [
     (a) => password({
-      findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
+      findIdentityByEmail: (email) => storage.identities.find({ email }),
       passwords: a.passwords,
     }),
   ],
@@ -152,11 +152,10 @@ import {
 ## Storage adapters
 
 ```typescript
-import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
-import { drizzlePgStorage }  from '@gentleduck/auth/adapters/drizzle/pg'
-import { drizzleMysqlStorage } from '@gentleduck/auth/adapters/drizzle/mysql'
-import { drizzleSqliteStorage } from '@gentleduck/auth/adapters/drizzle/sqlite'
-import { createSqlStores } from '@gentleduck/auth/adapters/sql' // build your own bridge
+import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
+import { DrizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
+import { DrizzleMysqlAdapter } from '@gentleduck/auth/adapters/drizzle/mysql'
+import { DrizzleSqliteAdapter } from '@gentleduck/auth/adapters/drizzle/sqlite'
 import {
   RedisSessionStore,
   RedisIdempotencyStore,
@@ -165,7 +164,37 @@ import {
   RedisDPoPNonceStore,
   FakeRedis, // in-tree, for tests
 } from '@gentleduck/auth/adapters/redis'
+
+// One class per dialect, implementing the three store contracts. The constructor takes a
+// connection string, a driver pool, or a drizzle handle you already have.
+const storage = new DrizzlePgAdapter(process.env.DATABASE_URL)
+const { identities, credentials, sessions } = new DrizzlePgAdapter(db)
 ```
+
+### What a call costs
+
+p50 at the adapter boundary - drizzle building the SQL, the driver, the round trip and the row mapping -
+over 50k identities and 100k logins on every backend, on one laptop under everyday load:
+
+| call | Memory | SQLite | Postgres | MySQL |
+| --- | --- | --- | --- | --- |
+| `find({ id })` | 3 µs | 0.089 ms | 0.280 ms | 0.255 ms |
+| `find({ email })` | 7 µs | 0.090 ms | 0.299 ms | 0.259 ms |
+| `find({ providerId, providerSub })` | 8 µs | 0.112 ms | 0.383 ms | 0.282 ms |
+| `create (2 logins)` | 2.125 ms | 0.632 ms | 0.650 ms | 1.184 ms |
+| `erase` | 3 µs | 0.543 ms | 0.499 ms | 1.348 ms |
+| `link` | 0.630 ms | 0.454 ms | 0.549 ms | 1.404 ms |
+| `patchMetadata` | 4 µs | 0.282 ms | 0.271 ms | 0.906 ms |
+
+Reads are index-driven on every dialect and the driver round trip costs ~5x the query it carries. Writes
+are one statement on Postgres (`create` and `erase` are each a single CTE) and a transaction on the
+others, which have no `RETURNING` or no DML inside a `WITH`. Memory's `create` and `link` are the
+outliers: both check a login against every row the adapter holds, which is a test double being one, not a
+store to run 50k accounts through.
+
+Run it yourself with `bun run bench:adapters` - it starts and removes its own containers. The plans, the
+p95s, the method behind these and what is deliberately left unoptimised are in
+[`src/adapters/README.md`](./src/adapters/README.md).
 
 ## Transactions
 
@@ -221,11 +250,11 @@ connection and events publish immediately.
 
 ### Adapter support
 
-`withTransaction` needs a store whose adapter implements `withClient`. The drizzle pg,
-mysql and sqlite adapters do; so does any bridge built with `createSqlStores`. Memory,
-redis and valkey do not - they cannot join a SQL transaction - and `withTransaction` throws
-`AUTH_MISCONFIGURED` naming the store rather than silently leaving it outside your
-transaction.
+`withTransaction` needs the adapter you passed as `stores` to implement `withClient` - one
+call rebinds every facet, since they share its connection. The drizzle pg, mysql and sqlite
+adapters do. Memory, redis and valkey do not - they cannot join a SQL transaction - and nor
+can a bag you assembled facet by facet, so `withTransaction` throws `AUTH_MISCONFIGURED`
+rather than silently leaving those writes outside your transaction.
 
 ### Every mutating call answers with what it did
 

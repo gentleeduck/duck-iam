@@ -11,7 +11,7 @@ export default createTsdownConfig({
     'core/errors': 'src/core/errors/index.ts',
     'adapters/memory/index': 'src/adapters/memory/index.ts',
     'adapters/redis/index': 'src/adapters/redis/index.ts',
-    'adapters/sql/index': 'src/adapters/sql/index.ts',
+    'adapters/drizzle/index': 'src/adapters/drizzle/index.ts',
     'adapters/drizzle/pg/index': 'src/adapters/drizzle/pg/index.ts',
     'adapters/drizzle/mysql/index': 'src/adapters/drizzle/mysql/index.ts',
     'adapters/drizzle/sqlite/index': 'src/adapters/drizzle/sqlite/index.ts',
