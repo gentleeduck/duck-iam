@@ -174,7 +174,7 @@ export function iamAccessMiddleware<
 
 /**
  * Builds per-route middleware that checks `(action, resourceType)` for the
- * current user, pulling the resource ID from `req.params.id`.
+ * current user, pulling the resource ID from `req.params.id` unless `opts.getResourceId` names another source.
  *
  * SECURITY: a rule reading `resource.attributes.*` sees only what `getResourceAttributes` returns; without it the
  * resource is the route's type and id alone, and such a rule cannot fire.
@@ -206,12 +206,17 @@ export function iamGuard<
   opts: Pick<IamExpress.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & {
     scope?: TScope
     /**
+     * The instance this check is about. The default reads the `:id` path param, which names the wrong row on a route
+     * whose own id sits under another name (`/orgs/:id/posts/:postId`).
+     */
+    getResourceId?: (req: Req) => string | undefined
+    /**
      * The resource's own attributes for this check; receives the request and the resolved tuple.
      * Declared here, not on {@link IamExpress.IOptions}, because `iamAccessMiddleware` takes them from `getResource`.
      */
     getResourceAttributes?: (
       req: Req,
-      ctx: { action: TAction; resource: TResource; scope: TScope | undefined },
+      ctx: { action: TAction; resource: TResource; resourceId: string | undefined; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
   } = {},
 ): Middleware {
@@ -223,6 +228,7 @@ export function iamGuard<
     // `err.stack` into the response outside production.
     onError = (_err, _, res) => res.status(500).json({ error: 'Internal server error' }),
     getResourceAttributes,
+    getResourceId = (req: Req) => req.params?.id,
     scope,
   } = opts
 
@@ -234,13 +240,14 @@ export function iamGuard<
         return
       }
 
+      const resourceId = getResourceId(req)
       const attributes = getResourceAttributes
-        ? await getResourceAttributes(req, { action, resource: resourceType, scope })
+        ? await getResourceAttributes(req, { action, resource: resourceType, resourceId, scope })
         : {}
       const allowed = await engine.can(
         userId,
         action,
-        { type: resourceType, id: req.params?.id, attributes },
+        { type: resourceType, id: resourceId, attributes },
         getEnvironment(req),
         scope,
       )

@@ -424,12 +424,17 @@ export function iamGuard<
   > & {
     scope?: TScope
     /**
+     * The instance this check is about. The default reads the `:id` path param, which names the wrong row on a route
+     * whose own id sits under another name (`/orgs/:id/posts/:postId`).
+     */
+    getResourceId?: (c: HonoContext) => string | undefined
+    /**
      * The resource's own attributes for this check; receives the context and the resolved tuple.
      * Declared here, not on {@link IamHono.IOptions}, because `iamAccessMiddleware` takes them from `getResource`.
      */
     getResourceAttributes?: (
       c: HonoContext,
-      ctx: { action: TAction; resource: TResource; scope: TScope | undefined },
+      ctx: { action: TAction; resource: TResource; resourceId: string | undefined; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
   } = {},
 ): HonoMiddleware {
@@ -441,6 +446,7 @@ export function iamGuard<
     onDenied = (c) => c.json({ error: 'Forbidden' }, 403),
     onError = (_err, c) => c.json({ error: 'Internal server error' }, 500),
     getResourceAttributes,
+    getResourceId = (c: HonoContext) => c.req.param('id'),
     scope,
   } = opts
 
@@ -449,13 +455,14 @@ export function iamGuard<
       const userId = getUserId(c)
       if (!iamIsSubjectId(userId)) return c.json({ error: 'Unauthorized' }, 401)
 
+      const resourceId = getResourceId(c)
       const attributes = getResourceAttributes
-        ? await getResourceAttributes(c, { action, resource: resourceType, scope })
+        ? await getResourceAttributes(c, { action, resource: resourceType, resourceId, scope })
         : {}
       const allowed = await engine.can(
         userId,
         action,
-        { type: resourceType, id: c.req.param('id'), attributes },
+        { type: resourceType, id: resourceId, attributes },
         getEnvironment(c),
         scope,
       )

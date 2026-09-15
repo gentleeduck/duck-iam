@@ -108,7 +108,7 @@ export namespace IamNest {
      */
     getResourceAttributes?: (
       request: NestRequest,
-      ctx: { action: string; resource: string; scope: TScope | undefined },
+      ctx: { action: string; resource: string; resourceId: string | undefined; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles thrown errors during evaluation; return `true` to allow, `false` to deny. */
     onError?: (err: Error, request: NestRequest) => boolean
@@ -293,11 +293,14 @@ export function iamNestAccessGuard<
       const scope =
         (meta.scope === undefined ? undefined : iamAsScopeLiteral<TScope>(meta.scope)) ?? getScope?.(request)
 
-      const attributes = getResourceAttributes ? await getResourceAttributes(request, { action, resource, scope }) : {}
+      const resourceId = getResourceId(request)
+      const attributes = getResourceAttributes
+        ? await getResourceAttributes(request, { action, resource, resourceId, scope })
+        : {}
       return await engine.can(
         userId,
         action,
-        { type: resource, id: getResourceId(request), attributes },
+        { type: resource, id: resourceId, attributes },
         getEnvironment(request),
         scope,
       )

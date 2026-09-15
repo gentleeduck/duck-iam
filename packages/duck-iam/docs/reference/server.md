@@ -152,10 +152,10 @@ Every surface can be told. *How* differs, and the difference is the part worth r
 | Surface | How the attributes get in |
 | --- | --- |
 | `iamAccessMiddleware` (express, hono) | `getResource` returns the whole `{ type, id, attributes }` — **synchronous**, so attributes an earlier middleware already attached work, loading the row here does not |
-| `iamGuard` (express, hono) | `opts.getResourceAttributes(req, { action, resource, scope })`, may be async |
-| `iamNestAccessGuard` | `opts.getResourceAttributes(request, { action, resource, scope })`, may be async |
+| `iamGuard` (express, hono) | `opts.getResourceAttributes(req, { action, resource, resourceId, scope })`, may be async |
+| `iamNestAccessGuard` | `opts.getResourceAttributes(request, { action, resource, resourceId, scope })`, may be async |
 | `withIamAccess` | `opts.getResourceAttributes(req, { action, resource, resourceId, scope })`, may be async |
-| `createIamNextMiddleware` | `opts.getResourceAttributes(req, { action, resource, scope })`, may be async |
+| `createIamNextMiddleware` | `opts.getResourceAttributes(req, { action, resource, resourceId, scope })`, may be async |
 | `checkIamAccess` | 8th positional argument |
 | `createIamSubjectCan` | 5th argument of the returned checker |
 | `engine.permissions()` | `attributes` on each check (see [`core-engine.md`](./core-engine.md) §3.4) |
@@ -163,6 +163,30 @@ Every surface can be told. *How* differs, and the difference is the part worth r
 Values must be `AttributeValue`: `null` means absent, `undefined` is rejected.
 
 It stays opt-in because supplying attributes costs the load the guard exists to skip. Without the callback the guard remains the coarse gate on type, id and scope, and the attribute-dependent rule belongs in `engine.can(...)` after the fetch. `src/server/__tests__/guard-resource-attributes.test.ts` puts all eight surfaces through one archived-post policy and pins both halves: the default lets the read through, the supplied attributes refuse it, and a control shows the deny is the engine's rather than any integration's.
+
+`ctx.resourceId` is the id the guard resolved, so the loader can fetch exactly the row the check is about — see §2.7 for where that id comes from.
+
+### 2.7 Which row the guard thinks it is
+
+The id is the other half of the same request, and it is easier to get wrong because it looks like it already works. Four guards read a path param, and the param they read is `id`:
+
+| Surface | Where the id comes from | Override |
+| --- | --- | --- |
+| `iamGuard` (express) | `req.params.id` | `opts.getResourceId(req)` |
+| `iamGuard` (hono) | `c.req.param('id')` | `opts.getResourceId(c)` |
+| `iamNestAccessGuard` | `request.params.id` | `opts.getResourceId(request)` |
+| `withIamAccess` | `ctx.params.id` | `opts.getResourceId(req, params)` |
+| `createIamNextMiddleware` | nothing — middleware runs before routing and has no params | `opts.getResourceId(req, { action, resource, scope })`, **no default** |
+| `iamAccessMiddleware` (express, hono) | `getResource` returns it | — |
+| `checkIamAccess` / `createIamSubjectCan` | positional argument | — |
+
+Two consequences follow from that table.
+
+On a nested route the default names the wrong row. `/orgs/:id/posts/:postId` guarded with `iamGuard(engine, 'read', 'post')` sends the **org's** id as `resource.id`, so a rule like "deny reading post `42`" is answered about an org that happens to be numbered differently, and an ownership rule comparing `resource.id` to something the subject owns compares the wrong two things. Name the param: `{ getResourceId: (req) => req.params.postId }`.
+
+In Next.js middleware there is no id at all unless you extract one. `createIamNextMiddleware` matches a path prefix and knows the rule's `resource`, not which instance the path names, so a rule reading `resource.id` silently cannot fire — the same fail-open shape as an attribute rule with no `getResourceAttributes`. It has no default because only the rule's own path shape says which segment is the id.
+
+`src/server/__tests__/guard-resource-id.test.ts` drives all five surfaces against one policy denying post `42`: the default refuses it on `/posts/:id`, lets it through when the route calls the param `:postId`, and refuses it again once `getResourceId` names that param.
 
 ---
 

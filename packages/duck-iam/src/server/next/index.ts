@@ -46,6 +46,11 @@ export namespace IamNext {
     getEnvironment?: (req: Request) => IamRequest.IEnvironment
     /** Applies a scope to the access check. */
     scope?: TScope
+    /**
+     * The instance this check is about. The default reads the `id` route param, which names the wrong row on a route
+     * whose own id sits under another name (`/orgs/[id]/posts/[postId]`).
+     */
+    getResourceId?: (req: Request, params: Record<string, string> | undefined) => string | undefined
     /** The resource's own attributes for the check; receives the request and the resolved tuple. */
     getResourceAttributes?: (
       req: Request,
@@ -82,10 +87,18 @@ export namespace IamNext {
     getUserId: (req: Request) => string | null | Promise<string | null>
     /** Extracts environment context (IP, user-agent, etc.) from the request. */
     getEnvironment?: (req: Request) => IamRequest.IEnvironment
+    /**
+     * The instance a matched rule is about. Middleware sees only the URL, so there is no default: without this the
+     * check names a type and no row, and a rule reading `resource.id` cannot fire.
+     */
+    getResourceId?: (
+      req: Request,
+      ctx: { action: TAction; resource: TResource; scope: TScope | undefined },
+    ) => string | undefined
     /** The resource's own attributes for the check; receives the request and the resolved tuple. */
     getResourceAttributes?: (
       req: Request,
-      ctx: { action: TAction; resource: TResource; scope: TScope | undefined },
+      ctx: { action: TAction; resource: TResource; resourceId: string | undefined; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles a denied or ambiguous-path request (defaults to 403 JSON). */
     onDenied?: (req: Request) => Response
@@ -131,7 +144,8 @@ export namespace IamNext {
  * @param engine - Provides the access engine to consult.
  * @param action - Specifies the action being performed.
  * @param resourceType - Specifies the resource type required for the check.
- * @param handler - The route handler invoked on allow; the resource id comes from `ctx.params.id`.
+ * @param handler - The route handler invoked on allow; the resource id comes from `ctx.params.id` unless
+ *   `opts.getResourceId` names another source.
  * @param opts - `getUserId` (required), plus optional environment extractor, `scope`, and `onError`.
  * @returns A wrapped route handler.
  * @example
@@ -173,6 +187,7 @@ export function withIamAccess<
     scope,
     onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
     getResourceAttributes,
+    getResourceId = (_req: Request, params: Record<string, string> | undefined) => params?.id,
   } = opts
 
   return async (req, ctx) => {
@@ -184,7 +199,7 @@ export function withIamAccess<
       }
 
       const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
-      const resourceId = params?.id
+      const resourceId = getResourceId(req, params)
 
       const attributes = getResourceAttributes
         ? await getResourceAttributes(req, { action, resource: resourceType, resourceId, scope })
@@ -276,8 +291,8 @@ export async function getIamPermissions<
  * Builds a Next.js Middleware check from pattern-keyed rules: `null` when the request passes or no rule matches,
  * else a 401/403/500 `Response`.
  *
- * SECURITY: a rule reading `resource.attributes.*` sees only what `getResourceAttributes` returns; without it the
- * resource is the matched rule's type alone, and such a rule cannot fire.
+ * SECURITY: a rule reading `resource.attributes.*` or `resource.id` sees only what `getResourceAttributes` and
+ * `getResourceId` return; without them the resource is the matched rule's type alone, and such a rule cannot fire.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -314,6 +329,7 @@ export function createIamNextMiddleware<
     onUnauthorized = () => Response.json({ error: 'Unauthorized' }, { status: 401 }),
     onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
     getResourceAttributes,
+    getResourceId,
   } = opts
 
   return async (req: Request): Promise<Response | null> => {
@@ -353,15 +369,16 @@ export function createIamNextMiddleware<
       // widens through the named helper the other adapters use.
       const action: TAction = matchedRule.action ?? iamAsActionLiteral<TAction>(iamActionForMethod(req.method))
 
-      const attributes = getResourceAttributes
-        ? await getResourceAttributes(req, { action, resource: matchedRule.resource, scope: matchedRule.scope })
-        : {}
+      const ruleCtx = { action, resource: matchedRule.resource, scope: matchedRule.scope }
+      const resourceId = getResourceId?.(req, ruleCtx)
+      const attributes = getResourceAttributes ? await getResourceAttributes(req, { ...ruleCtx, resourceId }) : {}
       const allowed = await engine.can(
         userId,
         action,
         {
-          type: matchedRule.resource,
           attributes,
+          id: resourceId,
+          type: matchedRule.resource,
         },
         getEnvironment(req),
         matchedRule.scope,
