@@ -2,7 +2,7 @@ import { createIam } from '@gentleduck/iam'
 import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
 import { createIamEngineProvider, IAM_ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
 import { Global, Module } from '@nestjs/common'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull, or } from 'drizzle-orm'
 import { db } from '../db'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../db/schema'
 import { IamAdminController } from './iam.admin.controller'
@@ -50,7 +50,7 @@ const engineProvider = createIamEngineProvider(() => {
   const adapter = new IamDrizzleAdapter<AppAction, AppResource, AppRole, never, typeof db, 'sqlite'>({
     db,
     tables: { policies: iamPolicies, roles: iamRoles, assignments: iamAssignments, attrs: iamSubjectAttrs },
-    ops: { eq, and },
+    ops: { and, eq, isNull, or },
     json: 'string',
   })
 

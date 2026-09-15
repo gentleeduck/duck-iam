@@ -1,5 +1,5 @@
 import type { AuthEngine } from '@gentleduck/auth'
-import type { Identities, Session } from '@gentleduck/auth/core'
+import type { Identities, Sessions } from '@gentleduck/auth/core'
 import type { NestAdapter } from '@gentleduck/auth/server/nestjs'
 import {
   CurrentIdentity,
@@ -30,28 +30,28 @@ export class AuthController {
   }
 
   @Post('signin')
-  signIn(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Reply) {
+  signIn(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
     return nestSignIn(this.auth)(req, res)
   }
 
   @Post('signout')
-  signOut(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Reply) {
+  signOut(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
     return nestSignOut(this.auth)(req, res)
   }
 
   @Get('session')
-  session(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Reply) {
+  session(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
     return nestSession(this.auth)(req, res)
   }
 
   @Post('providers/:id/begin')
-  providerBegin(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Reply) {
+  providerBegin(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
     return nestProviderBegin(this.auth)(req, res)
   }
 
   @Get('me')
   @UseGuards(DuckAuthGuard)
-  me(@CurrentSession() session: Session.ISession, @CurrentIdentity() identity: Identities.IIdentity<unknown>) {
+  me(@CurrentSession() session: Sessions.Me, @CurrentIdentity() identity: Identities.Me) {
     return {
       ok: true as const,
       code: 'AUTH_ME_OK' as const,

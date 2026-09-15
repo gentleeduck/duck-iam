@@ -45,7 +45,7 @@ export const auth = createAuth<DemoProfile>({
         autoCreateProfile: (email) => ({ username: email, email, emailVerified: false }),
         callbackPath: '/auth/magic-link/verify',
         channels: { email: new AuthConsoleChannel() },
-        findIdentityByEmail: (e) => storage.identities.findByEmail(e),
+        findIdentityByEmail: (e) => storage.identities.find({ email: e }),
       }),
     process.env.GOOGLE_CLIENT_ID &&
       google<DemoProfile>({
@@ -64,7 +64,7 @@ export const auth = createAuth<DemoProfile>({
     () =>
       passkey<DemoProfile>({
         expectedOrigins: BASE_URL,
-        findIdentityByEmail: (e) => storage.identities.findByEmail(e),
+        findIdentityByEmail: (e) => storage.identities.find({ email: e }),
         rpID: 'localhost',
         rpName: 'duck-auth-demo',
       }),
