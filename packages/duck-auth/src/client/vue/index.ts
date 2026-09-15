@@ -1,5 +1,6 @@
 /** Vue 3 plugin + composables; `vue` is an OPTIONAL peerDep resolved lazily. Types live in `./types`. */
 
+import { AuthError } from '~/core/errors'
 import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
 import { createAuthClient, type VanillaClient } from '../vanilla'
@@ -45,7 +46,9 @@ function useAuthCtx<
   const vue = loadVueSync()
   const ctx = vue.inject(AUTH_VUE_KEY) as VueClient.Injected<Profile> | undefined
   if (!ctx) {
-    throw new Error('[@gentleduck/AUTH/client/vue] use* composables require app.use(authCreateVuePlugin(...))')
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: '[@gentleduck/AUTH/client/vue] use* composables require app.use(authCreateVuePlugin(...))',
+    })
   }
   return ctx
 }
@@ -105,6 +108,8 @@ function loadVueSync(): VueClient.VueModule {
     _vueModule = req('vue') as VueClient.VueModule
     return _vueModule
   } catch {
-    throw new Error('[@gentleduck/AUTH/client/vue] `vue` is not installed. Add it: `bun add vue` (^3).')
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: '[@gentleduck/AUTH/client/vue] `vue` is not installed. Add it: `bun add vue` (^3).',
+    })
   }
 }

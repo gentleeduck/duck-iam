@@ -30,7 +30,7 @@ function buildAuth() {
 
   auth.providers.register(
     passkey({
-      findIdentityByEmail: adapter.identities.findByEmail,
+      findIdentityByEmail: (email) => adapter.identities.find({ email }),
       rpID: '',
       rpName: '',
       expectedOrigins: '',

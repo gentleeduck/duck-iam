@@ -165,11 +165,12 @@ export function serializeCookie(
     expires?: Date
   },
 ): string {
-  if (hasControlChar(name) || /[;=]/.test(name)) throw new Error('serializeCookie: invalid cookie name')
+  if (hasControlChar(name) || /[;=]/.test(name))
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'serializeCookie: invalid cookie name' })
   if (opts.path !== undefined && (hasControlChar(opts.path) || opts.path.includes(';')))
-    throw new Error('serializeCookie: invalid cookie Path')
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'serializeCookie: invalid cookie Path' })
   if (opts.domain !== undefined && (hasControlChar(opts.domain) || opts.domain.includes(';')))
-    throw new Error('serializeCookie: invalid cookie Domain')
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'serializeCookie: invalid cookie Domain' })
   const parts = [`${name}=${encodeURIComponent(value)}`]
   if (opts.maxAge !== undefined) parts.push(`Max-Age=${opts.maxAge}`)
   if (opts.expires) parts.push(`Expires=${opts.expires.toUTCString()}`)

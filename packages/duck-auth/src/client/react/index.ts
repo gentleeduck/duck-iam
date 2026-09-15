@@ -18,14 +18,13 @@
  * ```
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { AuthError } from '~/core/errors'
 import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
 import { createAuthClient, type VanillaClient } from '../vanilla'
 import type { ReactClient } from './types'
 
 export type { ReactClient } from './types'
-
-// --- context ----------------------------------------------------------
 
 const AuthContext = createContext<ReactClient.ContextValue<Identities.ProfileMetadataBase> | null>(null)
 
@@ -74,12 +73,12 @@ function useAuthCtx<
 >(): ReactClient.ContextValue<Profile> {
   const ctx = useContext(AuthContext) as ReactClient.ContextValue<Profile> | null
   if (!ctx) {
-    throw new Error('[@gentleduck/AUTH/client/react] use* hooks must be used inside <Provider>')
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: '[@gentleduck/AUTH/client/react] use* hooks must be used inside <Provider>',
+    })
   }
   return ctx
 }
-
-// --- hooks ------------------------------------------------------------
 
 function useMutation<I, O>(fn: (input: I) => Promise<O>): ReactClient.MutationResult<I, O> {
   const [loading, setLoading] = useState(false)

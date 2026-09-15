@@ -1,6 +1,6 @@
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext } from '@nestjs/common'
 import { Catch, createParamDecorator } from '@nestjs/common'
-import { withRequestActor, withResolvedActor } from '~/core/actor'
+import { withResolvedActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard, verifyCsrf } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
@@ -214,7 +214,11 @@ export function makeGuard(auth: AuthEngine, opts: { required?: boolean; csrf?: b
   return {
     async canActivate(ctx) {
       const req = ctx.switchToHttp().getRequest<NestAdapter.Request>()
-      const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
+      // What `nestActorContext` already resolved, when it ran first. Nest runs middleware before
+      // guards, so resolving again is the session store read twice for one request.
+      const resolved = req.session
+        ? { identity: req.identity ?? null, session: req.session }
+        : await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
       if (csrf) {
         // Reuse the session we just resolved rather than paying a second
         // resolveSession inside csrfGuard.
@@ -292,12 +296,26 @@ export function nestActorContext(
         ...(opts.onHijack && { onHijack: opts.onHijack }),
         caller: opts.getCaller?.(req) ?? {},
       })
+      // Resolved here rather than by `withRequestActor`, which keeps the session and drops the
+      // identity: both are stashed on the request so `makeGuard` reuses them instead of paying a
+      // second resolveSession. A session that will not resolve leaves the request unattributed,
+      // which is what the wrapper did too.
+      if (!req.session) {
+        const resolved = await auth
+          .resolveSession(
+            { headers: toFetchHeaders(req.headers) },
+            security.requestSnapshot ? { requestSnapshot: security.requestSnapshot } : undefined,
+          )
+          .catch(() => null)
+        if (resolved) {
+          req.session = resolved.session
+          req.identity = resolved.identity as NestAdapter.Request['identity']
+        }
+      }
       // `next()` is synchronous, so the downstream chain starts inside the
       // scope and every async continuation of it inherits the binding.
-      // The guard's session skips the second resolveSession, and with it the
-      // anomaly snapshot - the hijack check still runs, on the same session.
       if (req.session) await withResolvedActor(req.session, bound, security)
-      else await withRequestActor(auth, { headers: toFetchHeaders(req.headers) }, bound, security)
+      else await bound()
     },
   }
 }

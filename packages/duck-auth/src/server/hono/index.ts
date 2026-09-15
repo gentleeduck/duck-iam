@@ -161,8 +161,15 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
       const url = new URL(c.req.url)
       const code = url.searchParams.get('code') ?? ''
       const state = url.searchParams.get('state') ?? ''
+      // The provider reads its own cookie out of this. Without it every callback is refused, which
+      // is the right direction to fail but not a good way to find out.
+      const cookieHeader = c.req.header('cookie') ?? ''
       try {
-        const result = await auth.flows.signIn({ input: { code, state }, providerId: provider, ...honoCaller(c) })
+        const result = await auth.flows.signIn({
+          input: { code, cookieHeader, state },
+          providerId: provider,
+          ...honoCaller(c),
+        })
         return executeIntents(result.intents)
       } catch (err) {
         return handleError(err)

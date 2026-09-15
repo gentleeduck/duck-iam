@@ -146,7 +146,7 @@ describe('duck-auth CLI - help / dispatch', () => {
 describe('duck-auth CLI - migrate', () => {
   it.each(['pg', 'mysql', 'sqlite'] as const)('renders DDL for %s with default prefix', (dialect) => {
     const ddl = __renderMigration(dialect, 'AUTH/')
-    expect(ddl).toContain(`AuthSqlBridge schema (${dialect})`)
+    expect(ddl).toContain(`duck-auth schema (${dialect})`)
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS AUTH/identities')
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS AUTH/credentials')
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS AUTH/sessions')
@@ -184,7 +184,7 @@ describe('duck-auth CLI - migrate', () => {
       const code = await __migrate(['sqlite', `--out=schema.sql`])
       expect(code).toBe(0)
       const written = readFileSync(join(dir, 'schema.sql'), 'utf8')
-      expect(written).toContain('AuthSqlBridge schema (sqlite)')
+      expect(written).toContain('duck-auth schema (sqlite)')
       stdout.mockRestore()
     } finally {
       process.chdir(originalCwd)

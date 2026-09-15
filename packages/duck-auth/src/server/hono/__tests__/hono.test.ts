@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
+import type { Provider } from '~/core/provider/provider.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { type HonoAdapter, honoCsrf, honoSession, honoSignIn, honoSignOut } from '../index'
+import type { MountHono } from '../hono.types'
+import { type HonoAdapter, honoCsrf, honoSession, honoSignIn, honoSignOut, mountHono } from '../index'
 
 type MyProfile = {
   username: string
@@ -167,5 +169,68 @@ describe('honoCsrf', () => {
 
   it('lets an ordinary same-origin mutation through', async () => {
     expect((await run('POST', { 'sec-fetch-site': 'same-origin' })).nexted).toBe(true)
+  })
+})
+
+describe('the mounted oauth callback', () => {
+  /** A provider that signs nobody in and remembers what the route handed it. */
+  function recordingProvider(seen: { input?: unknown }): Provider.Me<unknown, unknown> {
+    return {
+      async begin() {
+        return []
+      },
+      async complete(_ctx, input) {
+        seen.input = input
+        return []
+      },
+      id: 'oauth:stub',
+      kind: 'oauth',
+    }
+  }
+
+  /** Hono hands a route the absolute URL and the matched param; `makeCtx` is built for the handlers. */
+  function asCallbackCtx(ctx: HonoAdapter.Context): MountHono.HonoCtx {
+    return { ...ctx, req: { ...ctx.req, param: () => 'oauth:stub', url: `https://x${ctx.req.url}` } }
+  }
+
+  /** Mount against a recorder rather than a real Hono, which stays a peer dependency. */
+  function mountAndTake(auth: ReturnType<typeof buildAuth>['auth'], path: string) {
+    const registered: Record<string, (c: MountHono.HonoCtx) => Response | Promise<Response>> = {}
+    const app: MountHono.App = {
+      get(p, h) {
+        registered[p] = h
+      },
+      post() {},
+    }
+    mountHono(app, auth)
+    const handler = registered[path]
+    if (!handler) throw new Error(`no handler registered at ${path}`)
+    return handler
+  }
+
+  it('forwards the Cookie header, which is what binds the callback to one browser', async () => {
+    const { auth } = buildAuth()
+    const seen: { input?: unknown } = {}
+    auth.providers.register(recordingProvider(seen))
+    const handler = mountAndTake(auth, '/auth/providers/:provider/callback')
+
+    const ctx = makeCtx('GET', '/auth/providers/oauth:stub/callback?code=c&state=s', {
+      headers: { cookie: '__Host-duck-oauth=browser-value' },
+    })
+    await handler(asCallbackCtx(ctx))
+
+    expect(seen.input).toEqual({ code: 'c', cookieHeader: '__Host-duck-oauth=browser-value', state: 's' })
+  })
+
+  it('forwards an empty header rather than nothing when the browser sent no cookie', async () => {
+    const { auth } = buildAuth()
+    const seen: { input?: unknown } = {}
+    auth.providers.register(recordingProvider(seen))
+    const handler = mountAndTake(auth, '/auth/providers/:provider/callback')
+
+    const ctx = makeCtx('GET', '/auth/providers/oauth:stub/callback?code=c&state=s')
+    await handler(asCallbackCtx(ctx))
+
+    expect(seen.input).toEqual({ code: 'c', cookieHeader: '', state: 's' })
   })
 })

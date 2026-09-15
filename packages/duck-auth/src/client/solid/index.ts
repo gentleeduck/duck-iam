@@ -1,5 +1,6 @@
 /** Solid client - context + signals; `solid-js` is an OPTIONAL peerDep. Types live in `./types`. */
 import { createContext, createMemo, createSignal, type JSX, onCleanup, onMount, useContext } from 'solid-js'
+import { AuthError } from '~/core/errors'
 import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
 import { createAuthClient, type VanillaClient } from '../vanilla'
@@ -46,7 +47,9 @@ function useAuthCtx<
 >(): SolidClient.Context<Profile> {
   const ctx = useContext(AuthContext) as SolidClient.Context<Profile> | null
   if (!ctx) {
-    throw new Error('[@gentleduck/AUTH/client/solid] use* hooks must be used inside <Provider>')
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: '[@gentleduck/AUTH/client/solid] use* hooks must be used inside <Provider>',
+    })
   }
   return ctx
 }
