@@ -222,6 +222,7 @@ drift the way the hand-maintained version did.
 | `core/evaluate/__tests__/oracle.test.ts` | 6 | property oracle: evaluate == evaluateFast |
 | `core/evaluate/__tests__/priority-tie-parity.test.ts` | 16 | priority ties resolve identically in the interpreter and the fast path |
 | `core/evaluate/__tests__/rbac-abstain-scope.test.ts` | 5 | only the generated RBAC union lets a throwing rule abstain |
+| `core/evaluate/__tests__/resource-separator-parity.test.ts` | 50 | a resource pattern means the same thing everywhere |
 | `core/evaluate/__tests__/unconditional-agreement.test.ts` | 47 | matchesUnconditionally agrees with evalConditionGroup |
 | `core/evaluate/__tests__/unknown-algorithm.test.ts` | 6 | a policy with an unrecognised combining algorithm |
 | `core/evaluate/__tests__/unknown-effect-fail-closed.test.ts` | 5 | an unrecognised rule effect votes for neither side |
@@ -230,7 +231,7 @@ drift the way the hand-maintained version did.
 | `core/explain/__tests__/explain-indeterminate-parity.test.ts` | 28 | explain() absorbs a throwing rule exactly as the decision path does |
 | `core/explain/__tests__/explain-leaf-parity.test.ts` | 2 | a traced leaf agrees with the leaf the engine decided on |
 | `core/explain/__tests__/explain-reserved-refusal-parity.test.ts` | 6 | explain() refuses the reserved token the way the decision path does |
-| `core/explain/__tests__/explain.libs.test.ts` | 21 | tracePolicy() combining algorithms |
+| `core/explain/__tests__/explain.libs.test.ts` | 22 | tracePolicy() combining algorithms |
 | `core/explain/__tests__/explain.test.ts` | 26 | iamEscapeHtml |
 | `core/pending/__tests__/pending.test.ts` | 23 | createPending |
 | `core/rbac/__tests__/e2e-scope-inheritance.e2e.test.ts` | 25 |  |
@@ -267,7 +268,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2422** | |
+| **Subtotal** | **2473** | |
 
 ---
 
@@ -406,7 +407,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 148 | 2422 |
+| Core | 149 | 2473 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -414,4 +415,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **295** | **5775** |
+| **Total** | **296** | **5826** |

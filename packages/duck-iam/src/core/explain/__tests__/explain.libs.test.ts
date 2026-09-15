@@ -143,9 +143,15 @@ describe('traceRule() resource matching', () => {
     expect(trace.rules[0]!.matched).toBe(false)
   })
 
-  it('routes a dotted resource type to the dot-only matcher, so a `:*` pattern misses', () => {
+  it('keeps a `:*` pattern matching a descendant that happens to contain a dot', () => {
     const p = policy('deny-overrides', [rule('r', 'allow', 1, { resources: ['docs:*'] })])
     const trace = traceOf(p, makeReq({ resource: { attributes: {}, type: 'docs:internal.secret' } }))
+    expect(trace.rules[0]!.resourceMatch).toBe(true)
+  })
+
+  it('still refuses a `:*` pattern against a dot-separated type', () => {
+    const p = policy('deny-overrides', [rule('r', 'allow', 1, { resources: ['docs:*'] })])
+    const trace = traceOf(p, makeReq({ resource: { attributes: {}, type: 'docs.internal' } }))
     expect(trace.rules[0]!.resourceMatch).toBe(false)
   })
 })

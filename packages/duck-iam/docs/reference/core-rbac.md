@@ -713,8 +713,13 @@ operators flushing periodically) and empties only the process-wide map.
 | --- | --- | --- | --- |
 | `matchesAction(pattern, action)` | all | yes | `'posts:*'` matches `posts:read` |
 | `matchesResource(pattern, type)` | all | yes | both `':*'` and `'.*'` suffixes |
-| `matchesResourceHierarchical(pattern, type)` | all | yes | only `'.*'` |
+| `matchesResourceHierarchical(pattern, type)` | all | yes | only `'.*'` — **exported, not used by the engine** |
 | `matchesScope(pattern, scope)` | all (also `undefined`/`null`) | yes | none — see `scopeCovers` |
+
+`matchesResource` is the one the engine calls, at every level: rule targets,
+policy targets and `explain()`. `matchesResourceHierarchical` is the strict
+dot-only variant, a subset of it, kept exported for callers who want dot
+semantics with no `':*'` support.
 
 A bare pattern is a literal: `matchesResource('org', 'org:project')` is `false`,
 and `matchesResourceHierarchical('dashboard', 'dashboard.users')` is `false`.

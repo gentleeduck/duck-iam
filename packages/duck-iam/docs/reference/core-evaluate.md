@@ -162,7 +162,7 @@ tests, not globs.
 | `'*'` | all three | anything | — |
 | `'posts:*'` (action) | `matchesAction` (`resolve.ts:139`) | `posts:read`, `posts:a:b` | `comments:read`, `posts` |
 | `'org:*'` (resource) | `matchesResource` (`resolve.ts:158`) | `org:project`, `org:project:doc` | `team:project`, `org` |
-| `'dashboard.*'` (resource) | `matchesResource` / `matchesResourceHierarchical` (`resolve.ts:180`) | `dashboard.users`, `dashboard.users.settings` | `reports.summary`, bare `dashboard` |
+| `'dashboard.*'` (resource) | `matchesResource` | `dashboard.users`, `dashboard.users.settings` | `reports.summary`, bare `dashboard` |
 | `'dashboard'` (bare literal) | either | `dashboard` only | `dashboard.users`, `dashboard:x` |
 
 Three consequences worth internalising:
@@ -172,7 +172,10 @@ Three consequences worth internalising:
   explicitly. Symmetrically, `dashboard.*` does not cover bare `dashboard`.
 - **The separator comes from the pattern.** `matchesResource` slices off only
   the trailing `*`, keeping the separator, so a `:`-pattern only matches
-  `:`-style resources and a `.`-pattern only `.`-style.
+  `:`-style resources and a `.`-pattern only `.`-style. It is the *pattern* that
+  decides, never the request: `'posts:*'` covers `posts:comment.reply`, because
+  that type starts with `posts:`. A separator further along the type is data,
+  not a mode switch.
 - **Actions have no `.` form.** `matchesAction` recognises `':*'` only. An
   action pattern `foo.*` is treated as a literal string containing a dot and
   matches nothing but itself — but note `isExpansivePattern` in
