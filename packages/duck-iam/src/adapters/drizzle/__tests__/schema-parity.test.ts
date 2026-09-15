@@ -65,6 +65,11 @@ const DIALECT_ONLY: Readonly<Record<string, string>> = {
   // Postgres has an enum type and MySQL has ENUM; SQLite has neither, so the
   // same closed set has to be a CHECK there.
   ch_iam_policies_algorithm_valid: 'sqlite',
+  // "Unique including NULL scope" is one declaration on the other two - pg has
+  // NULLS NOT DISTINCT, MySQL indexes `coalesce(scope, '')`. SQLite has neither,
+  // so it takes a second partial index for the NULL half; `..._scope` covers the
+  // rest on every dialect.
+  uq_iam_assignments_subject_role_global: 'sqlite',
 }
 
 const TABLES = [

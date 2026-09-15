@@ -115,7 +115,13 @@ export const iamAssignments = sqliteTable(
       columns: [t.roleId],
       foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
-    uniqueIndex('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`coalesce(${t.scope}, '')`),
+    // Two partial indexes rather than one over `coalesce(scope, '')`: drizzle-kit splits any comma-bearing
+    // expression in `.on()` into separate index columns, which emits invalid DDL. Together these say what
+    // `nullsNotDistinct()` says on pg - a subject holds a role at most once per scope, global scope included.
+    uniqueIndex('uq_iam_assignments_subject_role_scope')
+      .on(t.subjectId, t.roleId, t.scope)
+      .where(sql`${t.scope} IS NOT NULL`),
+    uniqueIndex('uq_iam_assignments_subject_role_global').on(t.subjectId, t.roleId).where(sql`${t.scope} IS NULL`),
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
     index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
