@@ -61,7 +61,7 @@ async function startPostgres(): Promise<string> {
     'POSTGRES_PASSWORD=duckiam',
     '-e',
     'POSTGRES_DB=duckiam_e2e',
-    'postgres:16-alpine',
+    'postgres:18.4-alpine3.24',
   ])
   await waitFor(`${PG_CONTAINER} accepting queries`, async () => {
     try {

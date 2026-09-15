@@ -85,7 +85,7 @@ export class RoleBuilder<
 
   /**
    * Scopes every permission in the role; under `scopeMode: 'hierarchical'`, `'org-1'` also covers `'org-1.team-a'`.
-   * To scope a single permission, use {@link grantScoped}.
+   * To scope a single permission, use {@link RoleBuilder.grantScoped}.
    *
    * @example
    * ```ts
@@ -118,7 +118,7 @@ export class RoleBuilder<
   }
 
   /**
-   * Grants a permission in one scope, so a role can mix global and scoped permissions (unlike {@link scope}).
+   * Grants a permission in one scope, so a role can mix global and scoped permissions (unlike {@link RoleBuilder.scope}).
    *
    * @example
    * ```ts
@@ -162,7 +162,7 @@ export class RoleBuilder<
   }
 
   /**
-   * Grants every action (`'*'`) on `resource`. For only the four CRUD verbs, see {@link grantCRUD}.
+   * Grants every action (`'*'`) on `resource`. For only the four CRUD verbs, see {@link RoleBuilder.grantCRUD}.
    *
    * @example
    * ```ts
@@ -192,8 +192,8 @@ export class RoleBuilder<
   }
 
   /**
-   * Grants `create`, `read`, `update` and `delete` on `resource`; unlike {@link grantAll}, no custom actions.
-   * NOTE: only callable when `TAction` includes all four; see {@link grantRead}.
+   * Grants `create`, `read`, `update` and `delete` on `resource`; unlike {@link RoleBuilder.grantAll}, no custom actions.
+   * NOTE: only callable when `TAction` includes all four; see {@link RoleBuilder.grantRead}.
    *
    * @example
    * ```ts

@@ -23,7 +23,7 @@ export namespace Pending {
   }
 
   export interface Effects<TRole extends string = string, TScope extends string = string> {
-    /** Number of distinct buffered invalidations. Mutation events are counted by {@link mutationSize}. */
+    /** Number of distinct buffered invalidations. Mutation events are counted by {@link Pending.Effects.mutationSize}. */
     readonly size: number
     /** Number of buffered mutation events; not de-duplicated, since each is a distinct history entry. */
     readonly mutationSize: number

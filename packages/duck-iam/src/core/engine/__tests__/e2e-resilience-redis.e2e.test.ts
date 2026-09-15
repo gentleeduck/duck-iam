@@ -13,7 +13,7 @@ import { IamEngine } from '../engine'
 
 const exec = promisify(execFile)
 
-const REDIS_IMAGE = 'redis:7-alpine'
+const VALKEY_IMAGE = 'valkey/valkey:9-alpine'
 const READY_TIMEOUT_MS = 90_000
 
 async function docker(args: string[], timeout = 90_000): Promise<string> {
@@ -120,9 +120,9 @@ beforeAll(async () => {
     'duck-iam-e2e-owned',
     '-p',
     `127.0.0.1:${redisPort}:6379`,
-    REDIS_IMAGE,
+    VALKEY_IMAGE,
   ])
-  await waitUntilReady(containerName, ['redis-cli', 'ping'])
+  await waitUntilReady(containerName, ['valkey-cli', 'ping'])
 
   await seed()
 }, 180_000)
@@ -190,7 +190,7 @@ describe('E2E fail-closed: the Redis the decision is READ from', () => {
     await docker(['stop', '-t', '0', containerName])
     const denied = await engine.can('u1', 'read', DOC)
     await docker(['start', containerName])
-    await waitUntilReady(containerName, ['redis-cli', 'ping'])
+    await waitUntilReady(containerName, ['valkey-cli', 'ping'])
 
     expect(denied).toBe(false)
 
@@ -312,7 +312,7 @@ describe('E2E: a dead invalidation bus must not extend a stale grant', () => {
     // Give ioredis time to exhaust its retries and reject the publish.
     await new Promise((r) => setTimeout(r, 3000))
     await docker(['start', containerName])
-    await waitUntilReady(containerName, ['redis-cli', 'ping'])
+    await waitUntilReady(containerName, ['valkey-cli', 'ping'])
     engine.dispose()
     process.off('unhandledRejection', onUnhandled)
 

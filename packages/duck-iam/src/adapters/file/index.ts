@@ -53,7 +53,7 @@ export namespace IamFile {
      */
     path: string
     /**
-     * Optional containment root: {@link path} must resolve inside it, after symlink resolution when `realpath` exists.
+     * Optional containment root: {@link IamFile.IInit.path} must resolve inside it, after symlink resolution when `realpath` exists.
      * SECURITY: set it whenever `path` derives from caller input; omitting it logs a one-shot warning.
      */
     rootDir?: string
@@ -127,7 +127,7 @@ export class IamFileAdapter<
   private readonly _path: string
   private readonly _parentDir: string
   private readonly _rootDir: string | null
-  /** Cache for {@link _canonicalRootDir}. */
+  /** Cache for {@link IamFileAdapter._canonicalRootDir}. */
   private _canonicalRoot: string | null = null
   private readonly _fs: TFS
   private readonly _onPolicyError?: IamAdapter.RowErrorHandler<'file'>

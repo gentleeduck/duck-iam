@@ -1,7 +1,7 @@
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 /**
- * Chainable condition builder passed to {@link RuleBuilder.when}, {@link RuleBuilder.whenAny} and
- * {@link RoleBuilder.grantWhen}. `buildAll`/`buildAny`/`buildNone` emit the AND/OR/NOT group.
+ * Chainable condition builder passed to `RuleBuilder.when`, `RuleBuilder.whenAny` and
+ * `RoleBuilder.grantWhen`. `buildAll`/`buildAny`/`buildNone` emit the AND/OR/NOT group.
  *
  * @example
  * ```ts
@@ -298,12 +298,12 @@ export class When<
     return { all: [...this._items] }
   }
 
-  /** Emits a copy of the conditions as `{ any }` (OR), as {@link RuleBuilder.whenAny} does. */
+  /** Emits a copy of the conditions as `{ any }` (OR), as `RuleBuilder.whenAny` does. */
   buildAny(): { readonly any: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
     return { any: [...this._items] }
   }
 
-  /** Emits a copy of the conditions as `{ none }` (NOT), as {@link not} does. */
+  /** Emits a copy of the conditions as `{ none }` (NOT), as {@link When.not} does. */
   buildNone(): { readonly none: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
     return { none: [...this._items] }
   }

@@ -6,7 +6,7 @@ import type { IamValidate } from '../validate'
 /** What a consumer passes to `createIam`, and the typed config it returns with defaults applied. Type-only. */
 export namespace IamConfig {
   /**
-   * Input for {@link createIam}. Pass `as const` arrays so their unions reach every builder method.
+   * Input for `createIam`. Pass `as const` arrays so their unions reach every builder method.
    *
    * @template TActions   - Tuple of action strings declared `as const`.
    * @template TResources - Tuple of resource strings declared `as const`.
@@ -44,7 +44,7 @@ export namespace IamConfig {
   }
 
   /**
-   * Typed config returned by {@link createIam}; builders accept only the declared unions, so typos do not compile.
+   * Typed config returned by `createIam`; builders accept only the declared unions, so typos do not compile.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.

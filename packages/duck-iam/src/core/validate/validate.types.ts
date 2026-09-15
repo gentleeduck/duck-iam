@@ -48,7 +48,7 @@ export namespace IamValidate {
   }
 
   /**
-   * The action / resource / scope vocabulary {@link validateRoles} checks grants against.
+   * The action / resource / scope vocabulary `validateRoles` checks grants against.
    * An omitted or empty list leaves that axis unconstrained; it does not forbid everything.
    */
   export interface IDeclaredSurface {

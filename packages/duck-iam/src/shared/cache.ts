@@ -45,7 +45,7 @@ export class IamLRUCache<V> {
 
   /**
    * Epoch ms the entry under `key` expires at, or `undefined` when absent or lapsed. Moves neither LRU order nor stats.
-   * NOTE: lets a derived cache inherit its source's expiry via {@link set}'s `notAfter` instead of a fresh full TTL.
+   * NOTE: lets a derived cache inherit its source's expiry via {@link IamLRUCache.set}'s `notAfter` instead of a fresh full TTL.
    */
   expiresAt(key: string): number | undefined {
     const entry = this._map.get(key)
@@ -100,7 +100,7 @@ export class IamLRUCache<V> {
     return this._map.size
   }
 
-  /** Iterates non-expired entries without refreshing LRU order; expiry uses `>=` to agree with {@link get}. */
+  /** Iterates non-expired entries without refreshing LRU order; expiry uses `>=` to agree with {@link IamLRUCache.get}. */
   *entries(): IterableIterator<[string, V]> {
     const now = Date.now()
     for (const [key, entry] of this._map) {

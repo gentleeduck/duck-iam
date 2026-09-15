@@ -2,7 +2,7 @@ import type { IamPrimitives } from './primitives'
 
 /**
  * One evaluation in flight: the subject asking, the resource it names, and the environment. Type-only.
- * The model those are checked against lives in {@link AccessControl}.
+ * The model those are checked against lives in `AccessControl`.
  */
 export namespace IamRequest {
   /**

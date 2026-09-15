@@ -277,8 +277,8 @@ export namespace AccessControl {
    * | Where | Second argument |
    * |---|---|
    * | `iamEvaluate` / `iamEvaluateFast` | this type - the policy object |
-   * | {@link IamEngineTypes.IHooks.onPolicyError} | the policy **id**, a string |
-   * | adapter configs | {@link IamAdapter.RowErrorHandler}'s `{ adapter, rowId }` |
+   * | `IamEngineTypes.IHooks.onPolicyError` | the policy **id**, a string |
+   * | adapter configs | `IamAdapter.RowErrorHandler`'s `{ adapter, rowId }` |
    */
   export type PolicyErrorHandler<TAction extends string = string, TResource extends string = string> = (
     err: Error,

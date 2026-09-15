@@ -286,7 +286,7 @@ clear, so give each tenant its own engine. See `SECURITY.md`.
 |---------|---------|--------------|
 | `cacheTTL` | 60s | cache lifetime |
 | `maxCacheSize` | 1000 | subject cache entries |
-| `adapterTimeoutMs` | 5000 | hard `AbortController` timeout per adapter read |
+| `adapterTimeoutMs` | 5000 | hard `AbortController` timeout per adapter call, reads and `engine.admin` writes alike |
 | `hookTimeoutMs` | 5000 | bound on a promise a hook returns; `0` waits indefinitely |
 | `maxPolicies` / `maxRoles` | 10,000 | load-time caps, fail closed when exceeded |
 | role inheritance depth | 32 | how far the `inherits` walk descends. Not a cap on how many roles a catalog may hold |

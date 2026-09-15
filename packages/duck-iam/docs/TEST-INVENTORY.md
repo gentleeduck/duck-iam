@@ -146,6 +146,7 @@ drift the way the hand-maintained version did.
 | `core/config/__tests__/declared-surface.test.ts` | 17 | createIam().validateRoles checks grants against the declared vocabulary |
 | `core/engine/__tests__/adapter-interchangeability.test.ts` | 5 | the memory and file adapters |
 | `core/engine/__tests__/admin-actor-provenance.test.ts` | 9 | every admin write tells the adapter who made it |
+| `core/engine/__tests__/admin-adapter-timeout.test.ts` | 39 | adapterTimeoutMs bounds the admin facade, not only the decision path |
 | `core/engine/__tests__/admin-star-scope.test.ts` | 7 | admin refuses a "*" scope on a grant |
 | `core/engine/__tests__/admin-write-cache-coherence.test.ts` | 7 | a long-lived engine after every admin write |
 | `core/engine/__tests__/admin.batch.test.ts` | 9 | IAdmin batch writes |
@@ -266,7 +267,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2383** | |
+| **Subtotal** | **2422** | |
 
 ---
 
@@ -405,7 +406,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 147 | 2383 |
+| Core | 148 | 2422 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -413,4 +414,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **294** | **5736** |
+| **Total** | **295** | **5775** |

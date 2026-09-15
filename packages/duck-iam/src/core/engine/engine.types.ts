@@ -98,12 +98,12 @@ export namespace IamEngineTypes {
     assignRoles(
       rows: readonly IAssignRow<TRole, TScope>[],
     ): Promise<Batch.Result<IAssignRow<TRole, TScope>, Batch.Change>>
-    /** Revokes many triples, each with an optional `opts.actor`. See {@link assignRoles}. */
+    /** Revokes many triples, each with an optional `opts.actor`. See {@link IamEngineTypes.IAdmin.assignRoles}. */
     revokeRoles(
       rows: readonly IRevokeRow<TRole, TScope>[],
     ): Promise<Batch.Result<IRevokeRow<TRole, TScope>, Batch.Change>>
     /**
-     * Moves many assignments, one {@link updateAssignmentScope} per row.
+     * Moves many assignments, one {@link IamEngineTypes.IAdmin.updateAssignmentScope} per row.
      * A row fails only by throwing; every row that returns is reported applied.
      */
     moveRoleScopes(rows: readonly IMoveRow<TRole, TScope>[]): Promise<Batch.Result<IMoveRow<TRole, TScope>>>
@@ -323,7 +323,7 @@ export namespace IamEngineTypes {
       request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
       decision: AccessControl.IDecision,
     ): void | Promise<void>
-    /** Called only when a request is denied. Fires in both modes; see {@link afterEvaluate}. */
+    /** Called only when a request is denied. Fires in both modes; see {@link IamEngineTypes.IHooks.afterEvaluate}. */
     onDeny?(
       request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
       decision: AccessControl.IDecision,
@@ -340,13 +340,13 @@ export namespace IamEngineTypes {
     onMetrics?(event: IMetricsEvent<TAction, TResource>): void
     /**
      * The audit seam: called after each successful `engine.admin` write and its invalidation. A throw is logged.
-     * Under {@link IamEngine.withTransaction} events wait for `pending.flush()`. PERF: batches emit one event per row.
+     * Under `IamEngine.withTransaction` events wait for `pending.flush()`. PERF: batches emit one event per row.
      */
     onMutation?(event: IMutationEvent<TRole, TScope>): void | Promise<void>
   }
 
   /**
-   * Configuration for creating an {@link IamEngine} instance.
+   * Configuration for creating an `IamEngine` instance.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
@@ -401,6 +401,8 @@ export namespace IamEngineTypes {
     /**
      * Per-adapter-call timeout in ms, enforced by aborting `IReadOptions.signal`. Defaults to `5_000`; `0` disables.
      * An adapter that ignores the signal still frees the caller, but its call runs on in the background.
+     * Covers `engine.admin` as well as the decision path. A write takes no signal, so there the timeout only frees
+     * the caller; retries must stay idempotent. Inside a transaction the admin is unbounded on purpose.
      */
     readonly adapterTimeoutMs?: number
     /**

@@ -162,7 +162,7 @@ export namespace Explain {
   }
 
   /**
-   * Subject metadata passed to {@link explainEvaluation} for building the explain trace.
+   * Subject metadata passed to `explainEvaluation` for building the explain trace.
    *
    * @example
    * ```ts
