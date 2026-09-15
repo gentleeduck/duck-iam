@@ -188,6 +188,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/invalidate-roles-inflight.test.ts` | 3 | invalidateRoles drops in-flight subject loads |
 | `core/engine/__tests__/mode-type-argument-does-not-set-mode.test.ts` | 3 | the mode type argument does not set the mode |
 | `core/engine/__tests__/partial-batch-invalidation.test.ts` | 6 | a batch that fails part-way still settles the rows that landed |
+| `core/engine/__tests__/permission-map-resource-attributes.test.ts` | 5 | a permission check and the instance it names |
 | `core/engine/__tests__/policy-combine-validation.test.ts` | 11 | policyCombine validation |
 | `core/engine/__tests__/preload-surfaces-compile-error.test.ts` | 6 |  |
 | `core/engine/__tests__/role-created-after-subject-cached.test.ts` | 4 | a role created after a subject was cached |
@@ -264,7 +265,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2369** | |
+| **Subtotal** | **2374** | |
 
 ---
 
@@ -327,6 +328,7 @@ drift the way the hand-maintained version did.
 | `server/__tests__/admin-request-validation-parity.test.ts` | 15 | the four admin routers answer one bad request the same way |
 | `server/__tests__/cross-adapter.test.ts` | 108 | the path-deriving integrations build the same tuple |
 | `server/__tests__/e2e-http-servers.e2e.test.ts` | 172 | harness |
+| `server/__tests__/guard-resource-attributes.test.ts` | 4 | a route guard and the row it has not loaded |
 | `server/express/__tests__/express-path-bypass.test.ts` | 12 | iamAccessMiddleware refuses a path it cannot map, even for a wildcard admin |
 | `server/express/__tests__/express.test.ts` | 51 | iamAccessMiddleware (express) |
 | `server/generic/__tests__/admin-audit-target-id.test.ts` | 9 | admin audit targetId is read, not asserted |
@@ -346,7 +348,7 @@ drift the way the hand-maintained version did.
 | `server/next/__tests__/next-middleware-environment.test.ts` | 4 | createIamNextMiddleware environment |
 | `server/next/__tests__/next-middleware-rule-matching.test.ts` | 4 | next middleware: a string rule pattern matches as a prefix |
 | `server/next/__tests__/next.test.ts` | 31 | withIamAccess |
-| **Subtotal** | **783** | |
+| **Subtotal** | **787** | |
 
 ---
 
@@ -400,12 +402,12 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 145 | 2369 |
+| Core | 146 | 2374 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
-| Server | 24 | 783 |
+| Server | 25 | 787 |
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **289** | **5666** |
+| **Total** | **291** | **5675** |

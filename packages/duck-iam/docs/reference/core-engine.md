@@ -281,6 +281,12 @@ Behaviour worth knowing:
   gates (roughly 2× throughput). `afterEvaluate`/`onDeny` still fire.
 - **A per-check throw** sets that key to `false`, fires `onError` with a request
   built for that check, and continues with the rest of the batch.
+- **The verdict is only as precise as the check.** A check is evaluated against
+  `{ type, id, attributes }`, and `attributes` defaults to `{}` — so a rule
+  conditioned on `resource.attributes.*` sees an instance that has none. A deny
+  written that way does not fire, and the key can read `true` where `can()` on
+  the loaded row answers `false`. Pass the row's attributes on the check to get
+  the same answer `can()` gives (`permission-map-resource-attributes.test.ts`).
 
 ### 3.5 `explain`
 

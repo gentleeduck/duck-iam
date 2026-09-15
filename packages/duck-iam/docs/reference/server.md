@@ -143,6 +143,12 @@ createIamSubjectCan(engine, subjectId, environment?)
 
 Both are one-line delegations to the engine, kept for terseness inside handlers. `generateIamPermissionMap` infers `TMode` from the engine, so a development-mode engine returns a typed `IamClient.PermissionMap` and a production one returns `Record<string, boolean>` — whatever `engine.permissions` itself returns in that mode. Forward the map to the React provider described in [`client.md`](./client.md).
 
+### 2.6 What a guard cannot see: the row's own attributes
+
+A guard runs before the handler loads anything, so every integration evaluates a resource built from the route alone: `{ type, id, attributes: {} }`. A rule conditioned on `resource.attributes.*` is therefore evaluated against an instance that has no attributes, and it cannot fire. A policy whose deny reads `resource.attributes.archived` does not stop `DELETE /posts/42` at the middleware; the same `can()` call inside the handler, with the loaded row, refuses it.
+
+This is structural, not a bug to route around: `iamAccessMiddleware`, `iamGuard`, `iamNestAccessGuard`, `createIamNextMiddleware`, `checkIamAccess` and `createIamSubjectCan` all share it, and `src/server/__tests__/guard-resource-attributes.test.ts` pins them together so one cannot drift. Enforce attribute-dependent rules with `engine.can(...)` once the row is in hand, and treat the guard as the coarse gate on type, id and scope. `engine.permissions()` is the one batch surface that *can* carry them: pass `attributes` on the check (see [`core-engine.md`](./core-engine.md) §3.4).
+
 ---
 
 ## 3. Express

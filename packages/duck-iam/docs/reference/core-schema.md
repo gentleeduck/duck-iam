@@ -363,8 +363,13 @@ export interface IPermissionCheck<TAction, TResource, TScope> {
   readonly resource: TResource
   readonly resourceId?: string
   readonly scope?: TScope
+  readonly attributes?: IamPrimitives.Attributes
 }
 ```
+
+`attributes` is the named instance's own attributes, as `can()` would receive
+them. It does not key the map: `resourceId` identifies the instance, and two
+checks that differ only in `attributes` collide on one key.
 
 The `@` marks the scope segment, so a three-segment key is never ambiguous
 between a scoped check and an id-bearing one. The unmarked form `org:read:post`
