@@ -3,7 +3,7 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
-// A NaN or absent `priority` (a row that skipped validation) must rank as 0, not lose every `>` comparison.
+// A NaN or absent `priority` (a row that skipped validation) is Indeterminate under the two ranking algorithms.
 // Production reaches `evaluatePolicyFast` through a residual `post.*` policy; development checks rule order.
 type A = 'read'
 type R = 'post' | 'post.draft'
@@ -75,14 +75,16 @@ describe.each(['first-match', 'highest-priority'] as const)('%s', (algo) => {
       expect(denyFirst).toBe(allowFirst)
     })
 
-    it('ranks as 0, so it loses to allow@1 and beats allow@-1', async () => {
+    // This used to expect `true`: the bad priority ranked as 0 and lost to allow@1, which is the deny being
+    // dropped by another name. It is Indeterminate now, and the policy carries a deny, so it fails closed.
+    it('no longer loses to allow@1, and still beats allow@-1', async () => {
       expect(
         await engineWith('development', algo, [rule('deny', 'deny', bad), rule('allow', 'allow', 1)]).can(
           'u1',
           'read',
           draft,
         ),
-      ).toBe(true)
+      ).toBe(false)
       expect(
         await engineWith('development', algo, [rule('allow', 'allow', -1), rule('deny', 'deny', bad)]).can(
           'u1',
@@ -90,6 +92,39 @@ describe.each(['first-match', 'highest-priority'] as const)('%s', (algo) => {
           draft,
         ),
       ).toBe(false)
+    })
+
+    it('CONTROL: a finite priority still ranks, so the assertion above is not vacuous', async () => {
+      expect(
+        await engineWith('development', algo, [rule('deny', 'deny', 0), rule('allow', 'allow', 1)]).can(
+          'u1',
+          'read',
+          draft,
+        ),
+      ).toBe(true)
+      expect(
+        await engineWith('development', algo, [rule('allow', 'allow', -1), rule('deny', 'deny', 0)]).can(
+          'u1',
+          'read',
+          draft,
+        ),
+      ).toBe(false)
+    })
+
+    it('production agrees with development, so the table cannot allow what the interpreter refuses', async () => {
+      const rules = [rule('deny', 'deny', bad), rule('allow', 'allow', 1)]
+      expect({
+        development: await engineWith('development', algo, rules).can('u1', 'read', draft),
+        production: await engineWith('production', algo, rules).can('u1', 'read', draft),
+      }).toEqual({ development: false, production: false })
+    })
+
+    it('the other two algorithms never rank, so the same rows still decide normally', async () => {
+      const rules = [rule('deny', 'deny', bad), rule('allow', 'allow', 1)]
+      expect({
+        allowOverrides: await engineWith('development', 'allow-overrides', rules).can('u1', 'read', draft),
+        denyOverrides: await engineWith('development', 'deny-overrides', rules).can('u1', 'read', draft),
+      }).toEqual({ allowOverrides: true, denyOverrides: false })
     })
   })
 })

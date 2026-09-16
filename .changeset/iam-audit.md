@@ -271,3 +271,26 @@ is reported through `onPolicyError` naming the offending rule.
 
 The write path refuses these rows, so only a seed, a migration or a direct write
 can carry one.
+
+### A deny with a broken priority was outranked by every allow
+
+`first-match` and `highest-priority` rank matched rules by `rule.priority`.
+`rulePriority` read a priority that was not a finite number — `NaN`, `null`,
+`'urgent'`, or absent — as `0`. That is a real rank, the lowest meaningful one,
+so the rule stayed in the ranking and lost to any allow above it.
+
+Measured, a `highest-priority` policy holding an unconditional allow at priority
+5 and a deny carrying `'urgent'`, `-Infinity` or no priority at all: `can()`
+answered **true** in both evaluators, against `false` for the same deny at
+priority 9. Reading it as `-Infinity` loses the same way.
+
+A priority the engine cannot rank is now Indeterminate, matching the rule
+already applied to an unanswerable condition, an unknown combining algorithm and
+an unrecognised effect. Both evaluators refuse it at policy level, after the
+NotApplicable tests they already share, so they refuse exactly the same
+requests; the compiled table's flat model never reads `priority`, so such a
+policy is forced out of it. `deny-overrides` and `allow-overrides` do not rank,
+and are unaffected.
+
+The write path refuses these rows, so only a seed, a migration or a direct write
+can carry one.

@@ -80,9 +80,17 @@ export const VALID_POLICY_COMBINES: readonly AccessControl.PolicyCombine[] = [
 function topByPriority<T extends { rule: { readonly priority: number } }>(matched: readonly T[]): T | undefined {
   let best = matched[0]
   if (best === undefined) return undefined
+  // Reading the first rule's priority up front also validates it; the fast path ranks every candidate, so leaving
+  // a lone rule unchecked here made the two disagree.
+  let bestPriority = rulePriority(best.rule)
   for (let i = 1; i < matched.length; i++) {
     const cur = matched[i]
-    if (cur !== undefined && rulePriority(cur.rule) > rulePriority(best.rule)) best = cur
+    if (cur === undefined) continue
+    const priority = rulePriority(cur.rule)
+    if (priority > bestPriority) {
+      best = cur
+      bestPriority = priority
+    }
   }
   return best
 }
@@ -206,6 +214,11 @@ function addToPairBucket(
   addToBucket(byResource, resource, entry)
 }
 
+/** The two algorithms that rank by `rule.priority`; the other two never read it, so a bad one cannot reach them. */
+export function ranksByPriority(algorithm: AccessControl.CombiningAlgorithm): boolean {
+  return algorithm === 'first-match' || algorithm === 'highest-priority'
+}
+
 /** Whether `value` is an `IRule.effect` the evaluators can act on; an unvalidated row may carry anything. */
 export function isRuleEffect(value: unknown): value is AccessControl.Effect {
   return value === 'allow' || value === 'deny'
@@ -220,9 +233,18 @@ export function policyHasDenyRule(policy: AccessControl.IPolicy): boolean {
   return Array.isArray(policy.rules) && policy.rules.some((r) => r.effect !== 'allow')
 }
 
-/** Priority for ranking; `NaN` or missing (an unvalidated row) ranks as 0 rather than losing every comparison. */
+/**
+ * Priority for ranking under `first-match` / `highest-priority`; the other two algorithms never call it.
+ * SECURITY: a non-finite priority on an unvalidated row is Indeterminate. Ranking it as `0` made a deny lose to
+ * any allow with a positive priority, which is the same outcome as dropping the deny.
+ */
 export function rulePriority(rule: { readonly priority: number }): number {
-  return Number.isFinite(rule.priority) ? rule.priority : 0
+  if (!Number.isFinite(rule.priority)) {
+    throw new Error(
+      `[@gentleduck/iam:evaluate] Rule priority must be a finite number, got ${JSON.stringify(rule.priority)}`,
+    )
+  }
+  return rule.priority
 }
 
 /**
@@ -282,7 +304,10 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
   let mayThrow = false
   for (const [order, rule] of policy.rules.entries()) {
     // An unrecognised effect throws in the interpreter, so the fast path must delegate rather than scan past it.
-    if (!mayThrow && (conditionMayThrow(rule.conditions) || !isRuleEffect(rule.effect))) mayThrow = true
+    // NOTE: a non-finite priority needs no flag here; `evaluatePolicyFast` refuses one before it builds the index.
+    if (!mayThrow && (conditionMayThrow(rule.conditions) || !isRuleEffect(rule.effect))) {
+      mayThrow = true
+    }
     const actions = new Set<string>(rule.actions)
     const resources = new Set<string>(rule.resources)
     let hasWildcardAction = false

@@ -10,6 +10,7 @@ import {
   isRuleEffect,
   policyApplies,
   policyHasDenyRule,
+  ranksByPriority,
   ruleApplies,
   rulePriority,
   ruleTargetsMatch,
@@ -81,6 +82,12 @@ export function evaluatePolicy(
       timestamp: Date.now(),
       applicable: false,
     }
+  }
+
+  // SECURITY: a non-finite priority is Indeterminate under the two ranking algorithms. Checked at policy level,
+  // after the NotApplicable tests, so the fast path and the interpreter refuse the same requests.
+  if (ranksByPriority(policy.algorithm) && policy.rules.some((rule) => !Number.isFinite(rule.priority))) {
+    throw new Error(`[@gentleduck/iam:evaluate] Rule priority must be a finite number in policy "${policy.id}"`)
   }
 
   const matched: Array<{ rule: AccessControl.IRule; effect: AccessControl.Effect }> = []
@@ -312,6 +319,11 @@ export function evaluatePolicyFast(
   if (!Object.hasOwn(combiners, policy.algorithm)) {
     if (!policy.rules.some((rule) => ruleTargetsMatch(rule, request))) return null
     throw new Error(`[@gentleduck/iam:evaluate] Unknown combining algorithm "${String(policy.algorithm)}"`)
+  }
+
+  if (ranksByPriority(policy.algorithm) && policy.rules.some((rule) => !Number.isFinite(rule.priority))) {
+    if (!policy.rules.some((rule) => ruleTargetsMatch(rule, request))) return null
+    throw new Error(`[@gentleduck/iam:evaluate] Rule priority must be a finite number in policy "${policy.id}"`)
   }
 
   const idx = indexPolicy(policy)
