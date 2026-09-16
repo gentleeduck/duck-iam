@@ -966,11 +966,11 @@ interface IHooks<TAction, TResource, TScope, TRole> {
 | Hook | Fires | Can it change the decision? |
 | --- | --- | --- |
 | `beforeEvaluate` | before evaluation, in `authorize`, each `permissions` check, and `explain` | **yes** — it returns the request that is evaluated |
-| `afterEvaluate` | after every evaluation, both modes | no |
+| `afterEvaluate` | after every verdict, both modes, evaluated or not | no |
 | `onDeny` | after `afterEvaluate`, only when denied, both modes | no |
 | `onError` | on the fail-closed error paths | no |
 | `onPolicyError` | when one policy throws, or a policy fails to compile | no |
-| `onMetrics` | once per evaluation (per check in a batch, unless `telemetry: false`) | no |
+| `onMetrics` | once per verdict (per check in a batch, unless `telemetry: false`) | no |
 | `onMutation` | after every `engine.admin` write lands and caches are invalidated | no |
 
 Everything except `beforeEvaluate` is an observer. `safeHookCall`
@@ -981,6 +981,34 @@ rejections, logging to `console.error` — and the log write is itself wrapped,
 because `console.error` can throw (closed stdout in a daemon, a broken pipe, a
 user-replaced `Console`). "A hook is an observer, never a participant: the
 decision is already made by the time one runs."
+
+### 8.1 The denies that were never evaluated
+
+Not every deny comes out of the evaluator. `can()` and `check()` refuse a
+malformed `subjectId` before they resolve anything, and both deny when the
+adapter will not answer; `permissions()` returns an all-`false` map when the
+batch's subject or policy load fails, and a `false` per check that throws
+mid-evaluation. These are the fail-closed denies, and they are the ones an
+operator most needs to see.
+
+They fire the observer hooks like any other verdict, with
+`decision.failure` naming the path:
+
+| Path | `decision.failure` | `onError` too |
+| --- | --- | --- |
+| `can` / `check` with a malformed `subjectId` | `'input'` | no — it is input, not a fault |
+| `can` / `check` when the subject load throws | `'resolution'` | yes |
+| `permissions` when the batch load throws | `'resolution'`, once per map entry | yes, once |
+| `permissions` when one check throws | `'evaluation'` | yes |
+
+One hook fire per map entry, because there is one verdict per map entry.
+`permissions({ telemetry: false })` still reports the deny to `afterEvaluate`
+and `onDeny`; only the metric is skipped, as on the evaluated path.
+
+This matters for what a dashboard shows during an outage. If a fail-closed deny
+emitted nothing, `iamCreateMetricsAggregator().snapshot()` would hold `total`
+and `deny` flat while every request was being refused — an authorization
+failure that reads as a traffic drop. Now the deny rate goes to 100%.
 
 `onPolicyError` takes the policy **id**, a string — not the policy object the
 evaluator's own handler receives. There are three `onPolicyError` shapes in this

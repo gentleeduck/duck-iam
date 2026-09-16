@@ -323,7 +323,11 @@ export namespace IamEngineTypes {
       request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
       decision: AccessControl.IDecision,
     ): void | Promise<void>
-    /** Called only when a request is denied. Fires in both modes; see {@link IamEngineTypes.IHooks.afterEvaluate}. */
+    /**
+     * Called only when a request is denied. Fires in both modes; see {@link IamEngineTypes.IHooks.afterEvaluate}.
+     * Includes the denies the engine returns without evaluating - `decision.failure` names which: `'input'` for a
+     * malformed subject id, `'resolution'` for an adapter that would not answer, `'evaluation'` for a throw mid-check.
+     */
     onDeny?(
       request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
       decision: AccessControl.IDecision,
@@ -336,7 +340,7 @@ export namespace IamEngineTypes {
      * See {@link AccessControl.PolicyErrorHandler}.
      */
     onPolicyError?(error: Error, policyId: string): void
-    /** Called once per evaluation with a primitive-only event, cheap in both modes. */
+    /** Called once per verdict with a primitive-only event, cheap in both modes; a fail-closed deny counts too. */
     onMetrics?(event: IMetricsEvent<TAction, TResource>): void
     /**
      * The audit seam: called after each successful `engine.admin` write and its invalidation. A throw is logged.
