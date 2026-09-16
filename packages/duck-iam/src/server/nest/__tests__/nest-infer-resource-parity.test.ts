@@ -4,11 +4,8 @@ import { IamEngine } from '../../../core/engine/engine'
 import { IAM_UNKNOWN_RESOURCE, iamDefaultResource } from '../../generic'
 import { iamNestAccessGuard } from '../index'
 
-/**
- * Nest's `inferResource` and the shared `iamDefaultResource` that express, hono
- * and next use must name the same resource for the same request, or a policy
- * written against one framework silently does not apply in the other.
- */
+// Nest's `inferResource` must name the same resource as the shared `iamDefaultResource` (express, hono, next),
+// or a policy written for one framework does not apply in another.
 function makeCtx(opts: { method?: string; path?: string; routePath?: string }) {
   return {
     getHandler() {
@@ -42,12 +39,7 @@ async function inferredResource(opts: { path?: string; routePath?: string }): Pr
   return typeof resource === 'object' && resource !== null ? Reflect.get(resource, 'type') : resource
 }
 
-/**
- * `request.route` is an Express-ism. `@nestjs/platform-fastify` exposes
- * `routeOptions.url` (v5) / `routerPath` (v4) and sets no `route`, so this is
- * the normal path there, not an edge case - and it used to take the *last*
- * segment, authorizing `/posts/42` against the id `42`.
- */
+// INFO: `request.route` is Express-only; `@nestjs/platform-fastify` sets none, so this is its normal path.
 describe('no route template: agrees with iamDefaultResource', () => {
   it.each([
     '/posts/42',
@@ -69,12 +61,7 @@ describe('no route template: agrees with iamDefaultResource', () => {
   })
 })
 
-/**
- * `'*'` is the engine's wildcard *pattern* sentinel: `matchesResource` returns
- * true for it unconditionally. Returning it as a request's resource *type*
- * inverted the intent - a `@Get('*')` route matched every `resources: ['*']`
- * allow rule and no targeted deny.
- */
+// SECURITY: `'*'` is the engine's wildcard sentinel, so a `@Get('*')` route must not be typed as `*`.
 describe('route template', () => {
   it.each([
     ['/posts/:id', 'posts'],
@@ -96,17 +83,7 @@ describe('route template', () => {
   })
 })
 
-/**
- * The ambiguity check runs *before* the template branch, and its comment
- * records why: express matched `/public/*` for `/public/../admin`, so nest
- * returned a confident `public` and authorized the request as public while
- * hono and next served `/admin`.
- *
- * Every template case above supplies a safe path beside the template
- * (`path: '/whatever/1'`), and every ambiguous-path case above supplies no
- * template - so the one combination the guard exists for was never built, and
- * deleting the guard left the whole file green. These pair the two.
- */
+// SECURITY: express matches `/public/*` for `/public/../admin`, so the ambiguity check must run before the template.
 describe('an ambiguous path outranks a matched route template', () => {
   it.each([
     ['/public/../admin', '/public/*'],

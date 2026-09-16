@@ -7,38 +7,8 @@ import { iamBindAdminRouter } from '../hono'
 import { createIamAdminOperations } from '../nest'
 import { createIamAdminHandlers } from '../next'
 
-/**
- * The admin surface had no cross-adapter suite, and it is the highest-privilege
- * surface in the package: it writes policies and grants roles. The *request*
- * path has `cross-adapter.test.ts`; these four routers were each tested only
- * inside their own file, and they drifted.
- *
- * What the drift produced, all of it found by comparing them rather than by
- * reading any one of them:
- *
- * - `{"roleId":"editor","scope":null}` was a **global** role grant on express
- *   and a refusal on the other three. A client written against hono that
- *   spells "unset" as `null` would have widened every grant it made the day
- *   the deployment moved.
- * - next and nest ran `assignRole`/`revokeRole` with no edge validation at all,
- *   so a number, an empty string, an array body or a missing `:id` reached
- *   `engine.admin.*`. Nothing bad landed, because the engine refuses each one -
- *   but the refusal was wholly delegated, and a consumer with a custom adapter
- *   that does not repeat those checks lost it.
- * - nest hand-rolled the authorize gate, so the documented
- *   `authorize: (req) => req.user?.role === 'admin'` wrote `actor: true` into
- *   the audit trail where the others write `undefined` and warn.
- * - hono returned its inline 400s from *inside* the audited handler, so a
- *   refused role assignment was recorded as `success: true` - an audit trail
- *   inventing grants that were never made.
- * - hono and next recorded `PUT /policies` with no `targetId`: a trail saying a
- *   policy was replaced without saying which one.
- *
- * One harness cannot drive all four - express mutates a `res`, hono returns
- * from `c.json`, next takes a WHATWG `Request`, nest throws - so there are four
- * thin runners below reducing each to one `IOutcome`, and a single clause list
- * over them.
- */
+// Cross-adapter clauses for the four admin routers (validation, audit, gate), the highest-privilege surface.
+// Each runner reduces its adapter to one `IOutcome`, since express, hono, next and nest answer in different shapes.
 interface IOutcome {
   /** HTTP status, where the adapter produces one. `undefined` when it threw instead. */
   readonly status: number | undefined
@@ -158,8 +128,7 @@ function mountExpress(engine: ReturnType<typeof makeEngine>, adminOpts: object) 
     },
     statusCode: 200,
   }
-  // The adapter's `onError` default writes 500; nothing here overrides it, so
-  // the status is the adapter's own answer rather than the harness's.
+  // No `onError` override, so the status is the adapter's own answer.
   iamAdminRouter(engine, adminOpts as never)(() => router as never)
   const call = (key: string, req: unknown) => handlers[key]?.(req as never, res as never)
   return { call, res }
@@ -303,8 +272,7 @@ describe.each(RUNNERS.map((r) => [r.name, r] as const))('admin parity: %s', (_na
       expect(wasRefused(await runner.assignRole({}, { id: '' }, { roleId: 'editor' }))).toBe(true)
     })
 
-    // Control. Without this every clause above is satisfied by an adapter that
-    // refuses everything, which would tell us nothing.
+    // Control: an adapter that refused everything would satisfy every clause above.
     it('a well-formed grant does reach the engine', async () => {
       const out = await runner.assignRole({}, { id: 'user-1' }, { roleId: 'editor', scope: 'org-1' })
       expect(out.assigned).toEqual([['user-1', 'editor', 'org-1']])
@@ -323,8 +291,7 @@ describe.each(RUNNERS.map((r) => [r.name, r] as const))('admin parity: %s', (_na
     })
 
     it('a boolean authorize answer is never recorded as the actor', async () => {
-      // `authorize: (req) => req.user?.role === 'admin'` is the documented
-      // shape and returns a boolean. It authorizes; it does not name anyone.
+      // The documented `authorize: (req) => req.user?.role === 'admin'` returns a boolean, which names no one.
       const out = await runner.assignRole({ authorize: () => true }, { id: 'user-1' }, { roleId: 'editor' })
       expect(out.events.length).toBeGreaterThan(0)
       for (const e of out.events) expect(e.actor).toBeUndefined()
@@ -358,8 +325,7 @@ describe.each(RUNNERS.map((r) => [r.name, r] as const))('admin parity: %s', (_na
     })
 
     it('a csrfCheck that throws refuses the grant rather than escaping', async () => {
-      // A predicate that cannot answer has not said yes. This used to
-      // propagate raw on nest while the other three failed closed to 403.
+      // SECURITY: a predicate that cannot answer has not said yes.
       const out = await runner.assignRole(
         {
           csrfCheck: () => {

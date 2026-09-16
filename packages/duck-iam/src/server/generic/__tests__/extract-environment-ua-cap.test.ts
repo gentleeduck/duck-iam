@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { iamExtractEnvironment } from '../index'
 
-/**
- * `userAgent` is attacker-controlled and flows into `matches` conditions, which
- * throw above MAX_REGEX_INPUT_LENGTH. The IP headers are already capped; the
- * user agent must be too, so an oversized header cannot perturb evaluation.
- */
+// SECURITY: `userAgent` is attacker-controlled and feeds `matches` conditions, which throw above
+// MAX_REGEX_INPUT_LENGTH, so it is capped like the IP headers.
 describe('iamExtractEnvironment user-agent cap', () => {
   it('drops an oversized user agent instead of passing it through', () => {
     const env = iamExtractEnvironment({ headers: { 'user-agent': 'x'.repeat(5000) } })

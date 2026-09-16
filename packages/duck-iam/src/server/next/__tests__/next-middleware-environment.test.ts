@@ -4,13 +4,8 @@ import { IamEngine } from '../../../core/engine'
 import type { AccessControl } from '../../../core/types'
 import { createIamNextMiddleware, withIamAccess } from '../index'
 
-/**
- * `createIamNextMiddleware` passed `undefined` as the request environment while
- * express, hono, nest and next's own `withIamAccess` all populate one. A deny
- * rule keyed on `environment.userAgent` / `.ip` / `.hour` was therefore inert in
- * exactly the integration that guards `/admin` in a Next app, where such a rule
- * is most likely to be the only control.
- */
+// SECURITY: `createIamNextMiddleware` must populate the environment like every other integration, or a deny rule on
+// `environment.userAgent`, `.ip` or `.hour` is inert where a Next app guards `/admin`.
 type Action = 'read'
 type ResourceType = 'admin'
 type RoleId = 'staff'
@@ -68,9 +63,7 @@ describe('createIamNextMiddleware environment', () => {
     expect((await mw(request('evilbot/1')))?.status).toBe(403)
   })
 
-  // Control: the same route, same user, a user agent the rule does not match.
-  // Without this the test above would pass on a middleware that denied
-  // everything.
+  // Control: a user agent the rule does not match, so a middleware that denied everything would fail.
   it('still allows a request the rule does not match', async () => {
     const mw = createIamNextMiddleware(makeEngine(), {
       getUserId: () => 'user-staff',
@@ -89,9 +82,7 @@ describe('createIamNextMiddleware environment', () => {
     expect((await mw(request('Mozilla/5.0')))?.status).toBe(403)
   })
 
-  // The sibling export in this same module always populated an environment.
-  // Two exports of one integration disagreeing on identical input is the
-  // inconsistency the fix removes, so pin them together.
+  // Two exports of one integration must agree on identical input.
   it('agrees with withIamAccess on the same request', async () => {
     const engine = makeEngine()
     const handler = withIamAccess(engine, 'read', 'admin', async () => Response.json({ ok: true }), {

@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IamAdminAudit } from '../index'
-import { iamDefaultCsrfCheck, iamFireAdminMutation, iamRunAdminAuthz, iamWithAdminAudit } from '../index'
+import {
+  type IamAdminAuthzAnswer,
+  iamDefaultCsrfCheck,
+  iamFireAdminMutation,
+  iamRunAdminAuthz,
+  iamWithAdminAudit,
+} from '../index'
 
 function event(overrides: Partial<IamAdminAudit.IEvent> = {}): IamAdminAudit.IEvent {
   return {
@@ -71,7 +77,8 @@ describe('iamRunAdminAuthz', () => {
   })
 
   it('returns phase:unauthorized for every falsy authorize result', async () => {
-    for (const falsy of [false, null, undefined, 0, '']) {
+    // `0` is outside `IamAdminAuthzAnswer`, but an untyped JavaScript caller can still return it and must be refused.
+    for (const falsy of [false, null, undefined, 0, ''] as IamAdminAuthzAnswer[]) {
       expect(await iamRunAdminAuthz({}, null, () => falsy)).toEqual({ phase: 'unauthorized' })
     }
   })
@@ -173,6 +180,64 @@ describe('iamWithAdminAudit', () => {
 
   it('is a no-op-safe wrapper when no hook is supplied', async () => {
     await expect(iamWithAdminAudit(ctxOf(), async () => 42)).resolves.toBe(42)
+  })
+})
+
+describe('iamWithAdminAudit hook timing', () => {
+  const ctxOf = (onAdminMutation: IamAdminAudit.Hook) => ({
+    action: 'update' as const,
+    actor: { id: 'admin' },
+    method: 'PUT',
+    onAdminMutation,
+    path: '/admin/policies/p-1',
+    target: 'policy' as const,
+  })
+
+  it('calls the hook before the wrapped call resolves', async () => {
+    const order: string[] = []
+    await iamWithAdminAudit(
+      ctxOf(() => void order.push('hook')),
+      async () => 'done',
+    )
+    order.push('resolved')
+    expect(order).toEqual(['hook', 'resolved'])
+  })
+
+  it('does not wait for the promise the hook returns', async () => {
+    const outcome = await Promise.race([
+      iamWithAdminAudit(
+        ctxOf(() => new Promise<void>(() => undefined)),
+        async () => 'done',
+      ),
+      new Promise((resolve) => setTimeout(() => resolve('still waiting'), 50)),
+    ])
+    expect(outcome).toBe('done')
+  })
+
+  it('runs work after an await on an already-settled value before the call resolves', async () => {
+    const order: string[] = []
+    await iamWithAdminAudit(
+      ctxOf(async () => {
+        await Promise.resolve()
+        order.push('after-await')
+      }),
+      async () => 'done',
+    )
+    order.push('resolved')
+    expect(order).toEqual(['after-await', 'resolved'])
+  })
+
+  it('CONTROL: work behind a timer runs after the call resolves', async () => {
+    const order: string[] = []
+    await iamWithAdminAudit(
+      ctxOf(() => {
+        setTimeout(() => order.push('after-timer'), 0)
+      }),
+      async () => 'done',
+    )
+    order.push('resolved')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(order).toEqual(['resolved', 'after-timer'])
   })
 })
 

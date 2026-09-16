@@ -69,13 +69,8 @@ describe('iamDefaultResource', () => {
   })
 
   it('a traversal is refused rather than resolved', () => {
-    // These used to resolve to `admin`, on the reasoning that resolving the
-    // way a router does is safer than reading the raw first segment. Both
-    // readings are wrong, because the routers do not agree with each other:
-    // against real servers, express served `/admin` for `/admin/../public`
-    // while this helper had authorized `public`, and nest read `admin` from
-    // the raw path for a target hono served as `/public`. A traversal has no
-    // resolution that is right on every framework, so it names no resource.
+    // SECURITY: routers disagree on how to resolve a traversal, so no resolution is right everywhere and it names no
+    // resource.
     expect(iamDefaultResource('/posts/../admin/secret').type).toBe(IAM_UNKNOWN_RESOURCE)
     expect(iamDefaultResource('/posts/%2e%2e/admin/secret').type).toBe(IAM_UNKNOWN_RESOURCE)
     // The sentinel matches no policy target, so refusing is denying.

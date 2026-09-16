@@ -4,25 +4,8 @@ import { IamEngine } from '../../../core/engine'
 import type { AccessControl } from '../../../core/types'
 import { createIamNextMiddleware } from '../index'
 
-/**
- * A string `pattern` is a **prefix**, not a substring. Nothing pinned that:
- * changing `path.startsWith(r.pattern)` to `path.includes(r.pattern)` passed
- * every test in the package, and the two disagree in the direction that
- * matters.
- *
- * `rules.find` takes the *first* match, so under `includes` a path is
- * authorized against whichever rule happens to appear as a substring first.
- * With the ordinary rule list below, `/admin/public-report` matches the
- * `/public` rule - so an admin route is checked as `resource: 'public'`, which
- * every subject can read. That is not a near-miss; it is the whole point of
- * having separate rules.
- *
- * The other direction is a pass-through: `/notes/admin-draft` matches no rule
- * as a prefix, and "no rule matched" is `return null`, so the request goes on
- * unauthorized. That is the documented behaviour - a rule list is opt-in - but
- * it is only correct because matching is anchored, so it is pinned here beside
- * the escalation rather than left implicit.
- */
+// SECURITY: a string `pattern` is a prefix, not a substring. `rules.find` takes the first match, so substring
+// matching would check `/admin/public-report` against the `/public` rule.
 type Action = 'read'
 type ResourceType = 'admin' | 'public'
 type RoleId = 'reader'
@@ -59,17 +42,14 @@ describe('next middleware: a string rule pattern matches as a prefix', () => {
     const { can, mw } = makeMiddleware()
     const res = await mw(new Request('https://example.com/admin/public-report'))
 
-    // Denied, because `reader` cannot read `admin`. Under substring matching
-    // this returned null (allowed through) after checking `public`, which the
-    // subject can read.
+    // Denied: `reader` cannot read `admin`. Substring matching would check `public` and let it through.
     expect(res?.status).toBe(403)
     expect(can).toHaveBeenCalledTimes(1)
     expect(can.mock.calls[0]?.[2]).toMatchObject({ type: 'admin' })
   })
 
   it('the resource checked is decided by the prefix, not by which pattern appears first', async () => {
-    // The same claim stated as an absolute rather than through the verdict:
-    // a verdict-only assertion is satisfied by any denial, including a wrong one.
+    // Asserted on the resource, since any denial, even a wrong one, satisfies a verdict-only check.
     const { can, mw } = makeMiddleware()
     await mw(new Request('https://example.com/admin/public/public/public'))
     expect(can.mock.calls[0]?.[2]).toMatchObject({ type: 'admin' })
@@ -79,9 +59,7 @@ describe('next middleware: a string rule pattern matches as a prefix', () => {
     const { can, mw } = makeMiddleware()
     const res = await mw(new Request('https://example.com/notes/admin-draft'))
 
-    // No rule, so no opinion: the middleware passes the request on. Correct
-    // only because matching is anchored - under `includes` this would have been
-    // checked as `admin` instead.
+    // No rule matched, so the request passes on; this is only correct because matching is anchored.
     expect(res).toBeNull()
     expect(can).not.toHaveBeenCalled()
   })

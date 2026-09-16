@@ -3,27 +3,8 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine'
 import { iamNestAccessGuard } from '../index'
 
-/**
- * `getHandlerMeta` reached into a handler twice without checking anything:
- * `__accessMeta` is a plain property on a function object, and
- * `Reflect.getMetadata` answers `unknown`. Both were asserted straight into
- * `IAuthorizeMeta`, and the very next line of the guard was
- * `if (!meta) return true`.
- *
- * That line cannot tell "this handler has no @IamAuthorize" from "this handler
- * is decorated and the metadata is `null`". The first is a pass by design; the
- * second is a check the author asked for and the guard could not run - and it
- * resolved to the same `true`, so a broken decorator opened the route instead
- * of closing it. `'__accessMeta' in handler` also walks the prototype chain, so
- * an inherited property decided the request.
- *
- * The type-level half matters as well: a `scope` arriving as a number went
- * straight into `engine.can` as the tenant to answer for.
- *
- * Presence and readability are now separate answers. Absent means allow;
- * present-but-unreadable is a denial, reported through `onError` so the broken
- * handler is named rather than producing a silent 403.
- */
+// SECURITY: absent `@IamAuthorize` metadata allows, but present-and-unreadable metadata is denied and reported
+// through `onError`, so a broken decorator closes the route instead of opening it.
 function makeEngine() {
   const adapter = new IamMemoryAdapter({
     assignments: { u1: ['viewer'] },
@@ -51,9 +32,7 @@ function makeCtx(handler: object) {
 }
 
 describe('a handler decorated with unreadable metadata is denied, not allowed', () => {
-  // Every one of these is truthy-or-falsy junk in the `__accessMeta` slot. The
-  // falsy ones took `if (!meta) return true` and allowed outright; the truthy
-  // ones ran a check against fields nothing had type-checked.
+  // Falsy junk must not read as "no decorator", and truthy junk must not reach a check on unvalidated fields.
   const UNREADABLE: [string, unknown][] = [
     ['null', null],
     ['false', false],
@@ -83,8 +62,7 @@ describe('a handler decorated with unreadable metadata is denied, not allowed', 
   })
 
   it('onError cannot be used to turn the refusal back into a pass by accident', async () => {
-    // An operator whose `onError` returns true has said so explicitly; this
-    // pins that it is *their* decision and not the default.
+    // Passing is the operator's explicit choice via `onError`, not the default.
     const guard = iamNestAccessGuard(makeEngine(), { onError: () => true })
     expect(await guard(makeCtx(handlerWith(null)))).toBe(true)
   })
@@ -135,9 +113,7 @@ describe('the pass-through and readable cases are untouched', () => {
   })
 
   it('a prototype-inherited __accessMeta is read, and validated like any other', async () => {
-    // `'__accessMeta' in handler` has always walked the prototype chain. That
-    // is not changed here - what changed is that junk arriving this way is
-    // refused instead of allowed.
+    // `'__accessMeta' in handler` walks the prototype chain, so inherited junk is refused like any other.
     const proto = { __accessMeta: null }
     const fn = Object.setPrototypeOf(function handler() {
       return null

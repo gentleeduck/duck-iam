@@ -105,10 +105,8 @@ describe('withIamAccess', () => {
   })
 
   it('default getEnvironment reads the ua but never guesses the ip', async () => {
-    // next runs behind whatever the deployment puts in front of it, and the
-    // wrapper cannot tell a proxy-written x-forwarded-for from one the client
-    // typed. Guessing here let a client satisfy an IP-conditioned policy, so
-    // the ip is the app's to supply via `getEnvironment`.
+    // SECURITY: the wrapper cannot tell a proxy-written x-forwarded-for from a client's, so the app supplies the ip
+    // via `getEnvironment`.
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const handler = vi.fn(async () => Response.json({ ok: true }))
     const wrapped = withIamAccess(engine, 'read', 'post', handler, { getUserId: () => 'u' })
@@ -308,16 +306,7 @@ describe('createIamAdminHandlers onAdminMutation', () => {
     expect(savedPolicy).toBe(false)
   })
 
-  /**
-   * The explicit case above pins that a supplied `csrfCheck` is honoured. It
-   * says nothing about the default, and `csrfCheck ?? iamDefaultCsrfCheck` ->
-   * `csrfCheck ?? null` survived the whole suite here - only express pinned it
-   * (`express.test.ts`). So the admin gate that is on by default could be
-   * removed entirely while the "(2.1.0 behavior change) default CSRF check
-   * enabled" notice kept printing, and every cross-site browser mutation would
-   * be accepted. This supplies no `csrfCheck` at all, which is the shape real
-   * callers have.
-   */
+  // SECURITY: pins the default gate itself; the case above only shows a supplied `csrfCheck` is honoured.
   it('the default csrfCheck blocks a cross-site mutation with no csrfCheck supplied', async () => {
     const engine = makeEngine()
     let authorizeCalled = false
@@ -345,8 +334,7 @@ describe('createIamAdminHandlers onAdminMutation', () => {
   })
 
   it('a same-origin mutation still gets through the default check', async () => {
-    // The positive control: without it, a default that refused *everything*
-    // would satisfy the test above just as well.
+    // Positive control: a default that refused everything would pass the test above.
     const engine = makeEngine()
     const h = createIamAdminHandlers(engine, { authorize: (() => ({ id: 'admin-1' })) as never })
     const req = new Request('https://example.com/api/admin/policies', {

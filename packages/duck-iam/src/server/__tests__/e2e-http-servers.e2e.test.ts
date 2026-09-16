@@ -1,21 +1,5 @@
-/**
- * REAL-HTTP e2e sweep over the five server integrations.
- *
- * Every other test in `src/server` hands the integration a hand-built request
- * object, which cannot carry a percent-encoded request-target that Node, the
- * framework router and the derivation helper each normalise differently. This
- * file starts a real listener per framework on port 0 and drives it from a raw
- * `node:net` socket, so the exact bytes on the wire are under test control -
- * `fetch()` would canonicalise the path before it ever left the process.
- *
- * The load-bearing invariant, uniform across all five servers:
- *
- *   the subject is granted `read` on `public` and NOTHING on `admin`;
- *   therefore no request may ever be served by the `/admin` handler.
- *
- * A 200 whose body says `served: 'admin'` is a wrong ALLOW - Critical by the
- * manifesto's table - regardless of how the path was spelled.
- */
+// Real-HTTP sweep over the five server integrations, driven from a raw socket so the request-target bytes are exact.
+// SECURITY: the subject may read `public` and nothing on `admin`, so no request may ever reach the `/admin` handler.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { connect } from 'node:net'
 import { Hono } from 'hono'
@@ -63,12 +47,7 @@ interface Instrumented {
   explode: { on: boolean }
 }
 
-/**
- * Build an engine and wrap `can` so each integration's derived
- * (subject, action, resource, environment, scope) tuple is observable. The
- * wrapper is the only way to see what a framework *believed* it was asking,
- * which is the whole cross-framework parity question.
- */
+/** Builds an engine whose `can` records the (subject, action, resource, environment, scope) each integration asked. */
 function makeEngine(
   opts: {
     policies?: AccessControl.IPolicy<Action, ResourceType, RoleId>[]
@@ -103,8 +82,7 @@ function makeEngine(
 }
 
 // ---------------------------------------------------------------------------
-// Raw HTTP client. `fetch` normalises the request-target before sending, which
-// destroys every case this file exists to exercise.
+// Raw HTTP client: `fetch` would normalise the request-target before sending.
 // ---------------------------------------------------------------------------
 
 interface RawResponse {
@@ -133,9 +111,8 @@ function dechunk(raw: string): string {
 }
 
 /**
- * Send a literal request-line + headers + body down a socket and parse the
- * reply. `requestTarget` goes out verbatim: no encoding, no dot-segment
- * resolution, no host normalisation.
+ * Sends a literal request line, headers and body down a socket and parses the reply.
+ * `requestTarget` goes out verbatim: no encoding, no dot-segment resolution.
  */
 function raw(
   port: number,
@@ -182,9 +159,7 @@ function raw(
         if (idx > 0) headers[line.slice(0, idx).trim().toLowerCase()] = line.slice(idx + 1).trim()
       }
       const rawBody = text.slice(split + 4)
-      // Node writes `res.end(buffer)` without a Content-Length as chunked; the
-      // parser has to undo that or every JSON assertion silently reads
-      // undefined and the suite passes for the wrong reason.
+      // Node sends `res.end(buffer)` without Content-Length as chunked; undo it or JSON assertions read undefined.
       const body = headers['transfer-encoding']?.includes('chunked') ? dechunk(rawBody) : rawBody
       let json: Record<string, unknown> | undefined
       try {
@@ -234,12 +209,7 @@ const JSON_HEADERS = { 'content-type': 'application/json' }
 // Rig: express (real express, real listener)
 // ---------------------------------------------------------------------------
 
-/**
- * Bridge the integration's structurally-typed middleware onto express's
- * nominal `RequestHandler`. The casts change no value - they hand the real
- * express `req`/`res` straight through - they only reconcile two spellings of
- * the same shape.
- */
+/** Bridges the structurally typed middleware onto express's nominal `RequestHandler`; the casts change no value. */
 function useIamMiddleware(
   app: { use: (h: (req: never, res: never, next: (err?: unknown) => void) => void) => unknown },
   mw: ReturnType<typeof expressAccessMiddleware>,
@@ -286,27 +256,14 @@ async function startExpress({ calls, engine, explode }: Instrumented): Promise<R
 }
 
 /**
- * A sixth listener, deliberately outside `RIG_NAMES`: express with the one
- * opt-in none of the five take.
- *
- * Without it every assertion about `environment.ip` in this file is satisfied
- * by an integration that reports no IP at all - "all five agree" is trivially
- * true of five `undefined`s, and "nobody echoes an unverified header" is
- * trivially true of a field nobody fills. Deleting the `ip:` computation in
- * `iamExtractEnvironment` left this whole section green. This rig is the
- * positive control: on it, and only on it, a forwarded address is supposed to
- * arrive, so the `undefined` everywhere else is a decision rather than a pipe
- * that was never connected.
+ * Positive control outside `RIG_NAMES`: express with `trustProxy` on, the only rig where a forwarded IP should arrive.
+ * Without it, five `undefined` IPs would satisfy every `environment.ip` agreement check.
  */
 async function startExpressTrustingProxy({ calls, engine, explode }: Instrumented): Promise<Rig> {
   const { default: express } = await import('express')
   const app = express()
   app.disable('x-powered-by')
-  // The second half of the documented deployment: the app has told its own
-  // framework about its proxies, so `req.ip` is already the client address and
-  // `iamExtractEnvironment` reads it first. Without this express fills `req.ip`
-  // from the socket and the forwarded address never gets a chance to arrive -
-  // which is correct, and is the case the sibling assertion pins.
+  // The app trusts its proxies, so `req.ip` is already the client address and `iamExtractEnvironment` reads it first.
   app.set('trust proxy', true)
   app.use((req, _res, next) => {
     ;(req as unknown as { user: { id: string } }).user = { id: SUBJECT }
@@ -336,11 +293,8 @@ async function startExpressTrustingProxy({ calls, engine, explode }: Instrumente
 }
 
 // ---------------------------------------------------------------------------
-// Rig: hono. `@hono/node-server` is not installed in this workspace, so the
-// node -> fetch bridge is reproduced here: raw `req.url` concatenated onto the
-// Host, `rawHeaders` appended verbatim, body buffered. That is exactly what
-// `@hono/node-server` does, and it is the step where WHATWG `URL` parsing -
-// not hono - resolves dot segments.
+// Rig: hono, over a copy of `@hono/node-server`'s node -> fetch bridge (the package is not installed here).
+// INFO: WHATWG `URL` parsing in that bridge, not hono, resolves dot segments.
 // ---------------------------------------------------------------------------
 
 function nodeToFetchServer(handler: (request: Request) => Promise<Response>): Server {
@@ -359,8 +313,7 @@ function nodeToFetchServer(handler: (request: Request) => Promise<Response>): Se
             try {
               headers.append(name, value)
             } catch {
-              // Header name/value the fetch layer refuses; a real fetch-API
-              // runtime drops it too.
+              // The fetch layer refuses this header; a real fetch runtime drops it too.
             }
           }
           const host = req.headers.host ?? '127.0.0.1'
@@ -372,9 +325,8 @@ function nodeToFetchServer(handler: (request: Request) => Promise<Response>): Se
           })
           response = await handler(request)
         } catch (err) {
-          // A fetch-API runtime cannot represent this request at all (e.g.
-          // `Request` forbids the TRACE method). 501 marks "the bridge, not
-          // the authorization layer, refused it" so tests can tell them apart.
+          // A fetch runtime cannot represent this request (`Request` forbids TRACE). 501 means the bridge refused it,
+          // not the authorization layer.
           res.writeHead(501, JSON_HEADERS)
           res.end(JSON.stringify({ bridgeError: err instanceof Error ? err.message : String(err) }))
           return
@@ -396,8 +348,7 @@ async function startHono({ calls, engine, explode }: Instrumented): Promise<Rig>
     c.set('userId', SUBJECT)
     await next()
   })
-  // `as never` only bridges hono's own context generics to the integration's
-  // structural `HonoContext`; it manufactures no value.
+  // `as never` only bridges hono's context generics to the structural `HonoContext`.
   app.use('*', honoAccessMiddleware(engine) as never)
   app.all('/admin', (c) => c.json({ served: 'admin' }))
   app.all('/admin/*', (c) => c.json({ served: 'admin' }))
@@ -410,9 +361,8 @@ async function startHono({ calls, engine, explode }: Instrumented): Promise<Rig>
 }
 
 // ---------------------------------------------------------------------------
-// Rig: next. `createIamNextMiddleware` consumes a WHATWG `Request`, which is
-// what `next start` hands its middleware. Same node -> fetch bridge; the
-// routing table below stands in for the app router.
+// Rig: next. The middleware takes a WHATWG `Request`, as under `next start`, over the same bridge.
+// The routing below stands in for the app router.
 // ---------------------------------------------------------------------------
 
 async function startNext({ calls, engine, explode }: Instrumented): Promise<Rig> {
@@ -436,9 +386,8 @@ async function startNext({ calls, engine, explode }: Instrumented): Promise<Rig>
 }
 
 // ---------------------------------------------------------------------------
-// Rig: nest (real NestFactory over platform-express). Decorators are applied
-// imperatively so this file needs no `experimentalDecorators` build flag; the
-// metadata NestJS reads is identical either way.
+// Rig: nest (NestFactory over platform-express). Decorators are applied imperatively, so no
+// `experimentalDecorators` flag is needed; Nest reads the same metadata.
 // ---------------------------------------------------------------------------
 
 async function startNest({ calls, engine, explode }: Instrumented): Promise<Rig> {
@@ -481,8 +430,7 @@ async function startNest({ calls, engine, explode }: Instrumented): Promise<Rig>
   nestCommon.Module({ controllers: [RigController], providers: [AccessGuard] })(RigModule)
 
   const app = await NestFactory.create(RigModule, { logger: false })
-  // Trusted upstream auth, exactly as the other rigs do it: the guard's default
-  // `getUserId` reads `req.user.id`.
+  // Trusted upstream auth, as in the other rigs: the guard's default `getUserId` reads `req.user.id`.
   app.use((req: { user?: { id: string } }, _res: unknown, next: () => void) => {
     req.user = { id: SUBJECT }
     next()
@@ -503,8 +451,7 @@ async function startNest({ calls, engine, explode }: Instrumented): Promise<Rig>
 }
 
 // ---------------------------------------------------------------------------
-// Rig: generic. No framework - a hand-rolled `node:http` server wired with the
-// exported helpers, which is precisely the audience `src/server/generic` has.
+// Rig: generic. A plain `node:http` server wired with the exported helpers.
 // ---------------------------------------------------------------------------
 
 async function startGeneric({ calls, engine, explode }: Instrumented): Promise<Rig> {
@@ -553,7 +500,7 @@ const rigs: Record<string, Rig> = {}
 const RIG_NAMES = ['express', 'hono', 'next', 'nest', 'generic'] as const
 type RigName = (typeof RIG_NAMES)[number]
 
-/** Boot all five integrations against fresh engines from `factory`. */
+/** Boots the five integrations plus the trusting-proxy control, each on a fresh engine from `factory`. */
 async function startAll(factory: () => Instrumented): Promise<Record<string, Rig>> {
   const started = await Promise.all([
     startExpress(factory()),
@@ -607,8 +554,7 @@ describe('harness', () => {
   })
 
   it('delivers the request-target verbatim, without fetch-style canonicalisation', async () => {
-    // If this passes with the literal `%2e%2e` intact, the socket really is
-    // carrying the bytes the tests below claim it carries.
+    // A literal `%2e%2e` target gets a real response, so the raw socket path works.
     const res = await hit('express', 'GET', '/public/%2e%2e/public')
     expect(res.status).not.toBe(0)
     expect(res.aborted).toBe(false)
@@ -661,8 +607,7 @@ for (const name of RIG_NAMES) {
     for (const [label, target] of ADMIN_TARGETS) {
       it(`never serves the admin handler for ${label}: ${JSON.stringify(target)}`, async () => {
         const res = await hit(name, 'GET', target)
-        // A 501 is the fetch bridge refusing to represent the request at all;
-        // nothing was authorized and nothing was served.
+        // 501: the fetch bridge could not represent the request, so nothing was authorized or served.
         if (res.status === 501) return
         const servedAdmin = res.status === 200 && res.json?.served === 'admin'
         expect(
@@ -677,8 +622,7 @@ for (const name of RIG_NAMES) {
 }
 
 // ===========================================================================
-// 1b. Controls. Without these, a rig that 404s everything passes section 1
-// vacuously - "a survivor is a finding".
+// 1b. Controls: without these, a rig that 404s everything passes section 1 vacuously.
 // ===========================================================================
 
 describe('controls - every rig really guards', () => {
@@ -710,14 +654,12 @@ describe('method handling', () => {
     it(`${name}: OPTIONS on the admin route is denied`, async () => {
       const res = await hit(name, 'OPTIONS', '/admin/thing')
       if (res.status === 501) return
-      // 204/200 from a framework-level CORS/OPTIONS short-circuit is a
-      // different bug class; what must never happen is the admin body.
+      // A framework-level OPTIONS short-circuit is a separate issue; the admin body must never appear.
       expect(res.json?.served).not.toBe('admin')
     })
 
     it(`${name}: an unmapped verb yields the unknown action, never 'read'`, async () => {
-      // PROPFIND is not in IAM_METHOD_ACTION_MAP; it must not inherit `read`
-      // and pass a read grant.
+      // PROPFIND is not in IAM_METHOD_ACTION_MAP, so it must not inherit `read`.
       const res = await hit(name, 'PROPFIND', '/public/thing')
       if (res.status === 501) return
       if (res.derived) {
@@ -744,8 +686,7 @@ describe('method handling', () => {
 
   it('an unknown verb reaches the integration and is denied, not allowed', async () => {
     const res = await hit('express', 'FROBNICATE', '/public/thing')
-    // Node's parser accepts unknown-but-well-formed tokens for some methods and
-    // rejects others; either way nothing may be served.
+    // Node's parser accepts some unknown well-formed methods and rejects others; either way nothing is served.
     if (!res.aborted && res.status !== 400) {
       expect(res.json?.served).toBeUndefined()
     }
@@ -753,8 +694,7 @@ describe('method handling', () => {
 })
 
 // ===========================================================================
-// 3. Environment derivation from headers. `env.ip` and `env.userAgent` feed
-// ABAC `matches` / `equals` conditions, so who controls them matters.
+// 3. Environment derivation. `env.ip` and `env.userAgent` feed ABAC conditions, so who controls them matters.
 // ===========================================================================
 
 async function envFor(name: RigName, headers: [string, string][]): Promise<IamRequest.IEnvironment | undefined> {
@@ -782,9 +722,7 @@ describe('environment derivation', () => {
   })
 
   it('a client cannot set environment.ip with a header it invents', async () => {
-    // The socket peer is always 127.0.0.1 here. Any integration that reports
-    // the attacker's string as env.ip lets a caller steer an IP-conditioned
-    // policy from outside.
+    // SECURITY: the peer is 127.0.0.1; echoing the header as env.ip lets a caller steer IP-conditioned policy.
     const spoofable: string[] = []
     for (const name of RIG_NAMES) {
       const env = await envFor(name, [['X-Forwarded-For', '10.0.0.1']])
@@ -815,21 +753,11 @@ describe('environment derivation', () => {
   it('an IPv4-mapped IPv6 XFF resolves to one answer across integrations', async () => {
     const mapped: Record<string, string | undefined> = {}
     for (const name of RIG_NAMES) mapped[name] = (await envFor(name, [['X-Forwarded-For', '::ffff:10.0.0.1']]))?.ip
-    // Whatever the answer, it must be the same answer everywhere: a policy
-    // comparing `environment.ip` to a literal cannot be written twice, once
-    // per framework.
+    // Must match everywhere: a policy comparing `environment.ip` to a literal is written once, not per framework.
     expect(new Set(Object.values(mapped)).size, `IPv4-mapped divergence: ${JSON.stringify(mapped)}`).toBe(1)
   })
 
-  /**
-   * The positive control for everything above.
-   *
-   * Every other `environment.ip` assertion in this section compares the five
-   * integrations to each other, and five `undefined`s agree perfectly - so the
-   * whole surface passed with the `ip` computation deleted from
-   * `iamExtractEnvironment`. This one names an absolute value that only arrives
-   * if the header really is read off the wire and carried into the engine call.
-   */
+  /** Positive control: five `undefined` IPs agree perfectly, so this reads an absolute value off the wire. */
   async function trustedEnvFor(headers: [string, string][]): Promise<IamRequest.IEnvironment | undefined> {
     const r = rigs['express-trusted']
     if (!r) throw new Error('express-trusted rig never started - the suite must fail, not skip')
@@ -839,25 +767,21 @@ describe('environment derivation', () => {
   }
 
   it('a trusting integration really does put the forwarded client IP into env.ip', async () => {
-    // Leftmost hop: the original client, per the XFF convention the helper
-    // documents.
+    // The leftmost hop is the original client, per the XFF convention.
     expect((await trustedEnvFor([['X-Forwarded-For', '203.0.113.7, 70.41.3.18, 150.172.238.178']]))?.ip).toBe(
       '203.0.113.7',
     )
   })
 
   it('with no forwarding header the same rig reports the socket peer', async () => {
-    // The other half of the control: `env.ip` is filled from the connection
-    // itself, not only from a header, so neither source is dead.
+    // The other half of the control: `env.ip` also comes from the connection itself, not only a header.
     const ip = (await trustedEnvFor([]))?.ip
     expect(ip, 'the trusting rig reported no ip for a direct connection').toBeDefined()
     expect(ip).toMatch(/127\.0\.0\.1|::1/)
   })
 
   it('the same request on the five default integrations yields no ip at all', async () => {
-    // The counterpart absolute: not "they agree", but *what* they agree on.
-    // Only the app knows how many proxies sit in front of it, so the default is
-    // no IP rather than a guess a client can steer.
+    // Only the app knows how many proxies front it, so the default is no IP rather than a guess a client can steer.
     for (const name of RIG_NAMES) {
       const env = await envFor(name, [['X-Forwarded-For', '203.0.113.7, 70.41.3.18']])
       expect(env?.ip, `${name} filled environment.ip without the opt-in`).toBeUndefined()
@@ -955,13 +879,10 @@ describe('cross-framework agreement', () => {
           verdict: verdictOf(res),
         }
       }
-      // `no-route` is a routing-table artefact of the rig, not a security
-      // posture: a framework that never matched the route made no decision.
+      // `no-route` is a rig routing artefact: a framework that matched no route made no decision.
       const decisive = Object.entries(matrix).filter(([, v]) => v.verdict !== 'no-route')
 
-      // The invariant asserted first, on every integration separately: the
-      // handler that ran is the one the check was made about. That is the
-      // security property; identical verdicts are only a convenience.
+      // SECURITY: the handler that ran must be the one authorized; identical verdicts are only a convenience.
       for (const [name, v] of decisive) {
         if (!v.verdict.startsWith('serve:')) continue
         expect(
@@ -970,15 +891,8 @@ describe('cross-framework agreement', () => {
         ).toBe(v.verdict.slice(6))
       }
 
-      // Then agreement, for every target where agreement is achievable. It is
-      // not achievable for a traversal: `new Request(url)` resolves dot
-      // segments while constructing the URL, so hono and next are handed
-      // `/public` and never see that the client wrote `/admin/../public` -
-      // they route to public and authorize public, which is self-consistent
-      // and safe, while express, nest and the generic helper still see the raw
-      // target and refuse it. A consumer porting between frameworks writes the
-      // policy once; a consumer sending a traversal gets one of two safe
-      // answers depending on how the platform hands over the path.
+      // Agreement is not achievable for a traversal: `new Request(url)` resolves dot segments, so hono and next
+      // authorize and serve `/public`, while express, nest and generic refuse the raw target. Both are safe.
       const RESOLVED_BY_THE_PLATFORM = target.includes('/../') || target.includes('/%2e%2e/')
       if (RESOLVED_BY_THE_PLATFORM) return
       const verdicts = new Set(decisive.map(([, v]) => v.verdict))
@@ -988,15 +902,10 @@ describe('cross-framework agreement', () => {
 })
 
 // ===========================================================================
-// 6. Body-derived subject ids. `getUserId` reading a request body is an
-// explicitly supported wiring; the guard's only check is truthiness.
+// 6. Body-derived subject ids: `getUserId` may read the body, so a malformed id must never authorize.
 // ===========================================================================
 
-/**
- * A second express rig whose identity comes straight out of the JSON body, so
- * a malformed subject id crosses the boundary the way it would in an app that
- * trusts its own body parser.
- */
+/** An express rig whose subject id comes straight from the JSON body, so malformed ids cross the boundary. */
 async function startBodySubjectExpress(): Promise<{
   port: number
   calls: RecordedCall[]
@@ -1010,14 +919,12 @@ async function startBodySubjectExpress(): Promise<{
   useIamMiddleware(
     app,
     expressAccessMiddleware(engine, {
-      // Deliberately unvalidated: the point is what the integration does with
-      // whatever the body carried, so the extractor reads the field raw.
+      // Unvalidated on purpose: the test is what the integration does with whatever the body carried.
       getUserId: (req) => {
         const body: unknown = req.body
         if (typeof body !== 'object' || body === null) return null
         const value: unknown = Reflect.get(body, 'userId')
-        // Manufactured malformed value: the whole test is what happens when a
-        // non-string crosses this boundary, so it is forwarded as-is.
+        // The cast forwards a non-string as-is; that is the case under test.
         return value === undefined ? null : (value as string)
       },
     }),
@@ -1099,8 +1006,7 @@ describe('body-derived subject id', () => {
 
   it('the legitimate subject in the same wiring is still allowed', async () => {
     const res = await post('{"userId":"user-viewer"}')
-    // POST maps to `create`, which the fixture role does not grant; use a
-    // method the role does grant to prove the rig is not denying everything.
+    // POST maps to `create`, which the role does not grant; the GET proves the rig is not denying everything.
     expect(res.status).toBe(403)
     const before = bodyRig.calls.length
     const get = await raw(bodyRig.port, 'GET', '/public/thing', {
@@ -1113,13 +1019,7 @@ describe('body-derived subject id', () => {
 })
 
 // ===========================================================================
-// 7. The header divergence, with teeth.
-//
-// Section 3 shows hono / next / generic put an unverified `X-Forwarded-For`
-// into `environment.ip` while express / nest use the socket. On its own that
-// is a divergence. Wire an IP-conditioned ABAC rule - the documented use for
-// `environment.ip` - and it becomes a privilege escalation driven by one
-// request header.
+// 7. IP-conditioned ABAC over real HTTP: a forwarding header must never satisfy an `environment.ip` rule.
 // ===========================================================================
 
 const OFFICE_IP = '10.0.0.1'
@@ -1154,9 +1054,7 @@ describe('IP-conditioned policy over real HTTP', () => {
   })
 
   it('the policy really grants admin when the environment IP matches', async () => {
-    // Proved off the wire, against the engine directly. Proving it *through*
-    // an integration would be circular: the integrations that reach `allow`
-    // here are exactly the ones the next test accuses.
+    // Proved against the engine directly; proving it through an integration would be circular.
     const { engine } = makeEngine({ policies: [officeAdminPolicy], policyCombine: 'allow-overrides' })
     const adminResource = { attributes: {}, type: 'admin' } as const
     await expect(engine.can(SUBJECT, 'read', adminResource, { ip: OFFICE_IP, timestamp: Date.now() })).resolves.toBe(
@@ -1168,8 +1066,7 @@ describe('IP-conditioned policy over real HTTP', () => {
   })
 
   it('a client cannot satisfy an IP-conditioned admin grant with a header', async () => {
-    // The socket peer is 127.0.0.1 on every one of these. Reaching the admin
-    // handler means the caller supplied the deciding attribute themselves.
+    // The socket peer is always 127.0.0.1, so reaching the admin handler means the header decided.
     const escalated: string[] = []
     for (const name of RIG_NAMES) {
       const r = ipRigs[name]
@@ -1197,8 +1094,7 @@ describe('IP-conditioned policy over real HTTP', () => {
   })
 
   it('an XFF chain whose leftmost hop is forged is not accepted as the client', async () => {
-    // Real proxies append; the leftmost hop is whatever the *client* sent
-    // first. Trusting it verbatim is the classic spoof.
+    // Proxies append, so the leftmost hop is whatever the client sent; trusting it is the classic spoof.
     const escalated: string[] = []
     for (const name of RIG_NAMES) {
       const r = ipRigs[name]
@@ -1213,9 +1109,7 @@ describe('IP-conditioned policy over real HTTP', () => {
 })
 
 // ===========================================================================
-// 8. Documented matrix. Not an assertion - a printed record of exactly what
-// each integration derived and served, so the divergences above have a
-// reproduction table attached to them.
+// 8. Printed matrix, not an assertion: what each integration derived and served, as a reproduction table.
 // ===========================================================================
 
 describe('agreement matrix (printed)', () => {
@@ -1242,8 +1136,7 @@ describe('agreement matrix (printed)', () => {
 })
 
 // ===========================================================================
-// 9. Printed record of the malformed-subject responses, so the report can
-// state the status code each shape produced rather than guessing.
+// 9. Printed record of the status each malformed subject shape produced.
 // ===========================================================================
 
 describe('malformed subject id (printed)', () => {

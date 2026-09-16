@@ -4,12 +4,8 @@ import { IamEngine } from '../../../core/engine'
 import type { AccessControl } from '../../../core/types'
 import { createIamNextMiddleware } from '../index'
 
-/**
- * `iamNormalizePathname` decodes exactly once. A path the framework decodes a
- * second time then names a different route than the one the middleware matched
- * its rules against - and "no rule matched" is `return null`, which passes the
- * request through with no authorization call at all.
- */
+// SECURITY: `iamNormalizePathname` decodes once, so a path with double-encoding residue must be refused, not matched
+// against another route's rule or passed through unmatched.
 type Action = 'read'
 type ResourceType = 'admin' | 'posts'
 type RoleId = 'staff'
@@ -43,9 +39,7 @@ function makeMiddleware() {
 }
 
 describe('next middleware: a path with encoding residue', () => {
-  // `/posts/%252e%252e/admin` decodes once to `/posts/%2e%2e/admin`, matches
-  // the `/posts` rule, and was authorized as `posts` - while a second decode
-  // routes it to `/admin`.
+  // Decodes once to `/posts/%2e%2e/admin`, which matches `/posts`, while a second decode routes it to `/admin`.
   it('refuses rather than authorizing it against the rule for another route', async () => {
     const { can, mw } = makeMiddleware()
     const res = await mw(new Request('https://example.com/posts/%252e%252e/admin'))
@@ -53,8 +47,7 @@ describe('next middleware: a path with encoding residue', () => {
     expect(can).not.toHaveBeenCalled()
   })
 
-  // `/%2561dmin` decodes once to `/%61dmin`, which matches no rule at all, so
-  // the middleware returned null and the request was never checked.
+  // `/%2561dmin` decodes once to `/%61dmin`, which matches no rule and would pass through unchecked.
   it('refuses rather than passing an unmatched path through unchecked', async () => {
     const { can, mw } = makeMiddleware()
     const res = await mw(new Request('https://example.com/%2561dmin'))
@@ -62,9 +55,7 @@ describe('next middleware: a path with encoding residue', () => {
     expect(can).not.toHaveBeenCalled()
   })
 
-  // Controls: the same user, the same rules, paths with no residue. Without
-  // these the assertions above would also pass on a middleware that refused
-  // every request.
+  // Controls: paths with no residue, so a middleware that refused everything would fail.
   it.each(['https://example.com/admin', 'https://example.com/posts/42', 'https://example.com//admin'])(
     'still authorizes %s normally',
     async (url) => {

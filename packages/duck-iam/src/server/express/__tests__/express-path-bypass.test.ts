@@ -6,21 +6,8 @@ import { defineRule } from '../../../core/builder/rule'
 import { IamEngine } from '../../../core/engine'
 import { iamAccessMiddleware } from '../index'
 
-/**
- * The bypass this closes, through the real middleware rather than its parts.
- *
- * `iamAccessMiddleware`'s default `getResource` is `iamDefaultResource(req.path)`,
- * which refuses to resolve a path that this layer and the router downstream
- * would read differently and returns the `unknown` sentinel instead. The
- * sentinel was an ordinary string, so an `.of('*')` rule matched it: a subject
- * with a wildcard grant - an admin - sailed through the guard on
- * `/posts/../admin/secret`, and express then handed the raw target to whichever
- * route matched it. Authorized as one resource, served as another.
- *
- * The wildcard role is the point of the fixture. With a role that names its
- * resources the sentinel really did match nothing, which is why the hole stayed
- * open: it is invisible in exactly the test setups people write.
- */
+// SECURITY: through the real middleware, a wildcard grant must not match the `unknown` sentinel on an ambiguous path
+// like `/posts/../admin/secret`. The wildcard role is the point: a role naming its resources never shows the hole.
 async function wildcardEngine() {
   const adapter = new IamMemoryAdapter<string, string, string, string>()
   await adapter.saveRole(defineRole<'admin', string, string>('admin').name('Admin').grant('*', '*').build())
