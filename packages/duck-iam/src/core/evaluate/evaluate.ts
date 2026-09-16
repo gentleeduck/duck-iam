@@ -6,6 +6,7 @@ import { matchesAction, matchesResource } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import {
   combiners,
+  firstApplicableOrder,
   indexPolicy,
   isRuleEffect,
   policyApplies,
@@ -256,7 +257,8 @@ export function evaluate(
 
   // XACML `first-applicable`: the first result that is not NotApplicable wins, whether or not it names a rule.
   // NOTE: a default-effect vote and `safeEval`'s Indeterminate deny both carry no rule, so only `applicable` counts.
-  for (const policy of policies) {
+  // The synthetic RBAC policy goes last so it cannot pre-empt a policy the operator wrote.
+  for (const policy of firstApplicableOrder(policies, (p) => p.id)) {
     const decision = safeEval(policy)
     if (decision.applicable === false) continue
     if (signals && allowedByDefaultEffect(decision)) signals.failOpen = true

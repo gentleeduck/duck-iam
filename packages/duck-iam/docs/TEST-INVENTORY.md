@@ -222,6 +222,7 @@ drift the way the hand-maintained version did.
 | `core/evaluate/__tests__/fail-open-optin-parity.test.ts` | 8 | fail-open opt-in is required by every public evaluator entry point |
 | `core/evaluate/__tests__/failopen-signal.test.ts` | 39 | failOpen on an applicable policy whose rules all evaluated false |
 | `core/evaluate/__tests__/fast-path-throwable-delegation.test.ts` | 6 | a policy that can throw is decided by the interpreter, whatever the fast path would have said |
+| `core/evaluate/__tests__/first-applicable-rbac-order.test.ts` | 13 | a role grant no longer retires the operator’s deny |
 | `core/evaluate/__tests__/first-applicable.test.ts` | 7 | first-applicable: an applicable policy that votes its default |
 | `core/evaluate/__tests__/index-cache-and-nul-keys.test.ts` | 8 | indexPolicy memo tracks the rules array, not the policy object |
 | `core/evaluate/__tests__/malformed-conditions-object.test.ts` | 43 | a condition group that is not an object |
@@ -275,7 +276,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2655** | |
+| **Subtotal** | **2668** | |
 
 ---
 
@@ -415,7 +416,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 156 | 2655 |
+| Core | 157 | 2668 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -423,4 +424,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **304** | **6031** |
+| **Total** | **305** | **6044** |
