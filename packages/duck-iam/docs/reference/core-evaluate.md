@@ -386,10 +386,11 @@ A rule's `conditions` is an `AccessControl.IConditionGroup`: exactly one of
 // conditions.ts:95
 export function evalConditionGroup(req, group, depth = 0, caches?): boolean {
   if (depth >= MAX_CONDITION_DEPTH) throw new IamConditionGroupError('depth', ...)
+  if (group === null || typeof group !== 'object') throw new IamConditionGroupError('unknown-keys', ...)
   if ('all' in group)  return assertItems(group.all,  'all' ).every((i) => evalItem(req, i, depth + 1, caches))
   if ('any' in group)  return assertItems(group.any,  'any' ).some ((i) => evalItem(req, i, depth + 1, caches))
   if ('none' in group) return !assertItems(group.none,'none').some ((i) => evalItem(req, i, depth + 1, caches))
-  if (group !== null && typeof group === 'object' && Object.keys(group).length === 0) return true
+  if (Object.keys(group).length === 0) return true
   throw new IamConditionGroupError('unknown-keys', ...)
 }
 ```
@@ -409,13 +410,11 @@ Behaviours that follow from that shape:
 - **An array as a group** is read structurally: `[]` has no recognised key and
   no keys at all, so it returns `true`; a non-empty array throws
   `IamConditionGroupError('unknown-keys')` naming its numeric indices.
-- **`null`, `undefined` and primitives throw a plain `TypeError`**, not
-  `IamConditionGroupError` — `'all' in undefined` raises before any branch is
-  reached. That is still Indeterminate to every caller, which is the point, but
-  do not match on the error class. The `IamConditionGroupError` message's
-  `saw a non-object` arm is reached only by a group that is a *function*: `in`
-  works on one, so the walk gets as far as the final `throw` and
-  `Object.keys()` is empty there.
+- **`null`, `undefined`, a primitive or a function throw
+  `IamConditionGroupError('unknown-keys')`** naming the `typeof` it saw. The
+  non-object test runs before the key tests because `'all' in undefined` raises
+  a bare `TypeError`, which is Indeterminate to a caller but unreportable — the
+  arm written to describe a non-object could never be reached.
 
 ### `matchesUnconditionally`
 
@@ -539,7 +538,7 @@ exported from the package root so a consumer can route them through
 | Error | `tag` | Thrown when |
 |---|---|---|
 | `IamOperandTypeError` | `duck-iam/operand-type` | operand absent, wrongly typed, or a `$`-reference that resolved to nothing |
-| `IamConditionGroupError` | `duck-iam/condition-group` | group nested past `MAX_CONDITION_DEPTH`, or carrying no recognised key |
+| `IamConditionGroupError` | `duck-iam/condition-group` | group nested past `MAX_CONDITION_DEPTH`, not an object, or carrying no recognised key |
 | `IamRegexInputTooLargeError` | `duck-iam/regex-input-too-large` | `matches` field exceeds `MAX_REGEX_INPUT_LENGTH` (2048 UTF-16 code units) |
 | `IamPatternRefusedError` | `duck-iam/pattern-refused` | `matches` pattern over `MAX_REGEX_LENGTH` (128), refused by the ReDoS detector, or uncompilable |
 | `IamUserSourcedPatternError` | `duck-iam/user-sourced-pattern` | `matches` pattern is a `$`-reference |
@@ -622,6 +621,7 @@ two implementations being kept in step.
 | `value` absent on a non-valueless operator | `ICondition.value` is optional in the type, so this is a *type-valid* policy |
 | `value` is a `$`-string | its resolved type is unknowable at index time |
 | `value` fails `operandHasType` | decidable outright for a literal |
+| a non-object node: `null`, a primitive, a function | `evalConditionGroup` refuses it, and `conditions` is a required field |
 | non-array `all`/`any`/`none` body | `assertItems` throws |
 | a node with keys but none recognised | `evalConditionGroup` refuses it |
 
@@ -1103,6 +1103,12 @@ cast `defaultEffect` — still applicable, still not skippable.
   `defaultEffect`, not abstention. Only NotApplicable is skipped. Under
   `combine: 'and'` with `defaultEffect: 'deny'`, an over-broad `*`/`*` deny rule
   that does not fire denies everything.
+- **A rule's `conditions` is a required object, and the fast path must know
+  that.** `conditionMayThrow` read a non-object node as a leaf that cannot
+  throw, so `evaluatePolicyFast` scanned a policy the interpreter refuses; on a
+  residual policy under `allow-overrides` it returned the first allow and
+  production allowed what development denied. Anything that is not an object is
+  a throw site, at the top of a rule's tree and inside a group body.
 - **A non-finite `rule.priority` is Indeterminate under the two ranking
   algorithms.** Ranking it as `0` is not a safe default — it is the lowest
   meaningful rank, so a mistyped deny loses to any allow above `0` and the deny

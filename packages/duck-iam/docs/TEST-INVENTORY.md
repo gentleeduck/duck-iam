@@ -224,6 +224,7 @@ drift the way the hand-maintained version did.
 | `core/evaluate/__tests__/fast-path-throwable-delegation.test.ts` | 6 | a policy that can throw is decided by the interpreter, whatever the fast path would have said |
 | `core/evaluate/__tests__/first-applicable.test.ts` | 7 | first-applicable: an applicable policy that votes its default |
 | `core/evaluate/__tests__/index-cache-and-nul-keys.test.ts` | 8 | indexPolicy memo tracks the rules array, not the policy object |
+| `core/evaluate/__tests__/malformed-conditions-object.test.ts` | 43 | a condition group that is not an object |
 | `core/evaluate/__tests__/oracle.test.ts` | 6 | property oracle: evaluate == evaluateFast |
 | `core/evaluate/__tests__/priority-tie-parity.test.ts` | 16 | priority ties resolve identically in the interpreter and the fast path |
 | `core/evaluate/__tests__/rbac-abstain-scope.test.ts` | 5 | only the generated RBAC union lets a throwing rule abstain |
@@ -273,7 +274,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2599** | |
+| **Subtotal** | **2642** | |
 
 ---
 
@@ -413,7 +414,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 154 | 2599 |
+| Core | 155 | 2642 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -421,4 +422,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **302** | **5975** |
+| **Total** | **303** | **6018** |

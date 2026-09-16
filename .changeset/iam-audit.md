@@ -294,3 +294,31 @@ and are unaffected.
 
 The write path refuses these rows, so only a seed, a migration or a direct write
 can carry one.
+
+### Production allowed what development denied for a rule with no conditions object
+
+`IRule.conditions` is required, and `evalConditionGroup` refuses anything that
+is not a condition group. The fast path's `conditionMayThrow` classifier
+disagreed: it read a node that is not an object — `undefined`, `null`, a string,
+a number — as a leaf that cannot throw. So `idx.mayThrow` stayed false, the fast
+path scanned the policy itself instead of handing it to the interpreter, and
+`allow-overrides` returned on its first unconditional allow without ever
+reaching the broken rule.
+
+Measured, an `allow-overrides` policy with an unconditional allow and a deny
+whose `conditions` was absent, `null` or a string, made residual by a `*`
+resource: `can()` answered **false** in development and **true** in production.
+The same shape nested one level down (`{ all: [null] }`) behaved the same way.
+
+A non-object node is now a throw site at every depth, so the fast path delegates
+and both modes refuse identically.
+
+`evalConditionGroup` also reports it properly. `'all' in group` raises a bare
+`TypeError` on a non-object, which is Indeterminate to a caller but arrives
+without a duck-iam message — and it fired before the branch written to describe
+a non-object could run, so that branch was unreachable. The non-object test now
+runs first and throws `IamConditionGroupError('unknown-keys')` naming what it
+saw.
+
+The write path refuses these rows, so only a seed, a migration or a direct write
+can carry one.
