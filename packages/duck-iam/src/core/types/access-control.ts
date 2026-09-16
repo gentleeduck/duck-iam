@@ -2,13 +2,8 @@ import type { IamClient } from './client'
 import type { IamPrimitives } from './primitives'
 
 /**
- * The authorization model itself: policies, rules, roles and the algorithms
- * that combine their votes. Type-only - nothing here exists at runtime, so
- * importing it costs nothing in a bundle.
- *
- * These are the shapes an adapter stores and the engine evaluates. Everything
- * is generic over the caller's action / resource / role / scope literal unions,
- * so a typo in a rule is a compile error rather than a silent never-match.
+ * The authorization model: policies, rules, roles and the algorithms that combine their votes. Type-only.
+ * Generic over the caller's action/resource/role/scope unions, so a typo in a rule is a compile error.
  */
 export namespace AccessControl {
   /**
@@ -87,13 +82,8 @@ export namespace AccessControl {
   }
 
   /**
-   * Recursive tree of conditions combined with boolean logic. Exactly one key must be
-   * present: `all` (AND), `any` (OR), or `none` (NOT / NOR).
-   *
-   * Named arms rather than anonymous object literals. Structurally identical, but a
-   * generator that emits a schema per named type can reference this one and stop;
-   * given anonymous arms it inlines the tree into itself until the stack goes. typia
-   * does exactly that - `nestia sdk` died with SIGSEGV and no message.
+   * Recursive condition tree with exactly one key: `all` (AND), `any` (OR), or `none` (NOT / NOR).
+   * NOTE: keep the arms named; with anonymous arms, schema generators such as typia inline the tree until they crash.
    */
   export type IConditionGroup = IConditionAll | IConditionAny | IConditionNone
 
@@ -131,11 +121,7 @@ export namespace AccessControl {
    * | `first-match` | Highest-priority match wins; ties resolved by source order. |
    * | `highest-priority` | Identical to `first-match`. |
    *
-   * "Source order" is the order the rules arrive in `policy.rules`, which for a
-   * stored policy is the adapter's row order. Equal-priority rules of opposing
-   * effect therefore make the verdict depend on that order - give the rule you
-   * mean to win a higher priority rather than relying on an adapter to return
-   * rows the same way twice.
+   * WARN: source order is the adapter's row order; give the rule meant to win a higher priority instead.
    */
   export type CombiningAlgorithm = 'deny-overrides' | 'allow-overrides' | 'first-match' | 'highest-priority'
 
@@ -183,9 +169,7 @@ export namespace AccessControl {
   }
 
   /**
-   * A single action/resource permission entry within an {@link IRole}. RBAC
-   * primitive - at evaluation time `rolesToPolicy()` turns each permission
-   * into an allow rule that flows through the ABAC engine.
+   * One action/resource grant within an {@link IRole}; `rolesToPolicy()` turns each into an ABAC allow rule.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
@@ -207,9 +191,7 @@ export namespace AccessControl {
   }
 
   /**
-   * An RBAC role: named set of {@link IPermission} entries with optional
-   * inheritance. `rolesToPolicy()` converts every role into ABAC rules so
-   * RBAC + ABAC compose through the same engine.
+   * An RBAC role: named {@link IPermission} entries with optional inheritance, evaluated as ABAC rules.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
@@ -233,10 +215,7 @@ export namespace AccessControl {
     readonly metadata?: Readonly<IamPrimitives.Attributes>
   }
 
-  /**
-   * Result of an authorization evaluation. Final verdict plus diagnostic info
-   * about which rule and policy produced the decision.
-   */
+  /** Result of an authorization evaluation: the verdict plus which rule and policy produced it. */
   export interface IDecision {
     readonly allowed: boolean
     readonly effect: Effect
@@ -248,37 +227,19 @@ export namespace AccessControl {
     readonly duration: number
     /** Unix timestamp (ms) when the decision was made. */
     readonly timestamp: number
-    /**
-     * `false` when the policy's targets did not match the request - the policy
-     * is NotApplicable and contributes nothing to the cross-policy combine.
-     * Omitted (or `true`) for applicable decisions.
-     */
+    /** `false` when the policy's targets missed (NotApplicable); omitted or `true` when applicable. */
     readonly applicable?: boolean
     /**
-     * Set when the deny came from the engine failing rather than from a policy
-     * saying no. Absent on every ordinary decision, allow or deny.
-     *
-     * `'input'` - the request itself was rejected (a malformed `subjectId`).
-     * `'resolution'` - the subject could not be resolved; an adapter outage
-     * lands here. `'evaluation'` - evaluation itself threw.
-     *
-     * Without it an adapter outage and a legitimate deny are the same `false`,
-     * so a caller cannot answer 403 for one and 503 for the other. Production
-     * mode returns a bare boolean by design and has no place to carry this -
-     * use the engine's `onError` hook there.
+     * Set when the deny came from the engine failing, not a policy saying no, so callers can tell a 503 from a 403.
+     * `'input'`: malformed request; `'resolution'`: subject not resolved (adapter outage); `'evaluation'`: threw.
+     * INFO: production mode returns a bare boolean and cannot carry this; use the engine's `onError` hook there.
      */
     readonly failure?: 'input' | 'resolution' | 'evaluation'
   }
 
   /**
-   * Engine execution mode.
-   *
-   * - `'production'` returns plain booleans. No timing overhead, no
-   *   allocation, no reason strings. Enables dead-code elimination of debug
-   *   paths. **Default** since 5.9.0.
-   * - `'development'` returns rich {@link IDecision} objects with timing,
-   *   reasons, rule references, and the full explain/debug API. Opt in with
-   *   `mode: 'development'`.
+   * Engine execution mode. `'production'` (default) returns plain booleans, with no timing or reason strings.
+   * `'development'` returns rich {@link IDecision} objects and enables the explain/debug API.
    */
   export type Mode = 'development' | 'production'
 
@@ -291,8 +252,7 @@ export namespace AccessControl {
   export type ModeResult<M extends Mode> = M extends 'production' ? boolean : IDecision
 
   /**
-   * Conditional permission map type based on engine mode. Production ->
-   * `Record<string, boolean>`, development -> typed {@link IamClient.PermissionMap}.
+   * Permission map by mode: production -> `Record<string, boolean>`, development -> {@link IamClient.PermissionMap}.
    *
    * @template M         - The engine {@link Mode}.
    * @template TAction   - Union of valid action strings.
@@ -306,31 +266,19 @@ export namespace AccessControl {
     TScope extends string = string,
   > = M extends 'production' ? Record<string, boolean> : IamClient.PermissionMap<TAction, TResource, TScope>
 
-  /**
-   * Function signature for a single operator implementation evaluating a
-   * `(field, value)` pair from a condition.
-   */
+  /** One operator implementation, evaluating a condition's `(field, value)` pair. */
   export type OpFn = (field: IamPrimitives.AttributeValue, value: IamPrimitives.AttributeValue) => boolean
 
   /**
-   * Handler for a policy that threw during evaluation, as the **evaluator**
-   * calls it: the second argument is the offending {@link IPolicy} itself.
-   *
-   * There are three `onPolicyError` shapes in this package and they are not
-   * interchangeable. TypeScript catches a mismatch when the handler is
-   * declared separately, but an inline arrow is contextually typed and
-   * compiles against all three - so a logger written for one prints
-   * `[object Object]` against another:
+   * `onPolicyError` shape for the evaluator: the second argument is the throwing {@link IPolicy} itself.
+   * WARN: an inline arrow compiles against all three shapes below, so a logger written for one misprints on another.
+   * SECURITY: the throwing policy is Indeterminate, never NotApplicable, so a malformed deny rule is not skipped.
    *
    * | Where | Second argument |
    * |---|---|
    * | `iamEvaluate` / `iamEvaluateFast` | this type - the policy object |
    * | {@link IamEngineTypes.IHooks.onPolicyError} | the policy **id**, a string |
    * | adapter configs | {@link IamAdapter.RowErrorHandler}'s `{ adapter, rowId }` |
-   *
-   * The offending policy is Indeterminate, never NotApplicable: a policy
-   * carrying a deny rule must not be silently skipped because one of its
-   * conditions is malformed.
    */
   export type PolicyErrorHandler<TAction extends string = string, TResource extends string = string> = (
     err: Error,

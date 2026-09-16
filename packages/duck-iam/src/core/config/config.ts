@@ -6,11 +6,7 @@ import { validatePolicy, validateRoles } from '../validate'
 import type { IamConfig } from './config.types'
 
 /**
- * Creates a type-safe access configuration for your application.
- *
- * The primary entry point for duck-iam. Pass your permission schema
- * using `as const` arrays and get back an {@link IamConfig.IAccessConfig} with fully typed
- * builder methods.
+ * Creates a type-safe access configuration: the primary entry point for duck-iam.
  *
  * @template TActions   - Tuple of action strings, declared `as const`.
  * @template TResources - Tuple of resource strings, declared `as const`.
@@ -69,11 +65,7 @@ export function createIam<
 
     checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => checks,
 
-    // The declared vocabulary is passed through, so a grant naming an action,
-    // resource or scope this config never declared is reported rather than
-    // shipped as a permission that can never match. Previously this discarded
-    // `input`, which made `access.validateRoles` indistinguishable from the
-    // bare export and left the declared `scopes` array purely decorative.
+    // Pass the declared vocabulary, so a grant that can never match a request is reported.
     validateRoles: (roles: readonly AccessControl.IRole[]) =>
       validateRoles(roles, { actions: input.actions, resources: input.resources, scopes: input.scopes }),
 

@@ -77,26 +77,7 @@ describe('resolveEffectiveRoles()', () => {
   })
 })
 
-/**
- * PHANTOM ROLES. `resolveEffectiveRoles` used to add an inherited id to the
- * effective set before looking it up, so an id that no role defines still
- * reached `subject.roles`. It carried no permissions - there was no definition
- * to read any from - but that is only half of what `subject.roles` is used
- * for: a hand-written ABAC rule saying `subject.roles contains 'ghost'` fired
- * on it, and `getEffectiveRoles` reported the subject as holding a role that
- * does not exist.
- *
- * The operator route in is ordinary rather than exotic. `deleteRole` cascades
- * the role's *assignments* on every adapter, so the direct grant disappears;
- * an `inherits: ['ghost']` on some surviving role kept feeding the id back.
- * `validateRoles` already reports exactly this catalog as `DANGLING_INHERIT`
- * with `type: 'error'`.
- *
- * The depth-0 carve-out below is deliberate, not an oversight: a directly
- * assigned id is a row an operator wrote, and dropping it would narrow
- * `getEffectiveRoles` wherever the role catalog is not the only authority on
- * which ids exist. `handles unknown roles gracefully` above is its pin.
- */
+// A phantom inherited id would match ABAC `subject.roles contains` rules. Directly assigned ids stay (pinned above).
 describe('resolveEffectiveRoles() drops inherited ids that no role defines', () => {
   const ghostParent: AccessControl.IRole = { id: 'r', inherits: ['ghost'], name: 'R', permissions: [] }
 
@@ -110,8 +91,7 @@ describe('resolveEffectiveRoles() drops inherited ids that no role defines', () 
   })
 
   it('deleting a role removes its id from the set of anyone inheriting it', () => {
-    // The before/after an operator actually observes: same assignment, same
-    // `inherits`, only the definition goes away.
+    // Same assignment and `inherits`; only the definition goes away.
     const ghost: AccessControl.IRole = { id: 'ghost', name: 'Ghost', permissions: [] }
     expect(resolveEffectiveRoles(['r'], [ghostParent, ghost]).sort()).toEqual(['ghost', 'r'])
     expect(resolveEffectiveRoles(['r'], [ghostParent]).sort()).toEqual(['r'])
@@ -124,8 +104,7 @@ describe('resolveEffectiveRoles() drops inherited ids that no role defines', () 
   })
 
   it('an id that is both dangling-inherited and directly assigned is kept', () => {
-    // The assignment is the operator statement, so it wins over the drop -
-    // and it must win regardless of which walk reaches the id first.
+    // The assignment wins over the drop, whichever walk reaches the id first.
     expect(resolveEffectiveRoles(['r', 'ghost'], [ghostParent]).sort()).toEqual(['ghost', 'r'])
     expect(resolveEffectiveRoles(['ghost', 'r'], [ghostParent]).sort()).toEqual(['ghost', 'r'])
   })
@@ -160,9 +139,7 @@ describe('rolesToPolicy()', () => {
 
   it('inherits parent permissions', () => {
     const policy = rolesToPolicy([viewer, editor])
-    // Editor's emitted rules carry "Editor:" in their description; inherited
-    // viewer perms are emitted as separate rules under "Editor" because
-    // collectPermissions flattens parent-first.
+    // Inherited viewer perms are emitted as separate rules under "Editor:", parent-first.
     const editorRules = policy.rules.filter((r) => r.description?.startsWith('Editor:'))
     // Editor should have: inherited viewer (read post, read comment) + own (create post, update post)
     expect(editorRules).toHaveLength(4)
@@ -211,9 +188,7 @@ describe('rolesToPolicy()', () => {
     }
     const policy = rolesToPolicy([condRole])
     const rule = policy.rules[0]!
-    // Two siblings: the generated base group, then the author's group whole.
-    // The author's group sits one level down whatever its key is, so an `any`
-    // permission condition is not charged a level that an `all` one escapes.
+    // Two siblings: the base group, then the author's group whole, so its depth doesn't depend on its key.
     const top = 'all' in rule.conditions ? rule.conditions.all : []
     expect(top).toHaveLength(2)
     const fields = JSON.stringify(top)
@@ -223,8 +198,7 @@ describe('rolesToPolicy()', () => {
 })
 
 describe('rule id stability', () => {
-  // IamAdapter ETags and external caches key on `rule.id`. Lock the format so
-  // any change is intentional and shows up as a failing test.
+  // WARN: adapter ETags and external caches key on `rule.id`; this pins the format.
   it('emits ids in the `__rbac__#N` shape', () => {
     const policy = rolesToPolicy([viewer])
     expect(policy.rules.map((r) => r.id)).toEqual(['__rbac__#0', '__rbac__#1'])

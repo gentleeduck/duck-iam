@@ -1,25 +1,13 @@
 import type { Batch } from './batch.types'
 
-/**
- * Build a `Batch.Result` from per-row outcomes.
- *
- * `applied` is the row count, not a tally: every outcome is `ok` by
- * construction, because a hard failure throws and there is no soft one. See
- * the {@link Batch} docstring for why the failure arm and its `failed` counter
- * were removed rather than left as a channel nothing could use.
- */
+/** Builds a `Batch.Result`; `applied` is the row count, since every outcome is `ok` (failures throw). */
 export function batchResult<TRow, T>(outcomes: Batch.Outcome<TRow, T>[]): Batch.Result<TRow, T> {
   return { applied: outcomes.length, outcomes }
 }
 
 /**
- * Run a single-row write once per row and collect outcomes. Used whenever the
- * adapter offers no set-based form, so the memory, file, redis and http
- * adapters keep working with no adapter change.
- *
- * Every throw is hard here: iam has no optimistic-lock miss to soften, so an
- * error means the write genuinely failed and the caller's transaction should
- * abort rather than the batch reporting a per-row failure and carrying on.
+ * Runs a single-row write once per row, serially, for adapters with no set-based form.
+ * A throw rejects the whole batch so the caller's transaction aborts; there is no per-row failure.
  */
 export async function loopFallback<TRow, T>(
   rows: readonly TRow[],
@@ -31,18 +19,8 @@ export async function loopFallback<TRow, T>(
 }
 
 /**
- * Credit each written row to the first requested row that accounts for it.
- *
- * A batch can name the same write twice - the identical triple listed twice,
- * or an unscoped revoke alongside a scoped one it already covers. The write
- * happens once, so crediting both rows would report two changes where the
- * database made one. Requested rows are walked in order and each claims one
- * write not already claimed, so no write is ever credited twice and the answer
- * does not depend on which order the driver returned its rows in.
- *
- * A row claims one write, not every write it matches: a wildcard revoke that
- * removed three rows is still one request that changed something, and claiming
- * all three would starve two later rows that each genuinely accounted for one.
+ * Walks `requested` in order; each row claims the first unclaimed write it accounts for.
+ * A row claims at most one write and a write at most one row, so duplicates never report extra changes.
  *
  * @returns Indices into `requested` of the rows that claimed a write.
  */
@@ -63,16 +41,8 @@ export function creditWrites<TRow, TWrite>(
 }
 
 /**
- * Per-row outcomes for an idempotent batch write, in input order.
- *
- * Every row is `ok` - both role writes are idempotent, so the postcondition
- * ("the subject does / does not hold this role here") is true whether or not
- * this statement is what made it true. Reporting an already-granted row as a
- * miss would contradict the single-row method, which treats it as success.
- *
- * `changed` carries the finer answer when the adapter supplied one: pass the
- * indices of the rows the statement moved, or `null` when the driver could not
- * say, in which case `changed` is left off entirely rather than guessed.
+ * Per-row outcomes for an idempotent batch write, in input order; every row is `ok`.
+ * `moved` holds the indices the statement wrote, or `null` to leave `changed` off rather than guess.
  */
 export function appliedRows<TRow>(
   requested: readonly TRow[],

@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AccessControl, DotPath, IamClient } from '..'
 import { iamCreateEvalCaches } from '../caches'
 
-// Compile-time assertions. There is no `vitest --typecheck` step in this repo,
-// but `tsconfig.json` includes `src/**/*`, so `tsc --noEmit` (`bun run
-// check-types`) is what makes these fail.
+// Compile-time assertions: `bun run check-types` fails on these, not vitest (there is no `--typecheck` step).
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
 type Expect<T extends true> = T
 type Extends<A, B> = A extends B ? true : false
@@ -24,7 +22,7 @@ type _PathValueDeep = Expect<
 >
 type _PathValueMiss = Expect<Equal<DotPath.PathValue<{ a: { b: string } }, 'a.nope'>, never>>
 
-// DotPath.FlexibleDotPaths — closed contexts stay narrow, open bags accept any string.
+// DotPath.FlexibleDotPaths - closed contexts stay narrow, open bags accept any string.
 type _FlexibleClosed = Expect<Equal<DotPath.FlexibleDotPaths<{ a: { b: string } }>, 'a' | 'a.b'>>
 type _FlexibleClosedRejects = Expect<Equal<Extends<'nope', DotPath.FlexibleDotPaths<{ a: string }>>, false>>
 type _FlexibleOpenAccepts = Expect<
@@ -66,8 +64,7 @@ type _KeyWithResourceId = Expect<Extends<'read:post:p-1', ReadPostKey>>
 type _KeyScoped = Expect<Extends<'@org:read:post', ReadPostKey>>
 type _KeyScopedWithResourceId = Expect<Extends<'@org:read:post:p-1', ReadPostKey>>
 type _KeyRejectsUnknownAction = Expect<Equal<Extends<'delete:post', ReadPostKey>, false>>
-// The pre-`@` scoped form is exactly the three-segment ambiguity the `@` marker
-// was introduced to remove, so the type must reject it rather than admit both.
+// An unmarked scope is ambiguous with a resource id, so the type must reject it.
 type _KeyRejectsUnmarkedScope = Expect<Equal<Extends<'org:read:post', ReadPostKey>, false>>
 
 // PartialPermissionMap is what `engine.permissions()` actually returns.

@@ -1,13 +1,8 @@
 import type { AccessControl } from '../types'
 /**
- * Maximum depth of the inheritance chain walked by {@link collectPermissions}
- * and {@link resolveEffectiveRoles}. Cycles are cut by the `visited` set, but
- * a linear N-deep chain (or a malformed import) would still blow the stack  -
- * the bound makes traversal cost predictable.
- *
- * Roles past this depth are silently dropped from the resolved set. Override
- * is intentionally not exposed: a single hard limit keeps every adapter and
- * validator in agreement. Bump here if your role graph legitimately exceeds 32.
+ * Max inheritance depth walked by {@link collectPermissions} and {@link resolveEffectiveRoles}.
+ * WARN: bounds the resolved role set only; `rolesToPolicy` walks from every role, so a past-cap permission can still be
+ * granted. Not configurable, so every adapter and validator agrees on one limit.
  */
 export const MAX_INHERITANCE_DEPTH = 32
 
@@ -18,12 +13,8 @@ interface OwnedPermission {
 }
 
 /**
- * Flatten role inheritance, returning permissions in parent-first order.
- * Depth is bounded by {@link MAX_INHERITANCE_DEPTH}, and `seen` records the
- * shallowest depth each role was reached at - a role first reached near the cut
- * must not block a later, shallower path from expanding its ancestors, or two
- * set-equal `inherits` arrays in different orders resolve to different
- * permissions. A same-or-deeper re-reach short-circuits, which also cuts cycles.
+ * Flatten role inheritance into parent-first permissions, bounded by {@link MAX_INHERITANCE_DEPTH}.
+ * NOTE: `seen` keeps each role's shallowest depth so `inherits` order can't change the result; it also cuts cycles.
  */
 function collectPermissions(
   roleId: string,
@@ -41,58 +32,32 @@ function collectPermissions(
 
   const inherited = (role.inherits ?? []).flatMap((parent) => collectPermissions(parent, rolesMap, seen, depth + 1))
 
-  // Re-reached shallower: its ancestors are expanded again from the new depth,
-  // but its own permissions were already emitted on the first visit.
+  // Re-reached shallower: re-expand its ancestors, but its own permissions were already emitted.
   if (best !== undefined) return inherited
 
-  // Each permission keeps the role that declared it. A permission's scope belongs
-  // to its owner, not to whoever inherits it - `compileTable` never flattens the
-  // inheritance chain (it walks `role.permissions` and widens the *mask*), so
-  // attributing an inherited permission to the inheriting role made the two
-  // engines answer differently for the same role graph.
+  // NOTE: a permission keeps its declaring role, whose scope applies. `compileTable` never flattens inheritance.
   return [...inherited, ...role.permissions.map((perm) => ({ owner: role, perm }))]
 }
 
 /**
  * Id of the single policy `rolesToPolicy` folds every role permission into.
- *
- * Exported because it is not just a label: the evaluator has to be able to tell
- * this policy apart from one an operator authored. It is a union of independent,
- * allow-only grants that the compiled table evaluates first-match-wins, not a
- * single authored unit whose rules are meant to be read together - and that
- * difference decides what happens when one of its rules throws.
+ * NOTE: the evaluator uses it to tell these independent allow-only grants from an authored policy when a rule throws.
  */
 export const IAM_RBAC_POLICY_ID = '__rbac__'
 
 /**
- * Depth at which a role permission's own condition group is evaluated.
- *
- * `rolesToPolicy` wraps every permission as `{ all: [{ all: baseConditions }, perm.conditions] }`,
- * so the interpreter's `evalConditionGroup` reaches the author's group one level
- * down. The compiled table stores `perm.conditions` raw and used to start it at
- * `0`, which handed the author ten usable nesting levels in production and nine
- * in development: at exactly `MAX_CONDITION_DEPTH` the table allowed and the
- * interpreter denied. `validateRole` already validates at this depth, so `1` is
- * the number the other two paths were supposed to agree on - the table was the
- * odd one out.
- *
- * Anything that evaluates or checks a permission's conditions outside the
- * generated policy must start here, not at `0`.
+ * Depth of a role permission's own condition group: `rolesToPolicy` nests it one `all` below the base conditions.
+ * WARN: anything checking permission conditions outside the generated policy must start here, not `0`, or the
+ * engines disagree at `MAX_CONDITION_DEPTH`.
  */
 export const IAM_RBAC_CONDITION_DEPTH = 1
 
 /**
- * Convert RBAC role definitions into an ABAC policy.
+ * Convert RBAC roles into an ABAC policy: each permission becomes a rule gated on `subject.roles` containing the role.
  *
- * Each permission becomes a rule with a condition that checks
- * `subject.roles` contains the role ID. This lets RBAC and ABAC
- * coexist in the same evaluation pipeline.
- *
- * @param roles     - Every role definition (resolved separately of subject assignment).
- * @param scopeMode - `IConfig.scopeMode`. Under `'hierarchical'` a role-declared
- *                    scope covers its descendants, matching what the same flag
- *                    already does for scoped *assignments*; under `'flat'`
- *                    (default) the scope must match exactly.
+ * @param roles     - Every role definition.
+ * @param scopeMode - `IConfig.scopeMode`: `'hierarchical'` lets a role-declared scope cover its descendants, as it
+ *                    does for assignments; `'flat'` (default) needs an exact match.
  * @returns A synthetic {@link AccessControl.IPolicy} with one allow rule per permission.
  */
 export function rolesToPolicy(
@@ -101,9 +66,7 @@ export function rolesToPolicy(
 ): AccessControl.IPolicy {
   const rolesMap = new Map(roles.map((r) => [r.id, r]))
   const rules: AccessControl.IRule[] = []
-  // Monotonic counter for rule ids: stable + unique regardless of role / action
-  // / resource names. Previous `rbac.${role}.${action}.${resource}.${i}` format
-  // produced ambiguous ids when any segment contained a `.`.
+  // Sequential rule ids stay unique even when role, action, or resource names contain `.`.
   let ruleSeq = 0
 
   for (const role of roles) {
@@ -114,18 +77,11 @@ export function rolesToPolicy(
         { field: 'subject.roles', operator: 'contains' as const, value: role.id },
       ]
 
-      // The scope comes from the role that *declared* the permission. `''` is a
-      // scope like any other, not a global: only `undefined` and `'*'` are global,
-      // which is what `compiled.compile.ts`'s `effectiveScopeOf` has always said.
-      // Testing truthiness here let `scope: ''` grant everywhere in development.
+      // SECURITY: scope comes from the declaring role. Only `undefined` and `'*'` are global, so `''` is a real scope
+      // (same as `effectiveScopeOf` in `compiled.compile.ts`); a truthiness test would make `''` grant everywhere.
       const effectiveScope = perm.scope ?? owner.scope
       if (effectiveScope !== undefined && effectiveScope !== '*') {
-        // Hierarchical scopes are dot-separated paths, so "covers a descendant"
-        // is the exact scope or anything under `scope + '.'` - the same relation
-        // `scopeAncestors` computes from the other end for scoped assignments.
-        // Without this arm one engine flag meant two different things: an
-        // assignment at `org-1` reached `org-1.team-a` and an identical
-        // role-declared `scope: 'org-1'` did not.
+        // Hierarchical: the exact scope or anything under `scope + '.'`, as `scopeAncestors` does for assignments.
         baseConditions.push(
           scopeMode === 'hierarchical'
             ? {
@@ -138,18 +94,8 @@ export function rolesToPolicy(
         )
       }
 
-      // The author's group is passed through whole and left to
-      // `evalConditionGroup`, the one parser that knows which group keys exist.
-      // Enumerating `any`/`none` here and falling through to `[]` for the rest
-      // dropped an unrecognised group - a typo'd key, a hand-edited row - and a
-      // conditional grant silently became unconditional. The shared parser reads
-      // an unknown group as `false`, so the grant fails closed instead.
-      //
-      // The base conditions get their own `all` so the author's group always
-      // sits at the same depth whatever its key is. Splicing an `all` body
-      // in-line was depth-neutral while `any`/`none` had to be nested, so the
-      // identical tree crossed `MAX_CONDITION_DEPTH` in one shape and not the
-      // other - and the deeper shape then failed closed at runtime.
+      // SECURITY: pass the author's group whole; `evalConditionGroup` reads an unknown group key as `false`.
+      // Base conditions get their own `all` so the author's group sits at the same depth whatever its key.
       const conditions = perm.conditions ? { all: [{ all: baseConditions }, perm.conditions] } : { all: baseConditions }
 
       rules.push({
@@ -179,15 +125,8 @@ export function rolesToPolicy(
 }
 
 /**
- * Walks `inherits` chains from each assigned role and returns the closed set
- * of effective role IDs. Cycles are cut by the depth memo; depth is
- * bounded by {@link MAX_INHERITANCE_DEPTH} so a runaway chain can't recurse
- * past the JS stack.
- *
- * An inherited ID that no role in `allRoles` defines is dropped: it would
- * otherwise reach `subject.roles` as a phantom role that no permission backs
- * but an ABAC `subject.roles contains ...` rule still matches. Directly
- * assigned IDs are kept whether or not the catalog defines them.
+ * Walk `inherits` from each assigned role into the closed set of effective role IDs, bounded by
+ * {@link MAX_INHERITANCE_DEPTH}. Inherited IDs with no definition are dropped; assigned IDs are kept.
  *
  * @param assignedRoles Role IDs directly assigned to the subject.
  * @param allRoles      Every role definition, used to resolve `inherits`.
@@ -196,31 +135,15 @@ export function rolesToPolicy(
 export function resolveEffectiveRoles(assignedRoles: string[], allRoles: AccessControl.IRole[]): string[] {
   const rolesMap = new Map(allRoles.map((r) => [r.id, r]))
   const effective = new Set<string>()
-  // Shallowest depth per role - see `collectPermissions`. `effective` alone
-  // cannot serve as the visited set: it would pin a role to whatever depth it
-  // was first reached at.
+  // NOTE: shallowest depth per role (see `collectPermissions`). `effective` can't be the visited set: it would pin a
+  // role to the depth it was first reached at.
   const bestDepth = new Map<string, number>()
 
   function walk(roleId: string, depth: number) {
     if (depth > MAX_INHERITANCE_DEPTH) return
     const role = rolesMap.get(roleId)
-    // An *inherited* id that no role defines is dropped instead of added. It
-    // used to land in `effective` - and so in `subject.roles` - before this
-    // lookup ever happened, which made it a phantom role: it carries no
-    // permissions, because there is no definition to read any from, but a
-    // hand-written ABAC rule testing `subject.roles contains 'ghost'` still
-    // fired on it. The operator route into that state is ordinary: delete a
-    // role while some other role still names it in `inherits`. `deleteRole`
-    // cascades a role's *assignments* on every adapter, so the direct grant
-    // goes; the inherited id did not, and the check kept answering allow.
-    // `validateRoles` already calls this catalog state `DANGLING_INHERIT` with
-    // `type: 'error'`, so dropping it is not a new opinion about the data.
-    //
-    // Depth 0 is the subject's own assignment and is kept even with no
-    // definition behind it. That is a row an operator wrote rather than an id
-    // derived from one, and dropping it would silently narrow
-    // `getEffectiveRoles` for any deployment where the catalog is not the sole
-    // authority on which role ids exist.
+    // SECURITY: drop an inherited id with no definition (a `DANGLING_INHERIT`, e.g. a deleted role still inherited), or
+    // it matches ABAC `subject.roles contains` rules as a phantom. Depth 0 is an operator-written assignment: keep it.
     if (role === undefined && depth > 0) return
     const best = bestDepth.get(roleId)
     if (best !== undefined && best <= depth) return

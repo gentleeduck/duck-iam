@@ -4,15 +4,7 @@ import type { AccessControl } from '../../types'
 import { validateRoles } from '../../validate'
 import { createIam } from '../config'
 
-/**
- * `createIam` is sold as "misspelling produces a compile-time error", but its
- * `validateRoles` discarded `input.actions` / `resources` / `scopes` entirely -
- * it was the bare export under a config-shaped name. A grant naming an
- * undeclared action or scope therefore validated clean and then denied every
- * request, because `engine.check` is constrained to the declared unions and so
- * never asks the question the grant answers. The declared `scopes` array in
- * particular constrained nothing at all.
- */
+// A grant naming an undeclared action or scope can never match, since `engine.check` only takes declared ones.
 const access = createIam({
   actions: ['view', 'edit'] as const,
   resources: ['post', 'comment'] as const,
@@ -56,8 +48,7 @@ describe('createIam().validateRoles checks grants against the declared vocabular
     expect(issue?.message).toContain('"view", "edit"')
   })
 
-  // Controls. Without these the suite above would pass on a validator that
-  // simply rejects every role.
+  // Controls: without these, a validator that rejects every role would pass.
   it('accepts a fully declared role', () => {
     expect(access.validateRoles([role([{ action: 'view', resource: 'post', scope: 'org-1' }])]).valid).toBe(true)
   })
@@ -98,12 +89,7 @@ describe('the bare `validateRoles` export is unchanged', () => {
   })
 })
 
-/**
- * The other half of C-4: `grantRead` / `grantCRUD` cast straight past `TAction`
- * and emitted their literals whatever the config declared. The conditional
- * parameter types make that a compile error, which `@ts-expect-error` pins -
- * these lines fail the build if the gate is ever removed.
- */
+// A wrong verb is a compile error; the `@ts-expect-error` lines fail the type check if the gate is removed.
 describe('the CRUD convenience helpers are gated on the declared action union', () => {
   it('refuses `grantRead` when the union does not admit `read`', () => {
     // @ts-expect-error - 'read' is not in the declared actions ['view','edit']

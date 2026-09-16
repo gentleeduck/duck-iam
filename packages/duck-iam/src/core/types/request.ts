@@ -1,17 +1,12 @@
 import type { IamPrimitives } from './primitives'
 
 /**
- * What is being asked, and by whom: the subject making a request, the resource
- * it names, and the environment it happens in. Type-only.
- *
- * Kept apart from {@link AccessControl} because these describe one evaluation
- * in flight, while those describe the model that outlives it.
+ * One evaluation in flight: the subject asking, the resource it names, and the environment. Type-only.
+ * The model those are checked against lives in {@link AccessControl}.
  */
 export namespace IamRequest {
   /**
-   * A role assignment scoped to a tenant, organization, or workspace. Used in
-   * multi-tenant applications where a user holds different roles in different
-   * scopes (e.g. `editor` in `org-acme`, `viewer` in `org-globex`).
+   * A role assignment limited to a tenant, organization or workspace (e.g. `editor` in `org-acme`).
    *
    * @template TRole  - Union of valid role IDs.
    * @template TScope - Union of valid scope strings.
@@ -21,18 +16,14 @@ export namespace IamRequest {
     /** The scope this role assignment is restricted to. */
     readonly scope?: TScope
     /**
-     * Per-assignment attributes (e.g. department, region) available to policy
-     * conditions as `subject.scopedRoles[].attributes`. Distinct from
-     * {@link ISubject.attributes} - those describe the subject globally, these
-     * describe this one grant. Undefined when the adapter/storage carries none.
+     * Attributes of this one grant, read by conditions as `subject.scopedRoles[].attributes`.
+     * Distinct from the subject-wide {@link ISubject.attributes}; undefined when the adapter stores none.
      */
     readonly attributes?: IamPrimitives.Attributes
   }
 
   /**
-   * Authenticated user or service making the access request. Engine resolves a
-   * subject from its adapter via `resolveSubject(subjectId)` - loads role
-   * assignments, resolves inheritance, fetches attributes.
+   * Authenticated user or service making the request; the engine builds it via `resolveSubject(subjectId)`.
    *
    * @template TRole  - Union of valid role IDs.
    * @template TScope - Union of valid scope strings.
@@ -62,30 +53,22 @@ export namespace IamRequest {
     readonly attributes: Readonly<IamPrimitives.Attributes>
   }
 
-  /**
-   * Request-level context not specific to subject or resource - client IP,
-   * user agent, timestamp, feature flags, etc. Custom keys allowed via the
-   * string index signature.
-   */
+  /** Request-level context such as client IP, user agent or feature flags; custom keys are allowed. */
   export interface IEnvironment {
     readonly ip?: string
     readonly userAgent?: string
     /** Request timestamp in milliseconds since epoch. */
     readonly timestamp?: number
     /**
-     * Evaluation clock in epoch milliseconds. Auto-injected by the engine as
-     * `Date.now()` when absent, so temporal rules can reference
-     * `$environment.now` (e.g. `after` a `timedOutUntil` attribute). Override
-     * in tests or a `beforeEvaluate` hook to pin a deterministic clock.
+     * Evaluation clock in epoch ms, read by rules as `$environment.now`; the engine injects `Date.now()` when absent.
+     * Set it in tests or a `beforeEvaluate` hook to pin the clock.
      */
     readonly now?: number
     readonly [key: string]: IamPrimitives.AttributeValue | undefined
   }
 
   /**
-   * Complete authorization request passed to the engine for evaluation.
-   * Combines subject, action, resource, optional scope, and optional
-   * environment into a single object.
+   * Complete authorization request the engine evaluates.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.

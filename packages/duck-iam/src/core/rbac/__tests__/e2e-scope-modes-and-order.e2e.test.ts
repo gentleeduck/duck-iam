@@ -1,17 +1,6 @@
 /**
- * E2E: `scopeMode` / `scopeCombine` semantics and store-order independence,
- * against REAL Postgres.
- *
- * Two questions:
- *
- * 1. The same catalog under `flat` and `hierarchical`, and under `union` and
- *    `override` - where do the answers differ, and is each difference the one
- *    the config flag promises?
- * 2. A store returns rows in whatever order it likes. Postgres has no implicit
- *    ordering and none of the adapter's reads carry `ORDER BY`, so the physical
- *    row order is genuinely free. The resolved subject and every decision must
- *    be identical whatever order comes back - and the test proves the orders it
- *    compared really were different, rather than assuming they were.
+ * E2E on real Postgres: `scopeMode` / `scopeCombine` differ only where the flag promises, and decisions ignore row
+ * order. INFO: the adapter's reads carry no `ORDER BY`, so each order test proves the orders really differed.
  */
 import { and, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -41,11 +30,8 @@ const OPS = { and, eq, or }
 const DOC = { attributes: {}, type: 'doc' as const }
 
 /**
- * Reads one verdict out of a `permissions()` map. The map's key type is a
- * template literal over the declared action/resource/scope unions, and these
- * scopes are plain strings, so it cannot be indexed directly. Narrowed rather
- * than cast: an absent or non-boolean entry comes back as `undefined` and fails
- * the comparison loudly instead of being asserted into a boolean.
+ * Reads one verdict from a `permissions()` map, whose template-literal key type a plain string can't index.
+ * A missing or non-boolean entry returns `undefined` and fails the comparison.
  */
 function verdictFor(map: object, key: string): boolean | undefined {
   const value = Object.hasOwn(map, key) ? Reflect.get(map, key) : undefined
@@ -187,9 +173,7 @@ suite('E2E scope: modes, combine, and store order on real Postgres', () => {
     })
 
     it('a role-declared scope obeys the same mode flag as an assignment scope', async () => {
-      // `dept` declares org-a; the assignment is global. Under hierarchical the
-      // declared scope must cover descendants, matching what the same flag does
-      // for scoped assignments.
+      // `dept` declares org-a and is assigned globally; hierarchical must cover descendants as for assignments.
       await seedRole({ id: 'dept', permissions: [{ action: 'read', resource: 'doc' }], scope: 'org-a' })
       await seedAssignment('u3', 'dept', null)
       expect(await makeEngine({ scopeMode: 'flat' }).can('u3', 'read', DOC, undefined, 'org-a.team-1')).toBe(false)
@@ -242,14 +226,7 @@ suite('E2E scope: modes, combine, and store order on real Postgres', () => {
       expect(override).toEqual(union)
     })
 
-    /**
-     * OVERRIDE SHADOWING. `mgr` is assigned at `org-a` and inherits
-     * `team-tools`, which DECLARES `org-a.team-1`. `resolveSubject` tags the
-     * inherited role with its own declared scope, so the subject now has a
-     * scoped role at `org-a.team-1` that nobody assigned there - and under
-     * `override` that level wins, dropping `mgr` itself. The org-a manager
-     * loses their own permission inside team-1.
-     */
+    // `resolveSubject` tags inherited `team-tools` with its declared org-a.team-1, so override drops `mgr` there.
     it('an inherited role declared at a child scope shadows the parent assignment under override', async () => {
       await pool.query('TRUNCATE iam_assignments, iam_roles CASCADE')
       await seedRole({ id: 'team-tools', permissions: [{ action: 'read', resource: 'doc' }], scope: 'org-a.team-1' })
@@ -289,9 +266,8 @@ suite('E2E scope: modes, combine, and store order on real Postgres', () => {
 
   describe('order independence: the store decides what order rows come back in', () => {
     /**
-     * A catalog whose answer would change if any traversal were order-sensitive:
-     * a diamond with differently-scoped intermediates, a cycle, a role reached
-     * at two different depths, and two scoped assignments at different levels.
+     * Any order-sensitive traversal changes this answer: a diamond with differently-scoped intermediates, a cycle,
+     * a role reached at two depths, and scoped assignments at two levels.
      */
     const CATALOG: RoleSeed[] = [
       { id: 'inner', permissions: [{ action: 'read', resource: 'doc' }] },
@@ -342,8 +318,7 @@ suite('E2E scope: modes, combine, and store order on real Postgres', () => {
       const before = await physicalRoleOrder()
       const baseline = await matrix(makeEngine({ scopeMode: 'hierarchical' }), 'u1')
 
-      // An UPDATE writes a new tuple version, which Postgres appends - a
-      // sequential scan then returns the touched rows last.
+      // INFO: an UPDATE appends a new tuple version, so a sequential scan returns the touched rows last.
       for (const id of ['inner', 'left', 'top']) {
         await pool.query('UPDATE iam_roles SET updated_at = now() WHERE id = $1', [id])
       }

@@ -1,12 +1,9 @@
+// `rolesToPolicy` flattens inheritance and `compileTable` does not; they must still agree on an inherited
+// permission's scope, and conditions must survive the translation.
 import { describe, expect, it } from 'vitest'
 import type { AccessControl } from '../../types'
 import { rolesToPolicy } from '../rbac'
 
-/**
- * `rolesToPolicy` flattens inheritance; `compileTable` does not. The two must
- * still agree on which scope guards an inherited permission, and on whether a
- * permission's conditions survive the translation.
- */
 function scopeConditionsOf(policy: AccessControl.IPolicy, description: string): unknown[] {
   const rule = policy.rules.find((r) => r.description === description)
   if (!rule) throw new Error(`no rule described "${description}", have: ${policy.rules.map((r) => r.description)}`)
@@ -16,9 +13,7 @@ function scopeConditionsOf(policy: AccessControl.IPolicy, description: string): 
 }
 
 describe('rolesToPolicy() scope attribution', () => {
-  // The scope belongs to the role that declared the permission. Reading it off
-  // the inheritor tagged a parent's org-1 permission with the child's org-2 and
-  // granted it in the wrong tenant - `compileTable` never did this.
+  // SECURITY: reading the scope off the inheritor would grant the parent's permission in the child's tenant.
   it('tags an inherited permission with the declaring role scope, not the inheritor', () => {
     const parent: AccessControl.IRole = {
       id: 'p',
@@ -55,8 +50,7 @@ describe('rolesToPolicy() scope attribution', () => {
     ])
   })
 
-  // Only `undefined` and `'*'` are global. Testing truthiness made `''` - a
-  // scope an adapter row can carry - drop the guard and grant everywhere.
+  // SECURITY: only `undefined` and `'*'` are global; a truthiness test lets an adapter row's `''` grant everywhere.
   it('treats an empty-string scope as a scope, not as global', () => {
     const role: AccessControl.IRole = {
       id: 'r',
@@ -101,12 +95,9 @@ describe('rolesToPolicy() condition passthrough', () => {
     expect(group.all).toContainEqual({ any: [{ field: 'subject.id', operator: 'eq', value: 'u1' }] })
   })
 
-  // An unrecognised group key used to fall through to `[]`, turning a
-  // conditional grant unconditional. It must reach the shared parser, which
-  // reads an unknown group as false.
+  // SECURITY: an unknown group key must reach the shared parser, which reads it as false, not become unconditional.
   it('passes an unrecognised group through rather than emitting an unconditional grant', () => {
-    // The shape TypeScript rejects at a literal is exactly the shape an adapter
-    // row or `admin.import` payload can carry, so build it the way it arrives.
+    // TypeScript rejects this literal, but an adapter row or `admin.import` payload can carry it.
     const role: AccessControl.IRole = JSON.parse(
       '{"id":"r","name":"R","permissions":[{"action":"read","resource":"doc","conditions":{"nome":[]}}]}',
     )
