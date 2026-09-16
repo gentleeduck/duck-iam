@@ -115,3 +115,26 @@ events with the actor it was given and passed nothing to `adapter.savePolicy` /
 `saveRole`. It was the only admin write in the package that did. Fixed, and
 every engine-side write is now pinned against a recording adapter so a new one
 cannot be added without provenance.
+
+### `preload({ validator: true })` never ran the validator
+
+The flag loaded the lazy validate chunk and then dropped it on the floor: the
+module was imported, `validatePolicy` and `validateRole` were never called, and
+`preload()` resolved. Since `engine.admin` is the only thing that validates —
+all six adapters call the same write gate, the read path validates nothing — a
+row that entered storage another way (a migration, a seed script, a restore, a
+direct SQL insert, another service writing the same table) was loaded and
+evaluated exactly as stored, and nothing in the package could tell an operator.
+
+Which matters because the two failure modes differ. A condition the evaluator
+refuses is Indeterminate and the policy denies: loud, fail-closed, visible on
+the first request. A row that merely never matches — an action carrying a
+trailing newline from a CSV import, an unreachable resource pattern — just
+misses, so a **deny** in that shape silently never fires and the request is
+allowed.
+
+`preload({ validator: true })` now reads the roles too and validates every
+stored policy and role, throwing once with the exact number of offending rows
+and up to ten named with their reason. Only `type: 'error'` issues fail the
+boot; a `BROAD_ALLOW` warning does not. Without the flag `preload()` reads no
+roles and runs no validator, so the cost stays opt-in.

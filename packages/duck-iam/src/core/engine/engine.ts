@@ -1132,12 +1132,15 @@ export class IamEngine<
 
   /**
    * Warms policies and the compiled permission table (read in both modes) at startup; call once.
-   * A malformed policy throws here, at boot; over 32 roles warns and falls back. `validator: true` loads validators.
+   * A policy the table cannot compile throws here, at boot; over 32 roles warns and falls back.
+   * `validator: true` also loads the validators and runs them over every stored policy and role, throwing on the
+   * first boot where any is invalid — the only check on rows that did not arrive through `engine.admin`.
    */
   async preload(opts: { validator?: boolean } = {}): Promise<void> {
     await preloadEngine({
       buildCompiledTable: () => this._getCompiledTable(),
       loadAllPolicies: () => this._loadAllPolicies(),
+      loadAllRoles: () => loadRoles(this._loaderDeps()),
       loadValidator: opts.validator === true,
     })
   }
