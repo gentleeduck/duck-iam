@@ -668,7 +668,9 @@ export function evalCondition(
   const fieldVal = resolve(req, cond.field, caches)
   const condVal = resolveValue(req, cond.value ?? null, caches)
   try {
-    const op = ops[cond.operator]
+    // SECURITY: own properties only, as `resolve` does per path segment. `ops` is an object literal, so
+    // `constructor` and `toString` are inherited functions that answered truthy and fired the rule.
+    const op = Object.hasOwn(ops, cond.operator) ? ops[cond.operator] : undefined
     // SECURITY: an unknown operator is Indeterminate; `false` would retire a deny rule.
     if (typeof op !== 'function') {
       throw new Error(

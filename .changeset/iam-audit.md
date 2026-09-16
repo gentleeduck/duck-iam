@@ -224,3 +224,26 @@ because the typo is not the string that check compares against.
 
 `mode` is now refused at construction with the same message shape as
 `policyCombine`, which also closes the `first-applicable` bypass.
+
+### `constructor` and `toString` were usable as condition operators
+
+`evalCondition` dispatched with a bare `ops[cond.operator]` and then checked
+`typeof op !== 'function'`. `ops` is an object literal, so every
+`Object.prototype` member is a function on it and passed that check.
+`constructor` returned a boxed object and `toString` returned the string
+`"[object Undefined]"` — both truthy — so the condition reported as satisfied
+without ever comparing anything.
+
+A rule carrying one fired unconditionally: an allow rule granted, and a deny
+rule guarded by `none` was retired. It happened in both modes, because the fast
+path's `conditionMayThrow` had already classified these names correctly — it
+uses `Object.hasOwn` — and handed the policy to the interpreter, which is where
+the truthy answer came from.
+
+The write-path validator refuses these names, so only a row that reached
+storage another way — a seed, a migration, a direct write — could carry one.
+That is the same gap `preload({ validator: true })` exists to close.
+
+Dispatch is now own-property only in `evalCondition`, in the interpreter's
+combining-algorithm lookup, and in the public `iamEvaluateOperator`, which
+previously let a policy linter report such a condition as satisfied.
