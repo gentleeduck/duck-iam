@@ -1,28 +1,13 @@
 /**
  * Vue 3 integration for duck-iam.
+ * `createAccessPlugin`/`useAccess` are not module exports; build them once with `createIamVueAccess(vue)`.
  *
- * `createAccessPlugin` / `useAccess` are not module-level exports: build them
- * once with `createIamVueAccess(vue)` and share that result app-wide.
+ * Usage (after building the surface, see {@link createIamVueAccess}):
  *
- * Usage:
+ *   app.use(createAccessPlugin(permissionMap)); // main.ts
  *
- *   // access.ts - build the surface once:
- *   import { ref, computed, inject, provide, defineComponent, h } from "vue";
- *   import { createIamVueAccess } from "@gentleduck/iam/client/vue";
- *
- *   export const { createAccessPlugin, useAccess } = createIamVueAccess({
- *     ref, computed, inject, provide, defineComponent, h,
- *   });
- *
- *   // Plugin setup (main.ts):
- *   app.use(createAccessPlugin(permissionMap));
- *
- *   // In components:
- *   const { can, cannot } = useAccess();
- *   const canDelete = can("delete", "post");
+ *   const { can } = useAccess();
  *   const canManage = can("manage", "user", undefined, "admin");
- *
- *   // Template directive:
  *   <button v-if="can('delete', 'post')">Delete</button>
  */
 
@@ -30,20 +15,12 @@ import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamAllowedActions, iamHasAnyOn, iamPermissionGranted } from '../../shared/permission-map'
 
-/**
- * Re-exported so a Vue app reaches the same key building and map introspection
- * React and the vanilla client have, rather than hand-rolling `key.split(':')`
- * - wrong on every key carrying a scope or an id.
- */
+/** Re-exported so consumers get key escaping and introspection instead of splitting keys on `':'`. */
 export { iamAllowedActions, iamBuildPermissionKey, iamHasAnyOn }
 
 /**
  * Vue injection key for the access control state.
- *
- * Registry-global (`Symbol.for`) on purpose: this package ships both ESM and
- * CJS builds, and a plain `Symbol()` is per-module-instance - a mixed load
- * would make `provide` and `inject` use different keys and report
- * "useAccess() called without provideAccess()" for correctly-wired apps.
+ * WARN: `Symbol.for`, not `Symbol()`: the ESM and CJS builds must share one key or `inject` misses `provide`.
  */
 export const IAM_ACCESS_INJECTION_KEY = Symbol.for('@gentleduck/iam:access')
 
@@ -76,9 +53,8 @@ interface VueApp {
 }
 
 /**
- * Builds the Vue 3 access control surface (composable, plugin, components).
- *
- * Pass Vue's reactive utilities to avoid a hard dependency on the framework.
+ * Builds the Vue 3 access control surface (composables, plugin, components).
+ * Takes Vue's reactive utilities to avoid a hard dependency on the framework.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -138,8 +114,7 @@ export function createIamVueAccess<
 
   /** Composable to access the permission state from a parent provider. */
   function useAccess(): ReturnType<typeof createAccessState> {
-    // Typed at the injection site rather than asserted after it: `inject` is
-    // generic, so the only thing left to check at runtime is presence.
+    // Typed at the injection site, so only presence needs a runtime check.
     const state = inject<ReturnType<typeof createAccessState>>(IAM_ACCESS_INJECTION_KEY)
     if (!state) {
       throw new Error(
@@ -151,16 +126,9 @@ export function createIamVueAccess<
   }
 
   /**
-   * Fetches a permission map and exposes it as reactive state.
-   *
-   * Vue had no async path at all, so every Vue app hand-rolled the fetch - and
-   * the obvious hand-rolled version reproduces G/S-1: it keeps the previous
-   * subject's map on screen for the whole in-flight window, and keeps it
-   * indefinitely if the refetch fails. Both are wrong at sign-out and at an
-   * account switch, where the stale map is another user's grants.
-   *
-   * Same shape as React's `usePermissions`, so the two frameworks answer the
-   * same question the same way.
+   * Fetches a permission map and exposes it as reactive state; same shape as React's `usePermissions`.
+   * NOTE: the map is cleared before each load and stays cleared on failure, so a refetch never shows
+   * the previous subject's grants.
    *
    * @param fetchFn - Loads the permission map (typically one `fetch` call).
    * @returns `{ permissions, can, cannot, allowedActions, hasAnyOn, loading, error, refetch }`.
@@ -171,16 +139,11 @@ export function createIamVueAccess<
     const loading = ref(true)
     const error = ref<Error | null>(null)
 
-    // Monotonic run id, not a boolean: two loads can be in flight at once and a
-    // slow *earlier* one must not overwrite a fast later one with the previous
-    // subject's grants. A `cancelled` flag only covers teardown.
+    // NOTE: a run id, not a `cancelled` flag, so a slow earlier load cannot overwrite a newer one.
     let latestRun = 0
 
     const refetch = (): Promise<void> => {
       const run = ++latestRun
-      // A refetch is a different subject until proven otherwise; gate the UI on
-      // `loading`, never on a map left over from the last one. `error` is
-      // cleared for the same reason - a stale error outlives its failure.
       permissions.value = empty
       error.value = null
       loading.value = true
@@ -232,11 +195,7 @@ export function createIamVueAccess<
   }
 
   /**
-   * Declarative component that renders slot content only when the permission is granted.
-   *
-   *   <Can action="delete" resource="post">
-   *     <button>Delete</button>
-   *   </Can>
+   * Renders the default slot when the permission is granted, otherwise the `fallback` slot.
    *
    *   <Can action="read" resource="analytics">
    *     <template #default>Analytics</template>
@@ -266,13 +225,7 @@ export function createIamVueAccess<
     },
   })
 
-  /**
-   * Declarative component that renders slot content only when the permission is denied.
-   *
-   *   <Cannot action="read" resource="analytics">
-   *     <div>Upgrade to access this feature</div>
-   *   </Cannot>
-   */
+  /** Renders the default slot only when the permission is denied. */
   const Cannot = defineComponent({
     name: 'Cannot',
     props: {

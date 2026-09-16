@@ -6,12 +6,7 @@ type A = 'read' | 'create' | 'delete' | ''
 type R = 'post' | 'comment'
 type S = 'org-1'
 
-/**
- * The map is unvalidated server JSON, so only a literal `true` is a grant. A
- * truthiness test reads `"false"` - a plausible server slip - as one, and the
- * three readers (`can`, `allowedActions`, `hasAnyOn`) must agree on that or a
- * menu offers an action the same client's `can()` denies.
- */
+// Only a literal `true` grants, and `can`, `allowedActions`, and `hasAnyOn` must agree on that.
 describe('vanilla client: a non-boolean map value denies', () => {
   // Built the way a hostile map actually arrives: unvalidated server JSON.
   const hostile: IamClient.PartialPermissionMap<A, R, S> = JSON.parse(
@@ -42,7 +37,7 @@ describe('vanilla client: a non-boolean map value denies', () => {
   })
 })
 
-/** `iamBuildPermissionKey` treats `''` as a real segment, so all three readers must. */
+// `iamBuildPermissionKey` treats `''` as a real segment, so all three readers must.
 describe('vanilla client: an empty-string action', () => {
   const c = new IamAccessClient<A, R, S>({ ':post': true })
 
@@ -59,11 +54,7 @@ describe('vanilla client: an empty-string action', () => {
   })
 })
 
-/**
- * `Readonly<...>` erases at runtime, so the getter used to publish the live
- * map: an in-place edit granted a permission without going through
- * `update()`/`merge()`, and therefore without notifying subscribers.
- */
+// `Readonly` erases at runtime, so a live map would let an edit grant without `update()` or a notification.
 describe('vanilla client: the permissions getter is a copy', () => {
   function grantInto(map: unknown, key: string): void {
     if (typeof map === 'object' && map !== null) Reflect.set(map, key, true)

@@ -1,22 +1,10 @@
 /**
- * Framework-agnostic client-side access control.
- *
- * Use when you don't use React/Vue, or for Web Components,
- * Svelte, Solid, Angular, or vanilla JS.
+ * Framework-agnostic client access control, for vanilla JS, Web Components, Svelte, Solid, or Angular.
  *
  * Usage:
  *
- *   import { IamAccessClient } from "@gentleduck/iam/client/vanilla";
- *
- *   // Initialize from server-provided permissions
  *   const access = new IamAccessClient(permissionsFromServer);
- *
- *   // Check
- *   access.can("delete", "post");                    // boolean
  *   access.can("manage", "user", undefined, "admin"); // scoped check
- *   access.cannot("manage", "billing");               // boolean
- *
- *   // With change listener (for reactive frameworks)
  *   access.subscribe((perms) => { rerender(); });
  *   access.update(newPermissions);
  *
@@ -30,23 +18,16 @@ import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamAllowedActions, iamHasAnyOn, iamPermissionGranted } from '../../shared/permission-map'
 
-/**
- * Re-exported so a React or Vue app reaches the same map introspection this
- * class has always had, instead of hand-rolling `key.split(':')`.
- */
+/** Re-exported so consumers get map introspection instead of splitting keys on `':'`. */
 export { iamAllowedActions, iamHasAnyOn }
 
-/** Callback invoked when permissions are updated via {@link IamAccessClient.update} or {@link IamAccessClient.merge}. */
+/** Listener run on {@link IamAccessClient.update} or {@link IamAccessClient.merge}. */
 type Listener<TAction extends string = string, TResource extends string = string, TScope extends string = string> = (
   permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>,
 ) => void
 
 /**
- * Provides framework-agnostic client-side access control.
- *
- * Wraps a {@link IamClient.PartialPermissionMap} (typically fetched from the server) and
- * exposes `.can()` / `.cannot()` checks. Supports reactive updates via
- * `.subscribe()`.
+ * Wraps a {@link IamClient.PartialPermissionMap} with `.can()`/`.cannot()` checks and `.subscribe()` for updates.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -67,17 +48,13 @@ export class IamAccessClient<
   private _listeners = new Set<Listener<TAction, TResource, TScope>>()
 
   /**
-   * Creates a new client wrapping the given permission map.
+   * Creates a new client over a copy of the given permission map.
    *
    * @param permissions - Optional initial permission map (set later via `update`).
    */
   constructor(permissions?: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
-    // Copied, for the reason the `permissions` getter copies on the way out:
-    // the map is a plain object and `Readonly<...>` erases at runtime, so
-    // holding the caller's reference let `map.x = true` after construction
-    // grant a permission without going through `update()`/`merge()` - and
-    // therefore without notifying a single subscriber. The guard was written
-    // on the reading side only; the writing side is the same hazard.
+    // NOTE: copied in here and out in the getter. `Readonly` erases at runtime, so a shared reference would let
+    // `map.x = true` grant without `update()`/`merge()` and without notifying subscribers.
     this._permissions = { ...permissions }
   }
 
@@ -96,21 +73,17 @@ export class IamAccessClient<
     url: string,
     init?: RequestInit,
   ): Promise<IamAccessClient<TA, TR, TS>> {
-    const res = await fetch(url, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-    })
+    // `Headers`, not a spread: spreading a `Headers` instance or a tuple list drops every header in it.
+    const headers = new Headers(init?.headers)
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    const res = await fetch(url, { ...init, headers })
     if (!res.ok) throw new Error(`Failed to fetch permissions: ${res.status}`)
     const perms: IamClient.PartialPermissionMap<TA, TR, TS> = await res.json()
     return new IamAccessClient<TA, TR, TS>(perms)
   }
 
   /**
-   * Returns a copy of the current permission map.
-   *
-   * A copy, not the live object: `Readonly<...>` erases at runtime, so handing
-   * out the internal map let an in-place edit grant a permission without going
-   * through `update()`/`merge()` - and therefore without notifying subscribers.
+   * Returns a copy of the current permission map, so an in-place edit cannot bypass `update()`/`merge()`.
    *
    * @returns Readonly map of action/resource keys to boolean grants.
    */
@@ -118,46 +91,20 @@ export class IamAccessClient<
     return { ...this._permissions }
   }
 
-  /**
-   * Returns whether the action is granted on the resource.
-   *
-   * @param action - Specifies the action being checked.
-   * @param resource - Specifies the resource type.
-   * @param resourceId - Optional resource instance ID.
-   * @param scope - Optional scope binding the check.
-   * @returns `true` when the permission map grants the combination.
-   */
+  /** Returns whether the map grants the action on the resource (optionally one instance, within a scope). */
   can(action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean {
     const key = iamBuildPermissionKey(action, resource, resourceId, scope)
     return iamPermissionGranted(this._permissions, key)
   }
 
-  /**
-   * Returns whether the action is denied on the resource.
-   *
-   * @param action - Specifies the action being checked.
-   * @param resource - Specifies the resource type.
-   * @param resourceId - Optional resource instance ID.
-   * @param scope - Optional scope binding the check.
-   * @returns `true` when the permission map does not grant the combination.
-   */
+  /** Negation of {@link IamAccessClient.can}. */
   cannot(action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean {
     return !this.can(action, resource, resourceId, scope)
   }
 
-  /**
-   * Replaces the current permission map and notifies subscribers.
-   *
-   * Listener errors are caught so one failing handler cannot block others.
-   *
-   * @param permissions - Provides the new permission map.
-   * @returns Nothing.
-   */
+  /** Replaces the permission map and notifies subscribers; a throwing listener does not block the others. */
   update(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>): void {
-    // Copied in, for the reason the constructor copies. Listeners still receive
-    // the caller's own object: whatever a listener does to it is between the
-    // listener and the caller, and it can no longer reach what this client
-    // decides from.
+    // Copied in, as in the constructor. Listeners get the caller's object, which cannot reach the stored map.
     this._permissions = { ...permissions }
     for (const fn of this._listeners) {
       try {
@@ -169,20 +116,13 @@ export class IamAccessClient<
     }
   }
 
-  /**
-   * Shallow-merges the given map into the current permissions and notifies subscribers.
-   *
-   * @param permissions - Provides the partial permission patch.
-   * @returns Nothing.
-   */
+  /** Shallow-merges the given map into the current permissions and notifies subscribers. */
   merge(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>): void {
     this.update({ ...this._permissions, ...permissions })
   }
 
   /**
    * Registers a listener to run on every permission change.
-   *
-   * @param fn - Listener invoked with the new permission map.
    * @returns An unsubscribe function.
    */
   subscribe(fn: Listener<TAction, TResource, TScope>): () => void {
@@ -191,26 +131,14 @@ export class IamAccessClient<
   }
 
   /**
-   * Lists every action allowed against the given resource type.
-   *
-   * Keys not produced by `iamBuildPermissionKey` are ignored. Returns `string[]`
-   * rather than `TAction[]`: see {@link iamAllowedActions} for why re-asserting
-   * the caller's union over unvalidated server JSON is not a claim this class
-   * can honestly make.
-   *
-   * @param resource - Specifies the resource type to filter by.
-   * @returns Deduplicated array of actions allowed on `resource`.
+   * Lists the deduplicated actions granted on `resource`, ignoring keys not built by `iamBuildPermissionKey`.
+   * Returns `string[]`, not `TAction[]`, because the map is unvalidated JSON; see {@link iamAllowedActions}.
    */
   allowedActions(resource: TResource): string[] {
     return iamAllowedActions(this._permissions, resource)
   }
 
-  /**
-   * Returns whether at least one action is allowed on the resource.
-   *
-   * @param resource - Specifies the resource type to probe.
-   * @returns `true` when any granted key targets the resource.
-   */
+  /** Returns whether at least one action is granted on the resource. */
   hasAnyOn(resource: TResource): boolean {
     return iamHasAnyOn(this._permissions, resource)
   }

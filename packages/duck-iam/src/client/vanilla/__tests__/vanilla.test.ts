@@ -178,7 +178,10 @@ describe('IamAccessClient.fromServer', () => {
     const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('/api/permissions')
     expect(init.method).toBe('POST')
-    expect(init.headers).toEqual({ 'Content-Type': 'application/json', Authorization: 'Bearer t' })
+    expect([...new Headers(init.headers)]).toEqual([
+      ['authorization', 'Bearer t'],
+      ['content-type', 'application/json'],
+    ])
   })
 
   it('lets the caller override Content-Type', async () => {
@@ -188,7 +191,27 @@ describe('IamAccessClient.fromServer', () => {
     await IamAccessClient.fromServer('/api/permissions', { headers: { 'Content-Type': 'text/plain' } })
 
     const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
-    expect(init.headers).toEqual({ 'Content-Type': 'text/plain' })
+    expect([...new Headers(init.headers)]).toEqual([['content-type', 'text/plain']])
+  })
+
+  it('keeps headers given as a Headers instance', async () => {
+    const spy = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    globalThis.fetch = spy as unknown as typeof fetch
+
+    await IamAccessClient.fromServer('/api/permissions', { headers: new Headers({ Authorization: 'Bearer t' }) })
+
+    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+    expect(new Headers(init.headers).get('authorization')).toBe('Bearer t')
+  })
+
+  it('keeps headers given as a list of pairs', async () => {
+    const spy = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    globalThis.fetch = spy as unknown as typeof fetch
+
+    await IamAccessClient.fromServer('/api/permissions', { headers: [['Authorization', 'Bearer t']] })
+
+    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+    expect(new Headers(init.headers).get('authorization')).toBe('Bearer t')
   })
 
   it('throws with the status code on a non-2xx response', async () => {

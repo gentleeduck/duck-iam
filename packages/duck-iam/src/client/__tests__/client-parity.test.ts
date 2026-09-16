@@ -5,23 +5,10 @@ import { createIamAccessControl, createIamPermissionChecker, type IamReactClient
 import { IamAccessClient } from '../vanilla'
 import { createIamVueAccess } from '../vue'
 
-/**
- * `SECURITY.md` treats the three client entry points as one supported surface
- * and the module docstrings present them as the same feature in three
- * frameworks. They were not: map introspection existed only on the vanilla
- * class, Vue had no async path at all, and a missing provider was a hard error
- * in Vue and a silent deny in React - the same wiring bug, loud in one
- * framework and invisible in the other, where "invisible" looks exactly like a
- * correctly-configured user with no permissions.
- *
- * This file drives one map through all three and compares the answers.
- */
+// Drives one map through the React, Vue, and vanilla clients and compares the answers,
+// since `SECURITY.md` treats the three as one supported surface.
 
-/**
- * Deliberately typed with the default (`string`) parameters: this is
- * unvalidated server JSON, and the escaped key below is not expressible in the
- * narrowed template-literal type at all.
- */
+/** Default `string` params: this is unvalidated server JSON, and the escaped key has no narrowed type. */
 const MAP: IamClient.PartialPermissionMap = {
   '@org-1:read:post': true,
   'delete:post': true,
@@ -34,12 +21,7 @@ const MAP: IamClient.PartialPermissionMap = {
   'write:post': false,
 }
 
-/**
- * Narrows what the fake React captured. A real check of every member, not an
- * assertion: the point of these tests is that the default context has all four
- * and that each one reports the missing provider, so a fake that quietly handed
- * back a two-member object must not pass.
- */
+/** Narrows what the fake React captured, checking every member so a partial context cannot pass. */
 function isContextValue(value: unknown): value is IamReactClient.IContextValue {
   if (typeof value !== 'object' || value === null) return false
   for (const member of ['can', 'cannot', 'allowedActions', 'hasAnyOn']) {
@@ -65,15 +47,12 @@ function makeReact() {
       return null
     },
     useContext: <T>(_context: { Provider: unknown }): T => {
-      // This fake reads the captured values directly; nothing under test needs
-      // a working `useContext`, and a silent `undefined` here would make the
-      // assertions below pass for the wrong reason.
+      // Tests read captured values instead; a silent `undefined` here would pass assertions for the wrong reason.
       throw new Error('fake React: read contextDefault()/providedValue() instead of useContext()')
     },
     useEffect: () => undefined,
     useMemo: <T>(factory: () => T): T => factory(),
-    // Only `usePermissions` uses state, and nothing in this file drives it.
-    // Throwing beats a stub that silently freezes state at its initial value.
+    // Only `usePermissions` uses state and nothing here drives it; throw rather than freeze state.
     useState: <T>(_initialState: T | (() => T)): [T, (value: T | ((prev: T) => T)) => void] => {
       throw new Error('fake React: usePermissions is not exercised here')
     },
@@ -153,10 +132,7 @@ describe('the three clients answer the same map identically', () => {
     })
   }
 
-  // `allowedActions` and `hasAnyOn` lived on the vanilla class alone. A React or
-  // Vue consumer who wanted them wrote `key.split(':')`, which reads `@org-1`
-  // as the action, `b` as the resource of `read:a\:b`, and `42` as a resource
-  // of its own.
+  // A naive `key.split(':')` reads `@org-1` as an action and `b` or `42` as resources; no client may.
   const INTROSPECTION: ReadonlyArray<{ actions: string[]; any: boolean; resource: string }> = [
     { actions: ['delete', 'read'], any: true, resource: 'post' },
     { actions: ['read'], any: true, resource: 'comment' },
@@ -175,20 +151,13 @@ describe('the three clients answer the same map identically', () => {
   }
 })
 
-/**
- * Parses a map the way one actually arrives - as a JSON body from an endpoint
- * nothing in this package validates - so these tests can hand the clients the
- * values a `boolean`-typed map cannot express.
- */
+/** Parses a map as it arrives (unvalidated JSON), so tests can pass values a `boolean` map type cannot express. */
 function fromJson(json: string): IamClient.PartialPermissionMap {
   return JSON.parse(json)
 }
 
 describe('a grant is the boolean `true`, never merely truthy', () => {
-  // The string "false" is a plausible thing for a server or a config layer to
-  // emit, and it is truthy. So are `1` and `{}`. Reading any of them as a grant
-  // is a fail-open, and it reads that way in `can()` and in `allowedActions()`
-  // alike - the second being the one that used to exist on a single client.
+  // `"false"`, `1`, and `{}` are truthy; reading any of them as a grant fails open in `can()` and `allowedActions()`.
   const HOSTILE = fromJson('{"read:post":"false","write:post":1,"admin:post":{},"delete:post":true}')
 
   function hostileSurfaces() {
@@ -259,8 +228,7 @@ describe('react reports a missing provider the way vue does', () => {
     expect(ctx.permissions).toEqual({})
   })
 
-  // A raw-browser bundle that never shimmed `process` gives no signal at all.
-  // Denying is the only safe reading; throwing out of a render is not.
+  // Without an explicit development signal, deny rather than throw out of a render.
   it('denies rather than throws when there is no signal', () => {
     process.env.NODE_ENV = 'test'
     const { React, contextDefault } = makeReact()
@@ -301,9 +269,7 @@ describe('vue has an async path with the same shape react has', () => {
     expect(state.hasAnyOn('post')).toBe(true)
   })
 
-  // G/S-1, reproduced in the framework that had no async path: the hand-rolled
-  // version keeps the previous subject's grants through the whole in-flight
-  // window and keeps them forever if the refetch fails.
+  // The previous subject's grants must not survive an in-flight or failed refetch.
   it('drops the previous subject the moment a refetch starts', async () => {
     const { usePermissions } = createIamVueAccess(makeVue())
     let current: IamClient.PartialPermissionMap = { 'delete:post': true }
@@ -337,8 +303,7 @@ describe('vue has an async path with the same shape react has', () => {
     expect(state.loading.value).toBe(false)
   })
 
-  // A monotonic run id, not a `cancelled` flag: two loads can overlap, and the
-  // slow *earlier* one must not land on top of the fast later one.
+  // Two loads overlap and the slow earlier one resolves last; it must not win.
   it('a superseded slow fetch never overwrites a newer one', async () => {
     const { usePermissions } = createIamVueAccess(makeVue())
     const gates: Array<(map: IamClient.PartialPermissionMap) => void> = []
