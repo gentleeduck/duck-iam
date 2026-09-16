@@ -4,11 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamDevtools } from '../iam-devtools-panel'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
-/**
- * Compatibility shim: bun's test runner doesn't ship `vi.stubGlobal`. Track
- * stubbed keys ourselves so the afterEach block can restore them when the
- * vitest helpers are absent.
- */
+/** `vi.stubGlobal` fallback for bun's test runner, which lacks it; tracks stubs so `afterEach` can restore them. */
 const _stubbedGlobals: Array<{ key: PropertyKey; prior: unknown; had: boolean }> = []
 function stubGlobalCompat(key: string, value: unknown): void {
   const helper = (vi as { stubGlobal?: (k: string, v: unknown) => void }).stubGlobal
@@ -34,11 +30,7 @@ function unstubAllCompat(): void {
   }
 }
 
-/**
- * Build a minimal `IamIDevtoolsEngine`-shaped object carrying an optional `mode`.
- * Methods reject so any panel that slips past the guard would fail loudly in
- * a test; the guard tests below assert nothing slips past.
- */
+/** Mock engine with an optional `mode`; `can`, `explain` and `admin.*` throw, so a guard bypass fails loudly. */
 function makeMockEngine(mode?: 'production' | 'development'): IamIDevtoolsEngine {
   const trap = (label: string) => () => {
     throw new Error(`engine.${label} should not be called when devtools is guarded`)
@@ -89,10 +81,7 @@ describe('IamDevtools production guard', () => {
     process.env.NODE_ENV = 'development'
     const engine = makeMockEngine('development')
     const html = renderToString(React.createElement(IamDevtools, { engine, hideButton: true }))
-    // hideButton suppresses the floating launcher; the panel itself is unmounted
-    // until `open` flips. A non-production guard still allows the component to
-    // mount (returning the empty fragment for closed state), so output must not
-    // be the bare `null` we'd get from the guard.
+    // Closed with `hideButton` renders nothing either way; the launcher check below is the real assertion.
     expect(typeof html).toBe('string')
     // With the launcher visible we get a wrapper div; verify that path too.
     const open = renderToString(React.createElement(IamDevtools, { engine }))
@@ -114,9 +103,7 @@ describe('IamDevtools production guard', () => {
   })
 
   it('BLOCKS when `process` is undefined AND engine mode is unset (default-block)', () => {
-    // Previous fail-open path: no NODE_ENV + no engine.mode -> rendered.
-    // New default-block path: absence of any positive `development` signal
-    // means the panel never mounts.
+    // No positive development signal on either side means the panel never mounts.
     stubGlobalCompat('process', undefined)
     const engine = makeMockEngine(undefined)
     const html = renderToString(React.createElement(IamDevtools, { engine, initialIsOpen: true }))
@@ -131,8 +118,7 @@ describe('IamDevtools production guard', () => {
   })
 
   it('BLOCKS when NODE_ENV is "test" and engine mode is unset', () => {
-    // Tests deliberately set NODE_ENV=test - without an engine positive
-    // signal the guard must still block.
+    // NODE_ENV=test is not a development signal.
     process.env.NODE_ENV = 'test'
     const engine = makeMockEngine(undefined)
     const html = renderToString(React.createElement(IamDevtools, { engine, initialIsOpen: true }))

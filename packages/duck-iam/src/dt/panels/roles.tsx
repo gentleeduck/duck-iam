@@ -8,11 +8,7 @@ import { isDevtoolsAllowed } from '../lib/guard'
 import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
-/**
- * Browses role definitions and their permissions, including what each role
- * inherits. Read-only; the counterpart to {@link IamPoliciesPanel} for the RBAC
- * half of the model.
- */
+/** Read-only browser for roles, their permissions and inheritance; the RBAC counterpart to {@link IamPoliciesPanel}. */
 export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   useIamDevtoolsStyles()
   const [roles, setRoles] = React.useState<AccessControl.IRole[]>([])
@@ -33,13 +29,7 @@ export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
     void load()
   }, [load])
 
-  // Below every hook, so the hook order is the same on both branches. The same
-  // guard `IamSubjectsPanel` runs, and for the same reason: `package.json`
-  // exports every panel individually under `./dt`, so rendering this one
-  // straight from `@gentleduck/iam/dt` is a supported thing to do, and it
-  // reaches the engine with no check anywhere in its path. `isDevtoolsAllowed`
-  // is idempotent and cheap, so running it again under `IamDevtools` costs
-  // nothing; running it zero times cost the whole protection.
+  // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
   if (!isDevtoolsAllowed(engine)) return null
 
   const filtered = roles.filter(

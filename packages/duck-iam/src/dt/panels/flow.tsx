@@ -46,12 +46,8 @@ function SubjectChip({ id }: { id: string }) {
 }
 
 /**
- * The live decision log: every check the recorder captured, newest first, with
- * allow/deny filters and a detail pane for the selected entry.
- *
- * Driven entirely by the {@link IamIFlowRecorder} the consumer wired to the
- * engine's `afterEvaluate` hook - this panel never asks the engine anything,
- * so opening it cannot itself perturb what it is measuring.
+ * The live decision log from an {@link IamIFlowRecorder}: newest first, with allow/deny filters and a detail pane.
+ * Never calls the engine, so opening it cannot perturb what it measures.
  */
 export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
   useIamDevtoolsStyles()

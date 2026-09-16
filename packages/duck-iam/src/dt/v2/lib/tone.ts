@@ -1,20 +1,6 @@
 /**
- * The one place v2 decides what a verdict looks like.
- *
- * v1 owns its whole palette as `--iam-dt-*` custom properties, so it renders
- * identically wherever it is mounted. v2 makes the opposite trade on purpose:
- * chrome - surfaces, borders, body text, focus rings - comes from the host's
- * duck-ui tokens (`bg-card`, `border-border`, `text-muted-foreground`, `ring`),
- * so the panel looks like the app it is docked into rather than like a
- * foreign window.
- *
- * Semantic colour cannot come from there. duck-ui ships `destructive` and
- * `warning` but has no success token, and "the rule allowed this" is not a
- * shade a theme gets to reinterpret - an allow that renders in the host's
- * primary hue is unreadable next to a deny that renders in the same one. So
- * the five decision tones below are pinned to Tailwind's own palette, which
- * exists in every Tailwind build without the host defining anything, and each
- * carries a `dark:` partner so it stays legible on both grounds.
+ * The verdict tones v2 renders in. Chrome uses the host's duck-ui tokens; this is the one place verdicts get colour.
+ * NOTE: duck-ui has no success token, so allow, warn and info are pinned to Tailwind's palette with `dark:` partners.
  */
 export type IamV2Tone = 'allow' | 'deny' | 'warn' | 'info' | 'neutral'
 
@@ -46,12 +32,8 @@ const DOT: Record<IamV2Tone, string> = {
 }
 
 /**
- * The filled part of a duck-ui `Progress`.
- *
- * `Progress` paints its indicator `bg-primary` and exposes no slot for it, so
- * the tone is applied through the child selector. Same colours as {@link DOT},
- * separately named because the two would drift the moment either grew a
- * variant the other did not need.
+ * Indicator fill for a duck-ui `Progress`, set via a child selector since it hard-codes `bg-primary` with no slot.
+ * Same colours as {@link DOT}, kept separate so either can grow a variant alone.
  */
 const TRACK: Record<IamV2Tone, string> = {
   allow: '[&>div]:bg-emerald-500',
@@ -86,12 +68,7 @@ export function iamV2Decision(allowed: boolean): IamV2Tone {
   return allowed ? 'allow' : 'deny'
 }
 
-/**
- * Syntax colours for the two halves of a request. An action and a resource
- * type sit next to each other on nearly every row in the devtool, and reading
- * `read on post` as two words rather than one phrase is most of what makes the
- * flow list scannable.
- */
+/** Distinct colours for action and resource type, which sit side by side on most rows. */
 export const IAM_V2_ACTION = 'text-sky-700 dark:text-sky-300'
 export const IAM_V2_RESOURCE = 'text-orange-700 dark:text-orange-300'
 /** Monospace run used for every id, action, resource and rule name. */

@@ -11,11 +11,7 @@ import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDecisionInput, IamIDevtoolsEngine } from '../lib/types'
 import { IamTraceTree } from './trace-tree'
 
-/**
- * The environment bag is a free-form record, not an attribute bag, so it gets
- * the weaker check: an object that is neither `null` nor an array. `[1,2]` and
- * `"hello"` are valid JSON and neither is an environment.
- */
+/** Narrows parsed JSON to a plain object (not `null`, not an array) for the free-form environment bag. */
 function narrowRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
   const out: Record<string, unknown> = {}
@@ -34,12 +30,8 @@ const INITIAL: IamIDecisionInput = {
 }
 
 /**
- * Runs an ad-hoc authorization check and renders the full trace of why it came
- * out that way, via {@link IamTraceTree}.
- *
- * Calls `engine.explain()` rather than `can()` - the point is the reasoning,
- * not the boolean. The attribute and environment boxes are free-text JSON, so a
- * parse error is shown next to the field instead of failing the request.
+ * Runs an ad-hoc `engine.explain()` and renders the trace via {@link IamTraceTree}.
+ * Invalid JSON in the attribute or environment box is shown as an error instead of being sent.
  */
 export function IamDecisionInspector({
   engine,
@@ -54,13 +46,7 @@ export function IamDecisionInspector({
   const [error, setError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
 
-  // Below every hook, so the hook order is the same on both branches. The same
-  // guard `IamSubjectsPanel` runs, and for the same reason: `package.json`
-  // exports every panel individually under `./dt`, so rendering this one
-  // straight from `@gentleduck/iam/dt` is a supported thing to do, and it
-  // reaches the engine with no check anywhere in its path. `isDevtoolsAllowed`
-  // is idempotent and cheap, so running it again under `IamDevtools` costs
-  // nothing; running it zero times cost the whole protection.
+  // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
   if (!isDevtoolsAllowed(engine)) return null
 
   const update = (patch: Partial<IamIDecisionInput>) => setInput((s) => ({ ...s, ...patch }))
@@ -73,20 +59,13 @@ export function IamDecisionInspector({
       const env = safeParseJson(input.environmentJson)
       if (attrs.error) throw new Error(`attributes JSON: ${attrs.error}`)
       if (env.error) throw new Error(`environment JSON: ${env.error}`)
-      // Parsed, then narrowed. Valid JSON is not an attribute bag: `[1,2]` and
-      // `"hello"` both parse, and both used to arrive at `engine.explain` under
-      // the type the call site asked for.
+      // Valid JSON is not necessarily an attribute bag (`[1,2]` parses too), so narrow it.
       const attributes = attrs.value === undefined ? {} : iamNarrowAttributes(attrs.value)
       if (attributes === null) throw new Error('attributes JSON: expected an object of scalar values')
       const environment = env.value === undefined ? {} : narrowRecord(env.value)
       if (environment === null) throw new Error('environment JSON: expected an object')
       const resource = { type: input.resourceType, id: input.resourceId || undefined, attributes }
-      // Positionally, not folded into the environment bag. `scope` was smuggled
-      // in as `environment.scope`, which nothing reads: the panel rendered a
-      // confident trace whose own `request.scope` row said `undefined` and
-      // whose `scopedRolesApplied` was empty, so an operator debugging a scoped
-      // grant was shown DENY for a request the engine allows - and the obvious
-      // repair is to widen the policy.
+      // NOTE: `scope` must be the 5th argument; the engine never reads `environment.scope`.
       const trace = await engine.explain(input.subjectId, input.action, resource, environment, input.scope || undefined)
       setResult(trace)
     } catch (err) {

@@ -24,7 +24,7 @@ import {
 import { IamV2Json } from '../components/json-view'
 import { IAM_V2_ACTION, IAM_V2_MONO, IAM_V2_RESOURCE } from '../lib/tone'
 
-/** One granted permission. Expandable only when it carries scope or conditions. */
+/** One granted permission; expandable only when it has conditions. */
 function PermissionRow({ permission }: { permission: AccessControl.IPermission }) {
   const hasDetail = Boolean(permission.conditions)
   return (
@@ -44,12 +44,7 @@ function PermissionRow({ permission }: { permission: AccessControl.IPermission }
   )
 }
 
-/**
- * Browses role definitions, their permissions and what each one inherits.
- *
- * Read-only - the RBAC counterpart to {@link IamPoliciesPanelV2}. Assigning
- * and revoking lives in the Subjects panel, which is the one that writes.
- */
+/** Read-only browser for roles, their permissions and inheritance. Assignment lives in the Subjects panel. */
 export function IamRolesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
   const [roles, setRoles] = React.useState<AccessControl.IRole[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)
@@ -73,7 +68,7 @@ export function IamRolesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
     void load()
   }, [load])
 
-  // Below every hook. The whole role catalog is behind this call.
+  // Below every hook; guards the whole role catalog.
   if (!isDevtoolsAllowed(engine)) return null
 
   const query = filter.trim().toLowerCase()

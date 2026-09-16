@@ -7,21 +7,14 @@ import { isDevtoolsAllowed } from './lib/guard'
 import { GENTLEDUCK_LOGO_DATA_URL } from './lib/logo'
 import { iamDevtoolsThemeAttr, useIamDevtoolsStyles } from './lib/styles'
 
-/** Where the floating launcher sits. `'relative'` drops it into normal flow instead, for embedding it in a toolbar of your own. */
+/** Where the floating launcher sits; `'relative'` renders it in normal flow, e.g. inside your own toolbar. */
 export type ButtonPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'relative'
 /** Which edge the panel docks to. Cycled through by the dock button in `PANEL_POSITIONS` order. */
 export type PanelPosition = 'top' | 'bottom' | 'left' | 'right'
 
 /**
- * Props for `IamDevtools` - the launcher button plus the dockable panel around
- * {@link IamDevtoolsInner}. Extends the inner props, so everything the panels
- * need is passed straight through.
- *
- * All presentation: which edge to dock to, where the button sits, whether to
- * render the button at all (`hideButton`, for driving open state yourself), and
- * the `localStorage` key prefix under which the open/dock/size state persists -
- * set `storagePrefix` when two devtools instances share a page, or they fight
- * over the same keys.
+ * Props for `IamDevtools`: the launcher button plus the dockable panel around {@link IamDevtoolsInner}.
+ * NOTE: give each instance on a page its own `storagePrefix`, or they share persisted open/dock/size state.
  */
 export interface IIamDevtoolsProps extends IIamDevtoolsInnerProps {
   initialIsOpen?: boolean
@@ -56,14 +49,8 @@ function isPanelSize(value: unknown): value is number {
 }
 
 /**
- * Reads one persisted panel preference, validating what it finds.
- *
- * `JSON.parse` returns `any`, and this handed it straight back as the `T` the
- * call site named. localStorage is editable, shared across every page of the
- * origin, and survives a version upgrade, so a stale or hand-edited entry put a
- * string into `size` (`NaN` into a CSS length, panel collapsed) or an arbitrary
- * value into `position` (no matching dock class, panel rendered off-screen).
- * Each reader now proves the shape it wants and falls back otherwise.
+ * Reads one persisted panel preference, falling back when it is missing or fails `isValid`.
+ * NOTE: localStorage is user-editable and outlives upgrades, so the parsed value is never trusted.
  */
 function loadState<T>(key: string, isValid: (value: unknown) => value is T, fallback: T): T {
   if (typeof window === 'undefined') return fallback
@@ -83,11 +70,7 @@ function saveState(key: string, value: unknown) {
   } catch {}
 }
 
-/**
- * How large the panel may get on the axis its dock edge constrains - 90% of
- * that viewport dimension. Falls back to the default size under SSR, where
- * there is no viewport to measure and nothing is on screen to measure against.
- */
+/** Max panel size along the dock axis: 90% of the viewport, at least `MIN_SIZE`, and `DEFAULT_SIZE` under SSR. */
 function viewportLimit(position: PanelPosition): number {
   if (typeof window === 'undefined') return DEFAULT_SIZE
   const axis = position === 'left' || position === 'right' ? window.innerWidth : window.innerHeight
@@ -106,8 +89,8 @@ function panelHidden(position: PanelPosition): string {
   return 'translateX(-100%)'
 }
 
-// Hard-no in production. No escape hatch - see lib/guard.ts. Guard sits in
-// a thin wrapper so the inner component's hook order stays unconditional.
+// SECURITY: renders nothing unless `isDevtoolsAllowed` passes; no escape hatch (see lib/guard.ts).
+// NOTE: the guard lives in this wrapper so the inner component's hook order stays unconditional.
 export function IamDevtools(props: IIamDevtoolsProps) {
   if (!isDevtoolsAllowed(props.engine)) return null
   return <IamDevtoolsImpl {...props} />
@@ -135,17 +118,7 @@ function IamDevtoolsImpl({
   const [position, setPosition] = React.useState<PanelPosition>(() =>
     loadState(posKey, isPanelPosition, positionProp ?? 'bottom'),
   )
-  /**
-   * The largest the panel may grow to, in px.
-   *
-   * Held in state rather than read from `window` at each use because the
-   * resize handle reports it as `aria-valuemax`: a focusable `separator` is a
-   * window-splitter widget, and a widget that announces a position has to
-   * announce the scale that position is on. Recomputed when the dock edge
-   * changes (the limiting dimension flips between width and height) and when
-   * the viewport does; seeded lazily so an SSR render has a number instead of
-   * touching `window`.
-   */
+  // Max panel size in px, held in state because the resize handle renders it as `aria-valuemax`.
   const [maxSize, setMaxSize] = React.useState<number>(() => viewportLimit(positionProp ?? 'bottom'))
   const dragRef = React.useRef<{ start: number; size: number; axis: 'x' | 'y' } | null>(null)
   const launcherRef = React.useRef<HTMLButtonElement | null>(null)
@@ -184,16 +157,7 @@ function IamDevtoolsImpl({
     }
   }, [open])
 
-  /**
-   * Escape closes the panel, and focus goes back to the launcher that opened
-   * it.
-   *
-   * The overlay covers a slice of the host app and used to be dismissable only
-   * by finding and clicking one 28px button, which for a keyboard user meant
-   * tabbing through every control in whichever panel was open. The listener is
-   * on `document` because focus may legitimately sit inside the panel, on the
-   * launcher, or nowhere at all.
-   */
+  // Escape closes the panel and refocuses the launcher. Listens on `document`, since focus may be anywhere.
   React.useEffect(() => {
     if (!open) return
     const onKeyDown = (e: KeyboardEvent) => {
@@ -235,14 +199,7 @@ function IamDevtoolsImpl({
     } catch {}
   }
 
-  /**
-   * The resize edge from the keyboard.
-   *
-   * A focusable `separator` is the window-splitter role, and a role that
-   * claims an operation it only supports through `pointerdown` is a worse lie
-   * than no role at all. Grow and shrink rather than left and right, because
-   * which arrow enlarges the panel depends on which edge it is docked to.
-   */
+  // Keyboard resizing for the focusable `separator`; which arrow grows the panel depends on the dock edge.
   const onResizeKeyDown = (e: React.KeyboardEvent) => {
     const grows = position === 'bottom' || position === 'right' ? -1 : 1
     const step = e.key === 'PageUp' || e.key === 'PageDown' ? KEY_RESIZE_STEP * 10 : KEY_RESIZE_STEP
@@ -264,9 +221,7 @@ function IamDevtoolsImpl({
   const cycleDock = () => {
     const idx = PANEL_POSITIONS.indexOf(position)
     const next = PANEL_POSITIONS[(idx + 1) % PANEL_POSITIONS.length]
-    // A `readonly PanelPosition[]` index is `PanelPosition | undefined` under
-    // `noUncheckedIndexedAccess`; the modulo makes it always defined, so the
-    // guard costs nothing and the cast goes away.
+    // `noUncheckedIndexedAccess` types the index as possibly undefined; the modulo keeps it defined, so no cast.
     if (next !== undefined) setPosition(next)
   }
 

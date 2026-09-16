@@ -3,15 +3,8 @@ import type { AccessControl, IamPrimitives } from '../../core/types'
 import type { IamMetrics } from '../../observability/metrics'
 
 /**
- * Minimal engine surface the devtool relies on. Lets consumers pass any
- * concrete `Engine<...>` without variance issues.
- *
- * Narrower than the real engine is the point, but narrower in the wrong place
- * hides drift: this interface once declared four parameters for `can`/`explain`
- * where the engine takes five, so the Decision Inspector's `scope` box could
- * not reach `scope` at all and the compiler had nothing to object to. Only the
- * 5th positional argument drives `enrichSubjectWithScopedRoles`; nothing ever
- * reads `environment.scope`.
+ * Minimal engine surface the devtools rely on, so any concrete `Engine<...>` fits without variance issues.
+ * WARN: keep `can`/`explain` in step with the engine; `scope` is the 5th argument, never `environment.scope`.
  */
 export interface IamIDevtoolsEngine {
   can(
@@ -28,15 +21,7 @@ export interface IamIDevtoolsEngine {
     environment?: Record<string, unknown>,
     scope?: string,
   ): Promise<Explain.IResult>
-  /**
-   * The engine's observability facet, as an object - not the flat
-   * `stats()` / `resetStats()` methods it replaced in 3.0.0. Declaring the
-   * removed shape here meant the Telemetry panel called `engine.stats()` on a
-   * property that is an object, so opening it against any real engine threw
-   * `engine.stats is not a function` from a `useState` initializer and took the
-   * whole devtools panel down with it. Every devtools test hands in a
-   * hand-rolled mock implementing the dead shape, so nothing noticed.
-   */
+  /** The engine's observability facet: an object with `get`/`reset`, not methods on the engine. */
   stats: {
     get(): Record<string, { hits: number; misses: number; size: number }>
     reset(): void
@@ -54,21 +39,15 @@ export interface IamIDevtoolsEngine {
   }
 }
 
-/**
- * The metrics aggregator as the Telemetry panel needs it. Structural rather
- * than an import of the concrete aggregator so a consumer can hand in their
- * own - the panel only ever reads a snapshot and offers a reset button.
- */
+/** The metrics aggregator as the Telemetry panel needs it; structural, so consumers can pass their own. */
 export interface IamIDevtoolsMetrics {
   snapshot(): IamMetrics.ISnapshot
   reset(): void
 }
 
 /**
- * The Decision Inspector's form state. Every field is a string, including the
- * two JSON boxes, because this is what the user is currently typing - half-typed
- * JSON has to be a legal state of the form, so parsing happens at submit and a
- * syntax error is shown rather than thrown.
+ * The Decision Inspector's form state. All strings, including the JSON boxes, so half-typed JSON is a legal state;
+ * parsing happens on submit.
  */
 export interface IamIDecisionInput {
   subjectId: string
@@ -80,5 +59,5 @@ export interface IamIDecisionInput {
   scope: string
 }
 
-/** Which devtools panel is open. Also the persisted key, so renaming one resets the user's last tab. */
+/** Which devtools panel is open. */
 export type IamPanelKey = 'flow' | 'decision' | 'policies' | 'roles' | 'subjects' | 'metrics'

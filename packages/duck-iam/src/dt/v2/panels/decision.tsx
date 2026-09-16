@@ -27,11 +27,7 @@ import { IamV2Json } from '../components/json-view'
 import { IAM_V2_ACTION, IAM_V2_MONO, IAM_V2_RESOURCE, iamV2Decision } from '../lib/tone'
 import { IamTraceTreeV2 } from './trace'
 
-/**
- * The environment bag is a free-form record, not an attribute bag, so it gets
- * the weaker check: an object that is neither `null` nor an array. `[1,2]` and
- * `"hello"` are both valid JSON and neither is an environment.
- */
+/** The environment is a free-form record, so it only has to be a non-null, non-array object. */
 function narrowRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
   const out: Record<string, unknown> = {}
@@ -62,13 +58,8 @@ function Box({ children, id, label }: { children: React.ReactNode; id: string; l
 }
 
 /**
- * Runs an ad-hoc authorization check and renders the full trace of why it came
- * out that way, through {@link IamTraceTreeV2}.
- *
- * Calls `engine.explain()` rather than `can()` - the reasoning is the point,
- * not the boolean. Both JSON boxes are free text, so a half-typed object is a
- * legal state of the form and parsing happens at submit, with the error shown
- * beside the button rather than thrown.
+ * Runs an ad-hoc check through `engine.explain()` and renders the trace with {@link IamTraceTreeV2}.
+ * The JSON boxes are parsed on submit, and parse errors are rendered rather than thrown.
  */
 export function IamDecisionInspectorV2({
   defaults,
@@ -83,22 +74,13 @@ export function IamDecisionInspectorV2({
   const [pending, setPending] = React.useState(false)
   const fieldId = React.useId()
 
-  // Below every hook, so the hook order is the same on both branches. The
-  // guard runs here and not only in the shell for the reason v1 documents:
-  // `package.json` exports every panel individually, so mounting this one
-  // straight from `@gentleduck/iam/dt/v2` is a supported thing to do, and it
-  // reaches `engine.explain` - an oracle for any subject - with no check
-  // anywhere else in its path.
+  // SECURITY: guarded here too, since the panel is exported alone and `engine.explain` answers for any subject.
+  // Below every hook so hook order is stable.
   if (!isDevtoolsAllowed(engine)) return null
 
   const update = (patch: Partial<IamIDecisionInput>) => setInput((state) => ({ ...state, ...patch }))
 
-  /**
-   * Cmd/Ctrl+Enter evaluates from anywhere in the form.
-   *
-   * Not a plain Enter: two of the six controls are textareas holding JSON, and
-   * a newline is a legitimate keystroke in both.
-   */
+  // Cmd/Ctrl+Enter evaluates; plain Enter stays a newline in the JSON textareas.
   const onFormKeyDown = (event: React.KeyboardEvent) => {
     if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
     event.preventDefault()
@@ -113,15 +95,12 @@ export function IamDecisionInspectorV2({
       const env = safeParseJson(input.environmentJson)
       if (attrs.error) throw new Error(`attributes JSON: ${attrs.error}`)
       if (env.error) throw new Error(`environment JSON: ${env.error}`)
-      // Parsed, then narrowed. Valid JSON is not an attribute bag, and this
-      // value is about to be handed to the engine as one.
+      // Valid JSON is not necessarily an attribute bag, so narrow before the engine sees it.
       const attributes = attrs.value === undefined ? {} : iamNarrowAttributes(attrs.value)
       if (attributes === null) throw new Error('attributes JSON: expected an object of scalar values')
       const environment = env.value === undefined ? {} : narrowRecord(env.value)
       if (environment === null) throw new Error('environment JSON: expected an object')
-      // `scope` goes in positionally. Folded into the environment bag it is
-      // read by nothing, and the panel then shows a confident DENY for a
-      // request the engine allows.
+      // NOTE: pass `scope` positionally; nothing reads it from the environment bag, so it would show a false deny.
       const trace = await engine.explain(
         input.subjectId,
         input.action,
@@ -182,8 +161,7 @@ export function IamDecisionInspectorV2({
           <>
             <IamV2PaneHeader actions={<IamV2Hint keys={['⌘', '↵']}>evaluate</IamV2Hint>} title="Request" />
             <IamV2PaneBody className="gap-3">
-              {/* One `FieldGroup`, so the whole form shares duck-ui's field
-                  rhythm and one keydown handler carries the shortcut. */}
+              {/* One `FieldGroup` so the form shares duck-ui's field spacing and a single shortcut handler. */}
               <FieldGroup className="gap-3" onKeyDown={onFormKeyDown}>
                 <Box id={`${fieldId}-subject`} label="subject id">
                   <Input

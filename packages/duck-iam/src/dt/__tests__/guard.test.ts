@@ -40,14 +40,7 @@ afterEach(() => {
   process.env.NODE_ENV = original
 })
 
-/**
- * The panel is not read-only: it calls `assignRole`, `revokeRole` and
- * `setAttributes` with no auth of its own. `NODE_ENV=production` always
- * blocked, but the asymmetry ran one way - `NODE_ENV=development` beat an
- * explicit `mode: 'production'` engine, so a staging box left on
- * `NODE_ENV=development` mounted an unauthenticated role-assignment UI over a
- * production engine.
- */
+// `NODE_ENV=development` must not override a production engine: the panels write with no auth of their own.
 describe('devtools guard: a production engine is an absolute block', () => {
   it('blocks a production engine even under NODE_ENV=development', () => {
     process.env.NODE_ENV = 'development'
@@ -74,11 +67,6 @@ describe('devtools guard: a production engine is an absolute block', () => {
     expect(isDevtoolsAllowed(Object.assign(baseEngine(), { config: { mode: 'production' } }))).toBe(false)
   })
 
-  // `isDevtoolsBlocked` used to live here as a "back-compat alias for external
-  // callers", marked `@deprecated` in favour of the function nothing called.
-  // `src/dt/index.ts` exported neither name and `package.json` publishes only
-  // `./dt`, so there were no external callers for it to serve; the two internal
-  // call sites now read `!isDevtoolsAllowed(...)`.
   it('blocks a production engine, which is what the two mount sites negate', () => {
     process.env.NODE_ENV = 'development'
     expect(isDevtoolsAllowed(engineInMode('production'))).toBe(false)

@@ -46,13 +46,7 @@ function relativeAge(ts: number, now: number): string {
 
 /**
  * One decision as a table row.
- *
- * The whole row is clickable, but the control is a real `button` in the first
- * cell stretched over the row with `after:absolute after:inset-0` - a `tr`
- * given a click handler is reachable by mouse only, and a `tr` given
- * `role="button"` lies about what it is. The button carries the row's summary
- * as its accessible name, because "read on post" is what a screen reader
- * should hear when it lands there, not "button".
+ * NOTE: a real `button` stretched over the row keeps it keyboard-reachable, which a clickable `tr` is not.
  */
 function FlowRow({
   active,
@@ -106,17 +100,8 @@ function FlowRow({
 }
 
 /**
- * The live decision log: every check the recorder captured, newest first, with
- * verdict filters and a detail pane for the selected entry.
- *
- * Driven entirely by the {@link IamIFlowRecorder} the consumer bound to the
- * engine's `afterEvaluate` hook, so opening the panel cannot itself perturb
- * what it is measuring - and so it takes no engine and carries no engine
- * guard, exactly like its v1 counterpart.
- *
- * The one panel laid out `side="end"`: its list is a data table rather than a
- * column of cards, so the table gets the flexible half and the detail the
- * fixed one.
+ * Live decision log from the {@link IamIFlowRecorder}, with verdict filters and a detail pane.
+ * Takes no engine, so it carries no devtools guard; `side="end"` gives the table the flexible column.
  */
 export function IamFlowPanelV2({ flow }: { flow: IamIFlowRecorder }) {
   const [entries, setEntries] = React.useState<readonly IamIFlowEntry[]>(() => flow.list())
@@ -166,9 +151,7 @@ export function IamFlowPanelV2({ flow }: { flow: IamIFlowRecorder }) {
         setCopied(true)
         setTimeout(() => setCopied(false), 1500)
       })
-      // Clipboard access is permission-gated and absent over plain http. A
-      // rejection here is the button not working, not a reason to throw an
-      // unhandled rejection into the host app's console.
+      // Clipboard is permission-gated and missing over plain http; swallow rather than leak an unhandled rejection.
       .catch(() => setCopied(false))
   }
 
@@ -281,10 +264,7 @@ export function IamFlowPanelV2({ flow }: { flow: IamIFlowRecorder }) {
               </div>
             ) : (
               <div className="min-h-0 flex-1 overflow-auto">
-                {/* Not a sticky header: `Table` puts its own `overflow-auto`
-                    wrapper between this scroller and the `thead`, and a sticky
-                    row inside an unconstrained scroll container never leaves
-                    the top of a page that does not scroll. */}
+                {/* No sticky header: `Table` wraps itself in its own `overflow-auto`, so `sticky` never engages. */}
                 <Table className="text-xs">
                   <TableHeader className="bg-card">
                     <TableRow className="border-border hover:bg-transparent">

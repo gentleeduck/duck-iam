@@ -1,9 +1,6 @@
 /**
- * One recorded authorization decision, as the Flow panel renders it: the
- * request that was asked, the answer, and - when the engine explained itself -
- * which policy and rule decided it. Flattened out of the engine's own request /
- * result types so the panel does not have to reach through nested objects, and
- * so a consumer can record from their own instrumentation.
+ * One recorded authorization decision, flattened for the Flow panel.
+ * Consumers can also record entries from their own instrumentation.
  */
 export interface IamIFlowEntry {
   id: number
@@ -24,9 +21,8 @@ export interface IamIFlowEntry {
 type IFlowRecordInput = Omit<IamIFlowEntry, 'id' | 'ts'> & { ts?: number }
 
 /**
- * The append-and-subscribe surface over the decision ring buffer. `record`
- * returns the stamped entry (with the `id` and `ts` it assigned) so a caller
- * can correlate; `subscribe` returns its own unsubscribe.
+ * Append-and-subscribe surface over the decision ring buffer.
+ * `record` returns the entry with its assigned `id` and `ts`; `subscribe` returns its unsubscribe.
  */
 export interface IamIFlowRecorder {
   record(entry: IFlowRecordInput): IamIFlowEntry
@@ -45,16 +41,10 @@ export interface IamIFlowRecorderOptions {
 const DEFAULT_BUFFER = 250
 
 /**
- * Builds the in-memory decision log the devtools Flow panel renders.
- *
- * Bind it to the engine's `afterEvaluate` hook and the panel fills itself; the
- * recorder holds the last `bufferSize` decisions in a ring buffer and notifies
- * subscribers on every write. Nothing is persisted and nothing leaves the
- * process - it is a debugging surface, and `IamDevtools` refuses to mount it
- * outside an explicit development build (see {@link isDevtoolsAllowed}).
+ * Builds the in-memory decision log the Flow panel renders; bind `record` to the engine's `afterEvaluate` hook.
+ * Keeps the last `bufferSize` entries in memory only and notifies subscribers on every write.
  *
  * @param options - `bufferSize` caps retained entries; must be a positive integer, defaults to 250.
- * @returns A recorder exposing `record`, `list`, `get`, `clear` and `subscribe`.
  * @throws RangeError when `bufferSize` is not a positive integer.
  * @example
  * ```ts
@@ -77,11 +67,8 @@ const DEFAULT_BUFFER = 250
  */
 export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): IamIFlowRecorder {
   const bufferSize = options.bufferSize ?? DEFAULT_BUFFER
-  // Same discipline as `iamCreateMetricsAggregator`'s `sampleSize`. Unchecked,
-  // NaN/Infinity make the `> bufferSize` trim permanently false so the ring
-  // buffer grows without bound, and a negative throws `Invalid array length`
-  // from inside `record()` - which `safeHookCall` swallows, leaving a recorder
-  // that silently records nothing.
+  // NaN/Infinity would disable the trim (unbounded growth); a negative would throw inside `record()`,
+  // where `safeHookCall` swallows it.
   if (!Number.isInteger(bufferSize) || bufferSize < 1) {
     throw new RangeError(`[@gentleduck/iam:dt:flow] bufferSize must be a positive integer (got ${String(bufferSize)})`)
   }
@@ -94,8 +81,7 @@ export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): Ia
       try {
         fn()
       } catch (err) {
-        // Devtools-only, so console is the whole error channel - no
-        // operator-facing callback is needed.
+        // Devtools-only, so console is the whole error channel.
         console.error('[@gentleduck/iam:dt:flow] listener threw - continuing', err)
       }
     }
@@ -124,8 +110,7 @@ export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): Ia
       return entry
     },
     list() {
-      // The declared type is `readonly`, which erases: returning the live array
-      // let a caller push into the recorder's own buffer.
+      // A copy: `readonly` erases at runtime, so the live array would let callers mutate the buffer.
       return buffer.slice()
     },
     get(id) {

@@ -44,14 +44,7 @@ function RuleRow({ rule }: { rule: AccessControl.IRule }) {
   )
 }
 
-/**
- * Browses the policies the engine's adapter currently holds, with the selected
- * one's rules beside the list.
- *
- * Read-only, and loaded through `engine.admin.listPolicies()` on every
- * refresh - so what it shows is the live model rather than a copy the panel
- * keeps of its own.
- */
+/** Read-only browser for the adapter's policies, re-read via `engine.admin.listPolicies()` on each refresh. */
 export function IamPoliciesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
   const [policies, setPolicies] = React.useState<AccessControl.IPolicy[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)
@@ -75,9 +68,7 @@ export function IamPoliciesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
     void load()
   }, [load])
 
-  // Below every hook. This panel reads the entire policy corpus, and it is
-  // exported individually - so the guard has to be here and not only on the
-  // shell that usually wraps it.
+  // Below every hook. Guarded here, not only in the shell, because the panel is exported alone.
   if (!isDevtoolsAllowed(engine)) return null
 
   const query = filter.trim().toLowerCase()

@@ -18,12 +18,8 @@ import { IamRolesPanelV2 } from './panels/roles'
 import { IamSubjectsPanelV2 } from './panels/subjects'
 
 /**
- * Props for the v2 panel body - the tab strip and whichever panel is open.
- *
- * Deliberately the same shape as v1's `IIamDevtoolsInnerProps` minus `theme`:
- * v2 has no palette to pin, because it renders in the host's duck-ui theme by
- * construction. `engine` is the only requirement; `metrics` and `flow` are
- * opt-in wiring on the consumer's side and their tabs say so when absent.
+ * Props for the v2 panel body (tab strip plus the open panel).
+ * Same shape as v1's `IIamDevtoolsInnerProps` minus `theme`, since v2 inherits the host's duck-ui theme.
  */
 export interface IIamDevtoolsInnerV2Props {
   defaultRequest?: Partial<IamIDecisionInput>
@@ -45,9 +41,8 @@ const TABS: readonly { icon: React.ReactNode; key: IamPanelKey; label: string; t
 ]
 
 /**
- * Hard-no in production: the admin reads behind these tabs would leak the full
- * auth model. No prop escape hatch by design - see `lib/guard.ts`. The guard
- * sits in a thin wrapper so the inner component's hook order is unconditional.
+ * SECURITY: renders nothing in production, since these admin reads expose the whole auth model (see `lib/guard.ts`).
+ * The guard sits in a wrapper so `Impl`'s hook order stays unconditional.
  */
 export function IamDevtoolsInnerV2(props: IIamDevtoolsInnerV2Props) {
   if (!isDevtoolsAllowed(props.engine)) return null
@@ -66,14 +61,8 @@ function Impl({
   const [active, setActive] = React.useState<IamPanelKey>(initialPanel)
   const triggers = React.useRef(new Map<IamPanelKey, HTMLButtonElement>())
 
-  /**
-   * Arrow keys move between tabs, Home/End jump to the ends.
-   *
-   * duck-ui's `TabsTrigger` puts only the selected tab in the tab order, which
-   * is the correct half of the tablist pattern - but it ships no roving focus
-   * of its own, so without this the other five panels are unreachable from the
-   * keyboard and the strip announces a contract it does not honour.
-   */
+  // Arrow keys move between tabs, Home/End jump to the ends.
+  // NOTE: duck-ui's `TabsTrigger` has no roving focus, so without this only the selected tab is keyboard-reachable.
   const onKeyDown = (event: React.KeyboardEvent) => {
     const index = TABS.findIndex((tab) => tab.key === active)
     let next = -1
@@ -94,17 +83,11 @@ function Impl({
         className="flex min-h-0 flex-1 flex-col"
         defaultValue={initialPanel}
         onValueChange={(value) => {
-          // `IamPanelKey` is closed, and this callback is typed `string`
-          // because the component cannot know the caller's union. Narrow by
-          // membership rather than assert - a value that is not one of ours
-          // means the strip changed underneath us, and rendering no panel
-          // beats rendering the wrong one.
+          // The callback gives a `string`; narrow to `IamPanelKey` by membership instead of casting.
           const tab = TABS.find((candidate) => candidate.key === value)
           if (tab) setActive(tab.key)
         }}>
-        {/* The strip keeps duck-ui's own `TabsList` look - a pill row on
-            `bg-muted` - rather than being flattened into a bar, so the devtool
-            reads as a piece of the host's UI kit. Only the density changes. */}
+        {/* Keeps duck-ui's own `TabsList` pill look, only denser, so the strip reads as part of the host's UI kit. */}
         <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-border border-b bg-card px-2 py-1.5">
           <span className="hidden select-none items-center gap-1.5 ps-1 pe-1 font-medium text-[0.6875rem] text-muted-foreground uppercase tracking-wider md:inline-flex">
             <ShieldCheck aria-hidden size={13} />

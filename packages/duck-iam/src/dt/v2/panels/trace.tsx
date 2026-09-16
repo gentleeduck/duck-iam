@@ -53,7 +53,7 @@ function Group({ depth = 0, group }: { depth?: number; group: Explain.IGroupTrac
   )
 }
 
-/** One rule's vote: the three match tests, its priority, and whether it won. */
+/** One rule's vote: the three match tests, its priority, and whether it matched. */
 function Rule({ rule }: { rule: Explain.IRuleTrace }) {
   return (
     <IamV2Disclosure
@@ -75,13 +75,8 @@ function Rule({ rule }: { rule: Explain.IRuleTrace }) {
 }
 
 /**
- * Renders an {@link Explain.IResult} as a tree: every policy consulted, each
- * rule's vote, and the leaf conditions under it.
- *
- * Shared by the v2 Decision Inspector and the v2 Flow panel, so a trace looks
- * the same however you arrived at it. Takes an already-computed result and
- * never touches the engine, which is why it carries no devtools guard - there
- * is nothing here for one to protect.
+ * Renders an {@link Explain.IResult} as a tree of policies, rule votes and leaf conditions.
+ * Takes a computed result and never touches the engine, so it needs no devtools guard.
  */
 export function IamTraceTreeV2({ result }: { result: Explain.IResult }) {
   return (

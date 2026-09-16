@@ -20,19 +20,8 @@ import { IamRolesPanelV2 } from '../panels/roles'
 import { IamSubjectsPanelV2 } from '../panels/subjects'
 import { IamTraceTreeV2 } from '../panels/trace'
 
-/**
- * v2's counterpart to `dt/__tests__/panels-render.test.tsx`, and it exists for
- * the same reason: `./dt/v2` exports all eight components individually, so
- * each is a supported entry point, and a component that reads the engine
- * wrongly fails at render.
- *
- * v2 adds a failure mode v1 does not have. Its markup comes from duck-ui
- * components resolved out of `@gentleduck/registry-ui` - a package whose own
- * API can move under us, and whose `exports` map points at TypeScript source
- * rather than a build. A rename there is a runtime throw here, invisible to
- * `tsc` only if nothing renders. So these render against a real `IamEngine`
- * over a real `IamMemoryAdapter`, with the real duck-ui components, not stubs.
- */
+// v2's `panels-render.test.tsx`: renders every standalone export against a real engine and real duck-ui, no stubs,
+// so a registry-ui API change surfaces as a render failure.
 type Action = 'read'
 type ResourceType = 'post'
 type RoleId = 'org-reader'
@@ -99,8 +88,7 @@ describe('every v2 export renders against a real engine and real duck-ui', () =>
   })
 
   it.each(everyExport())('%s produces markup rather than an empty string', (_name, element) => {
-    // Anti-vacuity: "did not throw" is also true of a component that renders
-    // nothing at all, which is what a mis-fired guard looks like.
+    // Guard against a mis-fired production guard, which renders nothing and still "does not throw".
     process.env.NODE_ENV = 'development'
     expect(renderToString(element()).length).toBeGreaterThan(0)
   })
@@ -112,16 +100,7 @@ describe('every v2 export renders against a real engine and real duck-ui', () =>
   })
 })
 
-/**
- * Every v2 component that can stand alone is its own root, marked with
- * `data-iam-dt-v2`.
- *
- * v1 gets this guarantee by requiring `.iam-dt` on its outermost node, because
- * that is where its tokens are declared. v2's reason is different but the
- * requirement is the same: the attribute is the only handle a host has for
- * finding, hiding or overriding the devtool from its own CSS, and a panel that
- * renders without one is unaddressable.
- */
+/** Standalone v2 components; each must mark its root with `data-iam-dt-v2`, the host's only CSS handle. */
 function standalonePanels(): readonly (readonly [string, () => React.ReactElement])[] {
   return everyExport().filter(([name]) => name !== 'IamDevtoolsV2')
 }
@@ -164,18 +143,13 @@ describe('v2 carries the same production guard as v1', () => {
   })
 
   it.each(enginePanels())('%s renders for a development engine under NODE_ENV=development', (_name, element) => {
-    // The control. Without it every assertion above is satisfied by a
-    // component that never renders at all.
+    // Control: without it, a component that never renders passes every test above.
     process.env.NODE_ENV = 'development'
     expect(renderToString(element('development')).length).toBeGreaterThan(0)
   })
 })
 
-/**
- * The list above is written by hand and cannot notice a panel added next year.
- * This can: any v2 panel module that reaches for the engine has to call the
- * guard, read out of the source rather than the export list.
- */
+// The list above is hand-written; this reads panel sources so a newly added panel cannot skip the guard.
 describe('no v2 panel can reach the engine without the guard', () => {
   it('every v2 panel module that uses the engine calls isDevtoolsAllowed', () => {
     const dir = join(import.meta.dirname, '..', 'panels')
@@ -205,8 +179,7 @@ describe('the v2 shell renders the pieces a user has to be able to reach', () =>
   })
 
   it('gives the resize separator the full value triple its role requires', () => {
-    // A focusable `separator` is the window-splitter widget: it announces a
-    // position, so it has to announce the scale that position sits on.
+    // A focusable `separator` is a window splitter and must announce min, max and current value.
     process.env.NODE_ENV = 'development'
     const html = renderToString(<IamDevtoolsV2 engine={engineIn('development')} initialIsOpen />)
     expect(html).toMatch(/aria-valuemin="\d+"/)
@@ -243,14 +216,7 @@ function recorderWithTraffic() {
   return flow
 }
 
-/**
- * The duck-ui components v2 was rebuilt onto have to reach the page, not just
- * the import graph.
- *
- * `v2-contract.test.tsx` proves the imports exist; a component can be imported
- * and never rendered, or rendered only down a branch no test takes. These
- * assert the markup those components produce, from the states that produce it.
- */
+// `v2-contract.test.tsx` proves the duck-ui imports exist; these prove the components reach the markup.
 describe('the duck-ui components v2 is built on actually reach the markup', () => {
   it('draws the flow log as a real table with its columns named', () => {
     process.env.NODE_ENV = 'development'
@@ -302,8 +268,7 @@ describe('the duck-ui components v2 is built on actually reach the markup', () =
   })
 
   it('puts sections in cards and separates them with real separators', () => {
-    // Telemetry, because its sections render with no selection made - a list
-    // panel shows only its empty state until something is picked.
+    // Telemetry renders its sections with no selection; list panels show only an empty state until one is picked.
     process.env.NODE_ENV = 'development'
     const html = renderToString(<IamMetricsPanelV2 engine={engineIn('development')} />)
     expect(html).toContain('data-card=""')
@@ -316,9 +281,7 @@ describe('the duck-ui components v2 is built on actually reach the markup', () =
     const html = renderToString(<IamDevtoolsInnerV2 engine={engineIn('development')} />)
     expect(html).toContain('data-slot="tabs-list"')
     expect(html).toContain('data-slot="tabs-trigger"')
-    // duck-ui's own list styling, which an earlier version overrode away.
-    // Attribute order is React's, so the class is matched back to the slot
-    // rather than forward from it.
+    // duck-ui's own list styling. React puts `class` before `data-slot`, so match backwards from the slot.
     expect(html).toMatch(/class="[^"]*rounded-md bg-muted[^"]*"[^>]*data-slot="tabs-list"/)
   })
 

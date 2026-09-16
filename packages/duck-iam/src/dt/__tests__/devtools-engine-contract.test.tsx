@@ -45,7 +45,7 @@ function prodEngine() {
   }
 }
 
-/** No `mode` at all - the engine defaults to production since 5.9.0. */
+/** No `mode`, so the engine defaults to production. */
 function defaultEngine() {
   const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [orgReader] })
   return { adapter, engine: new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 }) }
@@ -58,16 +58,8 @@ afterEach(() => {
   else process.env.NODE_ENV = originalNodeEnv
 })
 
-/**
- * The guard reads the engine's mode off a TypeScript-`private` `_mode` field by
- * name. Every existing guard test hands it a hand-rolled object carrying that
- * name, so the whole suite would keep passing if the real engine renamed the
- * field, stopped setting it, or moved it behind an accessor - and devtools
- * would then see "no mode signal" from a production engine. Under
- * `NODE_ENV=production` that still blocks; with `NODE_ENV` unset or
- * `development` it is the difference between blocked and an unauthenticated
- * role-assignment UI.
- */
+// The guard reads the TS-private `_mode` by name; mocks cannot catch the real engine renaming it.
+// If it went unreadable, `NODE_ENV=development` would open devtools over a production engine.
 describe('the devtools guard reads the mode of a real engine', () => {
   it('blocks a production engine when NODE_ENV says nothing', () => {
     delete process.env.NODE_ENV
@@ -76,19 +68,13 @@ describe('the devtools guard reads the mode of a real engine', () => {
 
   it('allows a development engine when NODE_ENV says nothing', () => {
     delete process.env.NODE_ENV
-    // The positive case is what pins the field name: if `_mode` stopped being
-    // readable this would fall through to the default block and fail here,
-    // rather than silently agreeing with the negative cases above.
+    // The positive case pins the field name: an unreadable `_mode` falls through to the default block and fails here.
     expect(isDevtoolsAllowed(devEngine().engine)).toBe(true)
   })
 
   it('blocks the default-mode engine, which is production', () => {
     delete process.env.NODE_ENV
-    // The `mode` default flipped to 'production' in 5.9.0, so an engine built
-    // without one now blocks devtools rather than opening it. That direction is
-    // the safe one - a consumer who forgot to set `mode` no longer ships an
-    // unauthenticated role-assignment UI - but it means devtools must now be
-    // opted into with an explicit `mode: 'development'`.
+    // Devtools need an explicit `mode: 'development'`; forgetting `mode` fails closed.
     expect(isDevtoolsAllowed(defaultEngine().engine)).toBe(false)
   })
 
@@ -103,14 +89,7 @@ describe('the devtools guard reads the mode of a real engine', () => {
   })
 })
 
-/**
- * `IamIDevtoolsEngine` is a hand-written narrowing of the engine, and nothing
- * checked the two against each other. It declared four parameters for
- * `can`/`explain` where the engine takes five, so the Decision Inspector's
- * `scope` box could not reach `scope` and the compiler had nothing to object
- * to - the panel folded it into the environment bag instead, where nothing
- * reads it.
- */
+// `IamIDevtoolsEngine` is hand-written, so pin it to the real engine, including `scope` as the 5th argument.
 describe('the devtools engine interface matches the engine it narrows', () => {
   it('accepts a real engine', () => {
     const { engine } = devEngine()
@@ -135,9 +114,7 @@ describe('the devtools engine interface matches the engine it narrows', () => {
     await adapter.assignRole('user-1', 'org-reader', 'org-a')
     const narrowed: IamIDevtoolsEngine = engine
 
-    // What the panel used to send. The trace comes back confidently DENY with
-    // its own `request.scope` reading `undefined`, so an operator debugging a
-    // scoped grant is shown a denial for a request the engine allows.
+    // A scope in the environment is ignored, so the trace denies a request the engine allows with a real scope.
     const trace = await narrowed.explain('user-1', 'read', { attributes: {}, type: 'post' }, { scope: 'org-a' })
 
     expect(trace.request.scope).toBeUndefined()
@@ -157,12 +134,7 @@ describe('the devtools engine interface matches the engine it narrows', () => {
   })
 })
 
-/**
- * `formatAttrValue` runs inside a React render, and `JSON.stringify` throws on
- * exactly the two kinds of value a caller can put in a request attribute bag.
- * The throw took out the trace panel, or the whole host app where there was no
- * error boundary.
- */
+// `formatAttrValue` runs inside a React render, so it must not throw on values `JSON.stringify` rejects.
 describe('the trace formatter never throws on a value it cannot serialise', () => {
   it('renders a marker for a self-referential object', () => {
     const cyclic: Record<string, unknown> = { name: 'a' }
@@ -193,19 +165,13 @@ describe('the trace formatter never throws on a value it cannot serialise', () =
     expect(formatAttrValue(() => undefined)).toBe('(unserializable)')
   })
 
-  // Control: an ordinary object still renders, so the marker is not the answer
-  // to everything.
+  // Control: an ordinary object still renders.
   it('still renders an ordinary object', () => {
     expect(formatAttrValue({ a: 1 })).toBe('{"a":1}')
   })
 })
 
-/**
- * The panel reads the engine's cache counters at first render, so the drift was
- * not a latent typing nit: `engine.stats` is an object and the panel called it,
- * which threw out of a `useState` initializer and took the devtools panel down
- * the moment an operator opened Telemetry against a real engine.
- */
+// The panel reads `engine.stats.get()` in a `useState` initializer, so a shape mismatch throws on first render.
 describe('the telemetry panel reads a real engine', () => {
   it('renders the engine cache counters', () => {
     const { engine } = devEngine()

@@ -17,11 +17,7 @@ export type IamV2ButtonPosition = 'bottom-right' | 'bottom-left' | 'top-right' |
 /** Which edge the panel docks to. Cycled through in {@link DOCKS} order. */
 export type IamV2PanelPosition = 'top' | 'bottom' | 'left' | 'right'
 
-/**
- * Props for `IamDevtoolsV2` - the launcher plus the dockable panel around
- * {@link IamDevtoolsInnerV2}. Extends the inner props, so everything the
- * panels need passes straight through.
- */
+/** Props for `IamDevtoolsV2`, the launcher and dockable panel; inner props pass to {@link IamDevtoolsInnerV2}. */
 export interface IIamDevtoolsV2Props extends IIamDevtoolsInnerV2Props {
   buttonPosition?: IamV2ButtonPosition
   hideButton?: boolean
@@ -53,13 +49,8 @@ function isSize(value: unknown): value is number {
 }
 
 /**
- * Reads one persisted preference, validating what it finds.
- *
- * `localStorage` is editable, shared across every page of the origin and
- * survives an upgrade, so a stale entry can hold a string where a number
- * belongs (`NaN` into a CSS length collapses the panel) or an unknown dock
- * name (no matching placement, panel off-screen). Each reader proves the shape
- * it wants rather than trusting `JSON.parse`'s `any`.
+ * Reads one persisted preference, falling back when it is missing or fails `isValid`.
+ * NOTE: `localStorage` is editable and outlives upgrades; a bad size or dock name would collapse or hide the panel.
  */
 function loadState<T>(key: string, isValid: (value: unknown) => value is T, fallback: T): T {
   if (typeof window === 'undefined') return fallback
@@ -78,15 +69,11 @@ function saveState(key: string, value: unknown) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value))
   } catch {
-    // Private-mode quota or a blocked origin. Losing the preference is fine;
-    // throwing out of an effect is not.
+    // Private-mode quota or a blocked origin: losing the preference is fine, throwing from an effect is not.
   }
 }
 
-/**
- * How large the panel may get on the axis its dock edge constrains. Falls back
- * to the default under SSR, where there is no viewport to measure.
- */
+/** Max panel size on the dock edge's axis; `DEFAULT_SIZE` under SSR. */
 function viewportLimit(dock: IamV2PanelPosition): number {
   if (typeof window === 'undefined') return DEFAULT_SIZE
   const axis = dock === 'left' || dock === 'right' ? window.innerWidth : window.innerHeight
@@ -117,8 +104,8 @@ const LAUNCHER_CLASS: Record<Exclude<IamV2ButtonPosition, 'relative'>, string> =
 }
 
 /**
- * Hard-no in production. No escape hatch - see `lib/guard.ts`. The guard sits
- * in a thin wrapper so the implementation's hook order stays unconditional.
+ * SECURITY: renders nothing in production, with no escape hatch (see `lib/guard.ts`).
+ * The guard sits in a wrapper so `Impl`'s hook order stays unconditional.
  */
 export function IamDevtoolsV2(props: IIamDevtoolsV2Props) {
   if (!isDevtoolsAllowed(props.engine)) return null
@@ -140,15 +127,8 @@ function Impl({
   const [open, setOpen] = React.useState(() => loadState(openKey, isBoolean, initialIsOpen))
   const [size, setSize] = React.useState(() => loadState(sizeKey, isSize, DEFAULT_SIZE))
   const [dock, setDock] = React.useState<IamV2PanelPosition>(() => loadState(dockKey, isDock, positionProp ?? 'bottom'))
-  /**
-   * The largest the panel may grow to, in px.
-   *
-   * Held in state because the resize handle reports it as `aria-valuemax`: a
-   * focusable `separator` is the window-splitter role, and a widget that
-   * announces a position has to announce the scale it sits on. Recomputed when
-   * the dock edge flips the limiting dimension and when the viewport changes;
-   * seeded lazily so an SSR render never touches `window`.
-   */
+  // Max size in px, kept in state because the resize handle announces it as `aria-valuemax`.
+  // Seeded lazily so SSR never touches `window`.
   const [maxSize, setMaxSize] = React.useState(() => viewportLimit(positionProp ?? 'bottom'))
 
   const drag = React.useRef<{ axis: 'x' | 'y'; size: number; start: number } | null>(null)
@@ -170,14 +150,7 @@ function Impl({
     return () => window.removeEventListener('resize', update)
   }, [dock])
 
-  /**
-   * Escape closes the panel and hands focus back to the launcher.
-   *
-   * On `document` because focus may legitimately sit inside the panel, on the
-   * launcher, or nowhere at all - and without it the only way out is to find
-   * and click one small button, which for a keyboard user means tabbing
-   * through every control in whichever panel is open.
-   */
+  // Escape closes the panel and returns focus to the launcher. On `document`, since focus may be anywhere.
   React.useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
@@ -189,8 +162,7 @@ function Impl({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [open])
 
-  // Opening moves focus into the panel, so the next Tab lands on the dock and
-  // close controls rather than back at the top of the host page.
+  // Focus the panel on open so the next Tab reaches its controls, not the host page.
   React.useEffect(() => {
     if (open) panelRef.current?.focus()
   }, [open])
@@ -218,13 +190,7 @@ function Impl({
     }
   }
 
-  /**
-   * The resize edge from the keyboard.
-   *
-   * Grow and shrink rather than left and right: which arrow enlarges the panel
-   * depends on which edge it is docked to, and a role that claims an operation
-   * it only supports through `pointerdown` is a worse lie than no role at all.
-   */
+  // Keyboard resize for the separator. Which arrow grows the panel depends on the dock edge; Home/End jump to min/max.
   const onResizeKeyDown = (event: React.KeyboardEvent) => {
     const grows = dock === 'bottom' || dock === 'right' ? -1 : 1
     const step = event.key === 'PageUp' || event.key === 'PageDown' ? KEY_RESIZE_STEP * 10 : KEY_RESIZE_STEP
@@ -245,8 +211,7 @@ function Impl({
 
   const cycleDock = () => {
     const next = DOCKS[(DOCKS.indexOf(dock) + 1) % DOCKS.length]
-    // A `readonly` index is `T | undefined` under `noUncheckedIndexedAccess`;
-    // the modulo makes it always defined, so the guard costs nothing.
+    // Always defined thanks to the modulo; the check satisfies `noUncheckedIndexedAccess`.
     if (next !== undefined) setDock(next)
   }
 

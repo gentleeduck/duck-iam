@@ -81,13 +81,7 @@ function RuleTrace({ rule }: { rule: Explain.IRuleTrace }) {
   )
 }
 
-/**
- * Renders an {@link Explain.IResult} as a collapsible tree: every policy that
- * was consulted, each rule's vote, and the one that decided.
- *
- * Shared by the Decision Inspector and the Flow panel's detail pane, so a trace
- * looks the same whichever way you arrived at it.
- */
+/** Renders an {@link Explain.IResult} as a collapsible tree: each policy consulted, its rule votes, and the decider. */
 export function IamTraceTree({ result }: { result: Explain.IResult }) {
   useIamDevtoolsStyles()
   return (

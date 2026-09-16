@@ -8,12 +8,7 @@ import { isDevtoolsAllowed } from '../lib/guard'
 import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
-/**
- * Browses the policies the engine's adapter currently holds, with the selected
- * one's rules shown beside the list. Read-only, and loaded through
- * `engine.admin.listPolicies()` - so what it shows is the live model, not a
- * cached copy the panel keeps of its own.
- */
+/** Read-only browser for the live policies from `engine.admin.listPolicies()`, with the selected policy rules. */
 export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   useIamDevtoolsStyles()
   const [policies, setPolicies] = React.useState<AccessControl.IPolicy[]>([])
@@ -34,13 +29,7 @@ export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
     void load()
   }, [load])
 
-  // Below every hook, so the hook order is the same on both branches. The same
-  // guard `IamSubjectsPanel` runs, and for the same reason: `package.json`
-  // exports every panel individually under `./dt`, so rendering this one
-  // straight from `@gentleduck/iam/dt` is a supported thing to do, and it
-  // reaches the engine with no check anywhere in its path. `isDevtoolsAllowed`
-  // is idempotent and cheap, so running it again under `IamDevtools` costs
-  // nothing; running it zero times cost the whole protection.
+  // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
   if (!isDevtoolsAllowed(engine)) return null
 
   const filtered = policies.filter(
