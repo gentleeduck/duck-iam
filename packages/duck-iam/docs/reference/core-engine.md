@@ -345,6 +345,28 @@ precisely the input it exists to explain. The fallback now delegates to
 `evalConditionGroup` and records the failure as `conditionError` on the rule
 trace, with the policy casting the same Indeterminate vote.
 
+Five more drifts were closed once `verdict-differential.test.ts` started
+comparing `explain().decision.allowed` against `check()` on the same catalogs —
+until then nothing compared the third evaluator to a verdict at all. `explain`
+reported an **allow** where `can()` denied for an unrecognised `rule.effect`
+(its combiner matches `'deny'` and `'allow'` positively, so a mistyped one voted
+for neither) and for a non-finite `rule.priority` (it never ranked the rule that
+carried one); an unknown `algorithm` fell off the end of `applyCombiner`'s
+switch and raised `Cannot destructure property 'effect'` out of `explain()`
+itself. In the other direction it reported a **deny** where `can()` allowed,
+because it evaluated the conditions of rules that do not target the request —
+`ruleApplies` never does — and because it had no counterpart to
+`rulesAbstainOnThrow`, the rule that lets a throwing permission abstain inside
+the allow-only RBAC union.
+
+The shape of the fix is the one the decision path already uses: `policyRefusal`
+runs `evaluate`'s policy-level refusals in the same order, behind the same
+rule-target test, and reports them as the Indeterminate vote `conditionError`
+already produced. `tracePolicy` answers `defaultEffect` directly when no rule
+matched, so `applyCombiner` is never reached with an algorithm it has no arm
+for, and `policyTargetsMatch` is gone — `policyApplies` is the one
+implementation now.
+
 ### 3.6 `getEffectiveRoles`
 
 ```ts

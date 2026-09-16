@@ -39,6 +39,8 @@ const SEED = Number(process.env.DUCKIAM_VERDICT_SEED ?? 0x51ded00d) >>> 0
 // reproduced divergences under the default seed, or the sweep goes green without reaching them.
 const CONFIG_COUNT = Number(process.env.DUCKIAM_VERDICT_CONFIGS ?? 6000)
 const REQUESTS_PER_CONFIG = 12
+/** `explain()` traces every policy without short-circuiting, so a subset of each catalog's requests is compared. */
+const EXPLAINED_PER_CONFIG = 3
 
 function randInt(rng: () => number, min: number, max: number): number {
   return min + Math.floor(rng() * (max - min + 1))
@@ -560,6 +562,32 @@ describe('E2E verdict parity: compiled table vs interpreter over generated catal
                 requestIndex: ri,
               }),
             )
+          }
+
+          // `explain()` reaches its verdict through its own combiner switch, so it is a third evaluator.
+          if (ri < EXPLAINED_PER_CONFIG) {
+            context = () => repro(i, iterSeed, cfg, { kind: 'explain()', request: r, requestIndex: ri })
+            let explained: boolean
+            try {
+              explained = (await development.explain(r.subjectId, r.action, resource, undefined, r.scope)).decision
+                .allowed
+            } catch {
+              // A refusal is the fail-closed answer, so it only disagrees when `check()` allowed.
+              explained = false
+            }
+            stats.comparisons++
+            if (explained !== dev.allowed) {
+              mismatches.push(
+                repro(i, iterSeed, cfg, {
+                  devReason: dev.reason,
+                  devResult: dev.allowed,
+                  explainResult: explained,
+                  kind: 'explain()',
+                  request: r,
+                  requestIndex: ri,
+                }),
+              )
+            }
           }
         }
 
