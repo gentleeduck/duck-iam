@@ -20,6 +20,7 @@ drift the way the hand-maintained version did.
 
 | File | Tests | Covers |
 |---|---|---|
+| `core/engine/compiled/__tests__/compiled-interpreter-parity.test.ts` | 10 | compiled table / interpreter parity (round 13) |
 | `core/engine/compiled/__tests__/compiled.boundary.test.ts` | 17 | boundary: 0 roles - no RBAC source at all |
 | `core/engine/compiled/__tests__/compiled.combine-invariance.test.ts` | 4 | wildcard action/resource patterns are separator-bound, not raw substring prefixes (confirmation) |
 | `core/engine/compiled/__tests__/compiled.compile.test.ts` | 27 | compileTable: basic classification |
@@ -29,7 +30,7 @@ drift the way the hand-maintained version did.
 | `core/engine/compiled/__tests__/compiled.lookup-sources.test.ts` | 15 | a wildcarded role permission grants only through `rbacResidual` |
 | `core/engine/compiled/__tests__/compiled.lookup.test.ts` | 12 | lookup: RBAC mask (fast path) + CONST_ALLOW + CONST_DENY, differential vs evaluate() |
 | `core/engine/compiled/__tests__/compiled.property-fuzz.test.ts` | 1 | property fuzz: production (compiled table) vs development (interpreter) agree |
-| **Subtotal** | **139** | |
+| **Subtotal** | **149** | |
 
 ---
 
@@ -38,27 +39,31 @@ drift the way the hand-maintained version did.
 | File | Tests | Covers |
 |---|---|---|
 | `adapters/__tests__/adapter-contract-parity.test.ts` | 58 | assignRole options are refused, not discarded |
-| `adapters/__tests__/e2e-adapter-drizzle-pg.e2e.test.ts` | 128 | E2E harness reachability (drizzle/pg) |
-| `adapters/__tests__/e2e-adapter-prisma-pg.e2e.test.ts` | 98 | E2E harness reachability (prisma/pg) |
-| `adapters/__tests__/e2e-adapter-redis.e2e.test.ts` | 96 | E2E harness reachability (redis) |
+| `adapters/__tests__/attributes-caller-isolation.test.ts` | 20 | the file adapter’s copy survives a reopen |
+| `adapters/__tests__/e2e-adapter-drizzle-pg.e2e.test.ts` | 125 | E2E harness reachability (drizzle/pg) |
+| `adapters/__tests__/e2e-adapter-prisma-pg.e2e.test.ts` | 90 | E2E harness reachability (prisma/pg) |
+| `adapters/__tests__/e2e-adapter-redis.e2e.test.ts` | 78 | E2E harness reachability (redis) |
 | `adapters/__tests__/optional-method-matrix.test.ts` | 8 | the optional-method support matrix is what the adapters actually implement |
+| `adapters/__tests__/rows-caller-isolation.test.ts` | 14 | memory: a seeded row is not the caller object either |
 | `adapters/__tests__/save-time-validation.test.ts` | 19 | every adapter refuses to save a row its reads would drop |
 | `adapters/drizzle/__tests__/drizzle-actor-provenance.test.ts` | 11 | assignRole records who made the grant |
 | `adapters/drizzle/__tests__/drizzle-assignment-expiry-attributes.test.ts` | 54 | IamDrizzleAdapter assignment expiry |
 | `adapters/drizzle/__tests__/drizzle-native-attr-shape.test.ts` | 13 | IamDrizzleAdapter native JSONB shape validation |
+| `adapters/drizzle/__tests__/drizzle-sqlite-real-engine.test.ts` | 9 | drizzle sqlite dialect, against a real SQLite engine |
 | `adapters/drizzle/__tests__/drizzle-update-assignment-scope.test.ts` | 6 | IamDrizzleAdapter.updateAssignmentScope |
-| `adapters/drizzle/__tests__/drizzle.test.ts` | 121 | IamDrizzleAdapter |
+| `adapters/drizzle/__tests__/drizzle.test.ts` | 222 | IamDrizzleAdapter |
 | `adapters/drizzle/__tests__/ops-wiring-types.test.ts` | 3 | drizzle-orm operators satisfy the adapter ops bundle as-is |
 | `adapters/drizzle/__tests__/schema-parity.test.ts` | 33 | the dialect-only allow-list stays honest |
 | `adapters/drizzle/__tests__/with-client.test.ts` | 5 | IamAdapter.withClient |
-| `adapters/file/__tests__/file-atomic-write.test.ts` | 5 | file adapter writes atomically when the driver supports rename |
+| `adapters/file/__tests__/file-atomic-write.test.ts` | 7 | file adapter writes atomically when the driver supports rename |
 | `adapters/file/__tests__/file-containment-window.test.ts` | 3 | file adapter containment is checked on a cache miss and on every write |
 | `adapters/file/__tests__/file-corrupt-attributes-persist.test.ts` | 3 | file adapter: a corrupt attributes row survives a flush |
+| `adapters/file/__tests__/file-failed-write-cache.test.ts` | 5 | a write the store refused leaves no grant behind |
 | `adapters/file/__tests__/file-input-shape.test.ts` | 3 | IamFileAdapter direct-call input shape |
 | `adapters/file/__tests__/file-io-failure.test.ts` | 5 | IamFileAdapter I/O failure handling |
 | `adapters/file/__tests__/file-malformed-payload.test.ts` | 21 | IamFileAdapter malformed assignments/attributes |
 | `adapters/file/__tests__/file-rootdir-warn.test.ts` | 5 | the missing-rootDir warning, against a module whose latch has not fired |
-| `adapters/file/__tests__/file.test.ts` | 97 | IamFileAdapter |
+| `adapters/file/__tests__/file.test.ts` | 107 | IamFileAdapter |
 | `adapters/http/__tests__/http-compliance.test.ts` | 71 |  |
 | `adapters/http/__tests__/http-config-numbers.test.ts` | 13 | a numeric option that would disable what it configures is refused |
 | `adapters/http/__tests__/http-empty-body.test.ts` | 8 | a bodiless success is not a parse error |
@@ -72,19 +77,22 @@ drift the way the hand-maintained version did.
 | `adapters/http/__tests__/http.test.ts` | 61 | IamHttpAdapter |
 | `adapters/memory/__tests__/memory-input-shape.test.ts` | 8 | IamMemoryAdapter direct-call input shape |
 | `adapters/memory/__tests__/memory-seed-parity.test.ts` | 11 | the memory adapter seed agrees with the equivalent write |
-| `adapters/memory/__tests__/memory.test.ts` | 93 | IamMemoryAdapter |
-| `adapters/prisma/__tests__/prisma-attribute-corruption.test.ts` | 16 | IamPrismaAdapter attribute corruption defense |
+| `adapters/memory/__tests__/memory.test.ts` | 103 | IamMemoryAdapter |
+| `adapters/prisma/__tests__/prisma-actor-provenance.test.ts` | 3 | prisma definition writes record their author |
+| `adapters/prisma/__tests__/prisma-attribute-corruption.test.ts` | 18 | IamPrismaAdapter attribute corruption defense |
 | `adapters/prisma/__tests__/prisma-malformed-row-drop.test.ts` | 9 | IamPrismaAdapter malformed-row handling |
 | `adapters/prisma/__tests__/prisma-null-scope-rows.test.ts` | 4 | prisma getSubjectScopedRoles |
+| `adapters/prisma/__tests__/prisma-unreadable-role.test.ts` | 6 | prisma names a role row it cannot read |
 | `adapters/prisma/__tests__/prisma-update-assignment-scope.test.ts` | 12 | IamPrismaAdapter.updateAssignmentScope |
 | `adapters/prisma/__tests__/prisma-with-client.test.ts` | 4 | IamPrismaAdapter.withClient rebinds writes onto the given client |
-| `adapters/prisma/__tests__/prisma.test.ts` | 105 | IamPrismaAdapter |
+| `adapters/prisma/__tests__/prisma.test.ts` | 115 | IamPrismaAdapter |
+| `adapters/redis/__tests__/redis-attributes-merge.test.ts` | 6 | redis setSubjectAttributes distinguishes corruption from a failed read |
 | `adapters/redis/__tests__/redis-input-shape.test.ts` | 5 | IamRedisAdapter direct-call input shape |
 | `adapters/redis/__tests__/redis-io-failure.test.ts` | 8 | IamRedisAdapter connection failure |
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
 | `adapters/redis/__tests__/redis.test.ts` | 123 | IamRedisAdapter |
-| **Subtotal** | **1432** | |
+| **Subtotal** | **1601** | |
 
 ---
 
@@ -93,15 +101,17 @@ drift the way the hand-maintained version did.
 | File | Tests | Covers |
 |---|---|---|
 | `client/__tests__/client-parity.test.ts` | 29 | the three clients answer the same map identically |
+| `client/react/__tests__/react-shared-and-stale-closures.test.ts` | 7 | the loading placeholder is not shared writable state |
 | `client/react/__tests__/react-use-permissions-stale.test.ts` | 6 | usePermissions does not serve a previous subject |
 | `client/react/__tests__/react.test.ts` | 22 | createIamAccessControl |
 | `client/vanilla/__tests__/vanilla-fail-closed.test.ts` | 11 | vanilla client: a non-boolean map value denies |
 | `client/vanilla/__tests__/vanilla-map-ownership.test.ts` | 4 | the client owns its permission map |
 | `client/vanilla/__tests__/vanilla-partial-map.test.ts` | 2 | IamAccessClient partial permission map |
-| `client/vanilla/__tests__/vanilla.test.ts` | 29 | IamAccessClient |
+| `client/vanilla/__tests__/vanilla.test.ts` | 31 | IamAccessClient |
 | `client/vue/__tests__/vue-partial-map.test.ts` | 1 | createIamVueAccess partial permission map |
+| `client/vue/__tests__/vue-reactivity-triggers.test.ts` | 5 | every vue state change the client makes is one a real ref would notify on |
 | `client/vue/__tests__/vue.test.ts` | 14 | createIamVueAccess - createAccessState |
-| **Subtotal** | **118** | |
+| **Subtotal** | **132** | |
 
 ---
 
@@ -125,8 +135,10 @@ drift the way the hand-maintained version did.
 | `core/conditions/__tests__/conditions-scalar-narrowing.test.ts` | 16 | condition ops Scalar narrowing |
 | `core/conditions/__tests__/conditions-temporal.test.ts` | 8 | temporal operators: after / before |
 | `core/conditions/__tests__/conditions.test.ts` | 57 | condition operators |
+| `core/conditions/__tests__/dangling-operand-reference.test.ts` | 9 | B-F1 a $-reference that resolves to nothing has no operand |
 | `core/conditions/__tests__/matches-operand-type.test.ts` | 10 | `matches` is bound by the operand-type guard |
-| `core/conditions/__tests__/matches-user-sourced-value.test.ts` | 11 | `matches` refuses a $-resolved pattern |
+| `core/conditions/__tests__/matches-user-sourced-value.test.ts` | 13 | `matches` refuses a $-resolved pattern |
+| `core/conditions/__tests__/redos-separated-quantifiers.test.ts` | 8 | unbounded quantifiers separated by characters they can match |
 | `core/conditions/__tests__/regex-detector-false-positives.test.ts` | 20 | detectCatastrophicRegex accepts safe lookaround guards |
 | `core/conditions/__tests__/regex-safety-agreement.test.ts` | 17 | regex safety: one predicate, two call sites |
 | `core/conditions/__tests__/unrecognised-node.test.ts` | 9 | an unrecognised condition node does not read as "no conditions" |
@@ -143,17 +155,19 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/e2e-verdict-pg-fallback.e2e.test.ts` | 13 |  |
 | `core/engine/__tests__/e2e-verdict-rbac-divergence.e2e.test.ts` | 4 | E2E verdict divergence: RBAC role permissions |
 | `core/engine/__tests__/engine-admin-input-validation.test.ts` | 21 | engine.admin input validation |
+| `core/engine/__tests__/engine-admin-reads.test.ts` | 8 | engine.admin readers return what was written |
 | `core/engine/__tests__/engine-check-invalid-subject.test.ts` | 2 | engine.check() with an invalid subjectId |
 | `core/engine/__tests__/engine-compiled-table-ttl.test.ts` | 12 |  |
 | `core/engine/__tests__/engine-cross-scope-inheritance.test.ts` | 6 | Engine.can() - cross-scope role inheritance |
 | `core/engine/__tests__/engine-eval-error-fails-closed.test.ts` | 10 |  |
+| `core/engine/__tests__/engine-hook-timeout.test.ts` | 16 | a hook whose promise never settles does not hold the call open |
 | `core/engine/__tests__/engine-import-error-cap.test.ts` | 8 | engine.admin.import schemaVersion error interpolation cap |
 | `core/engine/__tests__/engine-permissions-key-collision.test.ts` | 1 | permissions() key collisions |
 | `core/engine/__tests__/engine-priority-nonfinite.test.ts` | 16 |  |
 | `core/engine/__tests__/engine-subject-load-shed.test.ts` | 7 | IamEngine constructor: maxConcurrentSubjectLoads validation |
 | `core/engine/__tests__/engine-subject-roles-type-confusion.test.ts` | 5 | Engine subject.roles type-confusion defense |
 | `core/engine/__tests__/engine-temporal-now.test.ts` | 4 | engine auto-injects environment.now for temporal policies |
-| `core/engine/__tests__/engine.bound.test.ts` | 9 | IamEngine.withTransaction |
+| `core/engine/__tests__/engine.bound.test.ts` | 12 | IamEngine.withTransaction |
 | `core/engine/__tests__/engine.factory.test.ts` | 3 | iamEngine factory |
 | `core/engine/__tests__/engine.hooks.test.ts` | 7 | safeHookCall |
 | `core/engine/__tests__/engine.invalidation.test.ts` | 12 | invalidateAll |
@@ -161,20 +175,24 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/engine.libs.test.ts` | 27 | ensureEnvNow |
 | `core/engine/__tests__/engine.lifecycle.test.ts` | 10 | runHealthCheck |
 | `core/engine/__tests__/engine.loaders.test.ts` | 23 | loadPolicies |
-| `core/engine/__tests__/engine.mutation-events.test.ts` | 12 | engine.admin emits a mutation event per write |
-| `core/engine/__tests__/engine.production-hooks.test.ts` | 15 | afterEvaluate / onDeny fire in production too |
+| `core/engine/__tests__/engine.mutation-events.test.ts` | 13 | engine.admin emits a mutation event per write |
+| `core/engine/__tests__/engine.production-hooks.test.ts` | 18 | afterEvaluate / onDeny fire in production too |
 | `core/engine/__tests__/engine.stats.test.ts` | 5 | statsSnapshot |
 | `core/engine/__tests__/engine.test.ts` | 86 | Engine.can() - basic RBAC |
 | `core/engine/__tests__/failopen-metric-parity.test.ts` | 5 | failOpen metric: development and production agree |
 | `core/engine/__tests__/grant-expiry-vs-cache.test.ts` | 13 | a grant that expires stops granting, whatever the cache thinks |
 | `core/engine/__tests__/import-validates-before-write.test.ts` | 4 | admin.import validates the whole snapshot before writing |
+| `core/engine/__tests__/invalidate-roles-inflight.test.ts` | 3 | invalidateRoles drops in-flight subject loads |
 | `core/engine/__tests__/mode-type-argument-does-not-set-mode.test.ts` | 3 | the mode type argument does not set the mode |
+| `core/engine/__tests__/partial-batch-invalidation.test.ts` | 6 | a batch that fails part-way still settles the rows that landed |
 | `core/engine/__tests__/policy-combine-validation.test.ts` | 11 | policyCombine validation |
 | `core/engine/__tests__/preload-surfaces-compile-error.test.ts` | 6 |  |
+| `core/engine/__tests__/role-limit-latch.test.ts` | 6 | the role-limit latch clears when the role set changes |
 | `core/engine/__tests__/scope-covers-contract.test.ts` | 45 | scopeCovers agrees with matchesScope on the flat axis |
 | `core/engine/__tests__/transaction.pg.e2e.test.ts` | 17 |  |
+| `core/engine/__tests__/unevaluable-condition-group.test.ts` | 7 | a condition group nobody can evaluate does not retire the deny holding it |
 | `core/engine/__tests__/unified-verdict-path.test.ts` | 11 | development keeps the rich decision while the table supplies the verdict |
-| `core/engine/__tests__/unvalidated-policy-operand.test.ts` | 5 | a policy that never passed the validator still cannot over-grant |
+| `core/engine/__tests__/unvalidated-policy-operand.test.ts` | 12 | a policy that never passed the validator still cannot over-grant |
 | `core/engine/__tests__/verdict-differential.test.ts` | 2 | E2E verdict parity: compiled table vs interpreter over generated catalogs |
 | `core/evaluate/__tests__/algorithm-alias-precompute.test.ts` | 9 | precompute covers every algorithm that can be precomputed |
 | `core/evaluate/__tests__/error-hook-isolation.test.ts` | 6 | a throwing onPolicyError does not unwind the evaluation |
@@ -196,6 +214,7 @@ drift the way the hand-maintained version did.
 | `core/evaluate/__tests__/rbac-abstain-scope.test.ts` | 5 | only the generated RBAC union lets a throwing rule abstain |
 | `core/evaluate/__tests__/unconditional-agreement.test.ts` | 47 | matchesUnconditionally agrees with evalConditionGroup |
 | `core/evaluate/__tests__/unknown-algorithm.test.ts` | 6 | a policy with an unrecognised combining algorithm |
+| `core/evaluate/__tests__/unknown-effect-fail-closed.test.ts` | 5 | an unrecognised rule effect votes for neither side |
 | `core/explain/__tests__/explain-evaluate-parity.test.ts` | 30 |  |
 | `core/explain/__tests__/explain-group-parity.test.ts` | 9 | a traced condition group agrees with the group the engine decided on |
 | `core/explain/__tests__/explain-indeterminate-parity.test.ts` | 28 | explain() absorbs a throwing rule exactly as the decision path does |
@@ -223,20 +242,22 @@ drift the way the hand-maintained version did.
 | `core/types/__tests__/types.test.ts` | 4 | iamCreateEvalCaches() |
 | `core/validate/__tests__/condition-depth-agreement.test.ts` | 22 | condition nesting limit agrees between validator and evaluator |
 | `core/validate/__tests__/matches-pattern-agreement.test.ts` | 38 | a `matches` pattern the validator accepts compiles at evaluation time |
-| `core/validate/__tests__/operand-type-matrix.test.ts` | 158 | operator x operand type |
+| `core/validate/__tests__/operand-type-matrix.test.ts` | 196 | operator x operand type |
 | `core/validate/__tests__/policy-targets-types.test.ts` | 22 | every key of targets is type-checked, not just the first two |
+| `core/validate/__tests__/resolvable-path-parity.test.ts` | 12 | isResolvablePath agrees with resolve about what will not resolve |
 | `core/validate/__tests__/validate-boundary-robustness.test.ts` | 14 | validatePolicy never throws on a malformed rule row |
 | `core/validate/__tests__/validate-control-chars.test.ts` | 28 | validatePolicy rejects control characters in action and resource names |
 | `core/validate/__tests__/validate-operand.test.ts` | 29 | condition operand presence |
 | `core/validate/__tests__/validate-role-permissions.test.ts` | 13 | validateRole: permission entry shape |
 | `core/validate/__tests__/validate-role-scope.test.ts` | 9 | validateRole: role-level scope |
+| `core/validate/__tests__/validate-roles-untrusted-input.test.ts` | 14 | validateRoles on input it does not trust |
 | `core/validate/__tests__/validate-rows.test.ts` | 35 | parsePolicyRow() |
 | `core/validate/__tests__/validate-rule-conditions.test.ts` | 4 | validateRuleShape - conditions |
 | `core/validate/__tests__/validate-unknown-keys.test.ts` | 13 | unknown fields |
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2184** | |
+| **Subtotal** | **2332** | |
 
 ---
 
@@ -262,7 +283,9 @@ drift the way the hand-maintained version did.
 | File | Tests | Covers |
 |---|---|---|
 | `invalidators/redis/__tests__/e2e-invalidation-cross-instance.e2e.test.ts` | 11 | E2E reachability (invalidation: cross-instance) |
-| `invalidators/redis/__tests__/e2e-invalidation-failure-modes.e2e.test.ts` | 11 | E2E reachability (invalidation: failure-modes) |
+| `invalidators/redis/__tests__/e2e-invalidation-failure-modes.e2e.test.ts` | 12 | E2E reachability (invalidation: failure-modes) |
+| `invalidators/redis/__tests__/envelope-channel-binding.test.ts` | 7 | a signed envelope is bound to the channel it was signed for |
+| `invalidators/redis/__tests__/envelope-replay.test.ts` | 9 | a signed envelope is applied at most once |
 | `invalidators/redis/__tests__/redis-invalidator-channel-redaction.test.ts` | 6 | drop warning does not disclose the tenant id |
 | `invalidators/redis/__tests__/redis-invalidator-drop-reporting.test.ts` | 8 | an inbound drop is reported to the operator, not only to the log |
 | `invalidators/redis/__tests__/redis-invalidator-event-shape.test.ts` | 8 | Redis invalidator event-shape validation |
@@ -272,7 +295,8 @@ drift the way the hand-maintained version did.
 | `invalidators/redis/__tests__/redis-invalidator-subscribe-failure.test.ts` | 6 | a rejected client.subscribe() |
 | `invalidators/redis/__tests__/redis-invalidator.test.ts` | 20 | createIamRedisInvalidator |
 | `invalidators/redis/__tests__/redis-signed-path.test.ts` | 32 | a signed round-trip carries every event kind |
-| **Subtotal** | **118** | |
+| `invalidators/redis/__tests__/subscribe-failure-visibility.test.ts` | 10 | a redis invalidator that cannot subscribe |
+| **Subtotal** | **145** | |
 
 ---
 
@@ -298,8 +322,10 @@ drift the way the hand-maintained version did.
 | `server/__tests__/e2e-http-servers.e2e.test.ts` | 172 | harness |
 | `server/express/__tests__/express-path-bypass.test.ts` | 12 | iamAccessMiddleware refuses a path it cannot map, even for a wildcard admin |
 | `server/express/__tests__/express.test.ts` | 51 | iamAccessMiddleware (express) |
+| `server/generic/__tests__/admin-audit-target-id.test.ts` | 9 | admin audit targetId is read, not asserted |
+| `server/generic/__tests__/admin-authorize-actor-typing.test.ts` | 6 | an admin authorize may return the actor, in the type as well as at runtime |
 | `server/generic/__tests__/admin-body-status.test.ts` | 18 | IamValidationError |
-| `server/generic/__tests__/admin-shared.test.ts` | 25 | iamDefaultCsrfCheck |
+| `server/generic/__tests__/admin-shared.test.ts` | 29 | iamDefaultCsrfCheck |
 | `server/generic/__tests__/extract-environment-ua-cap.test.ts` | 2 | iamExtractEnvironment user-agent cap |
 | `server/generic/__tests__/extract-environment-xff.test.ts` | 20 | iamExtractEnvironment XFF normalization under trustProxy |
 | `server/generic/__tests__/generic.test.ts` | 22 | generateIamPermissionMap() |
@@ -313,7 +339,7 @@ drift the way the hand-maintained version did.
 | `server/next/__tests__/next-middleware-environment.test.ts` | 4 | createIamNextMiddleware environment |
 | `server/next/__tests__/next-middleware-rule-matching.test.ts` | 4 | next middleware: a string rule pattern matches as a prefix |
 | `server/next/__tests__/next.test.ts` | 31 | withIamAccess |
-| **Subtotal** | **764** | |
+| **Subtotal** | **783** | |
 
 ---
 
@@ -326,7 +352,8 @@ drift the way the hand-maintained version did.
 | `shared/__tests__/cache.test.ts` | 27 | IamLRUCache |
 | `shared/__tests__/keys-canonical-image.test.ts` | 17 | iamParsePermissionKey rejects anything outside the builder image |
 | `shared/__tests__/keys.test.ts` | 28 | iamBuildPermissionKey() |
-| **Subtotal** | **107** | |
+| `shared/__tests__/permission-map-scope-blindness.test.ts` | 6 | allowedActions and hasAnyOn ignore scope and record id; can() does not |
+| **Subtotal** | **113** | |
 
 ---
 
@@ -334,18 +361,19 @@ drift the way the hand-maintained version did.
 
 | File | Tests | Covers |
 |---|---|---|
-| `__tests__/doc-prose-accuracy.test.ts` | 12 | JSDoc names third-party frameworks correctly |
+| `__tests__/doc-prose-accuracy.test.ts` | 17 | JSDoc names third-party frameworks correctly |
 | `__tests__/docs-import-parity.test.ts` | 8 | documented imports resolve |
 | `__tests__/entrypoint-naming.test.ts` | 25 | every subpath entrypoint is Iam-namespaced |
 | `__tests__/evaluator-fail-open-gate.test.ts` | 12 | the evaluator applies the same fail-open opt-in as the engine |
 | `__tests__/log-prefix-convention.test.ts` | 3 | every log prefix names its module |
 | `__tests__/package-exports-parity.test.ts` | 7 | every built module is importable, and every import is built |
-| `__tests__/public-error-and-type-surface.test.ts` | 7 | the custom error class is reachable |
+| `__tests__/public-error-and-type-surface.test.ts` | 28 | every tagged condition error is reachable |
 | `__tests__/public-surface-internals.test.ts` | 7 | public surface: mutable internals stay internal |
 | `__tests__/public-surface-naming.test.ts` | 23 | package root naming |
+| `__tests__/shipped-docs-parity.test.ts` | 5 | the docs the README points at are the docs that ship |
 | `__tests__/test-command-partition.test.ts` | 5 | the two test commands partition every test file |
 | `__tests__/test-inventory-freshness.test.ts` | 5 | test inventory stays honest |
-| **Subtotal** | **114** | |
+| **Subtotal** | **145** | |
 
 ---
 
@@ -362,15 +390,15 @@ drift the way the hand-maintained version did.
 
 | Area | Files | Tests |
 |---|---|---|
-| Core / compiled engine | 9 | 139 |
-| Adapters | 47 | 1432 |
-| Clients | 9 | 118 |
-| Core | 127 | 2184 |
+| Core / compiled engine | 10 | 149 |
+| Adapters | 54 | 1601 |
+| Clients | 11 | 132 |
+| Core | 138 | 2332 |
 | Devtools | 9 | 201 |
-| Invalidators | 11 | 118 |
+| Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
-| Server | 22 | 764 |
-| Shared | 5 | 107 |
-| Package surface | 11 | 114 |
+| Server | 24 | 783 |
+| Shared | 6 | 113 |
+| Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **254** | **5205** |
+| **Total** | **282** | **5629** |
