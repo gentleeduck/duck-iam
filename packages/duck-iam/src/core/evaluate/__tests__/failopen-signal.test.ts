@@ -2,15 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluate, evaluateFast, type IEvalSignals } from '../evaluate'
 
-/**
- * `SECURITY.md` tells operators to chart `failOpen` to alert on a policy set
- * that has silently stopped denying. The flag only ever fired when *no* policy
- * was applicable, which is the rare shape. The common one - a policy that is
- * applicable, whose every rule evaluated false, so `defaultEffect: 'allow'`
- * supplied the verdict - left it flat at 0. An attribute rename, an adapter
- * returning empty conditions or a condition dropped for being oversized all
- * produce exactly that, and the metric designed to catch it did not move.
- */
+// `failOpen` must also fire when an applicable policy's rules all evaluated false and `defaultEffect: 'allow'`
+// decided - the common way a policy set stops denying - not only when no policy applied.
 type Sig = IEvalSignals
 
 function request(tier: string): IamRequest.IAccessRequest {
@@ -122,9 +115,7 @@ describe('failOpen is not raised where the allow is real', () => {
     expect(fast).toEqual({ allowed: false, failOpen: false })
   })
 
-  // Under allow-overrides the first policy to allow ends the scan, and only
-  // that policy's vote carries the verdict. With the explicit allow first the
-  // defaulting sibling is never reached and the flag stays down.
+  // Under allow-overrides the first allow ends the scan, so a defaulting sibling after it is never reached.
   it('allow-overrides: the explicit allow is reached first', () => {
     const { slow, fast } = run([allowRule, denyBanned('p1')], 'allow', 'allow-overrides')
     expect(slow).toEqual({ allowed: true, failOpen: false })
@@ -154,10 +145,7 @@ describe('the pre-existing shape still works', () => {
   })
 })
 
-/**
- * The two engines must agree on the flag, not only on the verdict - a metric
- * that moves in development and not in production is worse than no metric.
- */
+// A metric that moves in development but not in production is worse than none.
 describe('dev/prod parity of the signal', () => {
   const sets: Array<[string, AccessControl.IPolicy[]]> = [
     ['defaulting only', [denyBanned('p1')]],

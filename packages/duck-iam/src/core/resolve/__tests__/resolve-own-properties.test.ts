@@ -3,13 +3,8 @@ import { evaluate } from '../../evaluate/evaluate'
 import type { AccessControl, IamRequest } from '../../types'
 import { resolve } from '../resolve'
 
-/**
- * `resolve` walked with `Reflect.get`, which reads through the prototype chain,
- * so every `Object.prototype` member resolved to a function on any object. The
- * three-name denylist covered the pollution vectors and nothing else, and
- * `exists` - which asks whether the request *carries* an attribute - answered
- * "is this name resolvable anywhere on the prototype chain" instead.
- */
+// `resolve` reads own properties only, so `Object.prototype` members never resolve and `exists` asks whether the
+// request carries the attribute.
 const INHERITED = [
   'toString',
   'valueOf',
@@ -37,8 +32,7 @@ describe('resolve reads own properties only', () => {
     expect(resolve(bare, `environment.${name}`)).toBeNull()
   })
 
-  // Controls: real data must still resolve, including a name that shadows a
-  // prototype member - the fix is about ownership, not about the name.
+  // Controls: ownership matters, not the name, so an own attribute shadowing a prototype member still resolves.
   it('resolves own attributes', () => {
     const req: IamRequest.IAccessRequest = {
       ...bare,
@@ -56,10 +50,7 @@ describe('resolve reads own properties only', () => {
   })
 })
 
-/**
- * The consequence at policy level: with no attributes at all, an `exists`-gated
- * allow fired and a `not_exists`-gated deny did not.
- */
+/** A policy gated on `exists` / `not_exists`, to check the own-property rule at policy level. */
 function policy(operator: AccessControl.Operator, effect: AccessControl.Effect): AccessControl.IPolicy {
   return {
     algorithm: 'deny-overrides',

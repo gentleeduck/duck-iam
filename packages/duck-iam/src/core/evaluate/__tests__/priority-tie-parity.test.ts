@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluatePolicy, evaluatePolicyFast } from '../evaluate'
 
-/**
- * The interpreter and the fast path must agree when two matched rules share a
- * priority. The fast path walks literal buckets before wildcard ones, which is
- * not source order, so a tie is exactly where the two can drift apart.
- */
+// The fast path walks literal buckets before wildcard ones, so a priority tie is where the two engines can drift.
 const ALGORITHMS: AccessControl.CombiningAlgorithm[] = [
   'deny-overrides',
   'allow-overrides',

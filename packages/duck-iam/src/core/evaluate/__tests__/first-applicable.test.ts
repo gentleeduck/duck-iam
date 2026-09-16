@@ -3,18 +3,8 @@ import { MAX_REGEX_INPUT_LENGTH } from '../../conditions/conditions.libs'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluate } from '../evaluate'
 
-/**
- * `first-applicable` returns the first result that is not NotApplicable. It used
- * to return the first decision that *named a rule*, which is a different filter:
- * two kinds of real vote carry no rule and were silently skipped.
- *
- *   1. An applicable policy whose rules all evaluate false votes `defaultEffect`.
- *   2. The Indeterminate deny synthesized when a policy throws.
- *
- * Both are denies under the default engine config, so the old filter turned each
- * into silence and let a later allow win. This was the only combine mode a
- * 10 000-case differential run found disagreeing with a naive reference.
- */
+// `first-applicable` returns the first result that is not NotApplicable, including votes that name no rule:
+// a condition-false policy's `defaultEffect`, and a throwing policy's Indeterminate deny.
 function request(userAgent = 'firefox'): IamRequest.IAccessRequest {
   return {
     subject: { id: 'u1', roles: [], attributes: { status: 'suspended' } },
@@ -87,9 +77,7 @@ describe('first-applicable: an applicable policy that votes its default', () => 
     expect(evaluate([conditionFalse, allowAll], request(), 'deny', 'and').allowed).toBe(false)
   })
 
-  // The vote is `defaultEffect`, not a hard-coded deny: under a fail-open engine
-  // the same policy votes allow. Without this the test above would pass on an
-  // implementation that simply denied whenever no rule fired.
+  // Without this, an implementation that simply denied whenever no rule fired would pass.
   it('votes allow under `defaultEffect: allow`', () => {
     expect(evaluate([conditionFalse], request(), 'allow', 'first-applicable').allowed).toBe(true)
   })
@@ -104,9 +92,7 @@ describe('first-applicable: the synthesized Indeterminate deny', () => {
     expect(onPolicyError).toHaveBeenCalledOnce()
   })
 
-  // Control: with a normal-length user agent the deny's condition is merely
-  // false, so the policy still votes deny - and with a *matching* agent the rule
-  // itself fires. Neither path relies on the throw.
+  // Neither path relies on the throw: the condition is merely false, or with a matching agent the rule fires.
   it('control: the same set denies on a normal user agent too', () => {
     expect(evaluate([denyThrows, allowAll], request('firefox'), 'deny', 'first-applicable').allowed).toBe(false)
     expect(evaluate([denyThrows, allowAll], request('curl'), 'deny', 'first-applicable').allowed).toBe(false)
@@ -125,8 +111,6 @@ describe('first-applicable: NotApplicable policies are still skipped', () => {
     expect(evaluate([otherAction], request(), 'allow', 'first-applicable').allowed).toBe(true)
   })
 
-  // Order is the whole point of the algorithm: the same two policies must give
-  // opposite answers depending on which comes first.
   it('is order-sensitive', () => {
     expect(evaluate([allowAll, conditionFalse], request(), 'deny', 'first-applicable').allowed).toBe(true)
     expect(evaluate([conditionFalse, allowAll], request(), 'deny', 'first-applicable').allowed).toBe(false)

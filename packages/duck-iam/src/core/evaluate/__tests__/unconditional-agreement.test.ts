@@ -6,18 +6,8 @@ import type { AccessControl, IamRequest } from '../../types'
 import { evaluate, evaluateFast } from '../evaluate'
 import { indexPolicy } from '../evaluate.libs'
 
-/**
- * `evalConditionGroup` is the authority on whether a condition group matches.
- * Two fast paths used to answer the same question without calling it - the
- * rule index and the compiled-table lowering - and neither agreed with it. Both
- * read an unrecognised key set (`{ typo: 1 }`, a hand-edited row, a misspelled
- * `all`) as "no conditions", so a rule the interpreter refuses was honoured
- * unconditionally; the lowering did the same for `{ any: [] }`, which can never
- * match. Every divergence ran prod-allows / dev-denies.
- *
- * `matchesUnconditionally` is now the single answer to "may this rule be
- * treated as matching without evaluating it", and both fast paths ask it.
- */
+// `matchesUnconditionally` answers "may this rule match without evaluating it" for both fast paths,
+// and must agree with `evalConditionGroup`, the authority.
 const request: IamRequest.IAccessRequest = {
   action: 'read',
   environment: {},
@@ -25,11 +15,7 @@ const request: IamRequest.IAccessRequest = {
   subject: { attributes: {}, id: 'u1', roles: [] },
 }
 
-/**
- * Shapes outside the `IConditionGroup` union - an absent group, an
- * unrecognised key - are the ones that diverged, so they are built through
- * JSON, the way such a row arrives from an adapter.
- */
+/** Built through JSON, the way an adapter row arrives, so shapes outside `IConditionGroup` need no cast. */
 function policyWith(conditions: unknown, effect: AccessControl.Effect = 'allow'): AccessControl.IPolicy {
   const rule: Record<string, unknown> = {
     actions: ['read'],
@@ -56,7 +42,7 @@ function evaluatorVerdict(group: AccessControl.IConditionGroup | undefined): boo
   }
 }
 
-/** Every shape the two fast paths used to classify on their own. */
+/** Shapes the fast paths classify, including the malformed ones. */
 const SHAPES: Array<{ conditions: unknown; label: string; unconditional: boolean }> = [
   { conditions: {}, label: '{}', unconditional: true },
   { conditions: { all: [] }, label: '{ all: [] }', unconditional: true },
@@ -92,9 +78,7 @@ describe('matchesUnconditionally agrees with evalConditionGroup', () => {
     if (unconditional) expect(evaluatorVerdict(group)).toBe(true)
   })
 
-  // Positive control: without it the block above would also pass on a build
-  // where `matchesUnconditionally` returned `false` for everything, since the
-  // implication is vacuous then.
+  // Positive control: the implication above is vacuous if everything answers `false`.
   it('says true for at least three of them', () => {
     expect(SHAPES.filter((s) => s.unconditional).length).toBeGreaterThanOrEqual(3)
   })
@@ -108,8 +92,7 @@ describe('both engines reach the same verdict for every shape', () => {
     expect(fast).toBe(slow)
   })
 
-  // A precomputed cell is a third answer to the same question, and it has to
-  // agree too or production returns it in place of both.
+  // A precomputed cell is a third answer to the same question and must agree too.
   it.each(SHAPES)('$label, precomputed', ({ conditions }) => {
     const policy = policyWith(conditions)
     const precomputed = indexPolicy(policy).precomputed.get('read')?.get('post')
@@ -117,8 +100,7 @@ describe('both engines reach the same verdict for every shape', () => {
     expect(precomputed).toBe(evaluate([policy], request, 'deny', 'and', vi.fn()).allowed)
   })
 
-  // Control: the table is populated for the shapes that may be precomputed, so
-  // the `undefined` skip above is not quietly skipping everything.
+  // Control: the `undefined` skip above is not quietly skipping everything.
   it('populates the table for the unconditional shapes', () => {
     const populated = SHAPES.filter(
       ({ conditions }) => indexPolicy(policyWith(conditions)).precomputed.get('read')?.get('post') !== undefined,
@@ -151,8 +133,7 @@ describe('the compiled table agrees with the interpreter', () => {
     expect(await checkIn('production', policy)).toBe(await checkIn('development', policy))
   })
 
-  // Control: a shape that grants in both modes, so the agreement above is not
-  // "everything denies".
+  // Control: the agreement above is not "everything denies".
   it('control: an unconditional shape allows in both modes', async () => {
     const policy = policyWith({ all: [] })
     expect(await checkIn('development', policy)).toBe(true)

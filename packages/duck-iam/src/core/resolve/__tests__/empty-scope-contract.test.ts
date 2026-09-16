@@ -4,12 +4,7 @@ import type { AccessControl } from '../../types'
 import { validateRole } from '../../validate'
 import { matchesScope } from '../resolve'
 
-/**
- * One contract for scope: `undefined`/`null` and `'*'` are global, and every
- * other string, `''` included, is an ordinary scope value. `''` used to read as
- * global on the pattern side, which turned a row that looks scoped into a grant
- * across every scope.
- */
+// `undefined` / `null` / `'*'` are global; every other string, `''` included, is an ordinary scope value.
 describe('matchesScope treats an empty scope as a value, not a wildcard', () => {
   it.each([
     [undefined, 'org-1'],
@@ -39,13 +34,8 @@ describe('matchesScope treats an empty scope as a value, not a wildcard', () => 
   })
 })
 
-/**
- * `matchesScope` documents the contract but no production path calls it: the
- * check that actually runs is the `scope` condition `rolesToPolicy` emits, and
- * the compiled table's literal comparison. Pinning only `matchesScope` left the
- * enforcing code free to drift from the documenting code, which is how `''`
- * came to read as global there in the first place.
- */
+// `matchesScope` only documents the contract; `rolesToPolicy`'s scope condition and the compiled table's
+// comparison enforce it, so they are pinned too.
 function scopeConditionValue(policy: AccessControl.IPolicy): string | undefined {
   const group = policy.rules[0]?.conditions
   if (group === undefined || !('all' in group)) throw new Error('expected an `all` group')
@@ -101,9 +91,7 @@ describe('validateRole refuses an empty scope on either level', () => {
     expect(result.issues.some((i) => i.path === 'permissions[0].scope' && i.type === 'error')).toBe(true)
   })
 
-  // Control: an omitted scope and a wildcard are both accepted, so the two
-  // rejections above are about `''` and not about scope validation refusing
-  // everything.
+  // Control: the rejections above are about `''`, not scope validation refusing everything.
   it.each([undefined, '*'])('accepts %s', (scope) => {
     expect(validateRole({ id: 'r', name: 'R', permissions: [{ action: 'read', resource: 'post' }], scope }).valid).toBe(
       true,

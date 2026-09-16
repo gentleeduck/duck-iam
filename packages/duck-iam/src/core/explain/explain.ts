@@ -4,11 +4,8 @@ import { tracePolicy } from './explain.libs'
 import type { Explain } from './explain.types'
 /**
  * Produce a detailed evaluation trace for debugging authorization decisions.
- * Every policy is traced (no short-circuit) so callers can see the full picture;
- * `combine` controls which trace produces the final {@link AccessControl.IDecision}.
+ * NOTE: every policy is traced without short-circuiting; `combine` only decides which trace yields the final decision.
  *
- * @param policies      All policies to trace.
- * @param request       The access request.
  * @param defaultEffect Effect when no rule fires inside any policy.
  * @param subjectInfo   Subject metadata (id, roles, scoped roles applied).
  * @param combine       Cross-policy combine strategy (defaults to `'and'`).
@@ -38,20 +35,8 @@ export function explainEvaluation(
     finalRule = decided.rule
   }
 
-  // The reserved refusal token is denied before any policy is consulted, and
-  // `authorize()` / `permissions()` both say so. `explain()` did not: it ran
-  // the combine over the traces and reported whatever the policies said, so a
-  // subject holding the ordinary `.on('*').of('*')` admin grant was explained
-  // as ALLOWED on a request the engine denies - on exactly the requests the
-  // adapters mint this token for, an unmappable method and a path the
-  // traversal guard refused to resolve.
-  //
-  // The traces are kept rather than dropped. Seeing which wildcard rule *would*
-  // have matched is the whole reason to open `explain()` on a refused request;
-  // what must not happen is the summary at the bottom disagreeing with the
-  // engine. `iamIsReservedRefusal` is the predicate the decision path uses, not
-  // a second reading of it - the fourth drift between these two paths came from
-  // a hand-copy.
+  // SECURITY: the reserved refusal token is denied before any policy is consulted, so the summary must say deny even
+  // when a wildcard grant would have matched. Calls the decision path's own predicate, never a hand-copy of it.
   if (iamIsReservedRefusal(request.action) || iamIsReservedRefusal(request.resource.type)) {
     finalEffect = 'deny'
     finalReason = 'Denied: the request names the reserved refusal token, which no policy can grant'
@@ -65,9 +50,7 @@ export function explainEvaluation(
     rule: finalRule,
     policy: finalPolicy,
     reason: finalReason,
-    // `failure: 'input'` for the reserved token, the same tag
-    // `_reservedRefusalDecision` carries, so a caller branching on it reads the
-    // same value from both entry points.
+    // The same `failure` tag `_reservedRefusalDecision` carries, so a caller branching on it reads one value.
     ...(iamIsReservedRefusal(request.action) || iamIsReservedRefusal(request.resource.type)
       ? { failure: 'input' as const }
       : {}),
@@ -97,13 +80,8 @@ export function explainEvaluation(
 }
 
 /**
- * Whether a traced policy takes part in the cross-policy combine, mirroring
- * `evaluate`'s two NotApplicable tests. This used to be `targetMatch` alone -
- * only the first test - so a policy about `write` cast a `defaultEffect` vote
- * here that the engine never cast, and the explanation could contradict the
- * decision it was explaining. A trace's `actionMatch && resourceMatch` is
- * `ruleTargetsMatch` by construction, so the second test reads off the trace
- * and the rules stay in the output either way - the point of explaining.
+ * Whether a traced policy takes part in the cross-policy combine.
+ * NOTE: mirrors both of `evaluate`'s NotApplicable tests; on one alone the explanation contradicts the decision.
  */
 function traceIsApplicable(trace: Explain.IPolicyTrace): boolean {
   return trace.targetMatch && trace.rules.some((rule) => rule.actionMatch && rule.resourceMatch)
@@ -140,9 +118,8 @@ function decideFinal(
       return { effect: 'deny', reason: lastDeny.reason, policy: lastDeny.policyId, rule: lastDeny.decidingRule }
     }
   } else {
-    // first-applicable: the first applicable trace wins, rule or not. Gating on
-    // `decidingRule` skipped a policy that voted its `defaultEffect`, which made
-    // the explanation disagree with the decision `evaluate` actually returned.
+    // first-applicable: the first applicable trace wins, rule or not. Gating on `decidingRule` would skip a policy
+    // that voted its `defaultEffect`, which `evaluate` counts.
     const first = applicable[0]
     if (first !== undefined) {
       return { effect: first.result, policy: first.policyId, reason: first.reason, rule: first.decidingRule }

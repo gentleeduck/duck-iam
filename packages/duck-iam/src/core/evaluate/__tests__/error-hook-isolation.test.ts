@@ -6,19 +6,8 @@ import { IAM_RBAC_POLICY_ID } from '../../rbac/rbac'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluate, evaluateFast } from '../evaluate'
 
-/**
- * SEC-023. The error hooks - `onPolicyError`, `onRuleError` - are operator code
- * called from inside the catch block that implements the Indeterminate contract.
- * Called raw, a hook that throws propagates *out* of that catch, so the deny
- * vote the catch was about to cast is never cast and the whole evaluation
- * unwinds instead. The engine's own `onPolicyError` site already wraps for
- * exactly this reason (`engine.ts`, the `IamPolicyCompileError` arm); the
- * evaluator and the compiled lookup did not.
- *
- * This is reachable without a buggy hook: a hook that reports to a metrics
- * backend throws when the backend is down, and the failure mode is that a
- * padded field both defeats the deny rule AND takes the decision with it.
- */
+// Error hooks run inside the catch that casts the Indeterminate vote; a throwing hook (say, a metrics backend
+// that is down) must not unwind that vote.
 const OVERSIZED = 'curl'.padEnd(MAX_REGEX_INPUT_LENGTH + 1, 'x')
 
 function request(userAgent: string): IamRequest.IAccessRequest {
@@ -74,10 +63,7 @@ describe('a throwing onPolicyError does not unwind the evaluation', () => {
     expect(onPolicyError).toHaveBeenCalledOnce()
   })
 
-  // Driven through `lookup` rather than `engine.can`: `can`'s own catch answers
-  // `false` for any throw at all, so routing through it would pass with or
-  // without the guard. This calls the compiled path directly, where the escaping
-  // throw is observable.
+  // Through `lookup`, not `engine.can`, whose own catch answers `false` for any throw and would hide the escape.
   it('compiled lookup: still casts the Indeterminate deny vote', () => {
     const onPolicyError = vi.fn(boom)
     const table = compileTable([], [allowAll, denyBots], 'and')
@@ -87,11 +73,8 @@ describe('a throwing onPolicyError does not unwind the evaluation', () => {
 })
 
 describe('a throwing onRuleError does not unwind the evaluation', () => {
-  // `rulesAbstainOnThrow` is reserved for the synthesised RBAC policy when it is
-  // allow-only: role permissions cannot deny, so one throwing rule abstains and
-  // the scan continues. `evaluate` passes its `onPolicyError` down as the
-  // rule-level reporter, so a throwing hook turned that `continue` into a
-  // rethrow - and the RBAC policy is on every request that carries a role.
+  // `evaluate` passes `onPolicyError` down as the rule-level reporter, so a throwing hook must not turn an
+  // abstaining RBAC rule into a rethrow.
   it('interpreter: an allow-only RBAC rule that throws still abstains', () => {
     const rbac: AccessControl.IPolicy = {
       id: IAM_RBAC_POLICY_ID,
@@ -115,14 +98,7 @@ describe('a throwing onRuleError does not unwind the evaluation', () => {
   })
 })
 
-/**
- * The swallow above is rate-limited, and the latch used to be one module-level
- * boolean. Two engines in one process - two tenants - share that boolean, so
- * the first transiently broken hook anywhere permanently silenced the report
- * for every other hook for the life of the process. A hook failure is how an
- * operator learns that policy evaluation is throwing at all, so losing it to a
- * neighbour's outage loses the only signal.
- */
+// A hook failure is how an operator learns evaluation is throwing, so another engine's broken hook must not silence it.
 describe('the broken-hook report is latched per hook, not per process', () => {
   it('reports each throwing hook once, and reports a second hook too', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -146,8 +122,7 @@ describe('the broken-hook report is latched per hook, not per process', () => {
       expect(hookA.mock.calls.length).toBeGreaterThan(1)
       expect(reportsFor('backend-A-down')).toBe(1)
 
-      // A different hook has its own budget. Under the old module-level latch
-      // this was 0 - silenced by hookA's failure.
+      // A different hook has its own budget.
       evaluate([allowAll, denyBots], request(OVERSIZED), 'deny', 'and', hookB)
       expect(reportsFor('backend-B-down')).toBe(1)
     } finally {
@@ -156,9 +131,7 @@ describe('the broken-hook report is latched per hook, not per process', () => {
   })
 
   it('does not build an Error when no hook is wired', () => {
-    // `safeErrorReport` returns before normalising, so a throwing policy on a
-    // request with no reporter costs nothing. Observable only as the decision
-    // still being the Indeterminate deny.
+    // With no reporter `safeErrorReport` returns early; observable only as the decision staying the Indeterminate deny.
     expect(evaluate([allowAll, denyBots], request(OVERSIZED), 'deny', 'and').allowed).toBe(false)
   })
 })

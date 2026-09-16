@@ -24,14 +24,7 @@ function request(action: string, type: string): IamRequest.IAccessRequest {
   }
 }
 
-/**
- * `readonly rules` is a compile-time annotation, so the array behind it can be
- * replaced or appended to at runtime - by `admin.import`, a hot reload, or a
- * consumer editing the object it handed in. The interpreter walks `policy.rules`
- * live and sees the change; the fast path reads a memoized index. Keying that
- * memo on the policy object served the stale index for the object's whole
- * lifetime, and the divergence was always prod-allows/dev-denies.
- */
+// `readonly rules` is compile-time only; a replaced or appended array must not be served a stale index.
 describe('indexPolicy memo tracks the rules array, not the policy object', () => {
   it('rebuilds after the rules array is replaced', () => {
     const policy: AccessControl.IPolicy = {
@@ -62,10 +55,8 @@ describe('indexPolicy memo tracks the rules array, not the policy object', () =>
     expect(evaluateFast([policy], req, 'deny', 'and')).toBe(false)
   })
 
-  // The precomputed map bakes the combining algorithm into its values, so an
-  // index built under one algorithm must not be served after it changes. The
-  // verdict is asserted on the index rather than on `evaluateFast`, because for
-  // these rules the combine is also re-read live and would mask a stale index.
+  // The precomputed map bakes in the algorithm. Asserted on the index, since `evaluateFast` re-reads the algorithm
+  // live for these rules and would mask a stale one.
   it('rebuilds after the combining algorithm changes', () => {
     const policy: AccessControl.IPolicy = {
       algorithm: 'allow-overrides',
@@ -80,8 +71,7 @@ describe('indexPolicy memo tracks the rules array, not the policy object', () =>
     expect(indexPolicy(policy)).not.toBe(before)
   })
 
-  // Control: an untouched policy must still be served from the memo, otherwise
-  // the three tests above would pass on a cache that simply never hits.
+  // Control: otherwise the tests above would pass on a cache that never hits.
   it('still returns the same index object for an untouched policy', () => {
     const policy: AccessControl.IPolicy = {
       algorithm: 'deny-overrides',
@@ -93,13 +83,8 @@ describe('indexPolicy memo tracks the rules array, not the policy object', () =>
   })
 })
 
-/**
- * The literal bucket map was keyed on action and resource joined by a NUL,
- * which is not injective: action `read<NUL>post` with resource `x` produces the
- * same key as action `read` with resource `post<NUL>x`. A literal hit is
- * trusted as an exact match and skips the shape check, so the rule answered a
- * request it does not target - in production only.
- */
+// A NUL-joined bucket key is not injective (`read<NUL>post` + `x` equals `read` + `post<NUL>x`),
+// and a literal hit skips the shape check.
 describe('a NUL in an action or resource name cannot forge a bucket hit', () => {
   const colliding: AccessControl.IPolicy = {
     algorithm: 'deny-overrides',
@@ -124,8 +109,7 @@ describe('a NUL in an action or resource name cannot forge a bucket hit', () => 
     expect(evaluateFast([policy], victim, 'deny', 'allow-overrides')).toBe(false)
   })
 
-  // Control: the rule still fires for the request it actually targets, so the
-  // assertions above are not passing because the rule fell out of the index.
+  // Control: the rule did not simply fall out of the index.
   it('the rule still matches its own action and resource', () => {
     const own = request(`read${NUL}post`, 'x')
     expect(evaluateFast([colliding], own, 'deny', 'and')).toBe(true)

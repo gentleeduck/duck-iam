@@ -365,7 +365,7 @@ describe('first-match priority order', () => {
   })
 
   it('ties preserve source order (stable selection)', () => {
-    // Equal priority -> earlier rule wins. Mirrors evaluate.test.ts:106 behavior.
+    // Equal priority -> earlier rule wins.
     const policy: AccessControl.IPolicy = {
       id: 'first-tie',
       name: 'First Tie',
@@ -440,11 +440,7 @@ describe('fast path: expansive action/resource patterns route via the wildcard b
 })
 
 describe('fast path: wildcard bucket indexing (indexPolicy)', () => {
-  // A rule's own action/resource list can mix a literal alternative with a
-  // wildcard one - `indexPolicy` still counts that side as expansive and buckets
-  // the rule under its literal side (e.g. byResourceWildcardAction), but
-  // candidateShapeMatches must still recognize the literal alternative too, not
-  // just the wildcard one.
+  // A rule mixing literal and wildcard actions is bucketed as expansive, but its literal alternative must still match.
   it('a rule with mixed literal + wildcard actions matches via either alternative', () => {
     const policy: AccessControl.IPolicy = {
       id: 'mixed-actions',
@@ -562,8 +558,7 @@ describe('fast path: wildcard bucket indexing (indexPolicy)', () => {
 })
 
 describe('fast path: expansive patterns reject non-matching requests (regression)', () => {
-  // matchCandidate() used to skip the match check entirely whenever the rule's
-  // own pattern was expansive, so 'posts:*' matched *any* action - a false-ALLOW.
+  // SECURITY: an expansive pattern is still shape-checked, so 'posts:*' cannot match any action.
   it('"posts:*" does not match "comments:read"', () => {
     const policy: AccessControl.IPolicy = {
       id: 'colon-action',
@@ -617,9 +612,7 @@ describe('fast path: expansive patterns reject non-matching requests (regression
 })
 
 describe('NotApplicable semantics', () => {
-  // A policy whose targets don't match the request is NotApplicable
-  // (`applicable: false`) and must be skipped by the combiner, not folded as
-  // the default effect.
+  // A policy whose targets don't match is NotApplicable and skipped by the combiner, not folded as the default.
   const allowReadAnywhere: AccessControl.IPolicy = {
     id: 'allow-read-anywhere',
     name: 'Allow Read Anywhere',
@@ -780,10 +773,7 @@ describe('fast path: literal-only resource patterns', () => {
 })
 
 describe('policy targets: dot-pattern resources', () => {
-  // Regression: when `matchesResource` was tightened to literal-only for
-  // bare patterns, `policyApplies` / `policyTargetsMatch` silently failed
-  // for dot-wildcard targets like `dashboard.*`. `matchesResource` must
-  // handle both `:*` and `.*` suffixes.
+  // `policyApplies` goes through `matchesResource`, which must handle `.*` targets like `dashboard.*` as well as `:*`.
   const dotTargetPolicy: AccessControl.IPolicy = {
     id: 'dot-targets',
     name: 'Dot Targets',
@@ -840,9 +830,7 @@ describe('policy targets: dot-pattern resources', () => {
 })
 
 describe('allowFailOpen enforcement (P0)', () => {
-  // Regression: the engine previously refused defaultEffect: 'allow' only in
-  // production. Development engines could ship with the same fail-open behavior
-  // and silently mask dropped policies. Enforcement is now mode-independent.
+  // The `allowFailOpen` opt-in is enforced in every mode, not only production.
   it("refuses defaultEffect: 'allow' in development without allowFailOpen", () => {
     const adapter = new IamMemoryAdapter()
     expect(() => new IamEngine({ adapter, mode: 'development', defaultEffect: 'allow' })).toThrow(/fail-open/i)

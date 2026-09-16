@@ -3,13 +3,7 @@ import type { AccessControl, IamRequest } from '../../types'
 import { evaluate, evaluateFast } from '../evaluate'
 import { indexPolicy } from '../evaluate.libs'
 
-/**
- * `first-match` and `highest-priority` rank identically - highest priority
- * wins, ties fall to source order - and differ only in the `reason` they
- * report. `highest-priority` was nonetheless left out of the precompute
- * allowlist, so the same policy answered in O(1) under one algorithm name and
- * scanned its rules under the other, with no behavioural reason for the split.
- */
+// `first-match` and `highest-priority` rank identically, so both must use the precomputed table.
 const request: IamRequest.IAccessRequest = {
   action: 'read',
   environment: {},
@@ -49,9 +43,7 @@ describe('precompute covers every algorithm that can be precomputed', () => {
     }
   })
 
-  // Control: a wildcard rule can override a literal one, so the table stays
-  // empty. Without this the assertions above would pass on a build that
-  // precomputed everything unconditionally.
+  // Without this, the assertions above would pass on a build that precomputed everything.
   it('control: a wildcard rule suppresses the table', () => {
     const withWildcard: AccessControl.IRule[] = [
       ...UNCONDITIONAL,
@@ -62,8 +54,7 @@ describe('precompute covers every algorithm that can be precomputed', () => {
     }
   })
 
-  // Control: a conditional rule in the same bucket also suppresses it, since
-  // the answer then depends on the request.
+  // The answer then depends on the request.
   it('control: a conditional rule in the bucket suppresses the table', () => {
     const conditional: AccessControl.IRule[] = [
       ...UNCONDITIONAL,
@@ -117,9 +108,7 @@ describe('first-match and highest-priority are one algorithm', () => {
     }
   })
 
-  // The two names are kept because the `reason` they report is the useful
-  // difference; aliasing them outright would change what an operator reads in
-  // an audit log.
+  // NOTE: both names stay because operators read the differing `reason` in audit logs.
   it('differ only in the reason they report', () => {
     expect(evaluate([policyOf('first-match', UNCONDITIONAL)], request, 'deny', 'and').reason).toMatch(/^First match:/)
     expect(evaluate([policyOf('highest-priority', UNCONDITIONAL)], request, 'deny', 'and').reason).toMatch(

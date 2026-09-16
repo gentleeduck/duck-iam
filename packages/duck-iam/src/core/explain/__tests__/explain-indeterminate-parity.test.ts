@@ -4,23 +4,8 @@ import type { AccessControl, IamRequest } from '../../types'
 import { explainEvaluation } from '../explain'
 import type { Explain } from '../explain.types'
 
-/**
- * The fourth drift in the explain/can relationship, and the first one where
- * `explain()` did not merely disagree - it threw.
- *
- * `evaluate` treats a rule that throws as Indeterminate: the policy votes deny
- * if it carries any deny rule, otherwise it casts `defaultEffect`, and it never
- * abstains (`evaluate.ts`, `safeEval`). `explainEvaluation` had no `try` at all,
- * so on the same input it raised out of the caller. That is the worst possible
- * place for a diagnostic to fail: an unknown operator or a `conditions` field
- * that is not an object is exactly what you open `explain()` to understand, and
- * it is the shape a hand-edited store row or an oversized request attribute
- * actually produces.
- *
- * These compare against the decision path rather than a hand-written table, and
- * they cover both arms of the Indeterminate contract - a policy with a deny rule
- * and one without - under both defaults, because the two arms only differ there.
- */
+// `evaluate` absorbs a throwing rule as Indeterminate: deny if the policy carries any deny rule, else `defaultEffect`.
+// `explain()` must do the same rather than raise on the very inputs it is opened to explain.
 const REQUEST: IamRequest.IAccessRequest = {
   action: 'read',
   environment: {},
@@ -30,11 +15,7 @@ const REQUEST: IamRequest.IAccessRequest = {
 
 const subjectInfo: Explain.ISubjectInfo = { originalRoles: [], scopedRolesApplied: [], subjectId: 'u1' }
 
-/**
- * Built through JSON so the malformed shapes arrive genuinely untyped, which is
- * how they arrive in production - off a store row - rather than being forced
- * past the type checker with a cast.
- */
+/** Built through JSON so the malformed shapes arrive untyped, the way a store row does. */
 function policyFrom(json: string): AccessControl.IPolicy {
   return JSON.parse(json)
 }
@@ -78,9 +59,7 @@ describe('explain() absorbs a throwing rule exactly as the decision path does', 
     }
 
     it(`${name}: the failure is recorded in the trace, not swallowed`, () => {
-      // Absorbing the throw must not make it invisible - the whole point of
-      // `explain()` is to say why. A silent `false` here would be a worse bug
-      // than the original crash.
+      // Absorbing the throw must not make it invisible; a silent `false` is worse than a crash.
       const traced = explainEvaluation([policyWith(conditions, false)], REQUEST, 'deny', subjectInfo, 'and')
       const rule = traced.policies[0]?.rules[0]
       if (rule === undefined) throw new Error('trace produced no rule')

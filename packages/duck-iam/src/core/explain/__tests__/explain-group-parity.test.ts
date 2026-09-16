@@ -4,21 +4,8 @@ import type { AccessControl, IamRequest } from '../../types'
 import { explainEvaluation } from '../explain'
 import type { Explain } from '../explain.types'
 
-/**
- * The third explain/can drift, one level up from the leaf drift that
- * `explain-leaf-parity.test.ts` covers.
- *
- * `evalConditionGroup`'s tail is deliberate: `{}` means "no conditions", which
- * is unconditionally true, while a group carrying keys we do not recognise (a
- * typo'd `all`, a row from a hand-edited store) reads false, because treating
- * it as "no conditions" would turn a conditional allow into an unconditional
- * one. `traceGroup`'s fallback carried no comment and collapsed both cases to
- * `false`, so `explain()` reported a denial for a rule `can()` allowed.
- *
- * These compare the traced group result against the decision path itself
- * rather than against a hand-written expectation, so the two cannot drift
- * apart again without this failing.
- */
+// A traced group must answer what `evalConditionGroup` answers: `{}` is "no conditions" and true, an unrecognised
+// key is refused. Compared against the decision path itself, not a hand-written expectation.
 const subjectInfo: Explain.ISubjectInfo = { originalRoles: [], scopedRolesApplied: [], subjectId: 'u1' }
 
 const REQUEST: IamRequest.IAccessRequest = {
@@ -37,19 +24,24 @@ function policyWith(conditions: AccessControl.IConditionGroup): AccessControl.IP
   }
 }
 
-/** The top-level group result the trace reports for a rule's conditions. */
-function tracedGroupResult(conditions: AccessControl.IConditionGroup): boolean {
+/** The traced group result as three outcomes; a boolean would hide a refusal, which is the drift this file is for. */
+function tracedGroupResult(conditions: AccessControl.IConditionGroup): boolean | 'refused' {
   const result = explainEvaluation([policyWith(conditions)], REQUEST, 'deny', subjectInfo, 'and')
   const rule = result.policies[0]?.rules[0]
   if (rule === undefined) throw new Error('trace produced no rule')
-  return rule.conditions.result
+  return rule.conditionError === undefined ? rule.conditions.result : 'refused'
 }
 
-/**
- * A group whose keys the type does not describe. Parsed from JSON rather than
- * written as a literal so it arrives genuinely untyped - which is how a real
- * one arrives, off a store row - instead of being forced past the checker.
- */
+/** The decision path's answer, in the same three outcomes. */
+function decidedGroupResult(conditions: AccessControl.IConditionGroup): boolean | 'refused' {
+  try {
+    return evalConditionGroup(REQUEST, conditions, 0)
+  } catch {
+    return 'refused'
+  }
+}
+
+/** A group whose keys the type does not describe, parsed from JSON so it arrives untyped, as a store row does. */
 function malformedGroup(json: string): AccessControl.IConditionGroup {
   return JSON.parse(json)
 }
@@ -67,21 +59,21 @@ describe('a traced condition group agrees with the group the engine decided on',
 
   for (const { name, group } of cases) {
     it(`${name}: trace matches evalConditionGroup`, () => {
-      expect(tracedGroupResult(group)).toBe(evalConditionGroup(REQUEST, group, 0))
+      expect(tracedGroupResult(group)).toBe(decidedGroupResult(group))
     })
   }
 
   it('the empty object specifically is true on both paths, not false', () => {
-    // Pinned as an absolute, not just as parity: two paths agreeing on the
-    // wrong answer would satisfy the comparison above.
+    // Pinned as an absolute: two paths agreeing on the wrong answer would satisfy the parity check above.
     const empty = malformedGroup('{}')
     expect(evalConditionGroup(REQUEST, empty, 0)).toBe(true)
     expect(tracedGroupResult(empty)).toBe(true)
   })
 
-  it('an unrecognised key specifically is false on both paths', () => {
+  it('an unrecognised key specifically is refused on both paths, not false', () => {
+    // SECURITY: `false` here reads as fail-closed but is not - on a deny rule it retires the deny.
     const bogus = malformedGroup('{"foo":1}')
-    expect(evalConditionGroup(REQUEST, bogus, 0)).toBe(false)
-    expect(tracedGroupResult(bogus)).toBe(false)
+    expect(decidedGroupResult(bogus)).toBe('refused')
+    expect(tracedGroupResult(bogus)).toBe('refused')
   })
 })
