@@ -1,11 +1,21 @@
 # Rewriting the duck-iam engine: compile the model
 
+> **Design record, 2026-08-26 to 2026-09-03. Written against 5.5.1; the package
+> is now 5.9.0.** This is the history of the compiled-table rewrite — why it was
+> proposed, what was measured at the time, and what was tried and rejected. The
+> rewrite shipped. Everything from here down to "What actually shipped"
+> describes the engine as it stood *before* the rewrite, and the plan as it
+> stood then; read it as history. The sections from "What actually shipped"
+> onward describe the engine that exists now. For how the shipped engine
+> behaves today, read [`compiled-engine-explained.md`](./compiled-engine-explained.md)
+> and [`reference/core-engine.md`](./reference/core-engine.md) instead.
+
 Keep the RBAC and ABAC model exactly as it is. Throw away how it executes.
 
-The engine currently interprets the policy set on every request. It could
-compile it once per policy version instead. A working prototype measures
-**10 to 20x faster** than `engine.can()` today, in plain TypeScript, with no new
-dependencies and no loss of runtime policy changes.
+At the time of the rewrite the engine interpreted the policy set on every
+request. It could compile it once per policy version instead. A prototype
+measured **10 to 20x faster** than `engine.can()` was then, in plain TypeScript,
+with no new dependencies and no loss of runtime policy changes.
 
 This document explains the idea, shows the measurements, and lists what it would
 actually take.
@@ -14,8 +24,11 @@ actually take.
 
 ## How the numbers were made
 
-vitest 4.1.9, AMD Ryzen 9 9955HX. Scratch benchmarks live in
-`packages/duck-iam/tmp/`, which is gitignored, so rerun or delete them freely.
+Measured 2026-08-26 against 5.5.1, the pre-rewrite interpreter. vitest 4.1.9,
+AMD Ryzen 9 9955HX. Every number in this section and in "Measured" below is from
+that run; the shipped engine's own numbers are in "Measured: the actual wired
+path" further down. Scratch benchmarks live in `packages/duck-iam/tmp/`, which
+is gitignored, so rerun or delete them freely.
 
 Two things distorted my first run. Both are worth knowing if you rerun this.
 
@@ -59,7 +72,8 @@ step between "policies loaded" and "answer returned" is different.
 **Removed from the request path** (still exists in the codebase, just no
 longer runs per request):
 
-- The `Map<'action\0resource'>` bucket lookup + per-bucket rule scan in
+- The two-level `Map<action, Map<resource, rules>>` bucket lookup + per-bucket
+  rule scan in
   `evaluate.ts` (`literalBuckets`, `evaluate.ts:265-321`) — replaced by a
   direct array index, no hashing, no scanning a bucket's rules.
 - `rolesToPolicy` regenerating `subject.roles contains X` RBAC rules on every
@@ -221,8 +235,10 @@ Three problems from `ARCHITECTURE-PERF.md` disappear rather than get fixed:
 
 ## Measured
 
-Fixtures: 20 roles in a linear `inherits` chain, 8 actions, 20 resources, plus
-two ABAC policies. Rotating inputs.
+Prototype benchmarks, 2026-08-26. "today" throughout this section means 5.5.1's
+interpreter, the baseline the rewrite was proposed against — not the shipped
+engine. Fixtures: 20 roles in a linear `inherits` chain, 8 actions, 20
+resources, plus two ABAC policies. Rotating inputs.
 
 **Unconditional check, compiles to a constant**
 
@@ -278,8 +294,8 @@ normally, but most UI gating is role-shaped.
 resource to an integer at compile time and store cells in
 `Uint8Array(nActions * nResources)`. A 2.3x difference for a mechanical change.
 
-**Role count is a non-problem.** A JS number holds 32 role bits. Past that you
-need `Uint32Array`. Measured:
+**Role count looked like a non-problem.** A JS number holds 32 role bits. Past
+that you need `Uint32Array`. Measured:
 
 | | ops/s |
 |-|-------|
@@ -289,6 +305,11 @@ need `Uint32Array`. Measured:
 
 All three sit at the harness floor. The difference is unmeasurable. Pick
 `Uint32Array` for density, or a sparse Set if subjects hold only a few roles.
+
+(What shipped is the single 32-bit mask, and the multi-word variant sketched
+here was never built — so the shipped engine does have a 32-role limit on its
+fast path. See "Known limits: role cap and scope" below for what happens past
+32 today.)
 
 ---
 
@@ -385,17 +406,19 @@ Single-role edits already go through `admin.saveRole()`, which always passes the
 edited role's id to `invalidateRoles(roleId)` — that path already scans and
 evicts only subjects holding that role, not the whole cache. The no-id form that
 calls `subjectCache.clear()` on *every* cached subject is reached from exactly
-one place today: the bulk `restoreSnapshot` path (`engine.libs.ts:395`), after a
-snapshot import touches many roles at once and invalidating everything is the
-conservative-but-correct call when you don't know which subjects any of them
-affect.
+one place: the bulk snapshot import, `admin.import()` (`engine.libs.ts:775`),
+after a snapshot import touches many roles at once and invalidating everything is
+the conservative-but-correct call when you don't know which subjects any of them
+affect. (Still true in 5.9.0; the section originally named this path
+`restoreSnapshot`, which is not what it is called.)
 
-**Fixable today, no rewrite needed:** `restoreSnapshot` already has the touched
-role ids in hand (`snapshot.roles`, plus whatever it deleted). It can call
-`invalidateRoles(roleId)` once per touched role — reusing the targeted path that
-already exists — instead of the no-id nuke. That turns "clear every subject in
-the process" into "clear only subjects touching one of the N changed roles,"
-in the interpreter, today.
+**Fixable without the rewrite, and still unfixed:** `admin.import()` already has
+the touched role ids in hand (`snapshot.roles`, plus whatever it deleted). It
+could call `invalidateRoles(roleId)` once per touched role — reusing the
+targeted path that already exists — instead of the no-id nuke. That would turn
+"clear every subject in the process" into "clear only subjects touching one of
+the N changed roles." As of 5.9.0 it still calls `invalidateRoles()` with no
+id.
 
 **What only the rewrite fixes:** even the targeted `invalidateRoles(roleId)`
 path evicts every subject holding that role for *any* edit to it, including a
@@ -513,7 +536,9 @@ checking; it doesn't.
 - **Combining semantics — resolved and shipped.** Not a single toggle;
   `scopeMode: 'flat' | 'hierarchical'` (whether ancestors match at all) and
   `scopeCombine: 'union' | 'override'` (how matching levels combine) are two
-  separate config knobs, same shape as `policyCombine` today. `'union'`
+  separate config knobs, same shape as `policyCombine` today. `scopeCombine`
+  applies under `'hierarchical'` only and is inert under the default
+  `scopeMode: 'flat'`, where at most one level can match. `'union'`
   (default) ORs every matching ancestor level's roles in — an org-level
   grant and a team-level grant both apply, GitHub's "org owner reaches every
   repo" behavior. `'override'` walks specific-to-general and stops at the
@@ -1260,6 +1285,8 @@ a request's own action/resource is never itself a pattern.)
 resolution, hooks, scope enrichment, everything. vitest 4.1.9, same
 machine as "How the numbers were made" above.
 
+Run 2026-08-28, against 5.6.x:
+
 | Request shape | production (compiled) | development (interpreter) | Speedup |
 |---|---|---|---|
 | RBAC mask-covered (`update`/`post`) | 2.39M ops/s | 0.44M ops/s | **5.40x** |
@@ -1322,8 +1349,9 @@ final whole-branch review:
 
 ### Known limits: role cap and scope
 
-Two design-level limits came up during review and are worth a fixed
-reference instead of re-deriving them from source each time.
+Written 2026-08-28, updated 2026-08-29. Two design-level limits came up during
+review and are worth a fixed reference instead of re-deriving them from source
+each time. Both have moved since — the corrections are inline below.
 
 **The 32-role cap is a JS semantics wall, not a tuning knob.** `roleId`
 maps each role name to a bit position; `compileTable` bakes inheritance
@@ -1333,12 +1361,19 @@ every holder of a permission), so a request-time check is one
 bitwise operators coerce to 32-bit ints and wrap shift amounts mod 32
 (`1 << 32 === 1 << 0`) — a 33rd role would silently alias role 0's bit,
 handing role 0's grants to anyone holding only role 33. `compileTable`
-throws past `MAX_ROLES` (`compiled.compile.ts`) rather than risk that.
+throws `IamRoleLimitExceededError` past `MAX_ROLES`
+(`IAM_MAX_COMPILED_ROLES`, `compiled.compile.ts`) rather than risk that.
 The cap is on the *role catalog* size, not users, orgs, or resources —
 GitHub/Slack-shaped systems keep their role catalog to a handful and push
 real granularity into permissions/scope, so 32 covers them comfortably.
-If a deployment genuinely needs more than 32 roles today, `mode:
-'development'` has no cap (same correctness, interpreter speed). Un-built
+A deployment that needs more than 32 roles needs no configuration change:
+`_getCompiledTable()` catches that error specifically, warns once and returns
+`null`, so **both** modes fall back to the interpreter, which has no cap.
+`healthCheck()` reports `compiledTable: { available: false, reason:
+'role-limit-exceeded' }` while staying `ok: true`. (This paragraph originally
+said the caller had to switch to `mode: 'development'` to get past the cap. That
+was true while the compiled table ran in production only; see "More roles than
+the mask can address" at the end of this page.) Un-built
 options if the fast path ever needs it: a multi-word mask
 (`Uint32Array` per cell instead of one `Uint32`), a `BigInt` mask, or
 capping the fast path at the top-N roles and routing overflow roles
@@ -1366,12 +1401,12 @@ Easy to conflate; they answer different questions.
    scope/condition fast path (below), it no longer needs the interpreter
    either.
 
-**Update — case 2 is fast now too, for the common shape.** `matchesScope`
-is a literal-vs-literal (or `'*'`) comparison — there is no scope
-wildcard/prefix concept anywhere in the codebase — so a scoped grant is
-compilable exactly the way action/resource already are, it just needs one
-more static key. `compileTable` now splits non-simple role permissions
-into two buckets instead of one:
+**Update — case 2 is fast now too, for the common shape.** When this was
+written (2026-08-29) `matchesScope` was a literal-vs-literal (or `'*'`)
+comparison with no prefix concept, so a scoped grant is compilable exactly
+the way action/resource already are, it just needs one more static key.
+`compileTable` splits non-simple role permissions into two buckets instead
+of one:
 
 - **Literal action+resource, scope and/or conditions** → `rbacDynamic`, a
   per-cell array of `{ roleMask, scope?, conditions? }` groups (same idx
@@ -1382,6 +1417,12 @@ into two buckets instead of one:
 - **Wildcarded action or resource** → still `rbacResidual`, genuinely
   irreducible (could match requests no cell was ever indexed for). This is
   now the *only* reason a role permission stays fully residual.
+
+Prefix matching arrived later and did not change that shape. As of 5.9.0 the
+comparison at an `rbacDynamic` group is `scopeCovers(g.scope, req.scope,
+table.scopeMode)` (`compiled.lookup.ts`) — still `matchesScope` under
+`scopeMode: 'flat'` (the default), plus one `startsWith` under
+`'hierarchical'`. A static key either way, still no table axis.
 
 All three sources (`allow`, `rbacDynamic`, `rbacResidual`) are OR'd inside
 one `rbacVote()` call and still count as exactly one vote in `lookup()` —
@@ -1394,14 +1435,24 @@ The overlay/trie design sketched earlier in this doc ("Scope and
 multi-tenancy", "Hierarchical scope," "Phase 3 — scope") aimed at a
 different, harder case — a *table axis* for scope, keyed like action/
 resource. That was deleted, not shipped (`lookupScoped()`, no
-`compiled.scope.ts`), and remains un-built: it would matter for scope
-*wildcards or hierarchies* (`org.*`-style), which don't exist today. The
-fast path above only needed literal-vs-literal matching, which is a much
-smaller problem than the trie was solving.
+`compiled.scope.ts`), and remains un-built. It was written off on the grounds
+that scope hierarchies did not exist. They do now: `scopeMode: 'hierarchical'`
+makes a dotted scope a path, so a grant at `org-1` reaches
+`org-1.team-2.repo-3` — added for assignment scope on 2026-08-28 and for
+declared scope (`scopeCovers`) on 2026-09-03. It is handled by prefix
+comparison at the `rbacDynamic` group and by `enrichSubjectWithScopedRoles`
+walking ancestors, not by a table axis, so the trie is still un-built — but
+"hierarchies don't exist" is no longer the reason.
 
 ---
 
-## Verdict
+## Verdict (2026-08-26, before any of the above was built)
+
+This is the original recommendation, kept as written. Both options were taken:
+the incremental fixes first, then the compiled engine, which shipped and is what
+`mode: 'production'` and `mode: 'development'` both run today. The projected
+figures below were never the ones that landed — see "Measured: the actual wired
+path" above for the numbers from the real integration.
 
 | Option | Speed | Effort | Risk | Do it? |
 |--------|-------|--------|------|--------|
@@ -1409,12 +1460,14 @@ smaller problem than the trie was solving.
 | Compiled engine | ~7.6M to 10-20M | weeks | medium | **Yes, after** |
 
 A compiled engine with interning should reach **10 to 20M ops/s** for
-`engine.can()`, against 1.01M today.
+`engine.can()`, against 1.01M for the interpreter as it then stood. (It did not:
+the wired path measures 2.6-2.9M through the full stack, which the prototypes had
+factored out.)
 
-For context, CASL measures 16.9M on `ability.can()`. A compiled duck-iam would be
-somewhere between competitive with and faster than the library it currently
-reports being 2x behind, while keeping runtime-mutable policies, which CASL does
-not have. You would keep the property the README sells and stop paying for it on
+For context, CASL measured 16.9M on `ability.can()` at the time. A compiled
+duck-iam would be somewhere between competitive with and faster than the library
+it then reported being 2x behind, while keeping runtime-mutable policies, which
+CASL does not have. You would keep the property the README sells and stop paying for it on
 every request.
 
 All of this is plain TypeScript. Typed arrays, bitwise operations, and closures
@@ -1425,12 +1478,15 @@ runtimes.
 Do the incremental fixes first. They are 7x for a few days of low-risk work, and
 they will tell you whether you ever need the rest.
 
+*(Both were done. What follows was added after the round-3 audit and describes
+the engine as it is.)*
+
 ---
 
 ## Both modes evaluate through the table
 
-Added after the round-3 audit, which turned up the same defect five separate
-times (A/W-1, B/S-1, B/S-2, B/S-3, B/W-1). Every instance had one shape:
+Added 2026-09-03, after the round-3 audit, which turned up the same defect five
+separate times (A/W-1, B/S-1, B/S-2, B/S-3, B/W-1). Every instance had one shape:
 production evaluated through the compiled table, development through the
 interpreter, so any disagreement between the two was invisible until it reached
 production — and it reached production as an *allow* against a development run

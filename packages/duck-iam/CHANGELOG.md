@@ -289,8 +289,8 @@
   `NODE_ENV` and the engine's own mode give a positive development signal - and
   its docblock says it exists so "the policy/role/subject **readers** cannot leak
   into raw-browser bundles (CWE-200 / CWE-489)". Two of those three readers never
-  called it. `package.json` publishes `./dt` and `src/dt/index.ts` exports all
-  seven panels individually, so importing one directly is a supported thing to
+  called it. `package.json` publishes `./dt` and `src/dt/index.ts` exports every
+  panel individually, so importing one directly is a supported thing to
   do, and through that route `IamPoliciesPanel` renders the entire policy corpus
   from `engine.admin.listPolicies()`, `IamRolesPanel` the whole role catalog, and
   `IamDecisionInspector` answers `engine.explain()` for any subject, action and
@@ -357,7 +357,7 @@
 
 - 5f38486: Add a second devtools build, `@gentleduck/iam/dt/v2`, written on duck-ui.
 
-  `./dt` and `./dt/v2` are two implementations of the same seven panels with
+  `./dt` and `./dt/v2` are two implementations of the same six panels with
   deliberately opposite dependency contracts, published side by side so a
   consumer picks the trade rather than inheriting it:
 
@@ -522,7 +522,7 @@
   `explainEvaluation` now applies the same predicate, keeps the policy traces, and
   carries the same `failure: 'input'` tag.
 
-## Unreleased
+## 5.8.1
 
 ### Minor Changes
 
@@ -729,10 +729,6 @@ undefined`), with a one-time notice explaining how to make mutations
 - A policy the compiler cannot lower is now named.
 
   The compiler walks `policy.rules` and each rule's `actions`/`resources` directly, so a policy missing one of them threw from wherever the walk touched it first - `policy.rules is not iterable`, with no indication which of a tenant's policies was broken. The interpreter had always isolated a rotten policy and reported its id through `onPolicyError`, so moving both modes onto the table would have traded a precise diagnostic for an anonymous one. The shape check now runs before the walk, names the policy and the rule, and is forwarded to `onPolicyError` before the error is rethrown. The deny is unchanged.
-
-## 5.8.1
-
-### Patch Changes
 
 - e47efb9: Time-boxed grants stop granting when they expire, not up to a `cacheTTL` later.
 

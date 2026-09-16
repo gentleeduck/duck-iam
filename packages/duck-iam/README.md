@@ -70,7 +70,10 @@ const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {
 ## Performance
 
 Benchmarked against 5 other JS authorization libraries using vitest bench
-(`bun run bench`). Two different things get measured - keep them
+(`bun run bench`). Every number in this section was measured at **5.6.0** on one
+machine in a single run and has not been re-measured since; read them as ratios
+from that run, not as a current reading of your hardware. Re-run `bun run bench`
+before quoting any of them. Two different things get measured - keep them
 separate.
 
 **Rule-matching only** (no adapter, no engine wrapper), ops/sec:
@@ -95,7 +98,7 @@ subject resolution + the compiled table):
 `mode: 'development'` runs the same compiled table for the verdict and *also*
 runs the interpreter, to recover the `reason`/`policy`/`rule` provenance the
 table erases at compile time and to assert the two agree. That costs roughly
-2.4x production on the same machine. It is meant to: development is where a
+2.4x production on the same machine. That is the intent: development is where a
 table/interpreter disagreement should surface, and production is where the
 second evaluator would be pure overhead.
 
@@ -145,7 +148,7 @@ at 15-25 KB.
 - **Policy engine** with 4 intra-policy algorithms (deny-overrides, allow-overrides, first-match, highest-priority) and 3 cross-policy combine modes (and / allow-overrides / first-applicable)
 - **19 condition operators** (eq, neq, gt, lt, in, contains, starts_with, matches, exists, subset_of, before, after, and more)
 - **Scoped roles** for multi-tenant systems
-- **Dev/prod mode**: rich Decision objects in development, plain booleans in production
+- **Dev/prod mode**: `check()` returns an `IDecision` in development and a bare boolean in production; `can()` returns a boolean in both
 - **Explain API**: full evaluation trace showing exactly why a permission was granted or denied
 - **Lifecycle hooks**: `beforeEvaluate`, `afterEvaluate`, `onDeny`, `onError`, `onPolicyError`, `onMetrics`
 - **Type-safe config**: actions, resources, roles, and scopes are validated at compile time
@@ -159,6 +162,7 @@ at 15-25 KB.
 - **`engine.admin.export()` / `import(snapshot, { mode })`** - schema-versioned policy + role snapshots for env promotion
 - **`engine.dispose()`** - release the cross-instance invalidator subscription on shutdown
 - **`IConfig.adapterTimeoutMs`** - `AbortController`-driven timeout on every adapter read (default 5 s)
+- **`IConfig.hookTimeoutMs`** - bound on a promise a hook returns (default 5 s; `0` waits indefinitely)
 - **`IConfig.maxPolicies` / `maxRoles`** - load-time caps that fail closed
 - **`IConfig.allowFailOpen`** - explicit opt-in required whenever `defaultEffect` is `'allow'`, in every mode
 - **`IConfig.invalidator`** - cross-instance cache-invalidation broadcaster
@@ -257,8 +261,9 @@ adapters do; memory, file, redis and http do not - they have no transaction to j
 
 ### Batch writes
 
-`assignRoles`, `revokeRoles`, `moveRoleScopes` and `invalidateSubjects` take a list and
-report per-row outcomes:
+`assignRoles`, `revokeRoles` and `moveRoleScopes` take a list and report per-row outcomes.
+(`invalidateSubjects` also takes a list, but it is a cache drop rather than a write and
+returns `void`.)
 
 ```typescript
 const result = await engine.admin.assignRoles([
@@ -291,9 +296,10 @@ carries the finer answer:
 const again = await engine.admin.assignRoles([{ subjectId: 'u1', roleId: 'admin' }])
 again.applied // 1 - the grant is in place
 
-// `Outcome` is a discriminated union, so narrow on `ok` before reading `value`.
+// `ok` is always `true`: a malformed row aborts the whole batch before any write, so
+// there is no failed-row arm to narrow on. Read `value` directly.
 const [outcome] = again.outcomes
-if (outcome?.ok) outcome.value.changed // false - this call is not what put it there
+outcome?.value.changed // false - this call is not what put it there
 ```
 
 | `changed` | Meaning |
@@ -329,9 +335,15 @@ app.get('/healthz', async (_, res) => res.json(await engine.healthCheck()))
 app.get('/metrics', (_, res) => res.json(metrics.snapshot()))
 ```
 
+The invalidator's `client` needs two Redis connections, not one - a subscribed
+connection cannot issue other commands - and takes a `secret` for HMAC-SHA256
+envelope signing, which should be set in production.
+
 See the [production deployment guide](https://gentleduck.org/duck-iam/duck-iam/guides/production) for cache TTL trade-offs, multi-node invalidation patterns, fail-closed defaults, and SLO targets.
 
 ## Module sizes (gzipped)
+
+Measured at 5.6.0, same run as the performance figures above.
 
 | Module | Size |
 |--------|------|
@@ -353,6 +365,10 @@ for per-profile measurements.
 
 ## Docs
 
+- **Reference (start here): [`docs/reference/`](./docs/reference/README.md)** - eleven pages
+  covering the package subsystem by subsystem, written against the source. The engine and its
+  config, the operator table, roles and scope, validation, the builder and traces, every
+  adapter, the four server integrations, the clients, the devtools, and operations.
 - Site: [gentleduck.org/duck-iam](https://gentleduck.org/duck-iam)
 - Compiled engine internals (wildcard buckets, role bitmasks, the compiled table, with diagrams): [`docs/compiled-engine-explained.md`](./docs/compiled-engine-explained.md)
 - Engine rewrite design history + known limits: [`docs/engine-rewrite.md`](./docs/engine-rewrite.md)
