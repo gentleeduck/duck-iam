@@ -7,12 +7,8 @@ import { IamEngine } from '../../engine'
 import { compileTable } from '../compiled.compile'
 import { lookup } from '../compiled.lookup'
 
-// Boundary + error-handling-path coverage for the compiled table, additive to
-// compiled.engine-wiring.test.ts / compiled.compile.test.ts / compiled.differential.test.ts.
-// Does NOT re-test what those files already cover (mixed simple+residual RBAC on one
-// role, >32 roles failing closed, invalidation rebuilding the table, the stale
-// in-flight-table race, the RBAC-residual-abstain regression) - see each section below
-// for exactly what is new.
+// Boundary role counts and the throw-path matrix for the compiled table.
+// Adds to compiled.engine-wiring / compiled.compile / compiled.differential tests without repeating them.
 
 function req(
   subjectRoles: string[],
@@ -31,9 +27,7 @@ function req(
 /** Long enough to trip MAX_REGEX_INPUT_LENGTH (2048) and make the `matches` operator throw. */
 const OVERSIZED = 'a'.repeat(4096)
 
-// ---------------------------------------------------------------------------------------
 // 1. Boundary role counts
-// ---------------------------------------------------------------------------------------
 
 describe('boundary: 0 roles - no RBAC source at all', () => {
   it('hasRbacSource is false for an empty role list (compileTable)', () => {
@@ -42,9 +36,7 @@ describe('boundary: 0 roles - no RBAC source at all', () => {
   })
 
   it('RBAC casts no vote at all (not even a defaultEffect vote) - distinct from voting defaultEffect', () => {
-    // ABAC votes a real, unconditional `true` (CONST_ALLOW) at this exact cell. If RBAC
-    // wrongly cast its own defaultEffect=false vote instead of abstaining (hasRbacSource
-    // false), 'and' would flip this to false despite the ABAC allow.
+    // ABAC votes an unconditional allow here; an RBAC defaultEffect vote instead of an abstain would flip 'and'.
     const policies: AccessControl.IPolicy[] = [
       {
         id: 'p',
@@ -101,25 +93,8 @@ describe('boundary: exactly 32 roles - role index 31 (the sign-bit case, `1 << 3
   })
 })
 
-// ---------------------------------------------------------------------------------------
-// 2. The full fail-skip / abstain matrix.
-//
-// Four independent abstain paths, each must return `null` (abstain) - not vote - when a
-// policy throws:
-//   A: abacFlatVote's evaluateDynamicCell, when every group at a DYNAMIC cell throws.
-//   B: rbacVote's catch, when the rbacResidual policy throws.
-//   C: lookup()'s own residual-policy loop, when a residual (targeted/wildcard) policy throws.
-//   D: rbacVote's rbacDynamic scan, when a scoped/conditioned role permission throws.
-//
-// For each: an "unrelated vote present" case (must decide the outcome, not get vetoed by
-// the throw, under policyCombine 'and') and a "no other vote" case (falls back to
-// defaultEffect, both 'allow' and 'deny'). compiled.engine-wiring.test.ts already covers
-// path B's unrelated-vote-present case with defaultEffect 'deny' and the unrelated vote
-// coming from a flat ABAC CONST_ALLOW policy - not duplicated here; the path-B
-// unrelated-vote-present test below uses a *residual* (targeted) policy as the unrelated
-// vote instead, exercising a different combine branch (lookup()'s residualPolicies loop)
-// alongside the same rbacVote throw.
-// ---------------------------------------------------------------------------------------
+// 2. Throw paths - A: evaluateDynamicCell, B: rbacVote's catch, C: lookup()'s residual-policy loop.
+// Each gets an unrelated-vote case and a no-other-vote case, under both defaultEffects.
 
 const throwingFlatPolicy: AccessControl.IPolicy = {
   id: 'throwing-flat',
@@ -150,13 +125,8 @@ function buildPathAAdapter(): IamMemoryAdapter {
 }
 
 describe('fail-skip matrix - path A: every group at an ABAC DYNAMIC cell throws (evaluateDynamicCell)', () => {
-  // Was "the RBAC grant decides, the throw does not veto it", asserting `true`.
-  // `throwingFlatPolicy` is allow-only, so under the old contract its throw made
-  // it NotApplicable and the RBAC allow stood alone. But an allow-only policy's
-  // vote, had it evaluated, would have been `defaultEffect` - here a deny - and
-  // `blob` is a subject attribute, so padding it past the regex input cap was an
-  // attacker-reachable way to delete that deny. It now votes deny and 'and'
-  // vetoes. Dev and prod still agree; they now agree on the safe answer.
+  // SECURITY: `blob` is subject-controlled, so padding it past the regex cap must not delete the policy's vote.
+  // An allow-only policy that throws still votes `defaultEffect` (deny here), and 'and' vetoes.
   it("unrelated-vote-present, defaultEffect 'deny': an allow-only throw casts its deny vote and vetoes (regression)", async () => {
     let reported: Error | undefined
     const production = new IamEngine({
@@ -254,8 +224,7 @@ function buildPathBAdapter(unrelated: AccessControl.IPolicy): IamMemoryAdapter {
 }
 
 describe('fail-skip matrix - path B: the rbacResidual policy throws (rbacVote catch)', () => {
-  // Same correction as path A, one layer over: the residual-policy catch used to
-  // swallow the vote entirely rather than casting `defaultEffect`.
+  // As in path A: the residual-policy catch casts `defaultEffect` rather than abstaining.
   it("unrelated-vote-present, defaultEffect 'deny', unrelated vote via a residual policy: the throw vetoes", async () => {
     let reported: Error | undefined
     const production = new IamEngine({
@@ -402,10 +371,7 @@ describe("fail-closed matrix - path C: lookup()'s own residual-policy loop throw
     expect(await production.can('user-1', 'read', { type: 'doc3', attributes: {} })).toBe(false)
   })
 
-  // Was 'stays skippable and does not veto the RBAC grant', asserting `true`.
-  // The allow-only arm is not a skip: the policy's vote would have been
-  // `defaultEffect`, and `blob` is a subject attribute, so dropping that vote is
-  // reachable by padding it. It now votes deny and vetoes the RBAC grant.
+  // As in path A: an allow-only throw is not a skip, since `blob` is subject-controlled.
   it('control: an allow-only policy that throws casts its defaultEffect vote and vetoes the RBAC grant', async () => {
     const adapter = new IamMemoryAdapter({
       assignments: { 'user-1': ['reader3'] },

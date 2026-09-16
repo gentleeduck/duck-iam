@@ -1,8 +1,4 @@
-/**
- * Cache-fronted loaders pulled out of the Engine class. Each takes a
- * minimal dependency bag so the single-flight + adapter-timeout +
- * max-rows guard logic is testable in isolation.
- */
+// Cache-fronted loaders, kept out of the engine class so single-flight, timeouts and row caps test in isolation.
 
 import type { IamLRUCache } from '../../shared/cache'
 import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
@@ -10,13 +6,7 @@ import type { AccessControl, IamAdapter, IamRequest } from '../types'
 import type { IEngineInFlightBag } from './engine.invalidation'
 import { deepFreezePolicy, runSingleFlight, runSingleFlightKeyed } from './engine.libs'
 
-/**
- * Everything a loader needs, passed explicitly rather than reached for through
- * `this`. Nothing here is optional at the call site: the Engine builds one bag
- * per instance and hands the same object to every loader, so a test can supply
- * a fake adapter and real caches - or real adapter and no caches - without
- * standing up an Engine.
- */
+/** Everything a loader needs. The engine builds one bag per instance and shares it across every loader. */
 export interface IIamLoaderDeps<
   TAction extends string,
   TResource extends string,
@@ -33,13 +23,8 @@ export interface IIamLoaderDeps<
   maxPolicies: number
   maxRoles: number
   /**
-   * Hard ceiling on concurrent distinct-subject adapter loads. `0` (default)
-   * is unbounded. Guards a cold-flat thundering herd: without a cap, a burst
-   * of never-before-seen subjects issues one adapter call each with no
-   * back-pressure, growing `inFlight.subjects` (and the promise closures it
-   * holds) without limit. Only new loads are gated - a call that hits the
-   * subject cache or joins an already-in-flight load for the same key never
-   * counts against the cap.
+   * Cap on concurrent new subject loads; `0` is unbounded. Cache hits and joins onto an in-flight load do not count.
+   * NOTE: stops a cold-cache burst of new subjects from issuing one adapter call each with no back-pressure.
    */
   maxConcurrentSubjectLoads: number
   /** `IConfig.scopeMode`; decides how `rolesToPolicy` gates a role-declared scope. */
@@ -48,15 +33,8 @@ export interface IIamLoaderDeps<
 }
 
 /**
- * Every explicit policy the adapter holds, cached under one key and loaded at
- * most once per cold cache regardless of how many callers ask at the same time.
- *
- * Refuses a result larger than `maxPolicies` instead of caching it. An adapter
- * that suddenly answers with the whole table - an unbounded query, a lost
- * tenant filter - would otherwise be pinned in memory for the life of the TTL,
- * and every later evaluation would walk it. The throw names the count and the
- * limit so the fix is a decision (raise it, or repair the adapter) rather than
- * a hunt.
+ * Every explicit policy, cached under one key and loaded once per cold cache however many callers ask.
+ * NOTE: throws above `maxPolicies` instead of caching, so a lost tenant filter is not pinned in memory for a TTL.
  */
 export async function loadPolicies<
   TAction extends string,
@@ -88,12 +66,8 @@ export async function loadPolicies<
 }
 
 /**
- * Every role definition the adapter holds. Same cache-then-single-flight shape
- * as {@link loadPolicies}, guarded by `maxRoles` for the same reason.
- *
- * Roles are loaded whole rather than per-subject because inheritance closure
- * needs the full graph: {@link resolveSubject} cannot expand `inherits` from a
- * subject's directly assigned ids alone.
+ * Every role definition, loaded like {@link loadPolicies} and capped by `maxRoles`.
+ * Loaded whole, not per subject, because expanding `inherits` needs the full graph.
  */
 export async function loadRoles<
   TAction extends string,
@@ -125,22 +99,8 @@ export async function loadRoles<
 }
 
 /**
- * The full authorization picture for one subject: effective roles (direct plus
- * everything they inherit), scoped role assignments, and attributes.
- *
- * Single-flighted per subject id, so a burst of concurrent checks for the same
- * subject issues one set of adapter reads. Two things make this loader more
- * than a cached read:
- *
- *   - **Load shedding.** A cold cache hit by many distinct subjects at once
- *     would open one adapter call per subject with no back-pressure;
- *     `maxConcurrentSubjectLoads` caps the in-flight set and rejects beyond it.
- *     Cache hits and joins onto an existing load never count against the cap.
- *   - **Grant boundary.** When the adapter can say when this subject's grants
- *     next change, the answer is cached only until then. The boundary read is
- *     advisory - if it fails, the subject is resolved but not cached, because
- *     a full TTL on an entry whose expiry nobody could name is exactly the
- *     stale allow the boundary exists to prevent.
+ * One subject's effective roles, scoped roles and attributes, single-flighted per id.
+ * Throws past `maxConcurrentSubjectLoads`, and caches only until the adapter's grant boundary when it reports one.
  */
 export async function resolveSubject<
   TAction extends string,
@@ -158,18 +118,13 @@ export async function resolveSubject<
     )
   }
   let boundary: number | null = null
-  // A boundary the store could not produce is not a boundary of `null`: `null`
-  // means "nothing changes for a while" and buys the entry a full TTL, which is
-  // exactly the stale allow the boundary exists to prevent. Unknown means the
-  // subject is not cached at all.
+  // SECURITY: a failed boundary read is not `null` (which buys a full TTL); it means do not cache at all.
   let cacheable = true
   return runSingleFlightKeyed(
     deps.inFlight.subjects,
     subjectId,
     async () => {
-      // The boundary rides along in the same `Promise.all` as the reads it
-      // describes: an adapter with time-boxed grants has to be asked, and
-      // asking after the fact would add a round trip to every cold subject.
+      // PERF: the boundary joins the same `Promise.all` as the reads it describes, adding no round trip.
       const boundaryFn = deps.adapter.getSubjectGrantBoundary
       const [assignedRoles, attributes, allRoles, grantBoundary] = await Promise.all([
         deps.withTimeout((opts) => deps.adapter.getSubjectRoles(subjectId, opts), 'getSubjectRoles'),
@@ -179,9 +134,7 @@ export async function resolveSubject<
           ? deps
               .withTimeout((opts) => boundaryFn.call(deps.adapter, subjectId, opts), 'getSubjectGrantBoundary')
               .catch((err: unknown) => {
-                // Advisory, so its failure must not decide anything. The reads
-                // above still apply the window, and `cacheable = false` keeps
-                // the answer from outliving a bound nobody can name.
+                // Advisory: the failure decides nothing, but the answer must not outlive a bound nobody can name.
                 cacheable = false
                 console.warn(
                   `[@gentleduck/iam:engine] getSubjectGrantBoundary failed for "${subjectId}"; ` +
@@ -196,22 +149,15 @@ export async function resolveSubject<
       const assignedScopedRoles = scopedRolesFn
         ? await deps.withTimeout((opts) => scopedRolesFn.call(deps.adapter, subjectId, opts), 'getSubjectScopedRoles')
         : undefined
-      // A scoped assignment is an assignment: it has to be closed over `inherits` too, so a
-      // check at the inherited-into scope can see it. `resolveEffectiveRoles` is scope-blind
-      // and its result includes the directly assigned role itself, so only roles OTHER THAN
-      // the direct assignment get retagged with their own `IRole.scope` (matching how
-      // `rolesToPolicy` gates each role's rules) - falling back to the row's scope when the
-      // role declares none of its own. The direct assignment's `sr.scope` is never overridden;
-      // that's the scope it was actually assigned at.
+      // Scoped assignments close over `inherits` too. Inherited roles take their own `IRole.scope` (as
+      // `rolesToPolicy` gates them), else the row's; the directly assigned role keeps `sr.scope`.
       const rolesById = new Map(allRoles.map((r) => [r.id, r]))
       const scopedRoles = assignedScopedRoles?.flatMap((sr) =>
         resolveEffectiveRoles([sr.role], allRoles).map((role) =>
           role === sr.role ? { ...sr, role } : { ...sr, role, scope: rolesById.get(role)?.scope ?? sr.scope },
         ),
       )
-      // Carried out to the cache write below rather than returned, so the
-      // in-flight map still holds a plain `Promise<ISubject>` for the callers
-      // already waiting on it.
+      // Passed to the cache write below, not returned, so waiters still get a plain `Promise<ISubject>`.
       boundary = grantBoundary
       const subject: IamRequest.ISubject = { id: subjectId, roles, scopedRoles, attributes }
       return subject
@@ -224,12 +170,8 @@ export async function resolveSubject<
 }
 
 /**
- * The single synthetic policy that role definitions compile down to, so RBAC
- * and explicit ABAC policies are evaluated by one code path rather than two.
- *
- * Deep-frozen before caching: it is shared by every evaluation on this instance,
- * and a caller that mutated a rule in place would silently rewrite the
- * authorization model for everyone until the next invalidation.
+ * The synthetic policy role definitions compile to, so RBAC and ABAC share one evaluation path.
+ * SECURITY: deep-frozen before caching; every evaluation shares it, so an in-place mutation would rewrite the model.
  */
 export async function loadRbacPolicy<
   TAction extends string,
@@ -250,21 +192,15 @@ export async function loadRbacPolicy<
       return deepFreezePolicy(rolesToPolicy(roles, deps.scopeMode))
     },
     (built) => {
-      // Capped at the role snapshot it was compiled from. A derived cache that
-      // takes a fresh TTL of its own outlives its input: `roleCache` could be
-      // one millisecond from lapsing here, and without the cap this policy
-      // would keep answering from those roles for another full `cacheTTL`.
+      // Expire with the role snapshot it was built from; a fresh TTL would outlive its input.
       deps.rbacPolicyCache.set('rbac', built, deps.roleCache.expiresAt('all'))
     },
   )
 }
 
 /**
- * Explicit policies plus the compiled RBAC policy, in the order the evaluator
- * expects, memoized under one key so the merge is not redone per check.
- *
- * The RBAC policy is prepended only when it has rules - a deployment with no
- * roles should not pay for an empty policy on every evaluation.
+ * Explicit policies plus the RBAC policy, memoized so the merge is not redone per check.
+ * PERF: RBAC is prepended only when it has rules, so a deployment without roles skips an empty policy.
  */
 export async function loadAllPolicies<
   TAction extends string,
@@ -285,10 +221,7 @@ export async function loadAllPolicies<
       return rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
     },
     (merged) => {
-      // Same rule, two inputs: the merged view is only as fresh as the older
-      // of them. `Math.min` over `Infinity` for an absent entry means "this
-      // input imposes no cap", which is the right reading - a value that was
-      // not cached was read live.
+      // Expire with the older input. An absent entry (`Infinity`) was read live and imposes no cap.
       deps.mergedPolicyCache.set(
         'merged',
         merged,

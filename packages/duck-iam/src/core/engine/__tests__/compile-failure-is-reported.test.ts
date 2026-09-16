@@ -3,21 +3,8 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
-/**
- * A compiled table that cannot be built has two very different causes, and the
- * engine now answers them differently.
- *
- * Too many roles is a capacity limit of one representation, not a bug: the
- * 32-bit grant mask cannot address a 33rd role without aliasing. The
- * interpreter answers the same questions correctly, so the engine falls back to
- * it and warns once. A silent fall would be a performance cliff with no
- * diagnostic, which is the same shape of defect as the dev/prod divergence the
- * unified verdict path exists to remove.
- *
- * Anything else - a malformed policy, say - is a bug. It still fails closed,
- * and it is still reported, because the deny was always correct and only the
- * silence was the problem.
- */
+// Over 32 roles overflows the compiled grant mask: the engine falls back to the interpreter and warns once.
+// Any other compile failure is a bug, and it fails closed and is reported.
 const rolesOf = (n: number): AccessControl.IRole[] =>
   Array.from({ length: n }, (_, i) => ({
     id: `role-${i}`,
@@ -39,9 +26,7 @@ describe('a role count past the compiled table capacity falls back and says so',
     const warn = spyWarn()
     try {
       const engine = engineOf(33)
-      // role-0 really does grant read/post, and the interpreter says so. The
-      // old behaviour - deny every request in the deployment - was the outage
-      // this fallback exists to prevent.
+      // role-0 really grants read/post; the fallback answers rather than denying every request.
       expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' })).toBe(true)
       expect(warn).toHaveBeenCalledOnce()
       expect(String(warn.mock.calls[0]?.[0])).toMatch(/32-role limit/)
@@ -67,11 +52,7 @@ describe('a role count past the compiled table capacity falls back and says so',
   it('warns once even when concurrent checks trip the limit together', async () => {
     const warn = spyWarn()
     try {
-      // The `_roleLimitExceeded` short-circuit only helps checks that arrive
-      // after one has already failed. Callers that race in before any of them
-      // has caught the throw all reach the catch, so the report needs its own
-      // guard. Without one, an over-limit engine under load warns per
-      // concurrent request at boot.
+      // Racing checks all reach the catch before `_roleLimitExceeded` is set, so the warning needs its own guard.
       const engine = engineOf(33)
       const resource = { attributes: {}, type: 'post' }
       const verdicts = await Promise.all([
@@ -92,9 +73,7 @@ describe('a role count past the compiled table capacity falls back and says so',
     const error = spyError()
     try {
       await engineOf(33).can('u1', 'read', { attributes: {}, type: 'post' })
-      // That message says every request will be denied, which is now false for
-      // this cause. Emitting it would send an operator hunting an outage that
-      // is not happening.
+      // That message says every request is denied, which is false for this cause.
       expect(error).not.toHaveBeenCalled()
     } finally {
       warn.mockRestore()
@@ -105,9 +84,7 @@ describe('a role count past the compiled table capacity falls back and says so',
   it('falls back in development too, so both modes take the same path', async () => {
     const warn = spyWarn()
     try {
-      // Built inline rather than through `engineOf`: a helper parameterised
-      // over the mode widens `TMode` to a union, and `check()`'s development-only
-      // `IDecision` return type goes with it.
+      // Inline, not `engineOf`: a mode parameter widens `TMode` to a union and loses `check()`'s `IDecision` type.
       const engine = new IamEngine({
         adapter: new IamMemoryAdapter({ assignments: { u1: ['role-0'] }, policies: [], roles: rolesOf(33) }),
         mode: 'development',
@@ -137,10 +114,7 @@ describe('a role count past the compiled table capacity falls back and says so',
 })
 
 describe('every other compile failure still fails closed and is still reported', () => {
-  // `rules` missing entirely - the shape the compiler walks, which the type
-  // promises and an adapter row cannot guarantee. The cast is the point of the
-  // test: it manufactures the value a database or hand-written config can
-  // deliver but the type system says is impossible.
+  // `rules` missing: impossible by type but possible from a stored row, which is what the cast manufactures.
   const malformed = (): AccessControl.IPolicy[] => [
     { algorithm: 'deny-overrides', id: 'bad', name: 'bad' } as unknown as AccessControl.IPolicy,
   ]

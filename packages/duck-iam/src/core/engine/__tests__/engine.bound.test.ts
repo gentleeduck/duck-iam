@@ -3,20 +3,15 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../engine'
 
 /**
- * A memory adapter that also answers `withClient`, so the facade can bind it.
- * The copy shares the original's Maps, standing in for a transaction that reads
- * and writes the same rows - cache behaviour is what these tests are about;
- * real transactional isolation is proven against Postgres separately.
+ * Memory adapter with `withClient`; the copy shares the original's Maps, like a transaction over the same rows.
+ * Only cache behaviour is tested here; real isolation is covered against Postgres.
  */
 function bindable(adapter: IamMemoryAdapter): IamMemoryAdapter {
   const copy: IamMemoryAdapter = Object.assign(Object.create(Object.getPrototypeOf(adapter)), adapter)
   return Object.assign(copy, { withClient: () => bindable(adapter) })
 }
 
-/**
- * `assignRole` refuses a role id nothing is stored under, so the adapters below
- * are built holding the role these cases grant.
- */
+/** `assignRole` refuses unknown role ids, so the adapters below hold the role these cases grant. */
 const GRANTABLE = [{ id: 'admin', name: 'Admin', permissions: [] }]
 
 describe('IamEngine.withTransaction', () => {
@@ -68,8 +63,7 @@ describe('IamEngine.withTransaction', () => {
     const perms = engine.withTransaction({})
     await perms.admin.assignRole('u1', 'admin')
 
-    // The bound view sees the uncommitted grant; the shared engine serves its
-    // warm, unpolluted cache and still says no.
+    // The bound view sees the uncommitted grant; the shared engine's warm cache still says no.
     expect(await perms.getEffectiveRoles('u1')).toContain('admin')
     expect(await engine.getEffectiveRoles('u1')).toEqual([])
   })
@@ -111,5 +105,42 @@ describe('IamEngine.withTransaction', () => {
 
     expect(a.pending.size).toBe(1)
     expect(b.pending.size).toBe(0)
+  })
+})
+
+describe('the bound facade exposes one write surface', () => {
+  let engine: IamEngine
+
+  beforeEach(() => {
+    engine = new IamEngine({ adapter: bindable(new IamMemoryAdapter({ roles: GRANTABLE })) })
+  })
+
+  it('engine.admin is the buffered admin', () => {
+    const perms = engine.withTransaction({})
+
+    expect(perms.engine.admin).toBe(perms.admin)
+  })
+
+  it('a write through engine.admin buffers instead of touching the shared cache', async () => {
+    const spy = vi.spyOn(engine.cache, 'invalidateSubject')
+    const perms = engine.withTransaction({})
+    await perms.engine.admin.assignRole('u1', 'admin')
+
+    expect(spy).not.toHaveBeenCalled()
+    expect(perms.pending.size).toBe(1)
+
+    await perms.pending.flush()
+    expect(spy).toHaveBeenCalledWith('u1')
+  })
+
+  it('a revoke through engine.admin stops answering on the shared engine once flushed', async () => {
+    await engine.admin.assignRole('u1', 'admin')
+    expect(await engine.getEffectiveRoles('u1')).toContain('admin')
+
+    const perms = engine.withTransaction({})
+    await perms.engine.admin.revokeRole('u1', 'admin')
+    await perms.pending.flush()
+
+    expect(await engine.getEffectiveRoles('u1')).toEqual([])
   })
 })

@@ -1,33 +1,5 @@
-/**
- * Minimized reproductions of the two table/interpreter divergences the
- * generated sweep in `e2e-verdict-differential.e2e.test.ts` found.
- *
- * Both are the shape `docs/engine-rewrite.md` says can no longer happen: the
- * compiled table (the verdict in BOTH modes) answers **allow**, the interpreter
- * (run only in development, for provenance) answers **deny**, so production
- * grants access that a development run of the same catalog refuses. Both are
- * reached with zero ABAC policies - RBAC role permissions alone.
- *
- * They assert the *correct* behaviour (the two paths agree, and on a named
- * verdict), and they failed when they were written. They pass now, and the
- * direction the fix took is recorded at each case: an RBAC permission that
- * cannot be evaluated contributes nothing rather than poisoning the whole
- * `__rbac__` policy, so an independent unconditional grant survives it. The
- * ABAC control at the end agrees on *deny* for the same throw, because a policy
- * that may carry deny rules is Indeterminate as a whole - that asymmetry is the
- * substance of the fix, not an accident of it.
- *
- * They differ in reachability, and the difference matters:
- *
- *  - The throwing-condition case needs NO malformed data. `validateRole`
- *    passes the catalog clean; what throws is an oversized *request* attribute,
- *    which no validator sees. It is reproduced again from real Postgres through
- *    `IamDrizzleAdapter` in `e2e-verdict-pg-fallback.e2e.test.ts`, so it is not
- *    a memory-adapter artefact.
- *  - The condition-depth case needs a catalog `validateRole` rejects.
- *    `IamDrizzleAdapter` re-validates on read and drops the row, so that store
- *    contains it; `IamMemoryAdapter` does not, so that one does not.
- */
+// Table/interpreter parity on RBAC role permissions: both paths must agree, and on a named verdict.
+// An unevaluable RBAC grant contributes nothing; the ABAC control denies because that policy is Indeterminate.
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl, IamPrimitives } from '../../types'
@@ -94,16 +66,7 @@ function nestedAlwaysTrue(depth: number): AccessControl.IConditionGroup {
   return group
 }
 
-/**
- * Both engines answering `false` to everything would satisfy every parity
- * assertion in this file perfectly - which is exactly the failure mode a
- * differential test cannot see. So each case names the verdict it expects as
- * well, and the expectation is derived from the contract rather than copied
- * from a run: a condition that throws makes its policy **Indeterminate**, and
- * an Indeterminate policy casts `defaultEffect`, which is `deny`. "They agree"
- * and "they agree on deny" are different claims, and only the second one is
- * worth anything here.
- */
+/** Asserts the two paths agree and on `expected`, since two deny-everything engines would also agree. */
 function expectAgreedVerdict(v: IVerdicts, expected: boolean, label: string): void {
   expect(v.disagreements, `${label}: table/interpreter disagreement: ${v.disagreements[0] ?? ''}`).toEqual([])
   expect(v.production, `${label}: production and development must reach the same verdict`).toBe(v.development)
@@ -112,25 +75,8 @@ function expectAgreedVerdict(v: IVerdicts, expected: boolean, label: string): vo
 
 describe('E2E verdict divergence: RBAC role permissions', () => {
   it('a VALID role permission whose condition throws on request data must not be short-circuited by an inherited grant', async () => {
-    // The strongest form of the finding: nothing here is malformed.
-    // `validateRole` reports zero issues on both roles (asserted below), the
-    // `matches` operator is legal, and the pattern is not catastrophic. What
-    // throws is the *request*: `subject.attributes.blob` is 3000 UTF-16 units,
-    // over `MAX_REGEX_INPUT_LENGTH` (2048), so `ops.matches` raises
-    // `IamRegexInputTooLargeError`. No validator can prevent that, because the
-    // input is not in the catalog - and the codebase's own comments describe
-    // padding an attribute as the attack this Indeterminate contract exists to
-    // stop.
-    //
-    // Table:       `rbacVote()` tests the plain grant mask FIRST. `clean`'s
-    //              unconditional permission set that bit and inheritance widened
-    //              it to `rotten`'s holders, so it returns true before
-    //              `rbacDynamic` - where the throwing permission lives, and whose
-    //              catch resolves to `defaultEffect` = deny - is ever read.
-    // Interpreter: `rolesToPolicy` folds every role permission into ONE
-    //              `__rbac__` policy; `evaluatePolicy` walks all its rules, the
-    //              throwing one raises, and `safeEval` resolves the whole policy
-    //              Indeterminate -> `defaultEffect` = deny.
+    // The catalog is valid; the request throws, because a 3000-unit `blob` exceeds `MAX_REGEX_INPUT_LENGTH` (2048).
+    // SECURITY: no validator sees request data, and padding an attribute is attacker-reachable.
     const roles: AccessControl.IRole[] = [
       { id: 'clean', name: 'clean', permissions: [{ action: 'read', resource: 'doc' }] },
       {
@@ -160,35 +106,13 @@ describe('E2E verdict divergence: RBAC role permissions', () => {
       },
     )
 
-    // Allow - and the direction is the point, so it is argued rather than
-    // recorded. RBAC permissions are additive and there is no such thing as a
-    // deny permission, so a grant nobody can evaluate contributes *nothing*:
-    // it can neither authorize on its own nor cancel `clean`'s unconditional
-    // `read doc`, which the subject holds through inheritance and which no
-    // condition guards. Denying here would mean a caller could revoke its own
-    // access - or anybody's, on a shared attribute - by padding one attribute
-    // past the regex cap, turning an authorization bug into a denial-of-service
-    // one. Contrast the ABAC control at the end of this file, which agrees on
-    // *deny* for the same throw: an ABAC policy may carry deny rules, so one
-    // that cannot be fully evaluated is Indeterminate as a whole.
+    // RBAC grants are additive, so the unevaluable grant adds nothing and cannot cancel the inherited `clean` grant.
+    // SECURITY: denying here would let anyone revoke access by padding an attribute past the regex cap.
     expectAgreedVerdict(v, true, 'oversized request attribute')
   })
 
   it('a role permission whose condition THROWS must not be short-circuited by an inherited clean grant', async () => {
-    // `rotten` inherits `clean`. Both declare `read doc`; `rotten`'s carries an
-    // operator no `ops` entry answers to, so evaluating it throws.
-    //
-    // Table:       `rbacVote()` tests the plain grant mask FIRST. `clean`'s
-    //              unconditional permission set that bit, and inheritance widened
-    //              it to `rotten`'s holders, so the mask hits and returns true
-    //              before `rbacDynamic` (where the rotten permission lives, and
-    //              whose catch resolves to `defaultEffect` = deny) is ever read.
-    // Interpreter: `rolesToPolicy` folds every role permission into ONE
-    //              `__rbac__` policy, `evaluatePolicy` walks all its rules, the
-    //              rotten one throws, and `safeEval` resolves the whole policy
-    //              Indeterminate -> `defaultEffect` = deny.
-    //
-    // The two disagree, and production is the permissive side.
+    // `rotten` inherits `clean`; its own `read doc` uses an operator no `ops` entry answers to, so it throws.
     const badOperator = 'no-such-operator' as AccessControl.Operator // deliberately malformed, as a store row can be
     const roles: AccessControl.IRole[] = [
       { id: 'clean', name: 'clean', permissions: [{ action: 'read', resource: 'doc' }] },
@@ -218,31 +142,13 @@ describe('E2E verdict divergence: RBAC role permissions', () => {
       },
     )
 
-    // Allow, for the reason argued in the previous case: the unconditional
-    // inherited grant stands on its own, and an unevaluable *grant* cannot
-    // revoke it.
+    // Allow, as above: an unevaluable grant cannot revoke the unconditional inherited one.
     expectAgreedVerdict(v, true, 'unknown operator')
   })
 
   it('a role permission condition nested exactly at MAX_CONDITION_DEPTH must mean the same thing to both paths', async () => {
-    // `MAX_CONDITION_DEPTH` is 10 and `evalConditionGroup` fails closed at
-    // `depth >= 10`. The two paths hand it the SAME group at DIFFERENT depths:
-    //
-    //   table:       `rbacVote()` -> evalConditionGroup(perm.conditions, 0)
-    //   interpreter: `rolesToPolicy` wraps it as
-    //                `{ all: [{ all: baseConditions }, perm.conditions] }`,
-    //                so `ruleApplies` reaches the author's group at depth 1.
-    //
-    // The author therefore gets ten usable levels in production and nine in
-    // development. At exactly ten the table allows and the interpreter denies.
-    // Depths 8 and 9 agree (allow), depth 11 agrees (deny) - only the boundary
-    // splits, which is why nothing hand-written caught it.
-    //
-    // Reachability, stated honestly: `validateRole` rejects ten nested groups,
-    // and `IamDrizzleAdapter` re-runs that validator on every read and drops the
-    // row (asserted in `e2e-verdict-pg-fallback.e2e.test.ts`). So this needs a
-    // catalog that never went through the validator - which `IamMemoryAdapter`,
-    // used here and shipped, accepts without complaint.
+    // `evalConditionGroup` fails closed at `depth >= MAX_CONDITION_DEPTH` (10); both paths must reach it equally.
+    // `validateRole` rejects ten nested groups, but `IamMemoryAdapter` accepts an unvalidated catalog.
     for (const depth of [8, 9, 10, 11]) {
       const roles: AccessControl.IRole[] = [
         { id: 'r', name: 'r', permissions: [{ action: 'read', conditions: nestedAlwaysTrue(depth), resource: 'doc' }] },
@@ -258,21 +164,13 @@ describe('E2E verdict divergence: RBAC role permissions', () => {
           subjectId: 'u1',
         },
       )
-      // Under the cap the always-true leaf is reachable and the grant stands;
-      // at or over it `evalConditionGroup` fails closed and the permission
-      // cannot apply. Naming the side of the boundary each depth falls on is
-      // what makes this more than "the two paths said the same thing".
+      // Under the cap the always-true leaf grants; at or over it the permission cannot apply.
       expectAgreedVerdict(v, depth < 10, `depth ${depth}`)
     }
   })
 
   it('the same throw inside an ABAC policy rule does NOT diverge (scoping the finding to RBAC)', async () => {
-    // Control case. An identical rotten condition on a flat ABAC policy rule
-    // lands in a DYNAMIC cell, and `evaluateDynamicCell`'s catch mirrors
-    // `safeEval` exactly, so the two paths agree. That is what makes the two
-    // failures above specific to the RBAC vote rather than to throwing
-    // conditions in general - and it is the reason a fix belongs in
-    // `rbacVote()` / `rolesToPolicy`, not in the condition evaluator.
+    // Control: an ABAC policy may carry deny rules, so a throwing rule leaves it Indeterminate on both paths - deny.
     const badOperator = 'no-such-operator' as AccessControl.Operator // deliberately malformed
     const policies: AccessControl.IPolicy[] = [
       {

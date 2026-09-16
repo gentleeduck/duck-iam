@@ -3,8 +3,7 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
-// Proves the engine auto-injects `environment.now` so temporal policies work
-// without the caller threading a clock through every request.
+// The engine auto-injects `environment.now`, so temporal policies work without a caller-supplied clock.
 
 type Action = 'sendMessages'
 type ResourceType = 'message'
@@ -20,9 +19,7 @@ const memberRole: AccessControl.IRole<Action, ResourceType, RoleId> = {
   permissions: [{ action: 'sendMessages', resource: 'message' }],
 }
 
-// Mirrors the app's guild `timeoutMute`: deny while `timedOutUntil` is still in
-// the future, with an always-true passthrough allow so the policy never blocks
-// under the default `and` combine when the member is not timed out.
+// Denies while `timedOutUntil` is in the future; the passthrough allow keeps the policy from blocking under `and`.
 const timeoutPolicy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
   id: 'timeout-mute',
   name: 'Timeout Mute',

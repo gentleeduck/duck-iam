@@ -1,22 +1,11 @@
-/**
- * Boot/health/dispose helpers. The healthCheck logic is a pure
- * function of (adapter probe, stats snapshot) so it's trivially
- * unit-testable.
- */
+// Boot, health and dispose helpers, testable without an engine.
 
 import { aggregateCacheHitRate, type IIamCachesForStats, statsSnapshot } from './engine.stats'
 import type { IamEngineTypes } from './engine.types'
 
 /**
- * Probe the adapter and report health alongside the current cache hit rate.
- *
- * `adapterLatencyMs` times the probe, not a real query, so it is a liveness
- * signal rather than a performance measurement. A failed probe is reported as
- * `ok: false` with the message, never thrown: a health endpoint that throws
- * tells a load balancer nothing it can act on.
- *
- * @param caches - Caches to snapshot for the hit rate.
- * @param probe  - Adapter round trip; rejecting means unhealthy.
+ * Probes the adapter and reports health with the cache hit rate. `adapterLatencyMs` is liveness, not performance.
+ * NOTE: a failed probe returns `ok: false` instead of throwing, so a load balancer gets an answer it can act on.
  */
 export async function runHealthCheck(
   caches: IIamCachesForStats,
@@ -43,15 +32,8 @@ export async function runHealthCheck(
 }
 
 /**
- * Warm the engine before it serves traffic: policies always, the validator and
- * the compiled table only if this engine uses them.
- *
- * All of it runs concurrently, since the tasks are independent and the point is
- * to move the first request's latency into startup.
- *
- * @param args - What to warm. `loadValidator` pulls in the lazily-imported
- *               validate module; `buildCompiledTable` is omitted when the
- *               engine does not compile.
+ * Warms policies, plus the lazily imported validator and the compiled table when this engine uses them.
+ * Runs everything concurrently to move first-request latency into startup.
  */
 export async function preloadEngine(args: {
   loadAllPolicies: () => Promise<unknown>
@@ -65,14 +47,8 @@ export async function preloadEngine(args: {
 }
 
 /**
- * Unsubscribe from the invalidator during teardown.
- *
- * A throw from the unsubscribe is dropped: this runs while the engine is
- * already being torn down, and failing here would mask whatever the caller was
- * actually shutting down for.
- *
- * @param invalidatorUnsub - The stored unsubscribe, or `null` if never subscribed.
- * @returns The cleared handle, for the caller to store back.
+ * Unsubscribes from the invalidator and returns the cleared handle to store back.
+ * NOTE: a throw is dropped so it cannot mask the reason for shutting down.
  */
 export function disposeInvalidator(invalidatorUnsub: (() => void) | null): { unsub: (() => void) | null } {
   if (invalidatorUnsub) {

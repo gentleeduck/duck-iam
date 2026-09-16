@@ -3,13 +3,8 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
-/**
- * Production does not run `evaluateFast` - it runs the compiled table, which
- * carries its own copy of the vote logic. The `failOpen` metric therefore has
- * to be threaded through `abacFlatVote`/`rbacVote`/`evaluateDynamicCell` as
- * well, or the signal an operator alerts on moves in development and stays flat
- * in the mode that actually serves traffic.
- */
+// Production runs the compiled table, not `evaluateFast`, so the `failOpen` metric must also flow through
+// `abacFlatVote` / `rbacVote` / `evaluateDynamicCell`, or it stays flat in the mode that serves traffic.
 type Action = 'read'
 type ResourceType = 'doc'
 type RoleId = 'reader'
@@ -58,9 +53,7 @@ async function check(
     mode,
   })
   await engine.can('u1', 'read', { attributes: {}, type: 'doc' })
-  // Read both off the metrics event: `can()`'s return type is mode-conditional
-  // and `mode` is only known at runtime here, and the event's `allowed` is the
-  // same verdict. The control below asserts the boolean return directly.
+  // Read off the metrics event, as `can()`'s return type depends on a runtime `mode`; the control checks the boolean.
   const event = onMetrics.mock.calls[0]?.[0]
   return { allowed: event?.allowed === true, failOpen: event?.failOpen === true }
 }
@@ -80,8 +73,7 @@ describe('failOpen metric: development and production agree', () => {
     expect(prod.failOpen).toBe(expected)
   })
 
-  // Control: with `defaultEffect: 'deny'` there is no fallback allow to report,
-  // so nothing above can be passing because the flag is simply always set.
+  // Control: with a deny fallback there is nothing to report, so an always-set flag fails here.
   it('control: never raised when the fallback is a deny', async () => {
     const onMetrics = vi.fn()
     const engine = new IamEngine<Action, ResourceType, RoleId>({

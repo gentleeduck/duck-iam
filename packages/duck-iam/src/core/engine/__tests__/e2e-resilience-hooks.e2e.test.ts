@@ -1,15 +1,5 @@
-/**
- * E2E: operator hooks that misbehave, against a REAL Postgres.
- *
- * A hook is code the engine did not write, running inside the authorization
- * path. The rule that matters: a throwing, garbage-returning or never-resolving
- * hook must never turn a deny into an allow. Everything else - a lost
- * diagnostic, a swallowed metric - is secondary.
- *
- * Every case is run against a live database with a real allow and a real deny
- * in it, so a "deny" here is a verdict and not an artefact of the fixture being
- * empty. The suite owns its own container.
- */
+// E2E: a throwing, garbage-returning or hanging operator hook must never turn a deny into an allow.
+// Runs against its own live Postgres holding a real allow and a real deny, so a deny is a verdict.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:net'
@@ -220,11 +210,6 @@ describe('E2E fail-closed: a throwing hook', () => {
 })
 
 describe('E2E fail-closed: a beforeEvaluate that returns garbage', () => {
-  /**
-   * Each of these is a deliberately malformed return value: the cast exists so
-   * the test can hand the engine something the type system forbids, which is
-   * exactly what an untyped JS caller or a hook reading from config can do.
-   */
   const garbage: { name: string; value: unknown }[] = [
     { name: 'null', value: null },
     { name: 'undefined', value: undefined },
@@ -245,7 +230,7 @@ describe('E2E fail-closed: a beforeEvaluate that returns garbage', () => {
   for (const { name, value } of garbage) {
     it(`denies when beforeEvaluate returns ${name}`, async () => {
       const engine = engineWith({
-        // Deliberately malformed: the cast manufactures the bad value.
+        // The cast manufactures a value the types forbid, as an untyped JS hook could return.
         beforeEvaluate: () => value as IamRequest.IAccessRequest<string, string, string>,
       })
       const d = await engine.check('u1', 'read', DOC)
@@ -261,16 +246,13 @@ describe('E2E fail-closed: a beforeEvaluate that returns garbage', () => {
   }, 60_000)
 
   it('records what a beforeEvaluate that rewrites the subject actually does', async () => {
-    // Documented behaviour: the hook may modify the request, and the engine
-    // honours it. Recorded here so the blast radius of a compromised hook is
-    // written down rather than assumed.
+    // The hook may modify the request by design; recorded so a compromised hook's blast radius is written down.
     const engine = engineWith({
       beforeEvaluate: (req) => ({ ...req, resource: { attributes: {}, type: 'doc' } }),
     })
     const d = await engine.check('u1', 'read', SECRET)
     console.info(`[resilience] beforeEvaluate rewrote resource secret -> doc: ${d.allowed ? 'ALLOW' : 'deny'}`)
-    // Not asserted as a bug: an operator hook is trusted code by design. The
-    // assertion is only that the engine is consistent about it.
+    // Not a bug: operator hooks are trusted code. Asserts only that a verdict comes back.
     expect(typeof d.allowed).toBe('boolean')
   }, 60_000)
 })
@@ -287,10 +269,7 @@ describe('E2E liveness: a hook that never resolves', () => {
     console.info(
       `[resilience] beforeEvaluate never resolves: check() ${settled.done ? 'settled' : 'DID NOT SETTLE within 3000ms'}`,
     )
-    // No hook timeout exists, so this is expected to hang. Asserted as-is so
-    // the day a hook timeout lands, this test says so rather than passing
-    // silently. A hang is not a fail-open, but it is an unbounded authorization
-    // call with no deadline of its own.
+    // The default `hookTimeoutMs` (5s) outlasts this 3s race, so check() has not settled yet.
     expect(settled.done).toBe(false)
   }, 30_000)
 
@@ -311,9 +290,7 @@ describe('E2E liveness: a hook that never resolves', () => {
 
 describe('E2E fail-closed: a throwing onPolicyError alongside a broken stored policy', () => {
   it('a policy whose condition tree is corrupt denies, and the throwing hook changes nothing', async () => {
-    // Write a row the evaluator cannot make sense of, straight through SQL so
-    // the admin validator cannot reject it - which is exactly how a row gets
-    // corrupted in production (a migration, a hand-edit, another service).
+    // Written through SQL so the admin validator cannot reject it, as a migration or hand-edit would.
     await fixturePool.query(
       `INSERT INTO iam_policies (id, name, algorithm, rules, version)
        VALUES ('corrupt', 'corrupt', 'deny-overrides', $1::jsonb, 1)
@@ -350,9 +327,7 @@ describe('E2E fail-closed: a throwing onPolicyError alongside a broken stored po
   }, 60_000)
 
   it('a DENY policy that becomes unparseable is dropped, and the verdict flips', async () => {
-    // The sharpest partial failure there is: the backend answers, the row comes
-    // back, and the engine cannot read it. If the row was the thing saying NO,
-    // "drop the malformed row and carry on" is a fail-open.
+    // SECURITY: if the unreadable row is the one saying NO, dropping it and carrying on is a fail-open.
     const dropped: string[] = []
     const seenByHook: string[] = []
     const engine = engineWith({

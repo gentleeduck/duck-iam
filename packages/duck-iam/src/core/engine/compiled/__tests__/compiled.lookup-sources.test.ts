@@ -3,18 +3,8 @@ import type { AccessControl, IamRequest } from '../../../types'
 import { compileTable } from '../compiled.compile'
 import { lookup } from '../compiled.lookup'
 
-/**
- * Mutation testing on `compiled.lookup.ts` scored 81% with the survivors
- * clustered on the three RBAC sources. Replacing the whole `rbacResidual`
- * consultation with `{}` changed no test outcome, even though it is the only
- * path by which a wildcarded role permission grants anything in production;
- * `targetRoles.some` could become `.every`, silently retiring a policy that
- * targets two roles for a subject holding one; and `hasAnyGrant` could become
- * `false`, turning "no role of yours grants this" into "nobody is talking about
- * this" - an abstention that removes a deny vote.
- *
- * Each test here is written so that the named mutant flips its verdict.
- */
+// Each test flips under a named mutant of `compiled.lookup.ts`: skipping `rbacResidual`,
+// `targetRoles.some` -> `.every`, `hasAnyGrant` -> `false`, or `hasFlatSource` -> `false`.
 function maskOf(table: ReturnType<typeof compileTable>, roleIds: readonly string[]): number {
   let m = 0
   for (const id of roleIds) {
@@ -41,9 +31,7 @@ describe('a wildcarded role permission grants only through `rbacResidual`', () =
   }
   const table = compileTable([wildcardRole], [], 'and')
 
-  // The premise: neither of the other two RBAC sources can answer for this
-  // permission. Without this the grant below would prove nothing about which
-  // path produced it.
+  // Premise: the other two RBAC sources cannot answer, so the grants below must come from `rbacResidual`.
   it('is not reachable through the grant mask or the per-cell groups', () => {
     expect(table.rbacResidual).not.toBeNull()
     const a = table.actionId.get('read')
@@ -102,15 +90,13 @@ describe('a policy targeting two roles votes for a subject holding either one', 
     )
   })
 
-  // Control: the RBAC allow this policy is overriding is real, so the denies
-  // above are the policy's doing and not an absent grant.
+  // Control: the RBAC allow is real, so the denies above come from the policy.
   it('control: the same request allows once the policy is gone', () => {
     const without = compileTable(roles, [], 'and')
     expect(lookup(without, maskOf(without, ['a']), 'read', 'post', req(['a'], 'read', 'post'), 'deny')).toBe(true)
   })
 
-  // Control: a subject holding neither role is outside the policy's targets,
-  // so the group correctly does not vote - `.some` is not simply "always vote".
+  // Control: a subject holding neither role is outside the targets, so `.some` is not "always vote".
   it('control: a subject holding neither role gets no vote from it', () => {
     const roleC: AccessControl.IRole = { id: 'c', name: 'C', permissions: [{ action: 'read', resource: 'post' }] }
     const withC = compileTable([...roles, roleC], [twoRoleDeny], 'and')
@@ -130,9 +116,7 @@ describe('"some role grants this, just not yours" is a vote, not silence', () =>
   }
   const table = compileTable(roles, [abacAllow], 'and')
 
-  // RBAC has to cast its `defaultEffect` vote here. If `hasAnyGrant` were
-  // `false` it would abstain instead, the ABAC allow would be the only vote,
-  // and a subject holding no role at all would be granted.
+  // RBAC must vote `defaultEffect` here; if it abstained, the ABAC allow would grant a roleless subject.
   it('denies a roleless subject even though an ABAC policy allows', () => {
     expect(lookup(table, 0, 'read', 'post', req([], 'read', 'post'), 'deny')).toBe(false)
   })
@@ -141,10 +125,7 @@ describe('"some role grants this, just not yours" is a vote, not silence', () =>
     expect(lookup(table, maskOf(table, ['editor']), 'read', 'post', req(['editor'], 'read', 'post'), 'deny')).toBe(true)
   })
 
-  // The residual is consulted first and abstains here (its wildcard is for a
-  // different resource). Returning that abstention as RBAC's answer - rather
-  // than falling through to the grant check below it - would drop the deny and
-  // leave the ABAC allow standing alone.
+  // The residual abstains here (its wildcard is for `comment`); returning that without falling through drops the deny.
   it('falls through an abstaining residual to the grant check', () => {
     const withWildcard: AccessControl.IRole[] = [
       ...roles,
@@ -155,8 +136,7 @@ describe('"some role grants this, just not yours" is a vote, not silence', () =>
     expect(lookup(t, 0, 'read', 'post', req([], 'read', 'post'), 'deny')).toBe(false)
   })
 
-  // Control: at a cell no role mentions at all, RBAC really does abstain and
-  // the ABAC vote stands alone.
+  // Control: at a cell no role mentions, RBAC abstains and the ABAC vote stands alone.
   it('control: RBAC abstains at a cell no role grants', () => {
     const abacOnly: AccessControl.IPolicy = {
       algorithm: 'deny-overrides',
@@ -172,7 +152,6 @@ describe('"some role grants this, just not yours" is a vote, not silence', () =>
 })
 
 describe('the ABAC flat source is consulted', () => {
-  // `hasFlatSource` could be replaced with `false` without a test noticing.
   it('a flat policy is the only thing granting this request', () => {
     const abacAllow: AccessControl.IPolicy = {
       algorithm: 'deny-overrides',

@@ -3,17 +3,8 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../engine'
 import type { IamEngineTypes } from '../engine.types'
 
-/**
- * `engine.admin` hard-deletes assignment rows and overwrites policies in place,
- * so for most of its writes the `onMutation` event is the only evidence the
- * write ever happened. The library deliberately ships no history table -
- * retention, redaction and erasure belong to the consuming application - which
- * makes the completeness of this event stream the whole contract.
- *
- * These tests pin three things the surface would otherwise lose quietly: that
- * every write emits, that the caller's `actor` reaches the event, and that a
- * rolled-back transaction emits nothing.
- */
+// Admin writes hard-delete or overwrite, so `onMutation` is often the only record: every write must emit, carry
+// the caller's `actor`, and a rolled-back transaction must emit nothing.
 
 /** Collects every event the engine emits, in order. */
 function recorder() {
@@ -21,20 +12,13 @@ function recorder() {
   return { events, onMutation: (e: IamEngineTypes.IMutationEvent) => void events.push(e) }
 }
 
-/**
- * A memory adapter that also answers `withClient`, so the facade can bind it.
- * The copy shares the original's Maps - what matters here is which events
- * escape the buffer, not real transactional isolation.
- */
+/** Memory adapter with `withClient`; the copy shares the original's Maps, since only buffered events matter here. */
 function bindable(adapter: IamMemoryAdapter): IamMemoryAdapter {
   const copy: IamMemoryAdapter = Object.assign(Object.create(Object.getPrototypeOf(adapter)), adapter)
   return Object.assign(copy, { withClient: () => bindable(adapter) })
 }
 
-/**
- * `assignRole` refuses a role id nothing is stored under, so the adapters below
- * are built holding the roles these cases grant.
- */
+/** `assignRole` refuses unknown role ids, so the adapters below hold the roles these cases grant. */
 const GRANTABLE = [
   { id: 'admin', name: 'Admin', permissions: [] },
   { id: 'editor', name: 'Editor', permissions: [] },
@@ -128,8 +112,7 @@ describe('engine.admin emits a mutation event per write', () => {
     const event = events[0]
     expect(event?.type).toBe('attributes.set')
     expect(event).toMatchObject({ keys: ['email', 'tier'], subjectId: 'u1' })
-    // The bag routinely holds personal data and a consumer will very likely
-    // write this event to a durable log. Values must not ride along.
+    // The bag often holds personal data and the event likely lands in a durable log.
     expect(JSON.stringify(event)).not.toContain('someone@example.com')
   })
 
@@ -154,8 +137,7 @@ describe('engine.admin emits a mutation event per write', () => {
   })
 
   it('emits nothing at all when no onMutation hook is wired', async () => {
-    // The sink is only built when the hook exists, so an unhooked engine must
-    // not pay for events nobody reads.
+    // The sink is only built when the hook exists, so an unhooked engine pays nothing.
     const engine = new IamEngine({ adapter: new IamMemoryAdapter({ roles: GRANTABLE }) })
     await expect(engine.admin.assignRole('u1', 'admin')).resolves.not.toThrow()
   })
@@ -192,9 +174,24 @@ describe('mutation events under a transaction', () => {
     expect(events).toEqual([])
   })
 
+  it('a write through engine.admin buffers too, so a rollback leaves no history', async () => {
+    const { events, onMutation } = recorder()
+    const engine = new IamEngine({
+      adapter: bindable(new IamMemoryAdapter({ roles: GRANTABLE })),
+      hooks: { onMutation },
+    })
+
+    const perms = engine.withTransaction({})
+    await perms.engine.admin.assignRole('u1', 'admin')
+    expect(events).toEqual([])
+
+    perms.pending.discard()
+    await perms.pending.flush()
+    expect(events).toEqual([])
+  })
+
   it('does not de-duplicate: two writes of the same grant are two history entries', async () => {
-    // Invalidations collapse - replaying one twice is wasted work, not a wrong
-    // answer. Events must not: each write is a distinct thing that happened.
+    // Invalidations collapse, but each write is a distinct event.
     const { events, onMutation } = recorder()
     const engine = new IamEngine({
       adapter: bindable(new IamMemoryAdapter({ roles: GRANTABLE })),

@@ -4,14 +4,8 @@ import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 import type { IamEngineTypes } from '../engine.types'
 
-/**
- * `afterEvaluate` and `onDeny` were documented and implemented as development
- * only, which put the audit and alerting hooks in exactly the mode nobody runs
- * in production. They now fire in both. Production cannot produce the same
- * object - the compiled table erases policy identity by design - so it hands
- * over a verdict-only `IDecision`, and these tests pin both halves: that the
- * hooks fire, and that consumers are not told a `policy` they cannot have.
- */
+// `afterEvaluate` and `onDeny` fire in both modes. The compiled table erases policy identity, so production passes a
+// verdict-only `IDecision` with no `policy`.
 
 type Action = 'read' | 'delete'
 type ResourceType = 'post'
@@ -123,6 +117,61 @@ describe('afterEvaluate / onDeny fire in production too', () => {
   })
 })
 
+describe('permissions() fires afterEvaluate / onDeny in production too', () => {
+  const checks = [
+    { action: 'delete', resource: 'post' },
+    { action: 'read', resource: 'post' },
+  ] as const
+  const hooksInto = (into: unknown[]): IamEngineTypes.IHooks<Action, ResourceType> => ({
+    afterEvaluate: (req, d) =>
+      void into.push({ action: req.action, allowed: d.allowed, effect: d.effect, reason: d.reason }),
+    onDeny: (req) => void into.push({ denied: req.action }),
+  })
+
+  it('fires per check, with the decisions the single checks get', async () => {
+    const single: unknown[] = []
+    const batch: unknown[] = []
+    const one = new IamEngine<Action, ResourceType, RoleId>({ adapter: adapter(), hooks: hooksInto(single) })
+    const many = new IamEngine<Action, ResourceType, RoleId>({ adapter: adapter(), hooks: hooksInto(batch) })
+
+    await one.can('u1', 'delete', { attributes: {}, type: 'post' })
+    await one.can('u1', 'read', { attributes: {}, type: 'post' })
+    expect(await many.permissions('u1', checks)).toEqual({ 'delete:post': false, 'read:post': true })
+
+    expect(single).toHaveLength(3)
+    expect(batch).toEqual(single)
+  })
+
+  it('hands over a verdict-only decision timed from the check', async () => {
+    const decisions: AccessControl.IDecision[] = []
+    const engine = new IamEngine<Action, ResourceType, RoleId>({
+      adapter: adapter(),
+      hooks: { afterEvaluate: (_req, d) => void decisions.push(d) },
+    })
+    const before = performance.now()
+    await engine.permissions('u1', checks)
+    const elapsed = performance.now() - before
+
+    expect(decisions).toHaveLength(2)
+    for (const d of decisions) {
+      expect(d.reason).toMatch(/production mode/)
+      expect(d.policy).toBeUndefined()
+      expect(d.duration).toBeGreaterThanOrEqual(0)
+      expect(d.duration).toBeLessThanOrEqual(elapsed)
+    }
+  })
+
+  it('telemetry: false does not silence them', async () => {
+    const seen: boolean[] = []
+    const engine = new IamEngine<Action, ResourceType, RoleId>({
+      adapter: adapter(),
+      hooks: { afterEvaluate: (_req, d) => void seen.push(d.allowed) },
+    })
+    await engine.permissions('u1', checks, undefined, { telemetry: false })
+    expect(seen).toEqual([false, true])
+  })
+})
+
 describe('configuration defaults', () => {
   /** The private fields the engine records its own configuration in. */
   function config(engine: unknown): { _mode: string; _maxConcurrentSubjectLoads: number } {
@@ -218,10 +267,7 @@ describe('setInvalidator attaches after construction', () => {
   it('rejects a malformed invalidator instead of silently never invalidating', () => {
     const engine = new IamEngine({ adapter: new IamMemoryAdapter() })
 
-    // The guard is a runtime one: TypeScript already refuses these, which is
-    // exactly why only a JS or config-driven caller ever reaches it. A missing
-    // `subscribe` would otherwise surface much later, as remote invalidations
-    // that never arrive.
+    // Only JS or config-driven callers reach this runtime guard; without it a missing `subscribe` loses invalidations.
     expect(() => engine.setInvalidator(JSON.parse('{"publish":1}'))).toThrow(TypeError)
     expect(() => engine.setInvalidator(JSON.parse('{"publish":1,"subscribe":2}'))).toThrow(TypeError)
     expect(() => engine.setInvalidator(JSON.parse('"not-an-object"'))).toThrow(TypeError)

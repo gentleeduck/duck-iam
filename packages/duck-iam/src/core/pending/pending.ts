@@ -9,15 +9,8 @@ function sameEntry<TRole extends string>(a: Pending.Invalidation<TRole>, b: Pend
 }
 
 /**
- * Builds a buffering cache sink over `target`, a buffering mutation sink over
- * `onMutation`, plus the {@link Pending.Effects} handle that drains both. Pass
- * `cache` and `mutations` where `createAdmin` expects an engine and hand
- * `pending` to the caller to flush after commit.
- *
- * Invalidations de-duplicate, so a long transaction touching one subject a
- * thousand times flushes one invalidation rather than a thousand. Mutation
- * events do not: each write is a distinct entry in the consumer's history, and
- * collapsing two grants into one would misreport what happened.
+ * Buffering `cache` and `mutations` sinks for `createAdmin`, plus the {@link Pending.Effects} to flush after commit.
+ * Invalidations de-duplicate; mutation events do not, since each write is a distinct history entry.
  */
 export function createPending<TRole extends string = string, TScope extends string = string>(
   target: Pending.ICacheSink<TRole>,
@@ -42,8 +35,7 @@ export function createPending<TRole extends string = string, TScope extends stri
     },
     mutations: {
       emit: (event) => {
-        // Buffered even with no handler wired, so `peekMutations()` reports what
-        // the transaction did and a handler attached before flush still sees it.
+        // Buffered even with no handler, so `peekMutations()` still reports what the transaction did.
         mutationBuffer.push(event)
       },
     },
@@ -53,8 +45,7 @@ export function createPending<TRole extends string = string, TScope extends stri
         mutationBuffer = []
       },
       flush: async () => {
-        // Take the buffer before applying, so an invalidation triggered during
-        // the drain lands in the next batch rather than appending to this one.
+        // Swap the buffer out first, so an invalidation recorded during the drain lands in the next batch.
         const draining = buffer
         buffer = []
         const failed: Pending.Invalidation<TRole>[] = []
@@ -65,25 +56,19 @@ export function createPending<TRole extends string = string, TScope extends stri
             else if (entry.kind === 'policies') target.invalidatePolicies()
             else target.invalidateRoles(entry.roleId)
           } catch (err) {
-            // The target fans out to the fleet invalidator, so this is a
-            // network call. The entries belong to a transaction that has
-            // already committed: dropping one leaves every node's cache
-            // answering from pre-commit state, so keep it and apply the rest.
+            // SECURITY: the transaction already committed, so a dropped entry leaves every node's cache on
+            // pre-commit state. Keep it and apply the rest.
             failed.push(entry)
             errors.push(err)
           }
         }
-        // Mutation events drain after the invalidations, so a consumer reacting
-        // to one already reads post-invalidation caches. They drain even when
-        // an invalidation failed: the transaction committed, so the history is
-        // true whatever the cache fan-out did.
+        // Events drain after invalidations so consumers read fresh caches, and drain even if one failed: the
+        // transaction committed.
         const emitting = mutationBuffer
         mutationBuffer = []
         if (onMutation) {
           for (const event of emitting) {
-            // Swallowed, not re-buffered. The hook is an observer; a retry of
-            // flush() exists to re-apply invalidations, and dragging a buggy
-            // handler through every retry would block them.
+            // Logged, not re-buffered: retries exist for invalidations, and a buggy observer must not block them.
             try {
               await onMutation(event)
             } catch (err) {
@@ -106,8 +91,7 @@ export function createPending<TRole extends string = string, TScope extends stri
       get mutationSize() {
         return mutationBuffer.length
       },
-      // A copy: the declared `readonly` erases, and the live array is about
-      // to be flushed - a caller could inject or reorder entries in it.
+      // A copy: `readonly` erases at runtime, so a caller could otherwise mutate the live buffer.
       peek: () => [...buffer],
       peekMutations: () => [...mutationBuffer],
       get size() {

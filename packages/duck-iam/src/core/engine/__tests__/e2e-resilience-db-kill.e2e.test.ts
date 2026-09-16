@@ -1,17 +1,5 @@
-/**
- * E2E: does the engine fail CLOSED when a REAL Postgres dies underneath it?
- *
- * Not "an adapter mock that throws on cue" - an actual container that is
- * `docker pause`d (TCP stays open, nothing ever answers) or `docker stop`ped
- * (sockets reset, then connection refused) while a check is in flight.
- *
- * This suite owns its own container, on an ephemeral port, with no
- * `duck-iam-e2e` label, so it can be frozen and killed without touching the
- * shared e2e Postgres other suites/agents depend on.
- *
- * The single invariant under test: an authorization system that cannot answer
- * must DENY. Every recorded verdict below is the value the CALLER received.
- */
+// E2E: the engine must DENY when a real Postgres is paused (TCP open, no answer) or stopped mid-check.
+// Owns its own container on an ephemeral port, so freezing it never touches the shared e2e Postgres.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { connect, createServer } from 'node:net'
@@ -40,12 +28,8 @@ async function docker(args: string[], timeout = 90_000): Promise<string> {
 }
 
 /**
- * Pick a free host port up front and publish the container on it explicitly.
- *
- * `-p 0:5432` cannot be used here: docker re-picks the ephemeral host port on
- * every `docker start`, so a container this suite stops and restarts would come
- * back on a different port and every later engine would see a dead URL - a
- * harness artefact that reads exactly like a fail-closed deny.
+ * Picks a free host port to publish the container on explicitly.
+ * NOTE: not `-p 0:5432`: docker re-picks that port on `docker start`, so a restart would read as a deny.
  */
 async function freePort(): Promise<number> {
   return new Promise<number>((resolve, reject) => {
@@ -116,16 +100,10 @@ interface IEngineOpts {
   poolMax?: number
 }
 
-/**
- * Fresh pool + adapter per engine, so one test's dead sockets cannot be
- * mistaken for the next test's verdict.
- */
+/** Fresh pool + adapter per engine, so one test's dead sockets cannot leak into the next test's verdict. */
 function adapterFor(opts: IEngineOpts): IamDrizzleAdapter<string, string, Role, string> {
   const pool = new Pool({ connectionString: url, max: opts.poolMax ?? 10 })
-  // pg emits `error` on the Pool for a socket that dies while idle. With no
-  // listener Node turns that into an unhandled 'error' event and kills the
-  // worker - which is a property of pg, not of duck-iam, so the suite absorbs
-  // it rather than letting it mask the verdict under test.
+  // INFO: pg emits `error` on the Pool when an idle socket dies; unhandled, it kills the worker.
   pool.on('error', () => {})
   pools.push(pool)
   return new IamDrizzleAdapter<string, string, Role, string>({ db: drizzle(pool), ops: OPS, tables: TABLES })
@@ -192,8 +170,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (containerName) {
-    // Unfreeze before draining: `pool.end()` waits on queries that a paused
-    // container will never answer.
+    // Unfreeze before draining: `pool.end()` waits on queries a paused container never answers.
     await docker(['unpause', containerName]).catch(() => {})
     await docker(['start', containerName]).catch(() => {})
   }
@@ -209,14 +186,7 @@ async function whilePaused<T>(body: () => Promise<T>): Promise<T> {
     return await body()
   } finally {
     await docker(['unpause', containerName])
-    // `whileStopped` already waited for the server to answer again; this did
-    // not, and `unpause` returns as soon as the processes are resumed, not as
-    // soon as Postgres is serving. The recovery case below then asked for a
-    // decision against a database that was technically running and not yet
-    // answering, and read the fail-closed deny as "the engine did not
-    // recover". Waiting here is a precondition of the claim under test, not a
-    // relaxation of it: if the database answers and the engine still denies,
-    // the case still fails, which is the whole point of it.
+    // `unpause` returns before Postgres serves again; without this wait a recovery case reads that gap as a deny.
     await waitUntilReady(containerName, ['psql', '-U', PG_USER, '-d', PG_DB, '-c', 'SELECT 1'])
   }
 }
@@ -272,9 +242,7 @@ describe('E2E fail-closed: Postgres frozen (docker pause) mid-flight', () => {
     } finally {
       await docker(['unpause', containerName])
     }
-    // Either the query completed in the race window (allow, legitimately) or it
-    // did not (must be deny). What must never happen is an allow produced by
-    // the failure.
+    // The query may win the race (a legitimate allow); an allow produced by the failure must never happen.
     if (d.allowed) {
       expect(errors).toEqual([])
     } else {
@@ -333,8 +301,7 @@ describe('E2E fail-closed: Postgres frozen (docker pause) mid-flight', () => {
     })
     expect(both).toEqual([false, false])
 
-    // A caller arriving after the rejection must get a fresh load, not the
-    // rejected promise held in the single-flight slot.
+    // A later caller gets a fresh load, not the rejected promise held in the single-flight slot.
     expect(await engine.can('u1', 'read', { attributes: {}, type: 'doc' })).toBe(true)
   }, 90_000)
 })
@@ -376,8 +343,7 @@ describe('E2E fail-closed: a cached ALLOW plus an unreachable backend', () => {
     const t0 = Date.now()
     await docker(['pause', containerName])
     try {
-      // Poll well past the TTL. If the answer is still `true` at the end, a
-      // dead backend is extending a stale grant - the dangerous case.
+      // Poll past the TTL; still `true` at the end means a dead backend is extending a stale grant.
       const deadline = t0 + ttlSeconds * 1000 + 8_000
       while (Date.now() < deadline) {
         const allowed = await engine.can('u1', 'read', { attributes: {}, type: 'doc' })
@@ -390,13 +356,11 @@ describe('E2E fail-closed: a cached ALLOW plus an unreachable backend', () => {
     }
 
     const firstDeny = observed.find((o) => !o.allowed)
-    // Reported so the number is in the record, not just the pass/fail.
     console.info(
       `[resilience] cached allow survived a frozen backend for ${firstDeny ? `${firstDeny.at}ms` : '>TTL+8000ms (NEVER DENIED)'} (cacheTTL=${ttlSeconds * 1000}ms, adapterTimeout=800ms)`,
     )
     expect(firstDeny, 'a cached allow outlived its TTL against a dead backend').toBeDefined()
-    // TTL + one adapter timeout + poll slack. Anything beyond that is a stale
-    // grant extended by the failure itself.
+    // TTL + one adapter timeout + poll slack; anything later is a stale grant extended by the failure.
     expect(firstDeny?.at).toBeLessThan(ttlSeconds * 1000 + 800 + 2_000)
   }, 120_000)
 })

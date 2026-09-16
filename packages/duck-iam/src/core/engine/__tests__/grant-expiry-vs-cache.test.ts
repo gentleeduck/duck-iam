@@ -2,19 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccessControl, IamAdapter } from '../../types'
 import { IamEngine } from '../engine'
 
-/**
- * A grant with an `expiresAt` is a promise about a moment, and the subject
- * cache is a snapshot taken before it. These tests are about the gap between
- * the two.
- *
- * The drizzle adapter filters `[startsAt, expiresAt)` in the query, to the
- * millisecond, and `drizzle-assignment-expiry-attributes.test.ts` pins that
- * boundary from both sides. Above it, `loadSubject` caches whatever the adapter
- * answered for the engine's whole `cacheTTL` - 60 seconds by default - with
- * nothing tying the entry's life to the grant's. Everything below is written
- * against an adapter that behaves exactly as drizzle does, so what fails here
- * fails there.
- */
+// Pins that a time-boxed grant's bounds win over the subject cache (`cacheTTL`, 60s by default).
+// The adapter below applies `[startsAt, expiresAt)` exactly as drizzle does, so what fails here fails there.
 
 /** A time-boxed grant, as the drizzle assignment row stores one. */
 interface IWindowedGrant {
@@ -24,11 +13,7 @@ interface IWindowedGrant {
   readonly expiresAt?: number
 }
 
-/**
- * The temporal half of the drizzle adapter, and nothing else: rows carry
- * `[startsAt, expiresAt)` and every read applies the window at `Date.now()`,
- * lower bound inclusive, upper bound exclusive.
- */
+/** The drizzle adapter's temporal half only: every read applies `[startsAt, expiresAt)` at `Date.now()`. */
 class WindowedAdapter implements IamAdapter.IAdapter {
   reads = 0
   private _grants: IWindowedGrant[]
@@ -72,12 +57,7 @@ class WindowedAdapter implements IamAdapter.IAdapter {
       ),
     ]
   }
-  /**
-   * The half of the contract that makes the rest of this file possible: the
-   * store knows the bounds, the engine does not, so the store reports the next
-   * one and the engine caps its cache entry there. Same rule the drizzle
-   * adapter implements against `min(startsAt, expiresAt)` over the future.
-   */
+  /** The earliest future bound, which the engine caps its cache entry at; same rule as the drizzle adapter. */
   async getSubjectGrantBoundary(): Promise<number | null> {
     const now = Date.now()
     const future: number[] = []
@@ -120,9 +100,7 @@ afterEach(() => {
 
 describe('a grant that expires stops granting, whatever the cache thinks', () => {
   it('denies the millisecond the window closes, not one cacheTTL later', async () => {
-    // A 30-second break-glass grant under the default 60-second cache TTL:
-    // the grant is gone from the store for the whole second half of the entry's
-    // life. This is the shape an on-call escalation actually has.
+    // A 30-second break-glass grant under the default 60-second cache TTL.
     const adapter = new WindowedAdapter(ROLES, [{ expiresAt: T0 + 30_000, role: 'break-glass' }])
     const engine = new IamEngine({ adapter })
 
@@ -144,8 +122,7 @@ describe('a grant that expires stops granting, whatever the cache thinks', () =>
   })
 
   it('a grant that has not started yet does not stay denied past its start', async () => {
-    // The mirror case, and the one that costs availability rather than safety:
-    // a scheduled grant cached as absent must not stay absent after it opens.
+    // The mirror case, which costs availability rather than safety.
     const adapter = new WindowedAdapter(ROLES, [{ role: 'break-glass', startsAt: T0 + 10_000 }])
     const engine = new IamEngine({ adapter })
 
@@ -155,8 +132,7 @@ describe('a grant that expires stops granting, whatever the cache thinks', () =>
   })
 
   it('an unbounded grant is still cached for the full TTL', async () => {
-    // The cap must come from the grants, not from a blanket shortening: a store
-    // with no temporal grants at all keeps exactly the caching it had.
+    // The cap comes from the grants, not from a blanket shortening.
     const adapter = new WindowedAdapter(ROLES, [{ role: 'reader' }])
     const engine = new IamEngine({ adapter })
 
@@ -184,16 +160,8 @@ describe('a grant that expires stops granting, whatever the cache thinks', () =>
   })
 })
 
-/**
- * The boundary is a hint from the store, and a hint can be wrong.
- *
- * `getSubjectGrantBoundary` is optional and advisory: it shortens a cache
- * entry, it never lengthens one and it never decides anything. So every way a
- * store can get it wrong - a number that is not a time, a bound already behind,
- * one absurdly far ahead, or a method that simply throws - has to land on
- * "cache less", never on "grant longer" and never on "the subject is now
- * undecidable".
- */
+// `getSubjectGrantBoundary` is advisory: every bad answer must mean "cache less", never "grant longer"
+// or an undecidable subject.
 describe('a store that reports its boundary badly', () => {
   class HintedAdapter extends WindowedAdapter {
     constructor(
@@ -225,8 +193,7 @@ describe('a store that reports its boundary badly', () => {
     expect(adapter.reads, 'and the TTL must still expire the entry').toBeGreaterThan(afterFirst)
   })
 
-  // `0` is not nonsense - it is the epoch, and so a bound long past. It belongs
-  // with the case below, not with the values above.
+  // `0` is not nonsense: it is the epoch, a bound long past.
   it.each([
     ['one millisecond ago', T0 - 1],
     ['the epoch', 0],
@@ -241,8 +208,6 @@ describe('a store that reports its boundary badly', () => {
   })
 
   it('a boundary past the TTL does not extend the entry beyond it', async () => {
-    // A store claiming an hour of stability cannot buy itself an hour of
-    // caching: `cacheTTL` is still the ceiling.
     const adapter = new HintedAdapter([{ role: 'reader' }], async () => T0 + 3_600_000)
     const engine = new IamEngine({ adapter })
 
@@ -254,10 +219,7 @@ describe('a store that reports its boundary badly', () => {
   })
 
   it('a throwing boundary costs caching, not the decision', async () => {
-    // The bounds are still enforced by the read itself; only the hint is gone.
-    // Denying every call because an advisory method broke would turn a cache
-    // optimisation into a hard dependency, so the load degrades to "do not
-    // cache this subject" and the answer stays the store's.
+    // The read still enforces the bounds; a broken advisory method only disables caching for this subject.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const adapter = new HintedAdapter([{ expiresAt: T0 + 30_000, role: 'break-glass' }], async () => {

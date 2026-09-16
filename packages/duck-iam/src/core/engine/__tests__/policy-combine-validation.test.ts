@@ -3,14 +3,8 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
-/**
- * Both engines branch on `'and'` and `'allow-overrides'` and treat everything
- * else as `first-applicable` - the most permissive of the three. Nothing
- * validated the config, so a typo, or a value read from a config file rather
- * than written in TypeScript, silently dropped deny-overrides semantics. A
- * guide in this repo recommended `policyCombine: 'or'`, which turned a deny
- * into an allow for anyone who followed it.
- */
+// Both engines treat any value other than `'and'` / `'allow-overrides'` as the most permissive `first-applicable`,
+// so an unknown `policyCombine` must throw rather than silently turn a deny into an allow.
 type Action = 'read'
 type ResourceType = 'post'
 type RoleId = 'reader'
@@ -37,12 +31,9 @@ function build(policyCombine: unknown): IamEngine<Action, ResourceType, RoleId, 
       roles: [{ id: 'reader', name: 'Reader', permissions: [] }],
     }),
     cacheTTL: 0,
-    // Pinned: `mode` defaults to 'production' since 5.9.0, and
-    // 'first-applicable' is rejected there. That interaction has its own test
-    // below; this helper is about the unknown-value guard.
+    // Pinned: production rejects 'first-applicable', which has its own test below.
     mode: 'development',
-    // The guard is a runtime one: TypeScript already refuses these, which is
-    // exactly why only a JS or config-driven caller ever reached the fallback.
+    // TypeScript already refuses these; only JS or config-driven callers reach the runtime guard.
     ...JSON.parse(JSON.stringify({ policyCombine })),
   })
 }
@@ -56,18 +47,12 @@ describe('policyCombine validation', () => {
     expect(() => build('or')).toThrow(/and, allow-overrides, first-applicable/)
   })
 
-  // Controls: the three real values still construct, and the deny still wins
-  // under `and` - so the assertions above are not passing on an engine that
-  // refuses everything.
+  // Controls: the real values construct and the deny still wins, so the rejections are not a refuse-everything engine.
   it.each(['and', 'allow-overrides', 'first-applicable'] as const)('accepts %s', (value) => {
     expect(() => build(value)).not.toThrow()
   })
 
-  // The `mode` default flipped to 'production' in 5.9.0, so a config that only
-  // ever said `policyCombine: 'first-applicable'` now throws where it used to
-  // construct. The throw is the right outcome - the production fast path cannot
-  // represent the semantics - but it is a construction-time break, so it is
-  // pinned rather than left to be rediscovered by a consumer's deploy.
+  // The production fast path cannot represent first-applicable, so a config without `mode` throws at construction.
   it("rejects 'first-applicable' under the default (production) mode", () => {
     expect(
       () =>
