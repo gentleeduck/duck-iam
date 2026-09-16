@@ -424,6 +424,11 @@ export function iamGuard<
   > & {
     scope?: TScope
     /**
+     * The scope this check runs under, when the route names it (`/orgs/:orgId/...`). Consulted only when the static
+     * `scope` is absent; without either, a scoped grant does not apply and a rule reading `scope` cannot fire.
+     */
+    getScope?: (c: HonoContext) => TScope | undefined
+    /**
      * The instance this check is about. The default reads the `:id` path param, which names the wrong row on a route
      * whose own id sits under another name (`/orgs/:id/posts/:postId`).
      */
@@ -447,7 +452,8 @@ export function iamGuard<
     onError = (_err, c) => c.json({ error: 'Internal server error' }, 500),
     getResourceAttributes,
     getResourceId = (c: HonoContext) => c.req.param('id'),
-    scope,
+    getScope,
+    scope: staticScope,
   } = opts
 
   return async (c, next) => {
@@ -455,6 +461,7 @@ export function iamGuard<
       const userId = getUserId(c)
       if (!iamIsSubjectId(userId)) return c.json({ error: 'Unauthorized' }, 401)
 
+      const scope = staticScope ?? getScope?.(c)
       const resourceId = getResourceId(c)
       const attributes = getResourceAttributes
         ? await getResourceAttributes(c, { action, resource: resourceType, resourceId, scope })

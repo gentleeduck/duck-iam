@@ -206,6 +206,11 @@ export function iamGuard<
   opts: Pick<IamExpress.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & {
     scope?: TScope
     /**
+     * The scope this check runs under, when the route names it (`/orgs/:orgId/...`). Consulted only when the static
+     * `scope` is absent; without either, a scoped grant does not apply and a rule reading `scope` cannot fire.
+     */
+    getScope?: (req: Req) => TScope | undefined
+    /**
      * The instance this check is about. The default reads the `:id` path param, which names the wrong row on a route
      * whose own id sits under another name (`/orgs/:id/posts/:postId`).
      */
@@ -229,7 +234,8 @@ export function iamGuard<
     onError = (_err, _, res) => res.status(500).json({ error: 'Internal server error' }),
     getResourceAttributes,
     getResourceId = (req: Req) => req.params?.id,
-    scope,
+    getScope,
+    scope: staticScope,
   } = opts
 
   return async (req, res, next) => {
@@ -240,6 +246,7 @@ export function iamGuard<
         return
       }
 
+      const scope = staticScope ?? getScope?.(req)
       const resourceId = getResourceId(req)
       const attributes = getResourceAttributes
         ? await getResourceAttributes(req, { action, resource: resourceType, resourceId, scope })

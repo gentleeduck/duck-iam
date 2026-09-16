@@ -47,6 +47,11 @@ export namespace IamNext {
     /** Applies a scope to the access check. */
     scope?: TScope
     /**
+     * The scope this check runs under, when the route names it (`/orgs/[orgId]/...`). Consulted only when the static
+     * `scope` is absent; without either, a scoped grant does not apply and a rule reading `scope` cannot fire.
+     */
+    getScope?: (req: Request, params: Record<string, string> | undefined) => TScope | undefined
+    /**
      * The instance this check is about. The default reads the `id` route param, which names the wrong row on a route
      * whose own id sits under another name (`/orgs/[id]/posts/[postId]`).
      */
@@ -95,6 +100,11 @@ export namespace IamNext {
       req: Request,
       ctx: { action: TAction; resource: TResource; scope: TScope | undefined },
     ) => string | undefined
+    /**
+     * The scope a matched rule runs under, when the URL names it (`/orgs/[orgId]/...`). Consulted only when the rule
+     * declares no `scope`; without either, a scoped grant does not apply and a rule reading `scope` cannot fire.
+     */
+    getScope?: (req: Request, ctx: { action: TAction; resource: TResource }) => TScope | undefined
     /** The resource's own attributes for the check; receives the request and the resolved tuple. */
     getResourceAttributes?: (
       req: Request,
@@ -184,7 +194,8 @@ export function withIamAccess<
   const {
     getUserId,
     getEnvironment = (req) => iamExtractEnvironment({ headers: req.headers, method: req.method, url: req.url }),
-    scope,
+    getScope,
+    scope: staticScope,
     onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
     getResourceAttributes,
     getResourceId = (_req: Request, params: Record<string, string> | undefined) => params?.id,
@@ -199,6 +210,7 @@ export function withIamAccess<
       }
 
       const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
+      const scope = staticScope ?? getScope?.(req, params)
       const resourceId = getResourceId(req, params)
 
       const attributes = getResourceAttributes
@@ -330,6 +342,7 @@ export function createIamNextMiddleware<
     onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
     getResourceAttributes,
     getResourceId,
+    getScope,
   } = opts
 
   return async (req: Request): Promise<Response | null> => {
@@ -369,7 +382,8 @@ export function createIamNextMiddleware<
       // widens through the named helper the other adapters use.
       const action: TAction = matchedRule.action ?? iamAsActionLiteral<TAction>(iamActionForMethod(req.method))
 
-      const ruleCtx = { action, resource: matchedRule.resource, scope: matchedRule.scope }
+      const scope = matchedRule.scope ?? getScope?.(req, { action, resource: matchedRule.resource })
+      const ruleCtx = { action, resource: matchedRule.resource, scope }
       const resourceId = getResourceId?.(req, ruleCtx)
       const attributes = getResourceAttributes ? await getResourceAttributes(req, { ...ruleCtx, resourceId }) : {}
       const allowed = await engine.can(
@@ -381,7 +395,7 @@ export function createIamNextMiddleware<
           type: matchedRule.resource,
         },
         getEnvironment(req),
-        matchedRule.scope,
+        scope,
       )
 
       if (!allowed) {
