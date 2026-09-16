@@ -1,12 +1,12 @@
 import type { AccessControl, IamPrimitives } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
+import { runEngineCapabilityCompliance } from '../../__compliance__/engine-capability'
+import { OPTIONAL_SUPPORT } from '../../__compliance__/optional-support'
 import { IamHttpAdapter } from '../index'
 
 /**
- * Reference implementation of the REST contract `IamHttpAdapter` speaks. The
- * compliance matrix runs the adapter against this server so the HTTP backend
- * is held to the same cross-backend semantics as memory/file/redis - in
- * particular that `GET /subjects/:id/roles` returns UNSCOPED roles only.
+ * Reference server for the REST contract `IamHttpAdapter` speaks, so compliance holds it to the shared semantics.
+ * Notably, `GET /subjects/:id/roles` returns unscoped roles only.
  */
 function makeReferenceServer(): typeof globalThis.fetch {
   const policies = new Map<string, AccessControl.IPolicy>()
@@ -64,9 +64,7 @@ function makeReferenceServer(): typeof globalThis.fetch {
       }
       if (method === 'DELETE' && id !== undefined) {
         roles.delete(id)
-        // Deleting a role takes its grants, the way `ON DELETE CASCADE` does on
-        // the SQL schemas. The adapter delegates this to the server, so the
-        // reference server has to show what a correct one does.
+        // Deleting a role takes its grants, as `ON DELETE CASCADE` does; the adapter delegates this to the server.
         for (const [subjectId, entries] of assignments) {
           assignments.set(
             subjectId,
@@ -88,9 +86,7 @@ function makeReferenceServer(): typeof globalThis.fetch {
         if (method === 'POST') {
           const roleId = String((body as { roleId: string }).roleId)
           const scope = (body as { scope?: string }).scope
-          // The contract refuses a grant naming a role that does not exist. The
-          // HTTP adapter delegates that to the server, so the reference server
-          // is where it lives - a 422 the adapter surfaces as a throw.
+          // The server refuses a grant to an unknown role (422), which the adapter surfaces as a throw.
           if (!roles.has(roleId)) return json({ error: `no role "${roleId}"` }, 422)
           if (!entries.some((e) => e.role === roleId && e.scope === scope)) entries.push({ role: roleId, scope })
           assignments.set(subjectId, entries)
@@ -133,8 +129,18 @@ runAdapterCompliance(
       fetch: makeReferenceServer(),
       timeoutMs: 0,
     }),
-  // The operator's server owns the role catalog, so this adapter cannot phrase
-  // the unknown-role refusal itself - it forwards the write and surfaces the
-  // non-2xx. The refusal clause still applies; only its wording is waived.
-  { delegatesRoleExistence: true },
+  // The server owns the role catalog, so the unknown-role refusal clause still applies but its wording is waived.
+  { delegatesRoleExistence: true, supports: OPTIONAL_SUPPORT.IamHttpAdapter },
+)
+
+// No optional writes, so every clause runs the engine's fallback over the mandatory interface only.
+runEngineCapabilityCompliance(
+  'IamHttpAdapter',
+  () =>
+    new IamHttpAdapter({
+      allowedHosts: ['iam.example.com'],
+      baseUrl: 'https://iam.example.com/access',
+      fetch: makeReferenceServer(),
+      timeoutMs: 0,
+    }),
 )

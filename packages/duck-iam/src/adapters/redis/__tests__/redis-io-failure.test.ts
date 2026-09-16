@@ -105,21 +105,16 @@ describe('IamRedisAdapter connection failure', () => {
   })
 
   it('setSubjectAttributes still fails when the write fails, even though a corrupt read is tolerated', async () => {
-    // `getSubjectAttributes` failing is swallowed by design (corrupt-blob
-    // recovery); the SET itself failing must not be.
+    // Only a corrupt stored blob is tolerated on the read; a failing SET must still throw.
     const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: clientFailingOn('set') })
     await expect(adapter.setSubjectAttributes('user-1', { team: 'A' })).rejects.toThrow(/ECONNREFUSED/)
   })
 
   it('a failed serialised write does not wedge later writes to the same assignments key', async () => {
-    // `_runSerialised` chains per-key tasks; a rejected task must clear the
-    // lock so the next caller is not blocked behind a permanently-rejected
-    // promise.
+    // A rejected task must not leave the per-key chain blocking the next caller.
     let failNext = true
     const client = clientFailingOn('smembers')
-    // `assignRole` reads the roles hash first and refuses an unknown role, so
-    // the grant below has to name one the client reports as stored - otherwise
-    // it never reaches the `sadd` this test is about.
+    // `assignRole` checks the roles hash first, so `hget` must report the role as stored to reach `sadd`.
     Reflect.set(client, 'hget', async () => JSON.stringify({ id: 'editor', name: 'Editor', permissions: [] }))
     Reflect.set(client, 'sadd', async () => {
       if (failNext) {

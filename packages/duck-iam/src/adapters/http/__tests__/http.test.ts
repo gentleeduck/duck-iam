@@ -101,8 +101,7 @@ describe('IamHttpAdapter', () => {
     })
 
     it('rejects IPv4-mapped IPv6 loopback', () => {
-      // Node canonicalises `[::ffff:127.0.0.1]` -> `[::ffff:7f00:1]`, which
-      // the bracket-strip + naive `::ffff:` recurse did not catch.
+      // Node canonicalises `[::ffff:127.0.0.1]` to `[::ffff:7f00:1]`, so the hex tail must be caught too.
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:127.0.0.1]/iam' })).toThrow(
         /private\/loopback/,
       )
@@ -145,8 +144,7 @@ describe('IamHttpAdapter', () => {
     })
 
     it('rejects IPv4 unspecified 0.0.0.0', () => {
-      // Already covered by the `a === 0` arm; pin it explicitly so future
-      // refactors can't silently drop the check.
+      // Covered by the `a === 0` arm; pinned explicitly so a refactor cannot drop it.
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://0.0.0.0/iam' })).toThrow(/private\/loopback/)
     })
 
@@ -210,8 +208,7 @@ describe('IamHttpAdapter', () => {
         allowedHosts: ['api.example.com'],
       })
       await adapter.listPolicies()
-      // IamAdapter preserves the caller's original baseUrl casing in the
-      // request URL; only the allowlist comparison is normalised.
+      // The request URL keeps the caller's baseUrl casing; only the allowlist comparison is normalised.
       expect(calls[0]?.url).toBe('https://API.Example.COM/policies')
     })
 
@@ -246,8 +243,7 @@ describe('IamHttpAdapter', () => {
     })
 
     it('rejects 6to4 IPv6 wrapping loopback', () => {
-      // 2002:7f00:0001:: carries inner 127.0.0.1 via 6to4. Linux ships 6to4
-      // by default; this used to slip past the IPv6 private check.
+      // 2002:7f00:0001:: carries inner 127.0.0.1 via 6to4.
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:0001::]/iam' })).toThrow(
         /private\/loopback/,
       )
@@ -297,9 +293,7 @@ describe('IamHttpAdapter', () => {
     })
 
     it('canonical NAT64 form `[64:ff9b::7f00:1]` still rejects loopback', () => {
-      // Regression: the `0064:ff9b:` literal branch had an off-by-one
-      // slice. Verify the canonical WHATWG form (what `new URL` emits)
-      // continues to reject correctly.
+      // The canonical WHATWG form `new URL` emits must reject, independent of the `0064:ff9b:` slicing branch.
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
         /private\/loopback/,
       )
@@ -366,9 +360,7 @@ describe('IamHttpAdapter', () => {
     it('warns once when allowedHosts is omitted', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       try {
-        // Latch is module-level: prior tests in this file may have already
-        // tripped it. Construct several adapters and assert the spy fires at
-        // most once across them.
+        // The latch is module-level and earlier tests may have tripped it, so assert at most one warning.
         new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://a.example.com' })
         new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://b.example.com' })
         new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://c.example.com' })
@@ -437,9 +429,7 @@ describe('IamHttpAdapter', () => {
       await adapter.savePolicy(policy)
       expect(calls[0]?.url).toBe('https://x/policies')
       expect(calls[0]?.init?.method).toBe('PUT')
-      // The body is the normalised policy, not the caller's object: every
-      // adapter now puts the same shape into storage, and for http "storage"
-      // is the remote server.
+      // The body is the normalised policy, so the remote server stores the same shape as every other adapter.
       expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ ...policy, version: 1 })
     })
 
@@ -528,11 +518,7 @@ describe('IamHttpAdapter', () => {
       expect(calls[0]?.init?.method).toBe('DELETE')
     })
 
-    // This used to assert that `?scope=` was sent. That was the divergence, not
-    // a feature: the http read parser requires `scope.length > 0`, so the write
-    // went through and every read of the grant dropped it. Five of the six
-    // adapters disagreed about what `''` meant; all six now refuse it, and
-    // `undefined` remains the one spelling of "global".
+    // The read parser drops an empty scope, so every adapter refuses `''`; `undefined` is the one spelling of "global".
     it('revokeRole DELETE refuses an empty-string scope', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
       const adapter = new IamHttpAdapter({ baseUrl: 'https://x', fetch })

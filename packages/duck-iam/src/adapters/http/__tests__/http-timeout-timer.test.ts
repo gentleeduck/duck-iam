@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IamHttpAdapter } from '../index'
 
-/**
- * The per-request timeout timer must not outlive the request: a dangling timer
- * keeps the event loop alive and aborts an already-settled controller.
- */
+// A dangling timeout timer keeps the event loop alive and aborts an already-settled controller.
 describe('IamHttpAdapter per-request timeout timer', () => {
   afterEach(() => vi.useRealTimers())
 

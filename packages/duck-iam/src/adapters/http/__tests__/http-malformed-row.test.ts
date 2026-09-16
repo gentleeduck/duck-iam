@@ -1,26 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamHttpAdapter } from '../index'
 
-/**
- * The remote API is an untrusted boundary, and the two row kinds are handled
- * differently on purpose.
- *
- * A malformed *role* row is dropped and reported: role permissions are
- * allow-only, so losing one can only ever remove a grant, and the request
- * fails closed.
- *
- * A malformed *policy* row is reported and then throws. The row that will not
- * parse may have been the rule saying NO, and dropping it turns a corrupt byte
- * into an allow; under `policyCombine: 'and'` even an allow-only policy votes
- * deny when none of its rules match, so there is no subset of policies an
- * adapter can safely drop without knowing the combine mode it cannot see. The
- * cost is stated plainly in `iamUnreadablePolicy`: one unreadable policy row
- * denies every request until it is repaired.
- *
- * This file used to assert the drop for both kinds. The e2e differential run
- * caught what that bought: `an unreadable DENY policy was dropped and the
- * request it forbade was allowed`.
- */
+// Pins that a bad role row from the untrusted API is dropped (roles are allow-only) while a bad policy row throws,
+// since the dropped policy may be the deny. See `iamUnreadablePolicy`.
 function makeJsonResponse(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -56,9 +38,7 @@ describe('IamHttpAdapter refuses malformed policy rows and drops malformed role 
   it('listPolicies: one unreadable row fails the whole read, and is reported first', async () => {
     const onPolicyError = vi.fn()
     const adapter = buildAdapter(() => [good, noPriority], onPolicyError)
-    // Not `['p-good']`: returning the readable half is exactly the fail-open.
-    // The caller would have got a policy set with the deny quietly missing and
-    // no way to know one was ever there.
+    // Not `['p-good']`: returning the readable half would fail open, with the deny missing and no sign of it.
     await expect(adapter.listPolicies()).rejects.toThrow(/policy "p-bad" cannot be read and will not be skipped/)
     expect(onPolicyError).toHaveBeenCalledTimes(1)
     expect(onPolicyError.mock.calls[0]?.[1]).toEqual({ adapter: 'http', rowId: 'p-bad' })
@@ -67,16 +47,13 @@ describe('IamHttpAdapter refuses malformed policy rows and drops malformed role 
   it('getPolicy: an invalid row is reported and then rejects', async () => {
     const onPolicyError = vi.fn()
     const adapter = buildAdapter(() => noPriority, onPolicyError)
-    // `null` here reads as "no such policy", which is the same shape a 404
-    // takes - the caller cannot tell a missing policy from a corrupt one.
+    // `null` would read as a 404, hiding a corrupt policy as a missing one.
     await expect(adapter.getPolicy('p-bad')).rejects.toThrow(/cannot be read/)
     expect(onPolicyError).toHaveBeenCalledTimes(1)
   })
 
-  // Still a drop, not a throw: this is the list envelope, not a row. Nothing
-  // parsed, so nothing is being silently subtracted from a set the caller
-  // believes is complete - the caller gets an empty policy set, which under
-  // every combine mode denies.
+  // A drop, not a throw: this is the list envelope, not a row, and the resulting empty policy set denies
+  // under every combine mode.
   it('listPolicies: a non-array body is dropped wholesale and reported', async () => {
     const onPolicyError = vi.fn()
     const adapter = buildAdapter(() => ({ policies: [good] }), onPolicyError)
@@ -97,8 +74,7 @@ describe('IamHttpAdapter refuses malformed policy rows and drops malformed role 
     try {
       const adapter = buildAdapter(() => [noPriority])
       await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
-      // The report still happens on the way out: refusing to serve the read is
-      // not a reason to stop telling the operator which row to repair.
+      // The row is still reported before the throw, so the operator knows which one to repair.
       expect(warn).toHaveBeenCalledTimes(1)
     } finally {
       warn.mockRestore()

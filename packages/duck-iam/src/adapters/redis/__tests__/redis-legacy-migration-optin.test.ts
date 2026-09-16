@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { IamRedis } from '../index'
 import { IamRedisAdapter } from '../index'
 
-/** Only the set operations matter here; the rest throw if the test strays. */
+/** Only the set operations are real; every other command returns an empty default. */
 class SetOnlyRedis implements IamRedis.ILike {
   readonly sets = new Map<string, Set<string>>()
 
@@ -52,12 +52,8 @@ class SetOnlyRedis implements IamRedis.ILike {
   }
 }
 
-/**
- * The legacy shape is "exactly one space, no NUL" - a guess, not a format. A
- * global grant of a role whose id contains a space is indistinguishable from a
- * scoped grant of the prefix before that space, and the migration then rewrote
- * the set, destroying the original. `admin org1` became `admin` in `org1`.
- */
+// "Exactly one space, no NUL" is a guess: a global grant of role `admin org1` reads as `admin` in `org1`, and the
+// migration would rewrite it that way.
 describe('redis legacy assignment migration is opt-in', () => {
   async function seeded(migrateLegacyAssignments: boolean, member = 'admin org1') {
     const client = new SetOnlyRedis()
@@ -89,8 +85,7 @@ describe('redis legacy assignment migration is opt-in', () => {
     expect(Array.from(client.sets.get('assignments:u1') ?? [])).toEqual([`admin${String.fromCharCode(0)}org1`])
   })
 
-  // Control: the current NUL encoding is read the same way either way - the
-  // flag must not change how correctly-encoded members are decoded.
+  // Control: the flag must not change how a NUL-encoded member decodes.
   it.each([false, true])('decodes a NUL-separated member the same with migrate=%s', async (flag) => {
     const { adapter } = await seeded(flag, `editor${String.fromCharCode(0)}org-1`)
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'editor', scope: 'org-1' }])
