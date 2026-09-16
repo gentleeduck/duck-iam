@@ -3,19 +3,8 @@ import { readdir } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-/**
- * The suite is split across two commands: `bun run test` runs everything that
- * does not need docker, `bun run test:e2e` runs everything that does. The split
- * is expressed twice — once as a vitest `--exclude` glob and once as a vitest
- * positional filter — and those two are different matching languages. A glob
- * matches path patterns; a positional filter is a plain substring test against
- * the file path.
- *
- * That is exactly how a test file goes silently unrun: if the two expressions
- * ever stop being complements of each other, a file lands in the gap and no
- * command executes it, while both commands still report green. This test pins
- * the two halves to the on-disk truth so the gap cannot open unnoticed.
- */
+// `test` excludes e2e files by glob and `test:e2e` selects them by substring; these checks keep the two exact
+// complements on disk, so no test file falls in the gap and goes unrun.
 
 const PKG_ROOT = resolve(__dirname, '..', '..')
 const SRC = join(PKG_ROOT, 'src')

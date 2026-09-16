@@ -1,15 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import * as Iam from '../index'
 
-/**
- * The package root must not hand out anything a consumer can mutate to change
- * an authorization decision. Each name below is a live shared object behind an
- * innocuous type: reassigning one member is enough to retire every deny rule
- * that depends on it, in both evaluation modes, with no error and no log.
- *
- * This is a surface test, not a behaviour test - it fails the moment a barrel
- * starts re-exporting one again, which is how the first two escaped.
- */
+// SECURITY: the root must not export a live shared object whose mutation changes a decision; reassigning one member
+// retires every deny rule that depends on it.
 const MUTABLE_INTERNALS = [
   // The operator table. `ops.eq = () => false` retires every `eq` deny rule.
   'ops',
@@ -37,9 +30,7 @@ describe('public surface: mutable internals stay internal', () => {
     expect(typeof Iam.clearPathCache).toBe('function')
   })
 
-  // Positive control: without this, every assertion above would also pass if
-  // `Object.hasOwn` simply did not see module-namespace members, and the suite
-  // would report green while pinning nothing.
+  // Positive control: proves `Object.hasOwn` sees module-namespace members, so the checks above can fail.
   it('detects a name that IS exported, so the assertions above can fail', () => {
     expect(Object.hasOwn(Iam, 'iamClearRegexCache')).toBe(true)
     expect(Object.hasOwn(Iam, 'clearPathCache')).toBe(true)

@@ -4,12 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { IAM_UNKNOWN_ACTION, IAM_UNKNOWN_RESOURCE } from '../server/generic'
 
-/**
- * Round 2's low-severity J findings were prose that had quietly stopped being
- * true. Individually cosmetic; collectively they are why the docs stopped being
- * trusted. Each block below pins one of them to the code it describes, so the
- * next drift fails a test instead of shipping.
- */
+// Pins doc prose to the code it describes, so drift fails a test instead of shipping.
 
 const PKG = join(import.meta.dirname, '../..')
 const REPO = join(PKG, '../..')
@@ -27,17 +22,7 @@ async function sourceFiles(): Promise<string[]> {
 }
 
 describe('JSDoc names third-party frameworks correctly', () => {
-  /**
-   * Round 1's rename script was a blanket find-and-replace, so it prefixed the
-   * *frameworks* too: "a IamHono middleware function", "IamNest's
-   * decorator-driven routing", "Wraps a IamNext.js App Router route handler".
-   * It also produced a genuinely non-compiling `@example` in the Hono adapter:
-   * `import { IamHono } from 'hono'` / `new IamHono()`.
-   *
-   * `IamHono.IOptions` and `export namespace IamHono` are real API and must
-   * survive; only the bare prose mention is wrong. That is the distinction the
-   * check encodes.
-   */
+  // `IamHono.IOptions` is real API; a bare `IamHono` in prose should be the framework name.
   it('no bare Iam-prefixed framework name outside a namespace declaration', async () => {
     const bad: string[] = []
     for (const rel of await sourceFiles()) {
@@ -71,13 +56,7 @@ describe('JSDoc names third-party frameworks correctly', () => {
 })
 
 describe('documented shapes match the code', () => {
-  /**
-   * `engine.ts` derives `scopedRolesApplied` as `enrichedSubject.roles` minus
-   * `originalRoles` - plain role IDs. The `@example` showed `'org-a:admin'`, a
-   * `scope:role` composite nothing in the package ever emits, so a reader
-   * parsing on `:` gets nothing back and cannot tell whether that means "no
-   * scoped roles" or "my parser is wrong".
-   */
+  // Nothing emits a `scope:role` composite, so the `@example` must not show one.
   it('scopedRolesApplied is documented as plain role IDs', () => {
     const types = readFileSync(join(PKG, 'src/core/explain/explain.types.ts'), 'utf8')
     expect(types).not.toContain("'org-a:admin'")
@@ -88,17 +67,7 @@ describe('documented shapes match the code', () => {
     )
   })
 
-  /**
-   * `ac70b714` made `preload()` build the compiled permission table, which is
-   * what surfaces an over-32-role config at boot rather than on the first
-   * request. Neither the JSDoc nor the FAQ said so.
-   *
-   * Two things have since changed and both are pinned here, because the FAQ
-   * said the opposite of each until it was corrected by hand: the table is
-   * built in *both* modes now, and an over-limit config no longer throws from
-   * `preload()` - it warns, falls back to the interpreter, and is reported on
-   * the health probe.
-   */
+  // An over-limit config warns and falls back to the interpreter; it does not make `preload()` throw.
   it('preload() is documented as building the compiled table in both modes', () => {
     const engine = readFileSync(join(PKG, 'src/core/engine/engine.ts'), 'utf8')
     // The behaviour...
@@ -109,16 +78,10 @@ describe('documented shapes match the code', () => {
     const faq = read('packages/duck-iam/FAQ.md')
     expect(faq).toContain('It also builds the compiled permission table - in both modes')
     expect(faq).toContain('falls back to the interpreter')
-    // The claim it replaced. A deploy that fails to start is exactly what no
-    // longer happens, and a reader acting on it would plan for the wrong
-    // failure mode.
+    // The replaced claim: a bad deploy no longer fails to start.
     expect(faq).not.toContain('a bad deploy fails to start')
   })
 
-  /**
-   * `IResource.attributes` is required. Three doc sites omitted it, so the
-   * snippet a reader copies does not typecheck.
-   */
   it('IResource.attributes is still required, so no doc may omit it', () => {
     const request = readFileSync(join(PKG, 'src/core/types/request.ts'), 'utf8')
     // Not `attributes?:` - if this ever becomes optional the docs below are
@@ -140,11 +103,6 @@ describe('documented shapes match the code', () => {
 })
 
 describe('counts and cross-references stay true', () => {
-  /**
-   * The README said "6 JS authorization libraries" while its own table listed
-   * five competitors plus duck-iam, and the FAQ said five. Derive the number
-   * from the table so the two cannot disagree again.
-   */
   it('the README bench claim matches its own comparison table', () => {
     const readme = read('packages/duck-iam/README.md')
     const m = /Benchmarked against (\d+) other JS authorization libraries/.exec(readme)
@@ -156,41 +114,24 @@ describe('counts and cross-references stay true', () => {
     expect(Number(m?.[1])).toBe(competitors.length)
   })
 
-  /**
-   * Three README claims were true only while `mode: 'development'` ran the
-   * interpreter alone. All three survived the architecture change unchanged and
-   * had to be found by grep, which is the coverage gap this test closes.
-   */
   it('the README does not describe development mode as interpreter-only', () => {
     const readme = read('packages/duck-iam/README.md')
-    // The mode table's development row carried a `~155K` figure measured under
-    // the old architecture, against a production row measured the same day.
-    // Removed rather than re-measured: a fresh number from a different machine
-    // and build is not comparable to the rest of the table.
+    // The old development row of the mode table.
     expect(readme).not.toContain("`mode: 'development'` (interpreter)")
-    // What replaced it: the reason development is slower, stated as a ratio,
-    // which is the part that *is* comparable within one run.
+    // What replaced it.
     expect(readme).toContain('runs the same compiled table for the verdict')
     // 32 roles is where the fast path stops, not where the engine stops.
     expect(readme).not.toContain('hard cap: 32 per')
     expect(readme).toMatch(/falls back to the\s+interpreter/)
   })
 
-  /**
-   * The 5.7.0 entry cited `SCALING.md` §8, which lives only under the
-   * gitignored `tmp/`. A changelog that points at a file the reader cannot open
-   * is worse than one that says nothing.
-   */
+  // `SCALING.md` lives only under the gitignored `tmp/`.
   it('the changelog cites no file that is not in the repo', () => {
     const changelog = read('packages/duck-iam/CHANGELOG.md')
     expect(changelog).not.toContain('SCALING.md')
   })
 
-  /**
-   * The 5.0.0 entry called the break a pure prefix rename. Some names were
-   * removed outright, and an upgrader mechanically prefixing imports hits those
-   * with no migration table anywhere.
-   */
+  // Some 5.0.0 names were removed outright, so prefixing imports alone does not upgrade.
   it('the 5.0.0 entry documents the removals, not just the renames', () => {
     const changelog = read('packages/duck-iam/CHANGELOG.md')
     const entry = changelog.slice(changelog.indexOf('## 5.0.0'), changelog.indexOf('## 4.0.0'))
@@ -201,21 +142,12 @@ describe('counts and cross-references stay true', () => {
     }
   })
 
-  /**
-   * The five request-derivation helpers were exported and documented nowhere,
-   * which is what left readers hand-rolling the bypassable `getAction` /
-   * `getResource` that round 1 removed.
-   */
+  // Undocumented helpers get hand-rolled, and a hand-rolled `getAction` / `getResource` is bypassable.
   it('every request-derivation helper is documented', () => {
     const mdx = read('apps/duck-iam-docs/content/docs/integrations/server.mdx')
-    // A passing mention in prose is not documentation. Each helper needs its
-    // own reference-table row *and* a place in the copyable import block -
-    // otherwise a reader cannot find out what it does or where it comes from.
-    // (Checking only `mdx.includes(name)` let a renamed table row pass, because
-    // the old name still appeared in a nearby paragraph.)
+    // A prose mention is not documentation: each helper needs a reference-table row and a place in an import block.
     const tableRows = new Set([...mdx.matchAll(/^\| `([A-Za-z_][\w]*)` \|/gm)].map((m) => m[1]))
-    // Any of the page's `import { … } from '…/server/generic'` blocks will do,
-    // as long as one of them shows the whole set together.
+    // Any `server/generic` import block on the page will do, as long as one shows the whole set.
     const importBlocks = [...mdx.matchAll(/import \{([^}]*)\} from '@gentleduck\/iam\/server\/generic'/g)].map(
       (m) => m[1] ?? '',
     )
@@ -232,22 +164,11 @@ describe('counts and cross-references stay true', () => {
         `${name} appears in no server/generic import block`,
       ).toBe(true)
     }
-    // And they are still exported under those names, with the values the page
-    // documents. Asserted on the imported values rather than on the text of the
-    // source file: the constants now read their value from the reserved token
-    // in `shared/reserved.ts` (a string sentinel could not carry the denial the
-    // docs promised - `'*'` matches strings), and a substring match on the old
-    // one-line literal called that a documentation failure when nothing the
-    // page states had changed.
+    // Checked on the imported values, not source text: the constants read their value from `shared/reserved.ts`.
     expect(IAM_UNKNOWN_ACTION).toBe('unknown')
     expect(IAM_UNKNOWN_RESOURCE).toBe('unknown')
   })
 
-  /**
-   * The root README described the example app as "Next.js + Prisma". It is
-   * Drizzle on bun-sqlite, with a NestJS API - so the one reader who picked it
-   * because they use Prisma found the wrong thing.
-   */
   it('the root README names the example app stack the example actually uses', () => {
     const row = read('README.md')
       .split('\n')
@@ -258,5 +179,57 @@ describe('counts and cross-references stay true', () => {
     // Which is what the example imports.
     expect(read('examples/blogduck/packages/shared/src/access.ts')).toContain('IamDrizzleAdapter')
     expect(read('examples/blogduck/packages/shared/src/db.ts')).toContain('drizzle-orm/bun-sqlite')
+  })
+})
+
+describe('the engine reference keeps up with the config type', () => {
+  /** Top-level `readonly x?:` members of `IConfig`; nested object members sit deeper and are skipped. */
+  function configOptionNames(): string[] {
+    const src = readFileSync(join(PKG, 'src/core/engine/engine.types.ts'), 'utf8')
+    const start = src.indexOf('export interface IConfig')
+    expect(start, 'IConfig not found in engine.types.ts').toBeGreaterThan(-1)
+    const body = src.slice(start)
+    const members = body.slice(0, body.indexOf('\n  }'))
+    return [...members.matchAll(/^ {4}readonly (\w+)\??:/gm)].flatMap((m) => (m[1] === undefined ? [] : [m[1]]))
+  }
+
+  it('every IConfig option has a row in the config table', () => {
+    const docs = read('packages/duck-iam/docs/reference/core-engine.md')
+    const names = configOptionNames()
+    expect(names.length).toBeGreaterThan(10)
+    expect(names.filter((n) => !docs.includes(`| \`${n}\` |`))).toEqual([])
+  })
+
+  it('every option the constructor range-checks is listed among what it refuses', () => {
+    const engine = readFileSync(join(PKG, 'src/core/engine/engine.ts'), 'utf8')
+    const docs = read('packages/duck-iam/docs/reference/core-engine.md')
+    const ranged = [...engine.matchAll(/RangeError\('\[@gentleduck\/iam:engine\] (\w+) /g)].flatMap((m) =>
+      m[1] === undefined ? [] : [m[1]],
+    )
+    // The table words some rows as a pair (`maxPolicies` / `maxRoles`), so the name is what must appear in it.
+    const table = docs.slice(docs.indexOf('| Condition | Throws |'))
+    const refusals = table.slice(0, table.indexOf('\n\n'))
+    expect(ranged).toContain('hookTimeoutMs')
+    expect(ranged.filter((n) => !refusals.includes(`\`${n}\``))).toEqual([])
+  })
+})
+
+describe('the server reference states the audit hook timing the code has', () => {
+  it('does not claim the hook can never block', () => {
+    const docs = read('packages/duck-iam/docs/reference/server.md')
+    expect(docs).not.toMatch(/can never block/)
+    expect(docs).not.toMatch(/\*\*fire-and-forget\*\*/)
+  })
+
+  it('says the returned promise is not awaited and that synchronous work still delays the response', () => {
+    const docs = read('packages/duck-iam/docs/reference/server.md')
+    expect(docs).toMatch(/not awaited/)
+    expect(docs).toMatch(/[Ss]ynchronous work does/)
+  })
+
+  it('the helper it describes still does not await the hook', () => {
+    const src = readFileSync(join(PKG, 'src/server/generic/index.ts'), 'utf8')
+    const fire = src.slice(src.indexOf('export function iamFireAdminMutation'))
+    expect(fire.slice(0, fire.indexOf('\n}'))).not.toMatch(/await hook|await opts/)
   })
 })

@@ -1,25 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-/**
- * Sixteen subpath entrypoints, each written at a different time, and the
- * package root is not the only namespace a consumer imports into. An audit
- * found the naming had drifted in three separate directions:
- *
- * - **Prefix.** Everything is `Iam` / `iam` / `IAM_` prefixed, except the
- *   verb-first factories - `createIam*`, `withIam*`, `getIam*`.
- * - **Word order.** `createIamRedisInvalidator` and `iamCreateMetricsAggregator`
- *   are the same kind of function under two orderings. `createIam*` wins on
- *   count, 10 to 1.
- * - **Same job, different verb.** The admin mount is `iamAdminRouter` (express),
- *   `iamBindAdminRouter` (hono), `createIamAdminHandlers` (next) and
- *   `createIamAdminOperations` (nest) - four names for one concept, because
- *   each integration mounts it differently.
- *
- * The package is on 5.x, so these are not free to rename. This file does what
- * `public-surface-naming.test.ts` does for the root: it pins the surface so the
- * drift cannot grow, and lists the known outliers explicitly. The list may
- * shrink at a major; nothing may be added to it.
- */
+// Pins subpath entrypoint naming (prefix and `createIam*` word order), as `public-surface-naming.test.ts` does for
+// the root. Outliers are 5.x public API: the list may shrink at a major, never grow.
 
 const ENTRYPOINTS = {
   'adapters/drizzle': () => import('../adapters/drizzle'),
@@ -43,11 +25,7 @@ const ENTRYPOINTS = {
 /** `Iam`/`iam`/`IAM_`, or a verb-first factory that still carries `Iam`. */
 const NAME_SHAPE = /^(Iam|iam|IAM_)|^(create|with|get|generate|check)Iam[A-Z]/
 
-/**
- * Names that break the *word order* rule - `iamCreate…` where the rest of the
- * package says `createIam…` - and the one adapter carrying a third name for its
- * own constructor. Both are 5.x public API.
- */
+/** Known outliers: an `iamCreate...` word-order break, and drizzle's third constructor name. */
 const NAMING_OUTLIERS = ['createIamDrizzleAdapter', 'iamCreateMetricsAggregator']
 
 type EntrypointName = keyof typeof ENTRYPOINTS
@@ -101,8 +79,7 @@ describe('factory word order', () => {
     expect(wrongOrder.filter((k) => !NAMING_OUTLIERS.includes(k))).toEqual([])
   })
 
-  // Positive control: the outlier list is real exports, not stale names that
-  // would let the assertion above pass while hiding a rename.
+  // Positive control: a stale outlier name would hide a rename.
   it('still exports every listed outlier', async () => {
     const all = new Set<string>()
     for (const name of Object.keys(ENTRYPOINTS)) for (const k of await exportsOf(name)) all.add(k)
