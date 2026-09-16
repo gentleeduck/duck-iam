@@ -1,18 +1,6 @@
 /**
- * Vitest `globalSetup`: bring up the Postgres the e2e suites need, then take it
- * away again.
- *
- * Without this, e2e coverage would depend on a developer hand-provisioning a
- * database and cloning a schema into it - which is the same as not having the
- * suites at all.
- *
- * Order of preference:
- *   1. `DUCKIAM_E2E_DATABASE_URL` already set (your own infra, or CI services).
- *   2. Docker available - a throwaway container on an ephemeral port, removed on exit.
- *   3. Neither - the variable stays unset and every e2e suite skips itself.
- *
- * The container publishes to port 0 so the host picks a free port; nothing can
- * collide with a dev stack already sitting on 5432.
+ * Vitest `globalSetup` for the e2e Postgres: a preset `DUCKIAM_E2E_DATABASE_URL`, else a throwaway docker container
+ * on an ephemeral port, else nothing and the e2e suites skip.
  */
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -32,20 +20,8 @@ const READY_TIMEOUT_MS = 60_000
 const started: string[] = []
 
 /**
- * How long the availability probe may take. `docker info` does not return when
- * the CLI is installed and the daemon socket exists but nothing is listening -
- * a stopped Docker Desktop, which is the ordinary state on a machine that is
- * not running e2e tests. `execFile` has no timeout by default, so that hung
- * `globalSetup`, and with it *every* vitest invocation in the package,
- * including Stryker's dry run.
- *
- * Was `5_000`, which is inside the range `docker info` takes on a loaded
- * machine: on macOS it costs ~2.5s idle, and the whole E2E sweep - eighteen
- * suites, several of them starting containers - is exactly the load that pushes
- * it past five seconds. A slow probe then read as "no docker" and every suite
- * skipped itself, so the run reported green having tested nothing. A probe that
- * decides whether 650 tests run must not be tuned so close to the thing it
- * measures.
+ * Timeout for `docker info`, which hangs when the daemon socket exists but nothing listens (a stopped Docker Desktop).
+ * WARN: keep it generous; a loaded machine takes over 5s, and a slow probe reads as "no docker" and skips every suite.
  */
 const DOCKER_PROBE_TIMEOUT_MS = 30_000
 
@@ -63,16 +39,7 @@ async function dockerAvailable(): Promise<boolean> {
   }
 }
 
-/**
- * Set `DUCKIAM_E2E_REQUIRE_DOCKER=1` to turn "docker is not available" from a
- * silent skip into a failure.
- *
- * The skip exists so a contributor without docker can still run the package's
- * suite, and it is right for that. It is wrong for a run whose *purpose* is the
- * E2E suites: those skip themselves file by file, so the run reports green and
- * the only trace is one `console.info` line scrolled off the top. Anyone
- * deliberately exercising the E2E suites should set this.
- */
+/** `DUCKIAM_E2E_REQUIRE_DOCKER=1` makes missing docker a failure instead of a silent skip; set it on e2e runs. */
 function dockerIsRequired(): boolean {
   const flag = process.env.DUCKIAM_E2E_REQUIRE_DOCKER
   return flag !== undefined && flag !== '' && flag !== '0' && flag !== 'false'
@@ -107,9 +74,8 @@ async function waitUntilReady(name: string, probe: string[]): Promise<void> {
 }
 
 /**
- * Wait until the published port accepts a TCP connection from the host. The
- * in-container probes prove the server is up; they do not prove docker's port
- * forwarding is accepting yet, and a suite connecting in that gap gets ECONNREFUSED.
+ * Waits until the published port accepts a TCP connection from the host.
+ * INFO: in-container probes do not prove docker's port forwarding is up; connecting in that gap gets ECONNREFUSED.
  */
 async function waitUntilReachable(port: number): Promise<void> {
   const deadline = Date.now() + READY_TIMEOUT_MS
@@ -135,63 +101,28 @@ async function waitUntilReachable(port: number): Promise<void> {
 }
 
 /**
- * Remove any container this harness leaked in an earlier run that died badly.
- *
- * Age-bounded, for the same reason {@link removeAgedOwnedStrays} is. This used
- * to delete *every* container carrying {@link LABEL} the moment setup ran, and
- * `startPostgres` labels the container it starts with exactly that - so a
- * second `bun run test:e2e` in the same checkout force-removed the Postgres the
- * first one was mid-suite against, and the first run failed with connection
- * errors that pointed at nothing. The `OWNED_LABEL` docblock below spells out
- * this hazard and works around it by leaving suite-owned containers unlabelled;
- * the harness's own container had the same problem and no such workaround.
- *
- * The bound costs nothing that matters: a container younger than
- * {@link OWNED_MAX_AGE} either belongs to a run in progress - in which case it
- * must not be touched - or will be swept on the next invocation an hour later.
- * A crashed run leaks one container, not a pile.
+ * Removes harness containers ({@link LABEL}) leaked by an earlier run that crashed.
+ * WARN: keep it age-bounded; an unbounded sweep removes the Postgres a concurrent run is still using.
  */
 async function removeStrays(): Promise<void> {
   await removeAgedStrays(LABEL)
 }
 
 /**
- * The label every *suite-owned* container carries, and the age past which one
- * is certainly abandoned.
- *
- * The containers a suite starts for itself deliberately do NOT carry
- * {@link LABEL}: `removeStrays` deletes every container with that label at the
- * start of *any* vitest invocation, which would pull the server out from under
- * a suite still using it. The cost of staying unlabelled was that nothing ever
- * collected them - an interrupted run (Ctrl-C, a timeout, a crash before
- * `afterAll`) left them running forever, and four such orphans, two to four
- * hours old, were once found throttling the daemon badly enough to turn a
- * 30-second suite into a 205-second one.
- *
- * A second label plus an age bound gets both: these are swept, but only when
- * they are far too old to belong to a run in progress. Suites finish in
- * minutes, so an hour is not a race - it is a container nobody is coming back
- * for.
+ * Label on containers a suite starts for itself, and the age past which one is certainly abandoned.
+ * NOTE: suites finish in minutes, so an hour-old container cannot belong to a live run.
  */
 export const OWNED_LABEL = 'duck-iam-e2e-owned'
 const OWNED_MAX_AGE = '60m'
 
-/**
- * Remove suite-owned containers old enough that no live run can own them.
- *
- * `--filter until=` is docker's own "created before" predicate, so this never
- * has to parse a timestamp, and a container started by a concurrent run is far
- * too young to match.
- */
+/** Removes suite-owned containers old enough that no live run can own them. */
 async function removeAgedOwnedStrays(): Promise<void> {
   await removeAgedStrays(OWNED_LABEL)
 }
 
 /**
- * The sweep both labels share: remove containers carrying `label` that are old
- * enough that no live run can own them.
- *
- * @param label - The docker label to sweep.
+ * Removes containers carrying `label` created more than {@link OWNED_MAX_AGE} ago.
+ * INFO: `--filter until=` is docker's own created-before filter, so no timestamp parsing is needed.
  */
 async function removeAgedStrays(label: string): Promise<void> {
   const ids = await docker([
@@ -204,9 +135,7 @@ async function removeAgedStrays(label: string): Promise<void> {
   ]).catch(() => '')
   if (ids.length === 0) return
   const names = ids.split('\n').filter(Boolean)
-  // `-v` matters more here than anywhere: these are the containers that died
-  // without running their own cleanup, so their anonymous volumes are the ones
-  // that have been accumulating.
+  // `-v`: these died without cleanup, so their anonymous volumes have been piling up.
   await docker(['rm', '-f', '-v', ...names]).catch(() => '')
   console.info(`[e2e] removed ${names.length} abandoned test container(s) older than ${OWNED_MAX_AGE}`)
 }
@@ -232,12 +161,9 @@ async function startPostgres(): Promise<string> {
   ])
   started.push(name)
   await waitUntilReady(name, ['pg_isready', '-U', PG_USER, '-d', PG_DB])
-  // `pg_isready` goes true once during init, before the init scripts finish and
-  // the server restarts for real connections. Prove a query round-trips before
-  // handing the URL out, or the first suite races the bootstrap.
+  // `pg_isready` goes true once during init, before the server restarts; prove a query round-trips first.
   await waitUntilReady(name, ['psql', '-U', PG_USER, '-d', PG_DB, '-c', 'SELECT 1'])
-  // Seed the schema once here, so no suite pays for it. Copied in rather than
-  // piped: `execFile` has no stdin.
+  // Seed the schema once for every suite. Copied in, not piped, because `execFile` has no stdin.
   await docker(['cp', join(import.meta.dirname, 'pg-e2e-schema.sql'), `${name}:/tmp/schema.sql`])
   await docker(['exec', name, 'psql', '-U', PG_USER, '-d', PG_DB, '-v', 'ON_ERROR_STOP=1', '-f', '/tmp/schema.sql'])
   const port = await publishedPort(name, 5432)
@@ -246,35 +172,17 @@ async function startPostgres(): Promise<string> {
 }
 
 /**
- * Vitest `globalSetup`: bring up the Postgres the e2e suites need, once for the
- * whole run, and publish its URL through `DUCKIAM_E2E_DATABASE_URL`.
- *
- * Defers to an already-set URL, so `.env.test` and real CI service containers
- * win over anything *started* here - but the aged-stray sweep still runs, since
- * suites that own their own backends leak them either way. Absent docker is not a failure - the suites
- * read the same variable and skip themselves - except under
- * `DUCKIAM_E2E_REQUIRE_DOCKER`, which exists so CI cannot pass by silently
- * skipping every e2e file. A setup that fails halfway tears itself down and
- * unsets the variable rather than leaving suites pointed at a half-built stack.
+ * Vitest `globalSetup`: starts the e2e Postgres once and publishes it as `DUCKIAM_E2E_DATABASE_URL`.
+ * A preset URL wins; missing docker skips unless `DUCKIAM_E2E_REQUIRE_DOCKER` is set. A failed start tears down.
  */
 export async function setup(): Promise<void> {
   const hasDocker = await dockerAvailable()
 
-  // Above the early return below, not after it. Suites that own their own
-  // backends - the redis invalidation e2e starts both a Redis and a Postgres of
-  // its own - label them `OWNED_LABEL` and start them whether or not this setup
-  // started anything. Left below the return, the sweep never ran at all for
-  // anyone with `DUCKIAM_E2E_DATABASE_URL` in `.env.test`, which is the normal
-  // local setup, so their crashed runs accumulated containers (and the
-  // anonymous volumes behind them) indefinitely.
-  //
-  // Safe to hoist precisely because it is age-bounded: everything it collects
-  // is older than `OWNED_MAX_AGE` and so cannot belong to a run in progress.
-  // The cost is one docker probe on a path that used to skip it.
+  // NOTE: sweep before the preset-URL return; suites that own their backends leak them either way.
+  // Safe because the sweep is age-bounded.
   if (hasDocker) await removeAgedOwnedStrays()
 
-  // `.env.test` and real CI service containers both win: if the caller already
-  // pointed us somewhere, do not start anything.
+  // A preset URL (`.env.test` or CI services) means start nothing.
   if (process.env.DUCKIAM_E2E_DATABASE_URL) return
 
   if (!hasDocker) {
@@ -301,12 +209,8 @@ export async function setup(): Promise<void> {
 }
 
 /**
- * Vitest `globalTeardown`: remove every container this run started.
- *
- * `-v` as well as `-f`, or the anonymous volume behind each container outlives
- * it and the disk fills one run at a time. Failures are logged rather than
- * thrown - throwing here would fail an otherwise green run, and the aged-stray
- * sweep in {@link setup} collects whatever is left behind.
+ * Vitest `globalTeardown`: removes this run's containers with `-v`, so their anonymous volumes go too.
+ * Logs rather than throws, so a green run stays green; the aged-stray sweep in {@link setup} collects leftovers.
  */
 export async function teardown(): Promise<void> {
   if (started.length === 0) return

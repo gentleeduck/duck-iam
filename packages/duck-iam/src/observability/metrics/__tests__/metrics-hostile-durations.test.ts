@@ -14,14 +14,8 @@ function event(durationMs: number): IamEngineTypes.IMetricsEvent {
   }
 }
 
-/**
- * `durationMs` reaches the aggregator from the engine's own clock, and a clock
- * that goes backwards or a hook that forwards a hand-built event puts NaN,
- * Infinity or a negative number into the ring buffer. One of those poisons
- * every percentile from then on - the buffer is sorted to compute p50/p95/p99,
- * and NaN makes the sort order meaningless - so a single bad sample silently
- * flatlines the latency dashboard the operator is watching.
- */
+// A backwards clock or a hand-built event can put NaN, Infinity or a negative into the ring, and one NaN makes the
+// percentile sort meaningless from then on - a single bad sample flatlines the latency dashboard.
 describe('the latency ring buffer refuses samples that are not durations', () => {
   const REJECTED: ReadonlyArray<{ name: string; value: number }> = [
     { name: 'NaN', value: Number.NaN },
@@ -40,15 +34,13 @@ describe('the latency ring buffer refuses samples that are not durations', () =>
       expect(snap.samples).toBe(2)
       expect(snap.max).toBe(30)
       expect(snap.p50).toBe(10)
-      // The event itself still counts: the verdict happened, only its timing
-      // is unusable.
+      // The event still counts: the verdict happened, only its timing is unusable.
       expect(snap.total).toBe(3)
       expect(snap.allow).toBe(3)
     })
   }
 
-  // Boundary, so the guard can't be widened into `> 0` without a failure: zero
-  // is a legitimate duration for a cache hit.
+  // Boundary: zero is a legitimate duration for a cache hit, so the guard cannot be widened to `> 0`.
   it('keeps a zero-millisecond sample', () => {
     const m = iamCreateMetricsAggregator()
     m.record(event(0))

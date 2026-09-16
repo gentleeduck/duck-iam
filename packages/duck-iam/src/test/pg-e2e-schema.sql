@@ -1,8 +1,4 @@
--- PostgreSQL schema for duck-iam e2e suites.
---
--- Hand-kept mirror of `src/adapters/drizzle/pg/pg.schema.ts`. Suites provision
--- their own tables from this file rather than depending on a database someone
--- cloned by hand, which is what makes them runnable anywhere docker is.
+-- PostgreSQL schema for the duck-iam e2e suites; hand-kept mirror of `src/adapters/drizzle/pg/pg.schema.ts`.
 -- Constraint naming follows the schema module: pk_ fk_ uq_ idx_ ch_.
 
 DO $$ BEGIN

@@ -3,13 +3,8 @@ import type { IamEngineTypes } from '../../core/engine/engine.types'
 /** IamMetrics observability types. Type-only namespace - zero bundle cost. */
 export namespace IamMetrics {
   /**
-   * Aggregates the engine's `onMetrics` events in-process.
-   *
-   * Wire `.record` into `hooks.onMetrics` and read `.snapshot()` on demand (a
-   * `/metrics` route, a Prom scrape, an OTel exporter). Holds a rolling sample
-   * of recent durations to compute p50 / p95 / p99 without pulling in a
-   * histogram library. Sample size defaults to `1000`; beyond that the oldest
-   * sample is evicted via a fixed-size ring buffer.
+   * Aggregates the engine's `onMetrics` events in-process: wire `.record` into `hooks.onMetrics` and read
+   * `.snapshot()` on demand. A fixed-size ring of recent durations gives p50 / p95 / p99 with no histogram library.
    */
   export interface IAggregator {
     /**
@@ -37,9 +32,8 @@ export namespace IamMetrics {
     /** Number of deny verdicts. */
     readonly deny: number
     /**
-     * Number of allow verdicts that were attributable solely to the engine's
-     * `defaultEffect: 'allow'` fallback (no applicable policy fired). Subset
-     * of {@link allow}. Chart this to detect silent policy-set breakage.
+     * Allow verdicts from the `defaultEffect: 'allow'` fallback alone, a subset of {@link allow}.
+     * WARN: chart this - a rise means no policy is firing, which is silent policy-set breakage.
      */
     readonly failOpen: number
     /** p50 latency in milliseconds over the rolling window. */
@@ -57,20 +51,16 @@ export namespace IamMetrics {
   /** Configures {@link iamCreateMetricsAggregator}. */
   export interface IConfig {
     /**
-     * Maximum number of duration samples kept in the rolling window. Higher
-     * values give more accurate tail percentiles at the cost of memory.
-     * Must be a positive integer; defaults to `1000`.
+     * Duration samples kept in the rolling window; a positive integer, `1000` by default.
+     * PERF: a larger window buys tail-percentile accuracy with memory and a longer sort per snapshot.
      */
     sampleSize?: number
   }
 }
 
 /**
- * Creates an in-process metrics aggregator with a fixed-size ring buffer for
- * latency percentiles and running counters for allow/deny verdicts.
- *
- * Bind `.record` to {@link IamEngineTypes.IHooks.onMetrics} and read `.snapshot()`
- * on demand.
+ * Creates an in-process metrics aggregator: a fixed-size ring buffer for latency percentiles and running allow/deny
+ * counters. Bind `.record` to {@link IamEngineTypes.IHooks.onMetrics} and read `.snapshot()` on demand.
  *
  * @param config - Optionally overrides the sample size; see {@link IamMetrics.IConfig}.
  * @returns A new {@link IamMetrics.IAggregator} instance with zeroed counters.
@@ -100,15 +90,8 @@ export function iamCreateMetricsAggregator(config: IamMetrics.IConfig = {}): Iam
       if (event.allowed) allow++
       else deny++
       if (event.failOpen) failOpen++
-      // The decision is always counted; only the latency sample can be refused.
-      // `record` is documented as bindable straight to `IHooks.onMetrics`, so
-      // `durationMs` is a caller-supplied number, and an `undefined` or `NaN`
-      // reaching a `Float64Array` becomes `NaN` - which makes the percentile
-      // sort's comparator inconsistent and returns `NaN` for a quantile (a
-      // `/metrics` route then serialises it as `null`) until the ring rolls
-      // over. One bad sample corrupted the whole window, so it is dropped
-      // instead. `samples` therefore need not equal `total`, which is the
-      // honest reading.
+      // WARN: the verdict is always counted, but a `NaN` duration would make the percentile comparator inconsistent
+      // and poison every quantile until the ring rolls over, so bad samples are dropped and `samples` <= `total`.
       if (Number.isFinite(event.durationMs) && event.durationMs >= 0) {
         buf[head] = event.durationMs
         head = (head + 1) % cap
@@ -119,9 +102,7 @@ export function iamCreateMetricsAggregator(config: IamMetrics.IConfig = {}): Iam
       if (count === 0) {
         return { total, allow, deny, failOpen, p50: 0, p95: 0, p99: 0, max: 0, samples: 0 }
       }
-      // Copy the live region of the ring buffer + sort to compute percentiles.
-      // O(n log n) per snapshot; fine at the cap (<= 1000) and avoids a
-      // streaming-quantile dependency.
+      // PERF: O(n log n) per snapshot, which is fine at the default cap and avoids a streaming-quantile dependency.
       const sorted = Array.from(buf.subarray(0, count))
       sorted.sort((a, b) => a - b)
       return {
