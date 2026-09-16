@@ -2,11 +2,7 @@ import { iamParsePermissionKey } from './keys'
 
 /**
  * Reads one grant out of a client permission map.
- *
- * The map arrives from the server as parsed JSON and nothing validates it, so
- * a value is only a grant when it is literally `true`. A truthiness test (or
- * the `as Record<string, boolean>` cast this replaces) reads `"false"` - a
- * plausible thing for a server to emit - as a grant.
+ * SECURITY: the map is unvalidated server JSON, so only a literal `true` grants; truthiness would accept `"false"`.
  *
  * @param map - The permission map to read.
  * @param key - A key built by `iamBuildPermissionKey`.
@@ -19,17 +15,7 @@ export function iamPermissionGranted(map: object, key: string): boolean {
 
 /**
  * Lists every action granted on `resource` by a client permission map.
- *
- * Lived on `IamAccessClient` only, so a React or Vue consumer who needed
- * "what can this user do here" wrote it by hand - and the obvious hand-rolled
- * version is `key.split(':')`, which the `@`-scope marker and the `\:` escaping
- * make wrong on exactly the keys that carry a scope or an id.
- *
- * Returns `string[]`, not the caller's action union. The map is unvalidated
- * server JSON: the union is a claim about what the server *should* have sent,
- * and re-asserting it over parsed keys is the kind of unchecked narrowing that
- * hides a malformed map instead of surfacing it. Narrow with your own predicate
- * if you need the union back.
+ * NOTE: returns `string[]`, not the action union, because the map is unvalidated; narrow with your own predicate.
  *
  * @param map - Permission map as received from the server.
  * @param resource - Resource type to filter by.
@@ -42,9 +28,7 @@ export function iamAllowedActions(map: object, resource: string): string[] {
     // action whose value is the string "false".
     if (allowed !== true) continue
     const action = iamActionForResource(key, resource)
-    // `!== null`, not truthiness: an empty-string action is a real segment that
-    // `can()` honours, and `iamActionForResource` already signals "not a key
-    // here" with `null`.
+    // `!== null`, not truthiness: an empty-string action is a real segment that `can()` honours.
     if (action !== null) actions.push(action)
   }
   return [...new Set(actions)]

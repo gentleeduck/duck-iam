@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { iamIsAttributeValue, iamNarrowAttributes } from '../attributes'
 
-/**
- * The adapters used to conclude `v as IamPrimitives.AttributeValue` inside a
- * per-key loop having checked only that the *bag* was an object. A value the
- * type forbids therefore reached the condition operators typed as one, on all
- * six backends.
- */
 describe('iamIsAttributeValue', () => {
   it.each([
     ['a string', 'x'],
@@ -52,12 +46,7 @@ describe('iamNarrowAttributes', () => {
     expect(iamNarrowAttributes(JSON.parse(json))).toBeNull()
   })
 
-  /**
-   * The whole bag, not just the offending key. Dropping one key makes that
-   * attribute read as *absent*, and an absent attribute retires every deny rule
-   * that tests it - the same silent-bypass shape the file adapter's
-   * "Corruption != empty" throw already guards against.
-   */
+  // Dropping only the bad key would make it read as absent, which retires every deny rule testing it.
   it('refuses the whole bag when one value is not storable', () => {
     expect(iamNarrowAttributes({ nested: { deep: { deeper: 1 } }, tier: 'gold' })).toBeNull()
   })
