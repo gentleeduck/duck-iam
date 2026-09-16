@@ -617,7 +617,7 @@ The `cache` facet (`engine.ts:173`) is the public surface. Every method takes
 | --- | --- | --- | --- |
 | `cache.invalidate()` | every cache + every in-flight slot | yes, `gen++` | `{kind:'all'}` |
 | `cache.invalidatePolicies()` | `policyCache`, `mergedPolicyCache`, their slots | yes, `gen++` | `{kind:'policies'}` |
-| `cache.invalidateRoles(roleId?)` | `roleCache`, `rbacPolicyCache`, `mergedPolicyCache`, their slots, **all** subject in-flight slots, and either the whole `subjectCache` or just the subjects holding `roleId` | yes, `gen++` | `{kind:'roles', roleId}` |
+| `cache.invalidateRoles(roleId?)` | `roleCache`, `rbacPolicyCache`, `mergedPolicyCache`, their slots, **all** subject in-flight slots, and either the whole `subjectCache` or just the subjects whose roles reach `roleId` | yes, `gen++` | `{kind:'roles', roleId}` |
 | `cache.invalidateSubject(id)` | that subject's cache entry and in-flight slot | **no** | `{kind:'subject', subjectId}` |
 
 `invalidateSubject` leaves the table alone on purpose: subject data is not
@@ -630,9 +630,21 @@ have arrived from another process over the invalidator, where refusing it loudly
 would be worse than doing nothing."
 
 The `roleId` narrows the **local `subjectCache` sweep**: absent, the whole cache
-is cleared; present, only subjects whose `roles` or `scopedRoles` name it are
-dropped. The published event carries the `roleId` either way, so a replica makes
-the same choice this instance did.
+is cleared; present, the sweep drops every subject whose `roles` or `scopedRoles`
+name that role *or name a role whose `inherits` chain reaches it*, walked over
+the cached role list read just before it is cleared. With no cached role list
+there is nothing to walk, so the whole `subjectCache` goes. The published event
+carries the `roleId` either way, so a replica makes the same choice this instance
+did.
+
+The inheritance half is not decoration. A cached subject's `roles` are the
+inheritance **closure** of its assignments, and `resolveEffectiveRoles` drops an
+inherited id with no definition. So saving a role that an assigned role inherits
+— typically creating one that was dangling — adds it to closures that never
+contained it, and a sweep matching on the role alone left those subjects on the
+old answer for a full TTL: a grant that did not arrive, and, when the new role is
+what a policy's `targets.roles` names, a deny that did not either
+(`role-created-after-subject-cached.test.ts`).
 
 **`invalidateRoles` clears every subject in-flight slot unconditionally**, even
 in the narrowed branch. The narrowed `subjectCache` sweep can inspect a resolved

@@ -152,6 +152,20 @@ node — this one included — answering `true` until the TTL expired, while
 `onMutation` announced the revoke before the commit that might never come. The
 facade now exposes one write surface however it is reached.
 
+Saving a role did not reach the subjects it changed. A cached subject's roles
+are the inheritance closure of its assignments, and an inherited id with no
+definition is dropped from that closure, so creating the role an assigned role
+inherits added it to closures that had never contained it — while the sweep that
+evicts affected subjects matched on the saved role's own name and found nobody.
+The new role's permissions then took a full TTL to reach anyone already cached,
+and so did a deny: a policy whose `targets.roles` names the new role, which is
+the role an operator creates to take something away, did not apply. The sweep now
+walks the cached role graph for everything whose `inherits` chain reaches the
+saved role, and clears the whole subject cache when there is no graph to walk.
+Found by a fuzz that compares a long-lived engine against a cold one reading the
+same store after every admin write; it is now part of the suite, with its seeds
+pinned and a case that proves it can see an incoherence.
+
 ### Availability and denial of service
 
 - `policyCombine: 'first-applicable'` was folded as `'and'` by `lookup()`, so
