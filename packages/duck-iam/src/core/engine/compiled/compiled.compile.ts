@@ -1,7 +1,7 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
 
 import { matchesUnconditionally } from '../../conditions/conditions'
-import { combiners, policyTargetsActionResource } from '../../evaluate/evaluate.libs'
+import { combiners, isRuleEffect, policyTargetsActionResource } from '../../evaluate/evaluate.libs'
 import { MAX_INHERITANCE_DEPTH, rolesToPolicy } from '../../rbac'
 import type { AccessControl } from '../../types'
 import { IAM_MAX_COMPILED_ROLES as MAX_ROLES } from '../engine.libs'
@@ -52,6 +52,9 @@ function isResidualPolicy(policy: AccessControl.IPolicy): boolean {
   // SECURITY: cell kind comes from `rule.effect` alone, so an unknown algorithm could compile a deny-carrying
   // policy to CONST_ALLOW. `evaluatePolicyFast` rejects it the way the interpreter does.
   if (!Object.hasOwn(combiners, policy.algorithm)) return true
+  // SECURITY: the flat model reads `rule.effect` as allow-or-else, the combiners read it as two positive tests.
+  // Rather than pick one for an unvalidated row, hand it to `evaluatePolicyFast`, which refuses it.
+  if (policy.rules.some((rule) => !isRuleEffect(rule.effect))) return true
   if (policy.targets?.actions?.some(isWildcard) || policy.targets?.resources?.some(isWildcard)) return true
   for (const rule of policy.rules) {
     for (const a of rule.actions) if (isWildcard(a)) return true

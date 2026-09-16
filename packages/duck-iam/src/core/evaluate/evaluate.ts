@@ -7,6 +7,7 @@ import type { AccessControl, IamRequest } from '../types'
 import {
   combiners,
   indexPolicy,
+  isRuleEffect,
   policyApplies,
   policyHasDenyRule,
   ruleApplies,
@@ -100,6 +101,11 @@ export function evaluatePolicy(
       continue
     }
     if (applies) {
+      // SECURITY: an unrecognised effect is Indeterminate, not an abstention. Under `deny-overrides` a mistyped
+      // deny votes for neither arm, so a sibling allow wins and the deny is silently lost.
+      if (!isRuleEffect(rule.effect)) {
+        throw new Error(`[@gentleduck/iam:evaluate] Unknown effect ${JSON.stringify(rule.effect)} on rule "${rule.id}"`)
+      }
       matched.push({ rule, effect: rule.effect })
     }
   }
@@ -344,7 +350,8 @@ export function evaluatePolicyFast(
   if (idx.wildcardBoth.length > 0) wildcardBuckets.push(idx.wildcardBoth)
 
   // `hasCandidate` separates "no match" (null) from an answer; a literal bucket is an exact-key hit, so it counts.
-  // SECURITY: both `effect` tests are positive, so an unrecognised effect on an unvalidated row votes for neither.
+  // SECURITY: the `effect` tests below are positive, so a row with an unrecognised effect would vote for neither
+  // arm. `indexPolicy` sets `mayThrow` for one, which sends the policy to the interpreter to be refused instead.
   if (algo === 'deny-overrides') {
     let hasAllow = false
     let hasCandidate = literalBuckets.length > 0

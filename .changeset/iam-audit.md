@@ -247,3 +247,27 @@ That is the same gap `preload({ validator: true })` exists to close.
 Dispatch is now own-property only in `evalCondition`, in the interpreter's
 combining-algorithm lookup, and in the public `iamEvaluateOperator`, which
 previously let a policy linter report such a condition as satisfied.
+
+### A mistyped `deny` was outvoted by its own policy's allow
+
+`IRule.effect` is typed `'allow' | 'deny'`, and every branch that reads it tests
+both names positively. An earlier fix made an unrecognised effect vote for
+neither side, which is fail-closed for a policy whose *only* rule carries it —
+nothing matches, so `defaultEffect` answers — and that is the shape that was
+tested.
+
+Give that deny a sibling allow in the same policy and it inverts. Measured, one
+`deny-overrides` policy with an unconditional allow and a second rule spelled
+`'DENY'`: `can()` answered **true**, against `false` for `'deny'`. The compiled
+table agreed, by a different route: its flat model reads a non-allow effect as a
+deny, so the cell became DYNAMIC, and the DYNAMIC cell asks the combiners, which
+read it as neither.
+
+An unrecognised effect is now Indeterminate rather than an abstention, which is
+the same rule already applied to an unanswerable condition and an unknown
+combining algorithm. `policyHasDenyRule` counts anything that is not `'allow'`,
+so the Indeterminate denies instead of casting `defaultEffect`, and the policy
+is reported through `onPolicyError` naming the offending rule.
+
+The write path refuses these rows, so only a seed, a migration or a direct write
+can carry one.
