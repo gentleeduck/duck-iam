@@ -1,16 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createIamRedisInvalidator, type IamRedisInvalidator } from '../index'
 
-/**
- * `subscribed` used to be latched to `true` before `client.subscribe()` could
- * fail, and the returned promise was dropped with a bare `void`. A rejection -
- * NOAUTH, a wrong ACL, a startup reconnect window, all realistic - therefore
- * left the node permanently deaf to invalidations, serving stale allow for its
- * whole lifetime, with nothing retrying and no operator signal at all.
- *
- * Losing the subscription is strictly worse than losing a publish, which the
- * config surface has always reported.
- */
+// A failed `client.subscribe()` is reported, is not latched as subscribed, and is retried by the next subscribe().
+
 function bus(subscribe: IamRedisInvalidator.IPubSubLike['subscribe']): IamRedisInvalidator.IPubSubLike {
   return { publish() {}, subscribe, unsubscribe() {} }
 }

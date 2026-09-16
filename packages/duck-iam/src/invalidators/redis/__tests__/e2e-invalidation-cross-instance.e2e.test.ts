@@ -1,21 +1,9 @@
 /**
- * E2E: cross-instance cache invalidation over REAL Redis pub/sub against a
- * REAL Postgres.
- *
- * Two `IamEngine` objects, each with its own connection pool, its own caches,
- * and its own pair of Redis connections (publisher + subscriber), so every
- * invalidation genuinely leaves the process, crosses the Redis server, and
- * comes back. The last case goes further and repeats the core scenario across
- * two OS processes - the second engine spawned under its own `bun` from
- * `e2e-invalidation-worker.ts` - so the cross-process claim the rest of the
- * suite makes in one process is proved literally at least once.
- *
- * The invariant under test: **a revoked grant must stop being honoured
- * everywhere.** `cacheTTL` is deliberately long (600 s) in every case that is
- * not explicitly about TTL, so a convergence observed here can only have come
- * from invalidation actually working, never from an entry ageing out.
+ * E2E: a revoke must stop being honoured everywhere, over real Redis and Postgres, including across two OS processes.
+ * `cacheTTL` is 600s, so convergence here can only come from invalidation, never expiry.
  */
 import { spawn } from 'node:child_process'
+import { createHmac } from 'node:crypto'
 import { join } from 'node:path'
 import { and, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -47,6 +35,30 @@ type Res = 'post'
 type Role = 'admin'
 
 const SECRET = 'e2e-shared-secret'
+
+/**
+ * Re-signs a captured envelope for another channel with the shared secret, for the reordering test.
+ * Forgery without the secret is covered in `e2e-invalidation-failure-modes.e2e.test.ts`.
+ */
+function resignFor(raw: string, channel: string): string {
+  const canonical = (v: unknown): string => {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v)
+    if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`
+    return `{${Object.keys(v)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(Reflect.get(v, k))}`)
+      .join(',')}}`
+  }
+  const parsed: unknown = JSON.parse(raw)
+  if (parsed === null || typeof parsed !== 'object') throw new Error(`captured envelope is not an object: ${raw}`)
+  const payload: unknown = Reflect.get(parsed, 'payload')
+  if (payload === null || typeof payload !== 'object') throw new Error(`captured envelope has no payload: ${raw}`)
+  const rebound = { ...payload, channel }
+  const sig = createHmac('sha256', SECRET)
+    .update(canonical(JSON.parse(JSON.stringify(rebound))))
+    .digest('hex')
+  return JSON.stringify({ payload: rebound, sig, v: 2 })
+}
 /** Long enough that no TTL expiry can be mistaken for a working invalidation. */
 const LONG_TTL_SECONDS = 600
 /** Generous ceiling: a local docker Redis round-trip is sub-millisecond. */
@@ -60,19 +72,9 @@ interface Instance {
   close(): Promise<void>
 }
 
-// Fail loudly, not silently. A skipped suite is not a passing suite.
 const suite = HAS_DOCKER ? describe : describe.skip
 
-/**
- * The gate above is the docker probe itself, so it cannot complain about its
- * own answer - "a skipped suite is not a passing suite" was written next to it
- * and was not actually enforced by anything. This is the part that enforces it.
- *
- * In CI the workflow pulls the images and probes the daemon before vitest
- * starts, so "docker is unavailable" there is a broken runner, not a reason to
- * take cross-instance quiet. Locally the probe's answer is accepted, but the wiring
- * between it and the gate is still checked.
- */
+// Guard against a silent skip: CI requires docker, and locally a running docker must not leave the suite gated off.
 describe('E2E reachability (invalidation: cross-instance)', () => {
   it('does not skip while docker is available', () => {
     if (process.env.CI) {
@@ -122,9 +124,7 @@ suite('E2E cross-instance invalidation over real Redis + Postgres', () => {
       sub,
     }
     open.push(inst)
-    // The invalidator's `subscribe()` is fire-and-forget; wait for the server
-    // to report the subscriber so a publish issued immediately afterwards is
-    // not lost to a race in the *harness* and misread as a product bug.
+    // `subscribe()` is fire-and-forget; wait until Redis reports the subscriber so an early publish is not lost.
     const ready = await waitFor(async () => {
       const r = await pub.command('PUBSUB', 'NUMSUB', opts.channel)
       return Array.isArray(r) && Number(r[1]) >= 1
@@ -188,8 +188,7 @@ suite('E2E cross-instance invalidation over real Redis + Postgres', () => {
 
     const elapsed = await waitFor(async () => (await b.engine.can('u1', 'read', READ_POST)) === false, CONVERGE_MS)
     const total = Date.now() - t0
-    // Convergence at ~600 s would be TTL; convergence here can only be the
-    // invalidation message.
+    // With a 600s TTL, convergence within seconds can only be the invalidation message.
     expect(elapsed, `B still allowed ${total}ms after the revoke (cacheTTL=${LONG_TTL_SECONDS}s)`).not.toBeNull()
     console.info(`[measure] revoke on A -> deny on B in ${total}ms (TTL ${LONG_TTL_SECONDS}s)`)
   }, 60_000)
@@ -216,7 +215,7 @@ suite('E2E cross-instance invalidation over real Redis + Postgres', () => {
     await seedAdminRole(a)
     await a.engine.admin.assignRole('u3', 'admin')
 
-    // Batch 52 made both modes evaluate through a compiled table. Warm both.
+    // Both modes evaluate through a compiled table. Warm both.
     expect(await prod.engine.can('u3', 'read', READ_POST)).toBe(true)
     expect(await dev.engine.can('u3', 'read', READ_POST)).toBe(true)
 
@@ -270,10 +269,8 @@ suite('E2E cross-instance invalidation over real Redis + Postgres', () => {
   }, 60_000)
 
   it('revoke -> grant -> revoke delivered in REVERSE order still converges to deny', async () => {
-    // A publishes on its own channel so B never sees the in-order stream; a
-    // spy captures the three envelopes and replays them backwards onto B's
-    // channel. Redis never reorders within a connection, so forcing it is the
-    // only way to test the engine's tolerance of reordering.
+    // A publishes on its own channel; a spy re-signs its three envelopes for B's channel and replays them backwards.
+    // Redis never reorders within a connection, so the reordering has to be forced.
     const chA = channel('order-a')
     const chB = channel('order-b')
     const a = await makeInstance({ channel: chA })
@@ -295,7 +292,7 @@ suite('E2E cross-instance invalidation over real Redis + Postgres', () => {
     const got = await waitFor(() => captured.length >= 3, 5_000)
     expect(got, `only ${captured.length} envelopes captured`).not.toBeNull()
 
-    for (const raw of [...captured].reverse()) await a.pub.command('PUBLISH', chB, raw)
+    for (const raw of [...captured].reverse()) await a.pub.command('PUBLISH', chB, resignFor(raw, chB))
 
     // The DB says "no role", so the only correct converged answer is deny.
     const ms = await waitFor(async () => (await b.engine.can('u5', 'read', READ_POST)) === false, CONVERGE_MS)
@@ -349,9 +346,7 @@ suite('E2E cross-instance invalidation over real Redis + Postgres', () => {
   }, 180_000)
 
   it('TWO REAL PROCESSES: a revoke here is honoured over there until the message lands, then never again', async () => {
-    // Everything above runs two engines in one process. This runs the second
-    // engine under its own `bun`, with its own heap and event loop, so the
-    // cross-process claim is literal rather than analogous.
+    // The second engine runs under its own `bun`, with a separate heap and event loop.
     const ch = channel('twoproc')
     const a = await makeInstance({ channel: ch })
     await seedAdminRole(a)
@@ -403,9 +398,7 @@ suite('E2E cross-instance invalidation over real Redis + Postgres', () => {
       if (booted === null) throw new Error(`worker never booted (stderr: ${stderr.join('')})`)
 
       await a.engine.admin.assignRole('p1', 'admin')
-      // Settle, then read twice: a load that an invalidation superseded
-      // mid-flight is deliberately not cached, and an uncached worker would
-      // "converge" for the wrong reason.
+      // Settle and read twice: a load superseded mid-flight is not cached, and an uncached read converges trivially.
       await new Promise((r) => setTimeout(r, 250))
       expect((await ask('can', 'p1')).allowed).toBe(true)
       expect((await ask('can', 'p1')).allowed).toBe(true)

@@ -22,12 +22,7 @@ function makeBus(): { client: IamRedisInvalidator.IPubSubLike; publish: (msg: st
   }
 }
 
-/**
- * Two engines sharing one invalidator is the documented multi-engine pattern.
- * The dispatch loop was the only unguarded callback boundary in the package,
- * so engine A's handler throwing meant engine B never cleared its caches and
- * kept serving a stale ALLOW after a revoke.
- */
+// Engines can share one invalidator; a throwing handler must not stop the others clearing their caches.
 describe('redis invalidator isolates a throwing handler', () => {
   let errSpy: ReturnType<typeof vi.spyOn>
 

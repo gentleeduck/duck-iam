@@ -2,19 +2,9 @@ import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createIamRedisInvalidator, type IamRedisInvalidator } from '../index'
 
-/**
- * SEC-033. The drop warning names the channel, and in a multi-tenant deployment
- * the channel carries the tenant id (`<base>:tenant:<id>`). That put a customer
- * identifier on stderr - the one log stream that is routinely shipped to a
- * shared aggregator, read by on-call staff across tenants, and retained longest.
- * Worse, it is written on a path an *outsider* triggers: anyone with PUBLISH
- * rights produces unverifiable messages at will, so the warning doubles as a
- * probe for which tenants exist.
- *
- * The operator still has to be able to tell channels apart, so the tenant
- * segment is replaced by a stable digest rather than dropped: same tenant, same
- * token, across processes and restarts.
- */
+// SECURITY: warnings name the channel, which carries the tenant id; the tenant segment must appear only as a stable
+// digest, since anyone with PUBLISH rights can trigger a drop warning.
+
 const TENANT = 'acme-corp-billing'
 
 function bus(): IamRedisInvalidator.IPubSubLike {
@@ -62,10 +52,7 @@ describe('drop warning does not disclose the tenant id', () => {
     expect(await forceDrop(`${TENANT}-2`)).toContain('iam:invalidate')
   })
 
-  // A per-process salt would redact just as well and be useless: the same
-  // tenant would read differently on every host, so nobody could correlate an
-  // incident across replicas and the redaction would be the first thing
-  // reverted. The token has to be a pure function of the tenant id.
+  // No per-process salt: the same tenant must read the same on every host, or incidents cannot be correlated.
   it('derives the token from the tenant id alone, with no per-process salt', async () => {
     const tenantId = `${TENANT}-stable`
     const expected = createHash('sha256').update(tenantId).digest('hex').slice(0, 8)
@@ -82,14 +69,7 @@ describe('drop warning does not disclose the tenant id', () => {
   })
 })
 
-/**
- * The SEC-033 fix landed on the two drop-warn sites and was reported as
- * covering "both" of them. It did not: `reportSubscribeFailure` and the
- * unsubscribe rejection handler each log `JSON.stringify(channel)` raw, so a
- * NOAUTH, a wrong ACL or a reconnect window wrote the tenant id to stderr
- * anyway. Same disclosure, same log stream, reached without any PUBLISH rights
- * at all - a broker hiccup is enough.
- */
+// Subscribe and unsubscribe failure warnings redact the tenant too; a broker hiccup is enough to trigger them.
 describe('subscribe and unsubscribe failures do not disclose the tenant id either', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>
 

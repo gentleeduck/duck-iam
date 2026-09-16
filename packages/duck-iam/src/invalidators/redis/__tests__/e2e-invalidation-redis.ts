@@ -1,11 +1,6 @@
 /**
- * Minimal real-Redis harness for the cross-process invalidation e2e suites.
- *
- * The package has no redis client dependency and adding one is out of this
- * agent's namespace, so this speaks RESP2 over a raw socket. That is not a
- * workaround - it is what makes the failure modes reachable: the suites below
- * need to drop a subscriber connection mid-run, publish a forged envelope, and
- * replay a captured one. A managed client hides all three.
+ * Minimal real-Redis harness for the invalidation e2e suites.
+ * Raw RESP2 over a socket, so tests can kill a subscriber connection and publish forged or replayed envelopes.
  */
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -17,16 +12,8 @@ import type { IamRedisInvalidator } from '../index'
 const exec = promisify(execFile)
 
 /**
- * Deliberately NOT the shared `duck-iam-e2e` label. `src/test/e2e-containers.ts`
- * sweeps every container carrying that label on startup, so with several agents
- * running suites concurrently the shared Postgres gets torn down underneath a
- * run in progress. This suite therefore owns both of its backends.
- *
- * They additionally carry `OWNED_LABEL`, which `e2e-containers.ts` sweeps with
- * an age bound on every run - that is what collects them when a run dies before
- * its `afterAll`. This file deliberately ships no sweeper of its own: an
- * unbounded one would tear down a concurrent run's containers, and it once did
- * exist here, exported and never called.
+ * Label for the containers this suite owns, distinct from the harness's `duck-iam-e2e`.
+ * NOTE: they also carry `OWNED_LABEL`, swept by age in `e2e-containers.ts`; add no unbounded sweeper here.
  */
 export const E2E_LABEL = 'duck-iam-e2e-invalidation'
 const REDIS_IMAGE = 'redis:7-alpine'
@@ -42,21 +29,8 @@ async function docker(args: string[], timeout?: number): Promise<string> {
 }
 
 /**
- * Whether a docker daemon answers within 5 seconds.
- *
- * Bounded rather than open-ended: a wedged daemon that never replies would hang
- * the module-level `await` in each suite and stall the whole run, where a
- * false here just makes the suites skip.
- */
-/**
- * Delegates to the shared probe in `src/test/e2e-env.ts`.
- *
- * This used to be a local copy with a five-second budget, and that is not a
- * detail: on a machine already running the e2e stack `docker info` takes
- * longer than five seconds, the copy answered "down", and this whole file went
- * quiet - twenty-four cases in one observed run - while its own reachability
- * suite, reading the same wrong answer, agreed that a skip was expected. One
- * probe, one budget, so a busy daemon cannot be mistaken for an absent one.
+ * The shared docker probe from `src/test/e2e-env.ts`.
+ * NOTE: do not reintroduce a local copy with a shorter timeout; a busy daemon would read as absent and skip the suites.
  */
 export const dockerAvailable = sharedDockerIsUp
 
@@ -106,9 +80,8 @@ export async function startRedis(): Promise<{ name: string; port: number }> {
     throw new Error(`could not read published redis port: ${JSON.stringify(raw)}`)
   }
   await waitUntilReachable(port)
-  // A published port is not a ready server; prove a command round-trips. A
-  // fresh connection per attempt - redis closes the socket while it is still
-  // loading, and a reused handle would just keep reporting that first close.
+  // A published port is not a ready server: prove PING round-trips, on a fresh connection each try,
+  // since redis closes the socket while still loading.
   const deadline = Date.now() + READY_TIMEOUT_MS
   for (;;) {
     let probe: RedisConn | null = null
@@ -176,12 +149,8 @@ export async function startPostgres(): Promise<{ name: string; url: string }> {
 }
 
 /**
- * Best-effort teardown of one container this suite started.
- *
- * `-v` as well as `-f`, or its anonymous volume outlives it. Warns instead of
- * throwing: a teardown failure must not turn a green suite red, and the
- * container is still labelled `OWNED_LABEL`, so the age-bounded sweep in
- * `e2e-containers.ts` collects it on a later run.
+ * Best-effort `rm -f -v` of one container this suite started; `-v` so its anonymous volume goes too.
+ * Warns instead of throwing, so teardown cannot fail a green suite; the age-bounded sweep collects leftovers.
  */
 export async function removeContainer(name: string): Promise<void> {
   try {
@@ -238,10 +207,7 @@ function encodeCommand(args: readonly string[]): Buffer {
   return Buffer.from(out, 'utf8')
 }
 
-/**
- * One Redis connection. Enough RESP2 for PUBLISH/SUBSCRIBE plus deliberate
- * connection destruction, which is the point.
- */
+/** One Redis connection: enough RESP2 for PUBLISH/SUBSCRIBE, plus deliberate connection destruction. */
 export class RedisConn {
   private _socket: Socket
   private _buf: Buffer = Buffer.alloc(0)
@@ -334,8 +300,7 @@ export class RedisConn {
 
   async unsubscribeChannel(channel: string): Promise<void> {
     this._handlers.delete(channel)
-    // The engine calls this as `void client.unsubscribe(...)` on dispose; a
-    // rejection here would surface as an unhandled rejection in the runner.
+    // Swallow the rejection: unsubscribing on a dead connection during teardown must not fail the run.
     await this.command('UNSUBSCRIBE', channel).catch(() => null)
   }
 
@@ -353,11 +318,7 @@ export class RedisConn {
   }
 }
 
-/**
- * `IPubSubLike` over two real connections (Redis forbids commands other than
- * (p)subscribe on a subscriber connection), matching how ioredis/node-redis are
- * meant to be wired.
- */
+/** `IPubSubLike` over two real connections, since a subscribed Redis connection accepts only (p)subscribe commands. */
 export function pubSubOver(pub: RedisConn, sub: RedisConn): IamRedisInvalidator.IPubSubLike {
   return {
     publish(channel, message) {
