@@ -1,4 +1,5 @@
 import { IAM_RBAC_CONDITION_DEPTH, MAX_INHERITANCE_DEPTH } from '../rbac'
+import { matchesAction, matchesResource } from '../resolve'
 import type { AccessControl } from '../types'
 import {
   checkKnownKeys,
@@ -267,12 +268,62 @@ function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.
 }
 
 /**
+ * Flag a rule pattern or target entry outside the config's vocabulary, which no request can reach.
+ * Uses the engine's own matchers, so a prefix pattern is cleared on exactly the values it would match at runtime.
+ */
+function checkDeclaredVocabulary(
+  p: Record<string, unknown>,
+  declared: IamValidate.IDeclaredSurface,
+  issues: IamValidate.IIssue[],
+): void {
+  const unreachable = (value: string, axis: 'action' | 'resource' | 'role', allowed: readonly string[], path: string) =>
+    issues.push({
+      type: 'error',
+      code: 'UNREACHABLE_TARGET',
+      message: `${axis === 'role' ? 'Targets' : 'Rule'} ${axis} "${value}" is outside the config vocabulary; no request can reach it. Declared ${axis}s: ${allowed.map((a) => `"${a}"`).join(', ')}.`,
+      path,
+    })
+
+  const check = (
+    list: unknown,
+    axis: 'action' | 'resource',
+    allowed: readonly string[] | undefined,
+    path: string,
+  ): void => {
+    if (allowed === undefined || allowed.length === 0 || !isStringArray(list)) return
+    const match = axis === 'action' ? matchesAction : matchesResource
+    for (const [i, pattern] of list.entries()) {
+      if (allowed.some((value) => match(pattern, value))) continue
+      unreachable(pattern, axis, allowed, `${path}.${axis}s[${i}]`)
+    }
+  }
+
+  for (const [i, rule] of (Array.isArray(p.rules) ? p.rules : []).entries()) {
+    if (!isPlainObject(rule)) continue
+    check(rule.actions, 'action', declared.actions, `rules[${i}]`)
+    check(rule.resources, 'resource', declared.resources, `rules[${i}]`)
+  }
+
+  const targets = p.targets
+  if (!isPlainObject(targets)) return
+  check(targets.actions, 'action', declared.actions, 'targets')
+  check(targets.resources, 'resource', declared.resources, 'targets')
+  // Roles are matched by equality, never by pattern: `policyApplies` tests `targets.roles.includes`.
+  const roles = declared.roles
+  if (roles === undefined || roles.length === 0 || !isStringArray(targets.roles)) return
+  for (const [i, role] of targets.roles.entries()) {
+    if (roles.includes(role)) continue
+    unreachable(role, 'role', roles, `targets.roles[${i}]`)
+  }
+}
+
+/**
  * Deep-validate an untrusted policy (id, name, algorithm, rules, conditions).
  *
  * @param input - The candidate policy object (typically parsed JSON or an admin form payload).
  * @returns A {@link IamValidate.IResult} with `valid: false` when any error issue was emitted.
  */
-export function validatePolicy(input: unknown): IamValidate.IResult {
+export function validatePolicy(input: unknown, declared?: IamValidate.IDeclaredSurface): IamValidate.IResult {
   const issues: IamValidate.IIssue[] = []
 
   if (!isPlainObject(input)) {
@@ -378,6 +429,10 @@ export function validatePolicy(input: unknown): IamValidate.IResult {
   }
 
   checkTargetIsReachable(p, issues)
+
+  // `createIam` constrains `engine.check` to the declared unions, so an undeclared action or resource reads as a
+  // rule and matches nothing. `createIam(...).validatePolicy` passes `declared`; the bare export skips this pass.
+  if (declared !== undefined) checkDeclaredVocabulary(p, declared, issues)
 
   return { valid: issues.every((i) => i.type !== 'error'), issues }
 }

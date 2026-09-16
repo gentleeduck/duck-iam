@@ -48,16 +48,18 @@ export namespace IamValidate {
   }
 
   /**
-   * The action / resource / scope vocabulary `validateRoles` checks grants against.
+   * The vocabulary `validateRoles` checks grants against and `validatePolicy` checks rule patterns against.
    * An omitted or empty list leaves that axis unconstrained; it does not forbid everything.
    */
   export interface IDeclaredSurface {
-    /** Declared actions. `'*'` in a grant is always allowed. */
+    /** Declared actions. `'*'` in a grant is always allowed; a rule pattern is cleared if it matches any of these. */
     readonly actions?: readonly string[]
-    /** Declared resources. `'*'` in a grant is always allowed. */
+    /** Declared resources. `'*'` in a grant is always allowed; a rule pattern is cleared the same way. */
     readonly resources?: readonly string[]
-    /** Declared scopes. `'*'` and an omitted scope are always allowed. */
+    /** Declared scopes. `'*'` and an omitted scope are always allowed. Roles carry these; policies do not. */
     readonly scopes?: readonly string[]
+    /** Declared role ids, checked against `policy.targets.roles`. Matched by equality, never by pattern. */
+    readonly roles?: readonly string[]
   }
 
   /** The result of a validation; `valid` is `true` when there are no error-level issues. */
