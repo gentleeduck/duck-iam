@@ -2,15 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { IamEngine } from '../../../core/engine/engine'
 import { IamMemoryAdapter } from '../index'
 
-/**
- * The seed path and the write path must agree about what the store can hold.
- *
- * `IamMemoryAdapter` is documented "tests + prototypes only", which is exactly
- * why this matters: a fixture able to reach a state `assignRole` forbids lets a
- * suite certify behaviour the product cannot produce. The constructor's own
- * comment already argued this for policies ("Seeded rows go through the same
- * normaliser as `savePolicy`"); it now holds for assignments and attributes too.
- */
+// Pins that the memory adapter's seed and write paths agree about what the store can hold,
+// so a fixture cannot reach a state `assignRole` forbids.
 describe('the memory adapter seed agrees with the equivalent write', () => {
   const VIEWER = { id: 'viewer', name: 'Viewer', permissions: [] }
   const DOC = { attributes: {}, type: 'doc' } as const
@@ -35,13 +28,10 @@ describe('the memory adapter seed agrees with the equivalent write', () => {
     })
 
     it('would otherwise have produced an ALLOW from a role that does not exist', async () => {
-      // The regression this closes, stated as the grant it used to be. The
-      // phantom id survived `resolveEffectiveRoles` because a DIRECTLY assigned
-      // role is not the dangling `inherits` id that case already closes.
+      // NOTE: `resolveEffectiveRoles` keeps a directly assigned role id; only the seed refusal stops a phantom grant.
       const adapter = new IamMemoryAdapter({
         assignments: { u1: ['ghost'] },
-        // `ghost` is declared here ONLY so the seed is legal; the rule below
-        // keys on the role ID, not on any permission `ghost` carries.
+        // `ghost` is declared only so the seed is legal; the rule keys on the role ID, not its permissions.
         policies: [
           {
             algorithm: 'allow-overrides',
@@ -65,8 +55,7 @@ describe('the memory adapter seed agrees with the equivalent write', () => {
       // With `ghost` genuinely stored, the allow is correct and expected.
       expect(await engine.can('u1', 'admin', DOC)).toBe(true)
 
-      // Delete it, and the grant goes with it - the id no longer resolves, and
-      // nothing can seed it back without the refusal above.
+      // Deleting it takes the grant with it, and the refusal above stops a seed bringing it back.
       await engine.admin.deleteRole('ghost')
       expect(await engine.can('u1', 'admin', DOC)).toBe(false)
     })
@@ -82,8 +71,7 @@ describe('the memory adapter seed agrees with the equivalent write', () => {
     })
 
     it('refuses before recording ANY of that subject’s roles', () => {
-      // One bad id in the list rejects the whole seed rather than storing the
-      // good ones - a half-applied fixture is worse than a refused one.
+      // One bad id rejects the whole seed rather than storing the good ones.
       let adapter: IamMemoryAdapter | undefined
       try {
         adapter = new IamMemoryAdapter({ assignments: { u1: ['viewer', 'ghost'] }, roles: [VIEWER] })
@@ -98,8 +86,7 @@ describe('the memory adapter seed agrees with the equivalent write', () => {
     it('an edit to the returned bag does not reach the store', async () => {
       const adapter = new IamMemoryAdapter({ attributes: { u1: { dept: 'eng' } } })
       const got = await adapter.getSubjectAttributes('u1')
-      // A deliberate out-of-contract edit: this is the operator mistake the
-      // copy exists to contain, so the test has to actually make it.
+      // An out-of-contract edit on purpose: the mistake the copy exists to contain.
       ;(got as Record<string, unknown>).isAdmin = true
       expect(await adapter.getSubjectAttributes('u1')).toEqual({ dept: 'eng' })
     })

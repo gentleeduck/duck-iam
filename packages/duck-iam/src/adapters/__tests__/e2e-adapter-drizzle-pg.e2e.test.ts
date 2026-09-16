@@ -1,23 +1,6 @@
 /**
- * E2E: `IamDrizzleAdapter` against REAL Postgres on the REAL shipped schema.
- *
- * The shared compliance matrix (`__compliance__/compliance.ts`) has only ever
- * run against `makeDrizzleMock()` - a hand-written array store that answers
- * `where` clauses with a JS `===` and has no constraints, no NULL semantics and
- * no second connection. This file runs the same matrix twice against a real
- * server:
- *
- *   1. on the schema this package ships (`src/test/pg-e2e-schema.sql`), so any
- *      constraint that makes a contract-mandated operation impossible shows up;
- *   2. on the same schema with those constraints dropped, so the rest of the
- *      matrix is actually reached instead of being masked by the first failure.
- *
- * Then a set of cases the mock cannot express at all: rows the driver returns
- * and the fake never does, concurrent writers on two connections, and the
- * round-trip fidelity of every column type.
- *
- * Skips only when docker is unavailable AND no database URL was supplied; when
- * docker IS up, the reachability suite below fails loudly instead of skipping.
+ * E2E: `IamDrizzleAdapter` on real Postgres with the shipped schema: the compliance matrix, plus what the array mock
+ * cannot express (driver-only rows, two connections, column-type fidelity, grant windows against a real clock).
  */
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -31,17 +14,13 @@ import { IamEngine } from '../../core/engine'
 import type { IamPrimitives } from '../../core/types'
 import { applyPgSchema, dockerIsUp as sharedDockerIsUp } from '../../test/e2e-env'
 import { runAdapterCompliance } from '../__compliance__/compliance'
+import { OPTIONAL_SUPPORT } from '../__compliance__/optional-support'
 import { IamDrizzleAdapter } from '../drizzle'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../drizzle/pg'
 import { IamMemoryAdapter } from '../memory'
 
-// The shared compliance matrix registers about a hundred cases with no explicit
-// timeout, which is right against the in-memory fake and wrong here: each case
-// is a real round trip to a container that shares the machine with every other
-// e2e suite. One of them - "a saved policy and the same policy re-saved are
-// identical" - took 5.88s and was reported as a failure at vitest's 5s default,
-// on a run where nothing was actually wrong. Thirty seconds is still a bound: a
-// single CRUD round trip that needs longer is hung, not slow.
+// The shared matrix sets no per-case timeout, and a real container round trip can exceed vitest's 5s default.
+// 30s is still a bound: a CRUD round trip that needs longer is hung, not slow.
 vi.setConfig({ testTimeout: 30_000 })
 
 const exec = promisify(execFile)
@@ -51,17 +30,7 @@ async function docker(args: string[], timeout = 60_000): Promise<string> {
   return stdout.trim()
 }
 
-/** Is the docker daemon answering? Decides "skip" vs "fail loudly" below. */
-/**
- * Delegates to the shared probe in `src/test/e2e-env.ts`.
- *
- * This used to be a local copy with a five-second budget, and that is not a
- * detail: on a machine already running the e2e stack `docker info` takes
- * longer than five seconds, the copy answered "down", and this whole file went
- * quiet - twenty-four cases in one observed run - while its own reachability
- * suite, reading the same wrong answer, agreed that a skip was expected. One
- * probe, one budget, so a busy daemon cannot be mistaken for an absent one.
- */
+/** The shared probe from `src/test/e2e-env.ts`: one budget, so a busy daemon is not mistaken for an absent one. */
 const dockerIsUp = sharedDockerIsUp
 
 async function waitFor(what: string, probe: () => Promise<boolean>, budgetMs = 60_000): Promise<void> {
@@ -73,16 +42,7 @@ async function waitFor(what: string, probe: () => Promise<boolean>, budgetMs = 6
   throw new Error(`${what} was not ready within ${budgetMs}ms`)
 }
 
-/**
- * This suite owns its Postgres rather than using the package `globalSetup`.
- *
- * `src/test/e2e-containers.ts` removes every container carrying the shared
- * `duck-iam-e2e` label at the start of *any* vitest invocation, so a second
- * suite starting up pulls the server out from under a running one. That is a
- * harness property, not a product bug, but it makes a shared container unusable
- * while more than one suite can run. A privately named container has no such
- * neighbour.
- */
+/** A privately named suite-owned Postgres; `src/test/e2e-containers.ts` sweeps these only once abandoned. */
 const PG_CONTAINER = `duck-iam-adapterconf-pg-${randomBytes(4).toString('hex')}`
 
 async function startPostgres(): Promise<string> {
@@ -160,36 +120,13 @@ afterAll(async () => {
 })
 
 const TABLES = { assignments: iamAssignments, attrs: iamSubjectAttrs, policies: iamPolicies, roles: iamRoles }
-/**
- * The operator bundle the adapter is wired with: drizzle's own operators,
- * passed straight through.
- *
- * This used to be four hand-written wrappers with two casts in them. The
- * adapter declared `ops.eq: (col: unknown, val: unknown) => unknown` and
- * `ops.isNull: (col: unknown) => SQLWrapper`, and under `strictFunctionTypes`
- * an `unknown` *parameter* is the widest thing there is - so drizzle's real
- * `eq` and `isNull`, whose parameters are narrower, were not assignable to
- * them. `ops: { eq, and }` - the wiring the adapter's own `@example` shows -
- * did not compile against the library it is an adapter for, and every caller
- * had to discover that and write these wrappers themselves.
- *
- * `ops` now names drizzle's types (`BinaryOperator`, `(col: SQLWrapper) => SQL`),
- * so this is what the wiring costs: the import list.
- */
+/** Drizzle's own operators, passed straight through; `ops` is typed against drizzle, so no wrappers are needed. */
 const OPS = { and, eq, isNull, or }
 
-/**
- * The single largest risk in this exercise is a green report produced by a
- * suite that never ran. If docker answers, this file is expected to have a
- * database; not having one is a failure, not a reason to be quiet.
- */
+// Guard against a skipped suite passing vacuously: if docker answers, a missing database is a failure.
 describe('E2E harness reachability (drizzle/pg)', () => {
   it('provisions a Postgres database whenever docker is available', () => {
-    // CI does not consult the probe: the workflow provisions the images before
-    // vitest starts, so a backend is expected unconditionally. A false "down"
-    // from a busy daemon would otherwise silence the suite AND excuse this
-    // guard for letting it - which is how twenty-four cases here once vanished
-    // from a green run.
+    // CI provisions the backend up front, so there it is required regardless of the probe.
     if (process.env.CI) {
       expect(bootError, 'the container failed to start in CI, where it is provisioned').toBeUndefined()
       expect(STRICT_URL, 'no e2e Postgres in CI, where the workflow provisions one - the suite skipped').toBeDefined()
@@ -220,12 +157,7 @@ function makeAdapter(pool: Pool): Adapter {
 
 /**
  * The whole error chain of a rejected call, as one string.
- *
- * Drizzle wraps every driver error in a `Failed query: ...` Error and hangs the
- * real one off `cause`, so `rejects.toThrow(/constraint/)` - which reads only
- * `message` - never matches. Walking the chain is what a caller has to do to
- * find out *why* a write was refused; that it is necessary is itself pinned by
- * a test below.
+ * INFO: drizzle wraps driver errors in `Failed query: ...` and hangs the real one off `cause`.
  */
 async function failureChain(run: () => Promise<unknown>): Promise<string> {
   try {
@@ -248,22 +180,18 @@ async function failureChain(run: () => Promise<unknown>): Promise<string> {
 if (STRICT_URL) {
   const strictPool = makePool(STRICT_URL)
   await applyPgSchema(strictPool)
-  runAdapterCompliance('IamDrizzleAdapter @ real Postgres (shipped schema)', async () => {
-    await truncate(strictPool)
-    return makeAdapter(strictPool)
-  })
+  runAdapterCompliance(
+    'IamDrizzleAdapter @ real Postgres (shipped schema)',
+    async () => {
+      await truncate(strictPool)
+      return makeAdapter(strictPool)
+    },
+    { supports: OPTIONAL_SUPPORT.IamDrizzleAdapter },
+  )
   afterAll(async () => {
     await strictPool.end()
   })
 }
-
-// There used to be a second database here running the same matrix with
-// `uq_iam_policies_name`, `uq_iam_roles_name_scope` and
-// `fk_iam_assignments_role` dropped, because those three blocked writes the
-// compliance matrix mandates. Two of them are gone from the schema and the
-// third is now the contract, so that database would be byte-identical to the
-// strict one - a second full matrix, and a second container database, for no
-// signal at all. Deleted rather than kept as a no-op.
 
 // ---------------------------------------------------------------------------
 // 2. Cases the array-backed mock cannot produce.
@@ -292,19 +220,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     await pool.query(`INSERT INTO iam_roles (id, name, permissions) VALUES ($1, $2, '[]'::jsonb)`, [id, name])
   }
 
-  /**
-   * What used to be "constraints the other five adapters do not have".
-   *
-   * Two of the three are gone. `uq_iam_policies_name` and
-   * `uq_iam_roles_name_scope` blocked a write the compliance matrix mandates -
-   * two policies may share a name - to protect a field nothing resolves by:
-   * every lookup in this package is by `id`. They were dropped rather than
-   * copied onto the other five.
-   *
-   * `fk_iam_assignments_role` went the other way. A grant naming a role that
-   * does not exist is now refused everywhere, so this block pins the parity
-   * rather than the divergence.
-   */
+  // All six adapters refuse a grant of an unstored role; names need not be unique, since every lookup is by `id`.
   describe('the assignments-to-roles foreign key, now shared by all six', () => {
     it('assignRole to a role that does not exist is refused here and on memory', async () => {
       await reset()
@@ -336,11 +252,8 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
 
     it('the caller reads why the grant failed on the top-level message', async () => {
       await reset()
-      // Drizzle wraps the driver error in `Failed query: <sql>`, and the
-      // constraint that rejected the write is only on `.cause`, so an operator
-      // matching on `err.message` used to see the statement and never the
-      // reason. The adapter now translates the violation into the same refusal
-      // memory, file and redis raise, keeping the driver error as `cause`.
+      // The adapter translates the FK violation into the refusal memory, file and redis raise,
+      // keeping drizzle's `Failed query` error as `cause`.
       let top = ''
       let cause: unknown
       try {
@@ -407,8 +320,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('expires_at = infinity leaves the grant live', async () => {
       await reset()
       await seedRole('editor')
-      // Postgres spells "never expires" as `infinity`; node-postgres parses it
-      // to the JS number Infinity, not a Date.
+      // INFO: node-postgres parses Postgres `infinity` to the number Infinity, not a Date.
       await pool.query(
         `INSERT INTO iam_assignments (id, subject_id, role_id, expires_at) VALUES ('a1','u1','editor','infinity')`,
       )
@@ -445,9 +357,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('an expiry past the JS Date range still reads as live', async () => {
       await reset()
       await seedRole('editor')
-      // Year 250000 is inside timestamptz and outside `Date`'s +-8.64e15 ms.
-      // A failure here is a wrong DENY, not a wrong allow - a grant good until
-      // the year 250000 is live today.
+      // Year 250000 fits timestamptz but not `Date` (+-8.64e15 ms); the grant is live today, so this must not deny.
       await pool.query(
         `INSERT INTO iam_assignments (id, subject_id, role_id, expires_at) VALUES ('a1','u1','editor','250000-01-01 00:00:00+00')`,
       )
@@ -474,10 +384,8 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('a policy whose rules column holds JSON null is refused, not read as rule-less', async () => {
       await reset()
       await pool.query(`INSERT INTO iam_policies (id, name, rules) VALUES ('p1','Broken','null'::jsonb)`)
-      // Dropping it is not the safe answer either: the row may have been the
-      // one that denies, and `getPolicy` returning `null` makes a corrupt row
-      // indistinguishable from a deleted one. Roles are allow-only and so can
-      // be dropped; policies cannot.
+      // SECURITY: the row may have been a deny, and `null` would look like a deleted policy.
+      // Roles are allow-only, so a corrupt role can be dropped; a policy cannot.
       await expect(adapter.getPolicy('p1')).rejects.toThrow(/cannot be read/)
       await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
     })
@@ -508,9 +416,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('subject attributes that are JSON null throw rather than reading as empty', async () => {
       await reset()
       await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','null'::jsonb)`)
-      // `{}` here would silently retire every deny rule that tests an
-      // attribute. The adapter's `data === null` early-return cannot tell a
-      // *stored* JSON null from an absent column.
+      // SECURITY: `{}` here would retire every deny rule that tests an attribute.
       await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
     })
 
@@ -519,22 +425,15 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
       await pool.query(
         `INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','{"__proto__":{"tier":"gold"},"team":"A"}'::jsonb)`,
       )
-      // Three outcomes were possible and two of them are wrong. Assigning the
-      // key sets the bag's prototype, so `tier` answers `gold` for a subject
-      // nobody granted it. Owning it as a plain key hides the opposite
-      // failure: whatever the operator meant to store under `__proto__` is
-      // absent, and an absent attribute retires every deny rule testing it.
-      // The bag is refused, and the operator is handed a row to repair.
+      // SECURITY: assigning the key sets the prototype, and owning it hides the value a deny rule tests,
+      // so the bag is refused and the operator gets a row to repair.
       await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
     })
 
     it('a __proto__ attribute written through the adapter is refused at the write', async () => {
       await reset()
-      // An admin request body carrying this key, parsed into an OWN property -
-      // which is what `JSON.parse` produces and what makes the value reach
-      // storage at all. Built with `defineProperty` rather than parsed so the
-      // fixture is typed as the bag it claims to be; a plain assignment would
-      // set the prototype and never create the key.
+      // An own `__proto__` property, as `JSON.parse` produces; `defineProperty` keeps the fixture typed,
+      // where plain assignment would set the prototype instead.
       const hostile: IamPrimitives.Attributes = { team: 'A' }
       Object.defineProperty(hostile, '__proto__', {
         configurable: true,
@@ -542,20 +441,14 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
         value: { tier: 'gold' },
         writable: true,
       })
-      // Refused here, not at the next read: a row nothing can read back is not
-      // worth writing, and the caller finds out while it still has the request
-      // in hand.
+      // Refused at the write, while the caller still has the request in hand.
       await expect(adapter.setSubjectAttributes('u1', hostile)).rejects.toThrow(/must not contain a __proto__ key/)
       expect(await adapter.getSubjectAttributes('u1')).toEqual({})
     })
   })
 
   describe('a malformed attributes row reaching a real decision', () => {
-    /**
-     * Deny-overrides catalog: everyone may read a post unless their stored
-     * `clearance` says `low`. The deny rule exists precisely to be retired by
-     * an attributes read that answers `{}`.
-     */
+    /** Deny-overrides catalog: staff may read posts unless `subject.attributes.clearance` is `low`. */
     async function seedCatalog(a: Adapter): Promise<IamEngine<string, string, string, string>> {
       await a.saveRole({ id: 'staff', name: 'Staff', permissions: [{ action: 'read', resource: 'post' }] })
       await a.savePolicy({
@@ -596,14 +489,9 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
       await reset()
       const engine = await seedCatalog(adapter)
       await adapter.assignRole('u1', 'staff')
-      // `data` is NOT NULL, but `'null'::jsonb` is a perfectly valid non-NULL
-      // value - the shape an import or a hand-written migration produces from a
-      // missing field. Prisma's adapter throws on it; drizzle's `data === null`
-      // early-return cannot tell it from an absent column and answers `{}`.
+      // `data` is NOT NULL, but `'null'::jsonb` is a non-NULL value an import or hand migration can produce.
       await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','null'::jsonb)`)
-      // Fail-closed is the invariant: a corrupt row must deny or throw, never
-      // grant. `{}` here silently retires every deny rule that tests an
-      // attribute.
+      // SECURITY: a corrupt row must deny or throw, never grant.
       expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' })).toBe(false)
     })
 
@@ -688,11 +576,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
 
       const fromPg = await adapter.getRole('r1')
       const fromMemory = await mem.getRole('r1')
-      // The compliance matrix pins this for *policies* ("returns the same shape
-      // on every backend") and leaves roles out. A key whose value is
-      // `undefined` still shows up in `Object.keys`, `JSON.stringify` drops it,
-      // and `toEqual` ignores it: three different answers to "does this role
-      // have a description", depending which one the consumer asks.
+      // A key holding `undefined` still counts in `Object.keys`, so both backends must return the same key set.
       expect(Object.keys(fromPg ?? {}).sort()).toEqual(Object.keys(fromMemory ?? {}).sort())
     })
   })
@@ -822,23 +706,8 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     })
   })
 
-  /**
-   * Time-boxed grants, from a real `timestamptz` to a cached decision.
-   *
-   * `startsAt`/`expiresAt` are accepted by this adapter alone - the other five
-   * refuse assign options outright - so the storage half of the feature has
-   * exactly one implementation and it is this one. Everything here therefore
-   * runs against the real column type: the driver's parse, the session's
-   * timezone, sub-second precision, and the two out-of-range values a real
-   * server can hold and the array mock cannot.
-   *
-   * The second half is the part a store cannot fix on its own. Every read
-   * answers as of `Date.now()` and the engine caches that answer for a whole
-   * `cacheTTL`, so an expiry inside the TTL window used to keep granting after
-   * it passed. `getSubjectGrantBoundary` is what closes it, and the only honest
-   * way to check that is a real clock over a real database - no fake timers,
-   * because the driver and the server keep their own time.
-   */
+  // Grant windows from a real `timestamptz` to a cached decision; drizzle is the only adapter that stores them.
+  // NOTE: real clock, no fake timers - the driver and the server keep their own time.
   describe('time-boxed grants end to end', () => {
     const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -852,9 +721,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('reads a millisecond-precise expiry back off the wire unchanged', async () => {
       await reset()
       await seedReader()
-      // .123 is the interesting digit: `timestamptz` keeps microseconds, JS
-      // keeps milliseconds, and a truncating round-trip would move the
-      // boundary earlier or later than the row actually says.
+      // `.123` checks millisecond precision survives: `timestamptz` keeps microseconds, JS keeps milliseconds.
       const expiresAt = new Date(Date.now() + 3_600_000 + 123)
       await adapter.assignRole('u1', 'reader', undefined, { expiresAt })
       expect(await adapter.getSubjectGrantBoundary('u1')).toBe(expiresAt.getTime())
@@ -907,9 +774,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('stops granting when the row expires, not a cacheTTL later', async () => {
       await reset()
       await seedReader()
-      // A minute of caching over a grant with a second to live. Before the
-      // boundary was plumbed through, the cached allow outlived the row by the
-      // whole 60s and `can` stayed true here.
+      // A 60s cache over a grant with ~1s to live: the grant boundary must cut the cached allow short.
       const engine = new IamEngine<string, string, string, string>({ adapter, cacheTTL: 60 })
       await adapter.assignRole('u1', 'reader', undefined, { expiresAt: new Date(Date.now() + 1_200) })
 
@@ -949,10 +814,8 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('refuses an empty window in the adapter, before the driver sees it', async () => {
       await reset()
       await seedReader()
-      // The adapter's own message, not `ch_iam_assignments_starts_before_expires`
-      // wrapped in drizzle's `Failed query: ...`. Both refuse; only one of them
-      // says what to do about it, and only one of them exists when the caller
-      // brought their own table.
+      // The adapter's own message, not drizzle's wrapped CHECK violation, which does not exist
+      // when the caller brings their own table.
       await expect(
         adapter.assignRole('u1', 'reader', undefined, {
           expiresAt: new Date(Date.now()),
@@ -983,29 +846,16 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
       await adapter.assignRole('u1', 'reader')
       expect(await engine.can('u1', 'read', POST)).toBe(true)
 
-      // No boundary means the entry keeps the full TTL. Revoking behind the
-      // engine's back and still seeing the allow is what proves it: a cache
-      // that shortened every entry would show the revoke immediately.
+      // No boundary keeps the full TTL: the allow surviving a revoke made behind the engine's back
+      // proves the entry was cached, not shortened.
       await adapter.revokeRole('u1', 'reader')
       expect(await engine.can('u1', 'read', POST)).toBe(true)
       expect(await adapter.getSubjectRoles('u1')).toEqual([])
     }, 30_000)
   })
 
-  /**
-   * A randomised window matrix, decided by Postgres and re-decided in JS.
-   *
-   * The cases above are the ones a person thinks of. This one is the ones
-   * nobody does: several hundred grants whose bounds are drawn from a seeded
-   * generator - open on one side, open on both, already closed, not yet open,
-   * `infinity`, `-infinity`, scoped and global - all stored at once, then read
-   * back and compared against a reference model of the same rule written in
-   * plain JS. Any instant where the SQL filter and the model disagree is a
-   * divergence between what the schema stores and what the package documents.
-   *
-   * The seed is fixed, so a failure names a reproducible row set rather than a
-   * mood.
-   */
+  // Seeded random grant windows, decided by the SQL filter and by a plain-JS reference model; any disagreement fails.
+  // The seed is fixed, so a failure names a reproducible row set.
   describe('randomised window matrix against the real filter', () => {
     /** Deterministic PRNG - a failing run must be replayable from the seed. */
     function mulberry32(seed: number): () => number {
@@ -1019,12 +869,8 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     }
 
     /**
-     * A bound as both halves need it: the SQL literal Postgres stores and the
-     * number the reference model compares against.
-     *
-     * `null` is an absent bound (the column stays NULL); the infinities are the
-     * two values a real server can hold and `Date` cannot, and they are modelled
-     * as the limits they are rather than as instants.
+     * A bound as the SQL literal Postgres stores and the number the reference model compares.
+     * `at: null` is an absent bound; the infinities are modelled as limits, not instants.
      */
     interface IBound {
       readonly sql: string
@@ -1079,9 +925,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
       for (const r of ROLES) await seedRole(r, `Role ${r}`)
 
       const rand = mulberry32(SEED)
-      // Every offset is at least a minute away from the evaluation instant, so
-      // the wall clock moving between the INSERT and the SELECT cannot flip a
-      // row. The point is the filter, not the scheduler.
+      // Offsets are at least a minute from now, so clock movement between INSERT and SELECT cannot flip a row.
       const OFFSETS = [-7_200_000, -3_600_000, -600_000, -60_000, 60_000, 600_000, 3_600_000, 7_200_000]
       const pickBound = (): IBound => {
         const roll = rand()
@@ -1093,14 +937,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
         return boundAt(offset, Date.now())
       }
 
-      /**
-       * A pair the schema will accept.
-       *
-       * `ch_iam_assignments_starts_before_expires` refuses `starts >= expires`,
-       * and so does the adapter now, so an empty window is not a case this
-       * matrix can carry - generating one would only re-test the refusal that
-       * has its own tests. Redraw until the pair is one a caller could store.
-       */
+      /** Redraws until `startsAt < expiresAt`, since empty windows are refused and tested separately. */
       const pickWindow = (): { startsAt: IBound; expiresAt: IBound } => {
         for (let attempt = 0; attempt < 50; attempt++) {
           const startsAt = pickBound()
@@ -1137,8 +974,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
         `INSERT INTO iam_assignments (id, subject_id, role_id, scope, starts_at, expires_at) VALUES\n${values}`,
       )
 
-      // One instant for the whole comparison. Reading it once and using it for
-      // both sides is what makes a disagreement mean something.
+      // One instant for both sides, so a disagreement is the filter's, not the clock's.
       const at = Date.now()
       const describeGrant = (g: IGrant) =>
         `${g.subject}/${g.role}/${g.scope ?? 'global'} [${g.startsAt.label}, ${g.expiresAt.label})`
@@ -1167,9 +1003,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     }, 60_000)
 
     it('the reference model itself is not vacuous', async () => {
-      // A generator that produced only-live or only-dead rows would make the
-      // case above pass without testing anything. This pins that the matrix it
-      // builds actually contains both, and both kinds of bound.
+      // Guard against a vacuous pass above: the generator must yield live and dead rows, bounded and unbounded.
       const rand = mulberry32(SEED)
       const now = Date.now()
       const sample: IGrant[] = []

@@ -1,19 +1,6 @@
 /**
- * E2E: `IamRedisAdapter` against a REAL Redis server over a REAL client.
- *
- * `redis.test.ts` runs the shared compliance matrix against `AuthFakeRedis`, a
- * `Map`-of-`Map`s written by the same author as the adapter. It cannot express
- * the two things that decide whether this adapter is correct in production:
- * how a real client materialises `HGETALL` into a JavaScript object, and what
- * happens when two connections write the same key at once.
- *
- * This file brings up its own `redis:7-alpine` (the package `globalSetup` only
- * provisions Postgres, and its stray-sweep removes any container carrying the
- * shared label, so a privately named one is the only stable option while other
- * suites can run) and tears it down again.
- *
- * Skips only when docker is unavailable; when docker IS up and the server does
- * not come up, the reachability suite fails loudly rather than skipping.
+ * E2E: `IamRedisAdapter` on a real `redis:7-alpine` and ioredis, covering what the in-repo fake cannot: how a real
+ * client materialises `HGETALL`, and two connections writing at once. Starts and removes its own container.
  */
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -23,16 +10,12 @@ import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { dockerIsUp as sharedDockerIsUp } from '../../test/e2e-env'
 import { runAdapterCompliance } from '../__compliance__/compliance'
+import { OPTIONAL_SUPPORT } from '../__compliance__/optional-support'
 import { IamMemoryAdapter } from '../memory'
 import { type IamRedis, IamRedisAdapter } from '../redis'
 
-// The shared compliance matrix registers about a hundred cases with no explicit
-// timeout, which is right against the in-memory fake and wrong here: each case
-// is a real round trip to a container that shares the machine with every other
-// e2e suite. One of them - "a saved policy and the same policy re-saved are
-// identical" - took 5.88s and was reported as a failure at vitest's 5s default,
-// on a run where nothing was actually wrong. Thirty seconds is still a bound: a
-// single CRUD round trip that needs longer is hung, not slow.
+// The shared matrix sets no per-case timeout, and a real container round trip can exceed vitest's 5s default.
+// 30s is still a bound: a CRUD round trip that needs longer is hung, not slow.
 vi.setConfig({ testTimeout: 30_000 })
 
 const exec = promisify(execFile)
@@ -45,16 +28,7 @@ async function docker(args: string[], timeout = 60_000): Promise<string> {
   return stdout.trim()
 }
 
-/**
- * Delegates to the shared probe in `src/test/e2e-env.ts`.
- *
- * This used to be a local copy with a five-second budget, and that is not a
- * detail: on a machine already running the e2e stack `docker info` takes
- * longer than five seconds, the copy answered "down", and this whole file went
- * quiet - twenty-four cases in one observed run - while its own reachability
- * suite, reading the same wrong answer, agreed that a skip was expected. One
- * probe, one budget, so a busy daemon cannot be mistaken for an absent one.
- */
+/** The shared probe from `src/test/e2e-env.ts`: one budget, so a busy daemon is not mistaken for an absent one. */
 const dockerIsUp = sharedDockerIsUp
 
 async function waitFor(what: string, probe: () => Promise<boolean>, budgetMs = 60_000): Promise<void> {
@@ -110,11 +84,8 @@ if (DOCKER_UP) {
 const clients: Redis[] = []
 
 /**
- * A real ioredis connection, presented at the minimal surface the adapter
- * declares. Written as an explicit object rather than passing the client
- * straight through so the structural match is checked by the compiler instead
- * of by a cast - the point of this file is that the client is real, not that
- * TypeScript was persuaded it is.
+ * A real ioredis connection, exposed through the adapter's minimal `ILike` surface.
+ * NOTE: spelled out rather than passed through, so the compiler checks the structural match without a cast.
  */
 function realClient(port: number): IamRedis.ILike & { raw: Redis } {
   const redis = new Redis(port, '127.0.0.1', { lazyConnect: false, maxRetriesPerRequest: 2 })
@@ -129,9 +100,8 @@ function realClient(port: number): IamRedis.ILike & { raw: Redis } {
     hkeys: (key: string) => redis.hkeys(key),
     hset: (key: string, field: string, value: string) => redis.hset(key, field, value),
     hvals: (key: string) => redis.hvals(key),
-    // `deleteRole` uses this to reach the grants that named the role. It is
-    // optional on `ILike`, so leaving it off here would have exercised the
-    // degraded path against a client that really does have it.
+    // Optional on `ILike`, but `deleteRole` uses it to find grants naming the role;
+    // omitting it would test the degraded path.
     keys: (pattern: string) => redis.keys(pattern),
     raw: redis,
     sadd: (key: string, ...members: string[]) => redis.sadd(key, ...members),
@@ -148,11 +118,7 @@ afterAll(async () => {
 
 describe('E2E harness reachability (redis)', () => {
   it('starts a Redis server whenever docker is available', () => {
-    // CI does not consult the probe: the workflow provisions the images before
-    // vitest starts, so a backend is expected unconditionally. A false "down"
-    // from a busy daemon would otherwise silence the suite AND excuse this
-    // guard for letting it - which is how twenty-four cases here once vanished
-    // from a green run.
+    // Guard against a skipped suite passing vacuously. CI provisions the backend up front, so there it is required.
     if (process.env.CI) {
       expect(bootError, 'the container failed to start in CI, where it is provisioned').toBeUndefined()
       expect(PORT, 'no redis in CI, where the workflow provisions one - the suite skipped').toBeDefined()
@@ -173,13 +139,15 @@ describe('E2E harness reachability (redis)', () => {
 if (PORT !== undefined) {
   const shared = realClient(PORT)
   let n = 0
-  runAdapterCompliance('IamRedisAdapter @ real Redis', async () => {
-    // A fresh key prefix per factory call is the real "fresh, empty adapter":
-    // FLUSHALL would race nothing here, but a prefix also proves the adapter
-    // never reaches outside its own namespace.
-    n += 1
-    return new IamRedisAdapter<string, string, string, string>({ client: shared, keyPrefix: `c${n}:` })
-  })
+  runAdapterCompliance(
+    'IamRedisAdapter @ real Redis',
+    async () => {
+      // A fresh key prefix per call gives an empty adapter and proves it never reaches outside its namespace.
+      n += 1
+      return new IamRedisAdapter<string, string, string, string>({ client: shared, keyPrefix: `c${n}:` })
+    },
+    { supports: OPTIONAL_SUPPORT.IamRedisAdapter },
+  )
 }
 
 const suite = PORT !== undefined ? describe : describe.skip
@@ -207,11 +175,8 @@ suite('IamRedisAdapter against a real server', () => {
       await adapter.saveRole({ id: '__proto__', name: 'P', permissions: [] })
       // `getRole` is an HGET and cannot lose it.
       expect((await adapter.getRole('__proto__'))?.id).toBe('__proto__')
-      // `listRoles` is an HGETALL. Both this client and the in-repo fake build
-      // the result with `out[field] = value`, and for `__proto__` that
-      // assignment invokes the inherited setter instead of creating a
-      // property - so the row is dropped from the catalog while still being
-      // readable one at a time.
+      // INFO: `listRoles` is HGETALL; clients build the result with `out[field] = value`, which for `__proto__`
+      // hits the inherited setter and drops the row.
       expect((await adapter.listRoles()).map((r) => r.id)).toEqual(['__proto__'])
     })
 
@@ -268,10 +233,8 @@ suite('IamRedisAdapter against a real server', () => {
     it('a role id holding a NUL byte is refused by the write, not only by the grant', async () => {
       reset()
       const id = `a${NUL}b`
-      // `_encodeAssignment` throws on a NUL because NUL is the member
-      // separator. `saveRole` has no such guard, so the role can be created and
-      // then never granted: a write the store accepted and the contract cannot
-      // use.
+      // NUL is the assignment member separator, so `assignRole` refuses it;
+      // `saveRole` must not accept an id that can then never be granted.
       const saved = await adapter.saveRole({ id, name: 'N', permissions: [] }).then(
         () => true,
         () => false,
@@ -299,7 +262,7 @@ suite('IamRedisAdapter against a real server', () => {
     it('an attributes blob holding JSON null throws rather than answering {}', async () => {
       reset()
       await client.set(`${prefix}attrs:u1`, 'null')
-      // `{}` here silently retires every deny rule that tests an attribute.
+      // SECURITY: `{}` here would retire every deny rule that tests an attribute.
       await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
     })
 
@@ -318,11 +281,7 @@ suite('IamRedisAdapter against a real server', () => {
     it('a stored __proto__ attribute key is refused, not read past', async () => {
       reset()
       await client.set(`${prefix}attrs:u1`, JSON.stringify(JSON.parse('{"__proto__":{"tier":"gold"},"team":"A"}')))
-      // Returning the readable half of the bag would be the quiet recovery this
-      // package refuses everywhere else in the attributes path: a row holding a
-      // `__proto__` key is corruption or an attack, and either way the
-      // conditions that read attributes must not be evaluated against a bag
-      // whose provenance is in doubt.
+      // SECURITY: a `__proto__` key means corruption or an attack, so the whole bag is refused, not read in part.
       await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
       expect(({} as Record<string, unknown>).tier, 'Object.prototype was polluted by the read').toBeUndefined()
     })
@@ -364,8 +323,7 @@ suite('IamRedisAdapter against a real server', () => {
       await adapter.assignRole('u1', 'editor')
       expect(await b.getSubjectRoles('u1')).toEqual(['editor'])
       await b.revokeRole('u1', 'editor')
-      // Cross-process staleness has nowhere to hide here: the adapter holds no
-      // cache of its own, so the second read must be the server's answer.
+      // The adapter holds no cache, so this read is the server's answer.
       expect(await adapter.getSubjectRoles('u1')).toEqual([])
     }, 30_000)
 

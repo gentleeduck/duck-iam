@@ -1,22 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { IamFile } from '../index'
 
-/**
- * The missing-`rootDir` warning is latched in a module-level
- * `_ROOTDIR_WARNED_FIRED`, and `file.test.ts` trips it at collection time: the
- * `runAdapterCompliance(...)` call at the top of that file constructs adapters
- * with no `rootDir` before any `it` runs.
- *
- * So the two clauses there could not fail. "At most one warning" was asserted
- * against a run where zero fire, and "the warning does not echo the path" was a
- * `for` loop over an empty array - a test that passes by iterating nothing.
- * Both were honest about the latch in their comments and neither could detect
- * the thing it named.
- *
- * Isolating the module is the whole fix: `vi.resetModules()` plus a dynamic
- * import gives a fresh `_ROOTDIR_WARNED_FIRED`, so the first construction in
- * each test really is the first one that module has seen.
- */
+// Pins the missing-`rootDir` warning latch. `vi.resetModules()` plus a dynamic import gives each test a fresh
+// `_ROOTDIR_WARNED_FIRED`, which `file.test.ts` trips at collection time.
 async function freshAdapterModule() {
   vi.resetModules()
   return await import('../index')
@@ -52,8 +38,7 @@ describe('the missing-rootDir warning, against a module whose latch has not fire
   })
 
   it('fires exactly once across many constructions, not once each', async () => {
-    // The latch's actual contract. Under the old test this read
-    // `0 <= 1` and would have passed with the latch removed entirely.
+    // The latch's actual contract.
     const { IamFileAdapter } = await freshAdapterModule()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
@@ -67,8 +52,7 @@ describe('the missing-rootDir warning, against a module whose latch has not fire
   })
 
   it('does not echo the constructed path', async () => {
-    // The path can be request-derived, and this line goes to operator logs; a
-    // warning that names it turns the log into a path-existence oracle.
+    // SECURITY: the path can be request-derived; naming it turns the log into a path-existence oracle.
     const { IamFileAdapter } = await freshAdapterModule()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const uniquePath = `/very-unique-path-${Date.now()}.json`

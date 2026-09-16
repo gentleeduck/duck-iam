@@ -57,14 +57,8 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
-  // This previously asserted the whole row was dropped, on the reasoning that a
-  // partial parse "could grant unintended access". It cannot: an assignment
-  // entry is a grant and nothing else, so keeping the entries that parsed
-  // grants strictly less than the file asked for, while dropping the row costs
-  // the subject unrelated authority - a silent, permanent denial of service
-  // with only a warning to show for it. The adapter also used to *write* rows
-  // it could not read back (an empty scope), so this was reachable without any
-  // hand-editing at all.
+  // Entries are grants, so keeping the valid ones never grants more than the file asks, while dropping the row
+  // would cost the subject unrelated authority.
   it("drops only the malformed entry, keeping the subject's valid grants", async () => {
     const { adapter, errors } = await makeAdapter({
       assignments: {
@@ -86,12 +80,10 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     expect(errors.some((e) => e.includes('[2]'))).toBe(true)
   })
 
-  // The write path used to persist a state the loader refuses, which is how a
-  // subject lost grants across a restart with nobody having touched the file.
+  // The loader refuses an empty scope, so the write path must not persist one.
   it('refuses to write an empty scope, so the store stays loadable', async () => {
     const { adapter } = await makeAdapter({ assignments: {} })
-    // The generic refuses `''`; the guard is a runtime one, for data that did
-    // not come through a typed call site.
+    // The generic refuses `''`; this runtime guard is for data that bypassed a typed call site.
     const emptyScope: Scope = JSON.parse('""')
     await expect(adapter.assignRole('u1', 'editor', emptyScope)).rejects.toThrow(/empty string/)
   })
@@ -112,8 +104,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
         u1: [{ role: 'editor' }, { role: 'viewer', scope: 'org-1' }],
       },
     })
-    // getSubjectRoles is unscoped-only; scoped assignments surface
-    // via getScopedAssignments.
+    // getSubjectRoles is unscoped-only; scoped assignments surface via getSubjectScopedRoles.
     expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'viewer', scope: 'org-1' }])
     expect(errors).toHaveLength(0)
@@ -223,11 +214,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     })
 
     it('returns null policy for id="__proto__"', async () => {
-      // A *complete* row on purpose. `{ id, rules }` alone does not parse, and
-      // while the loader dropped unreadable policy rows this test passed
-      // against an empty store - it never reached the prototype-key lookup it
-      // is named for. The loader now refuses such a row, which is what exposed
-      // it.
+      // A complete row on purpose: an unparseable one is refused, so the prototype-key lookup would never run.
       const { adapter } = await makeAdapter({
         policies: { 'p-real': { algorithm: 'deny-overrides', id: 'p-real', name: 'Real', rules: [] } },
       })

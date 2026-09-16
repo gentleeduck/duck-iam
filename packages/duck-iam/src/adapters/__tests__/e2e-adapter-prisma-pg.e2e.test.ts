@@ -1,26 +1,6 @@
 /**
- * E2E: `IamPrismaAdapter` against REAL Postgres.
- *
- * `prisma.test.ts` runs the compliance matrix against `makePrismaMock()`. That
- * fake is the origin of the archetype bug this whole exercise exists for: it
- * ignored `where`, so the test named after the scoped/unscoped split never
- * exercised the split. Everything the adapter believes about `scope: null`,
- * about `NOT`, about a composite unique index over a nullable column and about
- * two writers racing is therefore still unverified.
- *
- * WHAT THIS IS NOT: `@prisma/client` is not a dependency of this package and
- * nothing here installs one. The delegate below is a *SQL-backed* implementation
- * of `IamPrisma.ILike` - every read and write is a real statement against a real
- * server, with real NULL semantics, a real unique index and real concurrency -
- * but the translation from Prisma's filter object to SQL is written here rather
- * than by Prisma. Each translation rule is documented at its implementation and
- * the one rule where Prisma's own behaviour is version-dependent (`NOT` over a
- * nullable column) is tested under BOTH readings, so a conclusion never rests
- * on the guess.
- *
- * The table shapes mirror the reference Prisma schema, notably
- * `@@unique([subjectId, roleId, scope])`, which in Postgres is NULLS DISTINCT -
- * the exact property the adapter's `assignRole` comment says it works around.
+ * E2E: `IamPrismaAdapter` over a SQL-backed `IamPrisma.ILike` on real Postgres: NULL scopes, the unique index, races.
+ * NOTE: no `@prisma/client`; the Prisma-filter-to-SQL translation is hand-written below, one rule per clause.
  */
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -30,15 +10,11 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { dockerIsUp as sharedDockerIsUp } from '../../test/e2e-env'
 import { runAdapterCompliance } from '../__compliance__/compliance'
+import { OPTIONAL_SUPPORT } from '../__compliance__/optional-support'
 import { type IamPrisma, IamPrismaAdapter } from '../prisma'
 
-// The shared compliance matrix registers about a hundred cases with no explicit
-// timeout, which is right against the in-memory fake and wrong here: each case
-// is a real round trip to a container that shares the machine with every other
-// e2e suite. One of them - "a saved policy and the same policy re-saved are
-// identical" - took 5.88s and was reported as a failure at vitest's 5s default,
-// on a run where nothing was actually wrong. Thirty seconds is still a bound: a
-// single CRUD round trip that needs longer is hung, not slow.
+// The shared matrix sets no per-case timeout, and a real container round trip can exceed vitest's 5s default.
+// 30s is still a bound: a CRUD round trip that needs longer is hung, not slow.
 vi.setConfig({ testTimeout: 30_000 })
 
 const exec = promisify(execFile)
@@ -48,16 +24,7 @@ async function docker(args: string[], timeout = 60_000): Promise<string> {
   return stdout.trim()
 }
 
-/**
- * Delegates to the shared probe in `src/test/e2e-env.ts`.
- *
- * This used to be a local copy with a five-second budget, and that is not a
- * detail: on a machine already running the e2e stack `docker info` takes
- * longer than five seconds, the copy answered "down", and this whole file went
- * quiet - twenty-four cases in one observed run - while its own reachability
- * suite, reading the same wrong answer, agreed that a skip was expected. One
- * probe, one budget, so a busy daemon cannot be mistaken for an absent one.
- */
+/** The shared probe from `src/test/e2e-env.ts`: one budget, so a busy daemon is not mistaken for an absent one. */
 const dockerIsUp = sharedDockerIsUp
 
 async function waitFor(what: string, probe: () => Promise<boolean>, budgetMs = 60_000): Promise<void> {
@@ -158,19 +125,8 @@ function column(field: string): string {
 }
 
 /**
- * Translate a Prisma `where` object into SQL.
- *
- * Rules implemented, each one a documented Prisma behaviour:
- *  - `{ field: null }`            -> `col IS NULL`
- *  - `{ field: value }`           -> `col = $n`
- *  - `{ NOT: { field: null } }`   -> `col IS NOT NULL`
- *  - `{ NOT: { field: value } }`  -> depends on `notIncludesNull`; see below.
- *
- * Prisma's handling of `NOT` over a *nullable* column has changed across major
- * versions: older clients emitted a bare `col <> $n`, which silently drops rows
- * where the column is NULL; current ones include them. The adapter's
- * `updateAssignmentScope` builds exactly such a filter, so both readings are
- * exercised rather than one being assumed.
+ * Translates a Prisma `where` object to SQL: `null` -> `IS NULL`, a value -> `= $n`, `NOT` -> `IS NOT NULL` or `<>`.
+ * INFO: older Prisma clients drop NULL rows under `NOT` on a nullable column; `notIncludesNull` picks the reading.
  */
 function buildWhere(where: Record<string, unknown>, values: unknown[], notIncludesNull: boolean): string {
   const clauses: string[] = []
@@ -213,26 +169,37 @@ const POLICY_FIELDS = ['id', 'name', 'description', 'version', 'algorithm', 'rul
 const ROLE_FIELDS = ['id', 'name', 'description', 'permissions', 'inherits', 'scope', 'metadata'] as const
 const ASSIGNMENT_FIELDS = ['subjectId', 'roleId', 'scope'] as const
 
-/**
- * The delegate the adapter is constructed with. Every method is a real
- * statement; nothing is answered from memory.
- */
+/** The delegate the adapter is built with; every method runs a real statement. */
 function sqlPrisma(pool: Pool, notIncludesNull: boolean): IamPrisma.ILike {
   async function query(sql: Sql): Promise<Record<string, unknown>[]> {
     const res = await pool.query(sql.text, sql.values)
     return res.rows as Record<string, unknown>[]
   }
 
-  function upsertSql(table: string, key: string, data: Record<string, unknown>): Sql {
-    const fields = Object.keys(data)
-    const cols = fields.map(column)
-    const values = fields.map((f) => data[f])
+  /**
+   * `INSERT ... ON CONFLICT DO UPDATE`, binding `create` and `update` separately as a real `upsert` applies them.
+   * NOTE: the payloads differ (`created_by` vs `updated_by`), so SET must not come from `create` or `EXCLUDED`.
+   */
+  function upsertSql(
+    table: string,
+    key: string,
+    create: Record<string, unknown>,
+    update: Record<string, unknown>,
+  ): Sql {
+    const bind = (v: unknown): unknown => (v !== null && typeof v === 'object' ? JSON.stringify(v) : v)
+    const createFields = Object.keys(create)
+    const cols = createFields.map(column)
     const placeholders = cols.map((_, i) => `$${i + 1}`)
-    const updates = cols.filter((c) => c !== column(key)).map((c, i) => `${c} = EXCLUDED.${c}`)
+
+    const updateFields = Object.keys(update).filter((f) => column(f) !== column(key))
+    if (updateFields.length === 0)
+      throw new Error(`${table}.upsert: empty update payload would make a conflict a no-op`)
+    const sets = updateFields.map((f, i) => `${column(f)} = $${cols.length + i + 1}`)
+
     return {
       text: `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders.join(', ')})
-             ON CONFLICT (${column(key)}) DO UPDATE SET ${updates.join(', ')} RETURNING *`,
-      values: values.map((v) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : v)),
+             ON CONFLICT (${column(key)}) DO UPDATE SET ${sets.join(', ')} RETURNING *`,
+      values: [...createFields.map((f) => bind(create[f])), ...updateFields.map((f) => bind(update[f]))],
     }
   }
 
@@ -264,7 +231,8 @@ function sqlPrisma(pool: Pool, notIncludesNull: boolean): IamPrisma.ILike {
         where: TWhere
         create: Record<string, unknown>
         update: Record<string, unknown>
-      }): Promise<TRow> => firstRow<TRow>(await query(upsertSql(table, key, args.create)), fields, `${table}.upsert`),
+      }): Promise<TRow> =>
+        firstRow<TRow>(await query(upsertSql(table, key, args.create, args.update)), fields, `${table}.upsert`),
     }
   }
 
@@ -288,16 +256,11 @@ function sqlPrisma(pool: Pool, notIncludesNull: boolean): IamPrisma.ILike {
           })
           return firstRow<IamPrisma.IAssignmentRow>(rows, ASSIGNMENT_FIELDS, 'accessAssignment.create')
         } catch (err) {
-          // Prisma does not hand the driver's error through: a unique
-          // violation reaches the caller as a PrismaClientKnownRequestError
-          // with `code: 'P2002'`. The adapter is written against that code, so
-          // a shim that leaked pg's `23505` would be testing a client nobody
-          // runs.
+          // INFO: Prisma reports a unique violation as `P2002`, the code the adapter matches, not pg's `23505`.
           if (err !== null && typeof err === 'object' && Reflect.get(err, 'code') === '23505') {
             throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' })
           }
-          // Same reasoning for the foreign key: pg's `23503` reaches a Prisma
-          // caller as `P2003`.
+          // Likewise pg's foreign-key `23503` reaches a Prisma caller as `P2003`.
           if (err !== null && typeof err === 'object' && Reflect.get(err, 'code') === '23503') {
             throw Object.assign(new Error('Foreign key constraint failed on the field: `roleId`'), { code: 'P2003' })
           }
@@ -362,11 +325,7 @@ afterAll(async () => {
 
 describe('E2E harness reachability (prisma/pg)', () => {
   it('provisions a Postgres database whenever docker is available', () => {
-    // CI does not consult the probe: the workflow provisions the images before
-    // vitest starts, so a backend is expected unconditionally. A false "down"
-    // from a busy daemon would otherwise silence the suite AND excuse this
-    // guard for letting it - which is how twenty-four cases here once vanished
-    // from a green run.
+    // Guard against a skipped suite passing vacuously. CI provisions the backend up front, so there it is required.
     if (process.env.CI) {
       expect(bootError, 'the container failed to start in CI, where it is provisioned').toBeUndefined()
       expect(URL_, 'no database in CI, where the workflow provisions one - the suite skipped').toBeDefined()
@@ -390,10 +349,14 @@ async function truncate(pool: Pool): Promise<void> {
 // ---------------------------------------------------------------------------
 if (URL_) {
   const pool = new Pool({ connectionString: URL_, max: 8 })
-  runAdapterCompliance('IamPrismaAdapter @ real Postgres', async () => {
-    await truncate(pool)
-    return new IamPrismaAdapter<string, string, string, string>(sqlPrisma(pool, true))
-  })
+  runAdapterCompliance(
+    'IamPrismaAdapter @ real Postgres',
+    async () => {
+      await truncate(pool)
+      return new IamPrismaAdapter<string, string, string, string>(sqlPrisma(pool, true))
+    },
+    { supports: OPTIONAL_SUPPORT.IamPrismaAdapter },
+  )
   afterAll(async () => {
     await pool.end()
   })
@@ -415,9 +378,7 @@ suite('IamPrismaAdapter against real SQL', () => {
 
   async function reset(notIncludesNull = true): Promise<void> {
     await truncate(pool)
-    // `fk_access_assignment_role` refuses a grant naming a role that does not
-    // exist, so the roles these cases grant - through the adapter or by raw
-    // INSERT - are stored first.
+    // `fk_access_assignment_role` refuses grants of unknown roles, so seed every role these cases grant.
     await pool.query(
       `INSERT INTO access_role (id, name, permissions) VALUES ('editor','Editor','[]'::jsonb), ('viewer','Viewer','[]'::jsonb), ('auditor','Auditor','[]'::jsonb)`,
     )
@@ -456,15 +417,11 @@ suite('IamPrismaAdapter against real SQL', () => {
 
     it('a row whose scope is the EMPTY STRING is neither global nor rejected', async () => {
       await reset()
-      // The reference Prisma schema has no CHECK constraint, so unlike the
-      // drizzle pg schema this row can exist. `assignRole` refuses to create
-      // one; nothing stops a migration or another writer.
+      // The Prisma schema has no CHECK constraint (drizzle's does), so a migration or another writer can store this.
       await pool.query(`INSERT INTO access_assignment (subject_id, role_id, scope) VALUES ('u1','editor','')`)
       const global = await adapter.getSubjectRoles('u1')
       const scoped = await adapter.getSubjectScopedRoles('u1')
-      // The contract has exactly two buckets. A row in neither is a grant that
-      // exists in the table and in no answer the engine can see; a row in both
-      // is a scoped grant honoured globally. Either is a divergence.
+      // The row must land in exactly one bucket: in neither it is invisible, in both a scoped grant goes global.
       expect(
         global.length + scoped.length,
         `empty-scope row landed in ${global.length} global + ${scoped.length} scoped buckets`,
@@ -502,14 +459,8 @@ suite('IamPrismaAdapter against real SQL', () => {
       const second = new Pool({ connectionString: URL_ as string, max: 8 })
       try {
         const b = new IamPrismaAdapter<string, string, string, string>(sqlPrisma(second, true))
-        // `assignRole` is a read-then-write (`findMany` then `create`), because
-        // a composite unique key over a nullable column cannot be addressed by
-        // `upsert` - and a read cannot make a write atomic, so the index is
-        // what actually decides this. Under the plain index Prisma generates,
-        // NULLs are distinct, the duplicate is not caught, and twenty of these
-        // left three rows. The index is now NULLS NOT DISTINCT, so the losers
-        // of the race get P2002 and the adapter reads that as "already
-        // granted".
+        // INFO: `assignRole` is `findMany` then `create`, so the NULLS NOT DISTINCT index decides this race;
+        // losers get P2002, which the adapter reads as already granted.
         const results = await Promise.allSettled(
           Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? adapter : b).assignRole('u1', 'editor')),
         )
@@ -525,12 +476,7 @@ suite('IamPrismaAdapter against real SQL', () => {
       const second = new Pool({ connectionString: URL_ as string, max: 8 })
       try {
         const b = new IamPrismaAdapter<string, string, string, string>(sqlPrisma(second, true))
-        // The scoped case always had a working unique index behind it, so the
-        // loser of the race got a constraint violation rather than a second
-        // row - and the adapter let it reject, nine times out of twenty here.
-        // A repeat grant of a role the subject already holds is not a failure;
-        // the adapter's own docstring calls repeat grants idempotent, and every
-        // other adapter treats one as a no-op.
+        // A repeat grant is idempotent, so losing the unique-index race must resolve, not reject.
         const results = await Promise.allSettled(
           Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? adapter : b).assignRole('u1', 'editor', 'org-1')),
         )
@@ -544,11 +490,8 @@ suite('IamPrismaAdapter against real SQL', () => {
 
     it('duplicate unscoped rows do not change the answer to getSubjectRoles', async () => {
       await reset()
-      // A table that predates the NULLS NOT DISTINCT migration can already
-      // hold the pile the old read-then-write let through, and applying the
-      // migration is the consumer's move to make on their own schedule. The
-      // index is dropped here to produce exactly that state - the reads must
-      // still answer one role, and the revoke must still clear all of it.
+      // Drops the index to simulate a table from before the NULLS NOT DISTINCT migration:
+      // duplicate rows must still read as one role and revoke completely.
       await pool.query('DROP INDEX uq_access_assignment')
       try {
         for (let i = 0; i < 5; i++) {
@@ -567,14 +510,7 @@ suite('IamPrismaAdapter against real SQL', () => {
   })
 
   describe('updateAssignmentScope over a nullable column', () => {
-    // The adapter used to filter the target scope with `NOT: { scope:
-    // fromScope }`, and Prisma's SQL for that has differed across versions on
-    // whether NULL rows are included - an outcome that depends on which
-    // reading the installed client emits is a bug waiting on a dependency
-    // bump. Under the excluding reading the collapse-onto-global case left two
-    // rows, because `NOT (scope = 'org-1')` is NULL, not true, for the very
-    // rows being selected. The adapter no longer asks the database that
-    // question at all; both readings are still run so it stays that way.
+    // Runs under both `NOT`-over-NULL readings, so the result cannot depend on the installed Prisma version.
     for (const notIncludesNull of [true, false]) {
       const label = notIncludesNull ? 'NOT includes NULL rows' : 'NOT excludes NULL rows'
 
@@ -608,10 +544,7 @@ suite('IamPrismaAdapter against real SQL', () => {
         await reset(notIncludesNull)
         await adapter.assignRole('u1', 'editor')
         await adapter.assignRole('u1', 'editor', 'org-1')
-        // Moving the scoped row to global, where a global row already exists.
-        // This is the case the `NOT` filter broke: the delete meant to clear
-        // the way skipped the NULL-scoped row it was aimed at, and the update
-        // then produced a second one.
+        // Moving the scoped row onto an existing global row: the NULL-scoped target must be merged, not duplicated.
         expect(await adapter.updateAssignmentScope('u1', 'editor', 'org-1', undefined)).toBe(true)
         expect(await assignmentCount()).toBe(1)
         expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
@@ -631,9 +564,7 @@ suite('IamPrismaAdapter against real SQL', () => {
     it('a data column holding JSON null throws rather than answering {}', async () => {
       await reset()
       await pool.query(`INSERT INTO access_subject_attr (subject_id, data) VALUES ('u1','null'::jsonb)`)
-      // The drizzle adapter answers `{}` for this exact row. Two backends, two
-      // answers, and `{}` is the one that retires every deny rule testing an
-      // attribute.
+      // SECURITY: `{}` here would retire every deny rule that tests an attribute.
       await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
     })
 
@@ -648,11 +579,7 @@ suite('IamPrismaAdapter against real SQL', () => {
       await pool.query(
         `INSERT INTO access_policy (id, name, algorithm, rules) VALUES ('p1','Broken','deny-overrides','null'::jsonb)`,
       )
-      // Dropping it is the fail-open: `rules: null` read loosely looks like a
-      // policy with no rules, which under deny-overrides denies nothing, and
-      // returning `null` from `getPolicy` makes a corrupt row indistinguishable
-      // from a deleted one. Neither answer is safe when the row may have been
-      // the rule saying NO.
+      // SECURITY: fail closed - read loosely this denies nothing, and `null` would look like a deleted policy.
       await expect(adapter.getPolicy('p1')).rejects.toThrow(/cannot be read/)
       await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
     })
@@ -668,10 +595,8 @@ suite('IamPrismaAdapter against real SQL', () => {
       await pool.query(
         `INSERT INTO access_subject_attr (subject_id, data) VALUES ('u1','{"__proto__":{"tier":"gold"},"team":"A"}'::jsonb)`,
       )
-      // Assigning the key would set the bag's prototype and answer `gold` for
-      // a subject nobody granted it; owning it as a plain key would leave
-      // whatever it was meant to hold absent, which retires every deny rule
-      // testing that attribute. The row is refused instead.
+      // SECURITY: assigning the key sets the prototype, and owning it hides the value a deny rule tests,
+      // so the row is refused.
       await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
     })
   })

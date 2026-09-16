@@ -1,13 +1,11 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
 import { iamAssertRoleExists } from '../../shared/assignment-target'
-import { iamAssertAttributesParam } from '../../shared/attributes'
-import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import { iamAssertAttributesParam, iamCopyAttributes } from '../../shared/attributes'
+import { iamAssertSavablePolicy, iamAssertSavableRole, iamCloneRow, iamNormalizePolicy } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 
-/**
- * Types for the in-memory adapter. Type-only namespace - zero bundle cost.
- */
+/** Types for the in-memory adapter. Type-only namespace - zero bundle cost. */
 export namespace IamMemory {
   /**
    * Describes initial seed data for {@link IamMemoryAdapter}.
@@ -54,35 +52,13 @@ export class IamMemoryAdapter<
   private _assignments = new Map<string, Array<{ role: TRole; scope?: TScope }>>()
   private _attributes = new Map<string, IamPrimitives.Attributes>()
 
-  /**
-   * Creates a new in-memory adapter, optionally seeded with initial data.
-   *
-   * @param init - Provides optional seed policies, roles, assignments, and attributes.
-   */
+  /** Creates a new in-memory adapter, optionally seeded with initial data. */
   constructor(init?: IamMemory.IInit<TAction, TResource, TRole, TScope>) {
-    // Seeded rows go through the same normaliser as `savePolicy`. Without
-    // this, one adapter answered `getPolicy` two ways for the same policy
-    // depending on whether it arrived via the constructor or a write - which
-    // is how `export()` on a seeded store produced a snapshot that `import()`
-    // then stored in a different shape.
+    // NOTE: seeds use the same normaliser as `savePolicy`, so a seeded and a saved policy read back identically.
     for (const p of init?.policies ?? []) this._policies.set(p.id, iamNormalizePolicy(p))
-    for (const r of init?.roles ?? []) this._roles.set(r.id, r)
-    // Seeded assignments go through the same refusal `assignRole` applies, for
-    // the same reason the policies above go through `iamNormalizePolicy`: a
-    // seed and a write must not disagree about what the store can hold. They
-    // did. `assignRole` refuses a role that is not stored on all six adapters,
-    // and the seed loop accepted one - `getSubjectRoles` then returned the id,
-    // `resolveEffectiveRoles` kept it (it is a directly assigned role, not the
-    // dangling `inherits` id that case already closes), and a hand-written ABAC
-    // rule testing `subject.roles contains 'ghost'` fired on it. Measured: a
-    // seed of `{ u1: ['ghost'] }` with no roles at all produced an ALLOW.
-    //
-    // This adapter is documented "tests + prototypes only", so this is not a
-    // production grant path - which is the point. A fixture that can reach a
-    // state `assignRole` forbids lets a suite certify behaviour the product
-    // cannot actually produce.
-    //
-    // Roles are seeded above, so an init naming its own roles is unaffected.
+    for (const r of init?.roles ?? []) this._roles.set(r.id, iamCloneRow(r))
+    // NOTE: seeds get the same unknown-role refusal as `assignRole`, so a fixture cannot reach a state the
+    // product forbids. Roles are seeded first, so an init naming its own roles passes.
     for (const [uid, roles] of Object.entries(init?.assignments ?? {})) {
       for (const r of roles) iamAssertRoleExists('memory', this._roles.has(r))
       this._assignments.set(
@@ -90,107 +66,60 @@ export class IamMemoryAdapter<
         roles.map((r) => ({ role: r })),
       )
     }
-    // Copied, not stored by reference: see `getSubjectAttributes`, which has
-    // the other half of this. `setSubjectAttributes` already builds a fresh
-    // object on every write, so this makes the seed agree with the write.
+    // NOTE: copied one level deep (a spread would alias nested arrays), matching the read and write paths.
     for (const [uid, attrs] of Object.entries(init?.attributes ?? {})) {
-      this._attributes.set(uid, { ...attrs })
+      this._attributes.set(uid, iamCopyAttributes(attrs))
     }
   }
 
-  /**
-   * Lists every stored policy.
-   *
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns All policies currently held in memory.
-   */
+  /** Lists every stored policy. */
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
-    return [...this._policies.values()]
+    return [...this._policies.values()].map(iamCloneRow)
   }
 
-  /**
-   * Fetches a single policy by ID.
-   *
-   * @param id - Identifies the policy to look up.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns The matching policy or `null` when absent.
-   */
+  /** Fetches a policy by ID, or `null` when absent. */
   async getPolicy(
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
-    return this._policies.get(id) ?? null
+    const p = this._policies.get(id)
+    return p === undefined ? null : iamCloneRow(p)
   }
 
-  /**
-   * Stores or overwrites a policy keyed by its ID.
-   *
-   * @param p - Provides the policy to persist.
-   * @returns Resolves once the write completes.
-   */
+  /** Stores or overwrites a policy keyed by its ID. */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     iamAssertSavablePolicy('memory', p)
     this._policies.set(p.id, iamNormalizePolicy(p))
   }
 
-  /**
-   * Removes a policy by ID.
-   *
-   * @param id - Identifies the policy to delete.
-   * @returns Resolves once the entry is removed (no-op when absent).
-   */
+  /** Removes a policy by ID; no-op when absent. */
   async deletePolicy(id: string): Promise<void> {
     this._policies.delete(id)
   }
 
-  /**
-   * Lists every stored role.
-   *
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns All roles currently held in memory.
-   */
+  /** Lists every stored role. */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
-    return [...this._roles.values()]
+    return [...this._roles.values()].map(iamCloneRow)
   }
 
-  /**
-   * Fetches a single role by ID.
-   *
-   * @param id - Identifies the role to look up.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns The matching role or `null` when absent.
-   */
+  /** Fetches a role by ID, or `null` when absent. */
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
-    return this._roles.get(id) ?? null
+    const r = this._roles.get(id)
+    return r === undefined ? null : iamCloneRow(r)
   }
 
-  /**
-   * Stores or overwrites a role keyed by its ID.
-   *
-   * @param r - Provides the role to persist.
-   * @returns Resolves once the write completes.
-   */
+  /** Stores or overwrites a role keyed by its ID. */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     iamAssertSavableRole('memory', r)
-    this._roles.set(r.id, r)
+    this._roles.set(r.id, iamCloneRow(r))
   }
 
   /**
-   * Removes a role by ID, and with it every grant that named it.
-   *
-   * The grants go too because the SQL schemas take them: `fk_iam_assignments_role`
-   * is `ON DELETE CASCADE`, so `deleteRole('editor')` left `getSubjectRoles`
-   * returning `editor` here and `[]` on drizzle and prisma - one call, two
-   * answers. Keeping the orphan is not the harmless option either: it reads as
-   * a grant, `assignRole` now refuses to create one like it, and recreating a
-   * role under the reused id hands it back to everyone who once held it,
-   * without an operator granting anything.
-   *
-   * @param id - Identifies the role to delete.
-   * @returns Resolves once the role and its grants are removed (no-op when absent).
+   * Removes a role by ID and every grant that named it; no-op when absent.
+   * NOTE: mirrors the SQL `ON DELETE CASCADE`; a kept orphan would re-grant a role later recreated under that id.
    */
   async deleteRole(id: string): Promise<void> {
     this._roles.delete(id)
@@ -202,25 +131,13 @@ export class IamMemoryAdapter<
     }
   }
 
-  /**
-   * Lists unscoped (global) roles assigned to a subject.
-   *
-   * @param id - Identifies the subject whose global roles are read.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns Deduplicated array of role IDs without any scope binding.
-   */
+  /** Lists a subject's unscoped (global) role IDs, deduplicated. */
   async getSubjectRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     const entries = this._assignments.get(id) ?? []
     return [...new Set(entries.filter((e) => e.scope == null).map((e) => e.role))]
   }
 
-  /**
-   * Lists the scoped role assignments for a subject.
-   *
-   * @param id - Identifies the subject whose scoped roles are read.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns Array of `(role, scope)` pairs for scoped assignments only.
-   */
+  /** Lists a subject's scoped `(role, scope)` assignments only. */
   async getSubjectScopedRoles(
     id: string,
     _opts?: IamAdapter.IReadOptions,
@@ -230,15 +147,8 @@ export class IamMemoryAdapter<
   }
 
   /**
-   * Grants a role to a subject, optionally restricted to a scope.
-   *
-   * Duplicate `(role, scope)` pairs are silently ignored. A role that is not
-   * stored is refused - see {@link iamAssertRoleExists}.
-   *
-   * @param id - Identifies the subject receiving the role.
-   * @param roleId - Specifies the role being granted.
-   * @param scope - Optional scope binding the assignment.
-   * @returns Resolves once the assignment is recorded.
+   * Grants a role to a subject, optionally within a scope; duplicate `(role, scope)` pairs are ignored.
+   * Refuses a role that is not stored - see {@link iamAssertRoleExists}.
    */
   async assignRole(id: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('memory', scope)
@@ -256,21 +166,12 @@ export class IamMemoryAdapter<
 
   /**
    * Removes a role assignment from a subject.
-   *
-   * @param id - Identifies the subject losing the role.
-   * @param roleId - Specifies the role being revoked.
-   * @param scope - Optional scope to match. Omitting it removes EVERY
-   *                assignment for the role, scoped ones included - not just the
-   *                unscoped grant. This doc used to say the opposite, on a
-   *                destructive operation.
-   * @returns Resolves once the assignment is removed.
+   * WARN: omitting `scope` removes EVERY assignment for the role, scoped ones included (as redis/drizzle/prisma do).
    */
   async revokeRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
     iamAssertAssignableScope('memory', scope, 'lookup')
     const entries = this._assignments.get(id)
     if (!entries) return
-    // Omitting `scope` removes EVERY assignment for the role across all
-    // scopes - matches the redis/drizzle/prisma contract.
     const filtered =
       scope === undefined
         ? entries.filter((e) => e.role !== roleId)
@@ -281,10 +182,6 @@ export class IamMemoryAdapter<
   /**
    * Moves an existing assignment to a different scope in place.
    *
-   * @param id - Identifies the subject whose assignment is moving.
-   * @param roleId - Specifies the role of the assignment being moved.
-   * @param fromScope - The assignment's current scope.
-   * @param toScope - The scope to move it to.
    * @returns `false` when no `(roleId, fromScope)` assignment exists for this subject.
    */
   async updateAssignmentScope(id: string, roleId: TRole, fromScope?: TScope, toScope?: TScope): Promise<boolean> {
@@ -303,35 +200,18 @@ export class IamMemoryAdapter<
     return true
   }
 
-  /**
-   * Fetches the attribute bag stored for a subject.
-   *
-   * @param id - Identifies the subject whose attributes are read.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns The subject's attributes or `{}` when none are recorded.
-   */
+  /** Fetches a subject's attribute bag, or `{}` when none is recorded. */
   async getSubjectAttributes(id: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
-    // A copy. This used to hand back the live internal bag, so a caller who
-    // read the attributes and then edited what they were given rewrote the
-    // store - no `setSubjectAttributes`, no validation, and nothing to
-    // invalidate a cache from. The other five adapters cannot do this: each
-    // deserializes and rebuilds through `iamNarrowAttributes`, and prisma's
-    // call site says so out loud ("builds a fresh Record, so this also avoids
-    // sharing"). Memory alone aliased, because it has nothing to deserialize.
+    // NOTE: return a one-level copy (see `iamCopyAttributes`) so editing the result cannot rewrite the store.
     const attrs = this._attributes.get(id)
-    return attrs === undefined ? {} : { ...attrs }
+    return attrs === undefined ? {} : iamCopyAttributes(attrs)
   }
 
-  /**
-   * Shallow-merges new attributes into the subject's existing bag.
-   *
-   * @param id - Identifies the subject whose attributes are written.
-   * @param attrs - Provides the partial attribute patch to merge in.
-   * @returns Resolves once the merge completes.
-   */
+  /** Shallow-merges an attribute patch into the subject's existing bag. */
   async setSubjectAttributes(id: string, attrs: IamPrimitives.Attributes): Promise<void> {
     iamAssertAttributesParam('memory', id, attrs)
-    this._attributes.set(id, { ...(this._attributes.get(id) ?? {}), ...attrs })
+    // NOTE: copy the patch too, so mutating the caller's arrays after the write cannot change the store.
+    this._attributes.set(id, { ...(this._attributes.get(id) ?? {}), ...iamCopyAttributes(attrs) })
   }
 }
 
