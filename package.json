@@ -46,6 +46,8 @@
     "version-packages": "changeset version",
     "ci": "bun run check && bun run lint:ws && bun run check-types && bun run test && bun run build",
     "release": "bunx turbo run build --filter='./packages/*' && changeset publish",
+    "release:auth": "bunx turbo run build --filter=@gentleduck/auth && cd packages/duck-auth && bun publish --access public",
+    "release:iam": "bunx turbo run build --filter=@gentleduck/iam && cd packages/duck-iam && bun publish --access public",
     "clean": "rimraf dist .cache .turbo node_modules .next .velite",
     "clean:git": "git clean -xdf .cache .turbo node_modules dist",
     "lint:ws": "sherif",
