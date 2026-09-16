@@ -197,6 +197,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/role-created-after-subject-cached.test.ts` | 4 | a role created after a subject was cached |
 | `core/engine/__tests__/role-limit-fallback-parity.test.ts` | 5 | the compiled table and the interpreter it falls back to |
 | `core/engine/__tests__/role-limit-latch.test.ts` | 6 | the role-limit latch clears when the role set changes |
+| `core/engine/__tests__/scope-config-guards.test.ts` | 14 | scopeMode and scopeCombine are checked at boot, like policyCombine |
 | `core/engine/__tests__/scope-covers-contract.test.ts` | 45 | scopeCovers agrees with matchesScope on the flat axis |
 | `core/engine/__tests__/surface-parity.test.ts` | 4 | every way of asking for a verdict |
 | `core/engine/__tests__/transaction.pg.e2e.test.ts` | 17 |  |
@@ -270,7 +271,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2492** | |
+| **Subtotal** | **2506** | |
 
 ---
 
@@ -410,7 +411,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 151 | 2492 |
+| Core | 152 | 2506 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -418,4 +419,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **299** | **5868** |
+| **Total** | **300** | **5882** |

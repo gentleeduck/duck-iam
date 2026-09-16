@@ -432,6 +432,7 @@ export namespace IamEngineTypes {
     /**
      * Under `'hierarchical'`, how matching levels combine: `'union'` (default) adds them all;
      * `'override'` keeps only the most specific. Ignored under `'flat'`.
+     * SECURITY: the constructor refuses any other value; the default is the wider branch, so a typo used to widen.
      */
     readonly scopeCombine?: 'union' | 'override'
   }

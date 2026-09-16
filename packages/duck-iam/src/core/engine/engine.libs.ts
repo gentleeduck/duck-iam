@@ -198,6 +198,12 @@ function freezeConditionArray(arr: ReadonlyArray<AccessControl.ICondition | Acce
   Object.freeze(arr)
 }
 
+/** Accepted `IConfig.scopeMode` values; the constructor refuses anything else, as it does for `policyCombine`. */
+export const VALID_SCOPE_MODES = ['flat', 'hierarchical'] as const
+
+/** Accepted `IConfig.scopeCombine` values. */
+export const VALID_SCOPE_COMBINES = ['union', 'override'] as const
+
 /**
  * Whether a scope a role or permission declares reaches a request at `requestScope`.
  * `'flat'` is exact match; `'hierarchical'` also covers descendants, as {@link scopeAncestors} does for assignments.

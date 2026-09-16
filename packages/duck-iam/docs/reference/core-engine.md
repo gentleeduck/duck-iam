@@ -112,6 +112,8 @@ config is a failed start rather than a surprise on the first request.
 | `maxConcurrentSubjectLoads` non-finite, or neither `0` nor `>= 1` | `RangeError` |
 | `cacheTTL` non-finite or negative | `RangeError` from `IamLRUCache` (`ttlMs must be a finite number >= 0`) |
 | `maxCacheSize` non-finite or `< 1` | `RangeError` from `IamLRUCache` (`maxSize must be a finite number >= 1`) |
+| `scopeMode` not in `VALID_SCOPE_MODES` | `Error: unknown scopeMode …` |
+| `scopeCombine` not in `VALID_SCOPE_COMBINES` | `Error: unknown scopeCombine …` |
 
 The `policyCombine` guard exists because both evaluators branch on `'and'` and
 `'allow-overrides'` and fall through to `first-applicable` — the most permissive
@@ -119,6 +121,16 @@ of the three — for anything else. A typo, or a value read from a config file
 rather than written in TypeScript, silently lost deny-overrides semantics. A
 guide in this repo once recommended `policyCombine: 'or'`, which turned a deny
 into an allow for anyone who followed it (`policy-combine-validation.test.ts`).
+
+`scopeMode` and `scopeCombine` are guarded for exactly the same reason, and
+`scopeCombine` is the sharper of the two. Both branch on one literal and fall
+through on anything else: `scopeMode` falls through to `'flat'`, which is
+narrower, but `scopeCombine` falls through to `'union'`, which is **wider**. A
+subject holding `admin` at `org-1` and `viewer` at `org-1.team-a`, checked at
+`org-1.team-a`, gets `['viewer']` under `'override'` and `['admin', 'viewer']`
+under anything that is not the exact string `'override'`. One mistyped
+character in a config file was a privilege escalation
+(`scope-config-guards.test.ts`).
 
 The non-finite guards exist for the same class of reason: `NaN > x` is always
 false, so a `NaN` limit silently disables the bound rather than failing.
