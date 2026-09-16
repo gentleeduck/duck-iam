@@ -1,25 +1,19 @@
 import type { AccessControl, IamPrimitives, IamRequest } from '../types'
-import { evalCondition, isCondition, MAX_CONDITION_DEPTH, ops, resolveValue } from './conditions.libs'
+import {
+  evalCondition,
+  IamConditionGroupError,
+  isCondition,
+  MAX_CONDITION_DEPTH,
+  ops,
+  resolveValue,
+} from './conditions.libs'
 
 /**
- * Apply one operator to two already-resolved operands.
- *
- * This is the raw operator table, not the decision path. It deliberately
- * carries none of `evalCondition`'s guards: it does not refuse `matches`
- * against a `$`-sourced operand (the ReDoS pin that refusal exists to stop), it
- * uses the process-wide regex cache rather than a per-Engine one, and an
- * operator outside the table throws a bare `TypeError` instead of naming
- * itself. Anything deciding or *reporting* access must call `evalCondition`;
- * the explain trace used to call this and consequently showed operators a
- * condition as satisfied that the engine had refused.
- *
- * Kept exported for callers that genuinely want one operator applied to values
- * they resolved themselves - a policy linter, a condition preview.
- *
- * @param op         - The operator to apply.
+ * Applies one raw operator to two already-resolved operands, for linters and condition previews.
+ * SECURITY: has none of `evalCondition`'s guards (`$`-pattern refusal, operand types); never use it to decide access.
+ * @param op - The operator to apply.
  * @param fieldValue - Left-hand side, already resolved from the request.
- * @param condValue  - Right-hand side, already resolved.
- * @returns `true` when the operator predicate holds.
+ * @param condValue - Right-hand side, already resolved.
  */
 export function evaluateOperator(
   op: AccessControl.Operator,
@@ -29,13 +23,7 @@ export function evaluateOperator(
   return ops[op](fieldValue, condValue)
 }
 
-/**
- * Resolve $-variable references in condition values against a request.
- *
- * @param req   - The access request providing resolution roots.
- * @param value - Raw condition value (possibly `$`-prefixed reference).
- * @returns The resolved value, or `value` unchanged when no resolution applies.
- */
+/** Resolves a `$`-reference in a condition value against the request; other values pass through unchanged. */
 export function resolveConditionValue(
   req: IamRequest.IAccessRequest,
   value: IamPrimitives.AttributeValue,
@@ -54,9 +42,8 @@ function evalItem(
 }
 
 /**
- * A group key that is present but not an array is malformed. Throwing makes it
- * indeterminate: reporting it and failing closed beats reading a broken `none`
- * as an empty list, which would satisfy the group unconditionally.
+ * Returns a group's items, throwing when the key holds a non-array.
+ * SECURITY: throwing makes it Indeterminate; reading a broken `none` as empty would satisfy the group.
  */
 function assertItems(
   items: unknown,
@@ -69,16 +56,12 @@ function assertItems(
 }
 
 /**
- * Evaluates a condition group tree against an access request.
- *
- * Handles `all` (AND), `any` (OR), and `none` (NOT/NOR) groups recursively.
- * Fails closed (returns `false`) when nesting exceeds `MAX_CONDITION_DEPTH`.
- *
- * @param req   - The access request providing field values
- * @param group - The condition group to evaluate
- * @param depth - Current recursion depth (internal, do not set)
+ * Evaluates an `all` (AND) / `any` (OR) / `none` (NOR) condition tree against the request.
+ * SECURITY: too deep or unknown keys throw {@link IamConditionGroupError}; `false` would retire a deny rule.
+ * @param req - The access request providing field values.
+ * @param group - The condition group to evaluate.
+ * @param depth - Current recursion depth (internal, do not set).
  * @param caches - Optional per-Engine regex / path caches; falls back to the module-global ones.
- * @returns Whether the condition group is satisfied
  */
 export function evalConditionGroup(
   req: IamRequest.IAccessRequest,
@@ -87,7 +70,7 @@ export function evalConditionGroup(
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
   if (depth >= MAX_CONDITION_DEPTH) {
-    return false // Deny when nesting is too deep -- fail closed
+    throw new IamConditionGroupError('depth', `condition nesting exceeds ${MAX_CONDITION_DEPTH}`)
   }
 
   if ('all' in group) {
@@ -102,25 +85,20 @@ export function evalConditionGroup(
     return !assertItems(group.none, 'none').some((item) => evalItem(req, item, depth + 1, caches))
   }
 
-  // `{}` means no conditions, which is unconditionally true. Anything else that
-  // reached here has keys we do not recognise (a typo'd `all`, a row from a
-  // hand-edited store). Reading that as "no conditions" turns a conditional
-  // allow into an unconditional one, so it is false instead.
-  return group !== null && typeof group === 'object' && Object.keys(group).length === 0
+  // `{}` means no conditions, which is unconditionally true.
+  if (group !== null && typeof group === 'object' && Object.keys(group).length === 0) return true
+
+  // Unknown keys (a typo, a hand-edited row): "no conditions" would grant and `false` would retire a deny, so throw.
+  const keys = group === null || typeof group !== 'object' ? [] : Object.keys(group)
+  throw new IamConditionGroupError(
+    'unknown-keys',
+    `condition group has no recognised key (saw ${keys.length === 0 ? 'a non-object' : keys.join(', ')})`,
+  )
 }
 
 /**
- * `true` when {@link evalConditionGroup} would return `true` for this group
- * against *any* request, so a caller may treat the rule as matching without
- * evaluating it. Everything else - including a group that can never match -
- * returns `false` and has to go through the evaluator.
- *
- * The three shapes that are request-independently true are `{}`, an empty
- * `all` and an empty `none`. An empty `any` is request-independently *false*,
- * which is not the same thing: skipping the evaluator for it would turn a rule
- * that never fires into one that always does. The key precedence is
- * `evalConditionGroup`'s, so a group carrying two keys is read the same way
- * here as there.
+ * Whether {@link evalConditionGroup} returns `true` for this group on any request: `{}`, empty `all`, empty `none`.
+ * WARN: an empty `any` is always `false`, not unconditional; key precedence must match `evalConditionGroup`.
  */
 export function matchesUnconditionally(group: AccessControl.IConditionGroup | undefined): boolean {
   if (group === null || typeof group !== 'object') return false

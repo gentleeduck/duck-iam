@@ -115,9 +115,7 @@ describe('condition operators', () => {
       )
     })
 
-    // `contains` is array membership, not substring search. It used to fall
-    // through to `String.includes` for a string field, so a `groups` claim
-    // arriving as a CSV string satisfied `contains 'admins'` on a substring.
+    // SECURITY: array membership, not substring, so a CSV `groups` claim cannot satisfy `contains 'admins'`.
     it('does not substring-match a string field', () => {
       expect(
         evalConditionGroup(req, {
@@ -126,8 +124,7 @@ describe('condition operators', () => {
       ).toBe(false)
     })
 
-    // The mirror case: the same type confusion must not bypass the negated
-    // operator either, so a present non-array field fails both guards.
+    // A present non-array field fails both guards.
     it('does not satisfy not_contains on a string field either', () => {
       expect(
         evalConditionGroup(req, {
@@ -201,21 +198,22 @@ describe('condition operators', () => {
       ).toBe(false)
     })
 
-    it('rejects invalid regex gracefully', () => {
-      expect(
+    // Refusals, not misses: Indeterminate, since `false` would retire a deny rule. See `IamPatternRefusedError`.
+    it('refuses an invalid regex as Indeterminate', () => {
+      expect(() =>
         evalConditionGroup(req, {
           all: [{ field: 'subject.attributes.department', operator: 'matches', value: '[invalid' }],
         }),
-      ).toBe(false)
+      ).toThrow(/Indeterminate/)
     })
 
-    it('rejects overly long patterns (ReDoS protection)', () => {
+    it('refuses overly long patterns as Indeterminate (ReDoS protection)', () => {
       const longPattern = 'a'.repeat(600)
-      expect(
+      expect(() =>
         evalConditionGroup(req, {
           all: [{ field: 'subject.attributes.department', operator: 'matches', value: longPattern }],
         }),
-      ).toBe(false)
+      ).toThrow(/Indeterminate/)
     })
   })
 
@@ -397,7 +395,7 @@ describe('matches operator safety (C2)', () => {
     const group: AccessControl.IConditionGroup = {
       all: [{ field: 'subject.id', operator: 'matches', value: '$subject.attributes.pattern' }],
     }
-    expect(evalConditionGroup(req, group)).toBe(false)
+    expect(() => evalConditionGroup(req, group)).toThrow(/Indeterminate/)
   })
 
   it('accepts literal patterns', () => {
@@ -409,9 +407,7 @@ describe('matches operator safety (C2)', () => {
   })
 
   it('blocks catastrophic regex even if the attribute looks safe', () => {
-    // A user-controlled attribute can never reach the regex engine: we refuse
-    // the $-resolved value upfront, so the well-known
-    // `(a+)+$` ReDoS pattern never even gets compiled.
+    // The $-resolved value is refused upfront, so `(a+)+$` is never compiled.
     const req = makeReq({
       subject: { id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!', roles: [], attributes: { p: '^(a+)+$' } },
     })
@@ -419,7 +415,8 @@ describe('matches operator safety (C2)', () => {
     const group: AccessControl.IConditionGroup = {
       all: [{ field: 'subject.id', operator: 'matches', value: '$subject.attributes.p' }],
     }
-    expect(evalConditionGroup(req, group)).toBe(false)
+    // The elapsed time checks that it is refused without compiling.
+    expect(() => evalConditionGroup(req, group)).toThrow(/Indeterminate/)
     expect(performance.now() - start).toBeLessThan(50)
   })
 })
@@ -463,10 +460,7 @@ describe('matches operator ReDoS hardening (P1)', () => {
   it('throws IamRegexInputTooLargeError on inputs longer than MAX_REGEX_INPUT_LENGTH instead of returning false', async () => {
     const { MAX_REGEX_INPUT_LENGTH, IamRegexInputTooLargeError, regexCache } = await import('../conditions.libs')
     regexCache.clear()
-    // A silent `false` would flip `deny`-when-`matches` rules into
-    // "condition not met -> allow". The operator throws a tagged error so
-    // safeEval can route it through onPolicyError and drop the whole policy
-    // as NotApplicable instead.
+    // SECURITY: `false` would flip deny-when-`matches` to allow; the tagged throw makes the policy Indeterminate.
     const big = 'a'.repeat(10_000)
     expect(big.length).toBeGreaterThan(MAX_REGEX_INPUT_LENGTH)
     const req = makeReq({ subject: { id: big, roles: [], attributes: {} } })
@@ -518,8 +512,7 @@ describe('matches operator ReDoS hardening (P1)', () => {
     // Critical: NOT `allowed: true`. Final decision must be deny.
     expect(decision.allowed).toBe(false)
     expect(decision.effect).toBe('deny')
-    // The drop happens via policy-error path, not via the matches rule firing
-    // as `deny`. Reason text reflects the no-applicable-policy fall-through.
+    // Denied through the policy-error path, not by the `matches` rule firing.
     expect(decision.reason).toMatch(/No policy applicable|Policy evaluation error/i)
     // onPolicyError was invoked with the tagged error.
     expect(errors).toHaveLength(1)
@@ -533,7 +526,7 @@ describe('matches operator ReDoS hardening (P1)', () => {
   })
 })
 
-describe('nesting depth fail-closed (MAX_CONDITION_DEPTH)', () => {
+describe('nesting depth is indeterminate past the bound (MAX_CONDITION_DEPTH)', () => {
   const truthy: AccessControl.ICondition = { field: 'subject.id', operator: 'eq', value: 'user-1' }
 
   /** `{ all: [{ all: [ ... leaf ] }] }` nested `levels` groups deep. */
@@ -548,16 +541,21 @@ describe('nesting depth fail-closed (MAX_CONDITION_DEPTH)', () => {
     expect(evalConditionGroup(makeReq(), nest(MAX_CONDITION_DEPTH, truthy))).toBe(true)
   })
 
-  it('denies a tree deeper than the bound even though every leaf is true', async () => {
+  // SECURITY: Indeterminate, not `false`, which would retire a deny rule; a deny-bearing policy votes deny.
+  it('refuses a tree deeper than the bound even though every leaf is true', async () => {
     const { MAX_CONDITION_DEPTH } = await import('../conditions.libs')
-    expect(evalConditionGroup(makeReq(), nest(MAX_CONDITION_DEPTH + 1, truthy))).toBe(false)
+    expect(() => evalConditionGroup(makeReq(), nest(MAX_CONDITION_DEPTH + 1, truthy))).toThrow(
+      /condition nesting exceeds/,
+    )
   })
 
-  it('an over-deep `none` group also fails closed rather than negating to true', async () => {
+  it('an over-deep `none` group is refused rather than negated into a grant', async () => {
+    // The reason a verdict is the wrong answer here: whatever value the depth
+    // bound returns, an enclosing `none` inverts it. Throwing cannot be negated.
     const { MAX_CONDITION_DEPTH } = await import('../conditions.libs')
     let group: AccessControl.IConditionGroup = { none: [truthy] }
     for (let i = 1; i < MAX_CONDITION_DEPTH + 1; i++) group = { none: [group] }
-    expect(evalConditionGroup(makeReq(), group)).toBe(false)
+    expect(() => evalConditionGroup(makeReq(), group)).toThrow(/condition nesting exceeds/)
   })
 })
 
@@ -613,8 +611,10 @@ describe('per-instance regex cache isolation', () => {
     const { evalMatchesOp, MAX_REGEX_LENGTH } = await import('../conditions.libs')
     const cache = new Map<string, RegExp>()
     const longPattern = `^${'a'.repeat(MAX_REGEX_LENGTH)}`
-    expect(evalMatchesOp('aaa', longPattern, cache)).toBe(false)
+    // An over-long PATTERN is a refusal to evaluate, like an over-long input.
+    expect(() => evalMatchesOp('aaa', longPattern, cache)).toThrow(/Indeterminate/)
     expect(cache.size).toBe(0)
+    // A non-string field is a miss; a non-string operand is stopped earlier by `evalCondition`'s OPERAND_TYPES screen.
     expect(evalMatchesOp(42, '^4', cache)).toBe(false)
     expect(evalMatchesOp('42', 42, cache)).toBe(false)
     expect(cache.size).toBe(0)

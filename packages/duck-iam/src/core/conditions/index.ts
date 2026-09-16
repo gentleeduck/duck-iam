@@ -1,17 +1,5 @@
-// `regexCache` and `ops` are deliberately not re-exported. `regexCache` is the
-// process-wide compile pool, and handing consumers the mutable Map lets any of
-// them seat a permissive RegExp under a pattern a deny rule relies on. `ops` is
-// worse: it is the operator table itself, so `ops.eq = () => false` retires
-// every `eq` deny rule in both evaluation modes. Neither is frozen at runtime,
-// so withholding them from the barrel is the only thing keeping them internal.
-// `iamClearRegexCache()` covers the one legitimate operator need.
-//
-// Everything below is renamed on the way out. `export * from './conditions'` in
-// `core/index.ts` puts these on the package root, where `evalCondition`,
-// `resolveValue` and `isCondition` are names a consumer's own code plausibly
-// uses; the `iam`/`IAM_` prefix is the house convention for exactly that
-// reason. Internal callers import the implementation modules directly and keep
-// the short names.
+// SECURITY: `regexCache` and `ops` stay unexported; they are mutable and could be swapped out from under a deny rule.
+// NOTE: exports get the `iam`/`IAM_` prefix because they land on the package root.
 export {
   evalConditionGroup as iamEvalConditionGroup,
   evaluateOperator as iamEvaluateOperator,
@@ -23,16 +11,16 @@ export {
   detectCatastrophicRegex as iamDetectCatastrophicRegex,
   evalCondition as iamEvalCondition,
   getCachedRegex as iamGetCachedRegex,
+  // Every tagged condition error, so consumers can `instanceof` them.
+  // `public-error-and-type-surface.test.ts` derives this list from source.
+  IamConditionGroupError,
+  IamOperandTypeError,
+  IamPatternRefusedError,
   IamRegexInputTooLargeError,
+  IamUserSourcedPatternError,
   isCondition as iamIsCondition,
   isUserSourcedValue as iamIsUserSourcedValue,
-  // All six regex/condition limits, not the four that happened to be needed
-  // first. `MAX_BOUNDED_QUANTIFIER` and `MAX_UNBOUNDED_QUANTIFIERS` were
-  // reachable only through `./core/validate` - a separate opt-in chunk - and
-  // unprefixed there, so a consumer pre-flighting a pattern against the same
-  // thresholds the evaluator enforces had to import from two entrypoints under
-  // two naming conventions to collect one set of numbers. `./core/validate`
-  // keeps its own unprefixed exports; these are the root-barrel names.
+  // The limits the evaluator enforces, for pre-flighting patterns. `./core/validate` keeps its unprefixed exports.
   MAX_BOUNDED_QUANTIFIER as IAM_MAX_BOUNDED_QUANTIFIER,
   MAX_CONDITION_DEPTH as IAM_MAX_CONDITION_DEPTH,
   MAX_REGEX_INPUT_LENGTH as IAM_MAX_REGEX_INPUT_LENGTH,

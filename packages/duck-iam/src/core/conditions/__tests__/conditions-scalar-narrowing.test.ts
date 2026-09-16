@@ -68,9 +68,7 @@ describe('condition ops Scalar narrowing', () => {
       expect(ops.not_contains(['gold', 'silver'], 'gold')).toBe(false)
     })
 
-    // A present field that is not an array cannot answer an array-membership
-    // question, so it fails the guard rather than satisfying it - otherwise the
-    // type confusion that bypasses `contains` bypasses this one in reverse.
+    // SECURITY: a present non-array field fails the guard, or the `contains` type confusion bypasses this in reverse.
     it('returns false for a present non-array field', () => {
       expect(ops.not_contains(42, 'gold')).toBe(false)
       expect(ops.not_contains('gold-medal', 'gold')).toBe(false)
