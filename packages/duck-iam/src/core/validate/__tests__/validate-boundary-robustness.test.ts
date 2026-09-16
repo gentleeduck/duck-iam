@@ -7,12 +7,7 @@ import { rolesToPolicy } from '../../rbac/rbac'
 import type { AccessControl } from '../../types'
 import { validatePolicy, validateRole } from '../validate'
 
-/**
- * `validatePolicy` and `validateRole` are the boundary functions for untrusted
- * JSON: their contract is to *return* `{ valid: false, issues }`. Throwing means
- * `admin.import` and every adapter row loader propagate a raw `TypeError` with
- * no issue naming the bad row.
- */
+// Boundary validators return `{ valid: false, issues }`; a throw would reach `admin.import` as a bare `TypeError`.
 describe('validatePolicy never throws on a malformed rule row', () => {
   it.each([
     ['a null rule', '{"id":"p","name":"P","algorithm":"deny-overrides","rules":[null],"targets":{"actions":["read"]}}'],
@@ -28,8 +23,7 @@ describe('validatePolicy never throws on a malformed rule row', () => {
     expect(result.issues.length).toBeGreaterThan(0)
   })
 
-  // `targets.actions: 'read'` already errors as INVALID_TYPE. Iterating it as a
-  // list produced one UNREACHABLE_TARGET per character on top of that.
+  // `targets.actions: 'read'` already errors as INVALID_TYPE; it must not add one UNREACHABLE_TARGET per character.
   it('does not iterate a non-array target dimension character by character', () => {
     const result = validatePolicy(
       JSON.parse(
@@ -42,8 +36,7 @@ describe('validatePolicy never throws on a malformed rule row', () => {
     expect(result.issues.some((i) => i.code === 'INVALID_TYPE' && i.path === 'targets.actions')).toBe(true)
   })
 
-  // Control: the unreachable-target check still fires on a well-formed policy,
-  // so the assertions above are not passing because the check is now inert.
+  // Control: the check still fires on a well-formed policy, so the tests above aren't passing on an inert check.
   it('control: still reports a genuinely unreachable target', () => {
     const result = validatePolicy({
       algorithm: 'deny-overrides',
@@ -58,12 +51,7 @@ describe('validatePolicy never throws on a malformed rule row', () => {
   })
 })
 
-/**
- * `validateRole` checked only that `perm.conditions` was an object. A permission
- * with an unknown operator therefore passed `admin.import` and threw at
- * evaluation - and the two engines catch that throw at different granularities,
- * so the same store denied in development and allowed in production.
- */
+/** A permission condition with an unknown operator, which only a contents check catches before evaluation throws. */
 const rotten: AccessControl.IRole = JSON.parse(
   '{"id":"rotten","name":"Rotten","permissions":[{"action":"read","resource":"secret",' +
     '"conditions":{"all":[{"field":"subject.id","operator":"BOGUS","value":"u1"}]}}]}',
@@ -115,24 +103,8 @@ describe('validateRole checks permission condition contents', () => {
   })
 })
 
-/**
- * CLOSED. This block used to state a split it could not fix: a role reaching the
- * engine through an adapter that does not validate - a hand-edited file row, a
- * redis or SQL row written by another service - decided differently in each mode.
- * `safeEval` caught at whole-policy scope and `rolesToPolicy` folds *every* role
- * into the single `__rbac__` policy, so one rotten permission dropped every RBAC
- * grant for that request; the compiled path answered from the ROLE_MASK bit
- * before it reached the group that throws.
- *
- * Production was the one that was right - `good`'s grant is independent and must
- * not be voided by `rotten`'s malformed condition - and the interpreter now
- * agrees: a rule that throws inside the generated `__rbac__` union abstains
- * instead of poisoning the policy (see `evaluatePolicy`'s `rulesAbstainOnThrow`).
- * That is safe only there. `rolesToPolicy` emits `effect: 'allow'` and nothing
- * else, so in an allow-only union a skipped rule can only cost the subject a
- * grant it would have got, never suppress a denial. An authored policy still
- * fails closed at whole-policy scope, which the ABAC case below pins.
- */
+// NOTE: a throwing rule in the allow-only `__rbac__` union abstains (`rulesAbstainOnThrow`), so `good` keeps its grant.
+// That is safe only there: an authored policy still fails closed at whole-policy scope.
 describe('residual: a throwing role permission no longer splits the two modes', () => {
   async function can(mode: 'development' | 'production') {
     const adapter = new IamMemoryAdapter({ assignments: { u1: ['rotten', 'good'] }, roles: [rotten, good] })
@@ -145,12 +117,8 @@ describe('residual: a throwing role permission no longer splits the two modes', 
     expect(await can('development')).toBe(true)
   })
 
-  // Abstaining is not swallowing: the interpreter still hands the throw to the
-  // error handler before skipping the rule. Asserted here rather than through
-  // `engine.can` because the engine never gets that far - `good`'s permission is
-  // unconditional, so the compiled table answers from the grant mask bit without
-  // ever reaching the group that throws, in both modes. That is why the split
-  // above was invisible until an unconditional grant sat beside a rotten one.
+  // Abstaining still reports the throw. Tested on `evaluatePolicy` because `engine.can` answers `good`'s unconditional
+  // grant from the mask bit without reaching the throwing group.
   it('hands the throw to the error handler before abstaining', () => {
     const seen: Error[] = []
     const decision = evaluatePolicy(
@@ -171,12 +139,7 @@ describe('residual: a throwing role permission no longer splits the two modes', 
   })
 })
 
-/**
- * `rolesToPolicy` splices an `all` body into the generated rule's own `all` but
- * nests any other group one level deeper, so the same tree crosses
- * `MAX_CONDITION_DEPTH` in one shape and not the other. `validateRole` must
- * agree with what the evaluator will actually match, in both shapes.
- */
+// `validateRole` must agree with what the evaluator matches for a permission condition, whatever its group key.
 describe('permission condition depth matches what the evaluator accepts', () => {
   /** A group nested `levels` deep under `key`, with one leaf at the bottom. */
   function nest(key: 'all' | 'any', levels: number): unknown {
@@ -190,10 +153,7 @@ describe('permission condition depth matches what the evaluator accepts', () => 
       JSON.stringify({ id: 'r', name: 'R', permissions: [{ action: 'read', conditions, resource: 'secret' }] }),
     )
     const adapter = new IamMemoryAdapter({ assignments: { u1: ['r'] }, roles: [role] })
-    // Pinned to development: `mode` defaults to 'production' since 5.9.0, and
-    // the two paths genuinely disagree about a throwing permission (the test
-    // just above pins that divergence). `validateRole` is written against the
-    // development evaluator, so that is the one this compares it to.
+    // Pinned to development (the default is production): `validateRole` is written against the development evaluator.
     const engine = new IamEngine({ adapter, cacheTTL: 0, hooks: { onPolicyError: vi.fn() }, mode: 'development' })
     return await engine.can('u1', 'read', { attributes: {}, type: 'secret' })
   }

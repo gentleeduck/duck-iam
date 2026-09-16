@@ -4,16 +4,8 @@ import { validateRuleShape } from '../validate/validate.libs'
 import { iamChosenWhen, When } from './when'
 
 /**
- * Fluent builder for constructing {@link AccessControl.IRule} objects in duck-iam.
- *
- * Rules are the atomic unit of an ABAC policy. Each rule declares an effect
- * (`allow` or `deny`), the actions and resources it covers, an optional scope
- * restriction, and an optional condition tree that must hold for the rule to
- * fire.
- *
- * Rules are collected into a {@link PolicyBuilder} and evaluated by the engine
- * using the policy's chosen conflict-resolution algorithm
- * (`allow-overrides`, `deny-overrides`, `first-match`, or `highest-priority`).
+ * Chainable builder for an {@link AccessControl.IRule}: an effect, the actions and resources it covers,
+ * an optional scope and a condition tree. Its {@link PolicyBuilder}'s algorithm resolves conflicts.
  *
  * @example
  * ```ts
@@ -53,16 +45,8 @@ export class RuleBuilder<
   private _conditions: AccessControl.IConditionGroup = { all: [] }
   private _conditionsSet = false
   /**
-   * Whether anything that shapes *what is granted* has been said. `desc`,
-   * `priority` and `meta` deliberately do not count: they annotate a rule, they
-   * do not narrow it.
-   *
-   * The defaults are the broadest possible grant - `allow` on `['*']` x `['*']`
-   * with `{all:[]}` conditions, which evaluates true - so a builder nobody
-   * configured is not an empty rule, it is allow-everything. `build()` refuses
-   * that rather than returning it, which is what `PolicyBuilder.rule()` has
-   * always claimed happens. A *deliberate* broad grant still builds: say
-   * `.allow()` and the flag is set.
+   * Whether anything shaping what is granted was set; `desc`, `priority` and `meta` do not count.
+   * SECURITY: the defaults are allow `*` on `*` unconditionally, so `build()` refuses while this is false.
    */
   private _grantShapeSet = false
   private _metadata?: IamPrimitives.Attributes
@@ -74,23 +58,14 @@ export class RuleBuilder<
 
   /**
    * ANDs a new group onto whatever `.when()` / `.whenAny()` already set.
-   *
-   * Replacing instead would let a second call silently drop the first
-   * restriction, turning a narrow rule into a broad one.
+   * SECURITY: replacing it would drop the earlier restriction and widen the rule.
    */
   private _addConditions(next: AccessControl.IConditionGroup): void {
     this._conditions = this._conditionsSet ? { all: [this._conditions, next] } : next
     this._conditionsSet = true
   }
 
-  /**
-   * Sets the rule effect to `allow`.
-   *
-   * This is the default effect - you only need to call this explicitly when
-   * overriding a previous `.deny()` call on the same builder instance.
-   *
-   * @returns `this` for chaining
-   */
+  /** Sets the effect to `allow` (the default). Also the explicit opt-in that lets a broad `allow * *` rule build. */
   allow(): this {
     this._grantShapeSet = true
     this._effect = 'allow'
@@ -98,13 +73,7 @@ export class RuleBuilder<
   }
 
   /**
-   * Sets the rule effect to `deny`.
-   *
-   * Deny rules take precedence over allow rules when the policy algorithm is
-   * `deny-overrides`. Under `allow-overrides` a deny only wins if no allow
-   * rule matches.
-   *
-   * @returns `this` for chaining
+   * Sets the effect to `deny`. It wins under `deny-overrides`; under `allow-overrides`, only if no allow matches.
    */
   deny(): this {
     this._grantShapeSet = true
@@ -112,39 +81,20 @@ export class RuleBuilder<
     return this
   }
 
-  /**
-   * Attaches a human-readable description to the rule.
-   *
-   * Descriptions are stored on the {@link AccessControl.IRule} object and surfaced by the
-   * engine's explain/debug output. They have no effect on evaluation.
-   *
-   * @param d - Description text
-   * @returns `this` for chaining
-   */
+  /** Attaches a description, shown in explain output; no effect on evaluation. */
   desc(d: string): this {
     this._description = d
     return this
   }
 
-  /**
-   * Sets the rule's evaluation priority.
-   *
-   * Higher numbers are evaluated first. The default priority is `10`.
-   * Priority matters when the policy algorithm is `highest-priority` - the
-   * matching rule with the highest priority number wins.
-   *
-   * @param p - Priority value (higher = evaluated earlier)
-   * @returns `this` for chaining
-   */
+  /** Sets the priority (default `10`). Under `first-match` and `highest-priority` the highest matching rule wins. */
   priority(p: number): this {
     this._priority = p
     return this
   }
 
   /**
-   * Declares the actions this rule applies to.
-   *
-   * Pass `'*'` to match all actions. Accepts multiple arguments.
+   * Sets the actions this rule covers; `'*'` matches all.
    *
    * @example
    * ```ts
@@ -152,9 +102,6 @@ export class RuleBuilder<
    *   .on('read', 'update')
    *   .of('post')
    * ```
-   *
-   * @param actions - One or more action strings, or `'*'` for all actions
-   * @returns `this` for chaining
    */
   on(...actions: (TAction | '*')[]): this {
     this._grantShapeSet = true
@@ -163,9 +110,7 @@ export class RuleBuilder<
   }
 
   /**
-   * Declares the resources this rule applies to.
-   *
-   * Pass `'*'` to match all resources. Accepts multiple arguments.
+   * Sets the resources this rule covers; `'*'` matches all. Also types `resourceAttr` for them.
    *
    * @example
    * ```ts
@@ -173,27 +118,17 @@ export class RuleBuilder<
    *   .on('read')
    *   .of('post', 'comment')
    * ```
-   *
-   * @param resources - One or more resource strings, or `'*'` for all resources
-   * @returns `this` for chaining
    */
   of<R extends TResource | '*'>(...resources: R[]): RuleBuilder<TAction, TResource, TScope, TRole, TContext, R> {
     this._grantShapeSet = true
     this._resources = resources
-    // Narrows TActiveResource so `.when(w => w.resourceAttr(...))` autocompletes
-    // the attributes of the resource(s) just selected.
+    // Narrows TActiveResource so `resourceAttr` autocompletes the selected resources' attributes.
     return this as unknown as RuleBuilder<TAction, TResource, TScope, TRole, TContext, R>
   }
 
   /**
-   * Restricts this rule to one or more scopes.
-   *
-   * A scope typically represents a tenant, organization, or workspace.
-   * When a scope is set, the engine only fires the rule when the request's
-   * scope matches. Passing `'*'` is a no-op - use no scope restriction for
-   * global rules instead.
-   *
-   * Scope conditions compose correctly with `.when()` and `.whenAny()`.
+   * Restricts the rule to requests in one of `scopes` (e.g. tenants). `'*'` adds no condition; no scopes throws.
+   * Composes with `.when()` / `.whenAny()` in either order.
    *
    * @example
    * ```ts
@@ -203,16 +138,9 @@ export class RuleBuilder<
    *   .of('post')
    *   .forScope('org-1')
    * ```
-   *
-   * @param scopes - One or more scope strings to restrict this rule to
-   * @returns `this` for chaining
    */
   forScope(...scopes: (TScope | '*')[]): this {
-    // A scope restriction that names no scope is always a call-site bug, and
-    // the shape that gets here in practice is `.forScope(...tenantIds)` with a
-    // list that came back empty. Reading that as "every scope" is the fail-open
-    // reading: the author asked for a restriction and would silently get a
-    // global rule. `'*'` is how "every scope" is said out loud.
+    // SECURITY: a runtime-empty `...tenantIds` must not become a global rule; `'*'` is how to say "every scope".
     if (scopes.length === 0) {
       throw new Error(
         `[@gentleduck/iam:builder] RuleBuilder.forScope("${this._id}") was called with no scopes. ` +
@@ -220,10 +148,7 @@ export class RuleBuilder<
           "of the intent. Pass at least one scope, or `'*'` if the rule really is unscoped.",
       )
     }
-    // Counted even when every scope is `'*'`. The refusal in `build()` is aimed
-    // at *silence* - a callback that configured nothing - and `.forScope('*')`
-    // is an explicit statement about scope, so it is not silence. It narrows
-    // nothing, which is why the wildcard still produces no condition below.
+    // Counted even for `'*'`: `build()` refuses silence, and `.forScope('*')` is an explicit (if non-narrowing) choice.
     this._grantShapeSet = true
     const nonWild = scopes.filter((s): s is TScope => s !== '*')
     if (nonWild.length === 0) return this
@@ -235,12 +160,7 @@ export class RuleBuilder<
   }
 
   /**
-   * Attaches an ALL-of condition group to the rule using a {@link When} builder.
-   *
-   * Every condition added inside the callback must hold (`AND` semantics) for
-   * the rule to match. Composes with `.forScope()` - the scope check is
-   * prepended to the condition list automatically at build time. Calling
-   * `.when()` / `.whenAny()` again ANDs the new group onto the existing one.
+   * Adds an AND group: every condition built in `fn` must hold. Repeated calls AND together.
    *
    * @example
    * ```ts
@@ -253,9 +173,6 @@ export class RuleBuilder<
    *     .resourceAttr('amount', 'lte', 10000)
    *   )
    * ```
-   *
-   * @param fn - Callback that receives a {@link When} builder and returns it after chaining conditions
-   * @returns `this` for chaining
    */
   when(
     fn: (
@@ -264,23 +181,15 @@ export class RuleBuilder<
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     const group = iamChosenWhen(w, fn(w)).buildAll()
-    // Only a callback that actually added a condition counts as configuring the
-    // grant. An empty `all` group is not a narrow rule, it is the broadest one:
-    // `evalConditionGroup` runs `.every` over it, and `.every` on an empty array
-    // is `true`, so `{all: []}` matches every request. Counting it would let
-    // `.when(w => w)` build the same allow-everything rule `build()` refuses.
-    // `whenAny` deliberately does not do this - see its own note.
+    // SECURITY: an empty `all` group matches every request (`.every` on `[]` is true), so it does not count
+    // as configuring the grant. `whenAny` differs; see there.
     if (group.all.length > 0) this._grantShapeSet = true
     this._addConditions(group)
     return this
   }
 
   /**
-   * Attaches an ANY-of condition group to the rule using a {@link When} builder.
-   *
-   * At least one condition added inside the callback must hold (`OR` semantics)
-   * for the rule to match. A second `.when()` / `.whenAny()` call ANDs its
-   * group onto this one rather than replacing it.
+   * Adds an OR group: at least one condition built in `fn` must hold. Repeated calls AND together.
    *
    * @example
    * ```ts
@@ -293,9 +202,6 @@ export class RuleBuilder<
    *     .attr('role', 'eq', 'admin')
    *   )
    * ```
-   *
-   * @param fn - Callback that receives a {@link When} builder and returns it after chaining conditions
-   * @returns `this` for chaining
    */
   whenAny(
     fn: (
@@ -303,40 +209,23 @@ export class RuleBuilder<
     ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
-    // Counted unconditionally, unlike `when`. An empty `any` group fails closed
-    // where an empty `all` group fails open: `.some` on an empty array is
-    // `false`, so `{any: []}` matches nothing and the rule can never grant.
-    // Building an `any` list from a collection that turns out to be empty is a
-    // legitimate way to say "nobody", so there is nothing to refuse here.
+    // NOTE: counted even when empty, unlike `when`: `{any: []}` matches nothing (`.some` on `[]` is false),
+    // so it fails closed, and an `any` list built from an empty collection legitimately means "nobody".
     this._grantShapeSet = true
     this._addConditions(iamChosenWhen(w, fn(w)).buildAny())
     return this
   }
 
-  /**
-   * Attaches arbitrary metadata to the rule.
-   *
-   * Metadata is stored on the {@link AccessControl.IRule} object but is never used during
-   * policy evaluation. Use it for audit logs, admin dashboards, or any
-   * application-level bookkeeping.
-   *
-   * @param m - Key-value map of metadata attributes
-   * @returns `this` for chaining
-   */
+  /** Attaches metadata for app bookkeeping (audit logs, dashboards); never used in evaluation. */
   meta(m: IamPrimitives.Attributes): this {
     this._metadata = m
     return this
   }
 
   /**
-   * Finalises the builder and returns a plain {@link AccessControl.IRule} object.
+   * Returns the plain {@link AccessControl.IRule}, prepending any `.forScope()` condition to the group.
    *
-   * Any scope condition set via `.forScope()` is merged into the condition
-   * group here so that `.forScope()` and `.when()` / `.whenAny()` always
-   * compose correctly regardless of call order.
-   *
-   * @throws If the resulting rule fails validation
-   * @returns A fully constructed, immutable {@link AccessControl.IRule}
+   * @throws If the builder was never configured, or the rule fails validation
    */
   build(): AccessControl.IRule<TAction, TResource> {
     if (!this._grantShapeSet) {
@@ -355,8 +244,7 @@ export class RuleBuilder<
       }
     }
 
-    // See `PolicyBuilder.build`: an optional key set to `undefined` is a shape
-    // difference between backends, not a value.
+    // Omit unset optional keys; see `PolicyBuilder.build`.
     const rule: AccessControl.IRule<TAction, TResource> = {
       id: this._id,
       effect: this._effect,
@@ -367,8 +255,7 @@ export class RuleBuilder<
       conditions,
       ...(this._metadata === undefined ? {} : { metadata: this._metadata }),
     }
-    // Validate at build time, like RoleBuilder and PolicyBuilder do, so a rule
-    // handed straight to an adapter still fails where the bug was introduced.
+    // Validate here too, so a rule handed straight to an adapter fails where the bug was written.
     const issues: IamValidate.IIssue[] = []
     validateRuleShape(rule, 'rule', issues)
     const errs = issues
@@ -384,11 +271,8 @@ export class RuleBuilder<
 }
 
 /**
- * Creates a new {@link RuleBuilder} for the given rule ID.
- *
- * Prefer this factory over instantiating `RuleBuilder` directly. When using
- * `createIam`, use `access.defineRule()` instead to get type-safe
- * action, resource, and scope constraints.
+ * Creates a {@link RuleBuilder}; `id` identifies the rule within its policy.
+ * With `createIam`, use `access.defineRule()` for typed actions, resources and scopes.
  *
  * @example
  * ```ts
@@ -400,9 +284,6 @@ export class RuleBuilder<
  *   .of('post')
  *   .build()
  * ```
- *
- * @param id - Unique identifier for this rule within its policy
- * @returns A new {@link RuleBuilder} instance
  *
  * @template TAction   - Union of valid action strings
  * @template TResource - Union of valid resource strings

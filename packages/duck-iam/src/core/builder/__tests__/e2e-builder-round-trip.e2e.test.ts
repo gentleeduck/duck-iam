@@ -1,18 +1,5 @@
-/**
- * E2E: a catalog authored with the builder, stored in real Postgres, enforced
- * by both engines.
- *
- * Every other builder test in this package stops at the object the builder
- * returns. That object is not what a deployment enforces: it is serialised into
- * `jsonb`, read back by a driver, revalidated, compiled, and evaluated. Each of
- * those steps can drop a key or reorder an array, and the builder is the only
- * place an author's intent exists in full.
- *
- * So the catalog below is authored once, written through the drizzle adapter,
- * and then asked real questions - the same questions in `production` and in
- * `development`, which additionally cross-checks the interpreter against the
- * compiled table and fails closed when they disagree.
- */
+// E2E: a builder-authored catalog, saved to Postgres via drizzle, must survive `jsonb` and be enforced
+// identically in production and development mode.
 import { and, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
@@ -47,12 +34,7 @@ type Scope = 'org-a' | 'org-a.team-1' | 'org-b'
 const TABLES = { assignments: iamAssignments, attrs: iamSubjectAttrs, policies: iamPolicies, roles: iamRoles }
 const OPS = { and, eq, or }
 
-/**
- * A document catalog of the shape a real deployment has: inheritance three
- * deep, a conditional grant on the inherited role, a deny that overrides it,
- * an environment window, and one condition group written once and reused by two
- * rules - the pattern `when()`'s own documentation recommends.
- */
+/** A reusable condition group, handed to a rule by returning it from the callback. */
 const sharedOwnerOrAdmin = when<Action, Resource, Role, Scope>().or((o) =>
   o.isOwner('resource.attributes.ownerId').role('admin'),
 )
@@ -66,9 +48,7 @@ function catalog(): {
   const editor = defineRole<Role, Action, Resource, Scope>('editor')
     .name('Editor')
     .inherits('viewer')
-    // Editing is departmental: the grant itself carries the condition, so it is
-    // enforced by the RBAC policy the engine generates rather than by a rule
-    // someone has to remember to write.
+    // The grant carries the condition, so the generated RBAC policy enforces it.
     .grantWhen('update', 'doc', (w) => w.attr('department', 'eq', 'engineering'))
     .build()
 
@@ -80,12 +60,8 @@ function catalog(): {
 
   const auditor = defineRole<Role, Action, Resource, Scope>('auditor').name('Auditor').grant('read', 'doc').build()
 
-  // Each guard policy carries its own allow arm. Under the default
-  // `policyCombine: 'and'` every *applicable* policy has to allow, and a policy
-  // with only deny rules is applicable to the action it names and then defaults
-  // to deny - so a deny-only policy vetoes the very requests it meant to let
-  // through. The catch-all allow at priority 1 is what makes "deny-overrides"
-  // mean what it reads like.
+  // NOTE: each guard needs its priority-1 allow: under `policyCombine: 'and'` a deny-only policy defaults to deny
+  // and vetoes the requests it meant to let through.
   const drafts = definePolicy<Action, Resource, Role, Scope>('drafts')
     .name('Draft visibility')
     .algorithm('deny-overrides')
@@ -109,17 +85,12 @@ function catalog(): {
         .on('update', 'delete')
         .of('doc')
         .priority(100)
-        // Outside the window is a disjunction - before nine OR from six -
-        // not "neither of the two bounds holds", which is true only in the
-        // hours that satisfy exactly one of them.
+        // Outside the window is before nine OR from six, hence `whenAny`.
         .whenAny((w) => w.env('hour', 'lt', 9).env('hour', 'gte', 18)),
     )
-    // Update only. Extending the catch-all to `delete` would allow every
-    // deletion under `allow-overrides`, and the owner-or-admin rule below -
-    // the one these tests are about - would never be reached.
+    // Update only: a catch-all delete allow would mask the owner-or-admin rule under `allow-overrides`.
     .rule('otherwise-defer', (r) => r.allow().on('update').of('doc').priority(1))
-    // The reusable group, handed to a rule by returning it - the shape that
-    // used to leave `{ all: [] }` behind and grant unconditionally.
+    // The reusable group, handed over by returning it from the callback.
     .rule('allow-owner-or-admin-delete', (r) =>
       r
         .allow()
@@ -161,8 +132,7 @@ suite('a builder-authored catalog, stored in Postgres and enforced from there', 
   })
 
   function engine<M extends 'development' | 'production'>(mode: M): IamEngine<Action, Resource, Role, Scope, M> {
-    // A fresh engine per question: these all cache, and a shared instance would
-    // answer the second mode from the first mode's caches.
+    // A fresh engine per question: engines cache, so a shared one would answer one mode from the other's cache.
     return new IamEngine<Action, Resource, Role, Scope, M>({ adapter, defaultEffect: 'deny', mode })
   }
 
@@ -194,8 +164,7 @@ suite('a builder-authored catalog, stored in Postgres and enforced from there', 
     })
 
     it('and denies the same editor in another department', async () => {
-      // Same role, same action, same document - the condition stored on the
-      // grant is the only difference.
+      // Same role, action and document; only the grant's stored condition differs.
       expect(await bothModes('bob', 'update', doc({ ownerId: 'bob' }))).toBe(false)
     })
 
@@ -224,11 +193,8 @@ suite('a builder-authored catalog, stored in Postgres and enforced from there', 
     })
 
     it('the reusable condition group is enforced, not dropped', async () => {
-      // `policyCombine: 'allow-overrides'` is the mode in which an authored
-      // policy can grant on its own; under the default `'and'` the RBAC policy
-      // is applicable to delete/doc and votes deny for an editor, so no ABAC
-      // rule could show through and this case would prove nothing about the
-      // group.
+      // `allow-overrides` lets this policy grant on its own; under `'and'` the RBAC policy denies an editor's
+      // delete, which would hide the group entirely.
       const ask = async (mode: 'development' | 'production', ownerId: string): Promise<boolean> =>
         await new IamEngine<Action, Resource, Role, Scope, typeof mode>({
           adapter,
@@ -237,9 +203,7 @@ suite('a builder-authored catalog, stored in Postgres and enforced from there', 
           policyCombine: 'allow-overrides',
         }).can('alice', 'delete', doc({ ownerId }), HOURS)
 
-      // The group is `isOwner OR role admin`. Alice is neither an admin nor the
-      // owner of the second document, so if the group had been dropped - the
-      // `{ all: [] }` shape - both of these would allow.
+      // Alice owns only the first document and is not an admin; a dropped group (`{ all: [] }`) would allow both.
       expect(await ask('production', 'alice')).toBe(true)
       expect(await ask('development', 'alice')).toBe(true)
       expect(await ask('production', 'someone-else')).toBe(false)
@@ -252,10 +216,7 @@ suite('a builder-authored catalog, stored in Postgres and enforced from there', 
       for (const policy of built.policies) {
         const stored = await adapter.getPolicy(policy.id)
         expect(stored, `policy ${policy.id} is not in the store`).not.toBeNull()
-        // `toMatchObject` rather than `toEqual`: the store normalises a policy
-        // on the way in and may add fields the author did not write. What must
-        // survive byte for byte is everything the author *did* write - every
-        // rule, in order, with its conditions nested exactly as built.
+        // `toMatchObject`: the store may add fields, but every authored rule must survive in order, nested as built.
         expect(JSON.parse(JSON.stringify(stored))).toMatchObject(JSON.parse(JSON.stringify(policy)))
       }
     })
@@ -264,25 +225,13 @@ suite('a builder-authored catalog, stored in Postgres and enforced from there', 
       const stored = await adapter.getPolicy('drafts')
       const authored = built.policies.find((p) => p.id === 'drafts')
       if (stored === null || authored === undefined) throw new Error('the drafts policy is missing')
-      // The builder used to emit `description: undefined`, `targets: undefined`
-      // and `version: undefined`; the memory adapter kept those keys and every
-      // JSON-backed store dropped them, so the same authored policy read back
-      // unequal depending on where it had been. The contract the store does
-      // promise is `iamNormalizePolicy` of what was written - unversioned goes
-      // in, `version: 1` comes out, on every adapter - so that is what the
-      // read is compared against, key for key.
+      // The store promises `iamNormalizePolicy` of what was written (e.g. `version: 1` added), key for key.
       const expected = iamNormalizePolicy(authored)
       expect(Object.keys(stored).sort()).toEqual(Object.keys(expected).sort())
-      // The author never set a version, so the builder must not invent the
-      // key; the store must.
+      // No version was authored: the builder must not add the key, the store must.
       expect('version' in authored).toBe(false)
       expect(stored.version).toBe(1)
-      // Key *order* is deliberately not asserted: postgres `jsonb` is a parsed
-      // value type and re-serialises object keys by length then bytewise, so
-      // `{effect, priority, actions}` comes back as `{effect, actions,
-      // priority}`. Key *presence* is the contract that matters - an omitted
-      // `description` must stay omitted and a written one must survive - so it
-      // is asserted per rule and per condition leaf instead.
+      // INFO: `jsonb` reorders object keys (by length, then bytewise), so key presence is asserted, not order.
       expect(stored.rules.map((rule) => Object.keys(rule).sort())).toEqual(
         expected.rules.map((rule) => Object.keys(rule).sort()),
       )
@@ -298,9 +247,7 @@ suite('a builder-authored catalog, stored in Postgres and enforced from there', 
     })
 
     it('the shared condition group did not leak between the two policies that used it', async () => {
-      // Both rules were built from one `when()` instance. If they shared its
-      // array, chaining onto it now - or the engine freezing one policy - would
-      // reach the other.
+      // Chaining onto the shared `when()` instance after save must not change the stored policy.
       const before = JSON.parse(JSON.stringify(await adapter.getPolicy('hours')))
       sharedOwnerOrAdmin.role('auditor')
       const after = JSON.parse(JSON.stringify(await adapter.getPolicy('hours')))

@@ -5,13 +5,8 @@ import type { AccessControl, IamRequest } from '../../types'
 import { validateConditionGroup } from '../validate.libs'
 import type { IamValidate } from '../validate.types'
 
-/**
- * The validator and the evaluator must agree on the nesting limit. The
- * evaluator refuses a group at `depth >= MAX_CONDITION_DEPTH` and fails closed,
- * so a validator using `>` accepted exactly one level deeper than the evaluator
- * would ever match. An allow rule at that depth merely stopped allowing, but a
- * deny rule validated cleanly and then silently stopped denying.
- */
+// Validator and evaluator agree on the nesting limit: the evaluator fails closed at `depth >= MAX_CONDITION_DEPTH`,
+// so an off-by-one validator would accept a deny rule that never denies.
 
 const request: IamRequest.IAccessRequest = {
   action: 'read',
@@ -38,6 +33,15 @@ function nest(levels: number, keys: readonly GroupKey[] = ['all']): AccessContro
   return node
 }
 
+/** The evaluator's answer with refusal as a third outcome, so "the leaf did not match" differs from "gave up". */
+function evaluates(group: AccessControl.IConditionGroup): boolean | 'refused' {
+  try {
+    return evalConditionGroup(request, group, 0)
+  } catch {
+    return 'refused'
+  }
+}
+
 function validates(group: AccessControl.IConditionGroup): boolean {
   const issues: IamValidate.IIssue[] = []
   validateConditionGroup(group, 'conditions', issues, 0)
@@ -56,7 +60,9 @@ describe('condition nesting limit agrees between validator and evaluator', () =>
   for (let levels = MAX_CONDITION_DEPTH - 2; levels <= MAX_CONDITION_DEPTH + 2; levels++) {
     it(`${levels} nested groups: accepted by the validator iff matched by the evaluator`, () => {
       const group = nest(levels)
-      expect(validates(group)).toBe(evalConditionGroup(request, group, 0))
+      // Accepted iff evaluable, and when evaluable the leaf is true - so the
+      // two sides agree on both the boundary and the verdict.
+      expect(validates(group)).toBe(evaluates(group) === true)
     })
   }
 
@@ -66,36 +72,28 @@ describe('condition nesting limit agrees between validator and evaluator', () =>
     validateConditionGroup(tooDeep, 'conditions', issues, 0)
 
     expect(issues.some((i) => i.code === 'LIMIT_EXCEEDED')).toBe(true)
-    expect(evalConditionGroup(request, tooDeep, 0)).toBe(false)
+    expect(evaluates(tooDeep)).toBe('refused')
   })
 
   it('a deny rule at the boundary cannot validate and then stop denying', () => {
-    // The dangerous shape: validation passes, evaluation silently returns false.
+    // SECURITY: never accepted-but-not-matched, which retires a deny rule. A refusal is safe: it makes the policy
+    // Indeterminate, and a deny-bearing policy votes deny.
     for (let levels = 1; levels <= MAX_CONDITION_DEPTH + 3; levels++) {
       const group = nest(levels)
-      const accepted = validates(group)
-      const matched = evalConditionGroup(request, group, 0)
-      expect(accepted && !matched).toBe(false)
+      expect(validates(group) && evaluates(group) !== true).toBe(false)
     }
   })
 })
 
-/**
- * Every case above builds `{ all: [...] }`. `evalConditionGroup` reaches its
- * depth guard before it looks at the key, and `validateConditionGroup` counts
- * the same way, so the boundary is supposed to be key-independent - but nothing
- * said so, and the two functions pick the key apart in different places.
- */
+// Both functions check depth before reading the key, so the boundary must not depend on which key is used.
 describe('the limit is the same for any and none, and for a mixed tree', () => {
-  // `none` inverts its child's verdict, so the accepted-iff-matched equivalence
-  // is stated only for the truth-preserving keys; `none` gets the structural
-  // and fail-closed assertions below instead.
+  // `none` inverts its child, so accepted-iff-matched holds only for truth-preserving keys; `none` is covered below.
   describe.each<readonly GroupKey[]>([['any'], ['all', 'any'], ['any', 'all']])('keys %j', (...keys) => {
     const shape = keys.flat()
     for (let levels = MAX_CONDITION_DEPTH - 1; levels <= MAX_CONDITION_DEPTH + 1; levels++) {
       it(`${levels} nested groups: accepted by the validator iff matched by the evaluator`, () => {
         const group = nest(levels, shape)
-        expect(validates(group)).toBe(evalConditionGroup(request, group, 0))
+        expect(validates(group)).toBe(evaluates(group) === true)
       })
     }
   })
@@ -107,21 +105,16 @@ describe('the limit is the same for any and none, and for a mixed tree', () => {
     },
   )
 
-  /**
-   * `none` is the key where a truncated group is dangerous in the other
-   * direction: "allow unless X" is written `{ none: [X] }`, so a group that
-   * stops evaluating must not report that X was absent.
-   */
-  it('a too-deep none group fails closed rather than reporting its child absent', () => {
+  // SECURITY: "allow unless X" is `{ none: [X] }`, so a group that stops evaluating must not report X absent.
+  it('a too-deep none group is refused rather than reporting its child absent', () => {
+    // Refusal is the only answer `none` cannot invert into a grant.
     const tooDeep = nest(MAX_CONDITION_DEPTH + 1, ['none'])
     expect(validates(tooDeep)).toBe(false)
-    expect(evalConditionGroup(request, tooDeep, 0)).toBe(false)
+    expect(evaluates(tooDeep)).toBe('refused')
   })
 
-  // Control: one level shallower the same `none` tree is accepted and does
-  // evaluate, so the assertion above is about the depth and not about `none`.
-  // Each `none` inverts, so a tree of an even number of them reports its true
-  // leaf as true - the verdict a truncated tree must not be confused with.
+  // Control: one level shallower the same tree evaluates, so the test above is about depth, not `none`. An even
+  // number of `none`s reports the true leaf as true.
   it('control: a none tree inside the limit still evaluates', () => {
     const group = nest(MAX_CONDITION_DEPTH, ['none'])
     expect(validates(group)).toBe(true)

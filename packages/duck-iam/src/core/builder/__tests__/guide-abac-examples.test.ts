@@ -3,13 +3,7 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import { createIam } from '../../config/config'
 import { IamEngine } from '../../engine'
 
-/**
- * `guides/duck-iam-setup.md` §4 "Define Policies (ABAC)" used to be written
- * against an API that does not exist - `.allow(action, resource)` on the policy
- * builder, `.when().any()`, `.hasRole()`, `.check(fn)` - none of which compile
- * or run. This file is the guide's §2 and §4 verbatim, so the section cannot
- * rot back into fiction without a red test.
- */
+// Sections 2 and 4 of `guides/duck-iam-setup.md` verbatim, so the guide's ABAC examples cannot drift from the real API.
 interface AppContext {
   environment: { region: string; hour: number }
   resourceAttributes: {

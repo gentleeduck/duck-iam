@@ -1,16 +1,10 @@
+// A `matches` pattern `validatePolicy` accepts must compile at evaluation, where an uncompilable one is refused as
+// Indeterminate (`IamPatternRefusedError`). This agreement keeps that path rare.
 import { describe, expect, it } from 'vitest'
 import { evalCondition, getCachedRegex } from '../../conditions/conditions.libs'
 import type { IamRequest } from '../../types'
 import { validatePolicy } from '../validate'
 
-/**
- * `regex-safety-agreement.test.ts` pins `detectCatastrophicRegex` against
- * `getCachedRegex`, which is trivially true - the second calls the first. The
- * invariant that actually matters is one level up: a `matches` pattern
- * `validatePolicy` accepts must compile at evaluation time. When it does not,
- * `evalMatchesOp` gets `null` back and returns `false`, which retires a
- * `deny`-when-`matches` rule outright with nothing logged.
- */
 function acceptsPattern(pattern: string): boolean {
   return validatePolicy({
     algorithm: 'first-match',
@@ -42,10 +36,10 @@ const ACCEPTED = [
   'a*b*c*',
 ]
 
-/** Refused by the detector - nested/overlapping quantifiers, an oversized bound, or more unbounded quantifiers than the budget. */
+/** Refused by the detector: nested/overlapping quantifiers, an oversized bound, or too many unbounded quantifiers. */
 const REFUSED = ['(a+)+', '(a*)*', '(a|aa)+', '(\\w+)\\1+', '(?=(a+)+)b', 'a{1,2000}', 'a*b*c*d*e*f*']
 
-/** Syntactically invalid - a corpus the older agreement test had none of. */
+/** Syntactically invalid. */
 const UNCOMPILABLE = ['[', '(', ')', 'a{2,1}', '\\', '[z-a]', '(?<', '*abc', 'a**']
 
 describe('a `matches` pattern the validator accepts compiles at evaluation time', () => {
@@ -93,20 +87,8 @@ describe('a `matches` pattern the validator accepts compiles at evaluation time'
   })
 })
 
-/**
- * The same invariant from the direction the corpora above cannot reach. A
- * `$`-prefixed operand is refused by `evalCondition` outright - deliberately,
- * because an attacker who controls the referenced attribute would otherwise pin
- * in a catastrophic regex - so the condition is `false` for every request that
- * will ever arrive. It is inert by construction.
- *
- * `validate.libs.ts` skips these with the comment "Non-string / $-resolved
- * values are caught elsewhere". Nothing catches them: `isUserSourcedValue`
- * appears only in `conditions.libs.ts`. So a `deny`-when-`matches` rule written
- * against a request attribute validates clean, stores clean, and never fires -
- * which is the exact outcome this file exists to prevent, arrived at by a
- * different road.
- */
+// SECURITY: a `$`-sourced pattern is a ReDoS vector: refused at validate time, and Indeterminate (not `false`) at
+// evaluation, so a deny rule seeded past the validator can't quietly stop denying.
 describe('a `$`-sourced `matches` operand is refused rather than silently inert', () => {
   const req: IamRequest.IAccessRequest = {
     action: 'read',
@@ -122,11 +104,11 @@ describe('a `$`-sourced `matches` operand is refused rather than silently inert'
       expect(acceptsPattern(pattern)).toBe(false)
     })
 
-    it(`${JSON.stringify(pattern)} is in fact inert at evaluation time`, () => {
-      // Not parity for its own sake: this is why the rejection above has to
-      // exist. The operand resolves to a pattern that matches the field, and
-      // the condition is still false - so a deny rule carrying it never denies.
-      expect(evalCondition(req, { field: 'resource.attributes.path', operator: 'matches', value: pattern })).toBe(false)
+    it(`${JSON.stringify(pattern)} is Indeterminate at evaluation time, not false`, () => {
+      // The operand would match the field, so `false` here would mean "will not answer", not "did not match".
+      expect(() =>
+        evalCondition(req, { field: 'resource.attributes.path', operator: 'matches', value: pattern }),
+      ).toThrow(/Indeterminate/)
     })
   }
 

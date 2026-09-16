@@ -89,9 +89,7 @@ describe('validatePolicy condition value length cap', () => {
     const evilRef = `$${'X'.repeat(MAX_CONDITION_VALUE_LENGTH + 1)}`
     const result = validatePolicy(policyWithCondValue(evilRef))
     expect(result.valid).toBe(false)
-    // The LIMIT_EXCEEDED error fires first; the UNRESOLVABLE_VALUE
-    // warning may still fire but never with the raw value interpolated
-    // beyond the cap, because the LIMIT_EXCEEDED gates evaluation.
+    // LIMIT_EXCEEDED fires first, so an UNRESOLVABLE_VALUE warning never interpolates the raw value past the cap.
     const totalMsgBytes = result.issues.reduce((sum, i) => sum + (i.message?.length ?? 0), 0)
     expect(totalMsgBytes).toBeLessThan(2_000)
   })
@@ -125,8 +123,7 @@ describe('validatePolicy condition value length cap', () => {
     const limitErrors = result.issues.filter(
       (i) => i.code === 'LIMIT_EXCEEDED' && i.path?.startsWith('rules[0].conditions'),
     )
-    // One issue per condition is enough; we don't burn issue-array memory
-    // on every element of a hostile array.
+    // One issue per condition, rather than one per element of a hostile array.
     expect(limitErrors.length).toBe(1)
   })
 })

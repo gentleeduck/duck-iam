@@ -7,16 +7,15 @@ import {
   VALUELESS_OPERATORS,
 } from '../conditions/conditions.libs'
 
-// The regex-safety heuristic lives next to `getCachedRegex` so validate-time and
-// evaluate-time agree on exactly which patterns are refusable. Re-exported here
-// because it was part of this module's public surface.
+// Re-exported public surface. The heuristic lives beside `getCachedRegex` so validation and evaluation refuse the
+// same patterns.
 export {
   detectCatastrophicRegex,
   MAX_BOUNDED_QUANTIFIER,
   MAX_UNBOUNDED_QUANTIFIERS,
 } from '../conditions/conditions.libs'
 
-import { ALLOWED_ROOTS } from '../resolve/resolve'
+import { ALLOWED_ROOTS, BLOCKED_SEGMENTS } from '../resolve/resolve'
 import type { IamValidate } from './validate.types'
 
 function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
@@ -24,9 +23,8 @@ function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Field paths longer than this are refused. The runtime DotPath resolver
- * splits on dots, so an enormous field string would cost O(length) work
- * per evaluation with no upside.
+ * Field paths longer than this are refused.
+ * PERF: the resolver splits on dots, so a huge field costs O(length) on every evaluation.
  */
 export const MAX_FIELD_LENGTH = 256
 
@@ -41,10 +39,8 @@ export const VALID_ALGORITHMS: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Control characters have no meaning in an action or resource name and are
- * invisible in every UI that would show one, so a name carrying one reads as a
- * different name than it is. Rejected at validation rather than normalized:
- * silently rewriting a name would change which rules a policy matches.
+ * True when `value` contains an ASCII control character.
+ * SECURITY: rejected, not stripped: it is invisible in a UI, and rewriting a name changes which rules match.
  */
 export function hasControlChar(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
@@ -59,10 +55,8 @@ export const VALID_EFFECTS: ReadonlySet<string> = new Set(['allow', 'deny'])
 
 /**
  * Validate-time policy size caps.
- *
- * `indexPolicy()` builds an `actions x resources` cartesian per rule, so an
- * unbounded policy can stall the event loop. Limits also cap memory growth
- * in {@link IamEngine}'s LRU caches.
+ * PERF: `indexPolicy()` builds an `actions x resources` cartesian per rule; the caps also bound {@link IamEngine}'s
+ * caches.
  */
 export const POLICY_LIMITS = {
   rulesPerPolicy: 1_000,
@@ -77,15 +71,16 @@ const RESOLVABLE_SHORTHANDS = new Set(['action', 'scope'])
 
 /**
  * True when `path` would resolve to a real attribute at evaluation time.
- * Shares {@link ALLOWED_ROOTS} with the resolver so the two stay in lock-step.
+ * NOTE: shares {@link ALLOWED_ROOTS} and {@link BLOCKED_SEGMENTS} with the resolver, so blocked segments are flagged.
  *
- * @param path - Dot-path string to check.
- * @returns `true` when the path's root is a known resolvable root.
+ * @returns `true` when the path has a known root and no blocked segment.
  */
 export function isResolvablePath(path: string): boolean {
   if (RESOLVABLE_SHORTHANDS.has(path)) return true
-  const root = path.split('.', 1)[0]
-  return !!root && ALLOWED_ROOTS.has(root)
+  const segments = path.split('.')
+  const root = segments[0]
+  if (!root || !ALLOWED_ROOTS.has(root)) return false
+  return !segments.some((segment) => BLOCKED_SEGMENTS.has(segment))
 }
 
 /** Set of valid condition operator names supported by the condition evaluator. */
@@ -121,29 +116,8 @@ function isCompilableRegex(pattern: string): boolean {
 }
 
 /**
- * The operand-type matrix moved to `conditions/conditions.libs`, beside the
- * operator table it describes, and is imported above.
- *
- * It used to be defined here, with a docblock explaining that a wrongly-typed
- * operand makes an operator return a fixed verdict - `true` for the negated
- * ones, so an "allow unless denylisted" rule allows everyone - and that this
- * check was what stopped it. It was not: only `savePolicy` and `import` run the
- * validator, so a policy seeded through an adapter constructor or written
- * straight to the store reached the evaluator unchecked. The evaluator now
- * applies the same table itself and throws, and shares this one so the write
- * check and the read check cannot disagree.
- */
-
-/**
- * `POLICY_JSON_SCHEMA` sets `additionalProperties: false` on the policy, the
- * rule, the target and the condition, so tooling built on the published schema
- * already refuses an unknown key. Accepting one here left the runtime the more
- * permissive of the two, and an unknown key is rarely inert: a misspelled
- * `targets` / `conditions` / `value` is a restriction the author wrote and the
- * engine silently never applies.
- *
- * A key explicitly set to `undefined` is ignored - `JSON.stringify` drops it,
- * so it reaches neither a store nor an external validator.
+ * Push `UNKNOWN_FIELD` for keys outside `allowed`, matching `POLICY_JSON_SCHEMA`'s `additionalProperties: false`.
+ * SECURITY: a misspelled `targets` / `conditions` / `value` is a restriction never applied. Skips `undefined` keys.
  */
 export function checkKnownKeys(
   obj: object,
@@ -232,7 +206,9 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
       issues.push({
         type: 'warning',
         code: 'UNRESOLVABLE_FIELD',
-        message: `Condition field "${obj.field}" has no resolvable root (expected subject/resource/environment, or shorthand action/scope)`,
+        message:
+          `Condition field "${obj.field}" does not resolve at evaluation time (expected a subject/resource/` +
+          'environment root or the shorthand action/scope, and no __proto__/constructor/prototype segment)',
         path: `${path}.field`,
       })
     }
@@ -245,11 +221,8 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
         path: `${path}.operator`,
       })
     } else if (!VALUELESS_OPERATORS.has(operator)) {
-      // `JSON.stringify` drops an `undefined` value, so a policy authored with
-      // one reaches the engine through any adapter with the key simply absent.
-      // There `cond.value ?? null` makes it `null`, which compares equal to a
-      // missing attribute - the guard passes for exactly the subjects it was
-      // written to exclude. Missing and explicitly-`undefined` are one case.
+      // SECURITY: missing and `undefined` are one case, since JSON drops the key. A `null` operand equals a missing
+      // attribute, so the guard would pass for exactly the subjects it excludes.
       if (!('value' in obj) || obj.value === undefined) {
         issues.push({
           type: 'error',
@@ -258,8 +231,8 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
           path: `${path}.value`,
         })
       } else if (!(typeof obj.value === 'string' && obj.value.startsWith('$'))) {
-        // A `$`-prefixed value resolves from the request at evaluation time, so
-        // its type is unknowable here.
+        // A `$` value resolves from the request, so its type is unknown here. The evaluator applies the same
+        // `OPERAND_TYPES` table on read.
         const expected = OPERAND_TYPES.get(operator)
         if (expected !== undefined && !operandHasType(expected, obj.value)) {
           issues.push({
@@ -299,27 +272,17 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
         path: `${path}.value`,
       })
     }
-    // `matches` is the only operator that compiles its value into a regex.
-    // Refuse catastrophic patterns at validate-time so they never reach the
-    // policy store.
-    //
-    // A `$`-resolved operand is refused for a different reason. `evalCondition`
-    // returns `false` for one without looking at the request, deliberately: an
-    // attacker who controls the referenced attribute could otherwise pin in a
-    // catastrophic regex. That refusal is right, but it makes the condition
-    // false for every request that will ever arrive - so a `deny`-when-`matches`
-    // rule written this way validates clean, stores clean, and never fires. The
-    // comment here used to say these were "caught elsewhere"; they were not,
-    // `isUserSourcedValue` is referenced only from `conditions.libs.ts`. A rule
-    // that provably cannot do anything is an authoring error, not a warning.
+    // SECURITY: `matches` compiles its value, so catastrophic patterns are refused before they reach the store. A
+    // `$`-sourced pattern is a ReDoS vector that `evalCondition` refuses, leaving the policy indeterminate.
     if (obj.operator === 'matches' && typeof obj.value === 'string' && obj.value.startsWith('$')) {
       issues.push({
         type: 'error',
         code: 'ERR_REGEX_USER_SOURCED',
         message:
           'Condition "matches" pattern is read from request data. This is refused at evaluation time ' +
-          '(a caller-supplied pattern is a ReDoS vector), so the condition would always be false and the ' +
-          'rule would never fire. Use a literal pattern.',
+          '(a caller-supplied pattern is a ReDoS vector): the condition raises, which makes the policy ' +
+          'indeterminate rather than false. An indeterminate policy still votes - deny if it carries any ' +
+          'deny rule - so do not read this as "the rule is inert". Use a literal pattern.',
         path: `${path}.value`,
       })
     }
@@ -333,9 +296,7 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
           path: `${path}.value`,
         })
       } else if (!isCompilableRegex(obj.value)) {
-        // A pattern that will not compile does not raise at evaluation - the
-        // operator returns `false`, which retires a `deny`-when-`matches` rule
-        // outright. Compiling it here is the only place the failure is visible.
+        // An uncompilable pattern is refused at evaluation (Indeterminate); catch it here where the author sees it.
         issues.push({
           type: 'error',
           code: 'ERR_REGEX_INVALID',
@@ -358,10 +319,8 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
  * @param depth  - Current nesting depth (defaults to `0`; bounded by `MAX_CONDITION_DEPTH`).
  */
 export function validateConditionGroup(input: unknown, path: string, issues: IamValidate.IIssue[], depth = 0): void {
-  // `evalConditionGroup` refuses a group at `depth >= MAX_CONDITION_DEPTH` and
-  // fails closed. Using `>` here would accept exactly one level deeper than the
-  // evaluator will ever match, so a deny rule at that depth would validate and
-  // then silently stop denying. Keep the two comparisons identical.
+  // SECURITY: keep `>=` identical to `evalConditionGroup`, which fails closed at this depth. `>` would validate a
+  // deny rule one level too deep to ever fire.
   if (depth >= MAX_CONDITION_DEPTH) {
     issues.push({
       type: 'error',
@@ -393,9 +352,7 @@ export function validateConditionGroup(input: unknown, path: string, issues: Iam
     return
   }
 
-  // `evalConditionGroup` reads one key and ignores the rest, so `{ all, any }`
-  // silently drops whichever it does not reach - the schema's `oneOf` refuses
-  // the shape and the runtime honoured half of it.
+  // SECURITY: `evalConditionGroup` reads one key and ignores the rest, so `{ all, any }` would honour only half.
   if (present.length > 1) {
     issues.push({
       type: 'error',
@@ -539,9 +496,8 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
     }
   }
 
-  // Required by IRule and the JSON schema; evaluate narrows defensively too, but
-  // a row that omits it must fail here so it never reaches the engine. Present
-  // non-object values fall through to validateConditionGroup below.
+  // Required by IRule and the schema, so a row without it never reaches the engine. Non-object values are reported by
+  // validateConditionGroup below.
   if (rule.conditions === undefined) {
     issues.push({
       type: 'error',

@@ -1,9 +1,6 @@
 /**
  * Results and issue shapes produced by the validators. Type-only.
- *
- * Validation reports rather than throws wherever a caller may want to see every
- * problem at once - an admin UI saving a policy should show all the issues, not
- * the first one.
+ * Validators report instead of throwing, so a caller such as an admin UI sees every problem at once.
  */
 export namespace IamValidate {
   /**
@@ -36,11 +33,7 @@ export namespace IamValidate {
     | 'UNRESOLVABLE_FIELD'
     | 'UNRESOLVABLE_VALUE'
 
-  /**
-   * A single issue produced by validation.
-   *
-   * Errors flip {@link IResult.valid} to `false`; warnings do not.
-   */
+  /** A single validation issue; errors flip {@link IResult.valid} to `false`, warnings do not. */
   export interface IIssue {
     /** `'error'` blocks usage, `'warning'` is informational. */
     readonly type: 'error' | 'warning'
@@ -55,12 +48,8 @@ export namespace IamValidate {
   }
 
   /**
-   * The action / resource / scope vocabulary a config declared, against which
-   * {@link validateRoles} can check that every grant is reachable.
-   *
-   * An omitted or empty list means "unconstrained on this axis", not "nothing
-   * is allowed" - a config that declares `actions` but no `scopes` should not
-   * have every scoped grant rejected.
+   * The action / resource / scope vocabulary {@link validateRoles} checks grants against.
+   * An omitted or empty list leaves that axis unconstrained; it does not forbid everything.
    */
   export interface IDeclaredSurface {
     /** Declared actions. `'*'` in a grant is always allowed. */
@@ -71,12 +60,7 @@ export namespace IamValidate {
     readonly scopes?: readonly string[]
   }
 
-  /**
-   * The result of a validation operation.
-   *
-   * `valid` is `true` when there are no error-level issues.
-   * Warning-level issues do not affect `valid`.
-   */
+  /** The result of a validation; `valid` is `true` when there are no error-level issues. */
   export interface IResult {
     /** Whether the validated input is free of errors. */
     readonly valid: boolean

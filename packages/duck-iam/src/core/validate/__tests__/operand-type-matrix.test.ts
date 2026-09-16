@@ -1,33 +1,21 @@
+// Pins the operand type each operator accepts; the evaluator applies the same table on read and throws.
 import { describe, expect, it } from 'vitest'
 import { evalCondition, IamOperandTypeError } from '../../conditions/conditions.libs'
 import type { IamRequest } from '../../types'
 import { validatePolicy } from '../validate'
 import { VALID_OPERATORS } from '../validate.libs'
 
-/**
- * A wrongly-typed operand used to make each operator return a fixed verdict,
- * and for the negated ones that verdict was `true`, so an "allow unless
- * denylisted" rule allowed everyone. The validator refused the operand, and
- * that was taken to make the verdict unreachable.
- *
- * It was not. Only `savePolicy` and `import` run the validator; `loadPolicies`
- * does not, so a policy seeded through an adapter constructor - a documented
- * API - or written straight to the store is evaluated exactly as authored.
- * Measured end to end: a seeded denylist allowed the banned subject. The
- * evaluator now applies the same matrix itself and throws, which the engine
- * absorbs as Indeterminate, and both checks read one table.
- *
- * `EXPECTED_OPERAND` is written out rather than imported from `OPERAND_TYPES`:
- * a test that reads the table it is checking cannot catch an edit to it.
- */
-type OperandKind = 'any' | 'array' | 'number' | 'string' | 'temporal' | 'none'
+type OperandKind = 'any' | 'array' | 'number' | 'scalar' | 'string' | 'temporal' | 'none'
 
+// NOTE: written out, not imported from `OPERAND_TYPES`: a test reading the table it checks can't catch an edit to it.
 const EXPECTED_OPERAND: Readonly<Record<string, OperandKind>> = {
   after: 'temporal',
   before: 'temporal',
-  contains: 'any',
+  // `contains`/`not_contains` ask array membership, so the operand is the scalar looked for, not anything.
+  contains: 'scalar',
   ends_with: 'string',
-  eq: 'any',
+  // `eq`/`neq` are `f === v`, so a non-scalar operand compares by reference and can never match.
+  eq: 'scalar',
   exists: 'none',
   gt: 'number',
   gte: 'number',
@@ -35,9 +23,9 @@ const EXPECTED_OPERAND: Readonly<Record<string, OperandKind>> = {
   lt: 'number',
   lte: 'number',
   matches: 'string',
-  neq: 'any',
+  neq: 'scalar',
   nin: 'array',
-  not_contains: 'any',
+  not_contains: 'scalar',
   not_exists: 'none',
   starts_with: 'string',
   subset_of: 'array',
@@ -52,10 +40,19 @@ const SAMPLES: readonly [string, unknown][] = [
   ['a boolean', true],
   ['null', null],
   ['an array', ['a']],
+  // The container being an array was never enough: membership compares elements,
+  // so an array of non-scalars matched nothing by reference and retired the rule.
+  ['an array of objects', [{ a: 1 }]],
+  ['an array of arrays', [['a']]],
   ['an object', { a: 1 }],
   ['a $-reference', '$subject.attributes.other'],
   ['nothing', MISSING],
 ]
+
+/** The model's own scalar test, kept separate from the product's. */
+function isScalarSample(value: unknown): boolean {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+}
 
 function satisfies(kind: OperandKind, value: unknown): boolean {
   // `exists` / `not_exists` read only the field, so any operand - or none - is fine.
@@ -67,9 +64,11 @@ function satisfies(kind: OperandKind, value: unknown): boolean {
     case 'any':
       return true
     case 'array':
-      return Array.isArray(value)
+      return Array.isArray(value) && value.every(isScalarSample)
     case 'number':
       return typeof value === 'number'
+    case 'scalar':
+      return isScalarSample(value)
     case 'string':
       return typeof value === 'string'
     case 'temporal':
@@ -109,25 +108,14 @@ describe('operator x operand type', () => {
 
   it.each(MATRIX)('%s with %s', (operator, _label, value) => {
     const kind = EXPECTED_OPERAND[operator] ?? 'any'
-    // The one cell where a type-satisfying operand is still refused, and the
-    // refusal is not about its type. `matches` compiles its operand, and
-    // `evalCondition` will not compile one that came from the request - an
-    // attacker controlling that attribute would otherwise pin in a catastrophic
-    // regex. So the condition is false for every request that can ever arrive
-    // and the rule never fires; the validator refuses it rather than store a
-    // rule that provably does nothing. See `matches-pattern-agreement.test.ts`.
-    // `satisfies` is left alone deliberately: it models operand *types*, and
-    // folding a semantic refusal into it would make it wrong about types.
+    // The one type-satisfying operand still refused: a `$`-sourced `matches` pattern is a ReDoS vector (see
+    // `matches-pattern-agreement.test.ts`). `satisfies` models types only, so the exception lives here.
     const inertUserSourcedPattern = operator === 'matches' && typeof value === 'string' && value.startsWith('$')
     expect(accepts(operator, value)).toBe(satisfies(kind, value) && !inertUserSourcedPattern)
   })
 })
 
-/**
- * What the matrix is protecting against, spelled out - and what now happens
- * instead. The first two were the permissive direction; both were reachable
- * without the validator, and both now refuse to answer.
- */
+// The first two are the permissive cases; both are reachable without the validator, so the evaluator throws.
 describe('the verdicts a malformed operand would produce', () => {
   const req: IamRequest.IAccessRequest = {
     action: 'read',
@@ -137,9 +125,7 @@ describe('the verdicts a malformed operand would produce', () => {
   }
 
   it('`nin` with a non-array operand throws rather than admitting everyone', () => {
-    // The old verdict was `true`: a denylist that admits every subject it was
-    // written to exclude. Indeterminate is the honest answer - the operator
-    // cannot compare against a non-list - and the caller fails closed on it.
+    // SECURITY: Indeterminate, not a `true` that admits every denylisted subject; the caller fails closed on it.
     expect(() => evalCondition(req, { field: 'subject.attributes.tier', operator: 'nin', value: 'gold' })).toThrow(
       IamOperandTypeError,
     )
@@ -147,9 +133,7 @@ describe('the verdicts a malformed operand would produce', () => {
   })
 
   it('`eq` with a missing operand throws rather than matching every absent attribute', () => {
-    // `JSON.stringify` drops an `undefined`, so the key simply vanishes on the
-    // way to a store; `cond.value ?? null` then compared equal to any absent
-    // attribute. The guard passed for exactly the subjects it excluded.
+    // `JSON.stringify` drops `undefined`, and a `null` operand would equal any absent attribute.
     expect(() => evalCondition(req, { field: 'subject.attributes.absent', operator: 'eq' })).toThrow(
       IamOperandTypeError,
     )
@@ -157,8 +141,7 @@ describe('the verdicts a malformed operand would produce', () => {
   })
 
   it('`not_contains` on an absent field still returns true - that is the field, not the operand', () => {
-    // Unchanged, and deliberately: an empty list contains nothing. The operand
-    // is well-formed here, so there is nothing unanswerable about the question.
+    // An empty list contains nothing, and the operand is well-formed, so this is answerable.
     expect(evalCondition(req, { field: 'subject.attributes.absent', operator: 'not_contains', value: 'staff' })).toBe(
       true,
     )
@@ -168,9 +151,7 @@ describe('the verdicts a malformed operand would produce', () => {
     expect(evalCondition(req, { field: 'subject.attributes.tier', operator: 'contains', value: 'gol' })).toBe(false)
   })
 
-  // Control: the same operators reach the right verdict on a well-formed
-  // operand. Without this the three clauses above are satisfied by an
-  // evaluator that throws on everything.
+  // Control: without this, the clauses above pass on an evaluator that throws on everything.
   it('control: well-formed operands answer correctly', () => {
     expect(evalCondition(req, { field: 'subject.attributes.tier', operator: 'nin', value: ['gold'] })).toBe(false)
     expect(evalCondition(req, { field: 'subject.attributes.tier', operator: 'nin', value: ['silver'] })).toBe(true)

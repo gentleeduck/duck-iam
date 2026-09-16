@@ -7,17 +7,8 @@ import { defineRole } from '../role'
 import { defineRule } from '../rule'
 import { when } from '../when'
 
-/**
- * The builder is the authoring surface: whatever it emits is what the engine
- * enforces, and an author who mis-writes a chain has no second reader to catch
- * it. So the failure mode that matters here is not "the build throws" - it is
- * "the build succeeds and the rule means something else", and in particular the
- * shapes that quietly turn into *no condition at all*.
- *
- * Every case below asserts a verdict rather than a JSON shape. A condition
- * group that vanished is only interesting because of what the engine then
- * answers.
- */
+// Authoring mistakes that still build but mean something else, often no condition at all.
+// Each case asserts the engine's verdict, not the emitted shape.
 
 const REQUEST = (attributes: IamPrimitives.Attributes, roles: string[] = []): IamRequest.IAccessRequest => ({
   action: 'update',
@@ -29,14 +20,7 @@ function verdict(rules: AccessControl.IRule[], request: IamRequest.IAccessReques
   return evaluate([{ algorithm: 'deny-overrides', id: 'p', name: 'p', rules }], request, 'deny', 'and').allowed
 }
 
-/**
- * `when()`'s own documentation ends with "build a reusable condition and spread
- * it across multiple rules", and the callback signature is
- * `(w: When) => When` - it *returns* a builder. Returning one other than the
- * one handed in dropped it on the floor and left `{ all: [] }` behind: an allow
- * rule with no conditions is an unconditional grant, which is the strongest
- * fail-open this package can produce from a chain that looks correct.
- */
+// Returning a reusable group from the callback must keep it; dropping it leaves `{ all: [] }`, an unconditional grant.
 describe('a condition callback that returns a different builder', () => {
   const ownerOrAdmin = () => when().or((o) => o.isOwner().role('admin'))
 
@@ -91,9 +75,7 @@ describe('a condition callback that returns a different builder', () => {
   })
 
   it('refuses the ambiguous chain rather than silently picking one half', () => {
-    // Conditions on the builder that was handed in *and* a different builder
-    // returned: there is no reading of that which keeps both, so it is an
-    // authoring mistake, not a shape to guess at.
+    // Conditions on the given builder and a different returned one cannot both be kept.
     expect(() =>
       defineRule('post.update')
         .allow()
@@ -120,12 +102,7 @@ describe('a condition callback that returns a different builder', () => {
   })
 })
 
-/**
- * `buildAll()` handed out the builder's own live array, so an emitted group was
- * a window onto a builder that could still be chained - and two rules built
- * from one reusable group shared a single array instance. The engine freezes
- * the policies it loads, so one policy's freeze reached into another's rule.
- */
+// Rules built from one reusable group must not share its array: the engine freezes the policies it loads.
 describe('an emitted condition group is a snapshot, not a window', () => {
   it('does not grow when the builder is chained afterwards', () => {
     const w = when().role('admin')
@@ -144,22 +121,14 @@ describe('an emitted condition group is a snapshot, not a window', () => {
     const shared = when().role('admin')
     const first = shared.buildAll()
     Object.freeze(first.all)
-    // A second rule built from the same reusable group must still be buildable:
-    // before, both rules pointed at the one array, and freezing for policy A
-    // made B's conditions immutable too.
+    // Freezing one rule's group must leave the shared builder usable for the next rule.
     expect(() => shared.role('root')).not.toThrow()
     expect(shared.buildAll().all).toHaveLength(2)
     expect(first.all).toHaveLength(1)
   })
 })
 
-/**
- * The variadic helpers emit `{ operator: 'in', value: [...] }`. Called with no
- * arguments at all that is `in: []` - a condition no request can satisfy. On an
- * allow rule it is dead weight; on a **deny** rule the deny can never fire, and
- * the guard the author wrote is not there. The validator called the policy
- * valid, because the shape is.
- */
+// A zero-argument variadic helper builds `in: []`, which matches nothing and so disables a deny rule.
 describe('a variadic helper called with nothing to match', () => {
   it.each(['roles', 'scopes', 'resourceType'] as const)('refuses `%s()`', (method) => {
     expect(() => when()[method]()).toThrow(new RegExp(method))
@@ -177,9 +146,7 @@ describe('a variadic helper called with nothing to match', () => {
   })
 
   it('an explicitly empty list is still allowed - that one may be computed', () => {
-    // `in` with a list built at runtime can legitimately come out empty, and it
-    // means what it says: nothing matches. Only the zero-argument call, which
-    // no author writes on purpose, is refused.
+    // A computed `in` list may legitimately be empty; only the zero-argument helper call is refused.
     const rule = defineRule('r')
       .deny()
       .on('update')
@@ -201,12 +168,7 @@ describe('a variadic helper called with nothing to match', () => {
   })
 })
 
-/**
- * The type parameters of `when()` are named `TScope` third and `TRole` fourth,
- * and were handed to `When` in the opposite order, so `.role()` demanded a
- * scope literal and `.scope()` a role. Nothing failed at runtime - it made the
- * typed surface lie, which is the only thing these generics exist for.
- */
+// Type-level only: a swapped TRole/TScope would make `.role()` demand a scope and `.scope()` a role.
 describe('when() forwards its type parameters to the slots it names', () => {
   type Action = 'update'
   type Resource = 'post'
@@ -230,21 +192,8 @@ describe('when() forwards its type parameters to the slots it names', () => {
   })
 })
 
-/**
- * A key holding `undefined` is not the same object as a key that is absent.
- * The memory, file and http stores keep the caller's own object, so the key
- * survives; anything that passes the policy through `JSON.stringify` or a
- * `jsonb` column drops it. The same authored policy therefore read back
- * unequal from two adapters - `Object.keys` disagreed, `'description' in
- * policy` disagreed, and a consumer branching on either got two answers from
- * one write.
- *
- * The builders are the source of those objects, so the omission belongs here
- * rather than in each store. The one default the stores *do* impose,
- * `version: 1`, is theirs to add on the write path - the builder must not
- * pre-empt it, or an author who never set a version cannot be told apart from
- * one who set it to 1.
- */
+// Stores that keep the object keep an `undefined` key; JSON-backed ones drop it, so adapters would disagree.
+// `version: 1` is the stores' default to add, not the builder's.
 describe('the builders emit absent keys, not keys holding undefined', () => {
   const minimalRule = (id: string) => defineRule<'read', 'doc'>(id).allow().on('read').of('doc')
 

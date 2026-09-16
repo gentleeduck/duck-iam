@@ -4,13 +4,7 @@ import { IamEngine } from '../../engine/engine'
 import type { AccessControl } from '../../types'
 import { validateRole } from '../validate'
 
-/**
- * `''` is a scope value, not a missing one - the contract `matchesScope`,
- * `resolve`, the redis adapter and `permissions[i].scope` already state. The
- * role-level `scope` field was the one place with no check at all, so
- * `admin.saveRole({ id, scope: '', … })` went through the validated write API
- * and stored a role whose scope no request can ever satisfy.
- */
+// `''` is a scope value, not a missing one, so a role-level `scope: ''` is a scope no request can satisfy.
 describe('validateRole: role-level scope', () => {
   it('rejects an empty string', () => {
     const result = validateRole({ id: 'r', name: 'R', scope: '', permissions: [] })
@@ -23,8 +17,7 @@ describe('validateRole: role-level scope', () => {
     expect(validateRole({ id: 'r', name: 'R', scope: null, permissions: [] }).valid).toBe(false)
   })
 
-  // Controls: the two spellings that are meant to work must still pass, or the
-  // rejections above would be indistinguishable from rejecting every role.
+  // Controls: the two intended spellings pass, so the rejections above aren't rejecting every role.
   it('accepts an omitted scope and a non-empty one', () => {
     expect(validateRole({ id: 'r', name: 'R', permissions: [] }).valid).toBe(true)
     expect(validateRole({ id: 'r', name: 'R', scope: 'tenant-a', permissions: [] }).valid).toBe(true)
@@ -50,14 +43,7 @@ describe('the validated write API refuses a role with an empty scope', () => {
   })
 })
 
-/**
- * `rolesToPolicy` used to test the effective scope for truthiness, so `''` read
- * as "global" in development while the compiler read it as a real scope - the
- * same role granted everywhere in dev and nowhere in production. Both now agree
- * that only `undefined` and `'*'` are global. Validation blocks the front door;
- * this pins the behaviour for data arriving through an adapter that does not
- * validate.
- */
+// Only `undefined` and `'*'` are global in both engines; pins data arriving through an adapter that doesn't validate.
 describe('dev and production agree on a role that carries an empty scope', () => {
   const role: AccessControl.IRole = JSON.parse(
     '{"id":"empty-scope","name":"Empty","scope":"","permissions":[{"action":"read","resource":"post"}]}',
@@ -75,8 +61,7 @@ describe('dev and production agree on a role that carries an empty scope', () =>
     expect(prod).toBe(dev)
   })
 
-  // Control: an ordinary scoped role still grants inside its scope in both
-  // modes, so the agreement above is not "both deny everything".
+  // Control: the agreement above is not "both deny everything".
   it('control: a normally scoped role still grants in its own scope', async () => {
     const scoped: AccessControl.IRole = {
       id: 'scoped',

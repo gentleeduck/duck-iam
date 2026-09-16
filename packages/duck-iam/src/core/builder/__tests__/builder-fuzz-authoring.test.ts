@@ -7,21 +7,8 @@ import { validatePolicy } from '../../validate'
 import { defineRule } from '../rule'
 import type { When } from '../when'
 
-/**
- * Fuzzing the authoring surface itself.
- *
- * Everywhere else in this package the policies under test were written by
- * hand, which means they are the policies someone thought to write. Here the
- * *chain* is generated: a random condition tree is emitted through the builder
- * and, independently, evaluated by a reference model that reads the same tree
- * directly. The builder, the validator, the interpreter and the compiled table
- * all have to agree with that model and with each other.
- *
- * A disagreement is one of three things, in descending order of interest: the
- * builder emitted something other than what was asked for, the two evaluators
- * read the same policy differently, or the reference model is wrong. The seed
- * is fixed so whichever it is can be replayed.
- */
+// Random condition trees go through the builder; validator, interpreter and compiled table must match a reference
+// model. The seed is fixed so a failure replays.
 
 /** mulberry32: the same tiny deterministic PRNG the other fuzzers here use. */
 function mulberry32(seed: number): () => number {
@@ -47,13 +34,7 @@ const ATTR_KEYS = ['tier', 'level', 'department', 'region'] as const
 const DEPARTMENTS = ['engineering', 'sales', 'legal'] as const
 const REGIONS = ['eu', 'us', 'apac'] as const
 
-/**
- * The generated tree, as data.
- *
- * Kept separate from both the builder chain and the reference evaluator so
- * neither can define the other into agreement: the two walk this, they do not
- * walk each other.
- */
+/** The generated tree as data. The builder chain and the reference model each walk it, never each other. */
 type Leaf =
   | { kind: 'role'; role: string }
   | { kind: 'tier'; tier: string }
@@ -218,9 +199,7 @@ describe('a random condition tree means the same thing to everyone who reads it'
       }
     }
 
-    // A sweep that only ever produced denies would prove nothing about the
-    // allow path, and vice versa. Both arms have to be exercised for the run
-    // above to mean anything.
+    // Guard against a sweep that only exercises one arm passing vacuously.
     expect(allowed, 'the generator never produced an allow').toBeGreaterThan(TREES)
     expect(denied, 'the generator never produced a deny').toBeGreaterThan(TREES)
   })
@@ -240,8 +219,7 @@ describe('a random condition tree means the same thing to everyone who reads it'
       const expected = holds(node, subject)
       const detail = `seed ${SEED}, tree ${i}\ntree: ${JSON.stringify(node)}\nsubject: ${JSON.stringify(subject)}`
 
-      // A fresh adapter per engine: both cache, and a shared instance would let
-      // one engine's reads answer the other's.
+      // A fresh adapter per engine: both cache, so a shared one would let one engine answer for the other.
       const ask = async (mode: 'development' | 'production'): Promise<boolean> => {
         const adapter = new IamMemoryAdapter({ policies: [policy] })
         await adapter.setSubjectAttributes('u1', subject.attributes)
@@ -256,9 +234,7 @@ describe('a random condition tree means the same thing to everyone who reads it'
       }
 
       expect(await ask('production'), `production: ${detail}`).toBe(expected)
-      // Development additionally cross-checks the interpreter against the
-      // table and fails closed on a disagreement, so a mismatch between the two
-      // shows up here as development denying where production allowed.
+      // Development also cross-checks interpreter against table and fails closed, so a mismatch shows as a deny.
       expect(await ask('development'), `development: ${detail}`).toBe(expected)
     }
   }, 60_000)
