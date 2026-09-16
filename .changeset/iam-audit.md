@@ -204,3 +204,23 @@ descendant scopes.
 Both are now refused at construction with the same message shape as
 `policyCombine`, so a bad value is a failed start rather than a quiet change of
 meaning.
+
+### A mistyped `mode` turned every deny into an allow
+
+`IConfig.mode` was assigned with a bare `?? 'production'` and never checked,
+while every site that reads it compares `this._mode === 'production'`. So
+`'prodution'` did not fail, and did not run production either — it selected
+development behaviour at all nine sites at once.
+
+The worst of those is `check()`. In development it answers an `IDecision`
+object instead of a bare boolean, and that object is truthy even when it
+denies, so `if (await engine.check(...))` admitted every denial. TypeScript
+could not catch it: `TMode` is a type argument that `mode` does not have to
+agree with, so the call site still read as `boolean`. `explain()` also became
+callable, exposing policy ids, rule ids and condition values in what the
+operator believed was production, and the existing
+`mode: 'production'` + `policyCombine: 'first-applicable'` guard was bypassed,
+because the typo is not the string that check compares against.
+
+`mode` is now refused at construction with the same message shape as
+`policyCombine`, which also closes the `first-applicable` bypass.

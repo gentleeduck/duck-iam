@@ -26,6 +26,7 @@ import {
   createAdmin,
   enrichSubjectWithScopedRoles,
   ensureEnvNow,
+  VALID_MODES,
   VALID_SCOPE_COMBINES,
   VALID_SCOPE_MODES,
 } from './engine.libs'
@@ -208,9 +209,15 @@ export class IamEngine<
     this._scopeCombine = config.scopeCombine ?? 'union'
     this._hooks = config.hooks ?? {}
 
-    // SECURITY: both evaluators treat an unknown value as first-applicable, the most permissive combine.
-    // SECURITY: unvalidated, a typo fell through to the default. `scopeCombine` defaults to the *wider* branch, so
-    // `'overide'` hands a subject every ancestor scope's roles instead of the most specific level's.
+    // SECURITY: unvalidated, a typo fell through to the default. `'prodution'` selected development, where
+    // `check()` answers a decision object that is truthy even for a deny, and `explain()` becomes callable.
+    if (!VALID_MODES.includes(this._mode)) {
+      throw new Error(
+        `[@gentleduck/iam:engine] unknown mode ${JSON.stringify(this._mode)}. Must be one of: ${VALID_MODES.join(', ')}.`,
+      )
+    }
+    // SECURITY: `scopeCombine` defaults to the *wider* branch, so `'overide'` hands a subject every ancestor
+    // scope's roles instead of the most specific level's.
     if (!VALID_SCOPE_MODES.includes(this._scopeMode)) {
       throw new Error(
         `[@gentleduck/iam:engine] unknown scopeMode ${JSON.stringify(this._scopeMode)}. Must be one of: ${VALID_SCOPE_MODES.join(', ')}.`,
@@ -221,6 +228,7 @@ export class IamEngine<
         `[@gentleduck/iam:engine] unknown scopeCombine ${JSON.stringify(this._scopeCombine)}. Must be one of: ${VALID_SCOPE_COMBINES.join(', ')}.`,
       )
     }
+    // SECURITY: both evaluators treat an unknown value as first-applicable, the most permissive combine.
     if (!VALID_POLICY_COMBINES.includes(this._policyCombine)) {
       throw new Error(
         `[@gentleduck/iam:engine] unknown policyCombine ${JSON.stringify(this._policyCombine)}. Must be one of: ${VALID_POLICY_COMBINES.join(', ')}.`,

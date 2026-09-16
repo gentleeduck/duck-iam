@@ -65,7 +65,7 @@ All fields live on `IamEngineTypes.IConfig` (`engine.types.ts:482`).
 | Option | Default | What it changes at runtime |
 | --- | --- | --- |
 | `adapter` | *(required)* | The store every loader reads. Also the only thing `withTransaction` swaps. |
-| `mode` | `'production'` | `'production'` returns bare booleans and runs only the compiled table. `'development'` returns `IDecision`, runs the interpreter alongside the table, and enables `explain()`. See §4. |
+| `mode` | `'production'` | `'production'` returns bare booleans and runs only the compiled table. `'development'` returns `IDecision`, runs the interpreter alongside the table, and enables `explain()`. See §4. The constructor refuses any other value; see §2.2. |
 | `defaultEffect` | `'deny'` | The vote cast when a source is applicable but no rule fired. `'allow'` requires `allowFailOpen`. |
 | `allowFailOpen` | `false` | Opt-in gate for `defaultEffect: 'allow'`, in **both** modes. |
 | `policyCombine` | `'and'` | Cross-policy fold. `'and'` → every applicable vote must allow; `'allow-overrides'` → any allow wins; `'first-applicable'` → interpreter only. |
@@ -97,12 +97,13 @@ operator who had already read that paragraph was protected from it."
 
 ### 2.2 What the constructor refuses
 
-Eight checks run in the constructor body, plus two more inside `IamLRUCache`'s
+Eleven checks run in the constructor body, plus two more inside `IamLRUCache`'s
 own constructor when the caches are built. All of them are boot-time, so a bad
 config is a failed start rather than a surprise on the first request.
 
 | Condition | Throws |
 | --- | --- |
+| `mode` not in `VALID_MODES` | `Error: unknown mode …` |
 | `policyCombine` not in `VALID_POLICY_COMBINES` | `Error: unknown policyCombine …` |
 | `mode: 'production'` + `policyCombine: 'first-applicable'` | `Error: … requires mode 'development'` |
 | `defaultEffect: 'allow'` without `allowFailOpen: true` | `Error: … is a fail-open footgun` |
@@ -132,6 +133,18 @@ under anything that is not the exact string `'override'`. One mistyped
 character in a config file was a privilege escalation
 (`scope-config-guards.test.ts`).
 
+`mode` is guarded for the same reason, and its fall-through is the one an
+operator is least likely to notice. Every site compares `this._mode ===
+'production'`, so `'prodution'` selects development everywhere at once:
+`check()` stops answering a bare boolean and answers an `IDecision` instead —
+an object that is **truthy even when it denies**, so `if (await
+engine.check(...))` admits every deny at the call site while TypeScript still
+types the result `boolean`. `explain()` also becomes callable, handing policy
+ids, rule ids and condition values to whatever calls it, and the
+`mode: 'production'` + `policyCombine: 'first-applicable'` check below is
+bypassed, because the typo is not the string it compares against
+(`mode-config-guard.test.ts`).
+
 The non-finite guards exist for the same class of reason: `NaN > x` is always
 false, so a `NaN` limit silently disables the bound rather than failing.
 
@@ -154,6 +167,10 @@ excludes `'production'` needs a conditional type on the constructor parameter
 that TypeScript cannot then carry through `withTransaction`'s config spread, so
 the behaviour is pinned by `mode-type-argument-does-not-set-mode.test.ts`
 instead. **Always pass `mode` explicitly.**
+
+The constructor cannot catch that mismatch — `mode` is absent, not wrong, and
+absent is a documented default. It does catch the adjacent mistake: a `mode`
+that is present and misspelled is refused at boot (§2.2).
 
 ---
 

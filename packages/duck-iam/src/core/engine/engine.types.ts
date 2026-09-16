@@ -386,6 +386,8 @@ export namespace IamEngineTypes {
     /**
      * `'production'` (default) returns booleans; `'development'` returns `IDecision` and enables `explain()`.
      * WARN: a `TMode` type argument does not set this; without `mode` the engine runs production while typed otherwise.
+     * SECURITY: the constructor refuses any other value; a typo used to select development, where `check()`
+     * answers a decision object that is truthy even for a deny.
      */
     readonly mode?: TMode
     /** How decisions combine across policies. Defaults to `'and'`. See {@link AccessControl.PolicyCombine}. */

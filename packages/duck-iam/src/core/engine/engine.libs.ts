@@ -198,6 +198,9 @@ function freezeConditionArray(arr: ReadonlyArray<AccessControl.ICondition | Acce
   Object.freeze(arr)
 }
 
+/** Accepted `IConfig.mode` values; the constructor refuses anything else, as it does for `policyCombine`. */
+export const VALID_MODES = ['development', 'production'] as const
+
 /** Accepted `IConfig.scopeMode` values; the constructor refuses anything else, as it does for `policyCombine`. */
 export const VALID_SCOPE_MODES = ['flat', 'hierarchical'] as const
 
