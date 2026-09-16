@@ -5,7 +5,9 @@ import type { Csrf } from '~/core/csrf'
 import { csrfGuard, verifyCsrf } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
+import type { Flows } from '~/core/flows'
 import type { Identities } from '~/core/identities/identities.types'
+import type { Provider } from '~/core/provider'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import {
   type CallerFingerprint,
@@ -51,8 +53,69 @@ function handleError(err: unknown, reply: NestAdapter.Response): never {
   throw err
 }
 
-/** POST sign-in. CSRF-guarded. */
-export function nestSignIn(auth: AuthEngine): NestAdapter.Handler {
+/**
+ * A refusal returned by {@link NestSignInOptions.onAuthenticated}.
+ *
+ * `detail` and not `message`: it is forwarded verbatim as the response body's `error.detail`,
+ * the field every other duck-auth error already uses.
+ */
+export type NestSignInDenial = {
+  /** Machine-readable code, e.g. `'AUTH_NOT_PERMITTED_ON_HOST'`. Free-form - it is your vocabulary, not the engine's. */
+  code: string
+  /** HTTP status. Must be 4xx or 5xx; anything else is coerced to 403 (see {@link denialIntent}). */
+  status: number
+  detail?: string
+}
+
+export type NestSignInOptions = {
+  /**
+   * Runs after the credentials verify and the session row exists, before any intent reaches
+   * the response. Returning a denial revokes the session that was just created and replaces
+   * the session intents with the error, so the client never receives the SID.
+   *
+   * Gating here rather than in front of `signIn` is deliberate: a caller has to prove the
+   * password before it learns anything, so the denial is not an enumeration oracle.
+   *
+   * `outcome.session` is null when the provider stopped short of a session - an MFA challenge,
+   * typically. The hook still runs so it can refuse at that point too; there is simply nothing
+   * to revoke.
+   */
+  onAuthenticated?: (
+    outcome: Flows.SignInOutcome,
+    req: NestAdapter.Request,
+  ) => Promise<NestSignInDenial | undefined> | NestSignInDenial | undefined
+}
+
+/**
+ * Normalise a hook's denial into an error intent, failing closed.
+ *
+ * A hook that returns `status: 200`, `NaN`, or a blank code would otherwise render a refusal
+ * as a success status - which is the exact bypass this hook exists to prevent - so a denial
+ * the adapter cannot read is still a denial, at 403.
+ */
+function denialIntent(denial: NestSignInDenial): Provider.Intent {
+  const code = typeof denial.code === 'string' && denial.code.trim().length > 0 ? denial.code : 'AUTH_DENIED'
+  const status = Number.isInteger(denial.status) && denial.status >= 400 && denial.status <= 599 ? denial.status : 403
+  return { code, status, type: 'error', ...(typeof denial.detail === 'string' && { detail: denial.detail }) }
+}
+
+/**
+ * Drop the session `signIn` just issued. Empty when the provider issued none (MFA challenge),
+ * in which case `sid` is empty and there is nothing to revoke.
+ */
+async function revokeIssuedSession(auth: AuthEngine, outcome: Flows.SignInOutcome): Promise<Provider.Intent[]> {
+  if (!outcome.sid) return []
+  const { intents } = await auth.flows.signOut(outcome.sid)
+  return intents
+}
+
+/**
+ * POST sign-in. CSRF-guarded.
+ *
+ * Pass `onAuthenticated` to gate the sign-in on something the engine cannot know - host
+ * allow-lists, tenant suspension, a per-identity block. See {@link NestSignInOptions}.
+ */
+export function nestSignIn(auth: AuthEngine, opts: NestSignInOptions = {}): NestAdapter.Handler {
   return async (req, reply) => {
     try {
       await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method })
@@ -62,8 +125,25 @@ export function nestSignIn(auth: AuthEngine): NestAdapter.Handler {
       }
       // The flow, the store and the columns all take these and the adapter was dropping
       // them, so every session row recorded a device it could not name.
-      const result = await auth.flows.signIn({ ...parsed, ...nestCaller(req) })
-      return forward(executeIntents(result.intents), reply)
+      const outcome = await auth.flows.signIn({ ...parsed, ...nestCaller(req) })
+      if (!opts.onAuthenticated) return forward(executeIntents(outcome.intents), reply)
+
+      let denial: NestSignInDenial | undefined
+      try {
+        denial = await opts.onAuthenticated(outcome, req)
+      } catch (hookErr) {
+        // The row is already live at this point. Drop it before the error propagates, or a
+        // hook that throws leaves behind exactly the session a denial would have revoked.
+        await revokeIssuedSession(auth, outcome)
+        throw hookErr
+      }
+      if (!denial) return forward(executeIntents(outcome.intents), reply)
+
+      // Revoke inside the library: it owns the sid, and a consumer would forget - forgetting
+      // leaves a live session behind a 403, a silent auth bypass. The revoke intents come
+      // first so the Set-Cookie is cleared rather than left pointing at a dead session.
+      const revoked = await revokeIssuedSession(auth, outcome)
+      return forward(executeIntents([...revoked, denialIntent(denial)]), reply)
     } catch (err) {
       return handleError(err, reply)
     }
