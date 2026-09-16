@@ -9,6 +9,15 @@ duck-iam provides client libraries for checking permissions in the browser. The 
 pattern is server-driven: generate a `PermissionMap` on the server, send it to the client,
 and use it for all UI decisions.
 
+<Callout type="warning" title="A client-side check hides UI. It is not authorization.">
+The permission map is a snapshot of decisions a server already made, serialised over the wire
+and held in a browser the user controls. Every value in it can be edited from a devtools
+console, and nothing on the client re-derives it. `can()` decides what to render; the request
+the button fires must be authorized again on the server, by the engine, against the live
+policy set. None of these libraries contains an evaluator -- see the server middleware for
+the check that actually decides.
+</Callout>
+
 <MermaidDiagram chart={`flowchart LR
     subgraph Server["Server Side"]
         direction TB
@@ -33,6 +42,8 @@ Every client library supports the same core operations:
 
 - `can(action, resource, resourceId?, scope?)` -- returns `true` if the permission is granted
 - `cannot(action, resource, resourceId?, scope?)` -- returns `true` if the permission is denied
+- `allowedActions(resource)` -- the actions the map allows on that resource type
+- `hasAnyOn(resource)` -- whether the map allows anything on that resource type
 
 Client-side checks are synchronous lookups against the pre-computed permission map. No network requests happen during these checks.
 
@@ -61,6 +72,14 @@ Keys follow one of four formats depending on which fields are present:
 
 Generate it on the server using `engine.permissions()` or the `getIamPermissions` helper from `@gentleduck/iam/server/next`. When a key is not found in the map, all client libraries return `false` (deny by default).
 
+Values have to be the literal boolean `true`. Nothing validates the map -- it arrives as
+`JSON.parse` output and the type is erased -- so `can()`, `allowedActions()` and `hasAnyOn()`
+all test `=== true` rather than truthiness. A server that emits `"read:post": "false"` grants
+nothing, which is the safe reading of a string that is truthy in JavaScript.
+
+The map is also stale by construction: it was computed once. A role revoked after the map was
+built stays visible in the UI until something reloads it.
+
 ### Permission keys and iamBuildPermissionKey
 
 All client integrations use the same internal key builder:
@@ -74,6 +93,11 @@ iamBuildPermissionKey('delete', 'post')
 iamBuildPermissionKey('update', 'post', 'post-42', 'org-1')
 // "@org-1:update:post:post-42"  -- the `@` marks the leading segment as a scope
 ```
+
+Inside a segment, `:` and `\` are backslash-escaped and a leading `@` is escaped, so a resource
+literally named `a:b` keys as `read:a\:b`. That is why a map must never be introspected with
+`key.split(':')`: the shipped helpers parse through the same builder and reject any key
+outside its image, and a hand-rolled split disagrees with `can()` on the same map.
 
 You rarely need to call `iamBuildPermissionKey()` directly -- the React, Vue, and vanilla clients call it internally. It is useful when generating or inspecting `PermissionMap` objects in tests, server endpoints, or custom client helpers.
 
@@ -158,6 +182,22 @@ The hook returns:
 | `permissions` | `PermissionMap` | The raw permission map |
 | `can` | `(action, resource, resourceId?, scope?) -> boolean` | Check if a permission is granted |
 | `cannot` | `(action, resource, resourceId?, scope?) -> boolean` | Check if a permission is denied |
+| `allowedActions` | `(resource) -> string[]` | Actions the map allows on that resource type |
+| `hasAnyOn` | `(resource) -> boolean` | Whether the map allows anything on that resource type |
+
+`allowedActions` returns `string[]`, not your action union: re-asserting the union over keys
+parsed from unvalidated JSON would hide a malformed map instead of surfacing it. Narrow with
+your own predicate if you need the union back.
+
+`AccessProvider` copies the map into a snapshot and answers every check from the copy, so
+mutating the object you passed changes nothing and re-renders nothing. Pass a new object when
+the grants change.
+
+Called outside a provider, every member of the context is a gate rather than a permissive
+stub. Under `NODE_ENV=development` all five throw; anywhere else -- including a browser bundle
+where `process` was never shimmed -- `can` answers `false`, `cannot` `true`, `allowedActions`
+`[]` and `hasAnyOn` `false`. A silent deny for a missing provider looks exactly like a
+correctly configured user with no permissions, which is why development throws instead.
 
 ### Can and Cannot components
 
@@ -196,7 +236,7 @@ function Dashboard() {
 | `children` | `ReactNode` | yes | Rendered when allowed |
 | `fallback` | `ReactNode` | no | Rendered when denied (defaults to null) |
 
-`Cannot` has the same props except `fallback`. It renders `children` when the permission is denied.
+`Cannot` has the same props except `fallback`. It renders `children` when the permission is denied, and `null` otherwise. Both components read `useAccess()`, so both are subject to the missing-provider behavior above.
 
 ### usePermissions hook
 
@@ -205,14 +245,14 @@ Fetch permissions from a server endpoint on the client side. Useful for SPAs wit
 ```tsx
 import { usePermissions } from '@/lib/access'
 
-function App() {
-  const { can, loading, error } = usePermissions(
-    () => fetch('/api/me/permissions').then(r => r.json()),
-    [] // dependency array, like useEffect
+function App({ userId }: { userId: string }) {
+  const { can, loading, error, refetch } = usePermissions(
+    () => fetch(`/api/me/permissions?u=${userId}`).then(r => r.json()),
+    [userId] // dependency array, like useEffect
   )
 
   if (loading) return <Spinner />
-  if (error) return <ErrorMessage error={error} />
+  if (error) return <ErrorMessage error={error} onRetry={refetch} />
 
   return (
     <div>
@@ -226,17 +266,39 @@ The hook returns:
 
 | Property | Type | Description |
 | --- | --- | --- |
-| `permissions` | `PermissionMap` | The fetched permission map |
-| `can` | `(action, resource, resourceId?, scope?) -> boolean` | Permission checker |
-| `loading` | `boolean` | True while the fetch is in progress |
-| `error` | `Error or null` | Error from the fetch, if any |
+| `permissions` | `PermissionMap` | The fetched map. A frozen empty map until the first load lands, and again for the whole of every reload |
+| `can` / `cannot` | `(action, resource, resourceId?, scope?) -> boolean` | Permission checkers |
+| `allowedActions` | `(resource) -> string[]` | Actions the map allows on that resource type |
+| `hasAnyOn` | `(resource) -> boolean` | Whether the map allows anything on that resource type |
+| `loading` | `boolean` | Starts `true` |
+| `error` | `Error or null` | Normalised: a rejection carrying a string or a `Response` still arrives as an `Error` |
+| `refetch` | `() -> Promise<void>` | Reload; resolves when the run settles, superseded or not |
 
-The hook handles race conditions internally: if the component unmounts or the dependency
-array changes before the fetch completes, stale results are discarded.
+`deps` defaults to `[]` and decides **when** a reload happens, not what gets fetched. A
+`fetchFn` closing over a subject id with `deps: []` never reloads when that id changes -- list
+whatever the fetcher closes over. `refetch()` is independent of `deps`: it runs whichever
+`fetchFn` the component is rendering with at the moment it is called, so on an account switch
+it fetches the new subject.
+
+Overlapping loads are handled by a monotonic run id compared on settle, not a cancelled flag,
+so an earlier load that resolves last is discarded rather than landing on top of a newer one.
+Unmount is a separate guard. Requests are not aborted; late results are ignored.
+
+Every reload resets the map to empty and clears `error` **before** awaiting the fetch, so
+during any reload -- and after a failed one -- everything is denied. That is deliberate: a
+refetch is treated as a different subject until proven otherwise, and holding the previous map
+would answer with the last user's grants across a sign-out or an account switch. Two
+consequences worth designing for:
+
+1. `cannot()` is `!can()`, so a `<Cannot>` denial message renders for the whole in-flight
+   window. Gate negative-space UI on `loading`.
+2. `usePermissions` and `<Can>` are not connected -- `Can` reads the context, the hook returns
+   a plain object. Feed one into the other yourself, and guard on `loading` first, or the
+   provider is briefly populated with an empty map and every `<Can>` renders its fallback.
 
 ### Standalone checker
 
-For code outside React components (utilities, event handlers, tests), use `createIamPermissionChecker`. It takes a `PermissionMap` and returns a checker object with `can`, `cannot`, and the raw `permissions`.
+For code outside React components (utilities, event handlers, tests), use `createIamPermissionChecker`. It takes a `PermissionMap` and returns `can`, `cannot`, `allowedActions`, `hasAnyOn` and the raw `permissions`.
 
 ```typescript
 import { createIamPermissionChecker } from '@gentleduck/iam/client/react'
@@ -244,8 +306,13 @@ import { createIamPermissionChecker } from '@gentleduck/iam/client/react'
 const checker = createIamPermissionChecker(permissionMap)
 checker.can('delete', 'post')         // boolean
 checker.cannot('manage', 'team')      // boolean
-checker.permissions                    // the original PermissionMap
+checker.allowedActions('post')        // string[]
+checker.permissions                    // the caller's own map, by reference
 ```
+
+Unlike `AccessProvider`, this function does not copy. Every check reads the live argument, so
+writing into that map afterwards does change what `can()` answers. Hand it a map nothing else
+holds, or hand it the same map you would hand the provider and treat both as immutable.
 
 ---
 
@@ -265,13 +332,21 @@ import { ref, computed, inject, provide, defineComponent, h } from 'vue'
 import { createIamVueAccess } from '@gentleduck/iam/client/vue'
 
 export const {
-  useAccess,
+  createAccessState,
   provideAccess,
+  useAccess,
+  usePermissions,
   createAccessPlugin,
   Can,
   Cannot,
+  IAM_ACCESS_INJECTION_KEY,
 } = createIamVueAccess({ ref, computed, inject, provide, defineComponent, h })
 ```
+
+Call the factory once and export the result. `computed` and `h` are required by the injected
+interface but unused by the current implementation. `IAM_ACCESS_INJECTION_KEY` is
+`Symbol.for('@gentleduck/iam:access')` rather than a plain symbol, so a mixed ESM/CJS load
+still has `provide` and `inject` agreeing on one key.
 
 ### Plugin installation
 
@@ -324,7 +399,15 @@ The composable returns:
 | `permissions` | `Ref<PermissionMap>` | Reactive permission map |
 | `can` | `(action, resource, resourceId?, scope?) -> boolean` | Check if allowed |
 | `cannot` | `(action, resource, resourceId?, scope?) -> boolean` | Check if denied |
+| `allowedActions` | `(resource) -> string[]` | Actions the map allows on that resource type |
+| `hasAnyOn` | `(resource) -> boolean` | Whether the map allows anything on that resource type |
 | `update` | `(newPerms) -> void` | Replace the permission map (triggers reactivity) |
+
+`useAccess()` **always throws** when nothing was provided, with no environment gate. Vue does
+not copy the map in either direction: `createAccessState` puts your object straight into the
+`ref` and `update` assigns the object you pass. Writing into that object changes what `can()`
+answers and triggers no reactivity, because the `ref` only sees writes made through
+`permissions.value`. Replace the map; never edit it.
 
 ### Can and Cannot components
 
@@ -351,7 +434,7 @@ Declarative permission gates using slots.
 </template>
 ```
 
-`Can` renders the default slot when allowed, or the `fallback` slot when denied. `Cannot` renders its default slot when denied.
+`Can` renders the default slot when allowed, or the `fallback` slot when denied -- and when denied with no `fallback` slot it returns `undefined`, not `null`. `Cannot` renders its default slot when denied and `null` otherwise. Both call `useAccess()` in `setup`, so both throw outside a provider.
 
 ### Manual provide/inject
 
@@ -385,6 +468,15 @@ state.update(newPermissions)       // replaces and triggers reactivity
 
 This is returned from `createIamVueAccess()` alongside the other exports.
 
+### Vue usePermissions
+
+Vue's `usePermissions(fetchFn)` answers the same questions as React's, with three differences
+that matter. It takes no dependency list. `permissions`, `loading` and `error` are `Ref`s, so
+read them with `.value`. And the first load fires **synchronously in the composable body**,
+with no lifecycle hook to defer or cancel it -- which is what to watch for under SSR. It
+carries the same monotonic supersession guard as React but no unmount guard, so a late
+response still writes to the ref of a disposed component.
+
 ---
 
 ## Vanilla (framework-agnostic)
@@ -409,7 +501,7 @@ access.can('manage', 'user', undefined, 'admin')  // scoped check
 
 ### Fetch from server
 
-`fromServer` sends a GET request, parses the JSON response as a `PermissionMap`, and returns a new `IamAccessClient`. It throws if the response is not OK (non-2xx status).
+`fromServer` fetches the URL, parses the JSON response as a `PermissionMap`, and returns a new `IamAccessClient`. A non-2xx status throws `Failed to fetch permissions: {status}` **before** the body is read, so a non-JSON error page never reaches `res.json()` -- and a rejected call gives you a status code and nothing else. Fetch it yourself if you need the error body.
 
 ```typescript
 const access = await IamAccessClient.fromServer('/api/me/permissions', {
@@ -419,7 +511,7 @@ const access = await IamAccessClient.fromServer('/api/me/permissions', {
 access.can('delete', 'post') // boolean
 ```
 
-The second argument is a standard `RequestInit`. A `Content-Type: application/json` header is added automatically.
+The second argument is a standard `RequestInit` and passes through in full, method included -- this is not GET-only. A `Content-Type: application/json` header is merged in first and your headers merge over it, so passing your own `Content-Type` wins.
 
 ### Allowed actions
 
@@ -443,7 +535,10 @@ not replace server-side permission evaluation.
 
 ### Reactive updates
 
-Subscribe to permission changes to trigger re-renders in any framework.
+Vanilla is the only client that closes both directions: it copies the map in on construction
+and on `update`, and copies out on every `permissions` read. Subscribe to changes to trigger
+re-renders in any framework. A listener that throws is logged and the remaining listeners
+still run.
 
 ```typescript
 const unsubscribe = access.subscribe((newPermissions) => {
@@ -500,16 +595,16 @@ export const can = (action: string, resource: string) =>
 
 | Method / Property | Type | Description |
 | --- | --- | --- |
-| `constructor(perms?)` | `new (PermissionMap?) -> IamAccessClient` | Create from a permission map |
+| `constructor(perms?)` | `new (PermissionMap?) -> IamAccessClient` | Create from a permission map; the argument is copied in, defaults to an empty map |
 | `IamAccessClient.fromServer(url, init?)` | `static async -> IamAccessClient` | Fetch permissions from an endpoint |
 | `can(action, resource, resourceId?, scope?)` | `-> boolean` | Check if allowed |
 | `cannot(action, resource, resourceId?, scope?)` | `-> boolean` | Check if denied |
 | `allowedActions(resource)` | `-> string[]` | List all allowed actions for a resource |
 | `hasAnyOn(resource)` | `-> boolean` | Check if any permission exists on a resource |
-| `permissions` | `Readonly<PermissionMap>` | Current permission map (read-only) |
-| `update(perms)` | `-> void` | Replace permissions and notify listeners |
+| `permissions` | `Readonly<PermissionMap>` | A fresh copy on every read, so mutating what you read back changes nothing |
+| `update(perms)` | `-> void` | Copy in a replacement and notify listeners with the object you passed |
 | `merge(perms)` | `-> void` | Merge new permissions into existing and notify |
-| `subscribe(fn)` | `-> () -> void` | Listen for changes, returns unsubscribe function |
+| `subscribe(fn)` | `-> () -> void` | Listen for changes, returns unsubscribe function. There is no teardown but that closure -- call it |
 
 ---
 
@@ -528,7 +623,7 @@ Recommended architecture:
     C->>C: 5. can("delete", "post") — instant boolean lookup
     C->>C: 6. <Can action="manage" resource="team"> — render gate`} />
 
-- **Security**: Permission logic runs on the server where policies and roles are stored. The client only sees the final boolean results.
+- **Blast radius**: Policies, roles and subject attributes never leave the server; the client sees only booleans for the checks you asked for. It does not make the client trustworthy -- the booleans it holds are editable, and the server still has to authorize the request.
 - **Performance**: Client-side checks are instant object lookups. No async operations, no network requests, no engine evaluation.
 - **Consistency**: The server is the single source of truth. The client reflects exactly what the server decided.
 - **Simplicity**: The client libraries are thin wrappers around a flat object.
@@ -567,8 +662,8 @@ access.update(newPerms) // subscribers are notified automatically
   <AccordionItem value="clients-not-engine">
     <AccordionTrigger>Do the React, Vue, and vanilla clients evaluate roles and policies themselves?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Not by default. The client integrations are built around a <code className="rounded bg-muted px-2 py-1">PermissionMap</code>
-      and fast boolean lookups. The engine still belongs on the server unless you intentionally embed it in a trusted client runtime.
+      No. None of the three contains an evaluator -- they are lookups into a flat map of booleans a server produced. The
+      engine belongs on the server, and the server has to re-check every request a client-side gate let the user start.
     </AccordionContent>
   </AccordionItem>
 
@@ -594,7 +689,7 @@ access.update(newPerms) // subscribers are notified automatically
     <AccordionContent className="text-muted-foreground">
       It asynchronously loads a permission map and exposes <code className="rounded bg-muted px-2 py-1">loading</code> and
       <code className="rounded bg-muted px-2 py-1">error</code> state. It does not run the engine for you, and it does not abort
-      in-flight requests; it only ignores late results after unmount.
+      in-flight requests: it ignores late results after unmount and discards any run a newer one superseded.
     </AccordionContent>
   </AccordionItem>
 

@@ -38,6 +38,8 @@ Adapters are the storage layer for duck-iam. They implement the `Adapter` interf
         PRI["IamPrismaAdapter\nPrisma Client\nProduction DB"]
         DRI["IamDrizzleAdapter\nDrizzle ORM\nProduction DB"]
         HTT["IamHttpAdapter\nfetch() calls\nRemote service"]
+        RED["IamRedisAdapter\nHashes + sets\nShared storage"]
+        FIL["IamFileAdapter\nOne JSON file\nSingle node"]
     end
 
     Adapter_Interface --> Implementations`} />
@@ -166,12 +168,24 @@ const adapter = new IamMemoryAdapter({
 
 ### Behavior details
 
-- **Duplicate assignments**: `assignRole` checks for existing entries and silently skips
-  duplicates. Calling `assignRole('user-1', 'editor')` twice has no effect the second time.
-- **Attribute merging**: `setSubjectAttributes` shallow-merges new attributes into existing
-  ones. To remove an attribute, set it to `null`.
-- **Scoped vs unscoped roles**: stored in the same array. `getSubjectRoles` filters for
-  entries without a scope; `getSubjectScopedRoles` filters for entries with a scope.
+- **Duplicate assignments**: `assignRole` is idempotent per `(subject, role, scope)`. Calling
+  `assignRole('user-1', 'editor')` twice leaves one grant.
+- **Unknown roles are refused**: `assignRole` throws when the role id is not stored, and the
+  constructor applies the same check -- `roles` is seeded first, then `assignments` through
+  the write path's own guard. An init naming a role it does not also define throws instead of
+  producing a grant no catalog backs.
+- **Attribute merging**: `setSubjectAttributes` shallow-merges per key; keys the patch does
+  not name survive. There is no delete. Setting a key to `null` stores `null`, which every
+  condition operator then reads as an absent field.
+- **Attributes are copied in both directions**: the constructor seed, `getSubjectAttributes`
+  and `setSubjectAttributes` all route through `iamCopyAttributes`. Neither the object you
+  pass in nor the one you read back stays connected to stored state, so mutating a returned
+  array does not reach the store and mutating an argument after the write returns does not
+  either.
+- **Scoped vs unscoped roles**: stored in the same array, read by two disjoint methods.
+  `getSubjectRoles` returns global (unscoped) grants only; `getSubjectScopedRoles` returns the
+  scoped ones. Neither is a superset of the other.
+- **No `withClient`**: `IamEngine.withTransaction` throws on this adapter.
 
 ### When to use
 
@@ -188,67 +202,109 @@ const adapter = new IamMemoryAdapter({
 import { IamPrismaAdapter } from '@gentleduck/iam/adapters/prisma'
 ```
 
-Stores policies, roles, assignments, and subject attributes in your database through Prisma Client. It expects four models in your Prisma schema.
+Stores policies, roles, assignments, and subject attributes in your database through Prisma
+Client. It looks for the delegates `accessPolicy`, `accessRole`, `accessAssignment` and
+`accessSubjectAttr` -- model names, not table names -- and is typed structurally, so this
+package takes no dependency on your generated client.
 
 ### Required schema
 
-Add these models to your `schema.prisma` file:
+Copy these models from `src/adapters/prisma/schema.prisma` into your own `schema.prisma`. The
+`@@map`s point them at the same `iam_*` tables the Drizzle schemas use.
 
 ```prisma
 model AccessPolicy {
-  id          String  @id
+  id          String   @id
   name        String
   description String?
-  version     Int     @default(1)
-  algorithm   String
+  version     Int      @default(1)
+  algorithm   String   @default("deny-overrides")
   rules       Json
   targets     Json?
+  createdBy   String?  @map("created_by")
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("access_policies")
+  @@map("iam_policies")
 }
 
 model AccessRole {
-  id          String  @id
+  id          String             @id
   name        String
   description String?
   permissions Json
-  inherits    String[]
+  inherits    String[]           @default([])
   scope       String?
   metadata    Json?
+  createdBy   String?            @map("created_by")
+  updatedBy   String?            @map("updated_by")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  assignments AccessAssignment[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("access_roles")
+  @@index([scope])
+  @@map("iam_roles")
 }
 
 model AccessAssignment {
-  id        String  @id @default(cuid())
-  subjectId String
-  roleId    String
+  id        String     @id @default(cuid())
+  subjectId String     @map("subject_id")
+  roleId    String     @map("role_id")
   scope     String?
-
-  createdAt DateTime @default(now())
+  role      AccessRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdBy String?    @map("created_by")
+  updatedBy String?    @map("updated_by")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
 
   @@unique([subjectId, roleId, scope])
   @@index([subjectId])
-  @@map("access_assignments")
+  @@index([roleId])
+  @@index([subjectId, scope])
+  @@map("iam_assignments")
 }
 
 model AccessSubjectAttr {
-  subjectId String @id
+  subjectId String   @id @map("subject_id")
   data      Json
+  createdBy String?  @map("created_by")
+  updatedBy String?  @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  updatedAt DateTime @updatedAt
-
-  @@map("access_subject_attrs")
+  @@map("iam_subject_attrs")
 }
 ```
 
+The relation on `AccessAssignment.role` is load-bearing, not decoration: the foreign key is
+what makes `assignRole` refuse a role that is not stored, and `onDelete: Cascade` is what makes
+`deleteRole` take the grants with it. Without it a role recreated under a reused id hands
+itself back to everyone who once held it.
+
 Run `prisma migrate dev` after adding these models.
+
+<Callout type="warning" title="You must replace the unique index Prisma generates">
+`scope` is nullable and SQL unique indexes treat NULLs as distinct, so
+`@@unique([subjectId, roleId, scope])` does **not** stop a duplicate *unscoped* grant. Prisma
+can express neither `NULLS NOT DISTINCT` nor a `coalesce` index, so replace it in a migration:
+
+```sql
+-- Postgres 15+
+DROP INDEX "iam_assignments_subject_id_role_id_scope_key";
+CREATE UNIQUE INDEX "iam_assignments_subject_id_role_id_scope_key"
+  ON "iam_assignments" ("subject_id", "role_id", "scope") NULLS NOT DISTINCT;
+
+-- MySQL / SQLite
+CREATE UNIQUE INDEX "iam_assignments_subject_id_role_id_scope_key"
+  ON "iam_assignments" ("subject_id", "role_id", (coalesce("scope", '')));
+```
+
+`assignRole` is a read-then-write -- a nullable column in the composite key means `upsert`
+cannot address the row -- and a read cannot make a write atomic. The index is what decides the
+outcome. Twenty concurrent identical unscoped grants leave three rows under the index Prisma
+generates and exactly one under either replacement.
+</Callout>
 
 ### Usage
 
@@ -263,7 +319,16 @@ const adapter = new IamPrismaAdapter(prisma)
 const engine = new IamEngine({ adapter })
 ```
 
-The adapter uses `upsert` for save operations, so calling `savePolicy` or `saveRole` with an existing ID updates the record rather than throwing a conflict error.
+One argument, no options object. There is nowhere to wire an `onPolicyError`, which is why
+every corrupt-row report this adapter makes goes to `console.warn`. An unreadable role row is
+skipped and named; an unreadable policy row is refused and the read throws.
+
+`savePolicy` and `saveRole` upsert, so saving an existing id updates the record rather than
+raising a conflict.
+
+This adapter has no `starts_at`, `expires_at` or `attributes` columns, so `assignRole` **throws**
+when given `startsAt`, `expiresAt` or `attributes` rather than dropping them. Use the Drizzle
+adapter for time-boxed or attributed grants.
 
 ### How it maps
 
@@ -272,14 +337,14 @@ The adapter uses `upsert` for save operations, so calling `savePolicy` or `saveR
 | `listPolicies()` | `accessPolicy.findMany()` |
 | `getPolicy(id)` | `accessPolicy.findUnique({ where: { id } })` |
 | `savePolicy(p)` | `accessPolicy.upsert(...)` |
-| `deletePolicy(id)` | `accessPolicy.delete({ where: { id } })` |
+| `deletePolicy(id)` | `accessPolicy.deleteMany({ where: { id } })` -- `delete` raises `P2025` on a missing row, `deleteMany` no-ops |
 | `listRoles()` | `accessRole.findMany()` |
 | `getRole(id)` | `accessRole.findUnique({ where: { id } })` |
 | `saveRole(r)` | `accessRole.upsert(...)` |
-| `deleteRole(id)` | `accessRole.delete({ where: { id } })` |
-| `getSubjectRoles(id)` | `accessAssignment.findMany({ where: { subjectId } })` |
+| `deleteRole(id)` | `accessRole.deleteMany({ where: { id } })`; the FK cascade removes the grants |
+| `getSubjectRoles(id)` | `accessAssignment.findMany(...)`, filtered for a null scope -- global grants only |
 | `getSubjectScopedRoles(id)` | Same query, filtered for non-null scope |
-| `assignRole(id, role, scope?)` | `accessAssignment.create(...)` |
+| `assignRole(id, role, scope?)` | read, then `accessAssignment.create(...)`; the `P2002` a racing writer causes is treated as success |
 | `revokeRole(id, role, scope?)` | `accessAssignment.deleteMany(...)` |
 | `getSubjectAttributes(id)` | `accessSubjectAttr.findUnique(...)` |
 | `setSubjectAttributes(id, attrs)` | `accessSubjectAttr.upsert(...)` (merges with existing) |
@@ -292,71 +357,53 @@ The adapter uses `upsert` for save operations, so calling `savePolicy` or `saveR
 import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
 ```
 
-Works with any Drizzle ORM database driver (PostgreSQL, MySQL, SQLite). You provide your table definitions and Drizzle's operator functions.
+One dialect-neutral class covers PostgreSQL, MySQL and SQLite. Which dialect you are on is a
+config field, not a different class.
 
 ### Table definitions
 
-Define your tables using Drizzle's schema builder. Column names should match the expected row shapes.
+The package ships the schema for all three dialects, so you import the tables rather than
+declaring them:
 
 ```typescript
-// db/schema/access.ts
-import { pgTable, text, integer, json, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
-
-export const accessPolicies = pgTable('access_policies', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  description: text('description'),
-  version: integer('version').notNull().default(1),
-  algorithm: text('algorithm').notNull(),
-  rules: json('rules').notNull(),
-  targets: json('targets'),
-})
-
-export const accessRoles = pgTable('access_roles', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  description: text('description'),
-  permissions: json('permissions').notNull(),
-  inherits: json('inherits'),
-  scope: text('scope'),
-  metadata: json('metadata'),
-})
-
-export const accessAssignments = pgTable('access_assignments', {
-  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  subjectId: text('subject_id').notNull(),
-  roleId: text('role_id').notNull(),
-  scope: text('scope'),
-}, (t) => ({
-  unique: uniqueIndex('uniq_assignment').on(t.subjectId, t.roleId, t.scope),
-}))
-
-export const accessSubjectAttrs = pgTable('access_subject_attrs', {
-  subjectId: text('subject_id').primaryKey(),
-  data: json('data').notNull(),
-})
+import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '@gentleduck/iam/adapters/drizzle/pg'
 ```
+
+`@gentleduck/iam/adapters/drizzle/mysql` and `@gentleduck/iam/adapters/drizzle/sqlite` export
+the same four names, so changing dialect is a change of import path plus the `dialect` field
+below. Point `drizzle-kit generate` at the module for your migration.
+
+The adapter reads whatever table objects you hand it, so you can aim it at your own tables --
+but then the column *property* names are the contract:
+
+```
+policies:    id name description version algorithm rules targets createdBy updatedBy createdAt updatedAt
+roles:       id name description permissions inherits scope metadata createdBy updatedBy createdAt updatedAt
+assignments: id subjectId roleId scope startsAt expiresAt attributes createdBy updatedBy createdAt updatedAt
+attrs:       subjectId data createdBy updatedBy createdAt updatedAt
+```
+
+Two constraints on the assignments table are easy to lose when hand-writing DDL and are
+load-bearing when lost. A foreign key on `role_id` to `iam_roles(id)` with `ON DELETE CASCADE`
+is what makes `assignRole` refuse an unstored role and `deleteRole` take the grants with it. A
+unique index over `(subject_id, role_id, scope)` has to collapse NULLs -- `NULLS NOT DISTINCT`
+on Postgres, an index over `coalesce(scope, '')` on MySQL and SQLite -- because a plain unique
+index treats NULLs as distinct and so does not stop two identical unscoped grants.
 
 ### Usage
 
 ```typescript
+import { and, eq, isNull, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { eq, and } from 'drizzle-orm'
 import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '@gentleduck/iam/adapters/drizzle/pg'
 import { IamEngine } from '@gentleduck/iam'
-import * as tables from './db/schema/access'
-
-const db = drizzle(pool)
 
 const adapter = new IamDrizzleAdapter({
-  db,
-  tables: {
-    policies: tables.accessPolicies,
-    roles: tables.accessRoles,
-    assignments: tables.accessAssignments,
-    attrs: tables.accessSubjectAttrs,
-  },
-  ops: { eq, and },
+  db: drizzle(pool),
+  tables: { policies: iamPolicies, roles: iamRoles, assignments: iamAssignments, attrs: iamSubjectAttrs },
+  ops: { and, eq, isNull, or },
+  // dialect defaults to 'pg', json defaults to 'native' -- both correct here
 })
 
 const engine = new IamEngine({ adapter })
@@ -364,19 +411,43 @@ const engine = new IamEngine({ adapter })
 
 ### Constructor config
 
-| Option | Type | Description |
-| --- | --- | --- |
-| `db` | Drizzle database instance | Your Drizzle `db` object with `select`, `insert`, `delete` |
-| `tables.policies` | Drizzle table | Policy table reference |
-| `tables.roles` | Drizzle table | Role table reference |
-| `tables.assignments` | Drizzle table | Assignment table reference |
-| `tables.attrs` | Drizzle table | Subject attributes table reference |
-| `ops.eq` | `(col, val) -> condition` | Drizzle `eq` operator |
-| `ops.and` | `(...conditions) -> condition` | Drizzle `and` operator |
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `db` | Drizzle database instance | -- | Anything with `select`, `insert`, `update`, `delete` |
+| `tables.policies` | Drizzle table | -- | Policy table reference |
+| `tables.roles` | Drizzle table | -- | Role table reference |
+| `tables.assignments` | Drizzle table | -- | Assignment table reference |
+| `tables.attrs` | Drizzle table | -- | Subject attributes table reference |
+| `ops.eq` | Drizzle `eq` | -- | Required |
+| `ops.and` | Drizzle `and` | -- | Required |
+| `ops.isNull` | Drizzle `isNull` | absent | Optional. Gates `updateAssignmentScope` entirely |
+| `ops.or` | Drizzle `or` | absent | Optional. Collapses `revokeRoleMany` into one `DELETE` |
+| `dialect` | `'pg'`, `'mysql'` or `'sqlite'` | `'pg'` | Only `'mysql'` changes behavior |
+| `json` | `'native'` or `'string'` | `'native'` | Write encoding for JSON payload columns |
+| `onPolicyError` | `(err, ctx) -> void` | `console.warn` | Fires for every malformed row |
+
+Pass all four operators. Neither optional one can be derived -- `eq(col, null)` is not
+`IS NULL`, and there is no way to build an `OR` from `eq` and `and` -- so omitting them is a
+correct but degraded path, and the adapter warns once per process at construction. Without
+`isNull`, `updateAssignmentScope` returns `false` and the engine falls back to revoke +
+assign: two writes, and a window in which the subject holds nothing.
+
+<Callout type="warning" title="dialect and json are not inferred">
+Nothing inspects `db` or the tables. On MySQL, omitting `dialect: 'mysql'` sends
+`onConflictDoUpdate()` and `onConflictDoNothing()` to an insert builder that has neither, so
+every write path fails at runtime while the delete paths keep working -- the symptom is "saves
+fail, revokes succeed", not a dead adapter. On the shipped SQLite schema, `json: 'string'` is
+required because every payload column is TEXT; nothing checks the combination, so a missed
+`json` field reaches the driver as a live object and whatever your driver does with it is the
+whole of the diagnosis.
+</Callout>
 
 ### JSON handling
 
-The Drizzle adapter handles JSON serialization automatically. If your database driver returns JSON columns as strings (common with SQLite), the adapter parses them. If the driver returns parsed objects (common with PostgreSQL `json`/`jsonb` columns), the adapter uses them directly.
+`json` decides the **write** encoding: `'native'` hands the driver the object, which is what
+Postgres `jsonb` and MySQL `json` columns want; `'string'` serialises first, which is what the
+shipped SQLite schema's TEXT columns want. The read path accepts both shapes on every dialect,
+so switching the field is migration-safe.
 
 ---
 
@@ -400,6 +471,7 @@ import { IamEngine } from '@gentleduck/iam'
 
 const adapter = new IamHttpAdapter({
   baseUrl: 'https://api.example.com/access',
+  allowedHosts: ['api.example.com'],
   headers: {
     Authorization: 'Bearer ' + serviceToken,
   },
@@ -461,6 +533,13 @@ The HTTP adapter expects these REST endpoints on your server:
 | GET | /subjects/:id/attributes | Get subject attributes |
 | PATCH | /subjects/:id/attributes | Update subject attributes (body: attribute object) |
 
+`GET /subjects/:id/roles` must return **unscoped** role ids only; the scoped ones belong to
+`/scoped-roles`. `PATCH /subjects/:id/attributes` merges, it does not replace. Two obligations
+the adapter cannot enforce for you and the contract still holds you to: `DELETE /roles/:id`
+must strip the deleted role from every subject's assignments, and `POST /subjects/:id/roles`
+must answer 4xx when `roleId` names no stored role. The adapter surfaces the non-2xx as a
+throw.
+
 The built-in Express `iamAdminRouter` covers part of this admin surface, but it does **not**
 implement the full HTTP adapter contract. If you want to use `IamHttpAdapter`, either implement
 the complete endpoint set manually or extend the admin router with the missing item lookups,
@@ -468,20 +547,42 @@ scoped-role reads, and subject-attribute endpoints.
 
 ### Error handling
 
-The HTTP adapter throws an `Error` with the message `"@gentleduck/iam HTTP {status}: {responseText}"`
-for any non-2xx response. It does not retry failed requests. Add retry logic in your custom
-`fetch` function if needed.
+A non-2xx response throws `[@gentleduck/iam:http] HTTP {status}: {body}`, with the body read to
+a 4 KB cap and the message truncated to 200 characters. A 404 on `GET /policies/:id` or
+`GET /roles/:id` is not an error -- it is `null`.
 
-A `Content-Type: application/json` header is sent on every request. If `headers` is a
-function, it is awaited before each request.
+Transient failures **are** retried: a status `>= 500`, a network error, or the `AbortError`
+from a per-request timeout. A 4xx is never retried. The delay starts at `backoffMs` and
+doubles per retry, capped at 60 s, plus jitter of up to `min(backoffMs, 5000)` ms. After `circuitBreakerThreshold` consecutive transient failures the
+circuit opens and further requests reject immediately until `circuitBreakerCooldownMs` has
+elapsed, at which point one probe is let through -- success closes the circuit, failure
+re-opens it.
+
+A `Content-Type: application/json` header is sent on every request, and headers from `headers`
+merge over it. If `headers` is a function, it is awaited before each request. `redirect: 'error'`
+is always set.
 
 ### Constructor config
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `baseUrl` | `string` | -- | Base URL for the access API (trailing slash stripped) |
-| `headers` | `Record or () -> Record or Promise` | `{}` | Static or dynamic headers |
+| `baseUrl` | `string` | -- | Base URL. Must be `http:` or `https:` and carry no query string or fragment; one trailing slash is stripped |
+| `allowedHosts` | `string[]` | none | Host allow-list for `baseUrl`. A bare host matches any port, `host:port` only that port. Omitting it warns once per process |
+| `allowPrivateHosts` | `boolean` | `false` | Permits a private or loopback IP literal in `baseUrl`. DNS names are never resolved, so a name pointing at a private address is constrained only by `allowedHosts` |
+| `headers` | `Record or () -> Record or Promise` | `{}` | Static or dynamic headers. This is the whole of the auth surface |
 | `fetch` | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation |
+| `timeoutMs` | `number` | `5000` | Per-request timeout. `0` relies on the engine's `adapterTimeoutMs` alone |
+| `retries` | `number` | `2` | Retries on transient failures, so 3 attempts in total |
+| `backoffMs` | `number` | `100` | Base delay for exponential backoff |
+| `circuitBreakerThreshold` | `number` | `5` | Consecutive transient failures that open the circuit. Must be an integer >= 1 |
+| `circuitBreakerCooldownMs` | `number` | `30000` | Half-open cooldown |
+| `onPolicyError` | `(err, ctx) -> void` | -- | Called for a malformed policy or role row from the API |
+
+Every numeric option is validated at construction rather than defaulted on a falsy read, so a
+`NaN` from `Number(process.env.SOMETHING)` on an unset variable throws by name instead of
+silently disabling what it configures. `circuitBreakerThreshold: 0` is refused for the same
+reason -- it is not an off switch, and there is no off switch. To make the breaker effectively
+inert, set a high threshold.
 
 ---
 
@@ -508,20 +609,20 @@ interface CustomAdapter<TAction extends string, TResource extends string, TRole 
   // PolicyStore
   listPolicies(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]>
   getPolicy(id: string, opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null>
-  savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
+  savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>, opts?: IamAdapter.IActorOptions): Promise<void>
   deletePolicy(id: string): Promise<void>
 
   // RoleStore
   listRoles(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]>
   getRole(id: string, opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null>
-  saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
+  saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>, opts?: IamAdapter.IActorOptions): Promise<void>
   deleteRole(id: string): Promise<void>
 
   // SubjectStore
   getSubjectRoles(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<TRole[]>
   getSubjectScopedRoles?(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<IamRequest.IScopedRole<TRole, TScope>[]>
   assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void>
-  revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
+  revokeRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IRevokeOptions): Promise<void>
   updateAssignmentScope?(
     subjectId: string,
     roleId: TRole,
@@ -530,9 +631,10 @@ interface CustomAdapter<TAction extends string, TResource extends string, TRole 
     actor?: string,
   ): Promise<boolean>
   assignRoleMany?(rows: readonly IamAdapter.IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null>
-  revokeRoleMany?(rows: readonly IamAdapter.ITripleRow<TRole, TScope>[]): Promise<readonly number[] | null>
+  revokeRoleMany?(rows: readonly IamAdapter.IRevokeRow<TRole, TScope>[]): Promise<readonly number[] | null>
+  getSubjectGrantBoundary?(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<number | null>
   getSubjectAttributes(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes>
-  setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
+  setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes, opts?: IamAdapter.IActorOptions): Promise<void>
 
   // Transactions
   withClient?(client: unknown): IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
@@ -546,6 +648,7 @@ interface CustomAdapter<TAction extends string, TResource extends string, TRole 
 | `getSubjectScopedRoles` | Scoped assignments are treated as empty; only global role evaluation happens. |
 | `updateAssignmentScope` | Moving a grant between scopes falls back to revoke-then-assign, which is not atomic. |
 | `assignRoleMany` / `revokeRoleMany` | Batch admin calls loop one row at a time instead of issuing one statement. Return `null` to say "written, but I cannot report which rows moved". |
+| `getSubjectGrantBoundary` | The engine cannot cap a cached subject at its next grant transition, so a time-boxed grant stays visible for the rest of `cacheTTL`. Only the drizzle adapter implements it -- only its schema has `starts_at` / `expires_at`. |
 | `withClient` | This adapter cannot join a transaction, and `IamEngine.withTransaction` **throws** rather than silently leaving writes outside the caller's transaction. The memory, file, redis and http adapters all omit it — none has a transaction to join. |
 
 **`opts` on the reads is not decoration.** `IReadOptions` carries the
@@ -556,8 +659,11 @@ ignoring adapter loses is *upstream* cancellation: the query keeps running to
 completion and its result is thrown away. Of the six shipped adapters, only
 `IamHttpAdapter` honors the signal; if your backend can cancel, plumb it through.
 
-`IAssignOptions` carries the per-grant extras `assignRole` accepts:
-`startsAt`, `expiresAt` and `attributes`.
+`IAssignOptions` carries the per-grant extras `assignRole` accepts: `startsAt`, `expiresAt`
+and `attributes`. Only the drizzle adapter has columns for them. An adapter that cannot store
+one must **throw and name it**, never accept and drop it -- a break-glass grant issued with a
+one-hour expiry against an adapter that discards it is permanent, and the batch API still
+reports it applied.
 
 ### Example: a from-scratch Redis-backed adapter
 
@@ -708,8 +814,11 @@ under `packages/duck-iam/src/adapters/{redis,file}` for constructor options in t
   <AccordionItem value="duplicate-assignment-behavior">
     <AccordionTrigger>How are duplicate role assignments handled?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Memory ignores duplicates in memory, Drizzle uses conflict-safe inserts, and Prisma is intended to rely on the sample
-      uniqueness constraint in the schema. The intended model is idempotent assignment rather than accumulating duplicates.
+      Assignment is idempotent per subject, role and scope on every adapter. Memory, file and Redis check before writing;
+      Drizzle uses a conflict-safe insert against a unique index that collapses NULL scopes; Prisma reads then writes and
+      treats the unique-constraint violation a racing writer causes as success. On Prisma the index Prisma generates does
+      not collapse NULLs, so you have to replace it in a migration -- otherwise concurrent identical unscoped grants leave
+      duplicate rows.
     </AccordionContent>
   </AccordionItem>
 
