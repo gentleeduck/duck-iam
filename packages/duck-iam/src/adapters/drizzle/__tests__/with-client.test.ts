@@ -1,12 +1,5 @@
-/**
- * `withClient` is how an adapter joins a caller's transaction: the engine hands
- * back the opaque driver handle it was given, and the adapter - the only layer
- * that knows what a drizzle db actually is - re-makes itself against it.
- *
- * Returning a *different* object is not the property that matters; writing to
- * the *new* client is. These tests assert the write lands on the rebound
- * client's tables and nowhere near the original's.
- */
+// `withClient` rebinds the adapter to a caller's transaction handle.
+// Pins that writes land on the rebound client's tables and never on the original's.
 import { describe, expect, it } from 'vitest'
 import type { IamAdapter } from '../../../core/types/adapter'
 import { IamMemoryAdapter } from '../../memory'
@@ -48,8 +41,7 @@ const OPS = { and: () => undefined, eq: () => fakeSql({}) } satisfies IamDrizzle
 
 describe('IamAdapter.withClient', () => {
   it('the memory adapter deliberately does not implement it', () => {
-    // Not an oversight: an in-memory Map has no transaction to join, so the
-    // engine must refuse rather than leave the writes outside the caller's tx.
+    // A Map has no transaction to join, so the engine must refuse rather than write outside the caller's tx.
     // Typed as the interface, because that is what a consumer holds.
     const adapter: IamAdapter.IAdapter = new IamMemoryAdapter()
 
@@ -98,8 +90,7 @@ describe('IamAdapter.withClient', () => {
   })
 
   it('carries the rest of the config across the rebind', async () => {
-    // json:'string' must survive, or the rebound adapter would silently write a
-    // different encoding into the same columns mid-transaction.
+    // `json: 'string'` must survive, or the rebound adapter writes a different encoding mid-transaction.
     const original = makeDb()
     const other = makeDb()
     const adapter = new IamDrizzleAdapter<'read', 'post', 'editor', 'org-1'>({

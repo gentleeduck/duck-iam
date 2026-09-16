@@ -1,21 +1,10 @@
-// ------------------------------------------------------------
-// duck-iam Prisma schema
-// Add these models to your existing schema.prisma
+// duck-iam Prisma models: add these to your existing schema.prisma.
 //
-// A reduced mirror of the drizzle schemas: Prisma cannot express CHECK
-// constraints or partial indexes, so the blank-string and date-ordering checks
-// those schemas carry are absent here and the adapter validates instead. The
-// assignment temporal columns (`starts_at`/`expires_at`/`attributes`) are
-// deliberately absent too - `IamPrismaAdapter.assignRole` throws on those
-// options rather than dropping them silently.
+// NOTE: Prisma cannot express CHECK constraints or partial indexes, so the drizzle schemas' blank-string and
+// date-ordering checks are absent, as are `starts_at`/`expires_at`/`attributes` (`assignRole` throws on those options).
 //
-// `scope` is nullable and SQL unique indexes do not collapse NULLs, so
-// `@@unique([subjectId, roleId, scope])` does NOT prevent a duplicate *unscoped*
-// grant the way the drizzle schemas' `NULLS NOT DISTINCT` / `coalesce(scope,'')`
-// indexes do. Prisma cannot express either spelling, so YOU MUST replace the
-// index it generates with one of these in a migration - twenty concurrent
-// `assignRole('u1','editor')` calls otherwise leave several identical rows,
-// because a read-then-write cannot be atomic on its own:
+// WARN: SQL unique indexes treat NULLs as distinct, so `@@unique([subjectId, roleId, scope])` allows duplicate
+// unscoped grants under concurrent writes. Replace the generated index in a migration with one of:
 //
 //   -- Postgres 15+
 //   DROP INDEX "iam_assignments_subject_id_role_id_scope_key";
@@ -26,14 +15,7 @@
 //   CREATE UNIQUE INDEX "iam_assignments_subject_id_role_id_scope_key"
 //     ON "iam_assignments" ("subject_id", "role_id", (coalesce("scope", '')));
 //
-// The adapter keeps its read-then-write as the fast path and treats the `P2002`
-// a racing writer causes as success, so repeat grants stay idempotent either
-// way. Do not replace it with a bare `create`: without the read, a repeat grant
-// costs a round trip and a caught error every time.
-//
-// `created_by` / `updated_by` are written from the actor the caller supplies
-// and stay NULL when none is named.
-// ------------------------------------------------------------
+// `created_by` / `updated_by` come from the caller's actor and stay NULL when none is named.
 
 model AccessPolicy {
   id          String   @id

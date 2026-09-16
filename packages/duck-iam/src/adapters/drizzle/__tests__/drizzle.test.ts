@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IamConfig } from '../../../core/config'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
+import { runEngineCapabilityCompliance } from '../../__compliance__/engine-capability'
+import { OPTIONAL_SUPPORT } from '../../__compliance__/optional-support'
 import { createIamDrizzleAdapter, type IamDrizzle, IamDrizzleAdapter, iamDrizzleAdapter } from '../index'
 import { fakeSql } from './fake-sql'
 
-/** `IConfig` gained <TDb, TType> in the rename these suites were disabled for. */
 type TestConfig = IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>
 /** MySQL config shape: `dialect` narrows to `'mysql'`, branching the adapter's upsert chain. */
 type MysqlTestConfig = IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'mysql'>
@@ -49,10 +50,7 @@ function rowMatches(row: Row, cond: unknown): boolean {
   if (isOr(cond)) return cond.args.filter((sub) => sub !== undefined).some((sub) => rowMatches(row, sub))
   if (isNullCond(cond)) {
     const [col] = cond.args
-    // `IS NULL` is true for a stored NULL, not for a column that is merely
-    // absent from the row object: an unscoped assignment is written as
-    // `scope: null`, and treating "no key" as NULL would let a malformed row
-    // satisfy the unscoped lookup.
+    // `IS NULL` matches a stored null only; treating a missing key as NULL would let a malformed row match unscoped.
     return row[col.name] === null
   }
   if (isEq(cond)) {
@@ -117,11 +115,7 @@ function makeDrizzleMock(): {
     return chain
   }
 
-  /**
-   * A drizzle statement: awaitable on its own, and - where the dialect has
-   * `RETURNING` - able to name the rows it touched. Pass `null` for a builder
-   * that has no `returning()`, so calling it fails loudly rather than passing.
-   */
+  /** An awaitable drizzle statement with `returning()`; `null` omits `returning()` so calling it fails loudly. */
   const statement = (returned: Row[] | null) => {
     const base = { then: (onFulfilled: (v: undefined) => unknown) => Promise.resolve(undefined).then(onFulfilled) }
     return returned === null ? base : { ...base, returning: () => Promise.resolve(returned) }
@@ -139,19 +133,15 @@ function makeDrizzleMock(): {
       })) as unknown as TestConfig['db']['select'],
       insert: vi.fn((tableRef: unknown) => {
         const table = tableForRef(tableRef)
-        // What the unique index covers: `id` where the table has one, the
-        // assignment triple otherwise. `onConflictDoNothing` has to skip a
-        // duplicate rather than push it twice, or `RETURNING` would report a
-        // row the database never wrote.
+        // The unique key: `id` where the table has one, else the assignment triple. Duplicates are skipped,
+        // so `RETURNING` never names a row the database did not write.
         const identity = (row: Row): string =>
           'id' in row ? String(row.id) : `${String(row.subjectId)} ${String(row.roleId)} ${String(row.scope ?? '')}`
         const insertNew = (data: Record<string, unknown> | Record<string, unknown>[]): Row[] => {
           const held = new Set(table.map(identity))
           const fresh: Row[] = []
           for (const row of Array.isArray(data) ? data : [data]) {
-            // `fk_iam_assignments_role`: the shipped schema will not store a
-            // grant naming a role that does not exist, and a mock that accepts
-            // one lets this suite certify behaviour no real database has.
+            // `fk_iam_assignments_role`: like the shipped schema, refuse a grant naming a role that does not exist.
             if (table === tables.assignments && !tables.roles.some((r) => r.id === row.roleId)) {
               throw new Error(
                 `insert or update on table "iam_assignments" violates foreign key constraint "fk_iam_assignments_role"`,
@@ -207,9 +197,7 @@ function makeDrizzleMock(): {
             for (let i = table.length - 1; i >= 0; i--) {
               if (rowMatches(table[i]!, c)) removed.unshift(...table.splice(i, 1))
             }
-            // `fk_iam_assignments_role` is `ON DELETE CASCADE` on all three
-            // dialects, so deleting a role takes its grants. Without this the
-            // mock certified an orphan grant no real schema can produce.
+            // INFO: `fk_iam_assignments_role` is `ON DELETE CASCADE` on all three dialects.
             if (cascades && removed.length > 0) {
               const gone = new Set(removed.map((r) => String(r.id)))
               for (let i = tables.assignments.length - 1; i >= 0; i--) {
@@ -222,14 +210,8 @@ function makeDrizzleMock(): {
       }) as unknown as TestConfig['db']['delete'],
     },
     tables: tableRefs,
-    // `isNull` and `or` were absent, and both are the *gate* on an optional
-    // code path rather than a detail of one: `updateAssignmentScope` opens with
-    // `if (!this._isNull) return false`, and `revokeRoleMany` falls back to one
-    // DELETE per row without `or`. Omitting them here did not make those paths
-    // fail - it made them never run, so the whole compliance matrix certified
-    // the degraded branch and the shipped one was dark outside the Docker e2e
-    // tier. The real adapter is constructed with drizzle's own operators, so
-    // supplying them is what makes this mock resemble a deployment.
+    // NOTE: `isNull` and `or` gate `updateAssignmentScope` and single-statement `revokeRoleMany`; without them
+    // the compliance matrix only exercises the fallbacks.
     ops: {
       and: (...conditions: unknown[]) => fakeSql({ type: 'and', args: conditions }),
       eq: (col: unknown, val: unknown) => fakeSql({ type: 'eq', args: [col, val] }),
@@ -241,8 +223,164 @@ function makeDrizzleMock(): {
   return { config, tables }
 }
 
+/**
+ * MySQL deployment shape at the same fidelity as {@link makeDrizzleMock}, so it backs the full compliance matrix.
+ * NOTE: no `onConflictDoUpdate`/`onConflictDoNothing`/`returning()`, as on MySQL; a regression to them fails loudly.
+ */
+function makeMysqlMock(): {
+  config: MysqlTestConfig
+  tables: { policies: Row[]; roles: Row[]; assignments: Row[]; attrs: Row[] }
+} {
+  const tables = { assignments: [] as Row[], attrs: [] as Row[], policies: [] as Row[], roles: [] as Row[] }
+  const tableRefs = {
+    assignments: {
+      id: { name: 'id' },
+      roleId: { name: 'roleId' },
+      scope: { name: 'scope' },
+      subjectId: { name: 'subjectId' },
+    },
+    attrs: { id: { name: 'id' }, subjectId: { name: 'subjectId' } },
+    policies: { id: { name: 'id' } },
+    roles: { id: { name: 'id' } },
+  }
+  const tableForRef = (ref: unknown): Row[] => {
+    for (const [key, val] of Object.entries(tableRefs)) {
+      if (val === ref) return tables[key as keyof typeof tables]
+    }
+    throw new Error('unknown table ref')
+  }
+
+  // Awaitable bare (list reads), after `.where()` (scoped reads) and after `.where().limit()` (the upsert probe).
+  const buildSelect = (table: Row[]) => {
+    let where: unknown = null
+    let lim: number | null = null
+    const result = (): Row[] => {
+      const rows = table.filter((r) => rowMatches(r, where))
+      return lim === null ? rows : rows.slice(0, lim)
+    }
+    const chain = {
+      limit(n: number) {
+        lim = n
+        return Promise.resolve(result())
+      },
+      then(onFulfilled: (v: Row[]) => unknown) {
+        return Promise.resolve(result()).then(onFulfilled)
+      },
+      where(c: unknown) {
+        where = c
+        return chain
+      },
+    }
+    return chain
+  }
+
+  const config: MysqlTestConfig = {
+    db: {
+      delete: vi.fn((tableRef: unknown) => {
+        const table = tableForRef(tableRef)
+        const cascades = tableRef === tableRefs.roles
+        return {
+          // No `returning()`: MySQL has none.
+          where: (cond: unknown) => {
+            const gone = new Set<string>()
+            for (let i = table.length - 1; i >= 0; i--) {
+              if (rowMatches(table[i]!, cond)) gone.add(String(table.splice(i, 1)[0]?.id))
+            }
+            // `fk_iam_assignments_role` is `ON DELETE CASCADE` here too.
+            if (cascades) {
+              for (let i = tables.assignments.length - 1; i >= 0; i--) {
+                if (gone.has(String(tables.assignments[i]?.roleId))) tables.assignments.splice(i, 1)
+              }
+            }
+            return Promise.resolve(undefined)
+          },
+        }
+      }) as unknown as MysqlTestConfig['db']['delete'],
+      insert: vi.fn((tableRef: unknown) => {
+        const table = tableForRef(tableRef)
+        const identity = (row: Row): string =>
+          'id' in row ? String(row.id) : `${String(row.subjectId)} ${String(row.roleId)} ${String(row.scope ?? '')}`
+        const push = (data: Record<string, unknown> | Record<string, unknown>[], skipHeld: boolean): void => {
+          const held = new Set(table.map(identity))
+          for (const row of Array.isArray(data) ? data : [data]) {
+            // `fk_iam_assignments_role`, as in the pg mock.
+            if (table === tables.assignments && !tables.roles.some((r) => r.id === row.roleId)) {
+              throw new Error(
+                `insert or update on table "iam_assignments" violates foreign key constraint "fk_iam_assignments_role"`,
+              )
+            }
+            if (skipHeld && held.has(identity(row))) continue
+            held.add(identity(row))
+            table.push({ ...row })
+          }
+        }
+        return {
+          // `.ignore().values(...)`: MySQL's insert-or-skip. A bare promise with no `returning()`.
+          ignore() {
+            return {
+              values(data: Record<string, unknown> | Record<string, unknown>[]) {
+                push(data, true)
+                return Promise.resolve(undefined)
+              },
+            }
+          },
+          // Plain `.values(...)` - the insert half of the select-then-branch upsert.
+          values(data: Record<string, unknown> | Record<string, unknown>[]) {
+            push(data, false)
+            return Promise.resolve(undefined)
+          },
+        }
+      }) as unknown as MysqlTestConfig['db']['insert'],
+      select: vi.fn(() => ({
+        from: (tableRef: unknown) => buildSelect(tableForRef(tableRef)),
+      })) as unknown as MysqlTestConfig['db']['select'],
+      update: vi.fn((tableRef: unknown) => {
+        const table = tableForRef(tableRef)
+        return {
+          set: (set: Record<string, unknown>) => ({
+            where: (cond: unknown) => {
+              // Every matching row: a first-match-only update would leave `updateAssignmentScope` half done.
+              for (let i = 0; i < table.length; i++) {
+                if (rowMatches(table[i]!, cond)) table[i] = { ...table[i], ...set }
+              }
+              return Promise.resolve(undefined)
+            },
+          }),
+        }
+      }) as unknown as MysqlTestConfig['db']['update'],
+    },
+    dialect: 'mysql',
+    // `isNull` and `or` gate optional paths, as in the pg mock.
+    ops: {
+      and: (...c: unknown[]) => fakeSql({ type: 'and', args: c }),
+      eq: (col: unknown, val: unknown) => fakeSql({ type: 'eq', args: [col, val] }),
+      isNull: (col: unknown) => fakeSql({ type: 'isNull', args: [col] }),
+      or: (...c: unknown[]) => fakeSql({ type: 'or', args: c }),
+    },
+    tables: tableRefs as unknown as MysqlTestConfig['tables'],
+  }
+  return { config, tables }
+}
+
 // IamAdapter compliance - fresh mock per call.
-runAdapterCompliance('IamDrizzleAdapter', () => new IamDrizzleAdapter(makeDrizzleMock().config))
+runAdapterCompliance('IamDrizzleAdapter', () => new IamDrizzleAdapter(makeDrizzleMock().config), {
+  supports: OPTIONAL_SUPPORT.IamDrizzleAdapter,
+})
+
+// The one adapter implementing all three optional writes, so here the suite
+// exercises the in-place and set-based paths rather than the fallbacks.
+runEngineCapabilityCompliance('IamDrizzleAdapter', () => new IamDrizzleAdapter(makeDrizzleMock().config))
+
+// The same matrix on the MySQL chain: select-then-branch upserts and `.ignore()` inserts are a second implementation.
+runAdapterCompliance(
+  'IamDrizzleAdapter (mysql)',
+  () => new IamDrizzleAdapter<string, string, string, string, IamDrizzle.AnyDrizzleDb, 'mysql'>(makeMysqlMock().config),
+  { supports: OPTIONAL_SUPPORT.IamDrizzleAdapter },
+)
+runEngineCapabilityCompliance(
+  'IamDrizzleAdapter (mysql)',
+  () => new IamDrizzleAdapter<string, string, string, string, IamDrizzle.AnyDrizzleDb, 'mysql'>(makeMysqlMock().config),
+)
 
 describe('IamDrizzleAdapter', () => {
   let mock: ReturnType<typeof makeDrizzleMock>
@@ -459,10 +597,6 @@ describe('IamDrizzleAdapter', () => {
       expect(await adapter.getSubjectRoles('user-1')).toEqual([])
     })
 
-    // This used to assert that `''` targeted only the empty scope rather than
-    // all scopes - the narrow reading of a value five of the six adapters
-    // interpreted differently. `''` is now refused at the shared boundary, so
-    // the stronger property holds: it revokes nothing because it never runs.
     it('revokeRole refuses an empty-string scope and leaves both grants standing', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
@@ -487,9 +621,7 @@ describe('IamDrizzleAdapter', () => {
         { roleId: 'viewer' as Ro, subjectId: 'user-1' },
       ])
 
-      // Both grants are in place afterwards; only the second is one this call
-      // made. The conflict clause skipped the first, so `RETURNING` never
-      // named it.
+      // Only the second grant is new; the conflict clause skipped the first, so `RETURNING` never named it.
       expect(changed).toEqual([1])
       expect((await adapter.getSubjectRoles('user-1')).sort()).toEqual(['editor', 'viewer'])
     })
@@ -505,11 +637,7 @@ describe('IamDrizzleAdapter', () => {
       expect(changed).toEqual([0])
     })
 
-    // Previously this asserted that a batch mixing `scope: ''` with an unscoped
-    // row revoked only the latter. The batch path now applies the same guard as
-    // the single-row path, so the whole batch is refused rather than half of it
-    // silently doing nothing - a partially-applied revocation is the worse of
-    // the two outcomes.
+    // The whole batch is refused, since a partially applied revocation is the worse outcome.
     it('revokeRoleMany refuses a batch containing an empty-string scope', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
 
@@ -525,11 +653,9 @@ describe('IamDrizzleAdapter', () => {
     })
 
     it('control: the same batch without the empty scope still revokes', async () => {
-      // A subject of its own: the block shares one adapter, so reusing `user-1`
-      // here would measure whatever the previous test left behind.
+      // Its own subject, so no state leaks in from earlier tests.
       await adapter.assignRole('user-ctl', 'editor' as Ro)
-      // `creditWrites` returns the *indices* of the rows a statement moved, so
-      // a single-row batch that removed its row credits index 0.
+      // `creditWrites` returns row indices, so a single-row batch credits index 0.
       expect(await adapter.revokeRoleMany([{ roleId: 'editor' as Ro, subjectId: 'user-ctl' }])).toEqual([0])
       expect(await adapter.getSubjectRoles('user-ctl')).toEqual([])
     })
@@ -540,9 +666,7 @@ describe('IamDrizzleAdapter', () => {
         { roleId: 'editor' as Ro, subjectId: 'user-1' },
       ])
 
-      // One INSERT happened, so exactly one row is credited - the first. The
-      // duplicate reports `changed: false` rather than both claiming a write
-      // the database made once.
+      // One INSERT happened, so only the first row is credited.
       expect(changed).toEqual([0])
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
     })
@@ -604,13 +728,8 @@ describe('IamDrizzleAdapter', () => {
   })
 
   describe('malformed-row handling (P0)', () => {
-    // IamDrizzle's JSON-stringified columns can desync from the row shape via
-    // partial migrations or manual SQL edits. The adapter must never let one
-    // escape into the evaluator - but the exit differs by table. A *role* row
-    // is dropped and reported: permissions are allow-only, so losing one only
-    // removes a grant. A *policy* row is reported and then throws, because the
-    // row that will not parse may have been the rule saying NO. See
-    // `iamUnreadablePolicy`.
+    // A malformed role row is dropped and reported: permissions are allow-only, so only a grant is lost.
+    // SECURITY: a malformed policy row is reported and throws, since it may be the deny. See `iamUnreadablePolicy`.
     it('refuses a policy row whose rules column is unparseable', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
@@ -710,122 +829,15 @@ describe('IamDrizzleAdapter', () => {
         rules: '{not json',
         targets: null,
       })
-      // `null` is the answer for a row that is not there; a corrupt row must
-      // not be able to impersonate a deleted one.
+      // SECURITY: `null` means absent; a corrupt row must not impersonate a deleted one.
       await expect(adapter.getPolicy('bad')).rejects.toThrow(/cannot be read/)
       expect(errors[0]?.rowId).toBe('bad')
     })
   })
 
   describe('mysql dialect', () => {
-    // MySQL has no `ON CONFLICT` clause. `assignRole` uses `.ignore()` +
-    // `.values(...)` (its real insert-or-skip chain). `savePolicy`/
-    // `saveRole`/`setSubjectAttributes` upsert via select-then-branch
-    // instead of a blanket `.onDuplicateKeyUpdate(...)`: that fires on
-    // *any* unique-index violation, not just the target column, so a fresh
-    // id colliding with an unrelated row's `name` (`iamPolicies`) or
-    // `name`+`scope` (`iamRoles`) would silently overwrite that row - id
-    // included - instead of erroring like pg/sqlite's target-scoped
-    // `onConflictDoUpdate`. This mock implements only mysql's real
-    // `ignore()`/plain-`values()`/`select().from().where().limit()`/
-    // `update().set().where()` chains, not `onConflictDoUpdate()`/
-    // `onConflictDoNothing()` - a regression back to those fails loudly
-    // instead of silently passing.
-    function makeMysqlMock() {
-      const tables = { policies: [] as Row[], roles: [] as Row[], assignments: [] as Row[], attrs: [] as Row[] }
-      const tableRefs = {
-        policies: { id: { name: 'id' } },
-        roles: { id: { name: 'id' } },
-        assignments: { subjectId: { name: 'subjectId' }, roleId: { name: 'roleId' } },
-        attrs: { subjectId: { name: 'subjectId' } },
-      }
-      const tableForRef = (ref: unknown): Row[] => {
-        for (const [key, val] of Object.entries(tableRefs)) {
-          if (val === ref) return tables[key as keyof typeof tables]
-        }
-        throw new Error('unknown table ref')
-      }
-      type EqCond = { type: 'eq'; args: [{ name: string }, unknown] }
-      const config: MysqlTestConfig = {
-        dialect: 'mysql',
-        db: {
-          insert: vi.fn((tableRef: unknown) => {
-            const table = tableForRef(tableRef)
-            return {
-              // `.ignore().values(...)` - MySQL's insert-or-skip chain
-              // (assignRole, assignRoleMany). It returns a bare promise, with
-              // no `returning()`: MySQL has none, so an adapter that reached
-              // for one here would fail loudly.
-              ignore() {
-                return {
-                  values(data: Record<string, unknown> | Record<string, unknown>[]) {
-                    for (const row of Array.isArray(data) ? data : [data]) table.push({ ...row })
-                    return Promise.resolve(undefined)
-                  },
-                }
-              },
-              // Plain `.values(...)` - the insert half of the select-then-branch upsert.
-              values(data: Record<string, unknown>) {
-                table.push({ ...data })
-                return Promise.resolve(undefined)
-              },
-            }
-          }) as unknown as MysqlTestConfig['db']['insert'],
-          select: vi.fn(() => ({
-            from: (tableRef: unknown) => {
-              const table = tableForRef(tableRef)
-              return {
-                where: (cond: EqCond) => ({
-                  limit: (_n: number) => {
-                    const [col, val] = cond.args
-                    return table.filter((r) => r[col.name] === val)
-                  },
-                }),
-              }
-            },
-          })) as unknown as MysqlTestConfig['db']['select'],
-          update: vi.fn((tableRef: unknown) => {
-            const table = tableForRef(tableRef)
-            return {
-              set: (set: Record<string, unknown>) => ({
-                where: (cond: EqCond) => {
-                  const [col, val] = cond.args
-                  const idx = table.findIndex((r) => r[col.name] === val)
-                  if (idx >= 0) table[idx] = { ...table[idx], ...set }
-                  return Promise.resolve(undefined)
-                },
-              }),
-            }
-          }) as unknown as MysqlTestConfig['db']['update'],
-          delete: vi.fn((tableRef: unknown) => {
-            const table = tableForRef(tableRef)
-            const cascades = tableRef === tableRefs.roles
-            return {
-              // Also `returning()`-free, for the same reason as `ignore()`.
-              where: (cond: unknown) => {
-                const gone = new Set<string>()
-                for (let i = table.length - 1; i >= 0; i--) {
-                  if (rowMatches(table[i]!, cond)) gone.add(String(table.splice(i, 1)[0]?.id))
-                }
-                // `fk_iam_assignments_role` is `ON DELETE CASCADE` here too.
-                if (cascades) {
-                  for (let i = tables.assignments.length - 1; i >= 0; i--) {
-                    if (gone.has(String(tables.assignments[i]?.roleId))) tables.assignments.splice(i, 1)
-                  }
-                }
-                return Promise.resolve(undefined)
-              },
-            }
-          }) as unknown as MysqlTestConfig['db']['delete'],
-        },
-        tables: tableRefs as unknown as MysqlTestConfig['tables'],
-        ops: {
-          eq: (col: unknown, val: unknown) => fakeSql({ type: 'eq', args: [col, val] }),
-          and: (...c: unknown[]) => fakeSql({ type: 'and', args: c }),
-        },
-      }
-      return { config, tables }
-    }
+    // INFO: MySQL has no `ON CONFLICT` and `onDuplicateKeyUpdate` fires on any unique index, so upserts read first.
+    // The mock implements only MySQL's real chains, so a regression to `onConflictDo*` fails loudly.
 
     it('savePolicy inserts a new row via select-then-insert, not onConflictDoUpdate', async () => {
       const mock = makeMysqlMock()
@@ -846,11 +858,7 @@ describe('IamDrizzleAdapter', () => {
       await adapter.saveRole({ id: 'r1' as Ro, name: 'editor', permissions: [] })
       await adapter.saveRole({ id: 'r2' as Ro, name: 'editor', permissions: [] })
 
-      // Two distinct rows, not one overwritten via a name match. Real
-      // MySQL's `ON DUPLICATE KEY UPDATE` would instead collide on the
-      // `name`+`scope` unique index and silently rewrite r1's row (id
-      // included) with r2's data; the adapter never reaches that path
-      // because it keys strictly on `id`.
+      // Two rows, not one overwritten by a name match: the adapter keys strictly on `id`.
       expect(mock.tables.roles).toHaveLength(2)
       expect(mock.tables.roles.map((r) => r.id)).toEqual(['r1', 'r2'])
     })
@@ -868,6 +876,8 @@ describe('IamDrizzleAdapter', () => {
     it('assignRole inserts via ignore(), not onConflictDoNothing', async () => {
       const mock = makeMysqlMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
+      // `fk_iam_assignments_role` is enforced, so the role must exist first.
+      await adapter.saveRole({ id: 'editor' as Ro, name: 'editor', permissions: [] })
       await adapter.assignRole('u1', 'editor' as Ro)
       expect(mock.tables.assignments).toHaveLength(1)
     })
@@ -876,15 +886,15 @@ describe('IamDrizzleAdapter', () => {
       const mock = makeMysqlMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
 
+      await adapter.saveRole({ id: 'editor' as Ro, name: 'editor', permissions: [] })
+      await adapter.saveRole({ id: 'viewer' as Ro, name: 'viewer', permissions: [] })
       const changed = await adapter.assignRoleMany([
         { roleId: 'editor' as Ro, subjectId: 'u1' },
         { roleId: 'viewer' as Ro, subjectId: 'u2' },
       ])
 
-      // `null` is not "nothing was written" - both rows landed. It says the
-      // driver cannot name which of them were new, so the engine leaves
-      // `changed` off rather than guessing. The mock's `ignore()` chain has no
-      // `returning()`, so an adapter that reached for one here would throw.
+      // `null` means the driver cannot name the new rows, not that nothing was written.
+      // The mock's `ignore()` chain has no `returning()`, so reaching for one would throw.
       expect(changed).toBeNull()
       expect(mock.tables.assignments).toHaveLength(2)
     })
@@ -892,6 +902,8 @@ describe('IamDrizzleAdapter', () => {
     it('revokeRoleMany removes every row and answers null', async () => {
       const mock = makeMysqlMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
+      await adapter.saveRole({ id: 'editor' as Ro, name: 'editor', permissions: [] })
+      await adapter.saveRole({ id: 'viewer' as Ro, name: 'viewer', permissions: [] })
       await adapter.assignRole('u1', 'editor' as Ro)
       await adapter.assignRole('u2', 'viewer' as Ro)
 

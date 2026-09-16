@@ -1,8 +1,5 @@
-/**
- * `starts_at`/`expires_at` bound when an assignment counts as active, and `attributes`
- * carries per-grant data (e.g. department) onto `IScopedRole`. Both are opt-in columns -
- * a row with all three NULL behaves exactly as before they existed.
- */
+// `starts_at`/`expires_at` bound when an assignment is active; `attributes` carries per-grant data onto `IScopedRole`.
+// All three are opt-in: a row with them NULL is an unbounded grant with no attributes.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 import { fakeSql } from './fake-sql'
@@ -423,15 +420,7 @@ describe('an unreadable time bound fails closed', () => {
   })
 })
 
-/**
- * The bound the engine cannot see for itself.
- *
- * Every read above answers as of `Date.now()`; the engine caches that answer
- * for a whole `cacheTTL`. `getSubjectGrantBoundary` is what closes the gap, so
- * these cases are about it reporting *exactly* the next instant one of the
- * subject's windows opens or closes - never a bound already behind, never a
- * later one when an earlier exists.
- */
+// The engine caches reads for `cacheTTL`, so this must report exactly the next future instant a window opens or closes.
 describe('IamDrizzleAdapter.getSubjectGrantBoundary', () => {
   const NOW = Date.UTC(2026, 5, 1, 9, 0, 0)
 
@@ -507,8 +496,7 @@ describe('IamDrizzleAdapter.getSubjectGrantBoundary', () => {
   })
 
   it('ignores postgres `infinity`, which is a bound that never arrives', async () => {
-    // node-postgres parses `infinity` to the JS number, and `_isActive` reads
-    // it as "always". There is no instant to wake up for.
+    // INFO: node-postgres parses `infinity` to the JS number, which `_isActive` reads as "always".
     const { adapter } = seed([{ expiresAt: Number.POSITIVE_INFINITY, roleId: 'editor' }])
     expect(await adapter.getSubjectGrantBoundary('sub-1')).toBeNull()
   })
@@ -540,21 +528,8 @@ describe('IamDrizzleAdapter.getSubjectGrantBoundary', () => {
   })
 })
 
-/**
- * A window the store can hold but can never honour.
- *
- * `[startsAt, expiresAt)` with `startsAt >= expiresAt` is empty: `_isActive`
- * can never answer true for it, so the grant is dead the moment it is written
- * while `assignRole` resolves and `engine.admin.assignRoles` reports
- * `ok: true, applied: 1` - the same silent-success shape that made discarded
- * `expiresAt` a bug on the other five adapters.
- *
- * The shipped schemas do carry `ch_iam_assignments_starts_before_expires`, but
- * this adapter is table-config driven: a caller points it at their own table,
- * and the only guard they are guaranteed is the one in the code. An
- * `Invalid Date` is the same story - it reaches the driver as garbage rather
- * than as a refusal.
- */
+// `startsAt >= expiresAt` is an empty window that would store a dead grant and report success. The shipped
+// schemas CHECK it, but callers can bring their own table, so the code refuses it too.
 describe('IamDrizzleAdapter refuses a window it could never honour', () => {
   const NOW = Date.UTC(2026, 5, 1, 9, 0, 0)
 

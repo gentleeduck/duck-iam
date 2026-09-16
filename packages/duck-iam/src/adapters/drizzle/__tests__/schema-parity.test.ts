@@ -1,15 +1,5 @@
-/**
- * The three drizzle schemas are three hand-written files describing one logical
- * schema, and nothing compared them. They had already drifted: only Postgres
- * rejected a whitespace-only `scope`, only MySQL required `inherits` to be
- * supplied on every insert, and MySQL alone lacked the composite index the
- * scoped-subject lookup reads. None of that is visible from inside any one
- * file - it is only visible from the diff nobody was taking.
- *
- * Dialect differences are real and some belong here, so they are named
- * individually below rather than waved through by a loose comparison. Anything
- * not named is a drift, and this file is how it gets found.
- */
+// Diffs the three hand-written drizzle schemas, which describe one logical schema.
+// Legitimate dialect differences are named in `DIALECT_ONLY`; anything else is drift.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type MySqlTable, getTableConfig as mysqlConfig } from 'drizzle-orm/mysql-core'
@@ -23,7 +13,7 @@ import * as sqlite from '../sqlite/sqlite.schema'
 /** What a table declares, flattened to the parts every dialect can express. */
 interface IShape {
   readonly columns: readonly string[]
-  /** Index and unique-constraint names together: `uniqueIndex` lands in one list on MySQL/SQLite and the other on Postgres. */
+  /** Index and unique-constraint names together, since dialects file a unique index under different lists. */
   readonly indexes: readonly string[]
   readonly checks: readonly string[]
   readonly foreignKeys: readonly string[]
@@ -31,12 +21,7 @@ interface IShape {
   readonly required: readonly string[]
 }
 
-/**
- * The three `getTableConfig` return types differ per dialect, so this reads the
- * fields they agree on. Index names are optional in drizzle's type (an unnamed
- * index is legal); an unnamed one here would be a schema this file cannot
- * compare, so it is surfaced rather than skipped.
- */
+/** The fields the three dialects' `getTableConfig` results agree on. */
 interface ITableConfigLike {
   readonly columns: readonly { readonly name: string; readonly notNull: boolean; readonly hasDefault: boolean }[]
   readonly indexes: readonly { readonly config: { readonly name?: string | undefined } }[]
@@ -71,11 +56,7 @@ const shape = {
   sqlite: (t: SQLiteTable) => shapeOf(sqliteConfig(t)),
 }
 
-/**
- * Entries a dialect legitimately has alone, each with the reason it cannot be
- * shared. A name may only appear here because the other dialects *cannot*
- * express it - never because someone has not got round to it.
- */
+/** Entries only one dialect has because the others cannot express them - never because a port is pending. */
 const DIALECT_ONLY: Readonly<Record<string, string>> = {
   // GIN over a jsonb column. MySQL and SQLite have no equivalent that does not
   // require a generated column per query shape.
@@ -121,9 +102,7 @@ describe.each(TABLES)('$name declares the same shape on every dialect', (table) 
   })
 
   it('declares the same CHECK constraints', () => {
-    // A check missing on one dialect means the same value is storable there and
-    // rejected elsewhere - the kind of divergence that only shows up in
-    // production, on the dialect nobody develops against.
+    // A check missing on one dialect makes the same value storable there and rejected elsewhere.
     expect(shared(m.checks, 'mysql')).toEqual(shared(p.checks, 'pg'))
     expect(shared(s.checks, 'sqlite')).toEqual(shared(p.checks, 'pg'))
   })
@@ -158,17 +137,8 @@ describe('the dialect-only allow-list stays honest', () => {
   })
 })
 
-/**
- * `src/test/pg-e2e-schema.sql` provisions the tables every Postgres e2e suite
- * runs against, and its own header calls it a hand-kept mirror of
- * `pg.schema.ts`. A mirror nothing compares is a mirror that drifts, and the
- * failure mode is the worst kind: the e2e suites keep passing against a schema
- * that is no longer the one consumers get.
- *
- * This compares the parts a regex can read honestly - column names and the
- * named constraints and indexes. Types and predicates are left to the suites
- * that actually execute the SQL.
- */
+// `src/test/pg-e2e-schema.sql` hand-mirrors `pg.schema.ts`, so drift lets e2e pass on a schema consumers never get.
+// Compares what a regex reads reliably: column names and named constraints and indexes.
 describe('the e2e SQL mirror matches the Postgres schema module', () => {
   const SQL = readFileSync(join(import.meta.dirname, '../../../test/pg-e2e-schema.sql'), 'utf8')
 

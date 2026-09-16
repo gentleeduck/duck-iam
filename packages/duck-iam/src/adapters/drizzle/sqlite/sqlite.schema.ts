@@ -4,12 +4,8 @@ import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl } from '../../../core/types'
 
 /**
- * SQLite schema for the duck-iam IamDrizzle adapter. Every payload column is TEXT, so
- * the adapter must run in `json: 'string'` mode. Global rows (NULL scope) are
- * de-duplicated via a `COALESCE(scope, '')` expression unique index.
- * `created_by`/`updated_by` are written from the actor the caller supplies - the
- * adapter is one class across all three dialects - and stay NULL when none is
- * named; see the Postgres schema for fuller notes.
+ * SQLite schema for the drizzle adapter. Payload columns are TEXT, so the adapter must use `json: 'string'`.
+ * NULL-scope rows are de-duplicated by a `COALESCE(scope, '')` expression unique index.
  */
 
 /** Mirrors {@link AccessControl.CombiningAlgorithm}. */
@@ -44,11 +40,7 @@ export const iamPolicies = sqliteTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
-    // No unique index on `name`. Nothing in the engine resolves a policy by name
-    // - `id` is the key everywhere - so uniqueness here only bought a label
-    // nobody reads, at the cost of making pg the one adapter where a second
-    // policy with a duplicated name is impossible. Two adapters disagreeing
-    // about whether a write succeeds is the failure this schema must not have.
+    // NOTE: no unique index on `name`: policies resolve by `id`, and every adapter must accept a duplicate name.
     check(
       'ch_iam_policies_algorithm_valid',
       sql`${t.algorithm} IN ('deny-overrides','allow-overrides','first-match','highest-priority')`,
@@ -82,8 +74,7 @@ export const iamRoles = sqliteTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    // Same as `iam_policies`: no unique index on (name, scope). Roles resolve by
-    // `id`, and the other five adapters accept a duplicate name happily.
+    // NOTE: no unique index on (name, scope), for the same reason as `iam_policies`.
     index('idx_iam_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
     check(
       'ch_iam_roles_name_not_blank',
@@ -96,10 +87,7 @@ export const iamRoles = sqliteTable(
   ],
 )
 
-/**
- * Subject-to-role assignments. NULL scope is a global (unscoped) grant. NULL
- * `starts_at`/`expires_at` means unbounded in that direction.
- */
+/** Subject-to-role assignments. NULL `scope` is a global grant; NULL `starts_at`/`expires_at` is unbounded that way. */
 export const iamAssignments = sqliteTable(
   'iam_assignments',
   {
