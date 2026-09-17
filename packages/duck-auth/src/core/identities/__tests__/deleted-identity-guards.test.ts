@@ -56,7 +56,7 @@ function build() {
       autoCreateIdentity: true,
       autoCreateProfile: (email) => ({ email, username: email }),
       channels: { email: channel },
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email),
+      findIdentityByEmail: (email) => adapter.identities.find({ email }),
       ttlMs: 60_000,
     }),
   )
@@ -121,7 +121,7 @@ describe('a deleted identity cannot be authenticated', () => {
     const { adapter, auth, channel } = build()
     await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
     const token = new URL(channel.sent[0]?.url ?? '').searchParams.get('token') ?? ''
-    const i = await adapter.identities.findByEmail('a@x.com')
+    const i = await adapter.identities.find({ email: 'a@x.com' })
 
     await auth.identities.softDelete(i?.id ?? '')
 
@@ -144,7 +144,7 @@ describe('a deleted identity cannot be authenticated', () => {
     const token = new URL(channel.sent.at(-1)?.url ?? '').searchParams.get('token') ?? ''
 
     await auth.identities.softDelete(ident.id)
-    expect(await adapter.identities.findById(ident.id)).toBeNull()
+    expect(await adapter.identities.find({ id: ident.id })).toBeNull()
 
     // Reported as an invalid token, not a distinct code: a reset link must not
     // double as a way to ask whether an account still exists.

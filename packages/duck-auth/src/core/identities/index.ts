@@ -1,3 +1,9 @@
 export { IdentitiesImpl, identities } from './identities'
-export { DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
+export {
+  canonicalEmail,
+  DEFAULT_IDENTITIES_CONFIG,
+  emailSpellings,
+  toEmailList,
+  withNormalisedEmail,
+} from './identities.constants'
 export type { Identities } from './identities.types'
