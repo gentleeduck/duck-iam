@@ -15,6 +15,7 @@
  */
 
 import { createSign } from 'node:crypto'
+import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { OAuthClient } from '../core/client'
@@ -61,14 +62,14 @@ export function generateClientSecret(
 
 /** DER -> r||s for ES256 signatures. */
 function derToJose(der: Buffer, halfLen: number): Buffer {
-  if (der[0] !== 0x30) throw new Error('not a DER sequence')
+  if (der[0] !== 0x30) throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'not a DER sequence' })
   let offset = 2
   if ((der[1] ?? 0) & 0x80) offset = 2 + ((der[1] ?? 0) & 0x7f)
-  if (der[offset] !== 0x02) throw new Error('expected r INTEGER')
+  if (der[offset] !== 0x02) throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'expected r INTEGER' })
   const rLen = der.readUInt8(offset + 1)
   let r = der.subarray(offset + 2, offset + 2 + rLen)
   offset = offset + 2 + rLen
-  if (der[offset] !== 0x02) throw new Error('expected s INTEGER')
+  if (der[offset] !== 0x02) throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'expected s INTEGER' })
   const sLen = der.readUInt8(offset + 1)
   let s = der.subarray(offset + 2, offset + 2 + sLen)
   if (r[0] === 0 && r.length === halfLen + 1) r = r.subarray(1)

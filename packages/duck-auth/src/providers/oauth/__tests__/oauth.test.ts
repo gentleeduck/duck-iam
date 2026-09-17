@@ -1,11 +1,13 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { afterOAuthBegin } from '~/test/oauth-browser'
 import { OAuthClient } from '../core/client'
 import { generatePkce } from '../core/pkce'
 import { oProvider } from '../core/provider'
@@ -23,6 +25,11 @@ function mintRawState(payload: unknown, secret: string): string {
   return `${body}.${sig}`
 }
 
+/** The pair `begin` splits: the cookie stays in the browser, its digest rides in the state. */
+const COOKIE = 'pre-auth-cookie-value'
+const BINDING = sha256(COOKIE)
+const COOKIE_HEADER = `__Host-duck-oauth=${COOKIE}`
+
 interface MyProfile extends Identities.ProfileMetadataBase {}
 
 describe('oauth core - PKCE + state', () => {
@@ -35,7 +42,7 @@ describe('oauth core - PKCE + state', () => {
   })
 
   it('signState / authVerifyState roundtrip', () => {
-    const payload = authBuildState('oauth:authGoogle', 'verifier-xyz')
+    const payload = authBuildState('oauth:authGoogle', 'verifier-xyz', { binding: BINDING })
     const state = signState(payload, 'secret')
     const back = authVerifyState(state, 'secret')
     expect(back?.providerId).toBe('oauth:authGoogle')
@@ -44,26 +51,29 @@ describe('oauth core - PKCE + state', () => {
   })
 
   it('authVerifyState rejects tampered signature', () => {
-    const payload = authBuildState('oauth:authGoogle', 'v')
+    const payload = authBuildState('oauth:authGoogle', 'v', { binding: BINDING })
     const state = signState(payload, 'secret')
     const tampered = `${state.slice(0, -3)}xxx`
     expect(authVerifyState(tampered, 'secret')).toBeNull()
   })
 
   it('authVerifyState rejects wrong secret', () => {
-    const state = signState(authBuildState('oauth:authGoogle', 'v'), 'secret-a')
+    const state = signState(authBuildState('oauth:authGoogle', 'v', { binding: BINDING }), 'secret-a')
     expect(authVerifyState(state, 'secret-b')).toBeNull()
   })
 
   it('authVerifyState rejects expired state past maxAgeMs', () => {
-    const payload = { ...authBuildState('oauth:authGoogle', 'v'), iat: Date.now() - 11 * 60 * 1000 }
+    const payload = {
+      ...authBuildState('oauth:authGoogle', 'v', { binding: BINDING }),
+      iat: Date.now() - 11 * 60 * 1000,
+    }
     const state = signState(payload, 'secret')
     expect(authVerifyState(state, 'secret')).toBeNull()
   })
 
   describe('authVerifyState - SEC: payload validation', () => {
     const SECRET = 'secret'
-    const base = authBuildState('oauth:authGoogle', 'verifier-xyz')
+    const base = authBuildState('oauth:authGoogle', 'verifier-xyz', { binding: BINDING })
 
     it('rejects payload whose iat is missing (would bypass expiry via NaN math)', () => {
       const { iat, ...noIat } = base
@@ -298,15 +308,29 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
     const { auth } = buildAuth(fetchImpl)
     const intents = await auth.flows.beginProvider('oauth:fakeoidc', {})
-    expect(intents).toHaveLength(1)
-    const intent = intents[0]!
-    expect(intent.type).toBe('redirect')
-    if (intent.type === 'redirect') {
+    const intent = intents.find((i) => i.type === 'redirect')
+    expect(intent?.type).toBe('redirect')
+    if (intent?.type === 'redirect') {
       const u = new URL(intent.url)
       expect(u.origin).toBe('https://idp')
       expect(u.searchParams.get('code_challenge_method')).toBe('S256')
       expect(u.searchParams.get('state')).toBeTruthy()
     }
+  })
+
+  it('begin also sets the cookie the callback has to come back with', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const { auth } = buildAuth(fetchImpl)
+    const intents = await auth.flows.beginProvider('oauth:fakeoidc', {})
+    const cookie = intents.find((i) => i.type === 'setCookie')
+
+    expect(cookie).toMatchObject({
+      name: '__Host-duck-oauth',
+      options: { httpOnly: true, path: '/', sameSite: 'lax', secure: true },
+    })
+    // The IdP sees the state, so the state carries the digest and the browser keeps the value.
+    const { state, cookieHeader } = afterOAuthBegin(intents)
+    expect(state).not.toContain(cookieHeader.split('=')[1] ?? '')
   })
 
   it('complete exchanges code, fetches userinfo, creates identity, returns startSession (auto-create branch)', async () => {
@@ -334,17 +358,23 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     const { auth, adapter } = buildAuth(fetchImpl)
 
     // Build a real state via begin (to round-trip the PKCE verifier).
-    const beginIntents = await auth.flows.beginProvider('oauth:fakeoidc', {})
-    const url = new URL((beginIntents[0] as { url: string }).url)
-    const state = url.searchParams.get('state') ?? ''
+    const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
 
     const result = await auth.flows.signIn({
       providerId: 'oauth:fakeoidc',
-      input: { code: 'authcode-abc', state },
+      input: { code: 'authcode-abc', state, cookieHeader },
     })
 
     expect(result.session!.factors[0]?.method).toBe('oauth')
-    const identity = await adapter.identities.findByEmail('new@x.com')
+    // Spent with the code, so a recovered callback URL cannot be replayed in this browser.
+    expect(result.intents).toContainEqual(
+      expect.objectContaining({
+        name: '__Host-duck-oauth',
+        options: expect.objectContaining({ maxAge: 0 }),
+        type: 'clearCookie',
+      }),
+    )
+    const identity = await adapter.identities.find({ email: 'new@x.com' })
     expect(identity).not.toBeNull()
     expect(identity?.providers.some((p) => p.providerId === 'oauth:fakeoidc' && p.providerSub === 'idp-user-1')).toBe(
       true,
@@ -353,6 +383,46 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     const oauthCreds = await adapter.credentials.listByIdentity(identity?.id ?? '', 'oauth', {})
     expect(oauthCreds[0]?.secret).toMatch(/^[0-9a-f]{64}$/)
     expect((oauthCreds[0]?.metadata as { familyId: string }).familyId).toContain('oauth:fakeoidc:idp-user-1')
+  })
+
+  it('complete refuses a callback that brings no cookie', async () => {
+    // The login-CSRF shape: the attacker begins a flow, hands the victim the callback URL, and the
+    // victim's browser finishes it. Their browser has no cookie from this begin, so it cannot.
+    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const { auth } = buildAuth(fetchImpl)
+    const { state } = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
+
+    await expect(auth.flows.signIn({ input: { code: 'c', state }, providerId: 'oauth:fakeoidc' })).rejects.toThrow(
+      /OAUTH_STATE_MISMATCH/,
+    )
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it("complete refuses a callback carrying another browser's cookie", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const { auth } = buildAuth(fetchImpl)
+    const attacker = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
+    const victim = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
+
+    await expect(
+      auth.flows.signIn({
+        input: { code: 'c', cookieHeader: victim.cookieHeader, state: attacker.state },
+        providerId: 'oauth:fakeoidc',
+      }),
+    ).rejects.toThrow(/OAUTH_STATE_MISMATCH/)
+  })
+
+  it('complete refuses a cookie under the right name with the wrong value', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const { auth } = buildAuth(fetchImpl)
+    const { state } = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
+
+    await expect(
+      auth.flows.signIn({
+        input: { code: 'c', cookieHeader: '__Host-duck-oauth=guessed', state },
+        providerId: 'oauth:fakeoidc',
+      }),
+    ).rejects.toThrow(/OAUTH_STATE_MISMATCH/)
   })
 
   it('complete with tampered state surfaces AUTH/oauth/STATE_MISMATCH', async () => {
@@ -396,7 +466,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
     const { auth } = buildAuth(fetchImpl)
     // Forge a state signed correctly but for a different providerId.
-    const payload = authBuildState('oauth:authGoogle', 'v')
+    const payload = authBuildState('oauth:authGoogle', 'v', { binding: BINDING })
     const state = signState(payload, 'super-secret')
     await expect(
       auth.flows.signIn({
@@ -421,15 +491,13 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     }) as unknown as typeof globalThis.fetch
     const { auth, adapter } = buildAuth(fetchImpl)
 
-    const begin1 = await auth.flows.beginProvider('oauth:fakeoidc', {})
-    const state1 = new URL((begin1[0] as { url: string }).url).searchParams.get('state') ?? ''
-    await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c1', state: state1 } })
-    const identitiesBefore = await adapter.identities.findByEmail('a@x.com')
+    const first = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
+    await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c1', ...first } })
+    const identitiesBefore = await adapter.identities.find({ email: 'a@x.com' })
     expect(identitiesBefore).not.toBeNull()
 
-    const begin2 = await auth.flows.beginProvider('oauth:fakeoidc', {})
-    const state2 = new URL((begin2[0] as { url: string }).url).searchParams.get('state') ?? ''
-    const r2 = await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c2', state: state2 } })
+    const second = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
+    const r2 = await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c2', ...second } })
     expect(r2.session!.identityId).toBe(identitiesBefore?.id)
   })
 })
@@ -461,6 +529,22 @@ describe('oProvider - redirectUri construction guard', () => {
 
   it('throws AUTH/MISCONFIGURED on a `javascript:` redirectUri', () => {
     expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'javascript:alert(1)' })).toThrow(/MISCONFIGURED/)
+  })
+
+  it('refuses a __Host- state cookie the browser would silently drop', () => {
+    const redirectUri = 'https://app/callback'
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri, stateCookie: { secure: false } })).toThrow(
+      /MISCONFIGURED/,
+    )
+    expect(() =>
+      oProvider<MyProfile>({ ...baseOpts, redirectUri, stateCookie: { domain: 'app', name: '__Host-duck-oauth' } }),
+    ).toThrow(/MISCONFIGURED/)
+    // A domain with no name asked for is not a conflict: the default drops the prefix for it.
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri, stateCookie: { domain: 'app' } })).not.toThrow()
+    // Naming it something else is how an http development host opts out.
+    expect(() =>
+      oProvider<MyProfile>({ ...baseOpts, redirectUri, stateCookie: { name: 'duck-oauth', secure: false } }),
+    ).not.toThrow()
   })
 
   it('throws on a redirectUri containing CR/LF (header injection)', () => {

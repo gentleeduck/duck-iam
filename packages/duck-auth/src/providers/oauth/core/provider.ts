@@ -1,11 +1,15 @@
 import { toCredentialUpsert } from '~/core/credentials/credentials'
-import { sha256 } from '~/core/crypto'
+import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
-import type { Identities } from '~/core/identities'
+import { emailSpellings, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
+import { parseCookie } from '~/core/transport'
 import type { OAuth } from './oauth.types'
 import { generatePkce } from './pkce'
 import { authBuildState, authVerifyState, signState } from './state'
+
+/** Must not outlive the state's own max age, or the cookie expires mid-flow and the callback fails. */
+const STATE_COOKIE_MAX_AGE_SEC = 600
 
 /**
  * Generic oauth provider. Specific provider modules (authGoogle, authGithub,
@@ -16,9 +20,32 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
 {
   readonly id: string
   readonly kind = 'oauth' as const
+  private readonly _cookieName: string
+  private readonly _cookieOptions: Provider.CookieOptions
 
   constructor(private readonly opts: OAuth.Options<Profile>) {
     this.id = `oauth:${opts.providerId}`
+    const cookie = opts.stateCookie ?? {}
+    this._cookieName = cookie.name ?? (cookie.domain === undefined ? '__Host-duck-oauth' : 'duck-oauth')
+    const secure = cookie.secure ?? true
+    this._cookieOptions = {
+      httpOnly: true,
+      // The callback is a top-level GET the IdP navigates to. 'lax' sends the cookie on that and
+      // 'strict' does not, which would refuse every real sign-in.
+      sameSite: 'lax',
+      secure,
+      path: '/',
+      maxAge: STATE_COOKIE_MAX_AGE_SEC,
+      ...(cookie.domain !== undefined && { domain: cookie.domain }),
+    }
+    // Browsers drop a `__Host-` cookie that breaks either rule without saying so, and a silently
+    // dropped cookie here is every sign-in failing at the callback.
+    if (this._cookieName.startsWith('__Host-') && (cookie.domain !== undefined || !secure)) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail:
+          'oauth.stateCookie: the __Host- prefix forbids a domain and requires secure; name it something else for an http host',
+      })
+    }
     // Refuse a malformed `redirectUri` at construction so a misconfigured
     // value (e.g. `javascript:alert(1)`, an unparseable string, or one carrying
     // CR/LF for header injection) cannot reach the IdP authorize URL or our
@@ -32,7 +59,11 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
 
   async begin(_ctx: Provider.Context<Profile>, input: OAuth.BeginInput): Promise<Provider.Intent[]> {
     const pkce = generatePkce()
+    // The state is signed but not secret: it travels to the IdP and back in a URL, so it says who
+    // began a flow and not who is finishing one. This cookie is the half the IdP never sees.
+    const binding = randomToken(32)
     const statePayload = authBuildState(this.id, pkce.verifier, {
+      binding: sha256(binding),
       ...(input?.returnTo !== undefined && { returnTo: input.returnTo }),
     })
     const state = signState(statePayload, this.opts.stateSigningSecret)
@@ -41,7 +72,10 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
       state,
       codeChallenge: pkce.challenge,
     })
-    return [{ type: 'redirect', url, status: 302 }]
+    return [
+      { type: 'setCookie', name: this._cookieName, value: binding, options: this._cookieOptions },
+      { type: 'redirect', url, status: 302 },
+    ]
   }
 
   async complete(ctx: Provider.Context<Profile>, input: OAuth.CompleteInput): Promise<Provider.InternalIntent[]> {
@@ -57,6 +91,12 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
       throw new AuthError('AUTH_OAUTH_STATE_MISMATCH')
     }
     if (verified.providerId !== this.id) {
+      throw new AuthError('AUTH_OAUTH_STATE_MISMATCH')
+    }
+    // Without this a signed state completes from any browser, so an attacker who begins a flow can
+    // hand the callback URL to a victim and have the victim's browser sign in as the attacker.
+    const presented = typeof input.cookieHeader === 'string' ? parseCookie(input.cookieHeader, this._cookieName) : null
+    if (presented === null || !timingSafeEqual(sha256(presented), verified.binding)) {
       throw new AuthError('AUTH_OAUTH_STATE_MISMATCH')
     }
 
@@ -77,18 +117,21 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
     if (this.opts.onSignIn) {
       const r = await this.opts.onSignIn({
         profile,
-        findByProviderSub: (sub) => ctx.stores.identities.findByProviderSub(this.id, sub),
-        findByEmail: (email) => ctx.stores.identities.findByEmail(email),
+        findByProviderSub: (sub) => ctx.stores.identities.find({ providerId: this.id, providerSub: sub }),
+        findByEmail: (email) => ctx.stores.identities.find({ email: emailSpellings(email) ?? email }),
         createIdentity: async (p) => {
           const created = await ctx.stores.identities.create({
             profile: p,
-            providers: [{ providerId: this.id, providerSub: profile.sub, addedAt: new Date() }],
+            providers: [{ providerId: this.id, providerSub: profile.sub }],
             emailVerified: false,
           })
           return { id: created.id }
         },
         linkProvider: async (id, sub) => {
-          await ctx.stores.identities.link(id, { providerId: this.id, providerSub: sub, addedAt: new Date() })
+          await ctx.stores.identities.link(id, {
+            providerId: this.id,
+            providerSub: sub,
+          })
         },
       })
       if (!r) {
@@ -99,11 +142,11 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
       }
       identityId = r.identityId
     } else {
-      const bySub = await ctx.stores.identities.findByProviderSub(this.id, profile.sub)
+      const bySub = await ctx.stores.identities.find({ providerId: this.id, providerSub: profile.sub })
       if (bySub) {
         identityId = bySub.id
       } else if (profile.email) {
-        const byEmail = await ctx.stores.identities.findByEmail(profile.email)
+        const byEmail = await ctx.stores.identities.find({ email: emailSpellings(profile.email) ?? profile.email })
         if (byEmail) {
           // Email matches but no sub link; silent auto-link is ATO bait.
           const policy = this.opts.onFederationConflict ?? 'reject'
@@ -122,7 +165,6 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
           await ctx.stores.identities.link(byEmail.id, {
             providerId: this.id,
             providerSub: profile.sub,
-            addedAt: new Date(),
           })
           identityId = byEmail.id
         }
@@ -137,7 +179,7 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
         }
         const created = await ctx.stores.identities.create({
           profile: projected,
-          providers: [{ providerId: this.id, providerSub: profile.sub, addedAt: new Date() }],
+          providers: [{ providerId: this.id, providerSub: profile.sub }],
           emailVerified: false,
         })
         identityId = created.id
@@ -165,6 +207,9 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
     }
 
     return [
+      // Spent. The state stays verifiable until it ages out, so leaving the cookie behind leaves a
+      // callback URL that still works if it is recovered from history or a referrer.
+      { type: 'clearCookie', name: this._cookieName, options: { ...this._cookieOptions, maxAge: 0 } },
       {
         type: 'startSession',
         identityId,

@@ -14,13 +14,17 @@
 import { Buffer } from 'node:buffer'
 import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { sha256 } from '~/core/crypto'
 import { authBuildState, authVerifyState, signState } from '../state'
 
 const SECRET = 'state-signing-secret-value'
 const OTHER_SECRET = 'a-completely-different-secret'
+/** The pair `begin` splits: the cookie stays in the browser, its digest rides in the state. */
+const COOKIE = 'pre-auth-cookie-value'
+const BINDING = sha256(COOKIE)
 
 const build = (over: Record<string, unknown> = {}) => ({
-  ...authBuildState('oauth:authGoogle', 'pkce-verifier-value'),
+  ...authBuildState('oauth:authGoogle', 'pkce-verifier-value', { binding: BINDING }),
   ...over,
 })
 
@@ -46,7 +50,7 @@ describe('a state the library signed comes back intact', () => {
   })
 
   it('carries returnTo when one was set', () => {
-    const payload = authBuildState('oauth:authGoogle', 'v', { returnTo: '/dashboard' })
+    const payload = authBuildState('oauth:authGoogle', 'v', { binding: BINDING, returnTo: '/dashboard' })
     expect(authVerifyState(sign(payload), SECRET)?.returnTo).toBe('/dashboard')
   })
 
@@ -56,13 +60,15 @@ describe('a state the library signed comes back intact', () => {
 
   it('mints a fresh nonce every time', () => {
     const nonces = new Set<string>()
-    for (let i = 0; i < 1000; i++) nonces.add(authBuildState('p', 'v').nonce)
+    for (let i = 0; i < 1000; i++) nonces.add(authBuildState('p', 'v', { binding: BINDING }).nonce)
     expect(nonces.size).toBe(1000)
   })
 
   it('survives unicode in returnTo', () => {
     const returnTo = '/dashboard/naïve/🦆'
-    expect(authVerifyState(sign(authBuildState('p', 'v', { returnTo })), SECRET)?.returnTo).toBe(returnTo)
+    expect(authVerifyState(sign(authBuildState('p', 'v', { binding: BINDING, returnTo })), SECRET)?.returnTo).toBe(
+      returnTo,
+    )
   })
 })
 
@@ -150,7 +156,9 @@ describe('shapes that are not a state at all', () => {
 
   it('accepts a state just under the cap', () => {
     const returnTo = '/x'.repeat(500)
-    expect(authVerifyState(sign(authBuildState('p', 'v', { returnTo })), SECRET)?.returnTo).toBe(returnTo)
+    expect(authVerifyState(sign(authBuildState('p', 'v', { binding: BINDING, returnTo })), SECRET)?.returnTo).toBe(
+      returnTo,
+    )
   })
 })
 
@@ -170,28 +178,35 @@ describe('a correctly signed body that is not a valid payload', () => {
     })
   }
 
-  for (const [label, payload] of [
-    ['a missing nonce', { iat: Date.now(), providerId: 'p', verifier: 'v' }],
-    ['an empty nonce', { iat: Date.now(), nonce: '', providerId: 'p', verifier: 'v' }],
-    ['a non-string nonce', { iat: Date.now(), nonce: 42, providerId: 'p', verifier: 'v' }],
-    ['a missing verifier', { iat: Date.now(), nonce: 'n', providerId: 'p' }],
-    ['an empty verifier', { iat: Date.now(), nonce: 'n', providerId: 'p', verifier: '' }],
-    ['a missing providerId', { iat: Date.now(), nonce: 'n', verifier: 'v' }],
-    ['an empty providerId', { iat: Date.now(), nonce: 'n', providerId: '', verifier: 'v' }],
-    ['a missing iat', { nonce: 'n', providerId: 'p', verifier: 'v' }],
-    ['a string iat', { iat: '123', nonce: 'n', providerId: 'p', verifier: 'v' }],
-    ['a NaN iat', { iat: Number.NaN, nonce: 'n', providerId: 'p', verifier: 'v' }],
-    ['an infinite iat', { iat: Number.POSITIVE_INFINITY, nonce: 'n', providerId: 'p', verifier: 'v' }],
-    ['a non-string returnTo', { iat: Date.now(), nonce: 'n', providerId: 'p', returnTo: 42, verifier: 'v' }],
+  /** Every other field present and well-formed, so each row below is refused for the field it names. */
+  const wholePayload = { binding: BINDING, iat: Date.now(), nonce: 'n', providerId: 'p', verifier: 'v' }
+
+  for (const [label, over] of [
+    ['a missing nonce', { nonce: undefined }],
+    ['an empty nonce', { nonce: '' }],
+    ['a non-string nonce', { nonce: 42 }],
+    ['a missing verifier', { verifier: undefined }],
+    ['an empty verifier', { verifier: '' }],
+    ['a missing providerId', { providerId: undefined }],
+    ['an empty providerId', { providerId: '' }],
+    ['a missing binding', { binding: undefined }],
+    ['an empty binding', { binding: '' }],
+    ['a non-string binding', { binding: 42 }],
+    ['a missing iat', { iat: undefined }],
+    ['a string iat', { iat: '123' }],
+    ['a NaN iat', { iat: Number.NaN }],
+    ['an infinite iat', { iat: Number.POSITIVE_INFINITY }],
+    ['a non-string returnTo', { returnTo: 42 }],
+    ['a returnTo past the two-kilobyte cap', { returnTo: 'x'.repeat(2049) }],
   ] as const) {
     it(`refuses ${label}`, () => {
-      expect(authVerifyState(forge(JSON.stringify(payload)), SECRET)).toBeNull()
+      // JSON.stringify drops an undefined value, which is how a row names a missing field.
+      expect(authVerifyState(forge(JSON.stringify({ ...wholePayload, ...over })), SECRET)).toBeNull()
     })
   }
 
-  it('refuses a returnTo past the two-kilobyte cap', () => {
-    const payload = { iat: Date.now(), nonce: 'n', providerId: 'p', returnTo: 'x'.repeat(2049), verifier: 'v' }
-    expect(authVerifyState(forge(JSON.stringify(payload)), SECRET)).toBeNull()
+  it('takes that payload with nothing overridden, so each refusal above is the field it names', () => {
+    expect(authVerifyState(forge(JSON.stringify(wholePayload)), SECRET)).not.toBeNull()
   })
 
   it('ignores extra fields rather than carrying them through', () => {
@@ -221,15 +236,16 @@ describe('age', () => {
     expect(authVerifyState(sign(payload), SECRET, { maxAgeMs: 60_000 })).not.toBeNull()
   })
 
-  it('FINDING: a state stamped in the future never ages out', () => {
-    // The check is `now - iat > maxAge`, so a future `iat` yields a negative age
-    // and passes forever. `iat` is set by `authBuildState` from the local clock,
-    // so this is not attacker-controllable, and forging one needs the signing
-    // secret. It matters only if the clock jumps backwards, which would make
-    // every state minted before the jump immortal. Pinned as a property of the
-    // comparison rather than a live hole.
+  it('refuses a state stamped far enough in the future to outlive its window', () => {
+    // `now - iat > maxAge` alone reads a future stamp as a negative age and passes it forever, so a
+    // clock that jumps backwards makes every state minted before the jump immortal.
     const payload = build({ iat: Date.now() + 365 * 24 * 60 * 60 * 1000 })
-    expect(authVerifyState(sign(payload), SECRET)).not.toBeNull()
+    expect(authVerifyState(sign(payload), SECRET)).toBeNull()
+  })
+
+  it('still allows the small forward skew a two-machine deployment produces', () => {
+    const payload = build({ iat: Date.now() + 1000 })
+    expect(authVerifyState(sign(payload), SECRET, { maxAgeMs: 60_000 })).not.toBeNull()
   })
 })
 
@@ -237,25 +253,29 @@ describe('binding to one provider, which is the mix-up defence', () => {
   it('reports the provider the state was minted for', () => {
     // The callback compares this against its own id and refuses a mismatch, so a
     // state issued for one authorization server cannot be replayed at another.
-    expect(authVerifyState(sign(authBuildState('oauth:authGoogle', 'v')), SECRET)?.providerId).toBe('oauth:authGoogle')
-    expect(authVerifyState(sign(authBuildState('oauth:authGithub', 'v')), SECRET)?.providerId).toBe('oauth:authGithub')
+    expect(
+      authVerifyState(sign(authBuildState('oauth:authGoogle', 'v', { binding: BINDING })), SECRET)?.providerId,
+    ).toBe('oauth:authGoogle')
+    expect(
+      authVerifyState(sign(authBuildState('oauth:authGithub', 'v', { binding: BINDING })), SECRET)?.providerId,
+    ).toBe('oauth:authGithub')
   })
 
   it('a state cannot be re-pointed at another provider without breaking the signature', () => {
-    const [body, sig] = sign(authBuildState('oauth:authGoogle', 'v')).split('.')
+    const [body, sig] = sign(authBuildState('oauth:authGoogle', 'v', { binding: BINDING })).split('.')
     const decoded = JSON.parse(Buffer.from(body as string, 'base64url').toString()) as Record<string, unknown>
     const repointed = Buffer.from(JSON.stringify({ ...decoded, providerId: 'oauth:authGithub' })).toString('base64url')
     expect(authVerifyState(`${repointed}.${sig}`, SECRET)).toBeNull()
   })
 })
 
-describe('FINDING: the state is stateless, so it verifies as many times as it is presented', () => {
+describe('the state is stateless, so it verifies as many times as it is presented', () => {
   it('the same state verifies repeatedly inside its window', () => {
-    // There is no server-side record of an outstanding state, so `authVerifyState`
-    // alone cannot make one single-use. In practice the authorization code it
-    // accompanies is single-use at the authorization server, which is what stops
-    // the second use going anywhere. Recorded because the CSRF token itself is
-    // replayable for its full ten-minute life.
+    // Pinned as a property rather than fixed: single use needs a server-side record of what is
+    // outstanding, and this helper is handed a secret and a string. The authorization code it
+    // accompanies is single-use at the authorization server, which is what stops a second use
+    // going anywhere. What the state does not do is bind the flow to the browser that began it,
+    // and that is a provider-level gap rather than one this function can close.
     const state = sign(build())
     for (let i = 0; i < 5; i++) expect(authVerifyState(state, SECRET)).not.toBeNull()
   })
@@ -264,11 +284,11 @@ describe('FINDING: the state is stateless, so it verifies as many times as it is
 describe('the verifier it carries', () => {
   it('comes back byte for byte, since PKCE fails on any drift', () => {
     const verifier = 'A'.repeat(43)
-    expect(authVerifyState(sign(authBuildState('p', verifier)), SECRET)?.verifier).toBe(verifier)
+    expect(authVerifyState(sign(authBuildState('p', verifier, { binding: BINDING })), SECRET)?.verifier).toBe(verifier)
   })
 
   it('survives a verifier containing base64url punctuation', () => {
     const verifier = 'abc-_123.~'
-    expect(authVerifyState(sign(authBuildState('p', verifier)), SECRET)?.verifier).toBe(verifier)
+    expect(authVerifyState(sign(authBuildState('p', verifier, { binding: BINDING })), SECRET)?.verifier).toBe(verifier)
   })
 })
