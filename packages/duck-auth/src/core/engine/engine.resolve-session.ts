@@ -53,7 +53,7 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
       if (opts.expectedTenantId !== undefined && verified.tenantId !== opts.expectedTenantId) {
         return null
       }
-      const identity = verified.identityId ? await engine.cfg.stores.identities.findById(verified.identityId) : null
+      const identity = verified.identityId ? await engine.cfg.stores.identities.find({ id: verified.identityId }) : null
       return finalize(verified, identity)
     }
   }

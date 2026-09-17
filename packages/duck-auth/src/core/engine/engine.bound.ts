@@ -1,27 +1,19 @@
 import { ApiKeysFacet } from '~/providers/api-key'
 import { MfaFacet } from '~/providers/mfa'
 import { PasswordsImpl } from '~/providers/passwords'
-import type { Credential } from '../credentials/credentials.types'
 import { AuthError } from '../errors'
 import type { Events } from '../events'
 import type { FlowsImpl } from '../flows'
 import { type Identities, IdentitiesImpl } from '../identities'
 import { OrgsImpl } from '../orgs'
-import type { Org } from '../orgs/orgs.types'
 import { createPending, type Pending } from '../pending'
 import type { Providers } from '../provider'
 import type { Sessions } from '../sessions'
 import { SessionsImpl } from '../sessions'
+import type { Engine } from './engine.types'
 
 /** The transaction-bound view of an `AuthEngine`: layer-3 writes only. */
 export namespace Bound {
-  export type Stores<Profile extends Identities.ProfileMetadataBase, OrgMeta> = {
-    identities: Identities.Store<Profile>
-    sessions: Sessions.Store
-    credentials: Credential.Store
-    orgs?: Org.Store<OrgMeta>
-  }
-
   /**
    * Everything on this facade runs on the client passed to `withTransaction`,
    * and every event it would have emitted lands in {@link AuthEngine.pending}
@@ -47,62 +39,56 @@ export namespace Bound {
     readonly apiKeys: ApiKeysFacet
     readonly passwords: PasswordsImpl
     readonly providers: Providers<Profile>
-    readonly stores: Stores<Profile, OrgMeta>
+    readonly stores: Engine.Stores<Profile, OrgMeta>
     readonly pending: Pending.Effects
   }
 }
 
 /**
- * Re-bind one store, or throw naming it. A store with no `withClient` cannot
- * join the transaction, and silently leaving it on the engine's own connection
+ * Re-bind the whole bag onto `client`, or throw. One call, because the facets come off one adapter and share
+ * its connection; a hand-built mix has no `withClient`, and leaving a facet on the engine's own connection
  * would reintroduce exactly the partial-write bug this facade exists to remove.
  */
-export function rebindStore<S extends { withClient?(client: unknown): S }>(store: S, client: unknown, name: string): S {
-  const rebind = store.withClient
+export function rebindStores<S extends { withClient?(client: unknown): S }>(stores: S, client: unknown): S {
+  const rebind = stores.withClient
   if (!rebind) {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail:
-        `withTransaction: the '${name}' store cannot join a transaction (no withClient). ` +
-        `Use a SQL adapter for '${name}', or perform this write outside the transaction.`,
+        'withTransaction: these stores cannot join a transaction (no withClient). Pass an adapter that ' +
+        'has one as `stores`, or perform this write outside the transaction.',
     })
   }
-  return rebind.call(store, client)
+  return rebind.call(stores, client)
 }
 
 /** Build the transaction-bound facade. Pure construction - no I/O. */
 export function buildBoundEngine<Profile extends Identities.ProfileMetadataBase, OrgMeta>(args: {
   client: unknown
-  stores: Bound.Stores<Profile, OrgMeta>
+  stores: Engine.Stores<Profile, OrgMeta>
   events: Events.IBus
   identitiesCfg: Identities.Cfg
   sessionsCfg: Sessions.Cfg
   /**
-   * The provider registry to hand the bound flows. Task 4 replaces the engine's
-   * own with `providers.withClient(client, bus)` so registered facets bind too.
+   * The provider registry to hand the bound flows, built on the bound stores so registered facets - which
+   * capture a store rather than reading it off the context - bind too.
    */
-  buildProviders: (bus: Events.IBus) => Providers<Profile>
+  buildProviders: (bus: Events.IBus, stores: Engine.Stores<Profile, OrgMeta>) => Providers<Profile>
   buildFlows: (deps: {
     sessions: SessionsImpl
     identities: IdentitiesImpl<Profile>
     providers: Providers<Profile>
     events: Events.IBus
-    stores: Bound.Stores<Profile, OrgMeta>
+    stores: Engine.Stores<Profile, OrgMeta>
   }) => FlowsImpl<Profile>
 }): Bound.AuthEngine<Profile, OrgMeta> {
-  const { client } = args
-  const stores: Bound.Stores<Profile, OrgMeta> = {
-    identities: rebindStore(args.stores.identities, client, 'identities'),
-    sessions: rebindStore(args.stores.sessions, client, 'sessions'),
-    credentials: rebindStore(args.stores.credentials, client, 'credentials'),
-    ...(args.stores.orgs && { orgs: rebindStore(args.stores.orgs, client, 'orgs') }),
-  }
+  const stores = rebindStores(args.stores, args.client)
 
   const { bus, pending } = createPending(args.events)
 
-  const identities = new IdentitiesImpl<Profile>(stores.identities, bus, args.identitiesCfg)
+  const identities = new IdentitiesImpl<Profile>(stores.identities, bus, args.identitiesCfg, stores.credentials)
   const sessions = new SessionsImpl(stores.sessions, bus, args.sessionsCfg)
   const orgs = stores.orgs ? new OrgsImpl<OrgMeta>(stores.orgs, bus) : null
-  const providers = args.buildProviders(bus)
+  const providers = args.buildProviders(bus, stores)
   const flows = args.buildFlows({ events: bus, identities, providers, sessions, stores })
 
   const resolveFacet = <T>(ctor: new (...a: never[]) => T, name: string): T => {

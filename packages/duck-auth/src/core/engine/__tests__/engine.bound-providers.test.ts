@@ -8,42 +8,45 @@ import { createTest } from '~/test'
 type P = { username: string; email: string }
 
 /**
- * Memory stores that also answer `withClient`, recording every `upsert` that
- * lands on a REBOUND copy.
- *
- * Each facet rebinds the credentials store for its own captured copy, so a
- * transaction has several bound credential-store objects rather than one. They
- * are equivalent - all issue statements on the same client - so the assertion
- * that matters is "the write reached a bound store and not the engine's own",
- * which is what `reboundUpserts` records.
+ * A memory adapter whose bag rebinds as one, recording every `upsert` that lands on the REBOUND copy. The
+ * mfa and api-key facets are handed that copy, so a transaction has one bound credentials store rather than
+ * one per facet, and `reboundUpserts` says whether a write reached it or the engine's own.
  */
 function bindableStores() {
   const adapter = new MemoryAdapter<P>()
   const reboundUpserts: string[] = []
-  const wrap = <T extends object>(store: T, rebound: boolean): T => {
-    const copy = Object.assign({} as T, store, { withClient: () => wrap(store, true) })
-    const upsert = (copy as { upsert?: (...a: never[]) => unknown }).upsert
-    if (rebound && typeof upsert === 'function') {
-      Object.assign(copy, {
+  // The copy keeps the prototype: a store is a class, so its methods live there, not on the instance. The
+  // engine gets copies too, so a spy on its own store cannot be mistaken for the bound one.
+  const copy = <T extends object>(store: T): T => Object.assign(Object.create(Object.getPrototypeOf(store)), store)
+  const recording = <T extends object>(store: T): T => {
+    const bound = copy(store)
+    const upsert = (bound as { upsert?: (...a: never[]) => unknown }).upsert
+    if (typeof upsert === 'function') {
+      Object.assign(bound, {
         upsert: (...args: never[]) => {
           reboundUpserts.push('upsert')
           return upsert.apply(store, args)
         },
       })
     }
-    return copy
+    return bound
   }
   return {
+    credentials: copy(adapter.credentials),
+    identities: copy(adapter.identities),
     reboundUpserts,
-    identities: wrap(adapter.identities, false),
-    sessions: wrap(adapter.sessions, false),
-    credentials: wrap(adapter.credentials, false),
+    sessions: copy(adapter.sessions),
+    withClient: () => ({
+      credentials: recording(adapter.credentials),
+      identities: recording(adapter.identities),
+      sessions: recording(adapter.sessions),
+    }),
   }
 }
 
 describe('bound facade - provider-owned facets', () => {
   it('exposes mfa, apiKeys and passwords', () => {
-    const auth = createTest<P>(bindableStores()).withTransaction({})
+    const auth = createTest<P>({ stores: bindableStores() }).withTransaction({})
 
     expect(auth.mfa).toBeInstanceOf(MfaFacet)
     expect(auth.apiKeys).toBeInstanceOf(ApiKeysFacet)
@@ -51,7 +54,7 @@ describe('bound facade - provider-owned facets', () => {
   })
 
   it('the bound facets are fresh instances, not the engine own', () => {
-    const engine = createTest<P>(bindableStores())
+    const engine = createTest<P>({ stores: bindableStores() })
     const auth = engine.withTransaction({})
 
     expect(auth.mfa).not.toBe(engine.mfa)
@@ -60,7 +63,7 @@ describe('bound facade - provider-owned facets', () => {
   })
 
   it('the bound registry keeps every capability, by id and by class', () => {
-    const engine = createTest<P>(bindableStores())
+    const engine = createTest<P>({ stores: bindableStores() })
     const auth = engine.withTransaction({})
 
     expect(
@@ -80,7 +83,7 @@ describe('bound facade - provider-owned facets', () => {
 
   it('bound apiKeys writes through a bound credentials store, not the engine own', async () => {
     const stores = bindableStores()
-    const engine = createTest<P>(stores)
+    const engine = createTest<P>({ stores })
     const identity = await engine.identities.create({ profile: { email: 'k@x', username: 'k' } as P })
     const unbound = vi.spyOn(engine.cfg.stores.credentials, 'upsert')
     stores.reboundUpserts.length = 0
@@ -94,7 +97,7 @@ describe('bound facade - provider-owned facets', () => {
 
   it('bound mfa writes through a bound credentials store, not the engine own', async () => {
     const stores = bindableStores()
-    const engine = createTest<P>(stores)
+    const engine = createTest<P>({ stores })
     const identity = await engine.identities.create({ profile: { email: 'm@x', username: 'm' } as P })
     const unbound = vi.spyOn(engine.cfg.stores.credentials, 'upsert')
     stores.reboundUpserts.length = 0
@@ -107,7 +110,7 @@ describe('bound facade - provider-owned facets', () => {
   })
 
   it('bound mfa buffers its events instead of emitting them', async () => {
-    const engine = createTest<P>(bindableStores())
+    const engine = createTest<P>({ stores: bindableStores() })
     const identity = await engine.identities.create({ profile: { email: 'e@x', username: 'e' } as P })
     const emitted: string[] = []
     engine.events.on('mfa.removed', async () => {
@@ -126,8 +129,8 @@ describe('bound facade - provider-owned facets', () => {
   })
 
   it('a capability with no withClient is carried through unchanged', () => {
-    const engine = createTest<P>(bindableStores())
-    const bound = engine.providers.withClient({}, engine.events)
+    const engine = createTest<P>({ stores: bindableStores() })
+    const bound = engine.providers.withClient(engine.cfg.stores, engine.events)
 
     // PasswordsImpl reads its stores from Provider.Context, so it needs no
     // rebinding and must survive the copy as the very same instance.

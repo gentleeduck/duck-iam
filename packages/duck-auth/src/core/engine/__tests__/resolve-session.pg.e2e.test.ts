@@ -11,7 +11,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { resolveBySid } from '~/core/sessions'
 import { applyPgSchema, databaseUrl } from '~/test/e2e-env'
 
@@ -20,7 +20,7 @@ const suite = URL ? describe : describe.skip
 
 suite('E2E resolveBySid on real Postgres', () => {
   let pool: Pool
-  let stores: ReturnType<typeof drizzlePgStorage>
+  let stores: DrizzlePgAdapter
   let identityId: string
 
   /** Session ids are the sha-256 of the sid, and the column enforces 64 chars. */
@@ -52,12 +52,12 @@ suite('E2E resolveBySid on real Postgres', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL })
     await applyPgSchema(pool)
-    stores = drizzlePgStorage(URL as string)
+    stores = new DrizzlePgAdapter(URL as string)
 
     identityId = randomUUID()
     await pool.query(
-      `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-       VALUES ($1, $2::jsonb, '[]'::jsonb, 1, true, now(), now())`,
+      `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+       VALUES ($1, $2::jsonb, 1, true, now(), now())`,
       [identityId, JSON.stringify({ email: 'e2e@resolve.test', username: 'e2e-resolve' })],
     )
   }, 60_000)
