@@ -8,9 +8,6 @@
  * against bun:sqlite). Equivalent pg + mysql integration tests need a
  * running Postgres / MySQL or an embedded driver (pglite, mysql2 in
  * mock mode); both are dev-dep additions, not in this workspace.
- *
- * See packages/duck-AUTH/src/oidc/op/drizzle/README.md (planned) for
- * the integration-test gap.
  */
 
 import { describe, expect, it } from 'vitest'

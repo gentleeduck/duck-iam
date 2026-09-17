@@ -7,6 +7,7 @@ import { join } from 'node:path'
 const TARGETS = [
   { dialect: 'pg', outDir: '.drizzle-e2e-out-oidc-pg' },
   { dialect: 'mysql', outDir: '.drizzle-e2e-out-oidc-mysql' },
+  { dialect: 'sqlite', outDir: '.drizzle-e2e-out-oidc-sqlite' },
 ]
 
 for (const { dialect, outDir } of TARGETS) {

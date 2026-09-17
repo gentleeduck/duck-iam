@@ -7,7 +7,7 @@
 
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { OidcOP } from '../types'
 
 export const authOidcClientsTable = sqliteTable('oidc_clients', {
@@ -78,7 +78,7 @@ export const authOidcConsentsTable = sqliteTable(
     scope: text('scope').notNull(),
     grantedAt: integer('granted_at').notNull(),
   },
-  (t) => [index('oidc_consents_id_client').on(t.identityId, t.clientId)],
+  (t) => [uniqueIndex('oidc_consents_id_client').on(t.identityId, t.clientId)],
 )
 
 function encodeArray(a: string[]): string {

@@ -94,7 +94,12 @@ describe('AuthOidcOpRoot.registerClient', () => {
         client_id: 'bad',
         redirect_uris: ['http://attacker.example.com/cb'],
       }),
-    ).rejects.toThrow(/non-loopback http/)
+    ).rejects.toThrow(
+      expect.objectContaining({
+        code: 'AUTH_INVALID_PARAMETERS',
+        meta: { detail: expect.stringContaining('non-loopback http redirect_uri rejected') },
+      }),
+    )
   })
 
   it('allows http://localhost for dev', async () => {
@@ -125,7 +130,12 @@ describe('AuthOidcOpRoot.registerClient', () => {
         redirect_uris: ['http://example.com/cb'],
         token_endpoint_auth_method: 'none',
       }),
-    ).rejects.toThrow(/non-loopback/)
+    ).rejects.toThrow(
+      expect.objectContaining({
+        code: 'AUTH_INVALID_PARAMETERS',
+        meta: { detail: expect.stringContaining('non-loopback http redirect_uri rejected') },
+      }),
+    )
   })
 })
 

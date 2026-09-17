@@ -4,6 +4,7 @@
  * implementing the same interfaces.
  */
 
+import { AuthError } from '~/core/errors'
 import type { OidcOP } from './types'
 
 /** In-memory `AuthOidcOP.IClientStore`. Maps `client_id` → registered client. */
@@ -14,7 +15,7 @@ export class AuthMemoryClientStore implements OidcOP.ClientStore {
   }
   async insert(c: OidcOP.Client): Promise<void> {
     if (this.rows.has(c.client_id)) {
-      throw new Error(`AuthMemoryClientStore: client_id '${c.client_id}' already registered`)
+      throw new AuthError('AUTH_ALREADY_EXISTS')
     }
     this.rows.set(c.client_id, c)
   }
