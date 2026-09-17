@@ -9,7 +9,7 @@ export {
 export type { ActorContext } from './actor'
 export { actorId, currentActor, resolveActor, setDefaultActorResolver, withActor } from './actor'
 export type { Anomaly, AuthDeviceFingerprint } from './anomaly'
-export type { Batch } from './batch'
+export { ABSENT, type Answer, answer, orNull } from './answer'
 export type { AuthCaptcha } from './captcha'
 export {
   AuthHCaptchaVerifier,
@@ -25,7 +25,8 @@ export {
 } from './captcha'
 export type { Compliance } from './compliance'
 export { type AuthDefine, createAuth } from './config'
-export type { AUTH_CREDENTIAL_KINDS, Credential } from './credentials'
+export type { Credential } from './credentials'
+export { AUTH_CREDENTIAL_KINDS, RECOVERY_PURPOSES } from './credentials'
 export { randomToken, sha256, timingSafeEqual } from './crypto'
 export {
   buildCsrfCookieOptions,
@@ -45,7 +46,9 @@ export type { Flows } from './flows'
 export type { Hijack } from './hijack'
 export type { Identities } from './identities'
 export type { M2m } from './m2m'
+export { DEFAULT_M2M_CONFIG, M2MImpl, m2m } from './m2m'
 export type { Operations } from './operations'
+export { OperationsImpl, operations } from './operations'
 export type { Org } from './orgs'
 export type { Pending } from './pending'
 export type { Provider } from './provider'

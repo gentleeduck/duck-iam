@@ -2,14 +2,8 @@ import type { Events } from '../events/events.types'
 import type { Pending } from './pending.types'
 
 /**
- * An `Events.IBus` that records `emit` calls instead of publishing them, and
- * forwards `on` to the real bus so listener registration is unaffected.
- *
- * Sits INSIDE the engine's `withAuditStamping` wrapper, so a buffered payload
- * carries the audit envelope that was ambient at emit time. Stamping at flush
- * time would attribute an impersonated action to whatever envelope happened to
- * be live after the commit - which is nobody's, since the request that made the
- * write has usually finished by then.
+ * An `Events.IBus` that records `emit` calls instead of publishing them, forwarding `on` to the real bus so
+ * listener registration is unaffected.
  */
 class BufferingBus implements Events.IBus {
   private _buffer: Pending.Event[] = []
@@ -40,8 +34,8 @@ class BufferingBus implements Events.IBus {
   }
 
   async flush(): Promise<{ published: number; failed: Error[] }> {
-    // Take the buffer before awaiting: a listener that emits during flush must
-    // not append to the batch currently draining, or flush could never finish.
+    // Taken before awaiting: a listener emitting during flush must not append to the batch draining, or
+    // flush could never finish.
     const draining = this._buffer
     this._buffer = []
     const failed: Error[] = []
@@ -49,26 +43,19 @@ class BufferingBus implements Events.IBus {
       try {
         await this._target.emit(entry.name, entry.payload)
       } catch (err) {
-        // A thrown non-Error still has to arrive as one, because the field is
-        // what callers log; the original is kept on `cause` rather than lost.
+        // A thrown non-Error still arrives as one, since the field is what callers log; the original is
+        // kept on `cause`.
         failed.push(err instanceof Error ? err : new Error(String(err), { cause: err }))
       }
     }
-    // Reported, never thrown: the commit already landed and the buffer is gone,
-    // so there is nothing a rejection could ask the caller to retry. See
-    // `Pending.Effects.flush`.
-    //
-    // `published` counts what was announced, so a second `flush()` after a
-    // commit can be told apart from the first - the second drains an empty
-    // buffer.
+    // Reported, never thrown: the commit landed and the buffer is gone, so nothing a rejection could ask
+    // the caller to retry. `published` counts what was announced, so a second `flush()` after a commit is
+    // distinguishable from the first, which is the one that drained.
     return { failed, published: draining.length - failed.length }
   }
 }
 
-/**
- * Build a buffering bus over `target` plus the {@link Pending.Effects} handle
- * that drains it. Facets receive `bus`; the caller receives `pending`.
- */
+/** Facets receive `bus`; the caller receives `pending`, the {@link Pending.Effects} handle that drains it. */
 export function createPending(target: Events.IBus): {
   bus: Events.IBus
   pending: Pending.Effects

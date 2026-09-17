@@ -1,19 +1,11 @@
 import type { Events } from '~/core/events/events.types'
+import { orNull } from '../answer'
 import { AuthError } from '../errors'
 import type { Operations } from './operations.types'
 
 /**
- * Operations facet. Drives the two ambient deploy switches every
- * production deployment hits within the first month:
- *
- * - `auth.operations.maintenance(true)` blocks new auth (sign-in /
- *   sign-up / refresh) while existing sessions continue to resolve.
- *   Server adapters consult `assertOperationsForRoute()` and surface
- *   AUTH/MAINTENANCE with Retry-After.
- *
- * - `auth.operations.readOnly(true)` accepts reads + session resolve
- *   but every mutating route raises AUTH/READONLY_MODE. Migration
- *   cutovers, DR drills, freeze windows.
+ * The two ambient deploy switches. The host reaches them through `assertOperationsForRoute()` from its
+ * own middleware; no adapter this package ships calls it.
  */
 
 const MESSAGE_MAX_LENGTH = 512
@@ -37,6 +29,7 @@ function clampMessage(message: string): string {
   return message.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, MESSAGE_MAX_LENGTH)
 }
 
+/** Maintenance and read-only mode: the two ambient switches a host gates its own routes on. */
 export class OperationsImpl {
   private _state: Operations.State = {
     maintenance: { on: false },
@@ -48,19 +41,16 @@ export class OperationsImpl {
     private readonly _store?: Operations.Store,
   ) {}
 
-  /**
-   * Adopt the persisted switches, if a store was wired.
-   *
-   * Nothing is persisted without one, so a node that restarted during a maintenance window came
-   * back serving traffic, and a rolling deploy is exactly when the window is on.
-   */
+  /** Adopts the persisted switches, when a store was wired.
+   *  WARN: without one nothing persists, so a node restarting mid-window comes back serving traffic, and a
+   *  rolling deploy is exactly when the window is on. */
   async hydrate(): Promise<Operations.State> {
-    const stored = await this._store?.load()
+    const stored = this._store ? await orNull(this._store.load()) : null
     if (stored) this._state = stored
     return this.snapshot()
   }
 
-  /** Read the current state snapshot. */
+  /** A copy of the current switch state, safe for the caller to keep. */
   snapshot(): Operations.State {
     return {
       maintenance: { ...this._state.maintenance },
@@ -69,40 +59,32 @@ export class OperationsImpl {
     }
   }
 
-  /**
-   * Toggle maintenance mode. Emits `maintenance.on` / `maintenance.off`
-   * so multi-instance fleets can subscribe and propagate.
-   *
-   * A call that changes nothing emits nothing: the natural way to consume `maintenance.on` is to
-   * call this on the local instance, and an unconditional emit made that a broadcast storm.
-   */
+  /** Emits `maintenance.on` or `.off` for a fleet to propagate. A call that changes nothing emits nothing,
+   *  since the natural way to consume the event is to call this locally, which an unconditional emit would
+   *  turn into a broadcast storm. */
   async maintenance(on: boolean, opts: { message?: string; retryAfterSec?: number } = {}): Promise<Operations.State> {
     if (on) {
       await this._maintenanceOn(opts)
     } else {
       await this._maintenanceOff()
     }
-    // The resulting state, so a caller does not have to follow every toggle
-    // with `snapshot()` to see what it actually set.
+    // The resulting state, so a caller need not follow every toggle with `snapshot()`.
     return this.snapshot()
   }
 
-  /** Toggle read-only mode. Same shape as maintenance, and propagated the same way. */
+  /** Same shape as maintenance, and propagated the same way. */
   async readOnly(on: boolean): Promise<Operations.State> {
     if (this._state.readOnly.on === on) return this.snapshot()
     this._state.readOnly = on ? { on: true, since: Date.now() } : { on: false }
     await this._persist()
-    // Maintenance propagated and this did not, so an operator who froze writes on one node of a
-    // fleet had frozen one node.
+    // Emitted like maintenance: without it, an operator freezing writes across a fleet froze one node.
     await this._events.emit(on ? 'readonly.on' : 'readonly.off', {})
     return this.snapshot()
   }
 
-  /**
-   * Predicate run by every server adapter before dispatch. Throws the
-   * appropriate AuthError so the adapter's handleError path
-   * surfaces the right status + retry hint.
-   */
+  /** Throws the AuthError whose `handleError` path carries the right status and retry hint.
+   *  WARN: nothing calls this. Every adapter this package ships dispatches without it, so both switches
+   *  gate only the routes a host guards itself. */
   assertOperationsForRoute(method: string, route: Operations.Route = {}): void {
     if (this._state.maintenance.on && !route.maintenance) {
       const meta: { retryAfter: number; message?: string } = {
@@ -117,10 +99,9 @@ export class OperationsImpl {
   }
 
   private async _maintenanceOn(opts: { message?: string; retryAfterSec?: number }): Promise<void> {
-    // Normalised here rather than at the throw, so the stored state, the emitted event and the
-    // error meta cannot disagree about what the operator asked for. Clamped rather than refused:
-    // maintenance going on is the part that matters during an incident, and a bad retry hint is
-    // advisory - failing the call would leave the fleet serving traffic over a typo.
+    // Normalised here rather than at the throw, so the stored state, the emitted event and the error meta
+    // cannot disagree. Clamped rather than refused: maintenance going on is what matters during an incident
+    // and a bad retry hint is advisory, where failing the call would leave the fleet serving traffic.
     const current = this._state.maintenance
     const message = opts.message === undefined ? (current.on ? current.message : undefined) : clampMessage(opts.message)
     const retryAfterSec =
@@ -169,7 +150,7 @@ function isMutatingMethod(method: string): boolean {
   return !SAFE_METHODS.has(method.toUpperCase())
 }
 
-/** Factory for {@link OperationsImpl}. */
+/** Constructs {@link OperationsImpl}. */
 export function operations(events: Events.IBus, store?: Operations.Store): OperationsImpl {
   return new OperationsImpl(events, store)
 }

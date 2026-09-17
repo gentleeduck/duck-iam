@@ -4,12 +4,9 @@
  * through. `assertOperationsForRoute` is the whole enforcement surface, and it
  * decides on two things a caller passes in: an HTTP method string and an exempt
  * flag. Both are pinned here.
- *
- * The existing suite covers the toggles and the precedence between the two
- * modes. These cover the exemption, the method classification, and what is and
- * is not propagated to the rest of a fleet.
  */
 import { describe, expect, it } from 'vitest'
+import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
 import { OperationsImpl } from '../operations'
 import type { Operations } from '../operations.types'
@@ -288,7 +285,11 @@ describe('the state snapshot', () => {
     // Nothing was persisted, and a rolling deploy is exactly when the window is open.
     let saved: Operations.State | null = null
     const store: Operations.Store = {
-      load: async () => saved,
+      // Nothing persisted rejects rather than answering null - the contract a host implements.
+      load: async () => {
+        if (saved === null) throw new AuthError('AUTH_OPERATION_NOT_FOUND')
+        return saved
+      },
       save: async (state) => {
         saved = state
       },
@@ -306,5 +307,32 @@ describe('the state snapshot', () => {
     const { ops } = makeOps()
     await ops.maintenance(true)
     expect((await makeOps().ops.hydrate()).maintenance.on).toBe(false)
+  })
+
+  it('hydrating a store with nothing persisted yet keeps the defaults rather than failing', async () => {
+    // The first boot of the first node: `load` refuses because there is no state, not because the store
+    // broke. A store that is actually down still throws through, and takes the boot with it.
+    const empty: Operations.Store = {
+      load: async () => {
+        throw new AuthError('AUTH_OPERATION_NOT_FOUND')
+      },
+      save: async () => {},
+    }
+    const ops = new OperationsImpl(new InMemoryEvents(), empty)
+
+    expect((await ops.hydrate()).maintenance.on).toBe(false)
+  })
+
+  it('does not read a store that is down as a store with nothing in it', async () => {
+    const down: Operations.Store = {
+      load: async () => {
+        throw new AuthError('AUTH_ADAPTER_UNAVAILABLE')
+      },
+      save: async () => {},
+    }
+
+    await expect(new OperationsImpl(new InMemoryEvents(), down).hydrate()).rejects.toMatchObject({
+      code: 'AUTH_ADAPTER_UNAVAILABLE',
+    })
   })
 })
