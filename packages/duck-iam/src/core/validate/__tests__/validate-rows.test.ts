@@ -124,8 +124,10 @@ describe('validatePolicy() - numeric and malformed boundaries', () => {
     expect(validatePolicy({ ...validPolicy, rules: [] }).valid).toBe(true)
   })
 
-  it('treats null targets as absent', () => {
-    expect(validatePolicy({ ...validPolicy, targets: null }).valid).toBe(true)
+  it('rejects null targets, which IPolicy does not allow', () => {
+    const result = validatePolicy({ ...validPolicy, targets: null })
+    expect(result.valid).toBe(false)
+    expect(result.issues.some((i) => i.code === 'INVALID_TYPE' && i.path === 'targets')).toBe(true)
   })
 
   it('rejects an array as targets', () => {

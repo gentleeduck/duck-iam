@@ -434,3 +434,48 @@ index, so the write path refuses the row: `savePolicy` reports
 `targets.roles[0] must be a string`. Rows already in a store are not
 re-validated, so the runtime behaviour above is pinned by tests rather than
 changed.
+
+### The published policy schema refused four shapes the validator accepted
+
+`POLICY_JSON_SCHEMA` is published so operators can gate policies in an admin UI
+or in CI, and its contract is one-directional: anything it rejects,
+`validatePolicy` rejects too, so a policy the runtime accepts always validates
+there. Four shapes broke that, all of them fields `IPolicy` and `IRule` already
+type:
+
+| Shape | `validatePolicy` | schema |
+| --- | --- | --- |
+| `description` on a policy, not a string | accepted | rejected |
+| `description` on a rule, not a string | accepted | rejected |
+| `metadata` on a rule, not an object | accepted | rejected |
+| `targets: null` | accepted | rejected |
+
+`description` and `metadata` were listed in the known-key sets and type-checked
+nowhere; `targets: null` was explicitly skipped. The validator now checks all
+four, which is the side that was wrong — no adapter produces any of them (both
+drizzle and prisma drop a null column rather than passing it on), and `explain()`
+renders a rule `description` into the trace it hands an operator.
+
+**Behaviour change:** `savePolicy`, `admin.import()` and `PolicyBuilder.build()`
+now refuse a policy carrying `targets: null` or a non-string `description`.
+TypeScript callers cannot write any of these shapes; plain-JS and JSON callers
+that did were writing a policy the published schema already rejected.
+
+### The fuzzer pinning that contract tested it on 147 policies out of 4000
+
+The randomised half of `schema-validator-agreement.test.ts` generated each slot
+independently from its own pool, so almost every policy was invalid for some
+unrelated reason and never reached the implication under test — `validatePolicy`
+accepted 147 of 4000. `targets` was not in the generator at all (one constant,
+`{ actions: ['read'] }`), and `description`, `metadata` and `priority` were
+constants too, which is why the four shapes above survived 4000 passes a round.
+
+Its non-vacuity guard asked a *different*, simpler generator whether it produced
+accepted policies, so the number it reported said nothing about the generator
+being pinned.
+
+The generator now builds a valid policy and perturbs one slot (sometimes two)
+from a pool covering every optional field, and the guard runs on that same
+generator: 1417 of 4000 accepted, against a floor of 1000. Reverting any of the
+four fixes above now fails it; before the rewrite, reverting the `rule.metadata`
+fix did not.

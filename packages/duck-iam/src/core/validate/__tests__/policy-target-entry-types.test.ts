@@ -166,9 +166,17 @@ describe('validatePolicy reports a target entry it cannot match', () => {
     ['a wildcard target', { actions: ['*'], resources: ['*'] }],
     ['an empty axis', { actions: [], roles: [] }],
     ['an absent targets block', undefined],
-    ['a null targets block', null],
   ])('%s stays valid', (_label, targets) => {
     expect(errorPaths(validatePolicy(policyWithTargets(targets)))).toEqual([])
+  })
+
+  // `IPolicy` has no `null` here and `POLICY_JSON_SCHEMA` refuses it; the engine still reads a stored one as absent.
+  it('a null targets block is refused on the way in and ignored on the way out', async () => {
+    expect(errorPaths(validatePolicy(policyWithTargets(null)))).toEqual(['targets'])
+    expect({ locked: await ask(null, true, 'production'), unlocked: await ask(null, false, 'production') }).toEqual({
+      locked: false,
+      unlocked: true,
+    })
   })
 
   it('the typed validator reports it too', () => {

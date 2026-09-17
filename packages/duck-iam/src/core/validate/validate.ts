@@ -363,6 +363,15 @@ export function validatePolicy(input: unknown, declared?: IamValidate.IDeclaredS
     })
   }
 
+  if (p.description !== undefined && typeof p.description !== 'string') {
+    issues.push({
+      type: 'error',
+      code: 'INVALID_TYPE',
+      message: '"description" must be a string if provided',
+      path: 'description',
+    })
+  }
+
   if (p.version !== undefined && typeof p.version !== 'number') {
     issues.push({
       type: 'error',
@@ -405,8 +414,9 @@ export function validatePolicy(input: unknown, declared?: IamValidate.IDeclaredS
     }
   }
 
-  if (p.targets !== undefined && p.targets !== null) {
-    if (typeof p.targets !== 'object' || Array.isArray(p.targets)) {
+  if (p.targets !== undefined) {
+    // `null` included: `IPolicy` does not allow it, and every adapter drops a null column rather than passing it on.
+    if (!isPlainObject(p.targets)) {
       issues.push({
         type: 'error',
         code: 'INVALID_TYPE',

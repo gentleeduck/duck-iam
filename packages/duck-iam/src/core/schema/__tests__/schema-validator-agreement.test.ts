@@ -479,7 +479,7 @@ function rng(seed: number): () => number {
 }
 
 describe('validatePolicy accepts nothing the schema rejects (randomised)', () => {
-  it('holds over 4000 generated policies', () => {
+  it('holds over 4000 generated policies, most of which the validator accepts', () => {
     const next = rng(20260903)
     const pick = <T>(pool: readonly T[]): T | undefined => pool[Math.floor(next() * pool.length)]
 
@@ -492,6 +492,27 @@ describe('validatePolicy accepts nothing the schema rejects (randomised)', () =>
     const EXTRAS = [undefined, undefined, undefined, { negate: true }]
     const LISTS = [['read'], [], ['read', 'write'], [`read${String.fromCharCode(0)}`], 'read', undefined]
     const GROUP_KEYS = ['all', 'any', 'none', 'every']
+    const DESCRIPTIONS = [undefined, 'd', '', 42, null, {}, ['d'], true]
+    const METADATA = [undefined, {}, { owner: 'x' }, 'x', 42, null, ['x'], true]
+    const PRIORITIES = [1, 0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '1', undefined, null]
+    const VERSIONS = [undefined, 1, 0, '1', null, {}]
+    const TARGETS = [
+      undefined,
+      null,
+      {},
+      { actions: ['read'] },
+      { actions: ['read'], resources: ['post'], roles: ['editor'] },
+      { actions: [] },
+      { actions: [42] },
+      { roles: [42] },
+      { resources: [{}] },
+      { actions: [`read${String.fromCharCode(0)}`] },
+      { actions: 'read' },
+      { action: ['read'] },
+      [],
+      'read',
+    ]
+    const EXTRA_KEYS = [undefined, { tenant: 'acme' }, { rules: undefined }]
 
     const leaf = (): unknown => ({
       field: pick(FIELDS),
@@ -506,48 +527,66 @@ describe('validatePolicy accepts nothing the schema rejects (randomised)', () =>
       return next() < 0.05 ? { [key]: items, any: [] } : { [key]: items }
     }
 
-    const failures: string[] = []
-    for (let i = 0; i < 4000; i++) {
-      const policy: unknown = JSON.parse(
-        JSON.stringify({
-          algorithm: pick(ALGORITHMS),
-          description: next() < 0.1 ? 'd' : undefined,
-          id: pick(IDS),
-          name: pick(IDS),
-          rules: Array.from({ length: Math.floor(next() * 3) }, (_, r) => ({
-            actions: pick(LISTS),
-            conditions: group(0),
-            effect: pick(EFFECTS),
-            id: `r${r}`,
-            priority: 1,
-            resources: pick(LISTS),
-          })),
-          targets: next() < 0.1 ? { actions: ['read'] } : undefined,
-        }),
-      )
-      if (validatePolicy(policy).valid && !schemaAccepts(policy)) failures.push(JSON.stringify(policy))
+    // One slot per pass, not every slot at once: randomising them independently made a valid policy so rare that
+    // the implication under test (accepted => schema-accepted) was only ever reached by 147 of 4000 passes.
+    const POLICY_SLOTS: Readonly<Record<string, readonly unknown[]>> = {
+      algorithm: ALGORITHMS,
+      description: DESCRIPTIONS,
+      id: IDS,
+      name: IDS,
+      targets: TARGETS,
+      version: VERSIONS,
     }
-    expect(failures.slice(0, 1)).toEqual([])
-  })
+    const RULE_SLOTS: Readonly<Record<string, readonly unknown[]>> = {
+      actions: LISTS,
+      description: DESCRIPTIONS,
+      effect: EFFECTS,
+      id: IDS,
+      metadata: METADATA,
+      priority: PRIORITIES,
+      resources: LISTS,
+    }
+    const SLOTS: readonly string[] = [
+      ...Object.keys(POLICY_SLOTS),
+      ...Object.keys(RULE_SLOTS).map((k) => `rule.${k}`),
+      'rule.conditions',
+      'extra',
+    ]
 
-  // Guard against the generator producing only rejected policies and passing vacuously.
-  it('generates policies the runtime accepts', () => {
-    const next = rng(20260903)
-    const pick = <T>(pool: readonly T[]): T | undefined => pool[Math.floor(next() * pool.length)]
+    const perturb = (policy: Record<string, unknown>, rule: Record<string, unknown>): void => {
+      const slot = pick(SLOTS) ?? 'id'
+      if (slot === 'extra') Object.assign(policy, pick(EXTRA_KEYS) ?? {})
+      else if (slot === 'rule.conditions') rule.conditions = group(0)
+      else if (slot.startsWith('rule.')) {
+        const key = slot.slice('rule.'.length)
+        rule[key] = pick(RULE_SLOTS[key] ?? [])
+      } else policy[slot] = pick(POLICY_SLOTS[slot] ?? [])
+    }
+
+    const failures: string[] = []
     let accepted = 0
     for (let i = 0; i < 4000; i++) {
-      const policy: unknown = JSON.parse(
-        JSON.stringify({
-          algorithm: pick(['first-match', 'nope']),
-          id: 'p',
-          name: 'p',
-          rules: [
-            { actions: ['read'], conditions: { all: [] }, effect: 'allow', id: 'r', priority: 1, resources: ['post'] },
-          ],
-        }),
-      )
-      if (validatePolicy(policy).valid) accepted++
+      const rule: Record<string, unknown> = {
+        actions: ['read'],
+        conditions: { all: [] },
+        effect: 'allow',
+        id: 'r0',
+        priority: 1,
+        resources: ['post'],
+      }
+      const built: Record<string, unknown> = { algorithm: 'deny-overrides', id: 'p', name: 'p', rules: [rule] }
+      perturb(built, rule)
+      if (next() < 0.3) perturb(built, rule)
+      const policy: unknown = JSON.parse(JSON.stringify(built))
+      if (!validatePolicy(policy).valid) continue
+      accepted++
+      if (!schemaAccepts(policy)) failures.push(JSON.stringify(policy))
     }
+
+    expect(failures.slice(0, 1)).toEqual([])
+    // The guard belongs on this generator, not on a simpler one: a generator whose policies the validator
+    // rejects never reaches the comparison above, and the test passes without having tested anything.
+    // 1417 at this seed; the independent-randomisation generator this replaced reached 147.
     expect(accepted).toBeGreaterThan(1000)
   })
 })
