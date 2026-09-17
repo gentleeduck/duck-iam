@@ -37,7 +37,7 @@ export class OrgsImpl<OrgMeta = unknown> {
   /**
    * Add a member with starting roles. Idempotent in spirit - adding the same
    * identity to the same org twice is allowed if the previous membership
-   * has been marked `leftAt`. Otherwise surfaces a generic provider error.
+   * has been marked `leftAt`. A live one is a conflict on (org, identity).
    */
   async addMember(
     input: { orgId: string; identityId: string; roles?: string[] },
@@ -46,10 +46,7 @@ export class OrgsImpl<OrgMeta = unknown> {
     const existing = await this._store.listMembers(input.orgId, ctx)
     const live = existing.find((m) => m.identityId === input.identityId && !m.leftAt)
     if (live) {
-      throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: 'orgs',
-        detail: 'identity already a member of this org',
-      })
+      throw new AuthError('AUTH_ALREADY_EXISTS', { detail: 'identity already a member of this org' })
     }
     const m = await this._store.addMember(
       {
@@ -103,14 +100,16 @@ function sanitizeRoles(raw: unknown): string[] {
   const ROLE_MAX_LENGTH = 128
 
   if (!Array.isArray(raw)) return []
-  const out: string[] = []
+  const out = new Set<string>()
   for (const r of raw) {
     if (typeof r !== 'string') continue
     if (r.length === 0 || r.length > ROLE_MAX_LENGTH) continue
-    out.push(r)
-    if (out.length >= ROLES_MAX_COUNT) break
+    // Deduplicated before the cap is counted, or sixty-four copies of one role fill the budget and
+    // silently drop the real grants behind them.
+    out.add(r)
+    if (out.size >= ROLES_MAX_COUNT) break
   }
-  return out
+  return [...out]
 }
 
 /** Factory for {@link OrgsImpl}. */

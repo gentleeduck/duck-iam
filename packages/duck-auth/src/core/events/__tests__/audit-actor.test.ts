@@ -6,9 +6,9 @@ import { InMemoryEvents, withAuditStamping } from '~/core/events'
 afterEach(() => setDefaultActorResolver(undefined))
 
 /**
- * `auth_events.identity_id` is the subject. Without an operator on the envelope
+ * A payload's `identityId` is the subject. Without an operator on the envelope
  * "admin X revoked user Y's session" and "user Y revoked their own" are the
- * same row, which is the one question an audit log exists to answer.
+ * same event, which is the one question a consumer's audit log exists to answer.
  */
 describe('audited events carry the operator', () => {
   function capture() {

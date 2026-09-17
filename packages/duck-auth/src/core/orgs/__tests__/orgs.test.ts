@@ -36,7 +36,7 @@ describe('OrgsFacet', () => {
     it('rejects adding the same identity twice while membership is live', async () => {
       await facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['admin'] })
       await expect(facet.addMember({ orgId: 'org-1', identityId: 'u' })).rejects.toMatchObject({
-        code: 'AUTH_PROVIDER_FAILED',
+        code: 'AUTH_ALREADY_EXISTS',
       })
     })
 
