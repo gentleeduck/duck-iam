@@ -24,31 +24,31 @@ describe('MemoryAdapter.findByEmail - profile-shape robustness', () => {
     const ident = await adapter.identities.create(
       identityInput({ profile: mal({ email: 'ada@example.com' }), providers: [] }),
     )
-    const found = await adapter.identities.findByEmail('ada@example.com')
+    const found = await adapter.identities.find({ email: 'ada@example.com' })
     expect(found?.id).toBe(ident.id)
   })
 
   it('does NOT match an identity whose profile.email is a number', async () => {
     await adapter.identities.create(identityInput({ profile: mal({ email: 42 }), providers: [] }))
-    const found = await adapter.identities.findByEmail('42')
+    const found = await adapter.identities.find({ email: '42' })
     expect(found).toBeNull()
   })
 
   it('does NOT match an identity whose profile.email is an array', async () => {
     await adapter.identities.create(identityInput({ profile: mal({ email: ['a@x.com', 'b@x.com'] }), providers: [] }))
-    const found = await adapter.identities.findByEmail('a@x.com')
+    const found = await adapter.identities.find({ email: 'a@x.com' })
     expect(found).toBeNull()
   })
 
   it('does NOT match an identity whose profile.email is an object', async () => {
     await adapter.identities.create(identityInput({ profile: mal({ email: { primary: 'a@x.com' } }), providers: [] }))
-    const found = await adapter.identities.findByEmail('a@x.com')
+    const found = await adapter.identities.find({ email: 'a@x.com' })
     expect(found).toBeNull()
   })
 
   it('does NOT match an identity whose profile.email is the empty string', async () => {
     await adapter.identities.create(identityInput({ profile: mal({ email: '' }), providers: [] }))
-    const found = await adapter.identities.findByEmail('')
+    const found = await adapter.identities.find({ email: '' })
     expect(found).toBeNull()
   })
 
@@ -58,7 +58,7 @@ describe('MemoryAdapter.findByEmail - profile-shape robustness', () => {
       identityInput({ profile: mal({ email: 'good@example.com' }), providers: [] }),
     )
     await adapter.identities.create(identityInput({ profile: mal({ email: ['arr@example.com'] }), providers: [] }))
-    const found = await adapter.identities.findByEmail('good@example.com')
+    const found = await adapter.identities.find({ email: 'good@example.com' })
     expect(found?.id).toBe(good.id)
   })
 
@@ -66,7 +66,7 @@ describe('MemoryAdapter.findByEmail - profile-shape robustness', () => {
     await adapter.identities.create(
       identityInput({ profile: mal({ phone: '+1234567890', name: 'Ada' }), providers: [] }),
     )
-    const found = await adapter.identities.findByEmail('Ada')
+    const found = await adapter.identities.find({ email: 'Ada' })
     expect(found).toBeNull()
   })
 })

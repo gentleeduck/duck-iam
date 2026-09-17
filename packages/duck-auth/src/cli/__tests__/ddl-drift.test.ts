@@ -1,13 +1,18 @@
 import { getTableConfig } from 'drizzle-orm/mysql-core'
 import { describe, expect, it } from 'vitest'
-import { authCredentials, authEvents, authIdentities, authSessions } from '~/adapters/drizzle/mysql/mysql.schema'
+import {
+  authCredentials,
+  authIdentities,
+  authIdentityProviders,
+  authSessions,
+} from '~/adapters/drizzle/mysql/mysql.schema'
 import { renderMigration } from '../index'
 
 /**
  * `duck-auth migrate` emits DDL by hand while the drizzle adapters declare the
  * same tables in TypeScript, so the two drift silently. That is how
  * `email_verified`, `created_by`, `updated_by` and both `updated_at` columns
- * went missing, how `auth_events` went unemitted entirely, and how the CLI came
+ * went missing, and how the CLI came
  * to emit an `auth_identities.tenant_id` that no query in any dialect reads.
  *
  * Both directions are checked, because both are defects and they fail
@@ -27,16 +32,19 @@ import { renderMigration } from '../index'
  * CLI targets the generic bridge, which stores the profile as text, so it has
  * neither these nor the indexes - uniqueness is the bridge author's to enforce.
  */
-const MYSQL_INDEX_CARRIERS = new Set(['email_norm', 'username_norm'])
+const MYSQL_INDEX_CARRIERS = new Set(['email_norm', 'username_norm', 'oauth_provider', 'oauth_sub'])
 
 const TABLES = [
   {
     columns: () => getTableConfig(authIdentities).columns.filter((c) => !MYSQL_INDEX_CARRIERS.has(c.name)),
     suffix: 'identities',
   },
-  { columns: () => getTableConfig(authCredentials).columns, suffix: 'credentials' },
+  {
+    columns: () => getTableConfig(authCredentials).columns.filter((c) => !MYSQL_INDEX_CARRIERS.has(c.name)),
+    suffix: 'credentials',
+  },
+  { columns: () => getTableConfig(authIdentityProviders).columns, suffix: 'identity_providers' },
   { columns: () => getTableConfig(authSessions).columns, suffix: 'sessions' },
-  { columns: () => getTableConfig(authEvents).columns, suffix: 'events' },
 ] as const
 
 /** Column names in one emitted `CREATE TABLE` body. */
@@ -71,14 +79,4 @@ describe('migrate DDL matches the declared schema', () => {
       })
     }
   }
-
-  /**
-   * The column exists to answer "everything operator X did". `auth_events` is
-   * append-only and unbounded, so an unindexed lookup degrades with the log.
-   */
-  it('indexes auth_events.actor_id, which is the only reason the column is useful', () => {
-    for (const dialect of ['pg', 'mysql', 'sqlite'] as const) {
-      expect(renderMigration(dialect, 'auth_')).toContain('auth_events(actor_id, created_at)')
-    }
-  })
 })

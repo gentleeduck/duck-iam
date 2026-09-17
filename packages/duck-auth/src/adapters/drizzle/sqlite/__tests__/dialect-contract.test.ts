@@ -14,12 +14,12 @@
 import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createSqlStores } from '~/adapters/sql/sql'
+import type { Adapter } from '~/adapters/adapter'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { SQLITE_DDL as DDL } from '~/test/sqlite-schema'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
-import { createDrizzleSqliteBridge } from '../sqlite'
-import { authIdentities, authSessions } from '../sqlite.schema'
+import { DrizzleSqliteAdapter } from '../sqlite'
+import { authIdentities, authIdentityProviders, authSessions } from '../sqlite.schema'
 
 type Profile = { username: string; email: string }
 
@@ -28,7 +28,7 @@ const OWNER = 'identity-under-test'
 /** `chk_auth_sessions_id_length` demands exactly 64 chars, as every real sid is. */
 const sessionId = (label: string) => createHash('sha256').update(label).digest('hex')
 
-async function makeStores(): Promise<ReturnType<typeof createSqlStores<Profile>>> {
+async function makeStores(): Promise<Adapter.Me<Profile>> {
   const { default: Database } = await import('better-sqlite3')
   const { drizzle } = await import('drizzle-orm/better-sqlite3')
   const sqlite = new Database(':memory:')
@@ -36,17 +36,17 @@ async function makeStores(): Promise<ReturnType<typeof createSqlStores<Profile>>
   // Sessions and credentials below carry a foreign key to this row; the tests
   // plant the id rather than creating the identity, so it is seeded here.
   sqlite.exec(
-    `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-     VALUES ('${OWNER}', '{"email":"owner@fk.local","username":"owner"}', '[]', 1, 1, 0, 0)`,
+    `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+     VALUES ('${OWNER}', '{"email":"owner@fk.local","username":"owner"}', 1, 1, 0, 0)`,
   )
   // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
-  return createSqlStores<Profile>(createDrizzleSqliteBridge(drizzle(sqlite as any)))
+  return new DrizzleSqliteAdapter(drizzle(sqlite as any))
 }
 
 const profile = (name: string): Profile => ({ email: `${name}@x.com`, username: name })
 
 describe('DrizzleSqlite store-contract divergences', () => {
-  let stores: ReturnType<typeof createSqlStores<Profile>>
+  let stores: Adapter.Me<Profile>
 
   beforeEach(async () => {
     stores = await makeStores()
@@ -74,17 +74,17 @@ describe('DrizzleSqlite store-contract divergences', () => {
       ).rejects.toMatchObject({ code: 'AUTH_USERNAME_TAKEN', status: 409 })
     })
 
-    it('a soft-deleted row frees its address, and update surfaces the clash typed', async () => {
+    it('a soft-deleted row keeps its address, and update surfaces the clash typed', async () => {
       const first = await stores.identities.create(identityInput({ profile: profile('holder') }))
       const second = await stores.identities.create(identityInput({ profile: profile('other') }))
-      // Control: the indexes are partial on deletedAt, so hiding one must let
-      // the address be reused - otherwise the refusals above prove nothing more
-      // than that the column is unique unconditionally.
+      // Neither index is partial on deletedAt, so a hidden row holds its address for the whole grace
+      // window - which is what lets `restore` bring it back without a freeness check.
       await stores.identities.softDelete(first.id, 60_000)
-      await expect(stores.identities.create(identityInput({ profile: profile('holder') }))).resolves.toBeDefined()
-      // Only the address collides - `profile('holder')` would trip the username
-      // index too, and which of the two a dialect reports first is its own
-      // business, not something to pin.
+      // Only the address collides: `profile('holder')` would trip the username index too, and which of
+      // the two a dialect reports first is its own business, not something to pin.
+      await expect(
+        stores.identities.create(identityInput({ profile: { email: 'holder@x.com', username: 'newcomer' } })),
+      ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
       await expect(
         stores.identities.update(second.id, { profile: { email: 'holder@x.com', username: 'other' } }, second.version),
       ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
@@ -123,11 +123,11 @@ describe('DrizzleSqlite store-contract divergences', () => {
       await stores.identities.link(holder.id, link)
 
       await expect(stores.identities.link(attacker.id, link)).rejects.toMatchObject({
-        code: 'AUTH_PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_TAKEN',
       })
       // The takeover attempt left no trace on either row.
-      expect((await stores.identities.findById(attacker.id))?.providers).toHaveLength(0)
-      expect((await stores.identities.findByProviderSub('oauth:google', 'sub-1'))?.id).toBe(holder.id)
+      expect((await stores.identities.find({ id: attacker.id }))?.providers).toHaveLength(0)
+      expect((await stores.identities.find({ providerId: 'oauth:google', providerSub: 'sub-1' }))?.id).toBe(holder.id)
     })
 
     it('still admits the same sub under a different providerId', async () => {
@@ -143,15 +143,6 @@ describe('DrizzleSqlite store-contract divergences', () => {
       expect(linked?.providers).toHaveLength(1)
     })
 
-    it('leaves a null-sub link (password) linkable by more than one identity', async () => {
-      const a = await stores.identities.create(identityInput({ profile: profile('pa') }))
-      const b = await stores.identities.create(identityInput({ profile: profile('pb') }))
-      const link = { addedAt: new Date(), providerId: 'password', providerSub: null }
-      await stores.identities.link(a.id, link)
-
-      expect((await stores.identities.link(b.id, link))?.providers).toHaveLength(1)
-    })
-
     it('is idempotent on an exact repeat of (providerId, providerSub)', async () => {
       const i = await stores.identities.create(identityInput({ profile: profile('idem') }))
       const link = { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-2' }
@@ -161,16 +152,18 @@ describe('DrizzleSqlite store-contract divergences', () => {
       expect(again?.providers).toHaveLength(1)
     })
 
-    it('appends a second link for the same providerId with a different sub', async () => {
+    it('keeps the sub it holds when a second one arrives for the same providerId', async () => {
       const i = await stores.identities.create(identityInput({ profile: profile('two') }))
       await stores.identities.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-a' })
 
+      // `uq_auth_identity_providers_owned` holds one row per provider, and `unlink` takes no sub, so a
+      // second row at the same provider would be one nothing could address.
       const both = await stores.identities.link(i.id, {
         addedAt: new Date(),
         providerId: 'oauth:google',
         providerSub: 'sub-b',
       })
-      expect(both?.providers.map((p) => p.providerSub).sort()).toEqual(['sub-a', 'sub-b'])
+      expect(both?.providers.map((p) => p.providerSub)).toEqual(['sub-a'])
     })
   })
 
@@ -196,51 +189,26 @@ describe('DrizzleSqlite store-contract divergences', () => {
 
       expect(merged?.id).toBe(i.id)
       expect(merged?.providers).toHaveLength(1)
-      expect(await stores.identities.findById(i.id)).not.toBeNull()
+      expect(await stores.identities.find({ id: i.id })).not.toBeNull()
     })
   })
 
-  describe('identities.restoreMany', () => {
-    it('reports a closed grace window as a per-row failure instead of restoring it', async () => {
+  describe('identities.restore', () => {
+    it('refuses a closed grace window instead of restoring it', async () => {
       const live = await stores.identities.create(identityInput({ profile: profile('rl') }))
       const expired = await stores.identities.create(identityInput({ profile: profile('rx') }))
       await stores.identities.softDelete(live.id, 60_000)
-      // A negative grace period puts the purge deadline in the past, which is
-      // what `restore` refuses with AUTH_GRACE_EXPIRED.
+      // A negative grace period puts the purge deadline in the past, which is what `restore` refuses.
       await stores.identities.softDelete(expired.id, -60_000)
 
-      const result = await stores.identities.restoreMany?.([live.id, expired.id])
-
-      expect(result?.applied).toBe(1)
-      expect(result?.outcomes[1]).toMatchObject({ id: expired.id, ok: false })
-      expect(await stores.identities.findById(expired.id)).toBeNull()
-      expect(await stores.identities.findById(live.id)).not.toBeNull()
+      expect(await stores.identities.restore(live.id)).toMatchObject({ deletedAt: null, deletedBy: null })
+      await expect(stores.identities.restore(expired.id)).rejects.toMatchObject({ code: 'AUTH_GRACE_EXPIRED' })
+      expect(await stores.identities.find({ id: expired.id })).toBeNull()
+      expect(await stores.identities.find({ id: live.id })).not.toBeNull()
     })
 
-    it('refuses a row whose address a live identity has taken since', async () => {
-      const hidden = await stores.identities.create(identityInput({ profile: profile('claimed') }))
-      await stores.identities.softDelete(hidden.id, 60_000)
-      await stores.identities.create(identityInput({ profile: { email: 'claimed@x.com', username: 'squatter' } }))
-
-      const result = await stores.identities.restoreMany?.([hidden.id])
-
-      expect(result?.applied).toBe(0)
-      expect(await stores.identities.findById(hidden.id)).toBeNull()
-    })
-
-    it('admits only one of two batched rows that share an address', async () => {
-      const a = await stores.identities.create(identityInput({ profile: profile('twin') }))
-      const b = await stores.identities.create(identityInput({ profile: profile('other') }))
-      await stores.identities.softDelete(a.id, 60_000)
-      await stores.identities.softDelete(b.id, 60_000)
-      // Both hidden rows now answer to the same address, which only one of them
-      // can hold once they are live again.
-      await stores.identities.update(b.id, { profile: { email: 'twin@x.com', username: 'other' } }, b.version)
-
-      const result = await stores.identities.restoreMany?.([a.id, b.id])
-
-      expect(result?.applied).toBe(1)
-      expect(result?.failed).toBe(1)
+    it('reads an id that is not there as null rather than a refusal', async () => {
+      expect(await stores.identities.restore('no-such-identity')).toBeNull()
     })
   })
 
@@ -319,8 +287,9 @@ describe('DrizzleSqlite store-contract divergences', () => {
       await expect(stores.credentials.rotate('nope', 'new', 1, {})).rejects.toMatchObject({
         code: 'AUTH_STALE_WRITE',
       })
+      // patchMetadata reads before it writes, so there is no version to have lost.
       await expect(stores.credentials.patchMetadata('nope', { a: 1 }, {})).rejects.toMatchObject({
-        code: 'AUTH_STALE_WRITE',
+        code: 'AUTH_CREDENTIAL_NOT_FOUND',
       })
     })
   })
@@ -343,7 +312,7 @@ describe('DrizzleSqlite store-contract divergences', () => {
 
 /**
  * The tables are a public export, so a `db.select().from(authIdentities)` is a
- * supported read that never touches `createSqlStores`. SQLite stores these
+ * supported read that never goes through the adapter. SQLite stores these
  * columns as raw `TEXT`, so the value coming back is a JSON string, not even a
  * parsed object - and the declared type said `ProviderLink[]` with a `Date` on
  * it. pg and mysql carry the same assertions in their e2e suites; this is the
@@ -356,22 +325,22 @@ describe('the exported tables hand back the types they declare', () => {
     const sqlite = new Database(':memory:')
     sqlite.exec(DDL)
     sqlite.exec(
-      `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-       VALUES ('${OWNER}', '{"email":"owner@fk.local","username":"owner"}', '[]', 1, 1, 0, 0)`,
+      `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+       VALUES ('${OWNER}', '{"email":"owner@fk.local","username":"owner"}', 1, 1, 0, 0)`,
     )
     // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
     const db = drizzle(sqlite as any)
-    return { db, sqlite, stores: createSqlStores<Profile>(createDrizzleSqliteBridge(db)) }
+    return { db, sqlite, stores: new DrizzleSqliteAdapter(db) }
   }
 
-  it('gives providers[].addedAt as a Date on a direct select', async () => {
+  it('gives a link addedAt as a Date on a direct select', async () => {
     const { db, stores } = await makeDb()
     const addedAt = new Date('2026-01-02T03:04:05.000Z')
     await stores.identities.link(OWNER, { addedAt, providerId: 'google', providerSub: 'sub-1' })
 
-    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, OWNER))
-    expect(row?.providers[0]?.addedAt).toBeInstanceOf(Date)
-    expect(row?.providers[0]?.addedAt?.getTime()).toBe(addedAt.getTime())
+    const [row] = await db.select().from(authIdentityProviders).where(eq(authIdentityProviders.identityId, OWNER))
+    expect(row?.addedAt).toBeInstanceOf(Date)
+    expect(row?.addedAt?.getTime()).toBe(addedAt.getTime())
   })
 
   it('gives factors[].completedAt and both actingAs dates as Dates on a direct select', async () => {
@@ -401,29 +370,5 @@ describe('the exported tables hand back the types they declare', () => {
     expect(row?.factors[0]?.completedAt?.getTime()).toBe(completedAt.getTime())
     expect(row?.actingAs?.startedAt).toBeInstanceOf(Date)
     expect(row?.actingAs?.expiresAt.getTime()).toBe(expiresAt.getTime())
-  })
-
-  it('reads an unparseable addedAt as null at the table and as createdAt through the store', async () => {
-    const { db, sqlite, stores } = await makeDb()
-    sqlite.exec(
-      `UPDATE auth_identities SET providers = '${JSON.stringify([
-        { addedAt: 'not-a-date', providerId: 'google', providerSub: 'sub-1' },
-      ])}' WHERE id = '${OWNER}'`,
-    )
-
-    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, OWNER))
-    expect(row?.providers[0]?.addedAt).toBeNull()
-
-    const viaStore = await stores.identities.findById(OWNER)
-    expect(viaStore?.providers[0]?.addedAt).toBeInstanceOf(Date)
-    expect(viaStore?.providers[0]?.addedAt.getTime()).toBe(row?.createdAt.getTime())
-  })
-
-  /** A column holding text that is not JSON at all reads as empty, not as a throw. */
-  it('answers [] for a providers column that is not JSON', async () => {
-    const { db, sqlite } = await makeDb()
-    sqlite.exec(`UPDATE auth_identities SET providers = 'not json' WHERE id = '${OWNER}'`)
-    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, OWNER))
-    expect(row?.providers).toEqual([])
   })
 })

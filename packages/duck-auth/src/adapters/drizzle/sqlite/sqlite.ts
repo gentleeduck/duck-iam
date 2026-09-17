@@ -1,680 +1,546 @@
-/**
- * Drizzle (SQLite) implementation of the {@link SqlBridge} contract. Driver-agnostic:
- * works with better-sqlite3, libsql/Turso, or bun:sqlite. SQLite has no jsonb
- * containment operator, so provider-link lookups use `json_each` and link edits are
- * read-modify-write at the bridge boundary. Queries are tenant-scoped when `tenantId`
- * is passed; `undefined` skips the filter.
- */
+/** Drizzle (SQLite) against the three store contracts, method for method as pg reads them.
+ *  Driver-agnostic: better-sqlite3, libsql/Turso or bun:sqlite. */
 
 import { createRequire } from 'node:module'
-import { and, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm'
-import type { BaseSQLiteDatabase, SQLiteColumn } from 'drizzle-orm/sqlite-core'
-import {
-  assertEmailFree,
-  assertProviderSubFree,
-  assertRestorable,
-  claimedProviderSubs,
-  createSqlStores,
-  isRestorable,
-  pickFreshestCredential,
-  profileEmail,
-  providerSubKey,
-} from '~/adapters/sql'
-import type { SqlBridge } from '~/adapters/sql/sql.types'
-import {
-  reviveIdentityRow,
-  reviveIdentityRowOrNull,
-  reviveSessionRow,
-  reviveSessionRowRequired,
-} from '~/adapters/sql/stored-json'
-import { AuthError } from '~/core/errors'
-import type { Identities } from '~/core/identities'
-import { authCredentials, authIdentities, authSessions } from './sqlite.schema'
-
-/**
- * Every session of one identity, narrowed to a tenant when one is named.
- *
- * `eq` never matches NULL, so a global (`tenant_id IS NULL`) session is
- * deliberately outside a named tenant's scope - the same rule the credential
- * queries follow, and the reason a tenant's "sign out everywhere" can no longer
- * reach the same person's logins in another tenant. `auth_sessions_tenant`
- * indexes the column, and `identity_id` is indexed too.
- */
-function sessionScope(identityId: string, tenantId: string | undefined) {
-  return tenantId === undefined
-    ? eq(authSessions.identityId, identityId)
-    : and(eq(authSessions.identityId, identityId), eq(authSessions.tenantId, tenantId))
-}
-
+import { and, desc, eq, gte, inArray, isNull, lt, or, type SQL, sql } from 'drizzle-orm'
+import { alias, type BaseSQLiteDatabase, type SQLiteUpdateSetSource } from 'drizzle-orm/sqlite-core'
+import { type Adapter, AdapterStore } from '~/adapters/adapter'
+import { forProfile, inTenant, jsonMerged, rowWithLinks, stamped } from '~/adapters/drizzle/drizzle.rows'
+import { actorId } from '~/core/actor'
+import { authUuidV7 } from '~/core/crypto'
+import { AuthError, type SqlFault, STORE_RAISES } from '~/core/errors'
+import { toEmailList, withNormalisedEmail } from '~/core/identities/identities.constants'
+import type { Identities } from '~/core/identities/identities.types'
+import { stripUndefined } from '~/core/patch'
+import { authCredentials, authIdentities, authIdentityProviders, authSessions } from './sqlite.schema'
 import type { Sqlite } from './sqlite.types'
 
-/**
- * The question {@link assertRestorable} answers by throwing. `restoreMany` has
- * to ask it per row and keep going, so it needs the predicate rather than the
- * assertion - the batch reports a closed window as one row's soft failure, not
- * as an error that takes the other rows down with it.
- */
-/** Generic over the profile so callers with their own profile shape don't have to cast. */
-export function createDrizzleSqliteBridge<
-  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
-  const TSchema extends Record<string, unknown> = Record<string, unknown>,
->(db: BaseSQLiteDatabase<'sync' | 'async', unknown, TSchema>): SqlBridge.Me<Profile> {
-  /** Scope a where clause by tenantId; undefined tenant skips the filter. */
-  function tenantWhere<T extends { tenantId: SQLiteColumn }>(table: T, tenantId: string | undefined) {
-    return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
+/** The one link a provider lookup is answering, joined under its own name so it can drive the plan. */
+const lookupLink = alias(authIdentityProviders, 'lookup_link')
+
+const linkFields = {
+  addedAt: authIdentityProviders.addedAt,
+  providerId: authIdentityProviders.providerId,
+  providerSub: authIdentityProviders.providerSub,
+}
+
+/** Driver-agnostic handle, and the narrowing a transaction hands its callback. */
+type Db<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<'sync' | 'async', unknown, TSchema>
+type Writer = Pick<Sqlite.AnySqliteDatabase, 'select' | 'insert' | 'update' | 'delete'>
+
+/** One class: the four facets share the handle, the `sqliteError` mapper and the `run` boundary that
+ *  attaches `wrap`. Each is declared as its slot in `Adapter.Me`, so the contract states what it answers. */
+export class DrizzleSqliteAdapter<
+    TSchema extends Record<string, unknown> = Record<string, unknown>,
+    Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+  >
+  extends AdapterStore<SqlFault>
+  implements Adapter.Me<Profile>
+{
+  private readonly _db: Db<TSchema>
+
+  /** Over a file path, a driver `Database`, or a drizzle handle you already have. */
+  constructor(input: string | Sqlite.SqliteClientLike | Db<TSchema>) {
+    super(STORE_RAISES)
+    const lazyRequire = createRequire(import.meta.url)
+    const raw = typeof input === 'string' ? new (lazyRequire('better-sqlite3'))(input) : input
+    // Straight at the driver, before drizzle wraps it, so a sync one has it on with nothing to await.
+    if ('exec' in raw && typeof raw.exec === 'function') raw.exec('pragma foreign_keys = on')
+    this._db = 'select' in raw ? raw : lazyRequire('drizzle-orm/better-sqlite3').drizzle(raw)
+    // SECURITY: sqlite ignores every foreign key until this is on, per connection, so without it `erase`
+    // leaves links behind whose unique keeps a login claimed by an identity that is gone.
+    void this._db.run(sql`pragma foreign_keys = on`)
   }
 
-  const bridge: SqlBridge.Me = {
-    // --- Identities ---
-    identities: {
-      findById: async (id) => {
-        const rows = await db
-          .select()
-          .from(authIdentities)
-          .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
-          .limit(1)
-        const row = rows[0]
-        if (!row) return null
-        return reviveIdentityRow(row)
-      },
-      findByEmail: async (email) => {
-        const rows = await db
-          .select()
-          .from(authIdentities)
-          .where(
-            and(
-              sql`lower(${authIdentities.profile} ->> '$.email') = lower(${email})`,
-              isNull(authIdentities.deletedAt),
-            ),
+  /** WARN: a sync driver's `transaction` cannot wait on an async callback - better-sqlite3 refuses one,
+   *  bun:sqlite commits early and never rolls back - so it is bracketed by hand on its single connection. */
+  private async _atomic<T>(run: (tx: Writer) => Promise<T>): Promise<T> {
+    if (Reflect.get(this._db, 'resultKind') !== 'sync') return this._db.transaction(run)
+
+    await this._db.run(sql`begin immediate`)
+    try {
+      const out = await run(this._db)
+      await this._db.run(sql`commit`)
+
+      return out
+    } catch (err) {
+      await this._db.run(sql`rollback`)
+      throw err
+    }
+  }
+
+  /** The links a row holds, read on their own: sqlite's json aggregates promise no order and answer raw integers. */
+  private _links(id: string): Promise<Identities.ProviderLink[]> {
+    return this._db
+      .select(linkFields)
+      .from(authIdentityProviders)
+      .where(eq(authIdentityProviders.identityId, id))
+      .orderBy(authIdentityProviders.addedAt)
+  }
+
+  /** The credential a caller named: a live row before a revoked one, then the newest of those. */
+  private async _credential(match: SQL[], tenantId: string | undefined) {
+    const [row] = await this._db
+      .select()
+      .from(authCredentials)
+      .where(and(...match, inTenant(authCredentials.tenantId, tenantId)))
+      .orderBy(sql`${authCredentials.revokedAt} is not null`, desc(authCredentials.createdAt))
+      .limit(1)
+
+    return row ?? null
+  }
+
+  /** A conditional write: `expectedVersion` null is unconditional, so a miss there is a missing row. */
+  private async _write(
+    { expectedVersion, id, tenantId }: { id: string; expectedVersion: number | null; tenantId: string | undefined },
+    patch: SQLiteUpdateSetSource<typeof authCredentials>,
+  ) {
+    const [row] = await this._db
+      .update(authCredentials)
+      .set({ ...patch, version: sql`${authCredentials.version} + 1` })
+      .where(
+        and(
+          eq(authCredentials.id, id),
+          expectedVersion === null ? undefined : eq(authCredentials.version, expectedVersion),
+          inTenant(authCredentials.tenantId, tenantId),
+        ),
+      )
+      .returning()
+
+    return row ?? null
+  }
+
+  /** A live row and its logins in one join. NOTE: inside a transaction, reached through `withClient(tx)` -
+   *  `this._db` is a different connection, blind to what the transaction has written. */
+  async find(by: Identities.By) {
+    let rows = this._db
+      .select({ identity: authIdentities, link: linkFields })
+      .from(authIdentities)
+      .leftJoin(authIdentityProviders, eq(authIdentityProviders.identityId, authIdentities.id))
+      .$dynamic()
+
+    // PERF: the answering login joins under its own alias rather than a subquery in the where, so it walks
+    // `uq_auth_identity_providers_sub` and takes the order from the index. 1.7x over 20k rows.
+    if ('providerId' in by) {
+      rows = rows.innerJoin(
+        lookupLink,
+        and(
+          eq(lookupLink.identityId, authIdentities.id),
+          eq(lookupLink.providerId, by.providerId),
+          eq(lookupLink.providerSub, by.providerSub),
+        ),
+      )
+    }
+
+    return rowWithLinks(
+      await rows
+        .where(
+          and(
+            isNull(authIdentities.deletedAt),
+            'id' in by ? eq(authIdentities.id, by.id) : undefined,
+            'email' in by
+              ? or(
+                  ...toEmailList(by.email).map(
+                    (e) => sql`lower(${authIdentities.profile} ->> '$.email') = lower(${e})`,
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(authIdentityProviders.addedAt),
+    )
+  }
+
+  readonly identities = forProfile<Profile, SqlFault>({
+    find: (by) => this.run(() => this.find(by)),
+
+    /** NOTE: `atomic`, not a bare `transaction`, see the note on it. The rest need no transaction at all:
+     *  they write one table and then read another the write never touched. */
+    create: (input) =>
+      this.run(() =>
+        this._atomic(async (tx) => {
+          const { providers, ...columns } = withNormalisedEmail(input)
+          const [created] = await tx
+            .insert(authIdentities)
+            .values({ ...columns, createdBy: actorId(), deletedAt: null, deletedBy: null, updatedBy: actorId() })
+            .returning()
+          if (!created) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
+          if (providers.length === 0) return { ...created, providers: [] }
+
+          // SECURITY: the unique on (provider_id, provider_sub) is what refuses a login another row already
+          // holds. No check runs first, so there is no window between deciding and writing.
+          const written = await tx
+            .insert(authIdentityProviders)
+            .values(providers.map((link) => ({ ...link, identityId: created.id })))
+            .returning(linkFields)
+
+          return { ...created, providers: written }
+        }),
+      ),
+
+    erase: (id) =>
+      this.run(async () => {
+        // The cascade takes the links with the row, so they are read before it goes, not after.
+        const providers = await this._links(id)
+        const [row] = await this._db.delete(authIdentities).where(eq(authIdentities.id, id)).returning()
+
+        return row ? { ...row, providers } : null
+      }),
+
+    /** The holder is the insert's own source row: one that is gone or hidden writes nothing and the read
+     *  answers `null`, where asking first cost a round trip. */
+    link: (identityId, link) =>
+      this.run(async () => {
+        // An insert's column list is the table's own order, so the select matches it position for position -
+        // the id included, since a select has no column default to fall back on.
+        const row = [
+          sql.param(authUuidV7(), authIdentityProviders.id),
+          authIdentities.id,
+          sql.param(link.providerId, authIdentityProviders.providerId),
+          sql.param(link.providerSub, authIdentityProviders.providerSub),
+          sql.param(link.addedAt ?? new Date(), authIdentityProviders.addedAt),
+        ]
+
+        // SECURITY: (provider_id, provider_sub) refuses a login another identity holds; (identity_id,
+        // provider_id) makes a repeat a no-op, so a caller racing a different sub is told, not given both.
+        await this._db
+          .insert(authIdentityProviders)
+          .select(
+            sql`select ${sql.join(row, sql`, `)} from ${authIdentities}
+                where ${and(eq(authIdentities.id, identityId), isNull(authIdentities.deletedAt))}`,
           )
-          .limit(1)
-        return reviveIdentityRowOrNull(rows[0] ?? null)
-      },
-      findByProviderSub: async (providerId, sub) => {
-        // No jsonb containment in SQLite, so walk the providers array with json_each.
-        const rows = await db
-          .select()
-          .from(authIdentities)
-          .where(
+          .onConflictDoNothing({ target: [authIdentityProviders.identityId, authIdentityProviders.providerId] })
+
+        return this.find({ id: identityId })
+      }),
+
+    /** One transaction: the dup's credentials, sessions and logins are re-pointed before it is deleted, since
+     *  the FK cascade would take them with it, and a missing side rolls the whole thing back. */
+    merge: (survivorId, dupId) =>
+      this.run(async () => {
+        if (survivorId === dupId) return this.find({ id: survivorId })
+
+        return this._atomic(async (tx) => {
+          // SECURITY: both sides are confirmed before anything moves. A merge that re-points the dup's rows
+          // and only then finds the survivor gone has destroyed the dup for nothing.
+          const present = await tx
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(inArray(authIdentities.id, [survivorId, dupId]))
+          if (present.length !== 2) return null
+
+          // Two live passwords leave the row that answers a login up to the engine. Only a kind the
+          // survivor already holds in the same tenant goes, matched in the delete rather than read out first.
+          await tx.delete(authCredentials).where(
             and(
+              eq(authCredentials.identityId, dupId),
+              isNull(authCredentials.revokedAt),
+              inArray(authCredentials.kind, ['password', 'totp']),
+              // `is` rather than `=`: the tenants match when both are NULL, which a global row is.
               sql`exists (
-                select 1 from json_each(${authIdentities.providers}) je
-                where json_extract(je.value, '$.providerId') = ${providerId}
-                  and json_extract(je.value, '$.providerSub') = ${sub}
-              )`,
-              isNull(authIdentities.deletedAt),
+                    select 1 from ${authCredentials} kept
+                    where kept.identity_id = ${survivorId}
+                      and kept.revoked_at is null
+                      and kept.kind = ${authCredentials.kind}
+                      and kept.tenant_id is ${authCredentials.tenantId}
+                  )`,
             ),
           )
-          .limit(1)
-        return reviveIdentityRowOrNull(rows[0] ?? null)
-      },
-      insert: async (row) => {
-        await db.insert(authIdentities).values(row)
-      },
-      updateConditional: async (id, patch, expectedVersion) => {
-        const result = await db
+
+          await tx.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
+          await tx.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
+
+          // A provider both rows held would clash on the owned index, so the dup's copy stays put and the
+          // delete below takes it with the row - one statement where clearing it first was two.
+          await tx
+            .update(authIdentityProviders)
+            .set({ identityId: survivorId })
+            .where(
+              and(
+                eq(authIdentityProviders.identityId, dupId),
+                sql`not exists (
+                    select 1 from ${authIdentityProviders} kept
+                    where kept.identity_id = ${survivorId}
+                      and kept.provider_id = ${authIdentityProviders.providerId}
+                  )`,
+              ),
+            )
+
+          await tx.delete(authIdentities).where(eq(authIdentities.id, dupId))
+
+          return this.withClient(tx).find({ id: survivorId })
+        })
+      }),
+
+    restore: (id) =>
+      this.run(async () => {
+        const [restored] = await this._db
           .update(authIdentities)
-          .set(patch)
+          .set({ deletedAt: null, deletedBy: null })
+          .where(and(eq(authIdentities.id, id), gte(authIdentities.deletedAt, new Date())))
+          .returning()
+        if (restored) return { ...restored, providers: await this._links(id) }
+
+        // Nothing matched: the row is not there, it is live already, or its window has closed - and only
+        // this read sees a hidden row, which is the one thing `find` will not answer with.
+        const [found] = await this._db
+          .select({ deletedAt: authIdentities.deletedAt })
+          .from(authIdentities)
+          .where(eq(authIdentities.id, id))
+          .limit(1)
+        if (!found) return null
+        if (found.deletedAt) throw new AuthError('AUTH_GRACE_EXPIRED')
+
+        return this.find({ id })
+      }),
+
+    softDelete: (id, gracePeriodMs) =>
+      this.run(async () => {
+        // `deletedAt` is when the grace window closes, not when the delete happened.
+        const [row] = await this._db
+          .update(authIdentities)
+          .set({ deletedAt: new Date(Date.now() + gracePeriodMs), deletedBy: actorId(), emailVerified: false })
+          .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
+          .returning()
+
+        return row ? { ...row, providers: await this._links(id) } : null
+      }),
+
+    unlink: (identityId, providerId) =>
+      this.run(async () => {
+        await this._db
+          .delete(authIdentityProviders)
+          .where(
+            and(eq(authIdentityProviders.identityId, identityId), eq(authIdentityProviders.providerId, providerId)),
+          )
+
+        return this.find({ id: identityId })
+      }),
+
+    update: (id, patch, expectedVersion) =>
+      this.run(async () => {
+        const [row] = await this._db
+          .update(authIdentities)
+          // The row moves its own version on, so no caller can write a stale one or forget to bump it.
+          .set({ ...stamped(withNormalisedEmail(patch)), version: sql`${authIdentities.version} + 1` })
           .where(and(eq(authIdentities.id, id), eq(authIdentities.version, expectedVersion)))
           .returning()
-        return reviveIdentityRowOrNull(result[0] ?? null)
-      },
-      softDelete: async (id, deletedAt, deletedBy) => {
-        // `emailVerified` goes with it: the partial unique index and `findByEmail`
-        // both ignore soft-deleted rows, so the address is free to be claimed by
-        // someone else during the grace window. Restoring must not hand back a
-        // verified claim to an address this identity may no longer control.
-        //
-        // Live rows only. `deletedAt` is the moment the purge window closes, so
-        // a second call on an already-hidden row would push that moment forward
-        // and a row could be kept out of reach of the purge indefinitely by
-        // repeating a delete that has nothing left to delete.
-        const result = await db
-          .update(authIdentities)
-          .set({ deletedAt, deletedBy, emailVerified: false })
-          .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
-          .returning()
-        return reviveIdentityRowOrNull(result[0] ?? null)
-      },
-      /**
-       * Three round trips, all on a rare admin path: read the hidden row, refuse
-       * it if the grace window has closed or its address has since been taken,
-       * then clear the marker. Doing the checks here rather than leaning on the
-       * partial unique index is what turns a raw driver error into a typed one.
-       */
-      restore: async (id) => {
-        const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, id)).limit(1)
-        if (!row) return null
-        assertRestorable(row)
-        const email = profileEmail(row.profile)
-        if (email !== undefined) {
-          const clash = await db
-            .select({ id: authIdentities.id })
-            .from(authIdentities)
-            .where(
-              and(
-                sql`lower(${authIdentities.profile} ->> '$.email') = lower(${email})`,
-                isNull(authIdentities.deletedAt),
-              ),
-            )
-            .limit(1)
-          assertEmailFree(email, clash.length > 0)
-        }
-        // A hidden row's provider logins were free to be claimed the whole time it
-        // was invisible, exactly like its email address. `isNull(deletedAt)` also
-        // excludes the row being restored, so this only ever finds someone else.
-        for (const claim of claimedProviderSubs(row)) {
-          const taken = await db
-            .select({ id: authIdentities.id })
-            .from(authIdentities)
-            .where(
-              and(
-                sql`exists (
-                  select 1 from json_each(${authIdentities.providers}) je
-                  where json_extract(je.value, '$.providerId') = ${claim.providerId}
-                    and json_extract(je.value, '$.providerSub') = ${claim.providerSub}
-                )`,
-                isNull(authIdentities.deletedAt),
-              ),
-            )
-            .limit(1)
-          if (taken.length > 0) assertProviderSubFree({ providerId: claim.providerId })
-        }
-        const result = await db
-          .update(authIdentities)
-          .set({ deletedAt: null, deletedBy: null })
-          .where(eq(authIdentities.id, id))
-          .returning()
-        return reviveIdentityRowOrNull(result[0] ?? null)
-      },
-      erase: async (id) => {
-        // FK CASCADE handles credentials and sessions; explicit deletes are belt-and-suspenders.
-        await db.delete(authCredentials).where(eq(authCredentials.identityId, id))
-        await db.delete(authSessions).where(eq(authSessions.identityId, id))
-        // `RETURNING` on the DELETE hands back the row as it was, so saying what
-        // was erased costs nothing extra.
-        const gone = await db
-          .delete(authIdentities)
-          .where(and(eq(authIdentities.id, id)))
-          .returning()
-        return reviveIdentityRowOrNull(gone[0] ?? null)
-      },
-      insertProviderLink: async (identityId, providerId, providerSub, addedAt) => {
-        // Read-modify-write: SQLite JSON edit functions are awkward; splice client-side.
-        const rows = await db
-          .select({ providers: authIdentities.providers })
-          .from(authIdentities)
-          .where(and(eq(authIdentities.id, identityId)))
-          .limit(1)
-        const cur = rows[0]
-        if (!cur) return null
-        // A `(providerId, providerSub)` pair identifies one account at the
-        // provider, so letting a second identity claim one is account takeover:
-        // sign in as the attacker, link the victim's Google sub, and the next
-        // `findByProviderSub` may hand the victim's session to either row.
-        // Soft-deleted rows do NOT count: `findByProviderSub` already ignores
-        // them, so holding a sub against a row nothing can read back would keep
-        // someone's provider login hostage forever. `restore` is where a hidden
-        // row re-earns its claims, the same as it does for its email.
-        if (providerSub !== null) {
-          const held = await db
-            .select({ id: authIdentities.id })
-            .from(authIdentities)
-            .where(
-              and(
-                ne(authIdentities.id, identityId),
-                isNull(authIdentities.deletedAt),
-                sql`exists (
-                  select 1 from json_each(${authIdentities.providers}) je
-                  where json_extract(je.value, '$.providerId') = ${providerId}
-                    and json_extract(je.value, '$.providerSub') = ${providerSub}
-                )`,
-              ),
-            )
-            .limit(1)
-          if (held.length > 0) {
-            throw new AuthError('AUTH_PROVIDER_FAILED', {
-              detail: 'provider sub already linked to a different identity',
-              providerId,
-            })
-          }
-        }
-        const providers = cur.providers ?? []
-        // Already linked: nothing to write, but the row still exists and it
-        // already carries the link, so answer with it rather than with `null`.
-        if (providers.some((p) => p.providerId === providerId && p.providerSub === providerSub)) {
-          const [unchanged] = await db.select().from(authIdentities).where(eq(authIdentities.id, identityId)).limit(1)
-          return reviveIdentityRowOrNull(unchanged ?? null)
-        }
-        providers.push({ providerId, providerSub: providerSub ?? null, addedAt })
-        const linked = await db
-          .update(authIdentities)
-          .set({ providers })
-          .where(and(eq(authIdentities.id, identityId)))
-          .returning()
-        return reviveIdentityRowOrNull(linked[0] ?? null)
-      },
-      deleteProviderLink: async (identityId, providerId) => {
-        const rows = await db
-          .select({ providers: authIdentities.providers })
-          .from(authIdentities)
-          .where(and(eq(authIdentities.id, identityId)))
-          .limit(1)
-        const cur = rows[0]
-        if (!cur) return null
-        const providers = (cur.providers ?? []).filter((p) => p.providerId !== providerId)
-        const unlinked = await db
-          .update(authIdentities)
-          .set({ providers })
-          .where(and(eq(authIdentities.id, identityId)))
-          .returning()
-        return reviveIdentityRowOrNull(unlinked[0] ?? null)
-      },
-      softDeleteManyReturningIds: async (ids, deletedAt, deletedBy) => {
-        const rows = await db
-          .update(authIdentities)
-          .set({ deletedAt, deletedBy, emailVerified: false })
-          .where(and(inArray(authIdentities.id, [...ids]), isNull(authIdentities.deletedAt)))
-          .returning({ id: authIdentities.id })
-        return rows.map((r) => r.id)
-      },
+        if (!row) throw new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: expectedVersion })
 
-      eraseManyReturningIds: async (ids) => {
-        const list = [...ids]
-        // FK CASCADE covers these; explicit deletes are belt-and-suspenders, as
-        // in the single-row `erase` above.
-        await db.delete(authCredentials).where(inArray(authCredentials.identityId, list))
-        await db.delete(authSessions).where(inArray(authSessions.identityId, list))
-        const gone = await db
-          .delete(authIdentities)
-          .where(inArray(authIdentities.id, list))
-          .returning({ id: authIdentities.id })
-        return gone.map((r) => r.id)
-      },
+        return { ...row, providers: await this._links(id) }
+      }),
+  })
 
-      /**
-       * The set-based form of `restore`, and it owes the caller the same two
-       * refusals: a row whose grace window has closed is queued for purge, and a
-       * row whose address a live identity now holds cannot come back without
-       * two live rows answering to one email.
-       *
-       * Both are per-row decisions, so a row that fails one is left out of the
-       * statement rather than throwing - `createSqlStores` reads an id missing
-       * from the response as that row's soft failure, which is what keeps one
-       * bad id in a batch of fifty from aborting the other forty-nine.
-       */
-      restoreManyReturning: async (ids) => {
-        const list = [...ids]
-        if (list.length === 0) return { candidates: [], restored: [] }
-        const candidates = await db
-          .select()
-          .from(authIdentities)
-          .where(inArray(authIdentities.id, list))
-          .then((rs) => rs.map(reviveIdentityRow))
-        const restorable = candidates.filter(isRestorable)
-        const emails = new Map<string, string>()
-        for (const row of restorable) {
-          const email = profileEmail(row.profile)
-          if (email !== undefined) emails.set(row.id, email.toLowerCase())
-        }
-        const taken = new Set<string>()
-        if (emails.size > 0) {
-          const live = await db
-            .select({ profile: authIdentities.profile })
-            .from(authIdentities)
-            .where(
-              and(
-                inArray(sql`lower(${authIdentities.profile} ->> '$.email')`, [...new Set(emails.values())]),
-                isNull(authIdentities.deletedAt),
-              ),
-            )
-          for (const row of live) {
-            const email = profileEmail(row.profile)
-            if (email !== undefined) taken.add(email.toLowerCase())
-          }
-        }
-        // Two hidden rows in one batch can also answer to the same address -
-        // nothing kept them apart while both were invisible - so an address
-        // claimed by an earlier row in this batch is taken for the rest of it.
-        // Provider logins clash the same way addresses do, and the batch has to catch
-        // it for the same reason the single-row path does: `findByProviderSub` skips
-        // hidden rows, so every sub a candidate holds was free to be taken while it
-        // was gone.
-        const claims = new Map<string, string[]>()
-        const allClaims: { providerId: string; providerSub: string }[] = []
-        for (const row of restorable) {
-          const pairs = claimedProviderSubs(row)
-          if (pairs.length === 0) continue
-          claims.set(row.id, pairs.map(providerSubKey))
-          allClaims.push(...pairs)
-        }
-        const takenSubs = new Set<string>()
-        if (allClaims.length > 0) {
-          const holders = await db
-            .select({ providers: authIdentities.providers })
-            .from(authIdentities)
-            .where(
-              and(
-                or(
-                  ...allClaims.map(
-                    (claim) => sql`exists (
-          select 1 from json_each(${authIdentities.providers}) je
-          where json_extract(je.value, '$.providerId') = ${claim.providerId}
-            and json_extract(je.value, '$.providerSub') = ${claim.providerSub}
-        )`,
-                  ),
-                ),
-                isNull(authIdentities.deletedAt),
-              ),
-            )
-          // Every sub a matched live row holds, not just the one that matched: they
-          // are all genuinely spoken for by a row that is visible right now.
-          for (const holder of holders) {
-            for (const pair of claimedProviderSubs(holder)) takenSubs.add(providerSubKey(pair))
-          }
-        }
-        const okIds: string[] = []
-        const refused: { id: string; reason: 'email-taken' | 'provider-taken' }[] = []
-        for (const row of restorable) {
-          const email = emails.get(row.id)
-          const keys = claims.get(row.id)
-          // Both checks before either commit: a row refused for its address must not
-          // go on to reserve its provider subs against later rows.
-          if (email !== undefined && taken.has(email)) {
-            refused.push({ id: row.id, reason: 'email-taken' })
-            continue
-          }
-          if (keys?.some((key) => takenSubs.has(key))) {
-            refused.push({ id: row.id, reason: 'provider-taken' })
-            continue
-          }
-          if (email !== undefined) taken.add(email)
-          if (keys !== undefined) for (const key of keys) takenSubs.add(key)
-          okIds.push(row.id)
-        }
-        if (okIds.length === 0) return { candidates, refused, restored: [] }
-        const restored = await db
-          .update(authIdentities)
-          .set({ deletedAt: null, deletedBy: null })
-          .where(inArray(authIdentities.id, okIds))
-          .returning()
-          .then((rs) => rs.map(reviveIdentityRow))
-        return { candidates, refused, restored }
-      },
-
-      /**
-       * SQLite has no `UPDATE ... FROM (VALUES ...)`, so each row still needs
-       * its own conditional update to be matched on its own expected version.
-       * They run back-to-back on one connection - inside the caller's
-       * transaction when there is one - so the batch is still atomic; it is the
-       * statement count, not the atomicity, that SQLite cannot collapse.
-       */
-      updateProfileManyReturning: async (rows) => {
-        const out: Identities.Me[] = []
-        for (const r of rows) {
-          const updated = await db
-            .update(authIdentities)
-            .set(r.patch)
-            .where(and(eq(authIdentities.id, r.id), eq(authIdentities.version, r.expectedVersion)))
-            .returning()
-          const row = updated[0]
-          if (row) out.push(reviveIdentityRow(row))
-        }
-        return out
-      },
-
-      merge: async (survivorId, dupId) => {
-        // Union dup's provider links into the survivor before re-pointing rows.
-        const [surv] = await db
-          .select({ providers: authIdentities.providers })
-          .from(authIdentities)
-          .where(eq(authIdentities.id, survivorId))
-          .limit(1)
-        const [dupRow] = await db
-          .select({ providers: authIdentities.providers })
-          .from(authIdentities)
-          .where(eq(authIdentities.id, dupId))
-          .limit(1)
-        // Both sides must exist BEFORE anything is written: the steps below
-        // re-point the dup's credentials and sessions and then delete it, so a
-        // survivor that is not there turns a merge into silent data loss. The
-        // memory adapter has always refused this; so does every dialect.
-        if (!surv || !dupRow) return null
-        // Merging a row into itself has nothing to move and one row to keep. Run
-        // the steps below on it and the last of them deletes the survivor, so a
-        // caller that passed the same id twice - a resolved duplicate that was
-        // never a duplicate - would lose the account it was trying to keep.
-        if (survivorId === dupId) {
-          const [self] = await db.select().from(authIdentities).where(eq(authIdentities.id, survivorId)).limit(1)
-          return reviveIdentityRowOrNull(self ?? null)
-        }
-        await db
-          .update(authIdentities)
-          .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
-          .where(eq(authIdentities.id, survivorId))
-        // Repoint all of the dup's rows across every tenant before erasing it, so the
-        // FK cascade on delete cannot orphan another tenant's credentials/sessions.
-        await db.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
-        await db.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
-        await db.delete(authIdentities).where(eq(authIdentities.id, dupId))
-        // The survivor is what the caller keeps; `null` when there was none.
-        const [merged] = await db.select().from(authIdentities).where(eq(authIdentities.id, survivorId)).limit(1)
-        return reviveIdentityRowOrNull(merged ?? null)
-      },
-    },
-    // --- Credentials ---
-    credentials: {
-      findById: async (id, tenantId) => {
-        const rows = await db
-          .select()
-          .from(authCredentials)
-          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
-          .limit(1)
-        return rows[0] ?? null
-      },
-      listByIdentity: async (identityId, kind, tenantId) => {
-        const where = [
-          eq(authCredentials.identityId, identityId),
-          ...(kind ? [eq(authCredentials.kind, kind)] : []),
-          ...(tenantId ? [eq(authCredentials.tenantId, tenantId)] : []),
-        ]
-        return db
-          .select()
-          .from(authCredentials)
-          .where(and(...where))
-      },
-      // `provider`/`sub` live in the free-form `metadata` of an oauth row, and
-      // nothing stops another kind from carrying the same two keys - an api-key
-      // whose metadata records which provider minted it would answer an oauth
-      // lookup. Both filters are the ones the caller already believes are on:
-      // one tenant's oauth rows, and only oauth rows.
-      findByProviderSub: async (provider, sub, tenantId) => {
-        const rows = await db
-          .select()
-          .from(authCredentials)
-          .where(
-            and(
-              eq(authCredentials.kind, 'oauth'),
-              sql`json_extract(${authCredentials.metadata}, '$.provider') = ${provider}`,
-              sql`json_extract(${authCredentials.metadata}, '$.sub') = ${sub}`,
-              tenantWhere(authCredentials, tenantId),
-            ),
-          )
-          .limit(1)
-        return rows[0] ?? null
-      },
-      findByHashedSecret: async (secretHash, kind, tenantId) => {
-        // Prefer the freshest live row, fall back to freshest revoked.
-        const rows = await db
-          .select()
-          .from(authCredentials)
-          .where(
-            and(
-              eq(authCredentials.secret, secretHash),
-              eq(authCredentials.kind, kind),
-              tenantWhere(authCredentials, tenantId),
-            ),
-          )
-        return pickFreshestCredential(rows)
-      },
-      insert: async (row) => {
-        await db.insert(authCredentials).values(row)
-      },
-      updateConditional: async (id, patch, expectedVersion, tenantId) => {
-        const result = await db
-          .update(authCredentials)
-          .set(patch)
-          .where(
-            and(
-              eq(authCredentials.id, id),
-              eq(authCredentials.version, expectedVersion),
-              tenantWhere(authCredentials, tenantId),
-            ),
-          )
-          .returning()
-        return result[0] ?? null
-      },
-      revoke: async (id, revokedAt, tenantId) => {
-        const result = await db
-          .update(authCredentials)
-          .set({ revokedAt })
-          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
-          .returning()
-        return result[0] ?? null
-      },
-      delete: async (id, tenantId) => {
-        const gone = await db
+  readonly credentials: Adapter.Wrapped<Adapter.Me['credentials'], SqlFault> = {
+    delete: (id, { tenantId }) =>
+      this.run(async () => {
+        const [row] = await this._db
           .delete(authCredentials)
-          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+          .where(and(eq(authCredentials.id, id), inTenant(authCredentials.tenantId, tenantId)))
           .returning()
-        return gone[0] ?? null
-      },
-      deleteByIdentitiesReturningIds: async (identityIds, tenantId) => {
-        const rows = await db
-          .delete(authCredentials)
-          .where(and(inArray(authCredentials.identityId, [...identityIds]), tenantWhere(authCredentials, tenantId)))
-          .returning({ id: authCredentials.identityId })
-        return rows.map((r) => r.id).filter((id): id is string => id !== null)
-      },
-      deleteByKind: async (identityId, kind, tenantId) => {
-        return db
+
+        return row ?? null
+      }),
+
+    deleteByKind: (identityId, kind, { tenantId }) =>
+      this.run(() =>
+        this._db
           .delete(authCredentials)
           .where(
             and(
               eq(authCredentials.identityId, identityId),
               eq(authCredentials.kind, kind),
-              tenantWhere(authCredentials, tenantId),
+              inTenant(authCredentials.tenantId, tenantId),
             ),
           )
+          .returning(),
+      ),
+
+    deleteByKindAndPurpose: (identityId, kind, purpose, { tenantId }) =>
+      this.run(() =>
+        this._db
+          .delete(authCredentials)
+          .where(
+            and(
+              eq(authCredentials.identityId, identityId),
+              eq(authCredentials.kind, kind),
+              sql`${authCredentials.metadata} ->> '$.purpose' = ${purpose}`,
+              inTenant(authCredentials.tenantId, tenantId),
+            ),
+          )
+          .returning(),
+      ),
+
+    findByHashedSecret: (secretHash, kind, { tenantId }) =>
+      this.run(() =>
+        this._credential([eq(authCredentials.secret, secretHash), eq(authCredentials.kind, kind)], tenantId),
+      ),
+
+    findById: (id, { tenantId }) => this.run(() => this._credential([eq(authCredentials.id, id)], tenantId)),
+
+    // NOTE: `provider`/`sub` live in free-form metadata, so the kind filter is what stops an api-key
+    // answering an oauth lookup.
+    findByProviderSub: (provider, sub, { tenantId }) =>
+      this.run(() =>
+        this._credential(
+          [
+            eq(authCredentials.kind, 'oauth'),
+            sql`${authCredentials.metadata} ->> '$.provider' = ${provider}`,
+            sql`${authCredentials.metadata} ->> '$.sub' = ${sub}`,
+          ],
+          tenantId,
+        ),
+      ),
+
+    listByIdentity: (identityId, kind, { tenantId }) =>
+      // Newest first, id breaking a same-millisecond tie: callers take the first live row, so an
+      // unordered read left the engine to decide which password or totp answers.
+      this.run(() =>
+        this._db
+          .select()
+          .from(authCredentials)
+          .where(
+            and(
+              eq(authCredentials.identityId, identityId),
+              kind === null ? undefined : eq(authCredentials.kind, kind),
+              inTenant(authCredentials.tenantId, tenantId),
+            ),
+          )
+          .orderBy(desc(authCredentials.createdAt), desc(authCredentials.id)),
+      ),
+
+    /** One statement, merged under the row's own lock: `json_set` writes each key where it sits. Read-then-
+     *  write needed a version to hold the two halves together and a retry for when it moved. */
+    patchMetadata: (id, patch, { tenantId }) =>
+      this.run(async () => {
+        const metadata = jsonMerged(
+          sql`coalesce(${authCredentials.metadata}, '{}')`,
+          patch,
+          (json) => sql`json(${json})`,
+        )
+        const written = await this._write({ expectedVersion: null, id, tenantId }, { metadata })
+        if (!written) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+
+        return written
+      }),
+
+    revoke: (id, { tenantId }) =>
+      this.run(() => this._write({ expectedVersion: null, id, tenantId }, { revokedAt: new Date() })),
+
+    /** The familyId is read out of `metadata`, which is where every oauth row carries it. */
+    revokeFamily: (familyId, { tenantId }) =>
+      this.run(async () => {
+        const reach = and(
+          eq(authCredentials.kind, 'oauth'),
+          isNull(authCredentials.revokedAt),
+          sql`${authCredentials.metadata} ->> '$.familyId' = ${familyId}`,
+          inTenant(authCredentials.tenantId, tenantId),
+        )
+        const moved = await this._db
+          .update(authCredentials)
+          .set({ revokedAt: new Date(), updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
+          .where(reach)
+          .returning({ id: authCredentials.id })
+
+        return moved.length
+      }),
+
+    /** NOTE: a rotation is a use, so it stamps lastUsedAt. */
+    rotate: (id, secret, expectedVersion, { tenantId }) =>
+      this.run(async () => {
+        const row = await this._write({ expectedVersion, id, tenantId }, { lastUsedAt: new Date(), secret })
+        if (row) return row
+
+        throw new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: expectedVersion })
+      }),
+
+    upsert: (input, ctx) =>
+      this.run(async () => {
+        const [created] = await this._db
+          .insert(authCredentials)
+          .values({
+            ...input,
+            createdBy: actorId(),
+            tenantId: input.tenantId ?? ctx.tenantId ?? null,
+            updatedBy: actorId(),
+          })
           .returning()
-      },
-    },
-    // --- Sessions ---
-    sessions: {
-      insert: async (row) => {
-        await db.insert(authSessions).values(row)
-      },
-      findByHash: async (sidHash) => {
-        const rows = await db.select().from(authSessions).where(eq(authSessions.id, sidHash)).limit(1)
-        return reviveSessionRow(rows[0] ?? null)
-      },
-      update: async (id, patch) => {
-        // A patch whose every key was an explicit `undefined` arrives here
-        // empty, and drizzle refuses an `UPDATE` with nothing to set. "Change
-        // none of these fields" is a read, not an error: the memory store hands
-        // the row back untouched and so does this.
-        if (Object.keys(patch).length === 0) {
-          const rows = await db.select().from(authSessions).where(eq(authSessions.id, id)).limit(1)
-          return reviveSessionRow(rows[0] ?? null)
-        }
-        const result = await db.update(authSessions).set(patch).where(eq(authSessions.id, id)).returning()
-        return reviveSessionRow(result[0] ?? null)
-      },
-      delete: async (id) => {
-        await db.delete(authSessions).where(eq(authSessions.id, id))
-      },
-      listByIdentity: async (identityId, tenantId) => {
-        const rows = await db.select().from(authSessions).where(sessionScope(identityId, tenantId))
-        return rows.map(reviveSessionRowRequired)
-      },
-      deleteAllForIdentity: async (identityId, tenantId) => {
-        await db.delete(authSessions).where(sessionScope(identityId, tenantId))
-      },
-      deleteAllForIdentitiesReturningIds: async (identityIds) => {
-        const rows = await db
+        if (!created) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+
+        return created
+      }),
+  }
+
+  readonly sessions: Adapter.Wrapped<Adapter.Me['sessions'], SqlFault> = {
+    /** The row arrives whole - its id is the token hash the caller computed - so nothing here is stamped. */
+    create: (session) =>
+      this.run(async () => {
+        await this._db.insert(authSessions).values(session)
+      }),
+
+    delete: (id) =>
+      this.run(async () => {
+        await this._db.delete(authSessions).where(eq(authSessions.id, id))
+      }),
+
+    deleteAllForIdentity: (identityId, ctx?) =>
+      this.run(async () => {
+        await this._db
           .delete(authSessions)
-          .where(inArray(authSessions.identityId, [...identityIds]))
-          .returning({ id: authSessions.identityId })
-        return rows.map((r) => r.id).filter((id): id is string => id !== null)
-      },
-      deleteManyReturningIds: async (ids) => {
-        const rows = await db
+          .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx?.tenantId)))
+      }),
+
+    /** Either clock: `expiresAt` is the idle deadline, `absoluteExpiresAt` the ceiling it can never pass.
+     *  NOTE: the ids come back rather than a row count, which better-sqlite3, libsql and bun each name differently. */
+    gc: (now) =>
+      this.run(async () => {
+        const when = new Date(now)
+        const gone = await this._db
           .delete(authSessions)
-          .where(inArray(authSessions.id, [...ids]))
+          .where(or(lt(authSessions.expiresAt, when), lt(authSessions.absoluteExpiresAt, when)))
           .returning({ id: authSessions.id })
-        return rows.map((r) => r.id)
-      },
-      listByIdentities: (identityIds) =>
-        db
+
+        return { deleted: gone.length }
+      }),
+
+    getByHash: (id) =>
+      this.run(async () => {
+        const [row] = await this._db.select().from(authSessions).where(eq(authSessions.id, id)).limit(1)
+
+        return row ?? null
+      }),
+
+    listByIdentity: (identityId, ctx?) =>
+      this.run(() =>
+        this._db
           .select()
           .from(authSessions)
-          .where(inArray(authSessions.identityId, [...identityIds]))
-          .then((rows) => rows.map(reviveSessionRowRequired)),
-      // Either clock, not just the outer one. `expiresAt` is the idle deadline a
-      // session is renewed against and `absoluteExpiresAt` the ceiling it can
-      // never pass; reading only the ceiling left every idled-out session in the
-      // table until its absolute deadline, hours or days later.
-      deleteExpired: async (now) => {
-        const result = await db
-          .delete(authSessions)
-          .where(or(lt(authSessions.expiresAt, now), lt(authSessions.absoluteExpiresAt, now)))
-          .returning()
-        return result.length
-      },
-    },
-    /**
-     * Re-make this bridge against `client` - a drizzle transaction handle,
-     * which is structurally the same database surface for every query builder
-     * this bridge uses. The assertion is the boundary where an opaque client
-     * re-enters the driver's own type, and belongs here rather than in `core/`
-     * precisely because this file is the only one that knows the driver.
-     */
-    withClient: (client) =>
-      createDrizzleSqliteBridge<Profile, TSchema>(client as BaseSQLiteDatabase<'sync' | 'async', unknown, TSchema>),
+          .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx?.tenantId))),
+      ),
+
+    update: (id, patch) =>
+      this.run(async () => {
+        // A patch with nothing to say is a no-op, not a failure: `{ csrfHash: maybeToken }` is how a caller
+        // says "leave it alone", and `set({})` would reach the driver as a syntax error.
+        const set = stripUndefined(patch)
+        const [row] =
+          Object.keys(set).length === 0
+            ? await this._db.select().from(authSessions).where(eq(authSessions.id, id))
+            : await this._db.update(authSessions).set(set).where(eq(authSessions.id, id)).returning()
+        if (!row) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+
+        return row
+      }),
   }
 
-  // One assertion here instead of one at every call site: drizzle types `profile` as
-  // the base shape, and `Profile` is the caller's refinement of it.
-  return bridge as SqlBridge.Me<Profile>
-}
+  withClient(client: unknown): DrizzleSqliteAdapter<TSchema, Profile> {
+    // A handle is `db` or the `tx` a transaction hands its callback, and both answer all three.
+    const isHandle = (c: unknown): c is Db<TSchema> =>
+      typeof c === 'object' && c !== null && 'select' in c && 'insert' in c && 'transaction' in c
+    if (!isHandle(client)) {
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'withClient expects a drizzle sqlite handle' })
+    }
 
-/**
- * One-call storage helper: folds `connection -> drizzle -> bridge -> stores`.
- * `better-sqlite3` and `drizzle-orm` are optional peerDeps, lazily required only when a
- * file path or better-sqlite3 client is passed; an existing Drizzle sqlite db skips
- * the require entirely.
- */
-export function drizzleSqliteStorage<Profile extends SqlBridge.ProfileMetadataBase>(
-  input: string | Sqlite.SqliteClientLike | Sqlite.AnySqliteDatabase,
-): ReturnType<typeof createSqlStores<Profile>> {
-  function isSqliteDatabase(
-    value: Sqlite.SqliteClientLike | Sqlite.AnySqliteDatabase,
-  ): value is Sqlite.AnySqliteDatabase {
-    return typeof (value as Sqlite.AnySqliteDatabase).select === 'function'
+    return new DrizzleSqliteAdapter(client)
   }
-
-  const lazyRequire = createRequire(import.meta.url)
-
-  let db: Sqlite.AnySqliteDatabase
-  if (typeof input === 'string') {
-    const Database = lazyRequire('better-sqlite3')
-    const { drizzle } = lazyRequire('drizzle-orm/better-sqlite3')
-    db = drizzle(new Database(input))
-  } else if (isSqliteDatabase(input)) {
-    db = input
-  } else {
-    const { drizzle } = lazyRequire('drizzle-orm/better-sqlite3')
-    db = drizzle(input)
-  }
-  return createSqlStores<Profile>(createDrizzleSqliteBridge<Profile>(db))
 }

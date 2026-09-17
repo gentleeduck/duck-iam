@@ -2,11 +2,11 @@
  * Store-contract compliance matrix for the Drizzle SQLite adapter.
  *
  * Runs the shared `run*StoreCompliance` suites against a live in-memory
- * SQLite DB, proving the drizzle bridge + `createSqlStores` behave identically
+ * SQLite DB, proving the drizzle sqlite adapter behaves identically
  * to every other adapter (memory, redis, ...).
  *
- * Uses bun:sqlite via drizzle-orm/bun-sqlite so no extra peer-dep needs to be
- * installed. Skipped under Node (vitest in CI); Bun's test runner executes it.
+ * Runs on both runtimes: bun:sqlite under Bun, better-sqlite3 under Node, so
+ * `bun run test` verifies this adapter rather than skipping it.
  *
  * The DDL is the declared schema, constraints and all. It used to be a
  * hand-written copy that omitted them deliberately - "exercise store behaviour,
@@ -19,14 +19,15 @@
 
 import { createHash } from 'node:crypto'
 import { beforeAll, describe } from 'vitest'
-import { createSqlStores } from '~/adapters/sql/sql'
+import type { Adapter } from '~/adapters/adapter'
 import { SQLITE_DDL as DDL } from '~/test/sqlite-schema'
 import {
+  runAdapterRebindCompliance,
   runCredentialStoreCompliance,
   runIdentityStoreCompliance,
   runSessionStoreCompliance,
 } from '~/test/store-compliance'
-import { createDrizzleSqliteBridge } from '../sqlite'
+import { DrizzleSqliteAdapter } from '../sqlite'
 
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
 
@@ -48,21 +49,21 @@ function seedOwners(exec: (sql: string) => void): void {
     [OTHER, 'other'],
   ]) {
     exec(
-      `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-       VALUES ('${id}', '{"email":"${name}@fk.local","username":"${name}"}', '[]', 1, 1, 0, 0)`,
+      `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+       VALUES ('${id}', '{"email":"${name}@fk.local","username":"${name}"}', 1, 1, 0, 0)`,
     )
   }
 }
-// describe.skip when not bun, so vitest under Node never resolves bun:sqlite.
 
 describe('DrizzleSqlite compliance matrix', () => {
   // Fresh in-memory DB (+ tables) per store instance the compliance kit requests.
-  let make: () => ReturnType<typeof createSqlStores<{ username: string; email: string }>>
+  let make: () => Adapter.Me<{ username: string; email: string }>
+  // The handle `make` last built, so the rebind check has one `withClient` accepts.
+  let handle: unknown
 
   beforeAll(async () => {
     // Runs on BOTH runtimes: this suite used to be skipped under vitest, which
-    // meant the SQL bridge (shared by pg + mysql + sqlite) was never verified by
-    // the project's own `bun run test`.
+    // meant the sqlite adapter was never verified by the project's own `bun run test`.
     //   Bun  -> bun:sqlite     via drizzle-orm/bun-sqlite
     //   Node -> node:sqlite    via drizzle-orm/better-sqlite3 (same prepare/exec
     //           shape, so the driver adapter accepts it structurally)
@@ -76,7 +77,9 @@ describe('DrizzleSqlite compliance matrix', () => {
         sqlite.exec(DDL)
         seedOwners((q) => sqlite.exec(q))
         // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database is structurally the drizzle client.
-        return createSqlStores<{ username: string; email: string }>(createDrizzleSqliteBridge(drizzle(sqlite as any)))
+        const db = drizzle(sqlite as any)
+        handle = db
+        return new DrizzleSqliteAdapter(db)
       }
       return
     }
@@ -88,11 +91,17 @@ describe('DrizzleSqlite compliance matrix', () => {
       sqlite.exec(DDL)
       seedOwners((q) => sqlite.exec(q))
       // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
-      return createSqlStores<{ username: string; email: string }>(createDrizzleSqliteBridge(drizzle(sqlite as any)))
+      const db = drizzle(sqlite as any)
+      handle = db
+      return new DrizzleSqliteAdapter(db)
     }
   })
 
   runIdentityStoreCompliance(() => make().identities)
+  runAdapterRebindCompliance(
+    () => make(),
+    () => handle,
+  )
   runSessionStoreCompliance(() => make().sessions, { identityId: OWNER, otherIdentityId: OTHER, sessionId })
   runCredentialStoreCompliance(() => make().credentials, { identityId: OWNER })
 })
