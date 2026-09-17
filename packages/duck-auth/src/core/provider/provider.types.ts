@@ -5,17 +5,14 @@ import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { Transport } from '~/core/transport/transport.types'
 import type { Limiter } from '~/limiters'
-// import type { AuthEngine } from '../engine'
 
+/** The auth-provider contract: what a provider is handed, and the intents it answers with. */
 export namespace Provider {
-  /** Cookie options surface for setCookie intents - duplicated here to avoid Transport-side cycles. */
+  /** The cookie options a setCookie intent carries, duplicated here to avoid a Transport-side cycle. */
   export interface CookieOptions extends Transport.CookieOptions {}
 
-  /**
-   * Adapter-safe intents: these are the only intents framework adapters
-   * (NestJS, Express, Fastify, …) ever see. FlowsImpl consumes and strips
-   * the internal `startSession` / `requireMfa` signals before returning.
-   */
+  /** The only intents a framework adapter ever sees. `FlowsImpl` consumes and strips the internal
+   *  `startSession` and `requireMfa` signals first. */
   export type Intent =
     | { type: 'redirect'; url: string; status?: 302 | 303 | 307 }
     | { type: 'setCookie'; name: string; value: string; options: CookieOptions }
@@ -23,11 +20,8 @@ export namespace Provider {
     | { type: 'json'; status: number; body: unknown }
     | { type: 'error'; code: string; status: number; detail?: string }
 
-  /**
-   * Full internal intent union returned by `IProvider.complete()`.
-   * `startSession` and `requireMfa` are consumed by FlowsImpl; they
-   * must never be forwarded to a framework adapter.
-   */
+  /** The full union `Me.complete()` answers with. WARN: `startSession` and `requireMfa` are for
+   *  `FlowsImpl` and must never reach a framework adapter. */
   export type InternalIntent =
     | Intent
     | {
@@ -38,14 +32,14 @@ export namespace Provider {
       }
     | { type: 'requireMfa'; identityId: string; methods: string[] }
 
-  /** Crypto helpers exposed to providers (so they don't import node:crypto themselves). */
+  /** So a provider need not import `node:crypto` itself. */
   export type Crypto = {
     authRandomToken(bytes: number): string
     authSha256(s: string): string
     authTimingSafeEqual(a: string, b: string): boolean
   }
 
-  /** Events surface - providers emit via the bus, never directly to console. */
+  /** Providers emit through the bus, never to the console. */
   export type Events = {
     emit(event: string, payload: unknown): Promise<void>
   }
@@ -78,28 +72,19 @@ export namespace Provider {
     complete(ctx: Context<Profile>, input: CompleteIn): Promise<InternalIntent[]>
   }
 
-  /**
-   * Anything the engine can hold in its provider registry. A sign-in
-   * provider ({@link Me}) is a Capability that additionally exposes
-   * `begin`/`complete`. Non-sign-in capabilities (MfaFacet, ApiKeysFacet)
-   * carry only `id`/`kind` and are resolved by type via `Providers.resolve`.
-   */
+  /** Anything the engine holds in its provider registry. A sign-in provider ({@link Me}) adds `begin` and
+   *  `complete`; the rest carry only `id` and `kind` and are found by type through `Providers.resolve`. */
   export interface Capability {
     id: string
     kind: string
     begin?: Me['begin']
     complete?: Me['complete']
     /**
-     * Re-bind a capability that captured a store or an event bus at construction, so it joins a caller's
-     * transaction and buffers its events. It is handed the adapter's facets already bound to that
-     * transaction, plus the buffering bus, because a facet emits as well as reads.
-     *
-     * Capabilities that read everything from {@link Context} need not implement this - the bound engine
-     * hands them a bound context already. `PasswordsImpl` is in that group. `MfaImpl`, `ApiKeysFacet` and
-     * `AuthApiKeyImpl` are not: they capture, so they must re-bind.
-     *
-     * Returning `null` means "I hold something that cannot join a transaction"; `Providers.withClient` then
-     * keeps the original instance rather than dropping the capability from the registry.
+     * Re-bind a capability that captured a store or bus at construction, so it joins the caller's transaction
+     * and buffers its events. It gets the facets already bound to that transaction plus the buffering bus,
+     * because a facet emits as well as reads. One that reads everything off {@link Context} need not implement
+     * this, since the bound engine hands it a bound context; one that captures must. Answering `null` means it
+     * holds something that cannot join a transaction, and `Providers.withClient` then keeps the original.
      */
     withClient?(stores: Stores, events: Events.IBus): Capability | null
   }

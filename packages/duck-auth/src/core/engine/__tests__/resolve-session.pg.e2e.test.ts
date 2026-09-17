@@ -1,13 +1,4 @@
-/**
- * E2E: the resolution path against REAL Postgres, on the REAL shipped schema.
- *
- * `resolve-session-revocation.test.ts` drives the same rules with in-memory stores,
- * which proves the branching. It cannot prove that a soft-deleted identity is actually
- * invisible to the shipped query, because that lives in the adapter's WHERE clause.
- * A session outliving its account is the failure this file exists for.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset. See `.env.example`.
- */
+/** E2E: the resolution path against REAL Postgres, on the REAL shipped schema. */
 import { createHash, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -40,6 +31,7 @@ suite('E2E resolveBySid on real Postgres', () => {
       userAgent: null,
       fingerprint: null,
       createdAt: new Date(),
+      updatedAt: new Date(),
       rotatedAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
       absoluteExpiresAt: new Date(Date.now() + 600_000),
@@ -83,7 +75,7 @@ suite('E2E resolveBySid on real Postgres', () => {
     await pool.query('UPDATE auth_identities SET deleted_at = now() WHERE id = $1', [identityId])
     try {
       await expect(resolveBySid(sid, stores.sessions, stores.identities)).rejects.toMatchObject({
-        code: 'AUTH_SESSION_REVOKED',
+        code: 'AUTH_SESSION_IDENTITY_ERASED',
       })
     } finally {
       await pool.query('UPDATE auth_identities SET deleted_at = NULL WHERE id = $1', [identityId])
@@ -104,30 +96,37 @@ suite('E2E resolveBySid on real Postgres', () => {
     const sid = await mint({ identityId: null })
     const resolved = await resolveBySid(sid, stores.sessions, stores.identities)
     expect(resolved).toMatchObject({ identity: null })
-    expect(resolved?.session.identityId).toBeNull()
+    expect(resolved.session.identityId).toBeNull()
   })
 
   /** Tenant before identity: a foreign token looks absent rather than reporting an erasure. */
-  it('returns null for a foreign tenant', async () => {
+  it('refuses a foreign tenant as absent', async () => {
     const sid = await mint({ tenantId: 'tenant-a' })
     await expect(
       resolveBySid(sid, stores.sessions, stores.identities, { expectedTenantId: 'tenant-b' }),
-    ).resolves.toBeNull()
+    ).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+      meta: { reason: 'the session belongs to another tenant' },
+    })
   })
 
-  it('returns null for a foreign tenant even when the identity is erased', async () => {
+  it('refuses a foreign tenant as absent even when the identity is erased', async () => {
     const sid = await mint({ tenantId: 'tenant-a' })
     await pool.query('UPDATE auth_identities SET deleted_at = now() WHERE id = $1', [identityId])
     try {
+      // The absent code, never the erasure one: a foreign tenant must not learn the identity is gone.
       await expect(
         resolveBySid(sid, stores.sessions, stores.identities, { expectedTenantId: 'tenant-b' }),
-      ).resolves.toBeNull()
+      ).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+        meta: { reason: 'the session belongs to another tenant' },
+      })
     } finally {
       await pool.query('UPDATE auth_identities SET deleted_at = NULL WHERE id = $1', [identityId])
     }
   })
 
-  it('returns null and deletes the row for an expired session', async () => {
+  it('refuses and deletes the row for an expired session', async () => {
     const sid = await mint()
     const id = sha256Hex(sid)
     // Both timestamps move: `chk_auth_sessions_expires_after_created` rejects an expiry
@@ -139,13 +138,22 @@ suite('E2E resolveBySid on real Postgres', () => {
       [id],
     )
 
-    await expect(resolveBySid(sid, stores.sessions, stores.identities)).resolves.toBeNull()
+    // The expiry is the verdict, and it names the instant: the store that holds the row is the only thing
+    // that knows when the deadline was, and `AUTH_SESSION_EXPIRED` is in `ABSENT` so `orNull()` still
+    // reads it as signed out.
+    await expect(resolveBySid(sid, stores.sessions, stores.identities)).rejects.toMatchObject({
+      code: 'AUTH_SESSION_EXPIRED',
+      meta: { expiredAt: expect.any(Number) },
+    })
     const { rows } = await pool.query('SELECT 1 FROM auth_sessions WHERE id = $1', [id])
     expect(rows).toHaveLength(0)
   })
 
-  it('an unknown sid resolves to null rather than throwing', async () => {
-    await expect(resolveBySid(randomUUID(), stores.sessions, stores.identities)).resolves.toBeNull()
+  it('an unknown sid is refused as absent, not as an erasure', async () => {
+    await expect(resolveBySid(randomUUID(), stores.sessions, stores.identities)).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+      meta: { reason: 'no session for that sid' },
+    })
   })
 
   /** What the app does on account deletion: kill the sessions, then erase the row. */
@@ -154,7 +162,8 @@ suite('E2E resolveBySid on real Postgres', () => {
     const second = await mint()
     await stores.sessions.deleteAllForIdentity(identityId)
 
-    await expect(resolveBySid(first, stores.sessions, stores.identities)).resolves.toBeNull()
-    await expect(resolveBySid(second, stores.sessions, stores.identities)).resolves.toBeNull()
+    const gone = { code: 'AUTH_SESSION_REVOKED', meta: { reason: 'no session for that sid' } }
+    await expect(resolveBySid(first, stores.sessions, stores.identities)).rejects.toMatchObject(gone)
+    await expect(resolveBySid(second, stores.sessions, stores.identities)).rejects.toMatchObject(gone)
   })
 })

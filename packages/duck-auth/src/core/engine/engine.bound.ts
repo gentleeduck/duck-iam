@@ -5,7 +5,7 @@ import { AuthError } from '../errors'
 import type { Events } from '../events'
 import type { FlowsImpl } from '../flows'
 import { type Identities, IdentitiesImpl } from '../identities'
-import { OrgsImpl } from '../orgs'
+import { ORGS_NOT_CONFIGURED, OrgsImpl } from '../orgs'
 import { createPending, type Pending } from '../pending'
 import type { Providers } from '../provider'
 import type { Sessions } from '../sessions'
@@ -18,23 +18,14 @@ export namespace Bound {
    * Everything on this facade runs on the client passed to `withTransaction`,
    * and every event it would have emitted lands in {@link AuthEngine.pending}
    * instead.
-   *
-   * `limiter`, `idempotency`, `hijack`, `anomaly`, `captcha`, `transport`,
-   * `plugins` and `resolveSession` are deliberately absent: they are
-   * request-scoped guards that write nothing to SQL, so a rollback has nothing
-   * to undo and joining a transaction would be meaningless. Reach them on the
-   * engine itself.
    */
   export interface AuthEngine<Profile extends Identities.ProfileMetadataBase, OrgMeta> {
     readonly identities: IdentitiesImpl<Profile>
     readonly sessions: SessionsImpl
-    readonly orgs: OrgsImpl<OrgMeta> | null
+    readonly orgs: OrgsImpl<OrgMeta>
     readonly flows: FlowsImpl<Profile>
-    /**
-     * Resolved from the bound registry, exactly as the engine's own getters
-     * resolve from its registry. Throws `AUTH_PROVIDER_NOT_REGISTERED` when the
-     * corresponding provider was never added - same as on the engine.
-     */
+    /** Resolved from the bound registry the way the engine's own getters resolve from its registry, and
+     *  throwing the same `AUTH_PROVIDER_NOT_REGISTERED` when the provider was never added. */
     readonly mfa: MfaFacet
     readonly apiKeys: ApiKeysFacet
     readonly passwords: PasswordsImpl
@@ -61,17 +52,15 @@ export function rebindStores<S extends { withClient?(client: unknown): S }>(stor
   return rebind.call(stores, client)
 }
 
-/** Build the transaction-bound facade. Pure construction - no I/O. */
+/** Pure construction: no I/O. */
 export function buildBoundEngine<Profile extends Identities.ProfileMetadataBase, OrgMeta>(args: {
   client: unknown
   stores: Engine.Stores<Profile, OrgMeta>
   events: Events.IBus
   identitiesCfg: Identities.Cfg
   sessionsCfg: Sessions.Cfg
-  /**
-   * The provider registry to hand the bound flows, built on the bound stores so registered facets - which
-   * capture a store rather than reading it off the context - bind too.
-   */
+  /** Built on the bound stores, so a registered facet that captured a store rather than reading it off the
+   *  context binds too. */
   buildProviders: (bus: Events.IBus, stores: Engine.Stores<Profile, OrgMeta>) => Providers<Profile>
   buildFlows: (deps: {
     sessions: SessionsImpl
@@ -104,13 +93,12 @@ export function buildBoundEngine<Profile extends Identities.ProfileMetadataBase,
   return {
     flows,
     identities,
-    orgs,
     pending,
     providers,
     sessions,
     stores,
-    // Lazy, so a facade built without the mfa provider is still usable for
-    // identities and sessions - matching how the engine's own getters behave.
+    // Lazy, so a facade built without the mfa provider is still usable for identities and sessions, the
+    // way the engine's own getters behave.
     get mfa() {
       return resolveFacet(MfaFacet, 'mfa')
     },
@@ -119,6 +107,11 @@ export function buildBoundEngine<Profile extends Identities.ProfileMetadataBase,
     },
     get passwords() {
       return resolveFacet(PasswordsImpl, 'password')
+    },
+    // Lazy for the same reason, and throwing the same way the engine's own `orgs` getter does.
+    get orgs() {
+      if (!orgs) throw new AuthError('AUTH_PROVIDER_NOT_REGISTERED', { detail: ORGS_NOT_CONFIGURED })
+      return orgs
     },
   }
 }

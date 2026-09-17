@@ -1,29 +1,14 @@
-/**
- * E2E: `withTransaction` against REAL Postgres on the REAL shipped schema.
- *
- * The in-process tests prove the wiring - that stores get re-bound and events
- * get buffered. Only a real transaction can prove the thing that matters: that
- * a rollback leaves no row AND publishes no event, that a read inside the
- * transaction sees its own uncommitted writes, and that a nested flow call
- * inherits the caller's transaction across every write it makes.
- *
- * Uses an isolated database because it truncates between cases; vitest runs
- * files in parallel workers, so a shared database would let one suite's
- * TRUNCATE land in the middle of another's fixtures.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset; `globalSetup` provisions a
- * container when docker is available.
- */
+/** E2E: `withTransaction` against REAL Postgres on the REAL shipped schema. */
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
-import type { Batch } from '~/core/batch'
 import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import type { Events } from '~/core/events'
 import { InMemoryEvents } from '~/core/events'
 import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import { BearerTransport } from '~/core/transport/bearer.transport'
 import { apiKeyProvider } from '~/providers/api-key'
 import { mfaProvider } from '~/providers/mfa'
@@ -86,11 +71,6 @@ suite('E2E withTransaction on real Postgres', () => {
   /**
    * Runs `body` on a transaction that always rolls back, and re-throws anything
    * the body threw that is not our own sentinel.
-   *
-   * A bare `.catch(() => {})` around the transaction would swallow the `expect()`
-   * failures inside the body *and* the real error that caused them, leaving a
-   * test that passes because nothing happened at all. Rolling back is the point
-   * here; silently skipping the work is not.
    */
   async function rollsBack(body: (tx: unknown) => Promise<void>): Promise<void> {
     const sentinel = new Error('__rollback__')
@@ -140,9 +120,11 @@ suite('E2E withTransaction on real Postgres', () => {
       const created = await auth.identities.create({ profile: { email: 'rd@x', username: 'rd' } })
 
       // Visible on the transaction...
-      expect(await auth.identities.getById(created.id)).not.toBeNull()
+      await expect(auth.identities.getById(created.id)).resolves.toBeDefined()
       // ...and invisible on the engine's own connection.
-      expect(await engine.identities.getById(created.id)).toBeNull()
+      await expect(engine.identities.getById(created.id)).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
   })
 
@@ -168,7 +150,7 @@ suite('E2E withTransaction on real Postgres', () => {
     await engine.sessions.create({ aal: 1, factors: [], identityId: identity.id, kind: 'user' })
 
     const token = 'deletion-token-for-test'
-    await engine.cfg.stores.credentials.upsert(
+    await engine.cfg.stores.credentials.create(
       {
         expiresAt: new Date(Date.now() + 600_000),
         identityId: identity.id,
@@ -191,13 +173,13 @@ suite('E2E withTransaction on real Postgres', () => {
       // deletion token is gone and the undo token is the only `recovery` row
       // left. Writes two, four and five of the nested call all landed on the
       // caller's transaction, not just the first.
-      expect(await auth.identities.getById(identity.id)).toBeNull()
+      await expect(auth.identities.getById(identity.id)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
       const rows = await auth.stores.credentials.listByIdentity(identity.id, 'recovery', {})
       expect(rows.map((r) => (r.metadata as { purpose?: string } | null)?.purpose)).toEqual(['account-deletion-cancel'])
     })
 
     // After rollback everything is back, and nothing was published.
-    expect(await engine.identities.getById(identity.id)).not.toBeNull()
+    await expect(engine.identities.getById(identity.id)).resolves.toBeDefined()
     expect(await count('auth_sessions')).toBe(1)
     expect(await count('auth_credentials', "WHERE kind = 'recovery'")).toBe(1)
     expect(published).toEqual([])
@@ -266,8 +248,8 @@ suite('E2E withTransaction on real Postgres', () => {
     expect(detail).toMatch(/duplicate key|unique/i)
 
     // The good row from the same batch is gone too - that is what atomic means.
-    expect((await engine.identities.getById(b.id))?.profile.username).toBe('bb')
-    expect((await engine.identities.getById(a.id))?.profile.email).toBe('ba@x')
+    expect((await engine.identities.getById(b.id)).profile.username).toBe('bb')
+    expect((await engine.identities.getById(a.id)).profile.email).toBe('ba@x')
     expect(published).toEqual([])
   })
 
@@ -275,21 +257,20 @@ suite('E2E withTransaction on real Postgres', () => {
     const a = await engine.identities.create({ profile: { email: 'sa@x', username: 'sa' } })
     const b = await engine.identities.create({ profile: { email: 'sb@x', username: 'sb' } })
 
-    let result: Batch.Result<Identities.Me<P>> | undefined
+    let result: Identities.Me<P>[] | undefined
     await db.transaction(async (tx) => {
       const auth = engine.withTransaction(tx)
       result = await auth.identities.updateProfileMany([
-        // Stale - a soft failure, reported per row.
+        // Stale - a soft failure, so the row is left out rather than taking the batch with it.
         { expectedVersion: 999, id: a.id, patch: { username: 'sa2' } },
         { expectedVersion: b.version, id: b.id, patch: { username: 'sb2' } },
       ])
     })
 
-    expect(result?.outcomes[0]).toMatchObject({ ok: false, reason: 'stale-write' })
-    expect(result?.applied).toBe(1)
+    expect(result?.map((row) => row.id)).toEqual([b.id])
     // The commit stood: b was updated, a was not.
-    expect((await engine.identities.getById(b.id))?.profile.username).toBe('sb2')
-    expect((await engine.identities.getById(a.id))?.profile.username).toBe('sa')
+    expect((await engine.identities.getById(b.id)).profile.username).toBe('sb2')
+    expect((await engine.identities.getById(a.id)).profile.username).toBe('sa')
   })
 
   it('a bulk revoke reports which identities had no sessions', async () => {
@@ -298,7 +279,7 @@ suite('E2E withTransaction on real Postgres', () => {
     await engine.sessions.create({ aal: 1, factors: [], identityId: a.id, kind: 'user' })
     published = []
 
-    let result: Batch.Result | undefined
+    let result: Sessions.Revoked[] | undefined
     let pending: { flush(): Promise<{ published: number }> } | undefined
     await db.transaction(async (tx) => {
       const auth = engine.withTransaction(tx)
@@ -307,8 +288,8 @@ suite('E2E withTransaction on real Postgres', () => {
     })
     await pending?.flush()
 
-    expect(result?.applied).toBe(1)
-    expect(result?.failed).toBe(1)
+    // Only the identity that had one comes back; the other is simply absent.
+    expect(result?.map((s) => s.identityId)).toEqual([a.id])
     // One session existed, so exactly one revocation event - not two, and not
     // one per identity named.
     expect(published.filter((e) => e === 'session.revoked')).toHaveLength(1)

@@ -46,14 +46,7 @@ export function assertKnownKeys(config: object): void {
   })
 }
 
-/**
- * Which environment's checks to run: what the caller named, else what the process is running as.
- *
- * Opt-out rather than opt-in, because `strict` used to be a flag to remember and the config that
- * throws with it set is the same config that booted in silence without it. `false` says no on
- * purpose, which is the only way to say it: `'false'` arriving from an environment variable is a
- * non-empty string, and the truthiness test it used to meet turned strict on.
- */
+/** Which environment's checks to run: what the caller named, else what the process is running as. */
 export function resolveStrictEnv(strict: AuthDefine.Cfg['strict']): (typeof STRICT_ENVS)[number] | null {
   if (strict === false) return null
   if (strict === undefined) return STRICT_ENVS.find((name) => name === env.NODE_ENV) ?? 'development'

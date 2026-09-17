@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { OrgsImpl } from '~/core/orgs'
 import { ApiKeysFacet } from '~/providers/api-key'
 import { MfaFacet } from '~/providers/mfa'
 import { PasswordsImpl } from '~/providers/passwords'
@@ -8,24 +9,24 @@ import { createTest } from '~/test'
 type P = { username: string; email: string }
 
 /**
- * A memory adapter whose bag rebinds as one, recording every `upsert` that lands on the REBOUND copy. The
+ * A memory adapter whose bag rebinds as one, recording every `create` that lands on the REBOUND copy. The
  * mfa and api-key facets are handed that copy, so a transaction has one bound credentials store rather than
- * one per facet, and `reboundUpserts` says whether a write reached it or the engine's own.
+ * one per facet, and `reboundCreates` says whether a write reached it or the engine's own.
  */
 function bindableStores() {
   const adapter = new MemoryAdapter<P>()
-  const reboundUpserts: string[] = []
+  const reboundCreates: string[] = []
   // The copy keeps the prototype: a store is a class, so its methods live there, not on the instance. The
   // engine gets copies too, so a spy on its own store cannot be mistaken for the bound one.
   const copy = <T extends object>(store: T): T => Object.assign(Object.create(Object.getPrototypeOf(store)), store)
   const recording = <T extends object>(store: T): T => {
     const bound = copy(store)
-    const upsert = (bound as { upsert?: (...a: never[]) => unknown }).upsert
-    if (typeof upsert === 'function') {
+    const create = (bound as { create?: (...a: never[]) => unknown }).create
+    if (typeof create === 'function') {
       Object.assign(bound, {
-        upsert: (...args: never[]) => {
-          reboundUpserts.push('upsert')
-          return upsert.apply(store, args)
+        create: (...args: never[]) => {
+          reboundCreates.push('create')
+          return create.apply(store, args)
         },
       })
     }
@@ -34,7 +35,7 @@ function bindableStores() {
   return {
     credentials: copy(adapter.credentials),
     identities: copy(adapter.identities),
-    reboundUpserts,
+    reboundCreates,
     sessions: copy(adapter.sessions),
     withClient: () => ({
       credentials: recording(adapter.credentials),
@@ -85,13 +86,13 @@ describe('bound facade - provider-owned facets', () => {
     const stores = bindableStores()
     const engine = createTest<P>({ stores })
     const identity = await engine.identities.create({ profile: { email: 'k@x', username: 'k' } as P })
-    const unbound = vi.spyOn(engine.cfg.stores.credentials, 'upsert')
-    stores.reboundUpserts.length = 0
+    const unbound = vi.spyOn(engine.cfg.stores.credentials, 'create')
+    stores.reboundCreates.length = 0
 
     const auth = engine.withTransaction({})
     await auth.apiKeys.create(identity.id, { name: 'test', scopes: ['read'] })
 
-    expect(stores.reboundUpserts).toHaveLength(1)
+    expect(stores.reboundCreates).toHaveLength(1)
     expect(unbound).not.toHaveBeenCalled()
   })
 
@@ -99,13 +100,13 @@ describe('bound facade - provider-owned facets', () => {
     const stores = bindableStores()
     const engine = createTest<P>({ stores })
     const identity = await engine.identities.create({ profile: { email: 'm@x', username: 'm' } as P })
-    const unbound = vi.spyOn(engine.cfg.stores.credentials, 'upsert')
-    stores.reboundUpserts.length = 0
+    const unbound = vi.spyOn(engine.cfg.stores.credentials, 'create')
+    stores.reboundCreates.length = 0
 
     const auth = engine.withTransaction({})
     await auth.mfa.beginTotpEnrollment(identity.id, 'm@x')
 
-    expect(stores.reboundUpserts).toHaveLength(1)
+    expect(stores.reboundCreates).toHaveLength(1)
     expect(unbound).not.toHaveBeenCalled()
   })
 
@@ -126,6 +127,18 @@ describe('bound facade - provider-owned facets', () => {
 
     await auth.pending.flush()
     expect(emitted).toEqual(['mfa.removed'])
+  })
+
+  /** The bound facade carries the same `orgs` contract as the engine, or a caller inside a transaction
+   *  still has to null-check the one property the engine no longer makes them null-check. */
+  it('exposes orgs the way the engine does, throwing when no org store was bound', () => {
+    const withoutOrgs = createTest<P>({ stores: bindableStores() }).withTransaction({})
+    expect(() => withoutOrgs.orgs).toThrow(/AUTH_PROVIDER_NOT_REGISTERED/)
+
+    const bag = bindableStores()
+    const orgs = new MemoryAdapter<P>().orgs
+    const stores = { ...bag, orgs, withClient: () => ({ ...bag.withClient(), orgs }) }
+    expect(createTest<P>({ stores }).withTransaction({}).orgs).toBeInstanceOf(OrgsImpl)
   })
 
   it('a capability with no withClient is carried through unchanged', () => {

@@ -3,16 +3,15 @@
  * deployment needs is enforced for you. What makes that promise dangerous is
  * that it is silent when it is not kept, so these cases ask, for each field a
  * preset resolves, whether anything in the library actually reads it.
- *
- * The existing suite covers the resolver's arithmetic and the brand validation.
- * These cover the gap between what a preset declares and what is enforced, plus
- * the mutability of the objects the resolver hands back.
  */
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { NoopLimiter } from '~/limiters/mock'
+import { mfaProvider } from '~/providers/mfa'
+import { passkey } from '~/providers/passkey'
 import { applyCompliancePreset, assertComplianceStrict, readCompliancePreset, resolveCompliance } from '../compliance'
 import type { Compliance } from '../compliance.types'
 
@@ -331,5 +330,109 @@ describe('applying a preset to an engine config', () => {
     expect(readCompliancePreset({})).toBeNull()
     expect(readCompliancePreset(null)).toBeNull()
     expect(readCompliancePreset('gdpr')).toBeNull()
+  })
+})
+
+/**
+ * `fips` requires `webauthnAttestationDirect`, and the passkey provider hardcoded
+ * `attestationType: 'none'` into every registration — the clause was unachievable on that path. It was
+ * also unverified: the engine took the operator's word, though the setting is in the provider it holds.
+ */
+describe('webauthnAttestationDirect, against the provider that has to satisfy it', () => {
+  /** `fips` branded, with an mfa provider so its `minAal: 2` is not what refuses first. */
+  const fipsEngine = (attestationType?: 'none' | 'direct' | 'indirect', limiter?: NoopLimiter) => {
+    const { cfg } = baseCfg()
+    const engine = new AuthEngine(
+      applyCompliancePreset({ ...cfg, ...(limiter && { limiter }) } as never, 'fips') as never,
+    )
+    engine.providers.register({ id: 'mfa', kind: 'mfa', begin: async () => [], complete: async () => [] } as never)
+    engine.providers.register(
+      passkey({
+        rpID: 'app.test',
+        rpName: 'app',
+        expectedOrigins: 'https://app.test',
+        findIdentityByEmail: async () => null,
+        ...(attestationType && { attestationType }),
+      }) as never,
+    )
+    return engine
+  }
+
+  const detail = (fn: () => void) => {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return (e as Error & { meta: { detail: string } }).meta.detail
+    }
+  }
+
+  it('refuses a provider left at the default even when the operator attests the clause is met', () => {
+    // The load-bearing case. Evidence is spread after the operator's attestation, so a claim cannot
+    // overrule something the process just read off the provider it is holding.
+    const engine = fipsEngine()
+    expect(detail(() => engine.strict({ compliance: satisfying('fips'), env: 'test' }))).toContain(
+      'webauthnAttestationDirect',
+    )
+  })
+
+  it('passes on the provider being configured for it, with no attestation from the operator', () => {
+    const engine = fipsEngine('direct')
+    const wired = { ...satisfying('fips'), webauthnAttestationDirect: false }
+    expect(detail(() => engine.strict({ compliance: wired, env: 'test' }))).toBeNull()
+  })
+
+  it('will not let a claimed limiter stand over the Noop one the engine can see', () => {
+    // The same precedence, on the other key the engine evidences for itself. `soc2` is the preset that
+    // names `limiterRequired`, and it sets no minAal, so nothing else refuses first.
+    const { cfg } = baseCfg()
+    const engine = new AuthEngine(
+      applyCompliancePreset({ ...cfg, limiter: new NoopLimiter() } as never, 'soc2') as never,
+    )
+    engine.events.on('lockout', () => {})
+    expect(detail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain('limiterRequired')
+  })
+
+  it('will not let a claimed limiter stand over the in-process one either', () => {
+    // The engine falls back to `MemoryLimiter`, and only the Noop one was recognised, so the evidence
+    // reported `limiterRequired` satisfied for a limiter whose buckets are per node and whose own
+    // docstring reads "Dev/test only".
+    const { cfg } = baseCfg()
+    const engine = new AuthEngine(
+      applyCompliancePreset({ ...cfg, limiter: new MemoryLimiter() } as never, 'soc2') as never,
+    )
+    engine.events.on('lockout', () => {})
+    expect(detail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain('limiterRequired')
+  })
+})
+
+describe('the mfa provider the AAL floor asks for', () => {
+  const withMfa = (preset: Compliance.Preset) => {
+    const { cfg } = baseCfg()
+    return new AuthEngine(applyCompliancePreset({ ...cfg, providers: [mfaProvider()] } as never, preset) as never)
+  }
+
+  // Both presets that set a floor above AAL 1, and the gate is the same one for each.
+  it.each(['hipaa', 'fips'] as const)('%s boots once an mfa provider is registered', (preset) => {
+    const auth = withMfa(preset)
+    expect(auth.providers.has('mfa')).toBe(true)
+    expect(() => auth.strict({ compliance: satisfying(preset), env: 'test' })).not.toThrow()
+  })
+
+  it('asks the registry what is registered, not what can complete a sign-in', () => {
+    // The two questions differ for exactly this provider: `MfaImpl` exposes enroll/verify and no
+    // begin/complete, so the sign-in grid filters it out while `has` answers for it.
+    const auth = withMfa('hipaa')
+    expect(auth.providers.list().map((p) => p.id)).not.toContain('mfa')
+    expect(auth.providers.has('mfa')).toBe(true)
+  })
+
+  it('still refuses the floor when nothing named mfa is registered', () => {
+    const { cfg } = baseCfg()
+    const auth = new AuthEngine(applyCompliancePreset(cfg as never, 'hipaa') as never)
+    expect(auth.providers.has('mfa')).toBe(false)
+    expect(() => auth.strict({ compliance: satisfying('hipaa'), env: 'test' })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 })
