@@ -43,13 +43,6 @@ export type { Events } from './events'
 export { InMemoryEvents, inMemoryEvents as AuthInMemoryEvents, RedisEvents as AuthRedisEvents } from './events'
 export type { Flows } from './flows'
 export type { Hijack } from './hijack'
-/**
- * `Identities` is the name the namespace carries everywhere else - in its own
- * declaration, in every internal signature, in the doc comments and in the
- * error messages - so it is the name it is exported under too. It was
- * previously exported as `Identity`, which meant reading one name in the docs
- * and writing another at the import site.
- */
 export type { Identities } from './identities'
 export type { M2m } from './m2m'
 export type { Operations } from './operations'

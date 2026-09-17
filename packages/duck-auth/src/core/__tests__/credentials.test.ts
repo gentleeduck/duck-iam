@@ -142,7 +142,10 @@ describe('isExpiredAt (low-level primitive)', () => {
 })
 
 describe('getCredentialPurpose', () => {
-  it('undefined when metadata is undefined', () => {})
+  it('undefined when metadata is null', () => {
+    // The column is `Record<string, unknown> | null`, so null is the only absent form a row can carry.
+    expect(getCredentialPurpose({ metadata: null })).toBeUndefined()
+  })
 
   it('undefined when metadata.purpose is missing', () => {
     expect(getCredentialPurpose({ metadata: {} })).toBeUndefined()

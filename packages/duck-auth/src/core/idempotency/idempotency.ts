@@ -32,14 +32,10 @@ export class IdempotencyImpl {
   }
 
   /**
-   * Wrap a mutating route handler with idempotency semantics.
+   * Wrap a mutating route handler with idempotency semantics: `executor` runs once, and every
+   * repeat of `key` within `ttlMs` is answered from the cached response instead.
    *
-   * @param key plaintext Idempotency-Key header value (caller validates length)
-   * @param ctx tenant scope
-   * @param executor the original work the route would do; returns the
-   *                 status + body to persist
-   * @returns the executor's result on first invocation; the cached
-   *          response on subsequent invocations within ttlMs
+   * `key` arrives as the caller sent it, length included - validating that is the caller's.
    */
   async handle(
     key: string,

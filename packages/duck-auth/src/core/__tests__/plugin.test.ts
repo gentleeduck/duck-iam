@@ -56,7 +56,12 @@ describe('Plugin system', () => {
   it('refuses to install the same plugin id twice', async () => {
     const auth = buildAuth()
     await auth.use({ id: 'demo' })
-    await expect(auth.use({ id: 'demo' })).rejects.toThrow(/already installed/)
+    await expect(auth.use({ id: 'demo' })).rejects.toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: '@gentleduck/auth: plugin "demo" already installed' },
+      }),
+    )
   })
 
   it('install without a duplicate provider id (atomic when the registration succeeds)', async () => {
@@ -99,6 +104,19 @@ describe('Plugin system', () => {
     expect(auth.plugins.facets.boom).toBeUndefined()
     await auth.events.emit('lockout', { identityId: 'u', until: Date.now() + 1000 })
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('a plugin whose provider list collides registers none of it', async () => {
+    // `Providers` has no unregister, so the two that landed before the collision would have stayed
+    // for the life of the engine, under a plugin id that is free to be installed again.
+    const auth = buildAuth()
+    const provider = (id: string) => ({ begin: async () => [], complete: async () => [], id, kind: 'test' })
+    await expect(
+      auth.use({ id: 'half', providers: [provider('one'), provider('two'), provider('one')] } as never),
+    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+
+    expect(auth.providers.has('one')).toBe(false)
+    expect(auth.providers.has('two')).toBe(false)
   })
 
   it('plugins.dispose() unhooks every event subscription wired by install', async () => {
