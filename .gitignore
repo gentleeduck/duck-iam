@@ -104,10 +104,6 @@ node_modules/
 audit-iam/
 audit-auth/
 
-# Personal docs - kept locally, never committed. README is the only
-# .md that ships with the package.
-packages/duck-auth/**/*.md
-!packages/duck-auth/README.md
 .stryker-tmp/
 
 # Claude Code: everything under .claude is local state, at any depth.
@@ -117,8 +113,6 @@ packages/duck-auth/**/*.md
 # excluded.
 **/.claude/*
 !**/.claude/skills/
-# The duck-auth personal-docs rule above would otherwise swallow its SKILL.md.
-!packages/duck-auth/.claude/skills/**
 
 # Superpowers plans/specs - local working docs, never committed (all packages)
 **/docs/superpowers/

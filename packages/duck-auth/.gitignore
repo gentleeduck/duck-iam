@@ -9,6 +9,16 @@ node_modules/
 .drizzle-e2e-out-mysql/
 .drizzle-e2e-out-oidc-pg/
 .drizzle-e2e-out-oidc-mysql/
+.drizzle-e2e-out-sqlite/
+.drizzle-e2e-out-oidc-sqlite/
 
-# scratch walkthroughs, not part of the package docs
-docs/notes/
+# One directory per vitest project, so the shared `coverage` rule misses them.
+coverage-all/
+coverage-sj/
+coverage-unit/
+
+# Working docs, kept local. Named one by one: the blanket `**/*.md` this
+# replaces also swallowed the CHANGELOG, the SECURITY policy and every README
+# sitting next to the code it documents.
+docs/
+FINDINGS.md
