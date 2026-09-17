@@ -4,8 +4,15 @@
  */
 
 import type { Channel } from '~/channels/channels.types'
-import { getProfileString } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
+import { ChannelGuard } from '../channels.guard'
+import {
+  checkRenderedEmail,
+  describeSendError,
+  redactProviderError,
+  resolveEmailRecipient,
+  sanitizeSubject,
+} from '../channels.outbound'
 
 export namespace AuthResendChannel {
   /**
@@ -35,7 +42,7 @@ export namespace AuthResendChannel {
   ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
 
   /** Cfg knobs for {@link AuthResendChannel}. */
-  export interface Cfg {
+  export interface Cfg extends ChannelGuard.Cfg {
     /** Resend API key. Required when `client` is not supplied. */
     apiKey?: string
     /** Pre-constructed Resend-like client. Useful for tests + custom transports. */
@@ -75,6 +82,7 @@ export class AuthResendChannel implements Channel.Channel {
   private readonly _from: string
   private readonly _resolve: AuthResendChannel.ITemplateResolver
   private _clientPromise: Promise<AuthResendChannel.IClient> | null = null
+  private readonly _guard: ChannelGuard
 
   constructor(cfg: AuthResendChannel.Cfg) {
     if (!cfg.from) {
@@ -90,6 +98,7 @@ export class AuthResendChannel implements Channel.Channel {
     this._from = cfg.from
     this._resolve = cfg.templates
     this.id = cfg.id ?? 'resend'
+    this._guard = new ChannelGuard(this.id, cfg)
 
     if (cfg.client) {
       this._clientPromise = Promise.resolve(cfg.client)
@@ -104,36 +113,41 @@ export class AuthResendChannel implements Channel.Channel {
    * email to Resend.
    */
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
-    const to = getProfileString(input.identity.profile, 'email')
-    if (!to) {
-      return { ok: false, error: 'identity has no email; AuthResendChannel cannot deliver' }
-    }
+    const recipient = resolveEmailRecipient(input.identity.profile, 'AuthResendChannel')
+    if (!recipient.ok) return { error: recipient.error, ok: false, retryable: false }
+    const denied = await this._guard.spend(input)
+    if (denied) return { error: denied, ok: false, retryable: true }
+    const to = recipient.to
     let resolved: Awaited<ReturnType<AuthResendChannel.ITemplateResolver>>
     try {
       resolved = await this._resolve(input.templateId, input.vars)
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      return { error: describeSendError(err), ok: false, retryable: false }
     }
+    const malformed = checkRenderedEmail(resolved)
+    if (malformed) return { error: `AuthResendChannel: ${malformed}`, ok: false, retryable: false }
     if (!this._clientPromise) {
-      return { ok: false, error: 'AuthResendChannel has no client (misconfigured)' }
+      return { error: 'AuthResendChannel has no client (misconfigured)', ok: false, retryable: false }
     }
     try {
       const client = await this._clientPromise
-      const response = await client.emails.send({
-        from: this._from,
-        to,
-        subject: resolved.subject,
-        ...(resolved.text !== undefined && { text: resolved.text }),
-        ...(resolved.html !== undefined && { html: resolved.html }),
-      })
+      const response = await this._guard.attempt(() =>
+        client.emails.send({
+          from: this._from,
+          to,
+          subject: sanitizeSubject(resolved.subject),
+          ...(resolved.text !== undefined && { text: resolved.text }),
+          ...(resolved.html !== undefined && { html: resolved.html }),
+        }),
+      )
       if (response.error) {
-        return { ok: false, error: response.error.message }
+        return { error: redactProviderError(response.error.message), ok: false, retryable: true }
       }
       const out: Channel.SendResult = { ok: true }
       if (response.data?.id !== undefined) out.providerMessageId = response.data.id
       return out
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      return { error: describeSendError(err), ok: false, retryable: true }
     }
   }
 }

@@ -23,6 +23,12 @@ export namespace Channel {
     /** Provider-side id (for support diagnostics). Channels may omit. */
     providerMessageId?: string
     error?: string
+    /**
+     * Whether sending the same message again could succeed. A refused recipient and a template
+     * that threw are wiring faults; they used to land in the same shape as a network outage, so
+     * retry logic keyed on the result retried something that will never work.
+     */
+    retryable?: boolean
   }
 
   export type Channel<Vars = Record<string, unknown>> = {

@@ -6,8 +6,9 @@
  */
 
 import type { Channel } from '~/channels/channels.types'
-import { getProfileString } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
+import { ChannelGuard } from '../channels.guard'
+import { checkRenderedEmail, describeSendError, resolveEmailRecipient, sanitizeSubject } from '../channels.outbound'
 
 export namespace AuthSmtpChannel {
   /**
@@ -39,7 +40,7 @@ export namespace AuthSmtpChannel {
   ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
 
   /** Cfg knobs for {@link AuthSmtpChannel}. */
-  export interface Cfg<TTransporter extends ITransporter = ITransporter> {
+  export interface Cfg<TTransporter extends ITransporter = ITransporter> extends ChannelGuard.Cfg {
     /** Transporter implementing `sendMail`. Required. */
     transporter: TTransporter
     /** From: address. Required (SMTP refuses bare envelopes). */
@@ -64,6 +65,7 @@ export class AuthSmtpChannel<TTransporter extends AuthSmtpChannel.ITransporter =
   private readonly _transporter: TTransporter
   private readonly _from: string
   private readonly _resolve: AuthSmtpChannel.ITemplateResolver
+  private readonly _guard: ChannelGuard
 
   constructor(cfg: AuthSmtpChannel.Cfg<TTransporter>) {
     if (!cfg.from) {
@@ -75,6 +77,7 @@ export class AuthSmtpChannel<TTransporter extends AuthSmtpChannel.ITransporter =
     this._from = cfg.from
     this._resolve = cfg.templates
     this.id = cfg.id ?? 'smtp'
+    this._guard = new ChannelGuard(this.id, cfg)
   }
 
   /**
@@ -84,29 +87,34 @@ export class AuthSmtpChannel<TTransporter extends AuthSmtpChannel.ITransporter =
    * can retry / escalate without exception escape.
    */
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
-    const to = getProfileString(input.identity.profile, 'email')
-    if (!to) {
-      return { ok: false, error: 'identity has no email; AuthSmtpChannel cannot deliver' }
-    }
+    const recipient = resolveEmailRecipient(input.identity.profile, 'AuthSmtpChannel')
+    if (!recipient.ok) return { error: recipient.error, ok: false, retryable: false }
+    const denied = await this._guard.spend(input)
+    if (denied) return { error: denied, ok: false, retryable: true }
+    const to = recipient.to
     let resolved: Awaited<ReturnType<AuthSmtpChannel.ITemplateResolver>>
     try {
       resolved = await this._resolve(input.templateId, input.vars)
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      return { error: describeSendError(err), ok: false, retryable: false }
     }
+    const malformed = checkRenderedEmail(resolved)
+    if (malformed) return { error: `AuthSmtpChannel: ${malformed}`, ok: false, retryable: false }
     try {
-      const result = await this._transporter.sendMail({
-        from: this._from,
-        to,
-        subject: resolved.subject,
-        ...(resolved.text !== undefined && { text: resolved.text }),
-        ...(resolved.html !== undefined && { html: resolved.html }),
-      })
+      const result = await this._guard.attempt(() =>
+        this._transporter.sendMail({
+          from: this._from,
+          to,
+          subject: sanitizeSubject(resolved.subject),
+          ...(resolved.text !== undefined && { text: resolved.text }),
+          ...(resolved.html !== undefined && { html: resolved.html }),
+        }),
+      )
       const out: Channel.SendResult = { ok: true }
       if (result.messageId !== undefined) out.providerMessageId = result.messageId
       return out
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      return { error: describeSendError(err), ok: false, retryable: true }
     }
   }
 }
