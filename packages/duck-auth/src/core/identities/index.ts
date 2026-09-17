@@ -1,4 +1,4 @@
-export { IdentitiesImpl, identities } from './identities'
+export { IdentitiesImpl, identities, isSoftDeleted } from './identities'
 export {
   canonicalEmail,
   DEFAULT_IDENTITIES_CONFIG,

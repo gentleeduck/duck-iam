@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'
+import { orNull } from '~/core/answer'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities'
 import { M2MImpl } from '~/core/m2m/m2m'
 import { JwtTransport } from '~/core/transport/jwt.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { NoopLimiter } from '~/limiters/mock'
 import { apiKeyProvider } from '~/providers/api-key'
 import { magicLink } from '~/providers/magic-link'
 import { mfaProvider } from '~/providers/mfa'
@@ -14,12 +16,6 @@ import { passwords, ScryptHasher } from '~/providers/passwords'
 /**
  * Deleting an account must end every way into it, not just the ones that go
  * through `flows.signIn`.
- *
- * `signIn` re-reads the identity behind a `startSession` intent, so every
- * sign-in provider was already covered. The credential-first surfaces were not:
- * they resolve a credential row and hand back `row.identityId` without ever
- * looking at the identity, so an API key kept working - and `M2MImpl.exchange`
- * turned one into a live bearer token - long after the account was deleted.
  */
 interface P extends Identities.ProfileMetadataBase {}
 
@@ -56,7 +52,7 @@ function build() {
       autoCreateIdentity: true,
       autoCreateProfile: (email) => ({ email, username: email }),
       channels: { email: channel },
-      findIdentityByEmail: (email) => adapter.identities.find({ email }),
+      findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
       ttlMs: 60_000,
     }),
   )
@@ -105,7 +101,7 @@ describe('a deleted identity cannot be authenticated', () => {
     const { auth } = build()
     const i = await auth.identities.create({ profile: { email: 'm@x.com', username: 'm' } })
     const key = await issueKey(auth, i.id)
-    const m2m = new M2MImpl(auth.apiKeys, auth.sessions, auth.transport)
+    const m2m = new M2MImpl(auth.apiKeys, auth.sessions, auth.transport, new NoopLimiter())
 
     // Live first, so the exchange is known to work before deletion breaks it.
     expect((await m2m.exchange({ clientId: key.id, clientSecret: key.plaintext })).token_type).toBe('Bearer')
@@ -144,7 +140,7 @@ describe('a deleted identity cannot be authenticated', () => {
     const token = new URL(channel.sent.at(-1)?.url ?? '').searchParams.get('token') ?? ''
 
     await auth.identities.softDelete(ident.id)
-    expect(await adapter.identities.find({ id: ident.id })).toBeNull()
+    await expect(adapter.identities.find({ id: ident.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
 
     // Reported as an invalid token, not a distinct code: a reset link must not
     // double as a way to ask whether an account still exists.
@@ -197,5 +193,26 @@ describe('a deleted identity cannot be authenticated', () => {
     // Without this the refusal above would also pass against a reset flow that
     // was simply broken for everyone.
     await expect(auth.flows.completePasswordReset({ newPassword: 'a-new-password-1', token })).resolves.toBeDefined()
+  })
+})
+
+describe('the identities facet answers with the row or rejects', () => {
+  it('rejects a missing identity, and orNull reads that back as null', async () => {
+    const { auth } = build()
+    await expect(auth.identities.getById('nope')).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+    await expect(auth.identities.getById('nope').orNull()).resolves.toBeNull()
+  })
+
+  it('tells a refused argument from a missing row, which one null could not', async () => {
+    const { auth } = build()
+    // AUTH_INVALID_PARAMETERS is not in ABSENT, so it stays loud even through the escape hatch.
+    for (const call of [
+      () => auth.identities.getByEmail(''),
+      () => auth.identities.getByEmail('x'.repeat(255)),
+      () => auth.identities.getByProviderSub('', 'sub'),
+    ]) {
+      await expect(call()).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+      await expect(call().orNull()).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+    }
   })
 })
