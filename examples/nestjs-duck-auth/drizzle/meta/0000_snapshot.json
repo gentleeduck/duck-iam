@@ -1,0 +1,1147 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "bfcb6818-0105-43d6-ba3a-348fdc698939",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "auth_credentials": {
+      "name": "auth_credentials",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "identity_id": {
+          "name": "identity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "secret": {
+          "name": "secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "auth_credentials_identity_kind": {
+          "name": "auth_credentials_identity_kind",
+          "columns": ["identity_id", "kind"],
+          "isUnique": false
+        },
+        "auth_credentials_oauth": {
+          "name": "auth_credentials_oauth",
+          "columns": ["(metadata ->> '$.provider')", "(metadata ->> '$.sub')"],
+          "isUnique": false,
+          "where": "kind = 'oauth'"
+        },
+        "auth_credentials_kind_secret": {
+          "name": "auth_credentials_kind_secret",
+          "columns": ["kind", "secret"],
+          "isUnique": false
+        },
+        "auth_credentials_tenant": {
+          "name": "auth_credentials_tenant",
+          "columns": ["tenant_id"],
+          "isUnique": false
+        },
+        "auth_credentials_expires_at": {
+          "name": "auth_credentials_expires_at",
+          "columns": ["expires_at"],
+          "isUnique": false,
+          "where": "expires_at IS NOT NULL"
+        }
+      },
+      "foreignKeys": {
+        "fk_auth_credentials_identity": {
+          "name": "fk_auth_credentials_identity",
+          "tableFrom": "auth_credentials",
+          "tableTo": "auth_identities",
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_auth_credentials_tenant_not_blank": {
+          "name": "chk_auth_credentials_tenant_not_blank",
+          "value": "tenant_id IS NULL OR tenant_id <> ''"
+        },
+        "chk_auth_credentials_kind": {
+          "name": "chk_auth_credentials_kind",
+          "value": "kind IN ('password', 'passkey', 'webauthn-mfa', 'oauth', 'magic-link', 'totp', 'recovery', 'api-key')"
+        },
+        "chk_auth_credentials_version": {
+          "name": "chk_auth_credentials_version",
+          "value": "version >= 1"
+        },
+        "chk_auth_credentials_secret_not_blank": {
+          "name": "chk_auth_credentials_secret_not_blank",
+          "value": "trim(secret, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''"
+        },
+        "chk_auth_credentials_expires_after_created": {
+          "name": "chk_auth_credentials_expires_after_created",
+          "value": "expires_at IS NULL OR expires_at >= created_at"
+        },
+        "chk_auth_credentials_revoked_after_created": {
+          "name": "chk_auth_credentials_revoked_after_created",
+          "value": "revoked_at IS NULL OR revoked_at >= created_at"
+        },
+        "chk_auth_credentials_last_used_after_created": {
+          "name": "chk_auth_credentials_last_used_after_created",
+          "value": "last_used_at IS NULL OR last_used_at >= created_at"
+        }
+      }
+    },
+    "auth_events": {
+      "name": "auth_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "identity_id": {
+          "name": "identity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "method": {
+          "name": "method",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "auth_events_identity_created": {
+          "name": "auth_events_identity_created",
+          "columns": ["identity_id", "created_at"],
+          "isUnique": false
+        },
+        "auth_events_tenant_created": {
+          "name": "auth_events_tenant_created",
+          "columns": ["tenant_id", "created_at"],
+          "isUnique": false
+        },
+        "auth_events_actor_created": {
+          "name": "auth_events_actor_created",
+          "columns": ["actor_id", "created_at"],
+          "isUnique": false
+        },
+        "auth_events_created": {
+          "name": "auth_events_created",
+          "columns": ["created_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "fk_auth_events_identity": {
+          "name": "fk_auth_events_identity",
+          "tableFrom": "auth_events",
+          "tableTo": "auth_identities",
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_auth_events_tenant_not_blank": {
+          "name": "chk_auth_events_tenant_not_blank",
+          "value": "tenant_id IS NULL OR tenant_id <> ''"
+        },
+        "chk_auth_events_method": {
+          "name": "chk_auth_events_method",
+          "value": "method IS NULL OR method IN ('password', 'passkey', 'webauthn-mfa', 'oauth', 'magic-link', 'totp', 'recovery', 'api-key')"
+        }
+      }
+    },
+    "auth_identities": {
+      "name": "auth_identities",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "profile": {
+          "name": "profile",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted_by": {
+          "name": "deleted_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_auth_identities_email": {
+          "name": "uq_auth_identities_email",
+          "columns": ["(lower(profile ->> '$.email'))"],
+          "isUnique": true
+        },
+        "uq_auth_identities_username": {
+          "name": "uq_auth_identities_username",
+          "columns": ["(lower(profile ->> '$.username'))"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_auth_identities_profile_shape": {
+          "name": "chk_auth_identities_profile_shape",
+          "value": "coalesce(json_type(profile, '$.username'), '') = 'text' and coalesce(json_extract(profile, '$.username'), '') <> ''\n        and coalesce(json_type(profile, '$.email'), '') = 'text' and coalesce(json_extract(profile, '$.email'), '') <> ''"
+        },
+        "chk_auth_identities_version": {
+          "name": "chk_auth_identities_version",
+          "value": "version >= 1"
+        }
+      }
+    },
+    "auth_identity_providers": {
+      "name": "auth_identity_providers",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "identity_id": {
+          "name": "identity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_sub": {
+          "name": "provider_sub",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "added_at": {
+          "name": "added_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "uq_auth_identity_providers_sub": {
+          "name": "uq_auth_identity_providers_sub",
+          "columns": ["provider_id", "provider_sub"],
+          "isUnique": true
+        },
+        "uq_auth_identity_providers_owned": {
+          "name": "uq_auth_identity_providers_owned",
+          "columns": ["identity_id", "provider_id"],
+          "isUnique": true
+        },
+        "auth_identity_providers_identity": {
+          "name": "auth_identity_providers_identity",
+          "columns": ["identity_id", "added_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "fk_auth_identity_providers_identity": {
+          "name": "fk_auth_identity_providers_identity",
+          "tableFrom": "auth_identity_providers",
+          "tableTo": "auth_identities",
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_auth_identity_providers_provider_not_blank": {
+          "name": "chk_auth_identity_providers_provider_not_blank",
+          "value": "provider_id <> ''"
+        },
+        "chk_auth_identity_providers_sub_not_blank": {
+          "name": "chk_auth_identity_providers_sub_not_blank",
+          "value": "provider_sub <> ''"
+        }
+      }
+    },
+    "auth_sessions": {
+      "name": "auth_sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "identity_id": {
+          "name": "identity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "aal": {
+          "name": "aal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "factors": {
+          "name": "factors",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "csrf_hash": {
+          "name": "csrf_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "rotated_at": {
+          "name": "rotated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "absolute_expires_at": {
+          "name": "absolute_expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fresh": {
+          "name": "fresh",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "acting_as": {
+          "name": "acting_as",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "auth_sessions_identity": {
+          "name": "auth_sessions_identity",
+          "columns": ["identity_id"],
+          "isUnique": false
+        },
+        "auth_sessions_identity_expires": {
+          "name": "auth_sessions_identity_expires",
+          "columns": ["identity_id", "expires_at"],
+          "isUnique": false
+        },
+        "auth_sessions_expires": {
+          "name": "auth_sessions_expires",
+          "columns": ["expires_at"],
+          "isUnique": false
+        },
+        "auth_sessions_absolute_expires": {
+          "name": "auth_sessions_absolute_expires",
+          "columns": ["absolute_expires_at"],
+          "isUnique": false
+        },
+        "auth_sessions_tenant": {
+          "name": "auth_sessions_tenant",
+          "columns": ["tenant_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "fk_auth_sessions_identity": {
+          "name": "fk_auth_sessions_identity",
+          "tableFrom": "auth_sessions",
+          "tableTo": "auth_identities",
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_auth_sessions_tenant_not_blank": {
+          "name": "chk_auth_sessions_tenant_not_blank",
+          "value": "tenant_id IS NULL OR tenant_id <> ''"
+        },
+        "chk_auth_sessions_kind": {
+          "name": "chk_auth_sessions_kind",
+          "value": "kind IN ('guest', 'user', 'apikey')"
+        },
+        "chk_auth_sessions_aal": {
+          "name": "chk_auth_sessions_aal",
+          "value": "aal BETWEEN 1 AND 3"
+        },
+        "chk_auth_sessions_id_length": {
+          "name": "chk_auth_sessions_id_length",
+          "value": "length(id) = 64"
+        },
+        "chk_auth_sessions_expires_after_created": {
+          "name": "chk_auth_sessions_expires_after_created",
+          "value": "expires_at >= created_at"
+        },
+        "chk_auth_sessions_absolute_expires_after_expires": {
+          "name": "chk_auth_sessions_absolute_expires_after_expires",
+          "value": "absolute_expires_at >= expires_at"
+        },
+        "chk_auth_sessions_rotated_after_created": {
+          "name": "chk_auth_sessions_rotated_after_created",
+          "value": "rotated_at >= created_at"
+        }
+      }
+    },
+    "iam_assignments": {
+      "name": "iam_assignments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject_id": {
+          "name": "subject_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role_id": {
+          "name": "role_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attributes": {
+          "name": "attributes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "uq_iam_assignments_subject_role_scope": {
+          "name": "uq_iam_assignments_subject_role_scope",
+          "columns": ["subject_id", "role_id", "scope"],
+          "isUnique": true,
+          "where": "\"iam_assignments\".\"scope\" IS NOT NULL"
+        },
+        "uq_iam_assignments_subject_role_global": {
+          "name": "uq_iam_assignments_subject_role_global",
+          "columns": ["subject_id", "role_id"],
+          "isUnique": true,
+          "where": "\"iam_assignments\".\"scope\" IS NULL"
+        },
+        "idx_iam_assignments_subject": {
+          "name": "idx_iam_assignments_subject",
+          "columns": ["subject_id"],
+          "isUnique": false
+        },
+        "idx_iam_assignments_role": {
+          "name": "idx_iam_assignments_role",
+          "columns": ["role_id"],
+          "isUnique": false
+        },
+        "idx_iam_assignments_subject_scope": {
+          "name": "idx_iam_assignments_subject_scope",
+          "columns": ["subject_id", "scope"],
+          "isUnique": false,
+          "where": "\"iam_assignments\".\"scope\" IS NOT NULL"
+        },
+        "idx_iam_assignments_expires_at": {
+          "name": "idx_iam_assignments_expires_at",
+          "columns": ["expires_at"],
+          "isUnique": false,
+          "where": "\"iam_assignments\".\"expires_at\" IS NOT NULL"
+        }
+      },
+      "foreignKeys": {
+        "fk_iam_assignments_role": {
+          "name": "fk_iam_assignments_role",
+          "tableFrom": "iam_assignments",
+          "tableTo": "iam_roles",
+          "columnsFrom": ["role_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ch_iam_assignments_subject_not_blank": {
+          "name": "ch_iam_assignments_subject_not_blank",
+          "value": "trim(\"iam_assignments\".\"subject_id\", char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''"
+        },
+        "ch_iam_assignments_scope_not_blank": {
+          "name": "ch_iam_assignments_scope_not_blank",
+          "value": "\"iam_assignments\".\"scope\" IS NULL OR trim(\"iam_assignments\".\"scope\", char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''"
+        },
+        "ch_iam_assignments_starts_before_expires": {
+          "name": "ch_iam_assignments_starts_before_expires",
+          "value": "\"iam_assignments\".\"starts_at\" IS NULL OR \"iam_assignments\".\"expires_at\" IS NULL OR \"iam_assignments\".\"starts_at\" < \"iam_assignments\".\"expires_at\""
+        }
+      }
+    },
+    "iam_policies": {
+      "name": "iam_policies",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "algorithm": {
+          "name": "algorithm",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'deny-overrides'"
+        },
+        "rules": {
+          "name": "rules",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "targets": {
+          "name": "targets",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ch_iam_policies_algorithm_valid": {
+          "name": "ch_iam_policies_algorithm_valid",
+          "value": "\"iam_policies\".\"algorithm\" IN ('deny-overrides','allow-overrides','first-match','highest-priority')"
+        },
+        "ch_iam_policies_name_not_blank": {
+          "name": "ch_iam_policies_name_not_blank",
+          "value": "trim(\"iam_policies\".\"name\", char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''"
+        },
+        "ch_iam_policies_version_positive": {
+          "name": "ch_iam_policies_version_positive",
+          "value": "\"iam_policies\".\"version\" >= 1"
+        }
+      }
+    },
+    "iam_roles": {
+      "name": "iam_roles",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "permissions": {
+          "name": "permissions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "inherits": {
+          "name": "inherits",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "idx_iam_roles_scope": {
+          "name": "idx_iam_roles_scope",
+          "columns": ["scope"],
+          "isUnique": false,
+          "where": "\"iam_roles\".\"scope\" IS NOT NULL"
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ch_iam_roles_name_not_blank": {
+          "name": "ch_iam_roles_name_not_blank",
+          "value": "trim(\"iam_roles\".\"name\", char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''"
+        },
+        "ch_iam_roles_scope_not_blank": {
+          "name": "ch_iam_roles_scope_not_blank",
+          "value": "\"iam_roles\".\"scope\" IS NULL OR trim(\"iam_roles\".\"scope\", char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''"
+        }
+      }
+    },
+    "iam_subject_attrs": {
+      "name": "iam_subject_attrs",
+      "columns": {
+        "subject_id": {
+          "name": "subject_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "data": {
+          "name": "data",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ch_iam_subject_attrs_subject_not_blank": {
+          "name": "ch_iam_subject_attrs_subject_not_blank",
+          "value": "trim(\"iam_subject_attrs\".\"subject_id\", char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {
+      "auth_credentials_oauth": {
+        "columns": {
+          "(metadata ->> '$.provider')": {
+            "isExpression": true
+          },
+          "(metadata ->> '$.sub')": {
+            "isExpression": true
+          }
+        }
+      },
+      "uq_auth_identities_email": {
+        "columns": {
+          "(lower(profile ->> '$.email'))": {
+            "isExpression": true
+          }
+        }
+      },
+      "uq_auth_identities_username": {
+        "columns": {
+          "(lower(profile ->> '$.username'))": {
+            "isExpression": true
+          }
+        }
+      }
+    }
+  }
+}
