@@ -62,7 +62,7 @@ describe('deviceFingerprintDetector', () => {
     expect(otherUa).toHaveLength(1)
   })
 
-  it('missing UA or IP -> no signal', async () => {
+  it('missing UA and IP -> one shared bucket, flagged on first sight', async () => {
     const detector = deviceFingerprintDetector({
       store: new AuthMemoryDeviceFingerprintStore(),
       authSha256: sha256,
@@ -72,7 +72,9 @@ describe('deviceFingerprintDetector', () => {
       session: makeSession(),
       req: { now: Date.now() },
     })
-    expect(result).toEqual([])
+    // A request identifying itself with nothing is the most unusual device there is, so it raises
+    // `new-device` like any other. Silence here was a free opt-out of being fingerprinted.
+    expect(result).toHaveLength(1)
   })
 
   it('respects custom compose function', async () => {
@@ -125,7 +127,12 @@ describe('deviceFingerprintDetector', () => {
           authSha256: sha256,
           score: Number.NaN,
         }),
-      ).toThrow(/score must be a finite number/)
+      ).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: { detail: expect.stringContaining('score must be a finite number in [0, 1]') },
+        }),
+      )
     })
 
     it('refuses construction with Infinity (would dominate any aggregate suspicious score)', () => {
@@ -135,7 +142,12 @@ describe('deviceFingerprintDetector', () => {
           authSha256: sha256,
           score: Number.POSITIVE_INFINITY,
         }),
-      ).toThrow(/score must be a finite number/)
+      ).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: { detail: expect.stringContaining('score must be a finite number in [0, 1]') },
+        }),
+      )
     })
 
     it('refuses negative score', () => {
@@ -145,7 +157,12 @@ describe('deviceFingerprintDetector', () => {
           authSha256: sha256,
           score: -0.5,
         }),
-      ).toThrow(/score must be a finite number/)
+      ).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: { detail: expect.stringContaining('score must be a finite number in [0, 1]') },
+        }),
+      )
     })
 
     it('refuses score > 1 (out-of-range)', () => {
@@ -155,7 +172,12 @@ describe('deviceFingerprintDetector', () => {
           authSha256: sha256,
           score: 1.5,
         }),
-      ).toThrow(/score must be a finite number/)
+      ).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: { detail: expect.stringContaining('score must be a finite number in [0, 1]') },
+        }),
+      )
     })
 
     it('accepts boundary values 0 and 1', () => {
