@@ -4,6 +4,7 @@
  * `Envelope` envelope. Types live in `./types`.
  */
 
+import { AuthError } from '~/core/errors'
 import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
 import { reviveSessionResult } from './revive'
@@ -27,7 +28,9 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
   const baseUrl = (cfg.baseUrl ?? '/auth').replace(/\/$/, '')
   const fetchImpl: typeof globalThis.fetch = cfg.fetch ?? (globalThis.fetch as typeof globalThis.fetch)
   if (!fetchImpl) {
-    throw new Error('@gentleduck/AUTH/client/vanilla: no fetch available - pass `fetch` via config')
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: '@gentleduck/AUTH/client/vanilla: no fetch available - pass `fetch` via config',
+    })
   }
   const headers = { 'content-type': 'application/json', ...(cfg.headers ?? {}) }
   const observers = new Set<(state: VanillaClient.SessionResult<Profile>) => void>()

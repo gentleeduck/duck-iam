@@ -25,7 +25,12 @@ function mockFetch(handler: (path: string) => { status: number; body: unknown })
 describe('Solid client', () => {
   it('throws if hooks used outside Provider', () => {
     createRoot((dispose) => {
-      expect(() => authUseSignIn()).toThrow(/Provider/)
+      expect(() => authUseSignIn()).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: { detail: expect.stringContaining('must be used inside <Provider>') },
+        }),
+      )
       dispose()
     })
   })

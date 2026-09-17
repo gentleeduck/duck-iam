@@ -232,15 +232,12 @@ describe('impersonation attributes the operator, not the account acted on', () =
 })
 
 describe('what the middleware costs beside a guard', () => {
-  it('FINDING: the middleware and the guard resolve the session twice for one request', async () => {
-    // The pairing the adapter recommends - `makeGuard` as an `APP_GUARD`, `nestActorContext`
-    // as middleware - is the one arrangement where the `req.session` shortcut cannot fire.
-    // Nest runs middleware before guards, so nothing has populated `session` when the
-    // middleware runs, and `makeGuard` calls `resolveSession` unconditionally rather than
-    // reusing what the middleware already resolved. Every authenticated request therefore
-    // reads the session store twice, which on a SQL-backed store is two round trips. A
-    // cache in front of `getByHash` is the mitigation and the adapter ships none; a session
-    // id is its sid hash, so one key covers the read and every invalidation.
+  it('costs one resolveSession for the pairing the adapter recommends', async () => {
+    // `makeGuard` as an `APP_GUARD` with `nestActorContext` as middleware. Nest runs middleware
+    // before guards, so the `req.session` shortcut could never fire from that side: the middleware
+    // resolves, stashes the session and the identity, and the guard reuses both. It used to read
+    // the session store twice for every authenticated request, which on a SQL store is two round
+    // trips.
     const { auth } = buildAuth()
     const { identityId, sid } = await signIn(auth)
     const resolveSession = vi.spyOn(auth, 'resolveSession')
@@ -249,10 +246,12 @@ describe('what the middleware costs beside a guard', () => {
     const req = { headers: cookieHeader(sid), method: 'GET', url: '/me' }
 
     let sessionAtMiddleware: unknown = 'never ran'
+    let identityAtMiddleware: unknown = 'never ran'
     let actorAtMiddleware: string | null = 'never ran'
     // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
     await nestActorContext(auth).use(req as any, {}, () => {
       sessionAtMiddleware = 'session' in req ? req.session : undefined
+      identityAtMiddleware = 'identity' in req ? req.identity : undefined
       actorAtMiddleware = actorId()
     })
 
@@ -262,11 +261,11 @@ describe('what the middleware costs beside a guard', () => {
       // biome-ignore lint/suspicious/noExplicitAny: only `switchToHttp` is read.
     } as any)
 
-    // The scope was bound, so the middleware did its job - it just paid for it.
     expect(actorAtMiddleware).toBe(identityId)
-    // Nothing had populated `session` at middleware time, so the shortcut was unreachable.
-    expect(sessionAtMiddleware).toBeUndefined()
-    expect(resolveSession).toHaveBeenCalledTimes(2)
+    // The middleware resolved it before calling next, so the handler sees it too.
+    expect(sessionAtMiddleware).toMatchObject({ identityId })
+    expect(identityAtMiddleware).toMatchObject({ id: identityId })
+    expect(resolveSession).toHaveBeenCalledTimes(1)
   })
 
   /**

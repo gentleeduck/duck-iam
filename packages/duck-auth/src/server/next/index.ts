@@ -112,7 +112,6 @@ export function mountNext(
     async POST(req) {
       const url = new URL(req.url)
       const segments = url.pathname.split('/').filter(Boolean)
-      // last segments after '/AUTH/'
       const last = segments[segments.length - 1] ?? ''
       const second = segments[segments.length - 2] ?? ''
       if (enabled.signin && last === 'signin') return nextSignIn(auth)(req)
