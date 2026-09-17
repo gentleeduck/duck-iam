@@ -1,3 +1,4 @@
+import { AuthError } from '~/core/errors'
 import type { Provider } from '../provider/provider.types'
 import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
@@ -35,12 +36,16 @@ export class CookieTransport implements Transport.ITransport {
     // outages with no error surface.
     if (cfg.name !== undefined) {
       if (typeof cfg.name !== 'string' || cfg.name.length === 0 || cfg.name.length > 256) {
-        throw new Error('@gentleduck/auth CookieTransport: name must be a non-empty string <=256 chars')
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: '@gentleduck/auth CookieTransport: name must be a non-empty string <=256 chars',
+        })
       }
       // RFC 6265 token: alphanumerics + small set of safe punctuation. `-` is
       // allowed (the default `duck-sid`).
       if (!/^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/.test(cfg.name)) {
-        throw new Error('@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character')
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: '@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character',
+        })
       }
     }
     const hasDomain = Boolean(cfg.domain)
@@ -56,21 +61,23 @@ export class CookieTransport implements Transport.ITransport {
     // Fail-fast on __Host- violations; browsers silently drop them.
     if (this._name.startsWith('__Host-')) {
       if (cfg.domain) {
-        throw new Error(
-          '@gentleduck/auth CookieTransport: __Host- prefix forbids the Domain attribute. ' +
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail:
+            '@gentleduck/auth CookieTransport: __Host- prefix forbids the Domain attribute. ' +
             'Either drop `domain` or override `name` to a non-__Host- value.',
-        )
+        })
       }
       if (this._options.path !== '/') {
-        throw new Error(
-          `@gentleduck/auth CookieTransport: __Host- prefix requires Path=/. Got Path=${this._options.path}.`,
-        )
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `@gentleduck/auth CookieTransport: __Host- prefix requires Path=/. Got Path=${this._options.path}.`,
+        })
       }
       if (this._options.secure !== true) {
-        throw new Error(
-          '@gentleduck/auth CookieTransport: __Host- prefix requires Secure=true. ' +
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail:
+            '@gentleduck/auth CookieTransport: __Host- prefix requires Secure=true. ' +
             'Either set { secure: true } (production) or override `name` to a non-__Host- value.',
-        )
+        })
       }
     }
   }
@@ -151,7 +158,7 @@ export class CookieTransport implements Transport.ITransport {
  * downstream `sha256` over the whole blob per request. Reject early. */
 const COOKIE_VALUE_MAX = 1024
 
-function parseCookie(header: string, name: string): string | null {
+export function parseCookie(header: string, name: string): string | null {
   // Whole-header cap: browsers cap Cookie at ~8KB by default; servers may
   // accept more. Refuse outliers up-front so a multi-MB header cannot force
   // a giant string.split(';') allocation.

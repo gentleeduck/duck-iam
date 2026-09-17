@@ -3,7 +3,7 @@ import { isExpiredAt } from '../credentials/credentials'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Provider } from '../provider/provider.types'
-import type { Sessions } from '../sessions/sessions.types'
+import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
 import { signEddsa, verifyEddsa } from './jwt-algs/eddsa.alg'
 import { signEs256, verifyEs256 } from './jwt-algs/es256.alg'
@@ -153,17 +153,9 @@ function jwsVerify(alg: JwtTransport.IJwtAlg, key: string, signingInput: string,
 }
 
 /** Runtime validators for JWT header + payload; any rejection makes `verify()` return `null`. */
-const FACTOR_METHOD_VALUES: ReadonlySet<string> = new Set<Sessions.FactorMethod>([
-  'password',
-  'passkey',
-  'totp',
-  'oauth',
-  'magic-link',
-  'webauthn',
-  'sms',
-  'api-key',
-  'backup-code',
-])
+// Derived, not restated: a method added to the constant and not to a second copy of it here would
+// be dropped from every parsed token while the source of truth said it was valid.
+const FACTOR_METHOD_VALUES: ReadonlySet<string> = new Set<Sessions.FactorMethod>(AUTH_SESSION_FACTOR_METHODS)
 const SESSION_KIND_VALUES: ReadonlySet<string> = new Set<Sessions.Kind>(['guest', 'user', 'apikey'])
 const JWT_ALG_VALUES: ReadonlySet<string> = new Set<JwtTransport.IJwtAlg>(['HS256', 'ES256', 'RS256', 'EdDSA'])
 

@@ -52,5 +52,34 @@ export namespace Transport {
      * without a store hit; opaque transports return null and rely on Session.IStore lookup.
      */
     verify?(token: string): Promise<Sessions.Me | null>
+    /**
+     * The longest token this transport will ever accept. A composite takes the largest its members
+     * declare instead of carrying its own constant, which silently clamped a transport with a wider
+     * ceiling and silently excluded one that raised its own later.
+     */
+    maxTokenLength?: number
+    /**
+     * SECURITY: a refusal from this transport ends verification instead of falling through to the
+     * next one.
+     *
+     * Verification across a composite is a disjunction - a token only has to satisfy one member -
+     * so adding a proof-of-possession transport such as DPoP next to a plain bearer adds nothing at
+     * all: the unbound path is still there and answers for the tokens the bound one rejects. Set
+     * this on the strict transport and its `null` becomes a veto rather than a pass.
+     */
+    authoritative?: boolean
+  }
+
+  /** How a {@link ITransport} composite behaves when its members disagree. */
+  export type CompositeOpts = {
+    /**
+     * SECURITY: what to do when one request presents a credential by more than one method.
+     *
+     * RFC 6750 section 2 says a client must not, and that a server must refuse when it does.
+     * `'first'` restores the old behaviour, where array order picked a winner and the other
+     * credential was discarded silently - which let anyone who can plant a cookie, a sibling
+     * subdomain included, choose which identity the request ran as.
+     */
+    onMultipleCredentials?: 'refuse' | 'first'
   }
 }
