@@ -443,3 +443,176 @@ describe('AuthMemoryDPoPNonceStore', () => {
     expect(await store.recordSeen('fresh-3', 60_000)).toBe(false)
   })
 })
+
+/**
+ * The verifier proves the presenter holds the key *in the proof*, which is a key they chose. Nothing
+ * here can know which key the access token was issued against, so `jkt` is the entire binding and
+ * comparing it to the token's `cnf.jkt` is the caller's job. These pin what "did not throw" is worth
+ * on its own.
+ */
+describe('the jkt is the binding, and the caller owns the comparison', () => {
+  it('accepts a proof minted under a key the access token was never bound to', async () => {
+    const verifier = new DPoPVerifier()
+    const token = 'stolen-access-token'
+    const legitimate = generateES256KeyPair()
+    const attacker = generateES256KeyPair()
+    const ath = createHash('sha256').update(token).digest('base64url')
+    const boundPayload = bindPayloadToDPoP({ sub: 'user-1' }, computeJwkThumbprint(legitimate.publicJwk))
+
+    const proof = mintDpopProof(attacker, { ath, htm: 'POST', htu: 'https://api.test/transfer' })
+    const result = await verifier.verify(proof, { method: 'POST', url: 'https://api.test/transfer' }, token)
+
+    // Every check the verifier owns passed on a proof the token's real holder never signed.
+    expect(result.claims.ath).toBe(ath)
+    expect(result.jkt).toBe(computeJwkThumbprint(attacker.publicJwk))
+    // Only this tells the two apart, and only if the caller looks.
+    expect(result.jkt).not.toBe(boundPayload.cnf.jkt)
+  })
+
+  it('returns the bound jkt for the key the token was issued against', async () => {
+    const verifier = new DPoPVerifier()
+    const token = 'legitimate-access-token'
+    const kp = generateES256KeyPair()
+    const boundPayload = bindPayloadToDPoP({ sub: 'user-1' }, computeJwkThumbprint(kp.publicJwk))
+    const ath = createHash('sha256').update(token).digest('base64url')
+
+    const proof = mintDpopProof(kp, { ath, htm: 'POST', htu: 'https://api.test/transfer' })
+    const result = await verifier.verify(proof, { method: 'POST', url: 'https://api.test/transfer' }, token)
+
+    expect(result.jkt).toBe(boundPayload.cnf.jkt)
+  })
+})
+
+/** The freshness window is one comparison against the sum of two configured numbers, and `>` against a
+ *  sum that is not a number is false. The parser that reads `iat` off the proof refuses a non-finite one
+ *  and says so in a comment; the two numbers it is compared against were never checked. */
+describe('the freshness window is only as good as the two numbers it is made of', () => {
+  /** The `detail`, since `AuthError.message` is the bare code and never carries one. */
+  function refusal(cfg: DPoPVerifier.Cfg): string {
+    try {
+      new DPoPVerifier(cfg)
+    } catch (err) {
+      return err instanceof Error && 'meta' in err ? String((err.meta as { detail?: unknown }).detail) : String(err)
+    }
+    throw new Error('expected the verifier to refuse this config')
+  }
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 3_600_001])(
+    'refuses clockSkewMs %p',
+    (clockSkewMs) => {
+      expect(refusal({ clockSkewMs })).toContain('clockSkewMs')
+    },
+  )
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 3_600_001])(
+    'refuses freshnessMs %p',
+    (freshnessMs) => {
+      expect(refusal({ freshnessMs })).toContain('freshnessMs')
+    },
+  )
+
+  it('will not take a year-old proof once the window is a number again', async () => {
+    // The whole point of the bounds: `Math.abs(now - iat) > NaN` is false, so this proof was accepted.
+    const kp = generateES256KeyPair()
+    const stale = mintDpopProof(kp, {
+      htm: 'POST',
+      htu: 'https://api.test/transfer',
+      iat: Math.floor(Date.now() / 1000) - 365 * 24 * 60 * 60,
+    })
+    expect(() => new DPoPVerifier({ clockSkewMs: Number.NaN })).toThrow()
+
+    await expect(
+      new DPoPVerifier().verify(stale, { method: 'POST', url: 'https://api.test/transfer' }),
+    ).rejects.toMatchObject({ code: 'AUTH_DPOP_INVALID' })
+  })
+
+  it('still accepts a proof inside the default window, and both zeroes are a legal choice', async () => {
+    expect(() => new DPoPVerifier()).not.toThrow()
+    expect(() => new DPoPVerifier({ clockSkewMs: 0, freshnessMs: 0 })).not.toThrow()
+
+    const kp = generateES256KeyPair()
+    const proof = mintDpopProof(kp, { htm: 'POST', htu: 'https://api.test/ok' })
+    await expect(
+      new DPoPVerifier().verify(proof, { method: 'POST', url: 'https://api.test/ok' }),
+    ).resolves.toMatchObject({ jkt: computeJwkThumbprint(kp.publicJwk) })
+  })
+})
+
+/**
+ * The replay store has to hold a jti for as long as the proof carrying it is still acceptable. The
+ * freshness check is two-sided - `Math.abs(now - iat) > clockSkew + freshness` - so a proof is live from
+ * `iat - window` to `iat + window`, and a TTL of `window` covers only the second half of that. The gap is
+ * how far into the future the proof is dated, which is what `clockSkewMs` exists to tolerate: every
+ * client whose clock runs fast mints one.
+ */
+describe('DPoP jti retention vs the freshness window', () => {
+  /** Captures what the verifier asks for; `true` always, so the TTL is the only thing under test. */
+  function recordingStore(): { ttls: number[]; recordSeen(jti: string, ttlMs: number): Promise<boolean> } {
+    const ttls: number[] = []
+    return {
+      ttls,
+      async recordSeen(_jti: string, ttlMs: number) {
+        ttls.push(ttlMs)
+        return true
+      },
+    }
+  }
+
+  it.each([
+    ['dated at the far future edge', 90, 179_000],
+    ['dated a minute ahead, a fast client clock', 60, 149_000],
+    ['dated now', 0, 89_000],
+    ['dated close to the far past edge, a slow client clock', -89, 0],
+  ])('%s: the TTL reaches the end of the proof own window', async (_label, offsetSec, atLeastMs) => {
+    const store = recordingStore()
+    const verifier = new DPoPVerifier({ nonceStore: store })
+    const kp = generateES256KeyPair()
+    const iat = Math.floor(Date.now() / 1000) + offsetSec
+    const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/r', iat })
+    await verifier.verify(proof, { method: 'GET', url: 'https://api.test/r' })
+
+    // What is left of this proof's life, from now: `iat + window` less the clock. The TTL must cover it,
+    // and the second bound is what keeps the fix from being "hold every jti for twice as long".
+    const remaining = iat * 1000 + 90_000 - Date.now()
+    expect(store.ttls[0]).toBeGreaterThanOrEqual(remaining)
+    expect(store.ttls[0]).toBeGreaterThanOrEqual(atLeastMs)
+    expect(store.ttls[0]).toBeLessThanOrEqual(remaining + 1_000)
+  })
+
+  it('refuses the identical proof once the old TTL would have released it', async () => {
+    // Aligned so the proof is dated a whole second ahead rather than some fraction of one: with
+    // `clockSkewMs` at 1s that is the far edge, where the old TTL expired 1s before the window did.
+    while (Date.now() % 1000 > 30) {}
+    const verifier = new DPoPVerifier({ clockSkewMs: 1_000, freshnessMs: 0 })
+    const kp = generateES256KeyPair()
+    const proof = mintDpopProof(kp, {
+      htm: 'GET',
+      htu: 'https://api.test/replay',
+      iat: Math.floor(Date.now() / 1000) + 1,
+    })
+    const request = { method: 'GET', url: 'https://api.test/replay' }
+
+    // The live control: the proof is genuinely acceptable, so the refusal below is replay and not staleness.
+    await expect(verifier.verify(proof, request)).resolves.toMatchObject({
+      jkt: computeJwkThumbprint(kp.publicJwk),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 1_100))
+    await expect(verifier.verify(proof, request)).rejects.toMatchObject({
+      code: 'AUTH_DPOP_INVALID',
+      meta: { reason: 'jti replay detected' },
+    })
+  })
+
+  it('a proof still inside its window is refused on replay, whatever the TTL', async () => {
+    // The case that always worked, kept as the control for the one above.
+    const verifier = new DPoPVerifier()
+    const kp = generateES256KeyPair()
+    const proof = mintDpopProof(kp, { htm: 'POST', htu: 'https://api.test/once' })
+    const request = { method: 'POST', url: 'https://api.test/once' }
+    await expect(verifier.verify(proof, request)).resolves.toBeTruthy()
+    await expect(verifier.verify(proof, request)).rejects.toMatchObject({
+      code: 'AUTH_DPOP_INVALID',
+      meta: { reason: 'jti replay detected' },
+    })
+  })
+})

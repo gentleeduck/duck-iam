@@ -1,13 +1,12 @@
-import { AuthError } from '~/core/errors'
+import { ABSENT, type Answer, answer } from '~/core/answer'
+import { AuthError, asAuthError } from '~/core/errors'
 import type { Provider } from '../provider/provider.types'
 import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
 import { COMPOSITE_TOKEN_MAX_LENGTH } from './transport.constants'
 
-/**
- * Try each transport in order on extract; emit Intents from every transport
- * on issue/revoke (so cookie + bearer co-exist on the same response).
- */
+/** Extract tries each transport in order; issue and revoke emit from every one, so a cookie and a
+ *  bearer token can ride the same response. */
 export class CompositeTransport implements Transport.ITransport {
   private readonly _transports: Transport.ITransport[]
   private readonly _onMultiple: 'refuse' | 'first'
@@ -26,14 +25,11 @@ export class CompositeTransport implements Transport.ITransport {
     this.maxTokenLength = Math.max(...this._transports.map((t) => t.maxTokenLength ?? COMPOSITE_TOKEN_MAX_LENGTH))
   }
 
+  /** Asks every transport, and refuses a request that presents two different credentials. */
   extract(req: { headers: Headers }): string | null {
-    // Every transport is asked, not just up to the first hit, because which credentials a request
-    // carries is the question - resolving it by array order is what let a planted cookie outrank a
-    // bearer token the client actually sent.
-    //
-    // One transport raising on a header it cannot parse must not stop the later ones being asked, or
-    // a malformed cookie denies a request that also carried a usable bearer token - which is a
-    // credential the caller did present, refused for one it did not.
+    // Every transport is asked, not just up to the first hit, because the question is which credentials
+    // the request carries: answering it by array order let a planted cookie outrank a bearer token the
+    // client actually sent.
     let failure: unknown
     const found: string[] = []
     for (const t of this._transports) {
@@ -46,13 +42,13 @@ export class CompositeTransport implements Transport.ITransport {
       }
       if (token) found.push(token)
     }
-    if (found.length === 0) {
+    const first = found[0]
+    if (first === undefined) {
       // Nothing usable was found, so the parse failure is the most specific answer available and is
       // raised rather than swallowed into a bare `null`.
       if (failure !== undefined) throw failure
       return null
     }
-    const first = found[0] as string
     // The same token arriving by two methods is one credential presented twice, not two.
     if (found.every((t) => t === first)) return first
     if (this._onMultiple === 'first') return first
@@ -61,6 +57,7 @@ export class CompositeTransport implements Transport.ITransport {
     })
   }
 
+  /** Issues through every transport, deliberately not as one transaction. */
   issue(sid: string, session: Sessions.Me, opts: Transport.IssueOpts): Provider.Intent[] {
     // Not transactional on purpose: a transport that throws mid-issue emits nothing at all rather
     // than half a sign-in, so the caller sees the failure and can undo the session row it wrote.
@@ -70,6 +67,7 @@ export class CompositeTransport implements Transport.ITransport {
     )
   }
 
+  /** Revokes through every transport. */
   revoke(): Provider.Intent[] {
     return assertOneBody(
       this._transports.flatMap((t) => t.revoke()),
@@ -77,38 +75,55 @@ export class CompositeTransport implements Transport.ITransport {
     )
   }
 
-  async verify(token: string): Promise<Sessions.Me | null> {
-    if (typeof token !== 'string' || token.length === 0 || token.length > this.maxTokenLength) {
-      return null
-    }
-    // Sequential, and deliberately so: order is the tiebreak between transports that would both
-    // vouch for a token, and asking them at once would decide it by whichever resolved first.
-    let failure: unknown
-    for (const t of this._transports) {
-      if (!t.verify) continue
-      let session: Sessions.Me | null = null
-      try {
-        session = await t.verify(token)
-      } catch (err) {
-        // A JWKS fetch failure in one transport used to take down every transport after it, so a
-        // recoverable fault in an optional member broke the primary one.
-        failure ??= err
-        continue
+  /** The first transport to vouch for the token wins; an authoritative refusal ends it. */
+  verify(token: string): Answer.Me<Sessions.Me> {
+    return answer(async () => {
+      if (typeof token !== 'string' || token.length === 0 || token.length > this.maxTokenLength) {
+        // A verdict, not a parameter fault: this token came off an untrusted request header, and an
+        // oversize one must leave the request anonymous rather than turning it into a 400.
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'token is empty or over the length cap' })
       }
-      if (session) return session
-      // A refusal from a transport that claims the last word is a veto, not a pass to the next one.
-      if (t.authoritative) return null
-    }
-    if (failure !== undefined) throw failure
-    return null
+      // Sequential, and deliberately so: order is the tiebreak between transports that would both
+      // vouch for a token, and asking them at once would decide it by whichever resolved first.
+      let failure: unknown
+      // As in the engine: a member reaches `AUTH_SESSION_EXPIRED` only about a token it authenticated, so
+      // that verdict outranks the generic refusal below. A later member may still vouch, so the loop runs on.
+      let expired: unknown
+      for (const t of this._transports) {
+        if (!t.verify) continue
+        let session: Sessions.Me | null = null
+        try {
+          // A JWKS fetch failure still throws, and is kept rather than rethrown so a recoverable fault
+          // in an optional member cannot take down every transport after it.
+          session = await t.verify(token).catch((err: unknown) => {
+            // The "does not vouch" verdict, taken as `orNull` would.
+            const { code } = asAuthError(err, 'AUTH_ADAPTER_FAILED')
+            if (!ABSENT.has(code)) throw err
+            if (code === 'AUTH_SESSION_EXPIRED') expired ??= err
+            return null
+          })
+        } catch (err) {
+          failure ??= err
+          continue
+        }
+        if (session) return session
+        // A refusal from a transport that claims the last word is a veto, not a pass to the next one.
+        if (t.authoritative) {
+          throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'an authoritative transport refused the token' })
+        }
+      }
+      // `!== undefined`, not a truthiness test: a transport that threw `''` still threw.
+      if (failure !== undefined) throw failure
+      if (expired !== undefined) throw expired
+
+      throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'no transport vouched for the token' })
+    })
   }
 }
 
-/**
- * A response has one body. Two body-emitting transports handed the server adapter two json intents
- * and which one the client received was decided by whatever the adapter did with a list it was
- * never told could hold duplicates - so one of the two tokens was lost, silently.
- */
+/** A response has one body. Two body-emitting transports hand the server adapter two json intents, and
+ *  which one the client receives comes down to whatever the adapter does with a list nothing told it
+ *  could hold duplicates, so one of the two tokens goes missing without a word. */
 function assertOneBody(intents: Provider.Intent[], phase: string): Provider.Intent[] {
   if (intents.filter((i) => i.type === 'json').length > 1) {
     throw new AuthError('AUTH_MISCONFIGURED', {
@@ -118,7 +133,7 @@ function assertOneBody(intents: Provider.Intent[], phase: string): Provider.Inte
   return intents
 }
 
-/** Factory around {@link CompositeTransport} for functional-style config. */
+/** Constructs a {@link CompositeTransport} that tries each transport in order. */
 export function compositeTransport(
   transports: Transport.ITransport[],
   opts?: Transport.CompositeOpts,
