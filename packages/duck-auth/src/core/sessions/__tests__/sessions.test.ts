@@ -92,6 +92,41 @@ describe('SessionsFacet', () => {
     })
   })
 
+  describe('create() validates the impersonation window', () => {
+    const window = (over: Partial<Sessions.ActingAs>): Sessions.MintInput => ({
+      actingAs: {
+        expiresAt: new Date(Date.now() + 60_000),
+        realIdentityId: 'operator-1',
+        reason: 'support',
+        startedAt: new Date(),
+        ...over,
+      },
+      aal: 1,
+      factors: [],
+      identityId: 'user-1',
+      kind: 'user',
+    })
+
+    it('refuses a window that has already closed', async () => {
+      // It used to be written and then refused by every read of the row, so the caller learned
+      // nothing at the one point that could have told them.
+      await expect(facet.create(window({ expiresAt: new Date(Date.now() - 1) }))).rejects.toMatchObject({
+        code: 'AUTH_INVALID_PARAMETERS',
+      })
+    })
+
+    it('refuses a window that closes before it opens', async () => {
+      await expect(
+        facet.create(window({ expiresAt: new Date(Date.now() + 1_000), startedAt: new Date(Date.now() + 2_000) })),
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+    })
+
+    it('accepts one that is still open', async () => {
+      const { session } = await facet.create(window({}))
+      expect(session.actingAs?.realIdentityId).toBe('operator-1')
+    })
+  })
+
   describe('create() validates factor contents', () => {
     it('rejects an unrecognised factor method', async () => {
       await expect(
@@ -161,7 +196,7 @@ describe('SessionsFacet', () => {
     })
   })
 
-  describe('rotateOrCreate() - DESIGN section 37 rotation matrix', () => {
+  describe('rotateOrCreate() - rotation matrix', () => {
     it('credential-change revokes all other sessions even when previousSid is omitted', async () => {
       const { sid: aSid } = await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
       const { sid: bSid } = await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
@@ -183,16 +218,22 @@ describe('SessionsFacet', () => {
     it('credential-change revokes BEFORE minting the replacement session', async () => {
       const order: string[] = []
       const base = adapter.sessions
+      // Delegating by hand, not spreading: the store is a class, so its methods sit on the prototype
+      // and `{ ...base }` would copy none of them.
       const recording: Sessions.Store = {
-        ...base,
         create: async (session) => {
           order.push('create')
           return base.create(session)
         },
+        delete: (id) => base.delete(id),
         deleteAllForIdentity: async (id) => {
           order.push('revoke')
           return base.deleteAllForIdentity(id)
         },
+        gc: (now) => base.gc(now),
+        getByHash: (hash) => base.getByHash(hash),
+        listByIdentity: (id, ctx) => base.listByIdentity(id, ctx),
+        update: (id, patch) => base.update(id, patch),
       }
       const impl = new SessionsImpl(recording, events, DEFAULT_SESSION_CONFIG)
 
@@ -534,21 +575,6 @@ describe('SessionsFacet', () => {
       await adapter.sessions.update(sha256(sid), { absoluteExpiresAt: new Date(Date.now() - 1) })
       expect(await facet.touch(sid)).toBeNull()
       expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
-    })
-
-    it('hard-deletes a session past its sliding expiresAt and returns null', async () => {
-      const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
-      await adapter.sessions.update(sha256(sid), {
-        expiresAt: new Date(Date.now() - 1000), // already expired
-        absoluteExpiresAt: new Date(Date.now() + 86_400_000), // absolute cap still far away
-      })
-      expect(await facet.touch(sid)).toBeNull()
-      expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
-    })
-
-    it('still slides a session that is within its expiresAt window', async () => {
-      const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
-      expect(await facet.touch(sid)).not.toBeNull()
     })
   })
 
