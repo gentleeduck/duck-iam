@@ -787,6 +787,22 @@ are never reported (`validate.ts:152`):
 - a `'*'` grant — it is the wildcard, not a member;
 - an absent `scope` — an unscoped permission is global, not scoped to nowhere.
 
+Past those, each axis is cleared by the matcher the engine actually uses:
+`matchesAction`, `matchesResource`, `matchesScope`. The parameter type is the
+unconstrained `IRole`, so a stored grant can legitimately carry a prefix
+pattern, and `isWildcardPermission` routes one to `rbacResidual` where those
+same matchers decide. Matching the declared list with `includes` reported
+`{ action: 'post:*', resource: 'org.*' }` as unreachable twice while `can()`
+granted exactly what it says. The three axes differ and one matcher will not
+do: `'admin.*'` stays reported on the action axis even with `admin.reset`
+declared, because `matchesAction` has no dot form, and `'org-1.*'` stays
+reported as a scope even with `org-1.team` declared, because scopes match
+exactly.
+
+`validateRoles` is not given `scopeMode`, so under `'hierarchical'` a role scope
+`'org-1'` is still reported when the config declares only `'org-1.team-a'`,
+though `scopeCovers` would reach it.
+
 `validatePolicy` on the config gets the same pass over `rule.actions`,
 `rule.resources`, `targets.actions`, `targets.resources` and `targets.roles`.
 The direction that matters is the deny: a rule spelled `actions: ['delet']`

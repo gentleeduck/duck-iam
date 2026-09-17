@@ -390,3 +390,19 @@ and means to deny `delete`, written `actions: ['delet']`, answers `can('delete',
 and `matchesResource`, so a prefix is accepted on exactly the values it would
 match at runtime and the action axis's lack of a dot form is honoured. The bare
 `validatePolicy` export is unchanged, as the bare `validateRoles` is.
+
+### A role grant the engine honours was reported as unreachable
+
+The vocabulary pass `createIam(...).validateRoles` runs matched a grant against
+the declared list with `includes`, so only a literal or `'*'` could clear it.
+`validateRoles` takes the **unconstrained** `IRole` on purpose — it exists for
+rows read from a store, a config file or an admin form — and the engine honours
+a prefix pattern in a role permission: `{ action: 'post:*', resource: 'org.*' }`
+grants `post:create` on `org.team` and nothing else.
+
+That grant came back `valid: false` with two `UNREACHABLE_TARGET` errors, which
+`PolicyBuilder`-style callers and admin UIs read as a refusal. Each axis is now
+cleared by the matcher the engine actually uses — `matchesAction`,
+`matchesResource`, `matchesScope` — so `'post:*'` and `'org.*'` pass, while
+`'admin.*'` on the action axis is still reported (there is no dot form there)
+and `'org-1.*'` as a scope is still reported (scopes match exactly).
