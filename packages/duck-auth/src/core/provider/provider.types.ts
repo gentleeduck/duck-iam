@@ -50,12 +50,15 @@ export namespace Provider {
     emit(event: string, payload: unknown): Promise<void>
   }
 
+  /** The facets a provider may reach, whether it reads them off a {@link Context} or was re-bound onto them. */
+  export type Stores<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
+    identities: Identities.Store<Profile>
+    sessions: Sessions.Store
+    credentials: Credential.Store
+  }
+
   export type Context<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
-    stores: {
-      identities: Identities.Store<Profile>
-      sessions: Sessions.Store
-      credentials: Credential.Store
-    }
+    stores: Stores<Profile>
     tenant: TenantContext
     baseUrl: string
     limiter: Limiter.Me
@@ -87,21 +90,17 @@ export namespace Provider {
     begin?: Me['begin']
     complete?: Me['complete']
     /**
-     * Re-bind a capability that captured a store or an event bus at
-     * construction, so it joins a caller's transaction and buffers its events.
+     * Re-bind a capability that captured a store or an event bus at construction, so it joins a caller's
+     * transaction and buffers its events. It is handed the adapter's facets already bound to that
+     * transaction, plus the buffering bus, because a facet emits as well as reads.
      *
-     * Two arguments, unlike `Store.withClient`, because a facet also emits: it
-     * must be re-bound to the buffering bus as well as the transaction client.
+     * Capabilities that read everything from {@link Context} need not implement this - the bound engine
+     * hands them a bound context already. `PasswordsImpl` is in that group. `MfaImpl`, `ApiKeysFacet` and
+     * `AuthApiKeyImpl` are not: they capture, so they must re-bind.
      *
-     * Capabilities that read everything from {@link Context} need not implement
-     * this - the bound engine hands them a bound context already. `PasswordsImpl`
-     * is in that group. `MfaImpl`, `ApiKeysFacet` and `AuthApiKeyImpl` are not:
-     * they capture, so they must re-bind.
-     *
-     * Returning `null` means "I hold something that cannot join a transaction";
-     * `Providers.withClient` then keeps the original instance rather than
-     * dropping the capability from the registry.
+     * Returning `null` means "I hold something that cannot join a transaction"; `Providers.withClient` then
+     * keeps the original instance rather than dropping the capability from the registry.
      */
-    withClient?(client: unknown, events: Events.IBus): Capability | null
+    withClient?(stores: Stores, events: Events.IBus): Capability | null
   }
 }
