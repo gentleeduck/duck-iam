@@ -89,6 +89,11 @@ export namespace IamFile {
      * NOTE: the raw value is written back on every flush so the next load still detects it, as redis/http do.
      */
     corruptAttributes?: Map<string, unknown>
+    /**
+     * Ids whose assignments row held a malformed entry, mapped to the raw row; reads throw until a write replaces it.
+     * NOTE: a dropped grant may be the one a deny policy targets, so it fails closed exactly as `corruptAttributes` does.
+     */
+    corruptAssignments?: Map<string, unknown>
   }
 }
 
@@ -326,7 +331,7 @@ export class IamFileAdapter<
         const state: IamFile.IState<TAction, TResource, TRole, TScope> = {
           policies,
           roles,
-          assignments: parseFileAssignments<TRole, TScope>(parsed.assignments, (rowId, reason) =>
+          ...parseFileAssignments<TRole, TScope>(parsed.assignments, (rowId, reason) =>
             this._reportPolicyError(new Error(`assignments[${rowId}]: ${reason}`), rowId),
           ),
           ...parseFileAttributes(parsed.attributes, (rowId, reason) =>
@@ -358,12 +363,14 @@ export class IamFileAdapter<
     return next
   }
 
-  /** The on-disk shape: corrupt attribute rows go back out verbatim, and the `corruptAttributes` marker never does. */
+  /** The on-disk shape: corrupt rows go back out verbatim, and the `corrupt*` markers never do. */
   private _serializableState(state: IamFile.IState<TAction, TResource, TRole, TScope>): Record<string, unknown> {
     // NOTE: null-prototype, since ids come from the file and `attributes['__proto__'] = raw` would drop that row.
     const attributes: Record<string, unknown> = Object.assign(Object.create(null), state.attributes)
     for (const [id, raw] of state.corruptAttributes ?? []) attributes[id] = raw
-    return { assignments: state.assignments, attributes, policies: state.policies, roles: state.roles }
+    const assignments: Record<string, unknown> = Object.assign(Object.create(null), state.assignments)
+    for (const [id, raw] of state.corruptAssignments ?? []) assignments[id] = raw
+    return { assignments, attributes, policies: state.policies, roles: state.roles }
   }
 
   /**
@@ -478,6 +485,13 @@ export class IamFileAdapter<
   async deleteRole(id: string): Promise<void> {
     const s = await this._loadState()
     delete s.roles[id]
+    for (const subjectId of s.corruptAssignments?.keys() ?? []) {
+      // The raw row is what gets written back, so the sweep below cannot reach it; say so rather than imply it did.
+      this._reportPolicyError(
+        new Error(`assignments[${subjectId}]: corrupt, so the grant of role "${id}" was not swept`),
+        subjectId,
+      )
+    }
     for (const [subjectId, entries] of Object.entries(s.assignments)) {
       const kept = entries.filter((e) => e.role !== id)
       if (kept.length === entries.length) continue
@@ -487,19 +501,28 @@ export class IamFileAdapter<
     await this._flush()
   }
 
-  /** Lists a subject's unscoped (global) role IDs, deduplicated. */
+  /** Throws when the subject's assignments row is corrupt; a partial role set is what makes a deny stop applying. */
+  private _assertReadableAssignments(s: IamFile.IState<TAction, TResource, TRole, TScope>, id: string): void {
+    if (s.corruptAssignments?.has(id)) {
+      throw new Error(`[@gentleduck/iam:file] corrupted assignments for "${id}" (malformed {role, scope?} entry)`)
+    }
+  }
+
+  /** Lists a subject's unscoped (global) role IDs, deduplicated; throws on a corrupt row. */
   async getSubjectRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     const s = await this._loadState()
+    this._assertReadableAssignments(s, id)
     const entries = s.assignments[id] ?? []
     return [...new Set(entries.filter((e) => e.scope == null).map((e) => e.role))]
   }
 
-  /** Lists a subject's scoped `(role, scope)` assignments only. */
+  /** Lists a subject's scoped `(role, scope)` assignments only; throws on a corrupt row. */
   async getSubjectScopedRoles(
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     const s = await this._loadState()
+    this._assertReadableAssignments(s, id)
     const hasScope = (e: { role: TRole; scope?: TScope }): e is { role: TRole; scope: TScope } => e.scope != null
     return (s.assignments[id] ?? []).filter(hasScope).map((e) => ({ role: e.role, scope: e.scope }))
   }
@@ -516,6 +539,7 @@ export class IamFileAdapter<
       throw new Error('[@gentleduck/iam:file] scope must not be an empty string; omit it for a global assignment')
     }
     const s = await this._loadState()
+    this._assertReadableAssignments(s, id)
     iamAssertRoleExists('file', Object.hasOwn(s.roles, roleId))
     let entries = s.assignments[id]
     if (!entries) {
@@ -535,6 +559,7 @@ export class IamFileAdapter<
   async revokeRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
     iamAssertAssignableScope('file', scope, 'lookup')
     const s = await this._loadState()
+    this._assertReadableAssignments(s, id)
     const entries = s.assignments[id]
     if (!entries) return
     s.assignments[id] =
@@ -551,6 +576,7 @@ export class IamFileAdapter<
    */
   async updateAssignmentScope(id: string, roleId: TRole, fromScope?: TScope, toScope?: TScope): Promise<boolean> {
     const s = await this._loadState()
+    this._assertReadableAssignments(s, id)
     const entries = s.assignments[id]
     const entry = entries?.find((e) => e.role === roleId && e.scope === fromScope)
     if (!entry) return false
@@ -587,37 +613,46 @@ export class IamFileAdapter<
   }
 }
 
-/** Structural parser for the `assignments` map; malformed rows and entries are dropped and reported. */
+/** Structural parser for the `assignments` map; malformed rows are reported and kept in `corruptAssignments`. */
 function parseFileAssignments<TRole extends string, TScope extends string>(
   raw: unknown,
   report: (rowId: string, reason: string) => void,
-): Record<string, Array<{ role: TRole; scope?: TScope }>> {
-  if (raw === undefined || raw === null) return Object.create(null)
+): {
+  assignments: Record<string, Array<{ role: TRole; scope?: TScope }>>
+  corruptAssignments: Map<string, unknown>
+} {
+  const corruptAssignments = new Map<string, unknown>()
+  if (raw === undefined || raw === null) return { assignments: Object.create(null), corruptAssignments }
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     report('__root__', `expected object, got ${Array.isArray(raw) ? 'array' : typeof raw}`)
-    return Object.create(null)
+    return { assignments: Object.create(null), corruptAssignments }
   }
   const out: Record<string, Array<{ role: TRole; scope?: TScope }>> = Object.create(null)
   for (const [rowId, rowVal] of Object.entries(raw)) {
     if (!Array.isArray(rowVal)) {
       report(rowId, `expected array of {role, scope?}, got ${rowVal === null ? 'null' : typeof rowVal}`)
+      corruptAssignments.set(rowId, rowVal)
       continue
     }
-    // NOTE: a malformed entry costs only that entry, not the subject's other grants; each one is reported.
+    // SECURITY: a dropped grant may be the one a deny policy targets, so a bad entry corrupts the row and
+    // reads throw; the readable entries are kept only so an explicit write can repair the row without losing them.
     const entries: Array<{ role: TRole; scope?: TScope }> = []
     for (const [i, entry] of rowVal.entries()) {
       if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
         report(rowId, `assignment entry [${i}] not a plain object`)
+        corruptAssignments.set(rowId, rowVal)
         continue
       }
       const role = Reflect.get(entry, 'role')
       if (typeof role !== 'string' || role.length === 0) {
         report(rowId, `assignment entry [${i}] missing/non-string role`)
+        corruptAssignments.set(rowId, rowVal)
         continue
       }
       const scope = Reflect.get(entry, 'scope')
       if (scope !== undefined && (typeof scope !== 'string' || scope.length === 0)) {
         report(rowId, `assignment entry [${i}] scope must be a non-empty string when present`)
+        corruptAssignments.set(rowId, rowVal)
         continue
       }
       const narrowed: { role: TRole; scope?: TScope } =
@@ -628,7 +663,7 @@ function parseFileAssignments<TRole extends string, TScope extends string>(
     }
     out[rowId] = entries
   }
-  return out
+  return { assignments: out, corruptAssignments }
 }
 
 /** Structural parser for the `attributes` map; malformed rows are reported and kept in `corruptAttributes`. */

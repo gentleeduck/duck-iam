@@ -46,8 +46,8 @@ compatibility and name the parameter `_opts` to say so.
 | `getRole` | `(id, opts?) => Promise<IRole \| null>` | yes | `null` on a miss. |
 | `saveRole` | `(role, opts?: IActorOptions) => Promise<void>` | yes | Upsert by `id`. Validates before writing. |
 | `deleteRole` | `(id) => Promise<void>` | yes | Deletes the role **and every grant that named it**. |
-| `getSubjectRoles` | `(subjectId, opts?) => Promise<TRole[]>` | yes | **Global (unscoped) grants only.** Deduplicated. |
-| `getSubjectScopedRoles` | `(subjectId, opts?) => Promise<IScopedRole[]>` | optional | **Scoped grants only** — the complement of the above, never overlapping it. |
+| `getSubjectRoles` | `(subjectId, opts?) => Promise<TRole[]>` | yes | **Global (unscoped) grants only.** Deduplicated. A *corrupt* row throws rather than answering the grants it could read — see below. |
+| `getSubjectScopedRoles` | `(subjectId, opts?) => Promise<IScopedRole[]>` | optional | **Scoped grants only** — the complement of the above, never overlapping it. A *corrupt* row throws here too. |
 | `assignRole` | `(subjectId, roleId, scope?, opts?: IAssignOptions) => Promise<void>` | yes | Idempotent per `(subject, role, scope)`. Refuses an unstored role. Refuses `opts` it cannot store. |
 | `revokeRole` | `(subjectId, roleId, scope?, opts?: IRevokeOptions) => Promise<void>` | yes | With a scope: that row only. **Without a scope: every row for that role, scoped ones included.** |
 | `updateAssignmentScope` | `(subjectId, roleId, fromScope, toScope, actor?) => Promise<boolean>` | optional | Moves one grant in place. `false` when there is no such grant — and `false` must mean *nothing was written*. |
@@ -131,12 +131,20 @@ accepted on a *lookup*: a scoped assignment is matched literally, so a grant
 stored at `'*'` would answer only a request whose own scope is the two-character
 string `"*"`.
 
-**Reads fail closed for policies, open for roles.** A stored policy row that
-will not parse throws `iamUnreadablePolicy` and the engine denies — the dropped
-policy could be the one that denies. A malformed *role* row is dropped, reported
-through `onPolicyError`, and the rest of the catalog is returned. A corrupt
-attribute bag throws rather than answering `{}`, for the same reason: `{}`
-silently retires every deny rule that tests an attribute.
+**Reads fail closed for policies, open for the role catalog.** A stored policy
+row that will not parse throws `iamUnreadablePolicy` and the engine denies — the
+dropped policy could be the one that denies. A malformed *role* row is dropped,
+reported through `onPolicyError`, and the rest of the catalog is returned: a
+role nobody can resolve grants nothing, and no policy targets a role *definition*.
+
+A corrupt attribute bag throws rather than answering `{}`, for the same reason
+policies do: `{}` silently retires every deny rule that tests an attribute. A
+corrupt **assignments** row throws for the same reason again, which is less
+obvious — a lost grant looks like less authority, but `targets.roles` names the
+subject's *grants*, so a policy that denies for `banned` stops applying the
+moment that grant cannot be read. Answering with the grants that did parse turns
+a deny into an allow. Only the file adapter could produce a partial row; redis
+decodes every member, and the SQL adapters type the column.
 
 **Policies come back in one shape on every backend.** `savePolicy` runs the row
 through `iamNormalizePolicy` (`src/shared/rows.ts`), which defaults
@@ -347,7 +355,7 @@ const adapter = new IamFileAdapter({
 })
 ```
 
-`IamFile.IInit` (`src/adapters/file/index.ts:78`):
+`IamFile.IInit` (`src/adapters/file/index.ts:49`):
 
 | Option | Required | Notes |
 | --- | --- | --- |
@@ -356,7 +364,7 @@ const adapter = new IamFileAdapter({
 | `rootDir` | no | Containment root. `path` must resolve inside it, and — when the driver has `realpath` — must still be inside it after symlink resolution. Omitting it emits a one-shot `console.warn` per process and accepts any absolute path. |
 | `onPolicyError` | no | `(err, { adapter: 'file', rowId }) => void`. Without it, dropped rows go to `console.warn`. |
 
-`IamFile.IFS` (`src/adapters/file/index.ts:25`) needs `readFile`, `writeFile`
+`IamFile.IFS` (`src/adapters/file/index.ts:23`) needs `readFile`, `writeFile`
 and `mkdir`; `realpath` and `rename` are optional and each disables a protection
 when absent. `mkdir` is always called **without options**, so only the immediate
 parent is created — a typo in `path` cannot silently build a deep tree, and a
@@ -378,7 +386,7 @@ is a global grant; `scope` must be a non-empty string when present.
 
 ### Load-time behaviour
 
-`_loadState` (`src/adapters/file/index.ts:343`) dedupes concurrent loads through
+`_loadState` (`src/adapters/file/index.ts:254`) dedupes concurrent loads through
 `_loadInFlight` and clears that latch on **any** throw, so a symlink-escape or a
 read error cannot pin the adapter in permanent failure until restart.
 
@@ -391,23 +399,30 @@ read error cannot pin the adapter in permanent failure until restart.
 | `policies` or `roles` field is not an object | Throws. Treating a corrupt `policies` field as `{}` would report zero policies, which reads as "no denies exist". |
 | One malformed policy row | Reported, then throws `iamUnreadablePolicy`. |
 | One malformed role row | Reported and dropped; the rest of the catalog loads. |
-| One malformed assignment **entry** | That entry is dropped and reported with its index; the subject's other grants survive. An earlier `break` here dropped every assignment the subject had, because a sibling entry was bad. |
+| One malformed assignment **entry** | Reported with its index, and the whole row moves into `corruptAssignments`, keyed by subject. Serving the entries that did parse is what turns a `targets.roles` deny into an allow. |
 | One malformed attributes row | Moved into `corruptAttributes`, keyed by subject. |
 
 Every dict is `Object.create(null)`, so a subject id of `__proto__` cannot read
 `Object.prototype` back or pollute it through a setter assignment.
 
 A subject in `corruptAttributes` makes `getSubjectAttributes` **throw** until an
-admin `setSubjectAttributes` repairs the row. The raw corrupt value is written
-back out verbatim on every flush (`_serializableState`,
-`src/adapters/file/index.ts:474`) and the marker itself never reaches the file —
-otherwise an unrelated write would quietly repair a store the adapter had
-refused to read, and the `Map` would serialise as `{}` (it has no enumerable own
-properties).
+admin `setSubjectAttributes` repairs the row. A subject in `corruptAssignments`
+makes `getSubjectRoles` and `getSubjectScopedRoles` throw, and `assignRole`,
+`revokeRole` and `updateAssignmentScope` refuse: an incremental edit would write
+back a row missing the entry nobody could read. Repair that one by editing the
+file — the raw row is still there.
+
+The raw corrupt value is written back out verbatim on every flush
+(`_serializableState`, `src/adapters/file/index.ts:367`) and the marker itself
+never reaches the file — otherwise an unrelated write would quietly repair a
+store the adapter had refused to read, and the `Map` would serialise as `{}` (it
+has no enumerable own properties). `deleteRole` cannot sweep a corrupt row for
+the same reason, and reports each one it had to skip instead of implying it
+swept them.
 
 ### Attribute reads are copied
 
-`getSubjectAttributes` (`src/adapters/file/index.ts:793`) returns
+`getSubjectAttributes` (`src/adapters/file/index.ts:594`) returns
 `iamCopyAttributes(s.attributes[id])`, not the cached object itself. That
 matters more here than on any other adapter: `_loadState` caches parsed state
 for the process's lifetime, so the bag in `_cache` *is* the store, and every
@@ -436,7 +451,7 @@ stateDiagram-v2
     Rejected --> [*]: throws did-not-reach-the-store
 ```
 
-With `rename` available, `_writeState` (`src/adapters/file/index.ts:526`) writes
+With `rename` available, `_writeState` (`src/adapters/file/index.ts:399`) writes
 `${path}.${base36-time}-${random}.tmp` and renames it over the store. A crash
 mid-write leaves the previous file intact instead of a truncated one that would
 load as zero policies — that is, as if every deny had been deleted. Without
@@ -445,7 +460,7 @@ documented on `IamFile.IFS.rename` and is the reason to pass the real
 `node:fs/promises`.
 
 A **failed** flush discards `_cache` (`_flushNow`,
-`src/adapters/file/index.ts:501`). Before that, a rejected write left its
+`src/adapters/file/index.ts:380`). Before that, a rejected write left its
 mutation in memory: the caller was told the write failed, with the driver's
 `ENOSPC` on the rejection, and the adapter then answered every later read as
 though it had succeeded. Worse, the next successful write of any kind
