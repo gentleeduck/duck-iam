@@ -295,7 +295,9 @@ app.route('/admin', admin)
 
 Hono is the only adapter with a built-in IP opt-in, `trustCloudflareHeaders`. Off, `environment.ip` is `undefined`. On, `defaultEnv` (`src/server/hono/index.ts:160`) passes `cf-connecting-ip` as `req.ip` and sets `trustProxy: true`, so the chain becomes `cf-connecting-ip` → `x-forwarded-for` → `x-real-ip`. `cf-connecting-ip` is trustworthy only when Cloudflare is the sole ingress; a hono app exposed directly lets any client set it. An app behind its own proxy should use `getEnvironment` instead.
 
-**`await next()` sits outside the try, deliberately.** Hono was the only one of the five that awaited the downstream handler inside its own try, so a business-logic error thrown by the route came back out of `await next()`, was caught here, and was reported through the middleware's `onError` — documented as "handles thrown errors during evaluation". That pre-empted the app's own `app.onError` and turned every route failure into an authorization-shaped 500. Both `iamAccessMiddleware` and `iamGuard` now let a route error past. An evaluation error still reaches `onError`.
+**`await next()` sits outside the try, deliberately.** Hono awaited the downstream handler inside its own try, so a business-logic error thrown by the route came back out of `await next()`, was caught here, and was reported through the middleware's `onError` — documented as "handles thrown errors during evaluation". That pre-empted the app's own `app.onError` and turned every route failure into an authorization-shaped 500. Both `iamAccessMiddleware` and `iamGuard` now let a route error past. An evaluation error still reaches `onError`.
+
+This was first written up as hono being "the only one of the five", which was wrong, and wrong in a way worth recording: the sweep behind that claim looked for an *awaited* downstream call inside the try. `withIamAccess` spelled its call `return handler(req, ctx)`, with no `await`, so it did not match — and an unawaited `return` inside a try still routes a *synchronous* throw to the catch, while letting a rejection past. Same route error, two different outcomes, decided by whether the route handler was declared `async`. See §6.1.
 
 ---
 
@@ -480,6 +482,8 @@ export const DELETE = withIamAccess(
 ```
 
 `opts.getUserId` is **required** and the constructor throws without it: identity is never derived from request headers, because a header is caller-controlled. The resource id comes from `ctx.params.id` (awaited when it is a promise). 401 for no user, 403 for a denial, `onError` (default 500) for a throw.
+
+**`handler(req, ctx)` sits outside the try**, as `await next()` does in hono (§4): `withIamAccess` invokes the route itself, with no framework layer in between, so anything the route throws would otherwise be reported as an evaluation failure. Both spellings are covered — `cross-adapter.test.ts` runs the same assertion against an `async` route and a plain one, because the bug this fixed was visible only in the plain one.
 
 ### 6.2 Server Components — `checkIamAccess` and `getIamPermissions`
 
@@ -739,6 +743,7 @@ The redaction work in commit `b2b62735` ("make a dropped invalidation reportable
 | All five pass a defined `environment` object to `engine.can`. | every adapter's `getEnvironment` default |
 | None of the five populates `environment.ip` without an opt-in. | `iamExtractEnvironment` |
 | A throwing `getUserId` reaches the adapter's own `onError`, never the framework boundary. | the `try` placement in all five |
+| A throwing *route* reaches the framework, never the adapter's `onError`. | hono's `next()` and next's `handler()` outside the try; express's downstream is the framework's own `next`, which Express wraps in its own try |
 | No blank or non-string subject id reaches the engine. | `iamIsSubjectId` at all seven entry points |
 | The handler that runs is the one the check was made about. | the path refusals; asserted per-integration over real HTTP |
 | An engine throw denies rather than falling through, and does not leak the message. | fixed 500 bodies + `onError` defaults |

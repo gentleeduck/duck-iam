@@ -3,7 +3,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { connect } from 'node:net'
 import { Hono } from 'hono'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../adapters/memory'
 import { IamEngine } from '../../core/engine'
 import type { AccessControl, IamRequest } from '../../core/types'
@@ -836,6 +836,67 @@ describe('fail closed when the engine throws', () => {
       }
     })
   }
+})
+
+describe("a route's own error belongs to the framework, not to the guard", () => {
+  // Express is the one adapter that still calls its downstream inside the authz try. It is harmless because
+  // express dispatches each layer inside a try of its own and turns a throw into `next(err)` - measured here
+  // rather than assumed, since the same shape in `withIamAccess` was not harmless.
+  it('express hands a throwing route to the app error handler, not to the iam onError', async () => {
+    const { default: express } = await import('express')
+    const { engine } = makeEngine()
+    const iamOnError = vi.fn(
+      (_err: Error, _req: unknown, res: { status: (n: number) => { json: (b: unknown) => void } }) => {
+        res.status(500).json({ answered: 'iam-onError' })
+      },
+    )
+    const appSaw: string[] = []
+    const app = express()
+    app.use((req, _res, next) => {
+      Reflect.set(req, 'user', { id: SUBJECT })
+      next()
+    })
+    const mw = expressAccessMiddleware(engine, { onError: iamOnError as never })
+    app.use((req, res, next) => {
+      void mw(req as never, res as never, next)
+    })
+    app.get('/public/sync', () => {
+      throw new Error('route blew up')
+    })
+    app.get('/public/async', async () => {
+      throw new Error('route blew up')
+    })
+    app.use(
+      (err: Error, _req: unknown, res: { status: (n: number) => { json: (b: unknown) => void } }, _next: unknown) => {
+        appSaw.push(err.message)
+        res.status(500).json({ answered: 'app-error-handler' })
+      },
+    )
+    const server = app.listen(0, '127.0.0.1')
+    const port = await new Promise<number>((resolve, reject) => {
+      server.once('error', reject)
+      server.once('listening', () => {
+        const addr = server.address()
+        if (addr === null || typeof addr === 'string') reject(new Error('express did not bind'))
+        else resolve(addr.port)
+      })
+    })
+
+    try {
+      const answered: Record<string, unknown> = {}
+      for (const spelling of ['sync', 'async']) {
+        const res = await raw(port, 'GET', `/public/${spelling}`)
+        answered[spelling] = res.json?.answered
+      }
+      expect({ answered, appSaw, iamOnErrorCalls: iamOnError.mock.calls.length }).toEqual({
+        answered: { async: 'app-error-handler', sync: 'app-error-handler' },
+        appSaw: ['route blew up', 'route blew up'],
+        iamOnErrorCalls: 0,
+      })
+    } finally {
+      await closeServer(server as unknown as Server)
+    }
+  })
 })
 
 // ===========================================================================

@@ -505,3 +505,28 @@ The reference doc's ownership matrix was wrong in two more cells while it was
 there: it said a write into the map React's `AccessProvider` hands back changes
 `can()`, but that snapshot has been frozen all along. All four surfaces are now
 pinned by one table-shaped test rather than by prose.
+
+### A Next route handler's own error was reported as an authorization failure
+
+`withIamAccess` wrapped the route handler in the same `try` as the permission
+check, so anything the route threw came back through the adapter's `onError` —
+documented as *"handles thrown errors during evaluation"* — and the client got
+the IAM layer's 500 `{error:'Internal server error'}` instead of whatever the
+route meant to answer. Next's own error handling never saw it.
+
+Only half the time, which is the part worth knowing. The call was spelled
+`return handler(req, ctx)`, with no `await`, and an unawaited `return` inside a
+`try` still routes a *synchronous* throw to the `catch` while letting a
+rejection past. So the same route error behaved differently depending on
+whether the route was declared `async`.
+
+Hono had this fixed a round earlier, and it was written up then as hono being
+"the only one of the five". That was wrong: the check behind it looked for an
+*awaited* downstream call inside the try, and `withIamAccess` was not awaiting.
+
+`handler(req, ctx)` now sits outside the try, as `await next()` does in hono.
+`cross-adapter.test.ts` runs the assertion against both spellings, and a new
+express control in the HTTP e2e boots a real express app to show why the one
+adapter still calling its downstream inside the try is unaffected: express
+dispatches each layer inside a try of its own and turns the throw into
+`next(err)` before it could unwind.
