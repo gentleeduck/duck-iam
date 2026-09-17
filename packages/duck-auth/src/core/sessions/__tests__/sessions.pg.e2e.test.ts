@@ -1,16 +1,4 @@
-/**
- * E2E: the SQL session store against REAL Postgres, on the REAL shipped schema.
- *
- * The sqlite conformance run already covers the `sql.ts` bridge's logic. What it
- * cannot cover is the actual production dialect: `timestamptz`, `jsonb`, `uuid`
- * identity ids, and the `ON DELETE CASCADE` foreign key to `auth_identities`.
- * Those only exist here.
- *
- * The suite creates the shipped schema itself (generated from the drizzle pg
- * schema), so it runs against exactly what ships and never touches app data.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset. See `.env.example`.
- */
+/** E2E: the SQL session store against REAL Postgres, on the REAL shipped schema. */
 import { createHash, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -120,9 +108,7 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
 
   describe('CHECK constraints that ONLY Postgres enforces', () => {
     // The sqlite conformance DDL says in its own comment that it "intentionally
-    // omits CHECK constraints". Memory and Redis have no schema at all. So these
-    // eight invariants are enforced in production and nowhere else — a write the
-    // library considers valid can still be rejected by the real database.
+    // omits CHECK constraints". Memory and Redis have no schema at all.
 
     it('rejects a session id that is not exactly 64 chars (sha-256 hex)', async () => {
       // Memory, Redis and sqlite all accept any string as an id.

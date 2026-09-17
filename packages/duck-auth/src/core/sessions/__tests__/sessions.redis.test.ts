@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sha256 } from '~/core/crypto'
 import { FakeRedis } from '~/core/drivers/redis-like'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { RedisSessionImpl } from '../sessions.redis'
 
+/** Created a day ago, so the gc cases that push a deadline into the past still describe a session that
+ *  existed before it expired — `expires_at >= created_at` is a constraint every dialect carries. */
 function buildSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
   const sid = 'sid-' + Math.random().toString(36).slice(2)
   const now = new Date()
+  const born = new Date(now.getTime() - 86_400_000)
   const exp = new Date(now.getTime() + 60_000)
   return {
     id: sha256(sid),
@@ -19,7 +22,8 @@ function buildSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
     ip: null,
     userAgent: null,
     fingerprint: null,
-    createdAt: now,
+    createdAt: born,
+    updatedAt: now,
     rotatedAt: now,
     expiresAt: exp,
     absoluteExpiresAt: exp,
@@ -42,6 +46,7 @@ function storedRow(id: string, overrides: Record<string, unknown> = {}): string 
     aal: 1,
     factors: [],
     createdAt: now,
+    updatedAt: now,
     rotatedAt: now,
     expiresAt: now + 60_000,
     absoluteExpiresAt: now + 60_000,
@@ -67,7 +72,7 @@ describe('RedisSessionStore', () => {
   })
 
   it('getByHash returns null on miss', async () => {
-    expect(await store.getByHash('not-real')).toBeNull()
+    await expect(store.getByHash('not-real')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('update merges patch + bumps absoluteExpiresAt to recompute TTL', async () => {
@@ -89,7 +94,7 @@ describe('RedisSessionStore', () => {
     const s = buildSession()
     await store.create(s)
     await store.delete(s.id)
-    expect(await store.getByHash(s.id)).toBeNull()
+    await expect(store.getByHash(s.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     expect(await store.listByIdentity(s.identityId!)).toEqual([])
   })
 
@@ -119,8 +124,8 @@ describe('RedisSessionStore', () => {
     await store.create(b)
     await store.deleteAllForIdentity('ident-1')
     expect(await store.listByIdentity('ident-1')).toEqual([])
-    expect(await store.getByHash(a.id)).toBeNull()
-    expect(await store.getByHash(b.id)).toBeNull()
+    await expect(store.getByHash(a.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(store.getByHash(b.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('gc sweeps a session past its deadline and leaves a live one alone', async () => {
@@ -137,7 +142,7 @@ describe('RedisSessionStore', () => {
     expect(await redis.get(`test:sess:${dead.id}`)).toBeNull()
     expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([live.id])
     expect(await redis.zrangebyscore('test:exp', '-inf', '+inf')).toEqual([`${live.id}:ident-1`])
-    expect(await store.getByHash(live.id)).not.toBeNull()
+    await expect(store.getByHash(live.id)).resolves.toBeTruthy()
   })
 
   it('gc sweeps on the sliding expiresAt, not just the absolute one', async () => {
@@ -150,7 +155,7 @@ describe('RedisSessionStore', () => {
     await store.create(s)
 
     expect(await store.gc(Date.now())).toEqual({ deleted: 1 })
-    expect(await store.getByHash(s.id)).toBeNull()
+    await expect(store.getByHash(s.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('gc sweeps guest sessions, which sit in no identity index', async () => {
@@ -159,7 +164,7 @@ describe('RedisSessionStore', () => {
     await store.create(guest)
 
     expect(await store.gc(Date.now())).toEqual({ deleted: 1 })
-    expect(await store.getByHash(guest.id)).toBeNull()
+    await expect(store.getByHash(guest.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     expect(await redis.zrangebyscore('test:exp', '-inf', '+inf')).toEqual([])
   })
 
@@ -219,7 +224,7 @@ describe('RedisSessionStore', () => {
     await store.update(s.id, { absoluteExpiresAt: future, expiresAt: future })
 
     expect(await store.gc(Date.now())).toEqual({ deleted: 0 })
-    expect(await store.getByHash(s.id)).not.toBeNull()
+    await expect(store.getByHash(s.id)).resolves.toBeTruthy()
   })
 
   it('update moves the expiry entry when the session changes identity', async () => {
@@ -250,25 +255,20 @@ describe('RedisSessionStore', () => {
   it('guest sessions (no identityId) skip the identity index', async () => {
     const guest = buildSession({ identityId: null, kind: 'guest' })
     await store.create(guest)
-    expect(await store.getByHash(guest.id)).not.toBeNull()
+    await expect(store.getByHash(guest.id)).resolves.toBeTruthy()
     expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([])
   })
 
   it('getByHash returns null on a corrupted JSON entry (parser fail-closed)', async () => {
     // Plant raw garbage as if Redis was tampered with.
     await redis.set('test:sess:corrupt-id', 'not-valid-json-{{}}}', {})
-    expect(await store.getByHash('corrupt-id')).toBeNull()
+    await expect(store.getByHash('corrupt-id')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash returns null when expiresAt is a string (parser rejects non-finite-number)', async () => {
-    // The legacy cast would have accepted this; downstream
-    // `expiresAt < Date.now()` becomes a NaN comparison and silently
-    // treats the session as live. parseStoredSession rejects.
-    //
-    // `kind` has to be a real one. This fixture used to say `'web'`, which is not
-    // in AUTH_SESSION_KINDS, and the kind gate runs first - so the row was
-    // refused before `expiresAt` was ever looked at and this test proved nothing
-    // about the thing it is named for.
+    // The legacy cast would have accepted this; downstream `expiresAt <
+    // Date.now()` becomes a NaN comparison and silently treats the session as
+    // live. parseStoredSession rejects.
     await redis.set(
       'test:sess:bad-expires',
       JSON.stringify({
@@ -278,6 +278,7 @@ describe('RedisSessionStore', () => {
         aal: 1,
         factors: [],
         createdAt: 1,
+        updatedAt: 1,
         rotatedAt: 1,
         expiresAt: 'never', // <- wrong type
         absoluteExpiresAt: 2,
@@ -285,17 +286,17 @@ describe('RedisSessionStore', () => {
       }),
       {},
     )
-    expect(await store.getByHash('bad-expires')).toBeNull()
+    await expect(store.getByHash('bad-expires')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash returns null when the entry is a top-level array (not an object)', async () => {
     await redis.set('test:sess:array-row', JSON.stringify(['unexpected']), {})
-    expect(await store.getByHash('array-row')).toBeNull()
+    await expect(store.getByHash('array-row')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash returns null on an unrecognised session kind', async () => {
     await redis.set('test:sess:bad-kind', storedRow('bad-kind', { kind: 'web' }), {})
-    expect(await store.getByHash('bad-kind')).toBeNull()
+    await expect(store.getByHash('bad-kind')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash returns null when factors contains null (parser must not throw)', async () => {
@@ -304,19 +305,19 @@ describe('RedisSessionStore', () => {
     // tampered blob turned every read of that session into a 500 rather than the
     // `null` this parser exists to return.
     await redis.set('test:sess:bad-factors', storedRow('bad-factors', { factors: [null] }), {})
-    expect(await store.getByHash('bad-factors')).toBeNull()
+    await expect(store.getByHash('bad-factors')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash returns null when factors contains a primitive', async () => {
     // Accepted silently before, with the entry dropped: the row came back as an
     // `aal` session carrying no factors at all.
     await redis.set('test:sess:prim-factors', storedRow('prim-factors', { aal: 2, factors: ['password'] }), {})
-    expect(await store.getByHash('prim-factors')).toBeNull()
+    await expect(store.getByHash('prim-factors')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash returns null when a factor entry has no method', async () => {
     await redis.set('test:sess:no-method', storedRow('no-method', { factors: [{ completedAt: Date.now() }] }), {})
-    expect(await store.getByHash('no-method')).toBeNull()
+    await expect(store.getByHash('no-method')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash drops unrecognised factor methods rather than rejecting the row', async () => {
@@ -340,7 +341,7 @@ describe('RedisSessionStore', () => {
       }),
       {},
     )
-    expect(await store.getByHash('many-factors')).toBeNull()
+    await expect(store.getByHash('many-factors')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash accepts exactly 16 factors', async () => {
@@ -356,7 +357,7 @@ describe('RedisSessionStore', () => {
 
   it('getByHash returns null when factors is not an array', async () => {
     await redis.set('test:sess:obj-factors', storedRow('obj-factors', { factors: { method: 'password' } }), {})
-    expect(await store.getByHash('obj-factors')).toBeNull()
+    await expect(store.getByHash('obj-factors')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash returns null on a malformed actingAs envelope', async () => {
@@ -364,7 +365,7 @@ describe('RedisSessionStore', () => {
     // session belonging to the person being impersonated: no audit trail, and no
     // impersonation expiry either.
     await redis.set('test:sess:bad-acting', storedRow('bad-acting', { actingAs: { realIdentityId: 'admin' } }), {})
-    expect(await store.getByHash('bad-acting')).toBeNull()
+    await expect(store.getByHash('bad-acting')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('getByHash round-trips a well-formed actingAs envelope', async () => {
@@ -402,7 +403,7 @@ describe('RedisSessionStore', () => {
     expect(ttls.every((t) => t === undefined || Number.isFinite(t))).toBe(true)
     // Parsed rather than capped: a serialised date still yields the real TTL.
     expect(ttls.some((t) => t !== undefined && t <= 60)).toBe(true)
-    expect(await store.getByHash(broken.id)).not.toBeNull()
+    await expect(store.getByHash(broken.id)).resolves.toBeTruthy()
   })
 
   it('create does not leave an index entry behind when the record write fails', async () => {
@@ -425,7 +426,7 @@ describe('RedisSessionStore', () => {
     // A readable-but-unindexed row would authenticate while surviving
     // deleteAllForIdentity forever, and gc scans the indexes so nothing could
     // reach it. Better that it never exists.
-    expect(await store.getByHash(s.id)).toBeNull()
+    await expect(store.getByHash(s.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('create compensates when the index TTL write fails, not just the record write', async () => {
@@ -439,7 +440,7 @@ describe('RedisSessionStore', () => {
 
     await expect(store.create(s)).rejects.toThrow('connection lost')
     expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([])
-    expect(await store.getByHash(s.id)).toBeNull()
+    await expect(store.getByHash(s.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('a create colliding with a live record leaves the index naming it', async () => {
@@ -449,14 +450,14 @@ describe('RedisSessionStore', () => {
     // prevent: a readable record no index names, which gc scans right past.
     await redis.srem('test:idx:identity:ident-1', s.id)
 
-    await expect(store.create(s)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(store.create(s)).rejects.toMatchObject({ code: 'AUTH_ALREADY_EXISTS' })
 
     // The id is taken, so the entry this call added names a live record - it
     // repaired the orphan on the way in. Compensating on this branch would tear
     // that back out, and on the ordinary collision it would unindex whichever
     // session won the race.
     expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([s.id])
-    expect(await store.getByHash(s.id)).not.toBeNull()
+    await expect(store.getByHash(s.id)).resolves.toBeTruthy()
   })
 
   it('a read landing inside create does not orphan the session', async () => {
@@ -471,7 +472,7 @@ describe('RedisSessionStore', () => {
 
     await store.create(s)
 
-    expect(await store.getByHash(s.id)).not.toBeNull()
+    await expect(store.getByHash(s.id)).resolves.toBeTruthy()
     expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([s.id])
     expect(await store.listByIdentity('ident-1')).toHaveLength(1)
   })
@@ -523,10 +524,10 @@ describe('RedisSessionStore', () => {
     await store.create(a)
     await store.create(b)
 
-    const result = await store.deleteAllForIdentities(['ident-1', 'ident-2', 'ident-absent'])
+    const gone = await store.deleteAllForIdentities(['ident-1', 'ident-2', 'ident-absent'])
 
-    expect(result.outcomes.map((o) => o.id)).toEqual(['ident-1', 'ident-2', 'ident-absent'])
-    expect(result.applied).toBe(2)
+    expect(gone.map((s) => s.id).sort()).toEqual([a.id, b.id].sort())
+    expect(gone.map((s) => s.identityId).sort()).toEqual(['ident-1', 'ident-2'])
     // A record-only sweep leaves members naming nothing: invisible to listByIdentity, which drops
     // what it cannot read, and a wasted read on every later call until the key's own TTL.
     expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([])
@@ -542,10 +543,9 @@ describe('RedisSessionStore', () => {
     await store.create(b)
     await store.create(keep)
 
-    const result = await store.deleteMany([a.id, b.id, sha256('absent')])
+    const gone = await store.deleteMany([a.id, b.id, sha256('absent')])
 
-    expect(result.applied).toBe(2)
-    expect(result.outcomes[2]).toMatchObject({ ok: false, reason: 'not-found' })
+    expect(gone.map((s) => s.id).sort()).toEqual([a.id, b.id].sort())
     // Grouped per identity, so the session left behind keeps its entry and the two taken lose theirs.
     expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([keep.id])
     expect(await redis.smembers('test:idx:identity:ident-2')).toEqual([])
@@ -556,11 +556,11 @@ describe('RedisSessionStore', () => {
     await store.create(s)
     await redis.set(`test:sess:${s.id}`, '{"not":"a session"}')
 
-    const result = await store.deleteMany([s.id])
+    const gone = await store.deleteMany([s.id])
 
     // Presence is the key existing. Parsing first would make this the one delete that cannot clear
     // a corrupted row, so the row would sit there until its TTL with every read skipping past it.
-    expect(result.applied).toBe(1)
+    expect(gone.map((r) => r.id)).toEqual([s.id])
     expect(await redis.get(`test:sess:${s.id}`)).toBeNull()
   })
 
@@ -613,5 +613,30 @@ describe('RedisSessionStore', () => {
     await store.gc(Date.now())
     expect(await redis.get('test:gc:lease')).toBe('1')
     expect(await store.gc(Date.now())).toEqual({ deleted: 0 })
+  })
+})
+
+/**
+ * `create` and `repoint` each bound the per-identity index with one `expire` call, and the fake every
+ * test here runs against answered `0` to it and set nothing, because it held TTLs on string entries
+ * only. So the index — one key per identity, growing for the life of the process — was unbounded, and
+ * dropping either call broke no test.
+ */
+describe('RedisSessionImpl - the identity index is bounded', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('expires the index set, rather than keeping one key per identity for ever', async () => {
+    vi.useFakeTimers()
+    const redis = new FakeRedis()
+    const store = new RedisSessionImpl({ redis, maxTtlSec: 60 })
+    const session = buildSession()
+    await store.create(session)
+    expect(await redis.smembers(`auth:idx:identity:${session.identityId}`)).toEqual([session.id])
+
+    vi.advanceTimersByTime(61_000)
+
+    expect(await redis.smembers(`auth:idx:identity:${session.identityId}`)).toEqual([])
   })
 })

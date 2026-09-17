@@ -1,13 +1,6 @@
-import type { Batch } from '~/core/batch'
-/** Session domain + lifecycle types — the single `Session` namespace for the sessions subject. */
-
 import type { Identities } from '../identities'
 import type { TenantContext } from '../tenant/tenant.types'
 
-/**
- * Authenticated (or guest, or API-key) bearer of access. Issued by the configured
- * Transport; resolved on every authed request. AAL + factor model follows NIST 800-63B.
- */
 export const AUTH_SESSION_KINDS = ['guest', 'user', 'apikey'] as const
 
 export const AUTH_SESSION_FACTOR_METHODS = [
@@ -23,6 +16,7 @@ export const AUTH_SESSION_FACTOR_METHODS = [
   'backup-code',
 ] as const
 
+/** The session row, its assurance levels, and the store contract over it. */
 export namespace Sessions {
   /** NIST 800-63B Authentication Assurance Levels. */
   export type AAL = 1 | 2 | 3
@@ -36,7 +30,6 @@ export namespace Sessions {
 
   export type Kind = (typeof AUTH_SESSION_KINDS)[number]
 
-  /** Audit-visible impersonation envelope; absent on non-impersonation sessions. */
   export type ActingAs = {
     realIdentityId: string
     startedAt: Date
@@ -44,38 +37,51 @@ export namespace Sessions {
     expiresAt: Date
   }
 
+  /** Enough to name the session in a `session.revoked` event. */
+  export type Revoked = Pick<Me, 'id' | 'identityId'>
+
   export type Me = {
+    /** The sha-256 of the sid; the sid itself never reaches the store. */
     id: string
+    /** `null` on a guest session, the one kind that names nobody. */
     identityId: string | null
+    /** `null` is a global session, which a tenant-scoped read does not see. */
     tenantId: string | null
+    /** Which credential opened it; an `apikey` session is a machine caller, not a person. */
     kind: Kind
+    /** The assurance level reached: 2 once a second factor was presented. */
     aal: AAL
+    /** Every factor presented, with when; `aal` is what they add up to. */
     factors: Factor[]
     /** Per-session CSRF token hash (sha-256). Cookie carries the plaintext under __Host-. */
     csrfHash: string | null
-    /** Captured at create; used by hijack-detection policy. */
+    /** Captured at create, never refreshed; hijack detection reads the drift. */
     ip: string | null
+    /** Captured at create like `ip`, and compared for the same drift. */
     userAgent: string | null
+    /** The device fingerprint at create, where a detector composed one. */
     fingerprint: string | null
     createdAt: Date
+    /** Moves on every write to the row, a rotation or not. SQL maintains it through `$onUpdate`; the
+     *  memory and redis stores stamp it themselves. */
+    updatedAt: Date
+    /** Moves on every rotation; `createdAt` stays at the original sign-in. */
     rotatedAt: Date
+    /** The sliding deadline, pushed out as the session is used and never past `absoluteExpiresAt`. */
     expiresAt: Date
+    /** The hard cap, fixed at create; no rotation or touch moves it. */
     absoluteExpiresAt: Date
+    /** Whether a factor was presented recently enough for a privileged operation. */
     fresh: boolean
-    /**
-     * The impersonation window, when one is open. This is also the only case in
-     * which a session's author differs from its subject, which is why the row
-     * carries no `createdBy`: for every other session `identityId` already
-     * answers "who opened this", and a column repeating it can only drift.
-     */
+    /** The impersonation window, when one is open. The only case where a session's author differs from its
+     *  subject, which is why the row carries no `createdBy`. */
     actingAs: ActingAs | null
   }
 
-  /**
-   * Input to `Store.create`. Callers provide the identifying + lifecycle
-   * fields; every nullable column is explicit `T | null` — the facet
-   * coalesces optional public inputs before passing this type.
-   */
+  /** A row minus the one field a caller outside the server must never hold. */
+  export type Public = Omit<Me, 'csrfHash'>
+
+  /** Every nullable column explicit; `SessionsImpl.create` coalesces {@link MintInput} into it. */
   export type CreateInput = Omit<Me, 'tenantId' | 'csrfHash' | 'ip' | 'userAgent' | 'fingerprint' | 'actingAs'> & {
     tenantId: string | null
     csrfHash: string | null
@@ -87,55 +93,27 @@ export namespace Sessions {
 
   export type Store = {
     create(s: CreateInput): Promise<void>
-    getByHash(sidHash: string): Promise<Me | null>
+    /** The session behind a cookie's hash. A hash matching nothing is `AUTH_SESSION_REVOKED`: one that never
+     *  existed and one that was ended must read the same. */
+    getByHash(sidHash: string): Promise<Me>
     update(id: string, patch: Partial<Me>): Promise<Me>
     delete(id: string): Promise<void>
-    /**
-     * Every session of an identity, optionally narrowed to one tenant.
-     *
-     * Identities are global - the conformance suite says so in as many words -
-     * so one person is routinely a user of tenant A and of tenant B, and their
-     * sessions all hang off the same id. Without the filter this read handed
-     * tenant A the IP, user-agent and existence of every session tenant B had
-     * issued. Sessions were the only store carrying a `tenantId` that no method
-     * could select on, which `TenantContext`'s own docstring ("stores receive it
-     * on every call") already said they should.
-     *
-     * `ctx` omitted, or `ctx.tenantId` undefined, means every tenant - the
-     * behaviour every existing caller has. A set `tenantId` matches exactly, so
-     * a global (`tenantId: null`) session is not visible to a named tenant.
-     * Same rule as `Credential.Store`, which is the reference.
-     */
+    /** Every session of an identity, narrowed to one tenant by `ctx`. Identities are global, so an unfiltered
+     *  read hands one tenant the IP, user-agent and existence of every session another issued. A named
+     *  `tenantId` matches exactly, so a global (`null`) session is not visible to it. */
     listByIdentity(identityId: string, ctx?: TenantContext): Promise<Me[]>
-    /**
-     * Sign an identity out. Scoped the same way as `listByIdentity`: unscoped it
-     * ends every session the identity has anywhere, which is what a tenant A
-     * "sign out everywhere" used to do to that person's tenant B logins.
-     */
+    /** Sign an identity out, scoped as {@link Sessions.Store.listByIdentity} is.
+     *  WARN: unscoped it ends every session the identity has anywhere, other tenants' included. */
     deleteAllForIdentity(identityId: string, ctx?: TenantContext): Promise<void>
-    /**
-     * Periodic GC. Implementations that can run on several instances at once MUST
-     * serialise themselves - `RedisSessionImpl` takes a `{prefix}:gc:lease` with
-     * SET NX and no-ops when it loses. Callers schedule this; they do not lock it.
-     *
-     * `deleted` counts each row the run reconciled exactly once, whether its
-     * record was already gone or was swept here for being past `expiresAt` or
-     * `absoluteExpiresAt`.
-     */
+    /** Periodic GC, scheduled by the caller, counting each row it reconciled once. An implementation that can
+     *  run on several instances at once MUST serialise itself, as `RedisSessionImpl` does with a `gc:lease`. */
     gc(now: number): Promise<{ deleted: number }>
 
-    /**
-     * Set-based forms of the deletes above, plus the read the facet needs to
-     * emit one event per session actually removed. Each is optional: the facet
-     * loops when the store omits it.
-     */
-    deleteAllForIdentities?(identityIds: readonly string[]): Promise<Batch.Result>
-    deleteMany?(ids: readonly string[]): Promise<Batch.Result>
-    /** Rows about to be deleted, so the facet can emit one event per real revocation. */
-    listByIdentities?(identityIds: readonly string[]): Promise<Me[]>
+    /** The deletes above over a set, each answering the sessions it removed. */
+    deleteAllForIdentities(identityIds: string[]): Promise<Revoked[]>
+    deleteMany(ids: string[]): Promise<Revoked[]>
   }
 
-  /** SessionsFacet tuning. */
   export type Cfg = {
     /** Sliding TTL in ms. Default 7 days. */
     ttlMs: number
@@ -145,7 +123,6 @@ export namespace Sessions {
     freshnessMs: number
   }
 
-  /** Facet-level mint input to {@link SessionsImpl.create}; the facet coalesces these into a `CreateInput`. */
   export type MintInput = {
     identityId: string | null
     kind: Kind
@@ -157,20 +134,14 @@ export namespace Sessions {
     fingerprint?: string | null
     actingAs?: ActingAs | null
     identity?: Identities.Me | null
-    /**
-     * An upper bound on `expiresAt`, never an extension: the row still expires at the facet's own
-     * ttl when that one is sooner. The m2m grant sets it so a session expires with the token it was
-     * minted for rather than outliving it by the sessions facet's longer default.
-     */
+    /** An upper bound on `expiresAt`, never an extension: the facet's own ttl still wins when it is sooner.
+     *  The m2m grant sets it so a session expires with the token it was minted for. */
     maxExpiresAt?: Date
   }
 
   export interface RotateInput extends MintInput {
-    /**
-     * The rotation matrix. Drives whether the previous SID is revoked
-     * outright, downgraded (step-up old-SID kept alive at lower AAL), or left
-     * alone (impersonation start runs alongside the original session).
-     */
+    /** Whether the previous SID is revoked outright, downgraded (step-up keeps it alive at a lower AAL), or
+     *  left alone (impersonation runs alongside the original). */
     purpose:
       | 'signin'
       | 're-auth'
@@ -181,13 +152,8 @@ export namespace Sessions {
       | 'impersonate-release'
       /** A guest session becoming a named one; the guest row is revoked. */
       | 'guest-promotion'
-      /**
-       * The first session of a brand-new account. Distinct from `guest-promotion`
-       * because `completeSignUp`'s `previousSid` is optional: most signups have no
-       * prior session to promote, and calling that a promotion made the rotation
-       * log describe a transition that never happened. Same revocation semantics -
-       * whatever the caller came in on does not survive the account being created.
-       */
+      /** The first session of a new account. Not `guest-promotion`, since most signups have no prior session
+       *  to promote, but revoked alike: whatever the caller came in on does not survive. */
       | 'sign-up'
     previousSid?: string
   }
