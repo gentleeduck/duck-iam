@@ -6,7 +6,7 @@ import {
 } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
-import type { Identities } from '~/core/identities'
+import { canonicalEmail, emailSpellings, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import type { Flows } from './flows.types'
@@ -35,7 +35,7 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   // request equals one permanent identity row, unbounded. Keyed on the address, the
   // same shape `requestPasswordReset` uses, so hammering one victim's address is
   // what gets capped.
-  const emailCanonical = opts.email.trim().toLowerCase()
+  const emailCanonical = canonicalEmail(opts.email) ?? ''
   const limited = await ctx.limiter.consume(`signup:begin:${emailCanonical}`)
   // No subject to name. This bucket guards an address that, by construction, has
   // no account behind it yet, so there is nothing for a `lockout` handler to page
@@ -67,7 +67,7 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   // for that address. The attacker's parking spot becomes the real user's
   // account, and the state check is what keeps this from being a takeover of
   // somebody's real one - see `isAbandonedSignUp`.
-  const existing = await ctx.stores.identities.findByEmail(emailCanonical)
+  const existing = await ctx.stores.identities.find({ email: emailSpellings(opts.email) ?? emailCanonical })
   let identityId: string
   if (existing) {
     if (!(await isAbandonedSignUp(existing, ctx))) {
@@ -187,12 +187,9 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
   // every subsequent call.
   deps.identities.assertProfileWithinCap(next.data)
 
-  // The version guard, then the metadata write. This used to be rotate, revoke,
-  // re-upsert: three writes, no transaction, and the middle one destroys the
-  // token. A failure after the revoke stranded the user mid-signup with a token
-  // the store had already marked dead, and the recovery depended on `upsert`
-  // re-accepting a secret hash that had just been revoked - keying semantics the
-  // interface never promised.
+  // The version guard, then the metadata write. Nothing may revoke between them: there is no
+  // transaction here, so a failure after a revoke strands the user mid-signup holding a token the
+  // store has already marked dead.
   //
   // `rotate` with the row's own secret keeps the compare-and-set - a concurrent
   // `advanceSignUp` still loses on `expectedVersion` - without invalidating the
@@ -238,14 +235,10 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
     throw new AuthError('AUTH_SIGNUP_INCOMPLETE', { missing })
   }
 
-  const identity = await ctx.stores.identities.findById(flow.identityId)
+  const identity = await ctx.stores.identities.find({ id: flow.identityId })
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
-  // Through the facet. It performs the same merge this used to hand-roll, and it
-  // enforces `profileMaxBytes` - which the raw store does not, so the one place
-  // the staged profile finally met a size limit was the one place that skipped
-  // it. Dropping the hand-rolled merge also drops its `as Profile`: the cast was
-  // asserting that the union of a stored profile and a caller's patch is a
-  // complete `Profile`, which nothing checked.
+  // Through the facet, not the store: it is what enforces `profileMaxBytes`, and this is where the
+  // staged profile is finally big enough to need it.
   // `identity` is stale past this line; listeners need the profile we just wrote.
   const merged = await deps.identities.updateProfile(identity.id, flow.data, identity.version)
   // The stage said the address was proven; the column never recorded it. Nothing

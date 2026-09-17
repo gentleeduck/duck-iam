@@ -112,12 +112,12 @@ describe('account deletion - the undo token', () => {
   describe('redeeming', () => {
     it('the token restores the account with no callback at all', async () => {
       const { cancellationToken } = await deleteAccount()
-      expect(await adapter.identities.findById(identityId)).toBeNull()
+      expect(await adapter.identities.find({ id: identityId })).toBeNull()
 
       const cancelled = await auth.flows.cancelAccountDeletion({ token: cancellationToken })
       expect(cancelled.identityId).toBe(identityId)
       expect(cancelled.identity.deletedAt).toBeNull()
-      expect(await adapter.identities.findById(identityId)).not.toBeNull()
+      expect(await adapter.identities.find({ id: identityId })).not.toBeNull()
     })
 
     it('it is single-use', async () => {
@@ -144,7 +144,7 @@ describe('account deletion - the undo token', () => {
       await expect(auth.flows.cancelAccountDeletion({ token: 'not-a-real-token' })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_INVALID',
       })
-      expect(await adapter.identities.findById(identityId)).toBeNull()
+      expect(await adapter.identities.find({ id: identityId })).toBeNull()
     })
 
     it('the deletion token is not an undo token', async () => {
@@ -169,7 +169,7 @@ describe('account deletion - the undo token', () => {
       } finally {
         vi.useRealTimers()
       }
-      expect(await adapter.identities.findById(identityId)).toBeNull()
+      expect(await adapter.identities.find({ id: identityId })).toBeNull()
     })
 
     it('a token whose identity was erased is refused, not honoured', async () => {
@@ -184,9 +184,15 @@ describe('account deletion - the undo token', () => {
 
     it('a restore that throws leaves no live token for a second identical attempt', async () => {
       const { cancellationToken } = await deleteAccount()
-      // Somebody took the address while the row was hidden, so `restore` refuses.
-      await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-      await expect(auth.flows.cancelAccountDeletion({ token: cancellationToken })).rejects.toBeDefined()
+      // Wind the grace window shut so `restore` refuses: nothing in the public API produces an expired
+      // row, and a hidden row keeps its address, so nobody can take that out from under it either.
+      const hidden = adapter.raw.identities.get(identityId)
+      if (hidden) hidden.deletedAt = new Date(Date.now() - 1000)
+      // Two different refusals, and the pair is the point: the first is the window, the second is the
+      // token, which proves the failed attempt still spent it.
+      await expect(auth.flows.cancelAccountDeletion({ token: cancellationToken })).rejects.toMatchObject({
+        code: 'AUTH_GRACE_EXPIRED',
+      })
       await expect(auth.flows.cancelAccountDeletion({ token: cancellationToken })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_INVALID',
       })
@@ -202,14 +208,14 @@ describe('account deletion - the undo token', () => {
         token: cancellationToken,
       } as unknown as CancelInput
       await expect(auth.flows.cancelAccountDeletion(input)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
-      expect(await adapter.identities.findById(identityId)).toBeNull()
+      expect(await adapter.identities.find({ id: identityId })).toBeNull()
     })
 
     it('a bad token does not fall through to a callback that would say yes', async () => {
       await deleteAccount()
       const input = { authorize: async () => true, token: 'not-a-real-token' } as unknown as CancelInput
       await expect(auth.flows.cancelAccountDeletion(input)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
-      expect(await adapter.identities.findById(identityId)).toBeNull()
+      expect(await adapter.identities.find({ id: identityId })).toBeNull()
     })
 
     it('neither gate is still a wiring error', async () => {

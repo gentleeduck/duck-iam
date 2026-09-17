@@ -58,7 +58,7 @@ describe('FlowsImpl - email verification', () => {
     // rendering the account afterwards needs no second read.
     expect(done.identity.emailVerified).toBe(true)
     expect(done.identity.id).toBe(done.identityId)
-    const ident = await adapter.identities.findById(identityId)
+    const ident = await adapter.identities.find({ id: identityId })
     expect(ident?.emailVerified).toBe(true)
   })
 

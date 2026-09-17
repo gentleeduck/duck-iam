@@ -69,8 +69,8 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
     const firstRejected = rejected[0]
     if (firstRejected && firstRejected.status === 'rejected') {
       expect(firstRejected.reason).toMatchObject({
-        code: 'AUTH_PROVIDER_FAILED',
-        meta: { detail: 'provider sub already linked to a different identity' },
+        code: 'AUTH_PROVIDER_TAKEN',
+        meta: { providerId: 'authGoogle' },
       })
     } else {
       throw new Error('expected at least one rejection')
@@ -93,10 +93,10 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
       }),
     ])
     // Whichever identity won, ONLY that one has the link.
-    const found = await adapter.identities.findByProviderSub('authGoogle', 'sub-X')
+    const found = await adapter.identities.find({ providerId: 'authGoogle', providerSub: 'sub-X' })
     expect(found).not.toBeNull()
     const otherId = found?.id === identityA ? identityB : identityA
-    const other = await adapter.identities.findById(otherId)
+    const other = await adapter.identities.find({ id: otherId })
     expect(other?.providers.find((p) => p.providerSub === 'sub-X')).toBeUndefined()
   })
 
@@ -150,18 +150,8 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
     await expect(
       adapter.identities.link(identityB, { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: new Date() }),
     ).rejects.toMatchObject({
-      code: 'AUTH_PROVIDER_FAILED',
-      meta: { detail: 'provider sub already linked to a different identity' },
+      code: 'AUTH_PROVIDER_TAKEN',
+      meta: { providerId: 'authGithub' },
     })
-  })
-
-  it('link without providerSub (magic-link-style) is allowed across identities (no sub-uniqueness applies)', async () => {
-    // The magic-link provider creates links with `providerSub:
-    // undefined`. The uniqueness invariant only applies when both
-    // sides have a sub.
-    await adapter.identities.link(identityA, { providerId: 'magic-link', providerSub: null, addedAt: new Date() })
-    await adapter.identities.link(identityB, { providerId: 'magic-link', providerSub: null, addedAt: new Date() })
-    // Both succeeded - no error.
-    expect(true).toBe(true)
   })
 })

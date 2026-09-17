@@ -1,6 +1,7 @@
 import { isRevoked } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
+import { echoableProviderId } from '~/core/provider/provider.constants'
 import type { Provider } from '~/core/provider/provider.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { Flows } from './flows.types'
@@ -40,7 +41,7 @@ export async function linkProvider<Profile extends Identities.ProfileMetadataBas
   }
   if (typeof opts.providerSub !== 'string' || opts.providerSub.length === 0 || opts.providerSub.length > 512) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
-      providerId: opts.providerId,
+      providerId: echoableProviderId(opts.providerId),
       detail: 'invalid providerSub',
     })
   }
@@ -68,7 +69,7 @@ export async function linkProvider<Profile extends Identities.ProfileMetadataBas
     })
   }
 
-  const existing = await ctx.stores.identities.findByProviderSub(opts.providerId, opts.providerSub)
+  const existing = await ctx.stores.identities.find({ providerId: opts.providerId, providerSub: opts.providerSub })
   if (existing && existing.id !== opts.identityId) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: opts.providerId,
@@ -88,7 +89,6 @@ export async function linkProvider<Profile extends Identities.ProfileMetadataBas
   const linked = await ctx.stores.identities.link(opts.identityId, {
     providerId: opts.providerId,
     providerSub: opts.providerSub,
-    addedAt: new Date(),
   })
   // `null` means the row went between the read above and the write - the same
   // condition the read rejected, so it gets the same answer.

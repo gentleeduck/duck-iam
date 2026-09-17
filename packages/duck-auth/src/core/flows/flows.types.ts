@@ -141,8 +141,7 @@ export namespace Flows {
      * permanent authentication factor. Wire it to a route that trusts a request
      * body and an attacker links their own Google account to a victim's identity
      * and signs in as them from then on; wire it to a completed OAuth callback
-     * and it is exactly right. The signature used to leave that difference
-     * unstated, so both readings looked like correct usage.
+     * and it is exactly right. Nothing in the signature tells those two apart.
      *
      * The callback is where the host states which one it is. It receives the
      * identity being modified and the link about to be written; answer `false`
@@ -266,9 +265,8 @@ export namespace Flows {
 
   /**
    * One of the two, never both and never neither. Supplying both is refused
-   * rather than resolved in favour of one: which gate applied would depend on a
-   * precedence rule nobody reading the call site can see, and that ambiguity is
-   * the exact shape of the bug this flow used to have.
+   * rather than resolved in favour of one: which gate applied would depend on a precedence rule
+   * nobody reading the call site can see.
    */
   export type AccountDeletionCancelInput = AccountDeletionCancelByToken | AccountDeletionCancelByAuthorize
 }
