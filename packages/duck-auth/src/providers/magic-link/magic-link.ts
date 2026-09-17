@@ -1,7 +1,7 @@
 import { isCredentialExpired, toCredentialUpsert } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
-import type { Identities } from '~/core/identities'
+import { canonicalEmail, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { isSafeCallbackPath } from '~/core/url-validators'
 import { DEFAULT_MAGIC_LINK_CONFIG } from './magic-link.constants'
@@ -53,7 +53,9 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
         : 'email'
     // RFC 5321 254-char cap; protects limiter store + downstream lookups.
     if (typeof email !== 'string' || email.length === 0 || email.length > 254) {
-      throw new AuthError('AUTH_INVALID_CREDENTIALS')
+      // The shape of the address, not whether it belongs to anyone: an unknown address resolves, so a 401
+      // here says the caller failed to authenticate when it only handed over something unusable.
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'magic-link: email must be a 1-254 char string' })
     }
     const channel = this.opts.channels[channelKind]
     if (!channel) {
@@ -64,7 +66,7 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
 
     // Canonical (trim + lowercase) so rate-limit + identity lookup +
     // stored credential metadata all share one key.
-    const emailCanonical = email.trim().toLowerCase()
+    const emailCanonical = canonicalEmail(email) ?? ''
     const limited = await ctx.limiter.consume(`${this.prefix}${emailCanonical}`)
     // No subject: `findIdentityByEmail` is host code on an unauthenticated
     // endpoint, and a spent link bucket stops a mail from going out rather than
@@ -83,7 +85,7 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
       }
       const created = await ctx.stores.identities.create({
         profile,
-        providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
+        providers: [],
         emailVerified: false,
       })
       identityId = created.id
@@ -103,7 +105,7 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
     )
 
     const url = `${ctx.baseUrl}${this.callbackPath}?token=${encodeURIComponent(token)}`
-    const identityRow = await ctx.stores.identities.findById(identityId)
+    const identityRow = await ctx.stores.identities.find({ id: identityId })
     // Fire-and-forget the channel dispatch so the wire response shape
     // and latency match between existing- and unknown-identity branches.
     if (!identityRow) {

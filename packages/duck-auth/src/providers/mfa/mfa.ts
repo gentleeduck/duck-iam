@@ -15,6 +15,7 @@ import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Events } from '~/core/events/events.types'
 import type { Identities } from '~/core/identities'
+import type { Provider } from '~/core/provider/provider.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { Passkey } from '~/providers/passkey/passkey.types'
@@ -58,21 +59,15 @@ export class MfaImpl {
   }
 
   /**
-   * Re-bind to a caller's transaction: a credential store on `client` and a bus
-   * that buffers until commit. Returns `null` when the credential store cannot
-   * join a transaction, so the registry keeps the original instance.
+   * Re-bind to a caller's transaction: the credential store already on it, and a bus that buffers until
+   * commit.
    *
-   * Lives here rather than in the engine because `_cfg` is derived in the
-   * constructor; handing back the raw `cfg` reproduces it, compliance floor
-   * included.
+   * Lives here rather than in the engine because `_cfg` is derived in the constructor; handing back the raw
+   * `cfg` reproduces it, compliance floor included.
    */
-  withClient(client: unknown, events: Events.IBus): MfaImpl | null {
-    const credentials = this._credentials.withClient?.(client)
-    if (!credentials) return null
-    return new MfaImpl(credentials, events, this.cfg)
+  withClient(stores: Provider.Stores, events: Events.IBus): MfaImpl {
+    return new MfaImpl(stores.credentials, events, this.cfg)
   }
-
-  // --- TOTP ---------------------------------------------------------------
 
   /**
    * Begin TOTP enrollment. Returns the otpauth:// URI so the consumer can
@@ -178,8 +173,6 @@ export class MfaImpl {
     await this._events.emit('mfa.removed', { identityId, method: 'totp' })
     return { removed: gone.length }
   }
-
-  // --- Backup codes -------------------------------------------------------
 
   /**
    * Verify a backup code. Single-use; matching code is revoked atomically.
@@ -409,8 +402,6 @@ export class MfaImpl {
     await this._events.emit('mfa.removed', { identityId, method: 'webauthn' })
     return { removed: gone.length }
   }
-
-  // --- AAL helpers --------------------------------------------------------
 
   /**
    * Compute the AAL the identity is currently eligible for, given the

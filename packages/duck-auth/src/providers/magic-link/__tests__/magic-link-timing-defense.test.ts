@@ -30,7 +30,7 @@ function buildAuth(channel: Channel.Channel): {
   auth.providers.register(
     magicLink<MyProfile>({
       channels: { email: channel },
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email),
+      findIdentityByEmail: (email) => adapter.identities.find({ email }),
       autoCreateIdentity: false,
       ttlMs: 60_000,
     }),

@@ -3,7 +3,7 @@ import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
-import type { Identities } from '~/core/identities'
+import { canonicalEmail, emailSpellings, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { TenantContext } from '~/core/tenant'
 import {
@@ -142,12 +142,7 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     return { ok: true, needsRehash: this.cfg.hasher.needsRehash(row.secret) }
   }
 
-  //==============================================================================================
-  //===== FLOW CODE ==============================================================================
-  //==============================================================================================
-
   async begin(_ctx: Provider.Context<Profile>, _input: Passwords.BeginInput): Promise<Provider.Intent[]> {
-    console.debug('[AUTH] password.begin, no-op, returning empty intents')
     return []
   }
 
@@ -167,12 +162,10 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
 
-    // Canonical (trim + lowercase) email so the rate-limit bucket AND
-    // the identity lookup share one key. If the operator wires
-    // findByEmail without internal case-folding, raw `email`
-    // would let `A@x.com` and `a@x.com` register/sign-in as distinct
-    // accounts.
-    const emailCanonical = email.trim().toLowerCase()
+    // Canonical email so the rate-limit bucket AND the identity lookup share one key. If the
+    // operator wires findByEmail without internal case-folding, raw `email` would let `A@x.com`
+    // and `a@x.com` register/sign-in as distinct accounts.
+    const emailCanonical = canonicalEmail(email) ?? ''
     // Above the limiter, unlike everywhere else, so a refusal can say whose
     // account is being ground. This is the bucket `lockout` was invented for -
     // repeated failed sign-ins against one address - and an event with no
@@ -182,7 +175,7 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     // Worth it here and nowhere else: the read is a fraction of the argon2
     // verification below, which is the cost the guard actually exists to stop,
     // and the happy path is unchanged - it made this same call one line later.
-    const identity = await ctx.stores.identities.findByEmail(emailCanonical)
+    const identity = await ctx.stores.identities.find({ email: emailSpellings(email) ?? emailCanonical })
     const limitKey = `${this.cfg.limiterKeyPrefix}${emailCanonical}`
     const limited = await ctx.limiter.consume(limitKey)
     if (!limited.ok) await refuseRateLimited(ctx.events, limited, identity?.id ?? null)

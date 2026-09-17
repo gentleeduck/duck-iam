@@ -92,6 +92,21 @@ describe('passkey signature counter', () => {
     return (row?.metadata as { counter?: unknown } | undefined)?.counter
   }
 
+  const seedCredential = (metadata: Record<string, unknown>) =>
+    adapter.credentials.upsert(
+      {
+        expiresAt: null,
+        identityId,
+        kind: 'passkey',
+        lastUsedAt: null,
+        metadata,
+        revokedAt: null,
+        secret: 'webauthn-cred-1',
+        tenantId: null,
+      },
+      {},
+    )
+
   /** One authentication attempt, with the verifier reporting `counter`. */
   let attempt = 0
   async function authenticate(counter: number): Promise<unknown> {
@@ -118,20 +133,7 @@ describe('passkey signature counter', () => {
       webauthnModule: makeWebauthn(),
     })
 
-    const credential = await adapter.credentials.upsert(
-      {
-        expiresAt: null,
-        identityId,
-        kind: 'passkey',
-        lastUsedAt: null,
-        metadata: { counter: 5, credentialId: 'webauthn-cred-1', publicKey: 'AQIDBA' },
-        revokedAt: null,
-        secret: 'webauthn-cred-1',
-        tenantId: null,
-      },
-      {},
-    )
-    credentialId = credential.id
+    credentialId = (await seedCredential({ counter: 5, credentialId: 'webauthn-cred-1', publicKey: 'AQIDBA' })).id
   })
 
   describe('a counter that goes backwards is a clone signal', () => {
@@ -240,7 +242,7 @@ describe('passkey signature counter', () => {
       // The metadata parser rejects an unparseable counter, so the credential
       // reads as unusable rather than as counter zero.
       await setStoredCounter('5')
-      await expect(authenticate(10)).rejects.toThrow()
+      await expect(authenticate(10)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
     })
 
     it('refuses a negative counter, which no authenticator should report', async () => {
@@ -250,11 +252,11 @@ describe('passkey signature counter', () => {
 
   describe('the stored counter starts from a sensible place', () => {
     it('treats a missing counter as zero rather than as unusable', async () => {
-      await adapter.credentials.patchMetadata(
-        credentialId,
-        { counter: undefined, credentialId: 'webauthn-cred-1', publicKey: 'AQIDBA' } as never,
-        {},
-      )
+      // Seeded without one rather than patched to undefined: `patchMetadata` merges, so it adds a key and
+      // never takes one away. Only the memory adapter ever cleared a key that way.
+      await adapter.credentials.delete(credentialId, {})
+      await seedCredential({ credentialId: 'webauthn-cred-1', publicKey: 'AQIDBA' })
+
       await expect(authenticate(1)).resolves.toBeDefined()
     })
 
