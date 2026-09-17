@@ -30,84 +30,131 @@ const baseCfg = () => {
   }
 }
 
+/** Evidence satisfying every check `preset` names, except `missing` when one is given. */
+function satisfying(preset: Compliance.Preset, missing?: Compliance.Check): Partial<Compliance.Wired> {
+  const wired: Partial<Compliance.Wired> = { dataAtRest: true, mailerChannel: true }
+  for (const check of resolveCompliance(preset).requiredStrictChecks) wired[check] = check !== missing
+  if (missing === 'dataAtRest') wired.dataAtRest = false
+  return wired
+}
+
 describe('what a preset declares against what is enforced', () => {
-  it('FINDING: nothing in the library reads the preset a config was branded with', () => {
-    // `readCompliancePreset` is documented as the hook `AuthEngine.strict()` uses
-    // to "auto-invoke authAssertComplianceStrict so operators do not have to
-    // remember the second call". No caller exists. An operator who follows the
-    // doc, brands the config and calls `strict()`, gets none of the compliance
-    // assertions and no warning that they were skipped.
+  it('strict() reads the preset the config was branded with', () => {
+    // `readCompliancePreset` was documented as the hook `AuthEngine.strict()` uses to "auto-invoke
+    // authAssertComplianceStrict so operators do not have to remember the second call", and no
+    // caller existed - so branding a config and calling strict() ran none of the compliance
+    // assertions and said nothing about having skipped them.
     const { cfg } = baseCfg()
-    const branded = applyCompliancePreset(cfg as never, 'hipaa')
-    expect(readCompliancePreset(branded)).toBe('hipaa')
+    const branded = applyCompliancePreset(cfg as never, 'gdpr')
+    expect(readCompliancePreset(branded)).toBe('gdpr')
 
-    // The engine builds and `strict()` passes despite hipaa requiring a
-    // dataAtRest adapter and an audit listener, neither of which is wired.
+    // Asserted in every environment, not only production: the preset is the operator declaring what
+    // this deployment claims, unlike the production footguns `strict()` otherwise checks.
     const engine = new AuthEngine(branded as never)
-    expect(() => engine.strict({ idempotency: true } as never)).not.toThrow()
+    const err = (() => {
+      try {
+        engine.strict({ env: 'test' })
+        return null
+      } catch (e) {
+        return e as Error & { meta: { detail: string } }
+      }
+    })()
+    expect(err?.meta.detail).toContain('dataAtRest')
   })
 
-  it('FINDING: minAal is resolved by every preset and consumed by nothing', () => {
-    // `hipaa` and `fips` both declare `minAal: 2`, which reads as "every session
-    // this deployment creates must be at least AAL 2". The field is computed,
-    // merged and returned, and no code path anywhere compares a session's aal
-    // against it, so a single-factor password sign-in under hipaa produces an
-    // AAL 1 session exactly as it would with no preset at all.
-    expect(resolveCompliance('hipaa').minAal).toBe(2)
-    expect(resolveCompliance('fips').minAal).toBe(2)
-  })
-
-  it('FINDING: most of requiredStrictChecks is a list of strings nothing asserts', () => {
-    // `assertComplianceStrict` knows four requirements. The presets between them
-    // name nine. Everything outside the four is declared and never checked, so
-    // `soc2` promises a lockout listener and a limiter, `gdpr` promises export and
-    // soft delete, and none of those is looked at.
-    const asserted = ['auditLogRetained7y', 'fipsValidatedHasher']
-    const declared = new Set([
-      ...resolveCompliance('gdpr').requiredStrictChecks,
-      ...resolveCompliance('hipaa').requiredStrictChecks,
-      ...resolveCompliance('soc2').requiredStrictChecks,
-      ...resolveCompliance('fips').requiredStrictChecks,
-    ])
-    const unchecked = [...declared].filter((c) => !asserted.includes(c)).sort()
-    expect(unchecked).toEqual([
-      'baaCompliantChannel',
-      'dataAtRest',
-      'exportAvailable',
-      'limiterRequired',
-      'lockoutListener',
-      'softDeleteEnabled',
-      'webauthnAttestationDirect',
-    ])
-  })
-
-  it('FINDING: soc2 passes the strict assertion with nothing wired but an audit listener', () => {
-    // Its other two requirements are among the unchecked names, so a deployment
-    // that satisfies one of three is told it satisfies soc2.
+  it('a deployment that supplies the evidence passes', () => {
+    const { cfg } = baseCfg()
+    const branded = applyCompliancePreset(cfg as never, 'gdpr')
+    const engine = new AuthEngine(branded as never)
     expect(() =>
-      assertComplianceStrict({
-        preset: 'soc2',
-        wired: { auditListener: true, dataAtRest: false, fipsValidatedHasher: false, mailerChannel: false },
+      engine.strict({
+        compliance: { dataAtRest: true, exportAvailable: true, mailerChannel: true, softDeleteEnabled: true },
+        env: 'test',
       }),
     ).not.toThrow()
   })
 
-  it('FINDING: gdpr passes without export or soft delete, the two things it names', () => {
+  it('minAal above 1 is refused when no mfa provider could ever satisfy it', () => {
+    // Nothing compares a session's aal against `minAal` at runtime, and nothing at boot can. What
+    // is checkable is that a deployment with no mfa provider registered cannot produce an AAL 2
+    // session at all, so claiming hipaa with none is a contradiction rather than a silent downgrade.
+    expect(resolveCompliance('hipaa').minAal).toBe(2)
+    expect(resolveCompliance('fips').minAal).toBe(2)
+
+    const { cfg } = baseCfg()
+    const engine = new AuthEngine(applyCompliancePreset(cfg as never, 'hipaa') as never)
+    const err = (() => {
+      try {
+        engine.strict({ env: 'production' })
+        return null
+      } catch (e) {
+        return e as Error & { meta: { detail: string } }
+      }
+    })()
+    expect(err?.meta.detail).toContain('minAal above 1 requires a registered mfa provider')
+  })
+
+  it('every check a preset declares is one the assertion demands evidence for', () => {
+    // Four of the nine names the presets use were checked and the other five were strings nothing
+    // read. The assertion is driven off the declared list now, so a preset naming a check that
+    // nothing supplies fails rather than resolving to a requirement never looked at.
+    for (const preset of ['gdpr', 'hipaa', 'soc2', 'fips'] as const) {
+      // Everything the preset names is supplied, so the whole assertion passes.
+      expect(() => assertComplianceStrict({ preset, wired: satisfying(preset) })).not.toThrow()
+      // Then each one is withheld in turn, and every one of them has to be the difference.
+      for (const check of resolveCompliance(preset).requiredStrictChecks) {
+        expect(() => assertComplianceStrict({ preset, wired: satisfying(preset, check) })).toThrow(
+          expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+        )
+      }
+    }
+  })
+
+  it('soc2 is not satisfied by an audit listener alone', () => {
+    // Its other two requirements were among the unchecked names, so a deployment satisfying one of
+    // three was told it satisfied soc2.
+    const err = (() => {
+      try {
+        assertComplianceStrict({ preset: 'soc2', wired: { auditLogRetained7y: true } })
+        return null
+      } catch (e) {
+        return e as Error & { meta: { detail: string } }
+      }
+    })()
+    expect(err?.meta.detail).toContain('limiterRequired')
+    expect(err?.meta.detail).toContain('lockoutListener')
+  })
+
+  it('gdpr demands export and soft delete, the two things it names', () => {
+    const err = (() => {
+      try {
+        assertComplianceStrict({ preset: 'gdpr', wired: { dataAtRest: true, mailerChannel: true } })
+        return null
+      } catch (e) {
+        return e as Error & { meta: { detail: string } }
+      }
+    })()
+    expect(err?.meta.detail).toContain('exportAvailable')
+    expect(err?.meta.detail).toContain('softDeleteEnabled')
+
     expect(() =>
       assertComplianceStrict({
         preset: 'gdpr',
-        wired: { auditListener: false, dataAtRest: true, fipsValidatedHasher: false, mailerChannel: true },
+        wired: { dataAtRest: true, exportAvailable: true, mailerChannel: true, softDeleteEnabled: true },
       }),
     ).not.toThrow()
   })
 
-  it('reports every gap it does know about in one error', () => {
+  it('an absent entry counts as unsatisfied, not as unknown', () => {
+    expect(() => assertComplianceStrict({ preset: 'soc2', wired: {} })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+  })
+
+  it('reports every gap in one error', () => {
     const err = (() => {
       try {
-        assertComplianceStrict({
-          preset: 'hipaa',
-          wired: { auditListener: false, dataAtRest: false, fipsValidatedHasher: false, mailerChannel: false },
-        })
+        assertComplianceStrict({ preset: 'hipaa', wired: {} })
         return null
       } catch (e) {
         return e as Error
@@ -121,35 +168,30 @@ describe('what a preset declares against what is enforced', () => {
   })
 
   it('fips demands its validated hasher explicitly', () => {
-    expect(() =>
-      assertComplianceStrict({
-        preset: 'fips',
-        wired: { auditListener: true, dataAtRest: true, fipsValidatedHasher: false, mailerChannel: true },
-      }),
-    ).toThrow()
+    expect(() => assertComplianceStrict({ preset: 'fips', wired: satisfying('fips', 'fipsValidatedHasher') })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 })
 
 describe('the resolved overrides are shared, mutable objects', () => {
-  it('FINDING: resolving with no preset hands back the module’s own default object', () => {
-    // The no-preset branch returns `DEFAULT_OVERRIDES` by reference. A caller that
-    // adjusts what it believes is its own copy edits the module singleton, and
-    // every later resolution in the process sees the change.
+  it('resolving with no preset hands back a fresh object, not the module singleton', () => {
+    // The no-preset branch returned `DEFAULT_OVERRIDES` by reference, so a caller adjusting what it
+    // believed was its own copy edited the module singleton and every later resolution saw it.
     const first = resolveCompliance(undefined)
     first.passwords.minLength = 99
-    expect(resolveCompliance(undefined).passwords.minLength).toBe(99)
-    first.passwords.minLength = 8
+    expect(resolveCompliance(undefined).passwords.minLength).toBe(8)
   })
 
-  it('FINDING: that same object is aliased inside the gdpr and soc2 presets', () => {
-    // Both spread `DEFAULT_OVERRIDES`, which copies the top level but shares every
-    // nested object. Mutating the default therefore rewrites two presets, and the
-    // ratchet a provider applies moves with it.
+  it('the defaults are not aliased inside the gdpr and soc2 presets either', () => {
+    // Both spread `DEFAULT_OVERRIDES`, which copies the top level and shares every nested object, so
+    // one mutation rewrote two presets and the ratchet a provider applies moved with it.
     const shared = resolveCompliance(undefined)
     shared.apiKeys.randomBytes = 1
-    expect(resolveCompliance('gdpr').apiKeys.randomBytes).toBe(1)
-    expect(resolveCompliance('soc2').apiKeys.randomBytes).toBe(1)
-    shared.apiKeys.randomBytes = 32
+    shared.sessions.ttlMs = 1
+    expect(resolveCompliance('gdpr').apiKeys.randomBytes).toBe(32)
+    expect(resolveCompliance('soc2').apiKeys.randomBytes).toBe(32)
+    expect(resolveCompliance('gdpr').sessions.ttlMs).toBe(7 * 24 * 60 * 60 * 1000)
   })
 
   it('a named preset resolves to fresh objects that do not alias the defaults', () => {
@@ -172,29 +214,28 @@ describe('the resolved overrides are shared, mutable objects', () => {
     expect(both.minAal).toBe(2)
   })
 
-  it('FINDING: layering is order independent for every field except the check list', () => {
-    // The numeric fields all come from a min or a max, so order cannot matter.
-    // `requiredStrictChecks` is a set built by concatenation, so it comes back in
-    // whichever order the presets were listed. Anything that fingerprints a
-    // resolved policy, a config hash or a snapshot, sees two different values for
-    // the same deployment.
-    const ab = resolveCompliance(['hipaa', 'fips'])
-    const ba = resolveCompliance(['fips', 'hipaa'])
-    expect({ ...ab, requiredStrictChecks: [] }).toEqual({ ...ba, requiredStrictChecks: [] })
-    expect(ab.requiredStrictChecks).not.toEqual(ba.requiredStrictChecks)
-    expect([...ab.requiredStrictChecks].sort()).toEqual([...ba.requiredStrictChecks].sort())
+  it('layering is order independent in every field, the check list included', () => {
+    // The numeric fields all come from a min or a max, so order never mattered for them. The check
+    // list was a set built by concatenation and came back in whichever order the presets were
+    // listed, so anything fingerprinting a resolved policy saw two values for one deployment.
+    expect(resolveCompliance(['hipaa', 'fips'])).toEqual(resolveCompliance(['fips', 'hipaa']))
   })
 
   it('layering a preset with itself changes nothing', () => {
     expect(resolveCompliance(['hipaa', 'hipaa'])).toEqual(resolveCompliance('hipaa'))
   })
 
-  it('FINDING: an unknown preset name crashes with a TypeError instead of a misconfiguration error', () => {
-    // The preset union is enforced only by TypeScript. A name arriving from a
-    // config file or an environment variable indexes `PRESETS` to undefined, and
-    // the merge dereferences it. Every other misconfiguration in this library is
-    // an AUTH_MISCONFIGURED with a detail an operator can read.
-    expect(() => resolveCompliance('hippa' as Compliance.Preset)).toThrow(TypeError)
+  it('refuses a preset name the union only enforced at compile time', () => {
+    expect(() => resolveCompliance('hippa' as Compliance.Preset)).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED', meta: { detail: 'unknown compliance preset: hippa' } }),
+    )
+  })
+
+  // `PRESETS['constructor']` is a function off the prototype, and merging one is not a type error.
+  it('refuses a prototype key as firmly as any other unknown name', () => {
+    expect(() => resolveCompliance('constructor' as Compliance.Preset)).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 })
 
@@ -223,7 +264,7 @@ describe('applying a preset to an engine config', () => {
     expect(input.session.ttlMs).toBe(999_000_000)
   })
 
-  it('FINDING: the password, mfa and api-key floors a preset resolves are not applied here', () => {
+  it('applies only the engine-level floors, leaving the provider-level ones to the providers', () => {
     // `applyCompliancePreset(cfg, 'fips')` reads as "this config is now fips". The
     // fourteen-character minimum, the forty-eight byte key and the backup-code
     // count are provider-level, so a deployment that applies the preset to the
@@ -235,27 +276,31 @@ describe('applying a preset to an engine config', () => {
     expect(out).not.toHaveProperty('passwords')
   })
 
-  it('FINDING: the brand is non-enumerable, so spreading the returned config loses it', () => {
-    // Spreading a config to add one more field is the most ordinary thing a
-    // caller does, and it silently strips the marker that says which preset
-    // applies.
+  it('the brand survives the spread a caller does to add one more field', () => {
+    // Non-enumerable meant the most ordinary thing a caller does silently stripped the marker
+    // saying which preset applied.
     const { cfg } = baseCfg()
     const branded = applyCompliancePreset(cfg as never, 'hipaa')
     expect(readCompliancePreset(branded)).toBe('hipaa')
-    expect(readCompliancePreset({ ...branded })).toBeNull()
+    expect(readCompliancePreset({ ...branded })).toBe('hipaa')
   })
 
-  it('FINDING: applying a second preset replaces the first rather than layering it', () => {
-    // Each call spreads the config, which drops the non-enumerable brand, then
-    // stamps its own. Calling the helper twice, the obvious way to add a preset to
-    // an existing one, keeps only the last. The session windows do stay ratcheted
-    // from both, so the config and the brand end up describing different policies.
+  it('applying a second preset layers it onto the first', () => {
+    // Each call spread the config, dropping the brand, then stamped its own - so calling the helper
+    // twice, the obvious way to add a preset to an existing one, kept only the last while the
+    // session windows stayed ratcheted from both, and config and brand described different policies.
     const { cfg } = baseCfg()
     const once = applyCompliancePreset(cfg as never, 'fips')
     const twice = applyCompliancePreset(once as never, 'gdpr')
 
-    expect(readCompliancePreset(twice)).toBe('gdpr')
+    expect(readCompliancePreset(twice)).toEqual(['fips', 'gdpr'])
     expect(twice.session?.ttlMs).toBe(4 * 60 * 60 * 1000)
+  })
+
+  it('layering the same preset twice does not repeat it in the brand', () => {
+    const { cfg } = baseCfg()
+    const twice = applyCompliancePreset(applyCompliancePreset(cfg as never, 'fips') as never, 'fips')
+    expect(readCompliancePreset(twice)).toBe('fips')
   })
 
   it('the array form brands with the whole list', () => {
@@ -264,17 +309,22 @@ describe('applying a preset to an engine config', () => {
     expect(readCompliancePreset(out)).toEqual(['gdpr', 'hipaa'])
   })
 
-  it('FINDING: one bad entry in a branded array disables every preset in it rather than failing', () => {
-    // `readCompliancePreset` returns null for the whole array when a single entry
-    // is not a known preset. A typo in a two-preset list therefore silently turns
-    // compliance off instead of narrowing it.
-    expect(readCompliancePreset({ __compliancePreset: ['hipaa', 'hippa'] })).toBeNull()
+  it('one bad entry in a branded array is refused, not treated as unbranded', () => {
+    // Returning `null` reported the config as having no preset at all, so one misspelt entry in a
+    // two-preset list turned compliance off instead of narrowing it.
+    expect(() => readCompliancePreset({ __compliancePreset: ['hipaa', 'hippa'] })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 
   it('refuses a brand that is not a preset', () => {
-    for (const value of [42, {}, null, true, ['gdpr', 3], []]) {
-      expect(readCompliancePreset({ __compliancePreset: value })).toBeNull()
+    for (const value of [42, {}, null, true, ['gdpr', 3]]) {
+      expect(() => readCompliancePreset({ __compliancePreset: value })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
     }
+    // An empty list is an absence rather than a mistake: nothing was named, so nothing applies.
+    expect(readCompliancePreset({ __compliancePreset: [] })).toBeNull()
   })
 
   it('returns null for a config that never went through the helper', () => {
