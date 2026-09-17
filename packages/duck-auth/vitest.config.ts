@@ -11,6 +11,15 @@ export default mergeConfig(baseConfig, {
     },
   },
   test: {
+    /**
+     * A ratchet, set at what the hermetic tier measures rather than at an aspiration: raise one as
+     * coverage rises, and read a drop as the thing to fix, not as the number to lower. Measured on
+     * `test:coverage`, which is the unit project alone - folding e2e in would set a floor that only
+     * a machine with docker could clear, and CI without it would fail for the wrong reason.
+     */
+    coverage: {
+      thresholds: { branches: 79, functions: 75, lines: 83, statements: 81 },
+    },
     // Provisions throwaway Redis + Postgres for the e2e suites and removes them
     // afterwards. No-ops when DUCKAUTH_E2E_* is already set or docker is absent.
     globalSetup: [fileURLToPath(new URL('./src/test/e2e-containers.ts', import.meta.url))],

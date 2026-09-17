@@ -18,7 +18,7 @@ import { createHmac } from 'node:crypto'
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { MemoryAdapter } from '~/adapters/memory'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { AuthEngine } from '~/core/engine'
@@ -39,7 +39,7 @@ suite('E2E hostile values on real Postgres + Redis', () => {
   let raw: Redis
   let prefix: string
   let auth: AuthEngine<Profile>
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  let stores: DrizzlePgAdapter
   let op: OidcOpRoot
   let clientCounter = 0
 
@@ -65,7 +65,7 @@ suite('E2E hostile values on real Postgres + Redis', () => {
     raw = new Redis(REDIS_URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
-    stores = drizzlePgStorage<Profile>(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL as string)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
@@ -100,39 +100,48 @@ suite('E2E hostile values on real Postgres + Redis', () => {
     await pool?.end()
   })
 
+  /** The refusal carries the code; the detail is what says which rule turned it down. */
+  const refusal = (detail: RegExp) => ({
+    code: 'AUTH_INVALID_PARAMETERS',
+    meta: { detail: expect.stringMatching(detail) },
+  })
+
   describe('OIDC redirect targets', () => {
-    it('FINDING: a javascript: URI is accepted as a redirect target', async () => {
-      // `assertValidRedirect` parses the URL, refuses a fragment, and refuses
-      // non-loopback http. Every other scheme passes, because there is no allowlist.
-      // An authorization server that will send a browser to `javascript:...` with
-      // the code in scope is an XSS sink wearing a redirect's clothes.
-      await expect(register('javascript:alert(1)')).resolves.toBeUndefined()
+    it.each([
+      ['javascript:', 'javascript:alert(1)'],
+      ['data:', 'data:text/html,<script>alert(1)</script>'],
+      ['file:', 'file:///etc/passwd'],
+      ['blob:', 'blob:https://app.test/uuid'],
+    ])('refuses a %s target, which a browser would execute rather than navigate to', async (_label, uri) => {
+      await expect(register(uri)).rejects.toMatchObject(refusal(/is not https, loopback http/))
     })
 
-    it('FINDING: a data: URI is accepted as a redirect target', async () => {
-      await expect(register('data:text/html,<script>alert(1)</script>')).resolves.toBeUndefined()
+    it('admits the reverse-DNS private-use scheme RFC 8252 asks native clients for', async () => {
+      // The rule is the dot, not a denylist: this passes and every script-capable pseudo-scheme
+      // above fails on the same condition, so no future sibling slips through a stale list.
+      await expect(register('com.example.app:/cb')).resolves.toBeUndefined()
     })
 
-    it('FINDING: a file: URI is accepted as a redirect target', async () => {
-      await expect(register('file:///etc/passwd')).resolves.toBeUndefined()
+    it('refuses a private-use scheme with no dot, which is what every dangerous one looks like', async () => {
+      await expect(register('myapp:/cb')).rejects.toMatchObject(refusal(/is not https, loopback http/))
     })
 
-    it('FINDING: userinfo in the redirect is accepted', async () => {
+    it('refuses userinfo in the redirect', async () => {
       // `https://user:pass@app.test/cb` reads as app.test to a parser and as
       // something else to a human skimming the address bar.
-      await expect(register('https://user:pass@app.test/cb')).resolves.toBeUndefined()
+      await expect(register('https://user:pass@app.test/cb')).rejects.toMatchObject(refusal(/userinfo/))
     })
 
     it('refuses a protocol-relative target', async () => {
-      await expect(register('//evil.com/cb')).rejects.toThrow(/not a valid absolute URL/)
+      await expect(register('//evil.com/cb')).rejects.toMatchObject(refusal(/not a valid absolute URL/))
     })
 
     it('refuses a fragment, which the browser would strip anyway', async () => {
-      await expect(register('https://app.test/cb#frag')).rejects.toThrow(/fragment/)
+      await expect(register('https://app.test/cb#frag')).rejects.toMatchObject(refusal(/fragment/))
     })
 
     it('refuses plain http to a non-loopback host', async () => {
-      await expect(register('http://app.test/cb')).rejects.toThrow(/non-loopback http/)
+      await expect(register('http://app.test/cb')).rejects.toMatchObject(refusal(/non-loopback http/))
     })
 
     it('allows http to loopback, which native apps need', async () => {
@@ -140,11 +149,11 @@ suite('E2E hostile values on real Postgres + Redis', () => {
     })
 
     it('refuses an empty redirect', async () => {
-      await expect(register('')).rejects.toThrow(/not a valid absolute URL/)
+      await expect(register('')).rejects.toMatchObject(refusal(/not a valid absolute URL/))
     })
 
     it('refuses a bare string that is not a URL', async () => {
-      await expect(register('not-a-url')).rejects.toThrow(/not a valid absolute URL/)
+      await expect(register('not-a-url')).rejects.toMatchObject(refusal(/not a valid absolute URL/))
     })
 
     it('refuses a client with no redirect at all', async () => {
@@ -157,53 +166,53 @@ suite('E2E hostile values on real Postgres + Redis', () => {
           redirect_uris: [],
           scope: ['openid'],
         }),
-      ).rejects.toThrow(/at least one redirect_uri/)
+      ).rejects.toMatchObject(refusal(/at least one redirect_uri/))
     })
   })
 
   describe('session fields nobody validates before the insert', () => {
-    it('FINDING: an out-of-range aal reaches the database as a raw driver error', async () => {
+    it('an out-of-range aal is refused by the column CHECK, as a typed error', async () => {
       // `create` validates factors item by item but never looks at `aal`. The
-      // column CHECK catches it, so nothing corrupt is stored, but the caller gets
-      // `Failed query: insert into "auth_sessions"...` rather than a typed error.
+      // column CHECK catches it, and the adapter now names the refusal instead of
+      // handing the caller a 500 with SQL in the message.
       await expect(
         auth.sessions.create({ aal: 9 as never, factors: [], identityId: null, kind: 'guest' }),
-      ).rejects.toThrow(/Failed query/)
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
-    it('FINDING: aal zero is refused the same undignified way', async () => {
+    it('aal zero is refused the same way', async () => {
       await expect(
         auth.sessions.create({ aal: 0 as never, factors: [], identityId: null, kind: 'guest' }),
-      ).rejects.toThrow(/Failed query/)
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
-    it('FINDING: a NaN aal is refused the same undignified way', async () => {
+    it('a NaN aal is refused the same way', async () => {
       await expect(
         auth.sessions.create({ aal: Number.NaN as never, factors: [], identityId: null, kind: 'guest' }),
-      ).rejects.toThrow(/Failed query/)
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
-    it('FINDING: an unrecognised session kind is refused the same undignified way', async () => {
+    it('an unrecognised session kind is refused the same way', async () => {
       await expect(
         auth.sessions.create({ aal: 1, factors: [], identityId: null, kind: 'browser' as never }),
-      ).rejects.toThrow(/Failed query/)
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
-    it('FINDING: an impersonation window that has already closed is accepted', async () => {
-      // The row is written and then refused by `resolveBySid` on the very next
-      // read, so it is dead on arrival rather than dangerous. Still nothing checks
-      // it at the point where it could be reported.
-      const { session, sid } = await auth.sessions.create({
-        ...guest,
-        actingAs: {
-          expiresAt: new Date(Date.now() - 60_000),
-          realIdentityId: '00000000-0000-4000-8000-000000000000',
-          reason: 'already over',
-          startedAt: new Date(Date.now() - 120_000),
-        },
-      })
-      expect(session.actingAs).not.toBeNull()
-      expect(await auth.resolveSession({ headers: new Headers({ cookie: `duck-sid=${sid}` }) })).toBeNull()
+    it('refuses an impersonation window that has already closed', async () => {
+      // It used to be written and then refused by `resolveBySid` on the very next read: dead on
+      // arrival rather than dangerous, but the caller learned nothing at the point that could
+      // have told them.
+      await expect(
+        auth.sessions.create({
+          ...guest,
+          actingAs: {
+            expiresAt: new Date(Date.now() - 60_000),
+            realIdentityId: '00000000-0000-4000-8000-000000000000',
+            reason: 'already over',
+            startedAt: new Date(Date.now() - 120_000),
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('accepts each aal the schema allows', async () => {
@@ -244,19 +253,21 @@ suite('E2E hostile values on real Postgres + Redis', () => {
       expect(r.remaining).toBe(4)
     })
 
-    it('FINDING: weight is spent as one round trip each, so a large weight is a flood', async () => {
-      // `consume` loops `weight` times issuing one INCR per iteration, with no
-      // early exit once the budget is already gone. A caller passing 1_000_000
-      // makes the limiter send a million sequential commands to Redis; the same
-      // call with real Redis exceeded a five second test timeout. Counted here at
-      // a small scale so the finding is deterministic rather than slow.
-      let incrs = 0
+    it('spends any weight in one round trip, so a large one is not a flood', async () => {
+      // This used to loop `weight` times issuing one INCR each, with no early exit once the budget
+      // was gone: `consume(key, 1_000_000)` sent a million sequential commands and blew a five
+      // second timeout against real Redis. Counted at a small scale so the case stays fast.
+      let calls = 0
       const counting = valkeyAdapter(raw as unknown as ValkeyClient.Me)
       const wrapped = {
         ...counting,
         incr: async (k: string) => {
-          incrs += 1
+          calls += 1
           return counting.incr(k)
+        },
+        incrby: async (k: string, by: number) => {
+          calls += 1
+          return counting.incrby?.(k, by) ?? counting.incr(k)
         },
       }
       const l = new RedisLimiter({
@@ -268,9 +279,7 @@ suite('E2E hostile values on real Postgres + Redis', () => {
 
       const r = await l.consume(`big-${e2ePrefix()}`, 100)
       expect(r.ok).toBe(false)
-      // One hundred round trips to spend a budget of five: ninety five of them
-      // after the answer was already known.
-      expect(incrs).toBe(100)
+      expect(calls).toBe(1)
     })
 
     it('a fractional weight is floored, not rounded up', async () => {
@@ -313,11 +322,12 @@ suite('E2E hostile values on real Postgres + Redis', () => {
   })
 
   describe('tenant scoping under confusing values', () => {
-    it('an empty tenant id is not the same as no tenant', async () => {
-      const { sid } = await auth.sessions.create({ ...guest, tenantId: '' })
-      const headers = { headers: new Headers({ cookie: `duck-sid=${sid}` }) }
-      // Stored as an empty string; asking for a named tenant must not match it.
-      expect(await auth.resolveSession(headers, { expectedTenantId: 'real-tenant' })).toBeNull()
+    it('an empty tenant id is refused rather than stored as a tenant of its own', async () => {
+      // It used to land as `''`, a tenant nothing could name and every scoped read missed.
+      // `chk_auth_sessions_tenant_not_blank` now refuses it, so there is no such row to resolve.
+      await expect(auth.sessions.create({ ...guest, tenantId: '' })).rejects.toMatchObject({
+        code: 'AUTH_INVALID_PARAMETERS',
+      })
     })
 
     it('a tenant id that differs only by case does not match', async () => {

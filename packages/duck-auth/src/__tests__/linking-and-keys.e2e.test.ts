@@ -16,7 +16,7 @@
  */
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { randomToken, sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import { InMemoryEvents } from '~/core/events'
@@ -40,7 +40,7 @@ type Profile = { username: string; email: string }
 suite('E2E provider linking and API keys on real Postgres', () => {
   let pool: Pool
   let auth: AuthEngine<Profile>
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  let stores: DrizzlePgAdapter
   let keys: ApiKeysFacet
   const planted: string[] = []
 
@@ -56,7 +56,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL })
     await applyPgSchema(pool)
-    stores = drizzlePgStorage<Profile>(URL as string)
+    stores = new DrizzlePgAdapter(URL as string)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
@@ -87,7 +87,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         providerSub,
       })
 
-      const found = await stores.identities.findByProviderSub('oauth:authGoogle', providerSub)
+      const found = await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })
       expect(found?.id).toBe(id)
     })
 
@@ -108,7 +108,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         providerSub: gh,
       })
 
-      const row = await stores.identities.findById(id)
+      const row = await stores.identities.find({ id })
       expect(row?.providers.map((p) => p.providerId).sort()).toEqual(['oauth:authGithub', 'oauth:authGoogle'])
     })
 
@@ -128,7 +128,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         providerSub,
       })
 
-      const row = await stores.identities.findById(id)
+      const row = await stores.identities.find({ id })
       expect(row?.providers.filter((p) => p.providerId === 'oauth:authGoogle')).toHaveLength(1)
     })
 
@@ -201,13 +201,15 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       })
       await stores.identities.softDelete(id, 60_000)
 
-      expect(await stores.identities.findByProviderSub('oauth:authGoogle', providerSub)).toBeNull()
+      expect(await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).toBeNull()
     })
 
-    it('frees the provider sub once the holder is soft-deleted', async () => {
-      // Otherwise a deleted account holds someone's Google login hostage forever.
-      const first = await newUser('link-free-a')
-      const second = await newUser('link-free-b')
+    it('keeps the provider sub while the holder is soft-deleted, so cancelling gets the login back', async () => {
+      // `uq_auth_identity_providers_sub` is unconditional, matching the address: the sub is unreachable
+      // while the holder is hidden, which the case above pins, but it is not free for another identity to
+      // claim. The pair is what makes the grace window mean anything.
+      const first = await newUser('link-held-a')
+      const second = await newUser('link-held-b')
       const providerSub = sub('google')
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
@@ -217,13 +219,14 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       })
       await stores.identities.softDelete(first, 60_000)
 
-      await auth.flows.linkProvider({
-        authorize: ALLOW_LINK,
-        identityId: second,
-        providerId: 'oauth:authGoogle',
-        providerSub,
-      })
-      expect((await stores.identities.findByProviderSub('oauth:authGoogle', providerSub))?.id).toBe(second)
+      await expect(
+        auth.flows.linkProvider({
+          authorize: ALLOW_LINK,
+          identityId: second,
+          providerId: 'oauth:authGoogle',
+          providerSub,
+        }),
+      ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
     })
   })
 
@@ -247,8 +250,8 @@ suite('E2E provider linking and API keys on real Postgres', () => {
 
       await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
 
-      expect(await stores.identities.findByProviderSub('oauth:authGoogle', g)).toBeNull()
-      expect((await stores.identities.findByProviderSub('oauth:authGithub', gh))?.id).toBe(id)
+      expect(await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub: g })).toBeNull()
+      expect((await stores.identities.find({ providerId: 'oauth:authGithub', providerSub: gh }))?.id).toBe(id)
     })
 
     it('lets the provider sub be linked again afterwards', async () => {
@@ -275,7 +278,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         providerSub,
       })
 
-      expect((await stores.identities.findByProviderSub('oauth:authGoogle', providerSub))?.id).toBe(id)
+      expect((await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub }))?.id).toBe(id)
     })
 
     it('refuses to unlink the last way into an account', async () => {
@@ -305,7 +308,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       })
 
       await auth.flows.unlinkProvider({ allowLockout: true, identityId: id, providerId: 'oauth:authGoogle' })
-      expect(await stores.identities.findByProviderSub('oauth:authGoogle', providerSub)).toBeNull()
+      expect(await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).toBeNull()
     })
 
     it('a password counts as another way in, so the last link can go', async () => {
@@ -320,7 +323,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.passwords.set(id, 'correct-horse-battery', stores.credentials)
 
       await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
-      expect(await stores.identities.findByProviderSub('oauth:authGoogle', providerSub)).toBeNull()
+      expect(await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).toBeNull()
     })
   })
 

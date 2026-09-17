@@ -8,9 +8,8 @@
  * rotation are the security properties of an authorization server, and both are
  * "delete/mark returned exactly one row" claims that only a real database can
  * settle. The sqlite DDL also drops the constraints, so the shipped schemas were
- * unproven even where the suite did run.
- *
- * @param factory - fresh, empty stores per case. Callers wipe between cases.
+ * unproven even where the suite did run. Callers pass fresh, empty stores per case and wipe
+ * between them.
  */
 import { describe, expect, it } from 'vitest'
 import type { OidcOP } from '~/oidc/op/types'

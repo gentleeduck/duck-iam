@@ -2,7 +2,7 @@
  * E2E: multi-instance revocation fan-out.
  *
  * Validates the load-bearing assumption behind
- * `plans/C3-engine/01-jwt-instant-revocation.md`: that a revocation published on
+ * `docs/superpowers/plans/C3-engine/01-jwt-instant-revocation.md`: that a revocation published on
  * one instance reaches every other instance over pub/sub, fast enough that an
  * in-memory registry is a safe substitute for a per-request Redis read.
  *
