@@ -7,6 +7,7 @@ import {
   iamAssertSavablePolicy,
   iamAssertSavableRole,
   iamNormalizePolicy,
+  iamRoleWithoutInherit,
   iamUnreadablePolicy,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
@@ -268,9 +269,20 @@ export class IamPrismaAdapter<
     })
   }
 
-  /** Removes a role by ID; a missing row is a no-op. */
+  /**
+   * Removes a role by ID and every `inherits` edge pointing at it; a missing row is a no-op.
+   * SECURITY: an orphan edge re-attaches to a role recreated under the same id, as an orphan grant would.
+   */
   async deleteRole(id: string): Promise<void> {
     await this._prisma.accessRole.deleteMany({ where: { id } })
+    for (const row of await this._prisma.accessRole.findMany()) {
+      const role = this._readRole(row)
+      if (role === null) continue
+      const stripped = iamRoleWithoutInherit(role, id)
+      if (stripped === null) continue
+      const data = fromRole(stripped)
+      await this._prisma.accessRole.upsert({ create: data, update: data, where: { id: stripped.id } })
+    }
   }
 
   /** Deduplicated IDs of the subject's *unscoped* roles; scoped ones come from `getSubjectScopedRoles`. */

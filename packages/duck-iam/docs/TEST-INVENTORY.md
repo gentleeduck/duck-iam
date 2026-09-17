@@ -40,10 +40,11 @@ drift the way the hand-maintained version did.
 |---|---|---|
 | `adapters/__tests__/adapter-contract-parity.test.ts` | 58 | assignRole options are refused, not discarded |
 | `adapters/__tests__/attributes-caller-isolation.test.ts` | 20 | the file adapter’s copy survives a reopen |
-| `adapters/__tests__/e2e-adapter-drizzle-pg.e2e.test.ts` | 125 | E2E harness reachability (drizzle/pg) |
-| `adapters/__tests__/e2e-adapter-prisma-pg.e2e.test.ts` | 90 | E2E harness reachability (prisma/pg) |
-| `adapters/__tests__/e2e-adapter-redis.e2e.test.ts` | 78 | E2E harness reachability (redis) |
+| `adapters/__tests__/e2e-adapter-drizzle-pg.e2e.test.ts` | 127 | E2E harness reachability (drizzle/pg) |
+| `adapters/__tests__/e2e-adapter-prisma-pg.e2e.test.ts` | 92 | E2E harness reachability (prisma/pg) |
+| `adapters/__tests__/e2e-adapter-redis.e2e.test.ts` | 80 | E2E harness reachability (redis) |
 | `adapters/__tests__/optional-method-matrix.test.ts` | 8 | the optional-method support matrix is what the adapters actually implement |
+| `adapters/__tests__/role-id-reuse-resurrection.test.ts` | 12 |  |
 | `adapters/__tests__/rows-caller-isolation.test.ts` | 14 | memory: a seeded row is not the caller object either |
 | `adapters/__tests__/save-time-validation.test.ts` | 19 | every adapter refuses to save a row its reads would drop |
 | `adapters/drizzle/__tests__/drizzle-actor-provenance.test.ts` | 11 | assignRole records who made the grant |
@@ -51,7 +52,7 @@ drift the way the hand-maintained version did.
 | `adapters/drizzle/__tests__/drizzle-native-attr-shape.test.ts` | 13 | IamDrizzleAdapter native JSONB shape validation |
 | `adapters/drizzle/__tests__/drizzle-sqlite-real-engine.test.ts` | 9 | drizzle sqlite dialect, against a real SQLite engine |
 | `adapters/drizzle/__tests__/drizzle-update-assignment-scope.test.ts` | 6 | IamDrizzleAdapter.updateAssignmentScope |
-| `adapters/drizzle/__tests__/drizzle.test.ts` | 222 | IamDrizzleAdapter |
+| `adapters/drizzle/__tests__/drizzle.test.ts` | 226 | IamDrizzleAdapter |
 | `adapters/drizzle/__tests__/ops-wiring-types.test.ts` | 3 | drizzle-orm operators satisfy the adapter ops bundle as-is |
 | `adapters/drizzle/__tests__/schema-parity.test.ts` | 33 | the dialect-only allow-list stays honest |
 | `adapters/drizzle/__tests__/with-client.test.ts` | 5 | IamAdapter.withClient |
@@ -64,8 +65,8 @@ drift the way the hand-maintained version did.
 | `adapters/file/__tests__/file-io-failure.test.ts` | 5 | IamFileAdapter I/O failure handling |
 | `adapters/file/__tests__/file-malformed-payload.test.ts` | 21 | IamFileAdapter malformed assignments/attributes |
 | `adapters/file/__tests__/file-rootdir-warn.test.ts` | 5 | the missing-rootDir warning, against a module whose latch has not fired |
-| `adapters/file/__tests__/file.test.ts` | 107 | IamFileAdapter |
-| `adapters/http/__tests__/http-compliance.test.ts` | 71 |  |
+| `adapters/file/__tests__/file.test.ts` | 109 | IamFileAdapter |
+| `adapters/http/__tests__/http-compliance.test.ts` | 73 |  |
 | `adapters/http/__tests__/http-config-numbers.test.ts` | 13 | a numeric option that would disable what it configures is refused |
 | `adapters/http/__tests__/http-empty-body.test.ts` | 8 | a bodiless success is not a parse error |
 | `adapters/http/__tests__/http-error-body-cap.test.ts` | 6 | IamHttpAdapter error body cap |
@@ -78,7 +79,7 @@ drift the way the hand-maintained version did.
 | `adapters/http/__tests__/http.test.ts` | 61 | IamHttpAdapter |
 | `adapters/memory/__tests__/memory-input-shape.test.ts` | 8 | IamMemoryAdapter direct-call input shape |
 | `adapters/memory/__tests__/memory-seed-parity.test.ts` | 11 | the memory adapter seed agrees with the equivalent write |
-| `adapters/memory/__tests__/memory.test.ts` | 103 | IamMemoryAdapter |
+| `adapters/memory/__tests__/memory.test.ts` | 105 | IamMemoryAdapter |
 | `adapters/prisma/__tests__/prisma-actor-provenance.test.ts` | 3 | prisma definition writes record their author |
 | `adapters/prisma/__tests__/prisma-attribute-corruption.test.ts` | 18 | IamPrismaAdapter attribute corruption defense |
 | `adapters/prisma/__tests__/prisma-malformed-row-drop.test.ts` | 9 | IamPrismaAdapter malformed-row handling |
@@ -86,14 +87,14 @@ drift the way the hand-maintained version did.
 | `adapters/prisma/__tests__/prisma-unreadable-role.test.ts` | 6 | prisma names a role row it cannot read |
 | `adapters/prisma/__tests__/prisma-update-assignment-scope.test.ts` | 12 | IamPrismaAdapter.updateAssignmentScope |
 | `adapters/prisma/__tests__/prisma-with-client.test.ts` | 4 | IamPrismaAdapter.withClient rebinds writes onto the given client |
-| `adapters/prisma/__tests__/prisma.test.ts` | 115 | IamPrismaAdapter |
+| `adapters/prisma/__tests__/prisma.test.ts` | 117 | IamPrismaAdapter |
 | `adapters/redis/__tests__/redis-attributes-merge.test.ts` | 6 | redis setSubjectAttributes distinguishes corruption from a failed read |
 | `adapters/redis/__tests__/redis-input-shape.test.ts` | 5 | IamRedisAdapter direct-call input shape |
 | `adapters/redis/__tests__/redis-io-failure.test.ts` | 8 | IamRedisAdapter connection failure |
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
-| `adapters/redis/__tests__/redis.test.ts` | 123 | IamRedisAdapter |
-| **Subtotal** | **1617** | |
+| `adapters/redis/__tests__/redis.test.ts` | 125 | IamRedisAdapter |
+| **Subtotal** | **1649** | |
 
 ---
 
@@ -419,7 +420,7 @@ drift the way the hand-maintained version did.
 | Area | Files | Tests |
 |---|---|---|
 | Core / compiled engine | 10 | 149 |
-| Adapters | 55 | 1617 |
+| Adapters | 56 | 1649 |
 | Clients | 11 | 136 |
 | Core | 161 | 2739 |
 | Devtools | 9 | 201 |
@@ -429,4 +430,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **310** | **6139** |
+| **Total** | **311** | **6171** |

@@ -7,6 +7,7 @@ import {
   iamAssertSavablePolicy,
   iamAssertSavableRole,
   iamNormalizePolicy,
+  iamRoleWithoutInherit,
   iamUnreadablePolicy,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
@@ -347,12 +348,24 @@ export class IamRedisAdapter<
   }
 
   /**
-   * Removes a role and every grant naming it (a `KEYS` sweep), matching the SQL adapters' `ON DELETE CASCADE`.
-   * SECURITY: a kept orphan grant would be held again by its old subjects if a role is recreated under the same id.
+   * Removes a role, every grant naming it (a `KEYS` sweep) and every `inherits` edge pointing at it.
+   * SECURITY: a kept orphan grant or edge would be held again by its old subjects if the id is recreated.
    */
   async deleteRole(id: string): Promise<void> {
     await this._client.hdel(this._rolesKey(), id)
+    await this._disinheritEverywhere(id)
     await this._revokeEverywhere(id)
+  }
+
+  /** Rewrites every readable role that inherits `deletedId` without that edge. */
+  private async _disinheritEverywhere(deletedId: string): Promise<void> {
+    const entries = await this._client.hgetall(this._rolesKey())
+    for (const [rowId, raw] of Object.entries(entries)) {
+      const role = this._safeParseRole(raw, rowId)
+      if (role === null) continue
+      const stripped = iamRoleWithoutInherit(role, deletedId)
+      if (stripped !== null) await this._client.hset(this._rolesKey(), rowId, JSON.stringify(stripped))
+    }
   }
 
   /**
