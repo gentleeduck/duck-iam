@@ -466,7 +466,7 @@ Errors block. Warnings do not.
 
 | Code | Level | Emitted by | Means | Fix |
 |---|---|---|---|---|
-| `INVALID_TYPE` | error | policy, rule, role | The value is the wrong JS type: non-object policy/role, non-number `version`, non-object `targets`, non-array `targets.*`, non-finite `priority`, non-string action/resource, control chars (in a rule's `actions`/`resources`, a role `id`, or a permission's `action`/`resource` — §3.7 lists what is not covered), empty-string `scope`, non-array `inherits`, non-object `permissions[i]` | Fix the type. For `scope`, omit the field rather than passing `''` |
+| `INVALID_TYPE` | error | policy, rule, role | The value is the wrong JS type: non-object policy/role, non-number `version`, non-object `targets`, non-array `targets.*`, non-string entry in `targets.actions`/`.resources`/`.roles`, non-finite `priority`, non-string action/resource, control chars (in a rule's `actions`/`resources`, an entry of `targets.*`, a role `id`, or a permission's `action`/`resource` — §3.7 lists what is not covered), empty-string `scope`, non-array `inherits`, non-object `permissions[i]` | Fix the type. For `scope`, omit the field rather than passing `''` |
 | `MISSING_FIELD` | error | policy, rule, role | A required field is absent or empty: policy `id` and `name`, policy `rules`; rule `id`, `actions`, `resources`, `conditions`; role `id`, `permissions`, `permissions[i].action`/`.resource`; condition `field`. Note the `name` here is the **policy** name — `validateRole` does not check a role's `name` (§3.7) | Supply it. For `conditions`, `{ all: [] }` is the unconditional spelling |
 | `INVALID_ALGORITHM` | error | policy | `algorithm` is not one of the four | Use `deny-overrides`, `allow-overrides`, `first-match` or `highest-priority` |
 | `INVALID_EFFECT` | error | rule | `effect` is not `allow` or `deny` | — |
@@ -595,7 +595,7 @@ clean; the sixth throws instead of reporting. Each row names what to do instead.
 | Not checked | Where | What happens | What to do |
 |---|---|---|---|
 | `role.name` | `validateRole` (`validate.ts:390-545`) | A role with no `name` returns `valid: true`. `IRole` requires it, so only TypeScript enforces it | Check it yourself on any role built from untyped JSON |
-| Control chars in a **policy** `id` or `name`, or a **rule** `id` | `validatePolicy` / `validateRuleShape` | Accepted. The check (`hasControlChar`) is applied to a rule's `actions` and `resources` (`validate.libs.ts:509`, `:544`), a role `id` (`validate.ts:407`) and a permission's `action` / `resource` (`validate.ts:467`), and nowhere else. `POLICY_JSON_SCHEMA` agrees on the policy side: its `NO_CONTROL_CHARS` pattern (`schema.ts:39`) is on rule `actions` / `resources` items only (`schema.ts:218`, `:224`), and the schema describes policies only — there is no published role schema | Screen ids in your admin form. A control char is invisible in a UI, so the id reads as a different id than it is |
+| Control chars in a **policy** `id` or `name`, or a **rule** `id` | `validatePolicy` / `validateRuleShape` | Accepted. The check (`hasControlChar`) is applied to a rule's `actions` and `resources` (`validate.libs.ts:509`, `:544`), every entry of `targets.actions` / `.resources` / `.roles`, a role `id` (`validate.ts:407`) and a permission's `action` / `resource` (`validate.ts:467`), and nowhere else. `POLICY_JSON_SCHEMA` agrees on the policy side: its `NO_CONTROL_CHARS` pattern (`schema.ts:39`) is on rule `actions` / `resources` items only (`schema.ts:218`, `:224`), and the schema describes policies only — there is no published role schema | Screen ids in your admin form. A control char is invisible in a UI, so the id reads as a different id than it is |
 | Unknown keys on a **role** or a **permission** | `validateRole` | Accepted. `checkKnownKeys` is called on the policy, its `targets`, each rule, each leaf condition and each condition group — never on a role or a permission object. `{ id, name, permissions: [], typo: 1 }` returns `valid: true` with no issues, where the same stray key on a policy is an `UNKNOWN_FIELD` error | Watch for misspelled `scope` / `conditions` on a permission — the engine ignores the key and the grant is not the one you wrote |
 | The reserved refusal token `'unknown'` | every validator | A rule with `actions: ['unknown']`, or a permission `{ action: 'unknown', resource: 'unknown' }`, validates clean and stores clean. The engine refuses any request naming it before consulting a policy, so nothing ever asks the question that grant answers — see §6.1 | Do not use `'unknown'` as an action or resource name. If your vocabulary needs the word, rename it (`unspecified`, `other`) |
 | The reserved policy id `'__rbac__'` | `validatePolicy` | Accepted — see §6.2 for what an authored policy under that id does | Pick a different id |
@@ -940,6 +940,7 @@ their own ids; the traces are unreadable otherwise.
 | Value | Refused where | Why |
 |---|---|---|
 | control characters in a rule's `actions` / `resources` | `validateRuleShape` | Invisible in every UI that would show one, so a name reads as a different name than it is. Rejected rather than normalised: silently rewriting a name would change which rules a policy matches |
+| a non-string or control-character entry in `targets.actions` / `.resources` / `.roles` | `validatePolicy` | The roles axis is matched with `includes` and the other two with `matchesAction` / `matchesResource`. A non-string matches no role, so the policy becomes NotApplicable to everyone and the denies inside it never run; on the action and resource axes `matchesAction` reaches `pattern.endsWith` and throws while the compiled table is built, denying every request in the process. Reported per axis and per index |
 | control characters in a role `id` or a permission's `action` / `resource` | `validateRole` | Same, plus a concrete failure: NUL is the redis assignment member separator, so `saveRole` stored a role that `assignRole` then threw on |
 | `scope: ''` on a role or a permission | `validateRole` | `''` is a scope value, not a missing one. Omit the field for global |
 | `scope: ''` or `scope: '*'` on an **assignment** | `iamAssertAssignableScope` (`shared/scope.ts:60`), write path only | `'*'` means "every scope" on a role's *declared* scope but is matched **literally** on an assignment, so the grant answers only a request whose own scope is the string `'*'`. Lookups (`revokeRole`) are exempt so pre-guard rows can still be deleted |
@@ -979,7 +980,9 @@ from the same constant: `maxItems` from `POLICY_LIMITS`, `maxLength` from
 `MAX_FIELD_LENGTH` and `MAX_CONDITION_VALUE_LENGTH`, the operand `if`/`then`
 branches from the same matrix, and the `NO_CONTROL_CHARS` pattern
 (`schema.ts:39`) on rule actions and resources mirroring `hasControlChar` —
-those two lists only, exactly as the validator does (§3.7).
+those two lists only. The validator applies `hasControlChar` to the entries of
+`targets.*` as well, which is the safe direction: the schema is the looser of
+the two there, so nothing it accepts is refused downstream by surprise (§3.7).
 `priority` is `type: 'number'` and nothing more — JSON has no `NaN` or
 `Infinity` literal, so that is as close as the schema gets to the finiteness
 check.
