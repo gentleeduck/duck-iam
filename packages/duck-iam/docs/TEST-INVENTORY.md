@@ -100,7 +100,7 @@ drift the way the hand-maintained version did.
 
 | File | Tests | Covers |
 |---|---|---|
-| `client/__tests__/client-parity.test.ts` | 29 | the three clients answer the same map identically |
+| `client/__tests__/client-parity.test.ts` | 33 | the three clients answer the same map identically |
 | `client/react/__tests__/react-shared-and-stale-closures.test.ts` | 7 | the loading placeholder is not shared writable state |
 | `client/react/__tests__/react-use-permissions-stale.test.ts` | 6 | usePermissions does not serve a previous subject |
 | `client/react/__tests__/react.test.ts` | 22 | createIamAccessControl |
@@ -111,7 +111,7 @@ drift the way the hand-maintained version did.
 | `client/vue/__tests__/vue-partial-map.test.ts` | 1 | createIamVueAccess partial permission map |
 | `client/vue/__tests__/vue-reactivity-triggers.test.ts` | 5 | every vue state change the client makes is one a real ref would notify on |
 | `client/vue/__tests__/vue.test.ts` | 14 | createIamVueAccess - createAccessState |
-| **Subtotal** | **132** | |
+| **Subtotal** | **136** | |
 
 ---
 
@@ -419,7 +419,7 @@ drift the way the hand-maintained version did.
 |---|---|---|
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
-| Clients | 11 | 132 |
+| Clients | 11 | 136 |
 | Core | 161 | 2739 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
@@ -428,4 +428,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **309** | **6115** |
+| **Total** | **309** | **6119** |

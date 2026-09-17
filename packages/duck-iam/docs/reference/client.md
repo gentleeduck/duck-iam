@@ -310,14 +310,15 @@ Two real UI hazards follow from that, and neither is a bug in the hook:
 ### `createIamPermissionChecker(permissions)`
 
 A React-free checker for event handlers, utilities and tests
-(`src/client/react/index.ts:437`). Returns `{ can, cannot, allowedActions, hasAnyOn, permissions }`,
+(`src/client/react/index.ts:333`). Returns `{ can, cannot, allowedActions, hasAnyOn, permissions }`,
 where `permissions` is the caller's own object, by reference
-(`src/client/react/__tests__/react.test.ts:247` asserts `.toBe(map)`).
+(`src/client/react/__tests__/react.test.ts:250` asserts `.toBe(map)`).
 
-Unlike `AccessProvider`, this function does not copy. Every check reads the live
-argument, so writing into that map after building the checker does change what
-`can()` answers. Hand it a map nothing else holds, or hand it the same map you
-would hand the provider and treat both as immutable.
+Unlike `AccessProvider` and Vue's `createAccessState`, this function does not
+copy. Every check reads the live argument, so writing into that map after
+building the checker does change what `can()` answers. Hand it a map nothing
+else holds, or hand it the same map you would hand the provider and treat both
+as immutable.
 
 ## Vanilla
 
@@ -423,15 +424,17 @@ returns `{ install(app) }`, which does the same via `app.provide` and also sets
 ```
 
 `useAccess()` injects the state and **always throws** when nothing was provided
-(`src/client/vue/index.ts:144`), with no environment gate — this is the
+(`src/client/vue/index.ts:121`), with no environment gate — this is the
 behaviour React's development mode was aligned to.
 
-`update(newPerms)` assigns `permissions.value = newPerms`. That is the entire
-reload story for the provided state: there is no `merge`, and no fetch.
+`update(newPerms)` stores a frozen copy of the argument, exactly as the
+constructor does, so a later write into the map you handed it cannot grant
+without going through `update`. That is the entire reload story for the provided
+state: there is no `merge`, and no fetch.
 
 ### Vue's `usePermissions(fetchFn)`
 
-Same intent as React's, different surface (`src/client/vue/index.ts:168`):
+Same intent as React's, different surface (`src/client/vue/index.ts:141`):
 
 | | React | Vue |
 | --- | --- | --- |
@@ -487,7 +490,7 @@ reload is an assignment of a different object:
 | --- | --- | --- |
 | React | `refetch()` / a `deps` change | `setPermissions(EMPTY_PERMISSIONS)` → later `setPermissions(perms)` |
 | Vue (`usePermissions`) | `refetch()` | `permissions.value = empty` → later `permissions.value = perms` |
-| Vue (provided state) | `update(perms)` | `permissions.value = perms` |
+| Vue (provided state) | `update(perms)` | `permissions.value = a frozen copy of perms` |
 | Vanilla | `update(perms)` / `merge(perms)` | `this._permissions = { ...perms }` |
 
 The important part is the *first* assignment. Both `usePermissions`
@@ -604,7 +607,7 @@ subscriber uninformed, so the rendered UI and the client would disagree about
 the same map.
 
 **Listeners receive the caller's object, not the client's copy.** `update`
-notifies with the argument it was given (`src/client/vanilla/index.ts:164`), and
+notifies with the argument it was given (`src/client/vanilla/index.ts:111`), and
 what a listener does to that object is between the listener and the caller — it
 can no longer reach what the client decides from
 (`vanilla-map-ownership.test.ts:46`). For `merge`, the notified object is the
@@ -613,9 +616,9 @@ freshly built merged literal, which does include the previously stored keys
 
 **React's provider copies in; its standalone checker does not.**
 `AccessProvider` builds `{ ...permissions }` inside the memo and every member of
-the context value reads that snapshot (`src/client/react/index.ts:232`), so a
+the context value reads that snapshot (`src/client/react/index.ts:171`), so a
 mutation of the map you passed simply does not apply — the same answer vanilla
-gives. `createIamPermissionChecker` (`:437`) is the other half of the React
+gives. `createIamPermissionChecker` (`:333`) is the other half of the React
 surface and still reads the caller's live object, which is also what it hands
 back as `permissions`.
 
@@ -632,24 +635,30 @@ map['manage:billing'] = true
 checker.can('manage', 'billing') // true
 ```
 
-**Vue does not copy, in either direction.** `createAccessState` puts the
-argument straight into a `ref` (`src/client/vue/index.ts:107`), and `update`
-assigns the caller's object (`:119`). A write into that object changes what
-`can()` answers and triggers no reactivity, because `ref()` sees writes made
-through `permissions.value`, not writes to the object you still hold.
+**Vue copies in and freezes.** `createAccessState` stores
+`Object.freeze({ ...map })` (`src/client/vue/index.ts:88`) and `update` stores
+another one (`:100`), so neither the map you passed nor the one
+`permissions.value` hands back can be edited into a grant. The freeze is what
+closes the second direction, because the `Ref` does hand out the stored object:
+without it a write through `permissions.value` would change what `can()` answers
+while notifying nothing, since `ref()` sees an assignment to `.value` and not an
+edit inside it.
 
 The rule that covers every case: treat any map you hand to a client, and any map
 a client hands back, as immutable. Replace it, never edit it.
 
 | | React `AccessProvider` | React `createIamPermissionChecker` | Vue | Vanilla |
 | --- | --- | --- | --- | --- |
-| copies the map on the way in | yes | no | no | yes |
-| copies the map on the way out | no — `permissions` is the provider's own snapshot | no — the caller's object, identity and all | no — the `Ref` holds the caller's object | yes, a fresh copy per read |
-| mutating the map you passed in changes `can()` | no | yes | yes | no |
-| mutating the map you read back changes `can()` | yes | yes | yes | no |
+| copies the map on the way in | yes | no | yes | yes |
+| copies the map on the way out | no — `permissions` is the provider's own frozen snapshot | no — the caller's object, identity and all | no — the `Ref` holds the state's own frozen copy | yes, a fresh copy per read |
+| mutating the map you passed in changes `can()` | no | yes | no | no |
+| mutating the map you read back changes `can()` | no — frozen | yes | no — frozen | no |
 | any in-place mutation notifies anything | no | n/a | no | no |
 
-Only vanilla closes both directions.
+`createIamPermissionChecker` is the only surface that shares a live map, and it
+does so by contract. The other three close both directions by different means:
+vanilla copies on every read, React and Vue hand back one object and freeze it.
+The whole matrix is pinned in `src/client/__tests__/client-parity.test.ts`.
 
 ## Feature comparison
 
@@ -674,8 +683,8 @@ Only vanilla closes both directions.
 | Missing provider | throws in `NODE_ENV=development`, denies otherwise | n/a | always throws |
 | Re-exports `iamBuildPermissionKey` | yes | **no** | yes |
 | Re-exports `iamAllowedActions` / `iamHasAnyOn` | yes | yes | yes |
-| Copies the map handed in | yes in `AccessProvider`, no in `createIamPermissionChecker` | yes | no |
-| Copies the map handed back | no | yes, per read | no |
+| Copies the map handed in | yes in `AccessProvider`, no in `createIamPermissionChecker` | yes | yes |
+| Copies the map handed back | no — one frozen snapshot | yes, per read | no — one frozen copy |
 
 Features present in exactly one client: `merge`, `subscribe` and `fromServer`
 (vanilla); `$can`/`$cannot` globals, a plugin installer and a shared injection

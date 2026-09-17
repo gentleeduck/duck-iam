@@ -479,3 +479,29 @@ from a pool covering every optional field, and the guard runs on that same
 generator: 1417 of 4000 accepted, against a floor of 1000. Reverting any of the
 four fixes above now fails it; before the rewrite, reverting the `rule.metadata`
 fix did not.
+
+### Vue's access state shared the permission map the caller still held
+
+`createAccessState(map)` put the caller's object straight into its `ref`, and
+`update(next)` assigned `next` itself. React's `AccessProvider` and the vanilla
+`IamAccessClient` both copy the map in and both say why in a comment;
+`createIamPermissionChecker` shares it deliberately and documents that. Vue was
+the one surface that shared it silently — and it shared in both directions,
+since the `Ref` also hands the stored object back through `permissions.value`.
+
+So on Vue, and only on Vue, `map['delete:post'] = true` after construction made
+`can('delete', 'post')` start answering `true`, with no reactivity triggered:
+`ref()` sees an assignment to `.value`, not an edit inside the object it holds.
+The same write through `state.permissions.value` did the same thing. The map is
+client-side and the server re-checks, so this is a UI-correctness and
+cross-binding-consistency bug rather than a bypass — a gate rendered from a map
+somebody else could edit.
+
+`createAccessState` now stores `Object.freeze({ ...map })`, in the constructor
+and in `update`, which closes both directions: the copy defends the map you
+handed in, the freeze defends the one you read back.
+
+The reference doc's ownership matrix was wrong in two more cells while it was
+there: it said a write into the map React's `AccessProvider` hands back changes
+`can()`, but that snapshot has been frozen all along. All four surfaces are now
+pinned by one table-shaped test rather than by prose.

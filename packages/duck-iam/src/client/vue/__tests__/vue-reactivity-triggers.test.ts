@@ -103,7 +103,10 @@ describe('every vue state change the client makes is one a real ref would notify
     const { createAccessState } = createIamVueAccess<A, R, S>(vue)
     const state = createAccessState(MAP)
     state.update(OTHER)
-    expect(state.permissions.value).toBe(OTHER)
+    // Equal, not identical: `update` stores its own frozen copy, as React's provider and `IamAccessClient` do,
+    // so a later write to the caller's `OTHER` cannot grant. `client-parity.test.ts` pins that directly.
+    expect(state.permissions.value).toEqual(OTHER)
+    expect(state.permissions.value).not.toBe(OTHER)
     expect(triggersOf(state.permissions)).toBe(1)
   })
 

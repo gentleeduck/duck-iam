@@ -252,6 +252,74 @@ describe('react reports a missing provider the way vue does', () => {
   })
 })
 
+describe('a write to the map behind a surface does not grant', () => {
+  /** The provider-shaped surfaces: each is handed a map an app keeps a reference to. */
+  function providers(map: IamClient.PartialPermissionMap) {
+    const { React, providedValue } = makeReact()
+    const { AccessProvider } = createIamAccessControl(React)
+    AccessProvider({ children: null, permissions: map })
+    const vanilla = new IamAccessClient(map)
+    return [
+      { can: providedValue().can, exposed: providedValue().permissions, name: 'react provider' },
+      { can: (a: string, r: string) => vanilla.can(a, r), exposed: vanilla.permissions, name: 'vanilla' },
+      (() => {
+        const state = createIamVueAccess(makeVue()).createAccessState(map)
+        return { can: state.can, exposed: state.permissions.value, name: 'vue state' }
+      })(),
+    ]
+  }
+
+  it("a later write to the caller's own map is not a grant", () => {
+    const map: IamClient.PartialPermissionMap = {}
+    const built = providers(map)
+    const before = Object.fromEntries(built.map((s) => [s.name, s.can('delete', 'post')]))
+    Reflect.set(map, 'delete:post', true)
+    const after = Object.fromEntries(built.map((s) => [s.name, s.can('delete', 'post')]))
+    expect({ after, before }).toEqual({
+      after: { 'react provider': false, vanilla: false, 'vue state': false },
+      before: { 'react provider': false, vanilla: false, 'vue state': false },
+    })
+  })
+
+  it('a write through the map each surface exposes is not a grant either', () => {
+    const built = providers({})
+    for (const surface of built) Reflect.set(surface.exposed, 'delete:post', true)
+    expect(Object.fromEntries(built.map((s) => [s.name, s.can('delete', 'post')]))).toEqual({
+      'react provider': false,
+      vanilla: false,
+      'vue state': false,
+    })
+  })
+
+  it('vue update() takes its own copy, as vanilla update() does', () => {
+    const state = createIamVueAccess(makeVue()).createAccessState({})
+    const next: IamClient.PartialPermissionMap = { 'read:post': true }
+    state.update(next)
+    expect(state.can('read', 'post')).toBe(true)
+    Reflect.set(next, 'delete:post', true)
+    expect(state.can('delete', 'post')).toBe(false)
+
+    const vanilla = new IamAccessClient({})
+    const next2: IamClient.PartialPermissionMap = { 'read:post': true }
+    vanilla.update(next2)
+    Reflect.set(next2, 'delete:post', true)
+    expect({ delete: vanilla.can('delete', 'post'), read: vanilla.can('read', 'post') }).toEqual({
+      delete: false,
+      read: true,
+    })
+  })
+
+  // The one surface that shares the caller's map on purpose; its docblock says so, so pin it rather than
+  // let a later sweep "fix" it into a copy and change what `createIamPermissionChecker` is for.
+  it("createIamPermissionChecker reads the caller's map live, by contract", () => {
+    const map: IamClient.PartialPermissionMap = {}
+    const checker = createIamPermissionChecker(map)
+    const before = checker.can('delete', 'post')
+    Reflect.set(map, 'delete:post', true)
+    expect({ after: checker.can('delete', 'post'), before }).toEqual({ after: true, before: false })
+  })
+})
+
 describe('vue has an async path with the same shape react has', () => {
   it('starts empty and loading, then serves the fetched map', async () => {
     const { usePermissions } = createIamVueAccess(makeVue())
