@@ -2,14 +2,16 @@ import { AuthEngine, type Engine } from '../engine'
 import { AuthError } from '../errors'
 import type { Identities } from '../identities/identities.types'
 import { CookieTransport } from '../transport/cookie.transport'
+import { assertKnownKeys, normaliseBaseUrl, resolveStrictEnv } from './config.constants'
 import type { AuthDefine } from './config.types'
 
 /**
  * Creates a fully-wired {@link AuthEngine} from a flat config. Primary entry
  * point for duck-auth: the ergonomic alternative to `new AuthEngine(config)`.
  *
- * Falsy entries in `providers` are silently skipped; `strict: 'production'`
- * runs `auth.strict()` at boot to enforce production-grade settings.
+ * Falsy entries in `providers` are silently skipped. `strict` runs `auth.strict()` at boot and
+ * follows `NODE_ENV` unless it is named, so a production deploy is checked without being asked;
+ * `strict: false` opts out.
  *
  * @example
  * ```ts
@@ -25,6 +27,7 @@ export function createAuth<
   // a plugin is async and `createAuth` is not, and an oauth state secret has to
   // reach each provider at construction, so both are refused with the call that
   // does work.
+  assertKnownKeys(config)
   if (config.plugins?.length) {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail:
@@ -38,26 +41,33 @@ export function createAuth<
     })
   }
 
+  const absent = (['identities', 'sessions', 'credentials'] as const).filter((name) => !config.stores?.[name])
+  if (absent.length > 0) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `createAuth needs a store for identities, sessions and credentials; missing: ${absent.join(', ')}`,
+    })
+  }
+
+  // Both are read before the engine exists, so a bad value is named here rather than surfacing as a
+  // redirect to nowhere or a production deploy that skipped every check.
+  const baseUrl = normaliseBaseUrl(config.baseUrl)
+  const strictEnv = resolveStrictEnv(config.strict)
   const transport = config.transport ?? new CookieTransport({ name: 'duck-sid' })
 
-  // Every `Engine.Cfg` key, by construction. Copying them across by hand is
-  // what this used to do, and it dropped three: `idempotency` (the engine fell
-  // back to MemoryIdempotency and `strict()` then refused to boot production),
-  // `captcha`, and `resolveActor` - so a host that wired an actor resolver the
-  // documented way wrote audit rows with no actor on them. Each one type-checks
-  // on the way in, because `AuthDefine.Cfg` inherits the key, and then goes
-  // nowhere. A spread cannot forget a key that is added later.
+  // Spread rather than key by key, or a key added later is silently dropped: it type-checks on the
+  // way in, because `AuthDefine.Cfg` inherits it, and then goes nowhere.
   //
-  // `plugins`, `oauth` and `strict` ride along and the engine never reads them:
-  // the first two are refused above, and `strict` is applied below.
+  // `plugins`, `oauth` and `strict` ride along and the engine never reads them: the first two are
+  // refused above, and `strict` is applied below.
   const rootCfg: Engine.Cfg<Profile, Tenant, OrgMeta> = {
     ...config,
+    baseUrl,
     transport,
   }
 
   const auth = new AuthEngine<Profile, Tenant, OrgMeta>(rootCfg)
 
-  if (config.strict) auth.strict({ env: config.strict })
+  if (strictEnv) auth.strict({ env: strictEnv })
 
   return auth
 }

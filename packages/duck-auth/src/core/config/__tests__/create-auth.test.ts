@@ -6,7 +6,7 @@
  * been fixed here (idempotency, which fell back to the memory store and made
  * strict refuse to boot). These cases enumerate the surface and check the rest.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
 import { idempotency } from '~/core/idempotency'
@@ -152,13 +152,15 @@ describe('every knob the config type accepts reaches the engine', () => {
     expect(() => createAuth({ ...base(), oauth: {} })).not.toThrow()
   })
 
-  it('FINDING: no key outside the two the engine knows is reported as unrecognised', () => {
-    // There is no strict-key check anywhere in the path, so a typo in a config
-    // key is accepted in silence. `sessions` instead of `session` is the one a
-    // caller is most likely to write, and it disables the window they meant to
-    // shorten.
-    const auth = createAuth({ ...base(), sessions: { ttlMs: 1_000 } } as never)
-    expect(auth.cfg.session).toBeUndefined()
+  it('names a key it does not know rather than accepting the typo', () => {
+    // `sessions` for `session` is the one a caller is most likely to write, and accepting it left
+    // them believing they had shortened the window it names.
+    expect(() => createAuth({ ...base(), sessions: { ttlMs: 1_000 } } as never)).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: expect.stringContaining('"sessions"') },
+      }),
+    )
   })
 })
 
@@ -175,12 +177,13 @@ describe('the defaults it picks when a knob is omitted', () => {
     expect(auth.events).toBeDefined()
   })
 
-  it('FINDING: with no limiter configured the engine builds and only strict complains', () => {
-    // Rate limiting is optional at construction, so the ordinary path, build an
-    // engine and mount it, has no throttle in front of sign-in unless the
-    // operator remembers `strict`.
+  it('falls back to an in-process limiter, which production refuses', () => {
+    // Not "no throttle": the engine defaults to a MemoryLimiter, so sign-in is limited per process.
+    // What production refuses is that it is per process, and `cfg.limiter` staying undefined is how
+    // strict tells a default apart from a limiter the operator chose.
     const auth = createAuth(base())
     expect(auth.cfg.limiter).toBeUndefined()
+    expect(auth.limiter).toBeInstanceOf(MemoryLimiter)
     expect(() => auth.strict({ env: 'production' })).toThrow()
   })
 })
@@ -195,24 +198,50 @@ describe('the strict flag', () => {
     expect(() => createAuth({ ...base(), strict: 'test' })).not.toThrow()
   })
 
-  it('FINDING: omitting strict is the default, so nothing is checked unless asked', () => {
-    // The same config that throws with `strict: 'production'` builds silently
-    // without it, and the flag has to be remembered rather than opted out of.
-    expect(() => createAuth(base())).not.toThrow()
+  it('follows NODE_ENV when nothing is said, so a production deploy is checked without being asked', () => {
+    // The idempotency store is supplied because the engine's own fallback refuses to construct
+    // under production, and that error would pass this test without strict having run at all.
+    const cfg = (): AuthDefine.Cfg => ({
+      ...base(),
+      idempotency: idempotency(new MemoryIdempotency({ development: true })),
+    })
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      expect(() => createAuth(cfg())).toThrow(
+        expect.objectContaining({ meta: { detail: expect.stringContaining('production strict() checks failed') } }),
+      )
+      expect(() => createAuth({ ...cfg(), strict: false })).not.toThrow()
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
-  it('FINDING: an unknown env string is accepted and read as truthy', () => {
-    // `if (config.strict)` is a truthiness test and the value is handed straight
-    // to `strict({ env })`. A misspelled environment does not fall back to the
-    // strictest reading.
-    expect(() => createAuth({ ...base(), strict: 'prod' as never })).not.toThrow()
+  it('is permissive under a NODE_ENV that names no environment it knows', () => {
+    vi.stubEnv('NODE_ENV', 'staging')
+    try {
+      expect(() => createAuth(base())).not.toThrow()
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
-  it('FINDING: the string "false" enables strict, because only falsiness is checked', () => {
-    // A flag threaded from an environment variable arrives as a string. `'false'`
-    // is truthy, so an operator turning strict off turns it on.
-    expect(() => createAuth({ ...base(), strict: 'false' as never })).not.toThrow()
-    expect(() => createAuth({ ...base(), strict: '' as never })).not.toThrow()
+  it('refuses an env it does not know rather than reading it as truthy', () => {
+    // It used to be `if (config.strict)` and then handed straight to `strict({ env })`, so a
+    // misspelled environment ran no checks at all under a flag that says it did.
+    expect(() => createAuth({ ...base(), strict: 'prod' as never })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+  })
+
+  it('refuses the string "false", which a flag threaded from an environment variable arrives as', () => {
+    // `'false'` is a non-empty string, so the truthiness test it used to meet turned strict on.
+    // `false` is the way to say no.
+    expect(() => createAuth({ ...base(), strict: 'false' as never })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+    expect(() => createAuth({ ...base(), strict: '' as never })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 })
 
@@ -224,19 +253,24 @@ describe('the store triple', () => {
     expect(createAuth(base()).cfg.stores.orgs).toBeUndefined()
   })
 
-  it('FINDING: a missing store surfaces as a TypeError at construction, not a misconfiguration', () => {
-    // The three stores are required by the type only. A config assembled at
-    // runtime that is missing one dereferences undefined rather than reporting
-    // which store was absent.
-    expect(() => createAuth({ baseUrl: 'https://app.test' } as never)).toThrow(TypeError)
+  it('names the stores a runtime-assembled config is missing, rather than dereferencing undefined', () => {
+    expect(() => createAuth({ baseUrl: 'https://app.test' } as never)).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: expect.stringContaining('missing: identities, sessions, credentials') },
+      }),
+    )
+    expect(() => createAuth({ ...base(), stores: { ...stores(), sessions: undefined } } as never)).toThrow(
+      expect.objectContaining({ meta: { detail: expect.stringContaining('missing: sessions') } }),
+    )
   })
 
-  it('FINDING: the base url is taken verbatim, with no scheme or shape check', () => {
-    // It is the origin every redirect and cookie decision is measured against.
-    // Nothing here parses it, so a trailing slash, a bare host or an empty string
-    // all reach the facets that compare against it.
-    for (const baseUrl of ['', 'app.test', 'https://app.test/', 'javascript:alert(1)']) {
-      expect(() => createAuth({ ...base(), baseUrl })).not.toThrow()
+  it('refuses a base url that is not an absolute http(s) origin, and drops the trailing slash', () => {
+    // It is the origin every redirect and cookie decision is measured against, so it is parsed here
+    // rather than by each facet that compares against it.
+    for (const baseUrl of ['', 'app.test', 'javascript:alert(1)', '//app.test']) {
+      expect(() => createAuth({ ...base(), baseUrl })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
     }
+    expect(createAuth({ ...base(), baseUrl: 'https://app.test/' }).cfg.baseUrl).toBe('https://app.test')
   })
 })
