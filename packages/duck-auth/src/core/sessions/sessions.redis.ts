@@ -1,4 +1,4 @@
-import type { RedisLike } from '~/adapters/redis/redis-like'
+import type { RedisLike } from '~/core/drivers/redis-like'
 import { AuthError } from '~/core/errors'
 import { stripUndefined } from '~/core/patch'
 import type { Sessions } from '~/core/sessions/sessions.types'

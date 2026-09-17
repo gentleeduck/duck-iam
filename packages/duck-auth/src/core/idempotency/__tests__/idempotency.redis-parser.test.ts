@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FakeRedis } from '~/adapters/redis/redis-like'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import { RedisIdempotency } from '../idempotency.redis'
 
 const ctx = { tenantId: 'acme' }

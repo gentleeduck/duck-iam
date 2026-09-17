@@ -10,8 +10,8 @@
  */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { RedisLike } from '~/adapters/redis/redis-like'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import type { RedisLike } from '~/core/drivers/redis-like'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 import { runSessionStoreCompliance } from '~/test/store-compliance'
 import { RedisSessionImpl } from '../sessions.redis'

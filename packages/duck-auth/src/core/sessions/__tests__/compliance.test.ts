@@ -7,7 +7,7 @@
  * exemption created.
  */
 import { describe } from 'vitest'
-import { FakeRedis } from '~/adapters/redis/redis-like'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import { runSessionStoreCompliance } from '~/test/store-compliance'
 import { RedisSessionImpl } from '../sessions.redis'
 

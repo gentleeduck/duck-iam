@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FakeRedis } from '~/adapters/redis/redis-like'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import { sha256 } from '~/core/crypto'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { RedisSessionImpl } from '../sessions.redis'

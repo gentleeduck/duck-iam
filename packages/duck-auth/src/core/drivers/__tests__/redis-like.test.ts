@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FakeRedis } from '../redis-like'
+import { FakeRedis } from '~/core/drivers/redis-like'
 
 describe('FakeRedis.scan - glob MATCH', () => {
   async function withKeys(keys: string[]): Promise<FakeRedis> {

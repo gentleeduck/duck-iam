@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { RedisLike } from '~/adapters/redis/redis-like'
+import type { RedisLike } from '~/core/drivers/redis-like'
 import type { Events } from '~/core/events/events.types'
 
 export namespace RedisEvents {

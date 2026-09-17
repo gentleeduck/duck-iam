@@ -2,7 +2,7 @@
 // boot production without one, so the interface has to be reachable.
 export type { Limiter } from '../limiters.types'
 
-import type { RedisLike } from '~/adapters/redis/redis-like'
+import type { RedisLike } from '~/core/drivers/redis-like'
 import type { Limiter } from '../limiters.types'
 
 export namespace RedisLimiter {

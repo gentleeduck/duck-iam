@@ -1,4 +1,4 @@
-import type { RedisLike } from '~/adapters/redis/redis-like'
+import type { RedisLike } from '~/core/drivers/redis-like'
 import type { DPoPVerifier } from './dpop.transport'
 
 export namespace RedisDPoPNonceStore {

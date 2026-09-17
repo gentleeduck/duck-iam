@@ -1,4 +1,4 @@
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey/valkey-like'
+import { type ValkeyClient, valkeyAdapter } from '~/core/drivers/valkey-like'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
 import { IdempotencyImpl } from './idempotency'
 import { RedisIdempotency } from './idempotency.redis'

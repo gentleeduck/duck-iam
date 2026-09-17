@@ -7,8 +7,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { fakeRedis } from '~/adapters/redis/redis-like'
 import { AnomalyFacet, anomalyFacet, authMemoryDeviceFingerprintStore } from '~/core/anomaly'
+import { fakeRedis } from '~/core/drivers/redis-like'
 import { InMemoryEvents } from '~/core/events'
 import { HijackFacet, hijackFacet } from '~/core/hijack'
 import {
