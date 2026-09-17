@@ -8,6 +8,7 @@ import type { MySql2Database } from 'drizzle-orm/mysql2'
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
 import { forProfile, inTenant, jsonMerged, rowWithLinks, stamped } from '~/adapters/drizzle/drizzle.rows'
 import { actorId } from '~/core/actor'
+import { outcomesFromAffected } from '~/core/batch'
 import { authUuidV7 } from '~/core/crypto'
 import { AuthError, type SqlFault, STORE_RAISES } from '~/core/errors'
 import { toEmailList, withNormalisedEmail } from '~/core/identities/identities.constants'
@@ -84,6 +85,17 @@ export class DrizzleMysqlAdapter<
       if (going.length > 0) await tx.delete(authCredentials).where(reach)
 
       return going
+    })
+  }
+
+  /** Same read-then-delete as {@link _erase}, reporting one column so a set-based delete can say
+   *  which of the ids it was handed actually matched a row. */
+  private _eraseSessions(reach: SQL | undefined, name: typeof authSessions.id | typeof authSessions.identityId) {
+    return this._db.transaction(async (tx) => {
+      const going = await tx.selectDistinct({ hit: name }).from(authSessions).where(reach).for('update')
+      if (going.length > 0) await tx.delete(authSessions).where(reach)
+
+      return going.map((r) => r.hit)
     })
   }
 
@@ -504,12 +516,25 @@ export class DrizzleMysqlAdapter<
         await this._db.delete(authSessions).where(eq(authSessions.id, id))
       }),
 
+    deleteAllForIdentities: (identityIds) =>
+      this.run(async () =>
+        outcomesFromAffected(
+          identityIds,
+          await this._eraseSessions(inArray(authSessions.identityId, [...identityIds]), authSessions.identityId),
+        ),
+      ),
+
     deleteAllForIdentity: (identityId, ctx?) =>
       this.run(async () => {
         await this._db
           .delete(authSessions)
           .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx?.tenantId)))
       }),
+
+    deleteMany: (ids) =>
+      this.run(async () =>
+        outcomesFromAffected(ids, await this._eraseSessions(inArray(authSessions.id, [...ids]), authSessions.id)),
+      ),
 
     /** Either clock: `expiresAt` is the idle deadline, `absoluteExpiresAt` the ceiling it can never pass. */
     gc: (now) =>
@@ -528,6 +553,14 @@ export class DrizzleMysqlAdapter<
 
         return row ?? null
       }),
+
+    listByIdentities: (identityIds) =>
+      this.run(() =>
+        this._db
+          .select()
+          .from(authSessions)
+          .where(inArray(authSessions.identityId, [...identityIds])),
+      ),
 
     listByIdentity: (identityId, ctx?) =>
       this.run(() =>

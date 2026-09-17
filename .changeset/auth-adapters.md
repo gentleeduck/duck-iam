@@ -76,6 +76,36 @@ was in practice.
 loops, reports one outcome per input row in input order, and names each refusal
 the same way it did before.
 
+### Sessions keep theirs, and every store implements them
+
+`Sessions.Store` kept three optional set-based forms —
+`deleteAllForIdentities`, `deleteMany` and `listByIdentities` — and for a while
+shared the identity side's problem: declared, consumed by the facet, implemented
+by nobody, so `revokeAllForIdentities` over 500 people was about a thousand round
+trips on Postgres where it should have been two statements. That is the one batch
+path with a caller that matters — "sign this whole org out" — so the answer here
+is the other one: every adapter implements all three.
+
+pg and sqlite delete the set in one statement and read back the ids that matched;
+mysql has no `RETURNING`, so the ids are selected under their own lock first, the
+same read-then-delete `_erase` already does for credentials; memory makes one pass
+over the map instead of one per identity; redis batches the record delete, the
+expiry `zrem` and the per-identity `srem` into three round trips for the whole set
+rather than three per identity.
+
+`outcomesFromAffected` is shared from `core/batch` — the ids a statement affected
+become one outcome per requested id, and an id that did not come back matched no
+row, which is the only thing one statement can say about it.
+
+`RedisLike.Client` gains an optional `mget`. `listByIdentity` backs the
+active-devices screen and runs inside every `revokeAllForIdentity`, and it was
+issuing one `GET` per session; it now reads them all in one round trip, falling
+back to concurrent gets for a client without the command.
+
+`Credential.IStore.deleteByIdentities` is gone. It had no implementation and,
+unlike the session forms, no caller either — nothing in the package ever invoked
+it, so it was a declaration and a compliance case and nothing else.
+
 ### `.wrap()` — a failure as a value
 
 Every adapter call now answers an `Adapter.Answer<T>`, a native promise with one

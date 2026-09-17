@@ -5,6 +5,7 @@ import { alias, type PgUpdateSetSource, type WithSubqueryWithSelection } from 'd
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
 import { inTenant, rowWithLinks, stamped } from '~/adapters/drizzle/drizzle.rows'
 import { actorId } from '~/core/actor'
+import { outcomesFromAffected } from '~/core/batch'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { authUuidV7 } from '~/core/crypto'
 import { AuthError, type SqlFault, STORE_RAISES } from '~/core/errors'
@@ -499,11 +500,39 @@ export class DrizzlePgAdapter<
         await this._db.delete(authSessions).where(eq(authSessions.id, id))
       }),
 
+    /** One statement for the whole set. `RETURNING` names the identities that actually had a session,
+     *  which is the only way one statement can report a miss per row. */
+    deleteAllForIdentities: (identityIds) =>
+      this.run(async () => {
+        const gone = await this._db
+          .delete(authSessions)
+          .where(inArray(authSessions.identityId, [...identityIds]))
+          .returning({ identityId: authSessions.identityId })
+
+        return outcomesFromAffected(
+          identityIds,
+          gone.map((r) => r.identityId),
+        )
+      }),
+
     deleteAllForIdentity: (identityId, context?) =>
       this.run(async () => {
         await this._db
           .delete(authSessions)
           .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, context?.tenantId)))
+      }),
+
+    deleteMany: (ids) =>
+      this.run(async () => {
+        const gone = await this._db
+          .delete(authSessions)
+          .where(inArray(authSessions.id, [...ids]))
+          .returning({ id: authSessions.id })
+
+        return outcomesFromAffected(
+          ids,
+          gone.map((r) => r.id),
+        )
       }),
 
     /** Either clock: `expiresAt` is the idle deadline, `absoluteExpiresAt` the ceiling it can never pass. */
@@ -523,6 +552,14 @@ export class DrizzlePgAdapter<
 
         return row ?? null
       }),
+
+    listByIdentities: (identityIds) =>
+      this.run(() =>
+        this._db
+          .select()
+          .from(authSessions)
+          .where(inArray(authSessions.identityId, [...identityIds])),
+      ),
 
     listByIdentity: (identityId, context?) =>
       this.run(() =>

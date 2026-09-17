@@ -44,9 +44,12 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
   }
 
   /**
-   * Consume `weight` units. Atomic per call: a single INCR establishes
-   * the new count, then EXPIRE sets the TTL on the first hit of the
-   * window. Returns the standard `Limiter.IResult` shape.
+   * Consume `weight` units. One INCRBY establishes the new count, then EXPIRE sets the TTL on the
+   * first hit of the window. Returns the standard `Limiter.IResult` shape.
+   *
+   * This used to loop `weight` times issuing one INCR each, so `consume(key, 1_000_000)` sent a
+   * million sequential commands - a caller-controlled flood - and the count was only atomic for a
+   * weight of one. A client with no INCRBY still loops, but stops as soon as the budget is gone.
    */
   async consume(key: string, weight = 1): Promise<Limiter.Result> {
     const now0 = Date.now()
@@ -57,10 +60,14 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
     const k = this._k(key)
     const ttlSec = Math.max(1, Math.ceil(this._windowMs / 1000))
     let count = 0
-    for (let i = 0; i < w; i++) {
-      count = await this._redis.incr(k)
-      if (i === 0 && count === 1) {
-        await this._redis.expire(k, ttlSec)
+    if (this._redis.incrby) {
+      count = await this._redis.incrby(k, w)
+      if (count === w) await this._redis.expire(k, ttlSec)
+    } else {
+      for (let i = 0; i < w; i++) {
+        count = await this._redis.incr(k)
+        if (i === 0 && count === 1) await this._redis.expire(k, ttlSec)
+        if (count > this._max) break
       }
     }
     const resetAt = new Date(Date.now() + this._windowMs)

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FakeRedis } from '~/core/drivers/redis-like'
 import { sha256 } from '~/core/crypto'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { RedisSessionImpl } from '../sessions.redis'
 
@@ -476,11 +476,33 @@ describe('RedisSessionStore', () => {
     expect(await store.listByIdentity('ident-1')).toHaveLength(1)
   })
 
-  it('listByIdentity issues its reads concurrently, not sequentially', async () => {
+  it('listByIdentity reads every record in one round trip', async () => {
+    for (let i = 0; i < 5; i++) await store.create(buildSession())
+    const realMget = redis.mget.bind(redis)
+    let mgets = 0
+    let gets = 0
+    redis.mget = async (...keys: string[]) => {
+      mgets++
+      return realMget(...keys)
+    }
+    const realGet = redis.get.bind(redis)
+    redis.get = async (k: string) => {
+      gets++
+      return realGet(k)
+    }
+
+    expect(await store.listByIdentity('ident-1')).toHaveLength(5)
+    expect(mgets).toBe(1)
+    expect(gets).toBe(0)
+  })
+
+  it('listByIdentity falls back to concurrent gets when the client has no mget', async () => {
     for (let i = 0; i < 5; i++) await store.create(buildSession())
     const realGet = redis.get.bind(redis)
     let inFlight = 0
     let maxInFlight = 0
+    // On the prototype, so `delete` would leave it reachable; the store only checks truthiness.
+    ;(redis as { mget?: unknown }).mget = undefined
     redis.get = async (k: string) => {
       inFlight++
       maxInFlight = Math.max(maxInFlight, inFlight)
@@ -493,6 +515,53 @@ describe('RedisSessionStore', () => {
     // Sequential round-trips would pin this at 1, and this path backs both the
     // active-devices request and revokeAllForIdentity.
     expect(maxInFlight).toBeGreaterThan(1)
+  })
+
+  it('deleteAllForIdentities clears each identity index, not just the records', async () => {
+    const a = buildSession()
+    const b = buildSession({ id: sha256('other'), identityId: 'ident-2' })
+    await store.create(a)
+    await store.create(b)
+
+    const result = await store.deleteAllForIdentities(['ident-1', 'ident-2', 'ident-absent'])
+
+    expect(result.outcomes.map((o) => o.id)).toEqual(['ident-1', 'ident-2', 'ident-absent'])
+    expect(result.applied).toBe(2)
+    // A record-only sweep leaves members naming nothing: invisible to listByIdentity, which drops
+    // what it cannot read, and a wasted read on every later call until the key's own TTL.
+    expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([])
+    expect(await redis.smembers('test:idx:identity:ident-2')).toEqual([])
+    expect(await redis.zrangebyscore('test:exp', '-inf', '+inf')).toEqual([])
+  })
+
+  it('deleteMany takes each session out of its own identity index', async () => {
+    const a = buildSession()
+    const b = buildSession({ id: sha256('b'), identityId: 'ident-2' })
+    const keep = buildSession({ id: sha256('keep') })
+    await store.create(a)
+    await store.create(b)
+    await store.create(keep)
+
+    const result = await store.deleteMany([a.id, b.id, sha256('absent')])
+
+    expect(result.applied).toBe(2)
+    expect(result.outcomes[2]).toMatchObject({ ok: false, reason: 'not-found' })
+    // Grouped per identity, so the session left behind keeps its entry and the two taken lose theirs.
+    expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([keep.id])
+    expect(await redis.smembers('test:idx:identity:ident-2')).toEqual([])
+  })
+
+  it('deleteMany removes a record it cannot parse', async () => {
+    const s = buildSession()
+    await store.create(s)
+    await redis.set(`test:sess:${s.id}`, '{"not":"a session"}')
+
+    const result = await store.deleteMany([s.id])
+
+    // Presence is the key existing. Parsing first would make this the one delete that cannot clear
+    // a corrupted row, so the row would sit there until its TTL with every read skipping past it.
+    expect(result.applied).toBe(1)
+    expect(await redis.get(`test:sess:${s.id}`)).toBeNull()
   })
 
   it('gc does not run concurrently across instances sharing a redis', async () => {

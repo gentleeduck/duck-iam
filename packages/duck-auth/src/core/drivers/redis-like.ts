@@ -12,6 +12,9 @@ export namespace RedisLike {
   export type Client = {
     /** GET key -> value | null */
     get(key: string): Promise<string | null>
+    /** MGET key... -> one value per key in order, null per miss. Optional: a client without it is
+     *  served by concurrent `get`s, which costs one round trip per key instead of one for all. */
+    mget?(...keys: string[]): Promise<(string | null)[]>
     /** SET key value [EX seconds] [NX] -> 'OK' | null (null = NX failed) */
     set(key: string, value: string, opts?: { ex?: number; nx?: boolean }): Promise<'OK' | null>
     /** DEL key... -> count */
@@ -22,6 +25,8 @@ export namespace RedisLike {
     scan(cursor: string, opts?: { match?: string; count?: number }): Promise<[string, string[]]>
     /** INCR key -> new value (creates key=1 if missing) */
     incr(key: string): Promise<number>
+    /** INCRBY key n -> new value. Optional: a client without it is served by repeated `incr`. */
+    incrby?(key: string, by: number): Promise<number>
     /** SADD key member... -> added count */
     sadd(key: string, ...members: string[]): Promise<number>
     /** SREM key member... -> removed count */
@@ -77,6 +82,14 @@ export class FakeRedis implements RedisLike.Client {
   async get(key: string): Promise<string | null> {
     this._maybeExpire(key)
     return this._data.get(key)?.value ?? null
+  }
+
+  /** `RedisLike.mget`. One entry per key, in the order asked, null for a miss or an elapsed TTL. */
+  async mget(...keys: string[]): Promise<(string | null)[]> {
+    return keys.map((key) => {
+      this._maybeExpire(key)
+      return this._data.get(key)?.value ?? null
+    })
   }
 
   /** `RedisLike.set` with optional `EX`/`NX`. Returns null when the NX condition fails. */
@@ -143,10 +156,15 @@ export class FakeRedis implements RedisLike.Client {
 
   /** `RedisLike.incr` atomic increment. Creates the key at 1 when missing. */
   async incr(key: string): Promise<number> {
+    return this.incrby(key, 1)
+  }
+
+  /** `RedisLike.incrby`. Creates the key at `by` when missing. */
+  async incrby(key: string, by: number): Promise<number> {
     this._maybeExpire(key)
     const entry = this._data.get(key)
     const cur = entry ? Number(entry.value) : 0
-    const next = (Number.isFinite(cur) ? cur : 0) + 1
+    const next = (Number.isFinite(cur) ? cur : 0) + by
     this._data.set(key, {
       value: String(next),
       expiresAt: entry?.expiresAt ?? null,

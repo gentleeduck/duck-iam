@@ -1,5 +1,6 @@
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
 import { actorId } from '~/core/actor'
+import { outcomesFromAffected } from '~/core/batch'
 import { getCredentialPurpose, getProfileString, isRevoked, isSoftDeleted } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { randomToken, timingSafeEqual } from '~/core/crypto'
@@ -327,11 +328,33 @@ export class MemoryAdapter<
         this._sessions.delete(id)
       }),
 
+    /** One pass for the whole set, rather than one pass per identity. */
+    deleteAllForIdentities: (identityIds) =>
+      this.run(async () => {
+        const wanted = new Set(identityIds)
+        const hit = new Set<string>()
+        for (const s of this._sessions.values()) {
+          if (s.identityId === null || !wanted.has(s.identityId)) continue
+          hit.add(s.identityId)
+          this._sessions.delete(s.id)
+        }
+
+        return outcomesFromAffected(identityIds, hit)
+      }),
+
     deleteAllForIdentity: (identityId, ctx?) =>
       this.run(async () => {
         for (const s of this._sessions.values()) {
           if (s.identityId === identityId && this._inTenant(s, ctx)) this._sessions.delete(s.id)
         }
+      }),
+
+    deleteMany: (ids) =>
+      this.run(async () => {
+        const hit = new Set<string>()
+        for (const id of ids) if (this._sessions.delete(id)) hit.add(id)
+
+        return outcomesFromAffected(ids, hit)
       }),
 
     gc: (now) =>
@@ -352,6 +375,13 @@ export class MemoryAdapter<
         const row = this._sessions.get(sidHash)
 
         return row ? copy(row) : null
+      }),
+
+    listByIdentities: (identityIds) =>
+      this.run(async () => {
+        const wanted = new Set(identityIds)
+
+        return [...this._sessions.values()].filter((s) => s.identityId !== null && wanted.has(s.identityId)).map(copy)
       }),
 
     listByIdentity: (identityId, ctx?) =>
