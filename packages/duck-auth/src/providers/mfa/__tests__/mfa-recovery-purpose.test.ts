@@ -3,16 +3,12 @@
  * verification mail, a pending account deletion, an in-flight signup, an MFA
  * backup code and a remembered device - and `metadata.purpose` is the only thing
  * that tells them apart.
- *
- * Both backup-code implementations used to ignore it. `deleteByKind(id,
- * 'recovery')` meant "wipe all six", so minting codes cancelled whatever the
- * user was holding; and `listByIdentity(id, 'recovery')` fed all six to the
- * verifier, so any of the other five was a candidate second factor.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { RECOVERY_PURPOSES, toCredentialUpsert } from '~/core/credentials/credentials'
+import { toCredentialCreate } from '~/core/credentials/credentials'
+import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { identityInput } from '~/test/store-inputs'
@@ -41,8 +37,8 @@ describe('recovery-kind overload', () => {
     for (const purpose of OTHER_PURPOSES) {
       const token = randomToken(32)
       tokens.set(purpose, token)
-      await adapter.credentials.upsert(
-        toCredentialUpsert({
+      await adapter.credentials.create(
+        toCredentialCreate({
           identityId,
           kind: 'recovery',
           secret: sha256(token),
@@ -149,8 +145,8 @@ describe('recovery-kind overload', () => {
       // Belt and braces: the case-folding in both verifiers means a random
       // base64url token can never collide by accident. Plant one that would.
       const token = 'not-a-backup-code'
-      await adapter.credentials.upsert(
-        toCredentialUpsert({
+      await adapter.credentials.create(
+        toCredentialCreate({
           identityId,
           kind: 'recovery',
           secret: sha256(token.trim().toLowerCase()),
@@ -163,8 +159,8 @@ describe('recovery-kind overload', () => {
 
     it('a purposeless recovery row is not a backup code either', async () => {
       const token = 'legacy-row'
-      await adapter.credentials.upsert(
-        toCredentialUpsert({ identityId, kind: 'recovery', secret: sha256(token.trim().toLowerCase()) }),
+      await adapter.credentials.create(
+        toCredentialCreate({ identityId, kind: 'recovery', secret: sha256(token.trim().toLowerCase()) }),
         {},
       )
       expect(await mfa.verifyBackupCode(identityId, token)).toBe(false)

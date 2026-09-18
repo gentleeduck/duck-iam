@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
+import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
+import type { Passkey } from '~/providers/passkey/passkey.types'
 import { totpAt } from '../internal/totp'
 import { MfaImpl } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
@@ -56,7 +58,7 @@ describe('MfaFacet - TOTP', () => {
       expect(await facet.hasTotp('user-1')).toBe(false)
     })
 
-    it('confirmTotpEnrollment without prior begin throws AUTH/MFA_REQUIRED', async () => {
+    it('confirmTotpEnrollment without prior begin throws AUTH_MFA_REQUIRED', async () => {
       await expect(facet.confirmTotpEnrollment('user-1', '123456')).rejects.toMatchObject({
         code: 'AUTH_MFA_REQUIRED',
       })
@@ -85,6 +87,50 @@ describe('MfaFacet - TOTP', () => {
       expect(await facet.verifyTotp('user-1', code)).toBe(true)
       expect(await facet.verifyTotp('user-1', code)).toBe(false)
       expect(await facet.verifyTotp('user-1', code)).toBe(false)
+    })
+
+    it('two verifications racing on one code do not both succeed', async () => {
+      // The replay test above is sequential, so it never opens the window. Gating the metadata write
+      // holds the winner between its read and its record, which is where a second verification used to
+      // read a stale `lastTotpStep` and pass the same comparison.
+      let gated = false
+      let calls = 0
+      let release = (): void => {}
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const ad = new MemoryAdapter()
+      const raced = new MfaImpl(
+        {
+          ...ad.credentials,
+          patchMetadata: async (id, patch, ctx, expectedVersion) => {
+            if (gated) {
+              calls += 1
+              if (calls === 1) await held
+            }
+            return ad.credentials.patchMetadata(id, patch, ctx, expectedVersion)
+          },
+        },
+        new InMemoryEvents(),
+        DEFAULT_MFA_CONFIG,
+      )
+      const challenge = await raced.beginTotpEnrollment('user-1', 'alice@x.com')
+      const step = Math.floor(Date.now() / 1000 / 30)
+      await raced.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step))
+      gated = true
+      const code = totpAt(challenge.secret, step + 1)
+
+      const held_at_write = raced.verifyTotp('user-1', code)
+      await vi.waitFor(() => {
+        if (calls === 0) throw new Error('the first verification has not reached its write yet')
+      })
+      const second = await raced.verifyTotp('user-1', code)
+      release()
+      const first = await held_at_write
+
+      // One code, one step-up. Which of the two wins is down to whose conditional write lands first -
+      // here the second, because the first is held inside its own - and either way the other is refused.
+      expect([first, second].filter(Boolean)).toHaveLength(1)
     })
 
     it('refuses an older code once a newer step has been spent', async () => {
@@ -249,7 +295,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     }
   }
 
-  function makeStore(): Mfa.WebauthnChallengeStore {
+  function makeStore(): Passkey.ChallengeStore {
     const store = new Map<string, { challenge: string; expiresAt: number }>()
     return {
       async put(key, challenge, ttlMs) {
@@ -257,7 +303,8 @@ describe('MfaFacet - WebAuthn-MFA', () => {
       },
       async take(key) {
         const entry = store.get(key)
-        if (!entry || entry.expiresAt < Date.now()) return null
+        // Missing and expired are one refusal, as the contract has it.
+        if (!entry || entry.expiresAt < Date.now()) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
         store.delete(key)
         return entry.challenge
       },
@@ -359,6 +406,137 @@ describe('MfaFacet - WebAuthn-MFA', () => {
       webauthnModule: webauthn,
     })
     expect(ok2).toBe(false)
+  })
+
+  it('a second assertion reusing an accepted count is refused, which needs the first one recorded', async () => {
+    const challengeStore = makeStore()
+    const webauthn = makeMockWebauthn()
+    await facet.beginWebauthnMfaEnrollment(identityId, {
+      challengeKey: 'sess-clone',
+      challengeStore,
+      expectedOrigins: 'https://app.test',
+      rpID: 'app.test',
+      rpName: 'app',
+      userName: 'a@x.com',
+      webauthnModule: webauthn,
+    })
+    await facet.confirmWebauthnMfaEnrollment(identityId, {
+      challengeKey: 'sess-clone',
+      challengeStore,
+      expectedOrigins: 'https://app.test',
+      response: { id: 'wa-mfa-1' },
+      rpID: 'app.test',
+      webauthnModule: webauthn,
+    })
+
+    // An authenticator at count 9 and a clone of it at the same count. The second is the rollback
+    // WebAuthn L2 6.1.3 exists to catch, and it is only catchable if the first one's count was written
+    // down: left at its enrollment value, every later assertion is measured against a baseline the
+    // authenticator passed long ago.
+    const verifyAuth = webauthn.verifyAuthenticationResponse as ReturnType<typeof vi.fn>
+    verifyAuth.mockResolvedValue({
+      authenticationInfo: { credentialID: 'wa-mfa-1', newCounter: 9, userVerified: true },
+      verified: true,
+    })
+    const assertOnce = async (key: string): Promise<boolean> => {
+      await facet.beginWebauthnMfaVerify(identityId, {
+        challengeKey: key,
+        challengeStore,
+        rpID: 'app.test',
+        webauthnModule: webauthn,
+      })
+      return facet.verifyWebauthnMfa(identityId, {
+        challengeKey: key,
+        challengeStore,
+        expectedOrigins: 'https://app.test',
+        response: { id: 'wa-mfa-1' },
+        rpID: 'app.test',
+        webauthnModule: webauthn,
+      })
+    }
+
+    expect(await assertOnce('clone-1')).toBe(true)
+    expect(await assertOnce('clone-2')).toBe(false)
+
+    const rows = await adapter.credentials.listByIdentity(identityId, 'webauthn-mfa', {})
+    expect(rows[0]?.metadata).toMatchObject({ counter: 9 })
+  })
+
+  it('two assertions racing on the same stored count do not both get in', async () => {
+    const challengeStore = makeStore()
+    const webauthn = makeMockWebauthn()
+    await facet.beginWebauthnMfaEnrollment(identityId, {
+      challengeKey: 'sess-race',
+      challengeStore,
+      expectedOrigins: 'https://app.test',
+      rpID: 'app.test',
+      rpName: 'app',
+      userName: 'a@x.com',
+      webauthnModule: webauthn,
+    })
+    await facet.confirmWebauthnMfaEnrollment(identityId, {
+      challengeKey: 'sess-race',
+      challengeStore,
+      expectedOrigins: 'https://app.test',
+      response: { id: 'wa-mfa-1' },
+      rpID: 'app.test',
+      webauthnModule: webauthn,
+    })
+    const verifyAuth = webauthn.verifyAuthenticationResponse as ReturnType<typeof vi.fn>
+    verifyAuth.mockResolvedValue({
+      authenticationInfo: { credentialID: 'wa-mfa-1', newCounter: 9, userVerified: true },
+      verified: true,
+    })
+
+    // Two concurrent calls would not show this: both reads land before either write. So the winner is
+    // held inside its own write, and the clone presents while it is there.
+    const base = adapter.credentials
+    let release: (() => void) | undefined
+    let calls = 0
+    const raced = new MfaImpl(
+      {
+        ...base,
+        patchMetadata: async (...args: Parameters<typeof base.patchMetadata>) => {
+          calls += 1
+          if (calls === 1) {
+            await new Promise<void>((resolve) => {
+              release = resolve
+            })
+          }
+          return base.patchMetadata(...args)
+        },
+      },
+      events,
+      DEFAULT_MFA_CONFIG,
+    )
+    const assertOnce = async (key: string): Promise<boolean> => {
+      await raced.beginWebauthnMfaVerify(identityId, {
+        challengeKey: key,
+        challengeStore,
+        rpID: 'app.test',
+        webauthnModule: webauthn,
+      })
+      return raced.verifyWebauthnMfa(identityId, {
+        challengeKey: key,
+        challengeStore,
+        expectedOrigins: 'https://app.test',
+        response: { id: 'wa-mfa-1' },
+        rpID: 'app.test',
+        webauthnModule: webauthn,
+      })
+    }
+
+    const held = assertOnce('race-1')
+    await vi.waitFor(() => {
+      if (calls === 0) throw new Error('the first assertion has not reached its write yet')
+    })
+    const second = await assertOnce('race-2')
+    release?.()
+    const first = await held
+
+    // Which of the two wins is down to whose conditional write lands first - here the second, because the
+    // first is held inside its own - and either way the other is refused.
+    expect([first, second].filter(Boolean)).toHaveLength(1)
   })
 
   it('removeWebauthnMfa wipes the credential', async () => {

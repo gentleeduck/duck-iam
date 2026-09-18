@@ -1,6 +1,6 @@
 import type { Mfa } from './mfa.types'
 
-/** Default MFA facet config; overridden per-provider via `mfaProvider(cfg)`. */
+/** Overridden per provider through `mfaProvider(cfg)`. */
 export const DEFAULT_MFA_CONFIG: Mfa.Cfg = {
   issuer: 'duck-auth',
   backupCodeCount: 10,

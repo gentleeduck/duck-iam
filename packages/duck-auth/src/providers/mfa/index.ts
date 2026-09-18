@@ -1,9 +1,3 @@
-/**
- * MFA provider — self-contained capability folder (mechanism A).
- * Everything MFA-related lives here: the facet, its config, the TOTP helpers,
- * and all types under the `Mfa` namespace.
- */
-
 export { BackupCodesFacet, backupCodesFacet, DEFAULT_BACKUP_CODES_CONFIG } from './internal/backup-codes'
 export { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet, rememberMeFacet } from './internal/remember-me'
 export type { Totp } from './internal/totp'
