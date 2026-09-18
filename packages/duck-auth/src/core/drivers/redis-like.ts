@@ -60,82 +60,80 @@ function bound(v: number | string, fallback: number): number {
 }
 
 /**
- * In-process Redis substitute. Used by tests and by apps that need the
- * adapter shape without a real Redis dependency at runtime. Same surface
- * as ioredis / upstash; TTLs honored via setTimeout cleanup on read.
+ * In-process substitute for tests and for apps that need the adapter shape without a Redis dependency at
+ * runtime. Same surface as ioredis and upstash, with TTLs enforced on read rather than by a timer.
  */
 export class FakeRedis implements RedisLike.Client {
-  private readonly _data = new Map<string, { value: string; expiresAt: number | null }>()
+  private readonly _data = new Map<string, string>()
+  /** One TTL map for all three key types. Held beside them rather than on the string entry, because
+   *  `EXPIRE` applies to any key and the session index is a set while its expiry index is a sorted set. */
+  private readonly _expiresAt = new Map<string, number>()
   private readonly _sets = new Map<string, Set<string>>()
   /** Sorted sets, member -> score. Ordering is applied on read, as Redis does. */
   private readonly _zsets = new Map<string, Map<string, number>>()
   private readonly _channels = new Map<string, Set<(channel: string, message: string) => void | Promise<void>>>()
 
   private _maybeExpire(key: string): void {
-    const entry = this._data.get(key)
-    if (entry && entry.expiresAt !== null && entry.expiresAt < Date.now()) {
-      this._data.delete(key)
-    }
+    const at = this._expiresAt.get(key)
+    if (at === undefined || at >= Date.now()) return
+    this._data.delete(key)
+    this._sets.delete(key)
+    this._zsets.delete(key)
+    this._expiresAt.delete(key)
   }
 
-  /** `RedisLike.get` substitute. Returns null on miss or after TTL elapsed. */
+  /** `null` on a miss or an elapsed TTL. */
   async get(key: string): Promise<string | null> {
     this._maybeExpire(key)
-    return this._data.get(key)?.value ?? null
+    return this._data.get(key) ?? null
   }
 
-  /** `RedisLike.mget`. One entry per key, in the order asked, null for a miss or an elapsed TTL. */
+  /** One entry per key, in the order asked, `null` for a miss or an elapsed TTL. */
   async mget(...keys: string[]): Promise<(string | null)[]> {
     return keys.map((key) => {
       this._maybeExpire(key)
-      return this._data.get(key)?.value ?? null
+      return this._data.get(key) ?? null
     })
   }
 
-  /** `RedisLike.set` with optional `EX`/`NX`. Returns null when the NX condition fails. */
+  /** `null` when the NX condition fails. */
   async set(key: string, value: string, opts: { ex?: number; nx?: boolean } = {}): Promise<'OK' | null> {
     this._maybeExpire(key)
     if (opts.nx && this._data.has(key)) return null
-    this._data.set(key, {
-      value,
-      expiresAt: opts.ex !== undefined ? Date.now() + opts.ex * 1000 : null,
-    })
+    this._data.set(key, value)
+    // A bare SET drops any TTL the key had, as real Redis does without KEEPTTL.
+    if (opts.ex === undefined) this._expiresAt.delete(key)
+    else this._expiresAt.set(key, Date.now() + opts.ex * 1000)
     return 'OK'
   }
 
-  /**
-   * `RedisLike.del` variadic. Returns count of keys actually removed.
-   *
-   * Every type, the way real `DEL` behaves. This used to touch `_data` alone, so
-   * deleting a set or a sorted set was a silent no-op - and the session store's
-   * index and expiry keys are exactly those types. `runSessionStoreCompliance`
-   * runs the whole contract against this class specifically to catch divergences
-   * in-process, and any case asserting "the index key is gone" was passing
-   * against a fake that had not removed it.
-   */
+  /** Removes from every type, the way real `DEL` behaves. Touching `_data` alone made deleting a set or a
+   *  sorted set a silent no-op, and the session store's index and expiry keys are exactly those types, so
+   *  `runSessionStoreCompliance` asserting "the index key is gone" passed against a fake that kept it. */
   async del(...keys: string[]): Promise<number> {
     let deleted = 0
     for (const k of keys) {
       const hit = this._data.delete(k)
       const hitSet = this._sets.delete(k)
       const hitZset = this._zsets.delete(k)
+      this._expiresAt.delete(k)
       if (hit || hitSet || hitZset) deleted++
     }
     return deleted
   }
 
-  /** `RedisLike.expire`. Returns 0 when the key does not exist. */
+  /** `0` when the key does not exist, whatever its type. Strings only, this answered `0` for the
+   *  session index and set no TTL, so the one call that bounds that set's lifetime did nothing. */
   async expire(key: string, seconds: number): Promise<number> {
     this._maybeExpire(key)
-    const entry = this._data.get(key)
-    if (!entry) return 0
-    entry.expiresAt = Date.now() + seconds * 1000
+    if (!this._data.has(key) && !this._sets.has(key) && !this._zsets.has(key)) return 0
+    this._expiresAt.set(key, Date.now() + seconds * 1000)
     return 1
   }
 
-  /** `RedisLike.scan`. Walks both string and set keys, since real Redis SCAN is type-agnostic. */
+  /** Walks strings, sets and sorted sets alike, since real Redis SCAN is type-agnostic. */
   async scan(cursor: string, opts: { match?: string; count?: number } = {}): Promise<[string, string[]]> {
-    const all = [...new Set<string>([...this._data.keys(), ...this._sets.keys()])]
+    const all = [...new Set<string>([...this._data.keys(), ...this._sets.keys(), ...this._zsets.keys()])]
     const start = Number(cursor) || 0
     const count = opts.count ?? 100
     const matched: string[] = []
@@ -144,9 +142,7 @@ export class FakeRedis implements RedisLike.Client {
       const key = all[i]
       if (!key) continue
       this._maybeExpire(key)
-      const liveString = this._data.has(key)
-      const liveSet = this._sets.has(key)
-      if (!liveString && !liveSet) continue
+      if (!this._data.has(key) && !this._sets.has(key) && !this._zsets.has(key)) continue
       if (opts.match && !matchGlob(key, opts.match)) continue
       matched.push(key)
     }
@@ -154,26 +150,24 @@ export class FakeRedis implements RedisLike.Client {
     return [nextCursor, matched]
   }
 
-  /** `RedisLike.incr` atomic increment. Creates the key at 1 when missing. */
+  /** Adds one, treating a missing key as zero. */
   async incr(key: string): Promise<number> {
     return this.incrby(key, 1)
   }
 
-  /** `RedisLike.incrby`. Creates the key at `by` when missing. */
+  /** Adds `by`, treating a missing key as zero. */
   async incrby(key: string, by: number): Promise<number> {
     this._maybeExpire(key)
-    const entry = this._data.get(key)
-    const cur = entry ? Number(entry.value) : 0
+    const cur = Number(this._data.get(key) ?? 0)
     const next = (Number.isFinite(cur) ? cur : 0) + by
-    this._data.set(key, {
-      value: String(next),
-      expiresAt: entry?.expiresAt ?? null,
-    })
+    // The TTL map is left alone, so INCR on a key with a TTL keeps it, as real Redis does.
+    this._data.set(key, String(next))
     return next
   }
 
-  /** `RedisLike.sadd` variadic. Returns count of new members. */
+  /** Adds members to a set, answering how many were not already there. */
   async sadd(key: string, ...members: string[]): Promise<number> {
+    this._maybeExpire(key)
     let set = this._sets.get(key)
     if (!set) {
       set = new Set()
@@ -189,8 +183,9 @@ export class FakeRedis implements RedisLike.Client {
     return added
   }
 
-  /** `RedisLike.srem` variadic. Returns count of removed members. */
+  /** Removes members from a set, answering how many were there. */
   async srem(key: string, ...members: string[]): Promise<number> {
+    this._maybeExpire(key)
     const set = this._sets.get(key)
     if (!set) return 0
     let removed = 0
@@ -201,13 +196,15 @@ export class FakeRedis implements RedisLike.Client {
     return removed
   }
 
-  /** `RedisLike.smembers`. Returns empty array when key missing. */
+  /** Every member of a set, as a fresh array. */
   async smembers(key: string): Promise<string[]> {
+    this._maybeExpire(key)
     return [...(this._sets.get(key) ?? [])]
   }
 
-  /** `RedisLike.zadd`. Returns 1 when the member is new, 0 when only its score moved. */
+  /** Adds a member to a sorted set, or re-scores one already in it. */
   async zadd(key: string, score: number, member: string): Promise<number> {
+    this._maybeExpire(key)
     let zset = this._zsets.get(key)
     if (!zset) {
       zset = new Map()
@@ -218,8 +215,9 @@ export class FakeRedis implements RedisLike.Client {
     return isNew ? 1 : 0
   }
 
-  /** `RedisLike.zrem` variadic. Returns count of removed members. */
+  /** Removes members from a sorted set, answering how many were there. */
   async zrem(key: string, ...members: string[]): Promise<number> {
+    this._maybeExpire(key)
     const zset = this._zsets.get(key)
     if (!zset) return 0
     let removed = 0
@@ -230,28 +228,29 @@ export class FakeRedis implements RedisLike.Client {
     return removed
   }
 
-  /** `RedisLike.zrangebyscore`. Inclusive bounds, ascending by score then member. */
+  /** Ascending by score, then by member. */
   async zrangebyscore(
     key: string,
     min: number | string,
     max: number | string,
     opts: { limit?: { offset: number; count: number } } = {},
   ): Promise<string[]> {
+    this._maybeExpire(key)
     const zset = this._zsets.get(key)
     if (!zset) return []
     const lo = bound(min, Number.NEGATIVE_INFINITY)
     const hi = bound(max, Number.POSITIVE_INFINITY)
     const hits = [...zset.entries()]
       .filter(([, score]) => score >= lo && score <= hi)
-      // Redis orders by score, then lexicographically among equal scores. Tests
-      // that plant several rows at one instant depend on that being stable.
+      // Redis orders by score, then lexicographically among equal scores; tests planting several rows at
+      // one instant depend on that being stable.
       .sort(([aMember, aScore], [bMember, bScore]) => aScore - bScore || aMember.localeCompare(bMember))
       .map(([member]) => member)
     if (!opts.limit) return hits
     return hits.slice(opts.limit.offset, opts.limit.offset + opts.limit.count)
   }
 
-  /** `RedisPubSubClient.publish` stub. Fans the payload out to every subscriber on `channel`. */
+  /** Fans the payload out to every subscriber on `channel`. */
   async publish(channel: string, message: string): Promise<number> {
     const set = this._channels.get(channel)
     if (!set) return 0
@@ -261,7 +260,7 @@ export class FakeRedis implements RedisLike.Client {
     return set.size
   }
 
-  /** `RedisPubSubClient.subscribe` stub. Returns an async unsubscribe. */
+  /** Answers an async unsubscribe. */
   async subscribe(
     channel: string,
     onMessage: (channel: string, message: string) => void | Promise<void>,
@@ -279,12 +278,9 @@ export class FakeRedis implements RedisLike.Client {
   }
 }
 
-/**
- * Linear-time glob matcher for Redis MATCH semantics (`*` only). Replaces a prior
- * regex-construction approach that was both ReDoS-prone (`a*a*a*a*a*X` against a
- * near-match input) and crash-prone (unescaped `?` produced an invalid regex). This
- * two-pointer matcher is O(n*m) worst case and treats unknown characters as literals.
- */
+/** Redis MATCH semantics, `*` only. Two-pointer rather than a constructed regex, which was both
+ *  ReDoS-prone on `a*a*a*a*a*X` and crash-prone on an unescaped `?`. O(n*m) worst case, and anything
+ *  else is a literal. */
 const MATCH_GLOB_INPUT_MAX = 4096
 const MATCH_GLOB_PATTERN_MAX = 256
 function matchGlob(input: string, pattern: string): boolean {
@@ -314,7 +310,7 @@ function matchGlob(input: string, pattern: string): boolean {
   return p === pattern.length
 }
 
-/** Factory around {@link FakeRedis}, for callers who prefer functions to `new`. */
+/** In-process fake implementing {@link RedisLike.Client}, for tests. */
 export function fakeRedis(...args: ConstructorParameters<typeof FakeRedis>): FakeRedis {
   return new FakeRedis(...args)
 }

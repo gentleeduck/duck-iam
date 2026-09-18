@@ -3,21 +3,28 @@ import type { RedisLike } from './redis-like'
 /**
  * The subset of `ioredis` this adapter needs. Valkey speaks the same protocol and
  * `iovalkey` is an `ioredis` fork, so one adapter serves both.
- *
- * Declared structurally rather than importing `ioredis`, which would make it a
- * dependency of this package for the sake of a type.
  */
 export namespace ValkeyClient {
   export type Me = {
+    /** The string at this key, or `null` when it is unset. */
     get(key: string): Promise<string | null>
+    /** One entry per key, in the order asked, `null` where unset. */
     mget(...keys: string[]): Promise<(string | null)[]>
+    /** Removes keys, answering how many existed. */
     del(...keys: string[]): Promise<number>
+    /** Sets the key's TTL, in seconds. */
     expire(key: string, seconds: number): Promise<number>
+    /** Adds one, treating a missing key as zero. */
     incr(key: string): Promise<number>
+    /** Adds `by`, treating a missing key as zero. */
     incrby(key: string, by: number): Promise<number>
+    /** Adds members to a set, answering how many were not already there. */
     sadd(key: string, ...members: string[]): Promise<number>
+    /** Removes members from a set, answering how many were there. */
     srem(key: string, ...members: string[]): Promise<number>
+    /** Every member of a set. */
     smembers(key: string): Promise<string[]>
+    /** Removes members from a sorted set, answering how many were there. */
     zrem(key: string, ...members: string[]): Promise<number>
 
     /**
