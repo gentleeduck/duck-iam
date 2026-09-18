@@ -1,26 +1,9 @@
-/**
- * D3 - `strict()` demanded a `lockout` handler for an event nothing emitted.
- *
- * `engine.strict.ts` refuses to boot production unless something is subscribed
- * to `lockout`, and no code path in the library ever emitted one: eight limiter
- * guards computed a `Retry-After`, threw `AUTH_RATE_LIMITED`, and told nobody.
- * `telemetry/otel` counts the event, `webhooks` forwards it, and both had been
- * waiting on a publisher since the day they were written.
- *
- * These tests pin the rule the fix follows: a refusal that knows whose account
- * is under pressure emits `lockout` naming it, and a refusal that does not stays
- * silent rather than paging an operator about nothing.
- *
- *   emits  - password sign-in, email verification, account deletion, the
- *            password-reset MFA gate
- *   silent - api-key, magic-link, the password-reset request, signup begin
- *
- * Each test is written to fail against the pre-fix code.
- */
+/** D3 - `strict()` demanded a `lockout` handler for an event nothing emitted. */
 
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthTestChannel } from '~/channels/console'
+import { orNull } from '~/core/answer'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import { InMemoryEvents } from '~/core/events'
@@ -259,7 +242,7 @@ describe('lockout is withheld where the refusal has no subject', () => {
     auth.providers.register(
       magicLink<MyProfile>({
         channels: { email: channel },
-        findIdentityByEmail: (email) => adapter.identities.find({ email }),
+        findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
       }),
     )
     await auth.identities.create({ profile: { email: 'frank@x.com', username: 'frank@x.com' } })

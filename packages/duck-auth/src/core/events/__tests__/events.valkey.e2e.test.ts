@@ -1,14 +1,4 @@
-/**
- * E2E: `valkeyEvents`/`valkeyPubSubAdapter` against a REAL server.
- *
- * `events.redis.e2e.test.ts` covers the `RedisEvents` bus contract itself. This
- * proves `valkeyEvents` correctly wires a `{ cmd, sub }` ioredis connection pair
- * into that bus: pub/sub fan-out is a claim about real sockets that no in-process
- * double can stand in for.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
- */
+/** E2E: `valkeyEvents`/`valkeyPubSubAdapter` against a REAL server. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { valkeyEvents } from '~/core/events/events.valkey'

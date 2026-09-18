@@ -9,7 +9,6 @@ const EVERY_EVENT_KEYED: Record<Events.EventName, true> = {
   'authz.revoked': true,
   'identity.impersonated': true,
   'identity.linked': true,
-  'identity.merged': true,
   'identity.unlinked': true,
   lockout: true,
   'maintenance.off': true,
