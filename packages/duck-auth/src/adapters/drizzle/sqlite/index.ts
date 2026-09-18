@@ -1,4 +1,4 @@
-export { DrizzleSqliteAdapter } from './sqlite'
+export { DrizzleSqliteAdapter, drizzleSqliteAdapter } from './sqlite'
 export {
   authCredentials,
   authCredentialsRelations,

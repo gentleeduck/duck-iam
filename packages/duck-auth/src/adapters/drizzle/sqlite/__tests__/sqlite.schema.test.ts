@@ -1,11 +1,4 @@
-/**
- * The sqlite schema's own declarations, against the DDL a deployment is handed.
- *
- * drizzle evaluates a table's extra-config block lazily, so until this file nothing ran the code
- * declaring these indexes, checks and foreign keys at all. Every other sqlite suite builds its
- * database from the generated `.sql`, which means a constraint could be deleted from the schema and
- * the whole matrix would go on passing against a file nobody regenerated.
- */
+/** The sqlite schema's own declarations, against the DDL a deployment is handed. */
 
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { beforeAll, describe, expect, it } from 'vitest'

@@ -30,7 +30,7 @@ function raised(file: string): readonly string[] {
 }
 
 describe('every adapter raises only what its map declares', () => {
-  // A code outside the range is re-labelled AUTH_ADAPTER_FAILED by `wrap()`, so a 409 a caller retries on
+  // A code outside the range is re-labelled AUTH_ADAPTER_FAILED by `run()`, so a 409 a caller retries on
   // and a 404 it branches on both reach it as an unhandled 500. The memory adapter did exactly that.
   it.each(ADAPTERS)('%s', (file, store) => {
     const codes = declared(store)

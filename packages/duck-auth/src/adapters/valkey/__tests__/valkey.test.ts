@@ -1,10 +1,4 @@
-/**
- * The valkey backend, in-process.
- *
- * `valkey.e2e.test.ts` next door runs the same stores against a real server and skips itself when
- * docker is absent, which left every valkey module measuring 0% on an ordinary `bun run test`.
- * These cases need no container, so the translation layer is covered on every run.
- */
+/** The valkey backend, in-process. */
 
 import { describe, expect, it, vi } from 'vitest'
 import { FakeRedis } from '~/core/drivers/redis-like'

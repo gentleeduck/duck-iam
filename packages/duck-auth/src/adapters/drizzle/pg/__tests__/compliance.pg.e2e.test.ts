@@ -1,20 +1,4 @@
-/**
- * Store-contract compliance for the Drizzle Postgres adapter, against REAL Postgres.
- *
- * This adapter shipped with no cross-adapter coverage at all. The matrix ran on
- * memory and sqlite only, and the sqlite run deliberately drops every CHECK
- * constraint "so the suite exercises store behaviour, not dialect-level column
- * checks" - which leaves the shipped Postgres schema, the one production writes
- * to, unproven. That exemption is the same one that let four defects survive in
- * the Redis session store.
- *
- * Everything below the matrix is dialect-specific: behaviour that exists only
- * because the column is `jsonb`, or `timestamptz`, or carries a CHECK, a partial
- * unique index, or a CASCADE. None of it can be observed on sqlite or in memory.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset; `globalSetup` provisions a
- * container when docker is available.
- */
+/** Store-contract compliance for the Drizzle Postgres adapter, against REAL Postgres. */
 import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -191,7 +175,9 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
         identityInput<Profile>({ profile: { email: 'hidden@x.com', username: 'hidden' } }),
       )
       await stores.identities.softDelete(first.id, 60_000)
-      expect(await stores.identities.find({ email: 'hidden@x.com' })).toBeNull()
+      await expect(stores.identities.find({ email: 'hidden@x.com' })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
   })
 
@@ -242,7 +228,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
     })
 
     it('keeps credential metadata typed through jsonb', async () => {
-      const c = await stores.credentials.upsert(
+      const c = await stores.credentials.create(
         credentialInput({ identityId: OWNER, kind: 'totp', metadata: { confirmed: false, counter: 0 }, secret: 's' }),
         {},
       )
@@ -303,7 +289,7 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
         }),
       )
       await stores.identities.erase(OWNER)
-      expect(await stores.sessions.getByHash(id)).toBeNull()
+      await expect(stores.sessions.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('refuses a session pointing at an identity that does not exist', async () => {
@@ -566,9 +552,11 @@ suite('the exported tables hand back the types they declare (real Postgres)', ()
   })
 
   /** The column is `NOT NULL jsonb` and nothing more, so a hand-run `UPDATE` can leave an unreadable date in it.
-   *  The link stays - dropping it would remove a way into the account - dated at the epoch, and nothing reads it again. */
-  /** An impersonation window whose end cannot be read is not one anyone should be inside. */
-  it('drops an actingAs whose dates are unreadable rather than carrying an Invalid Date', async () => {
+   *  Handled the opposite way to a provider link, which is kept at the epoch because dropping it would remove a
+   *  way into the account: an impersonation window whose end cannot be read is not one anyone should be inside.
+   *  Which is why answering `null` was wrong - `null` is "never an impersonation", so it left the session inside
+   *  no window at all, read as the person being impersonated. The whole row is refused instead, as redis does. */
+  it('refuses a session whose actingAs dates are unreadable rather than reading it as no impersonation', async () => {
     const id = sessionId('acting-corrupt')
     await stores.sessions.create(
       sessionInput({
@@ -589,7 +577,8 @@ suite('the exported tables hand back the types they declare (real Postgres)', ()
       id,
     ])
 
-    const [row] = await db.select().from(authSessions).where(eq(authSessions.id, id))
-    expect(row?.actingAs).toBeNull()
+    await expect(db.select().from(authSessions).where(eq(authSessions.id, id))).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+    })
   })
 })

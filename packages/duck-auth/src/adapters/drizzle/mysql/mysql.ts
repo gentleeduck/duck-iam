@@ -6,14 +6,14 @@ import { and, desc, eq, getTableColumns, gte, inArray, isNull, lt, or, type SQL,
 import { alias, type MySqlUpdateSetSource } from 'drizzle-orm/mysql-core'
 import type { MySql2Database } from 'drizzle-orm/mysql2'
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
-import { forProfile, inTenant, jsonMerged, rowWithLinks, stamped } from '~/adapters/drizzle/drizzle.rows'
+import { inTenant, jsonMerged, rowsWithLinks } from '~/adapters/drizzle/drizzle.rows'
 import { actorId } from '~/core/actor'
-import { outcomesFromAffected } from '~/core/batch'
 import { authUuidV7 } from '~/core/crypto'
 import { AuthError, type SqlFault, STORE_RAISES } from '~/core/errors'
 import { toEmailList, withNormalisedEmail } from '~/core/identities/identities.constants'
 import type { Identities } from '~/core/identities/identities.types'
 import { stripUndefined } from '~/core/patch'
+import { isFiniteNumber } from '~/core/predicates'
 import { authCredentials, authIdentities, authIdentityProviders, authSessions } from './mysql.schema'
 import type { Mysql } from './mysql.types'
 
@@ -22,29 +22,21 @@ const lookupLink = alias(authIdentityProviders, 'lookup_link')
 
 const linkFields = {
   addedAt: authIdentityProviders.addedAt,
+  addedBy: authIdentityProviders.addedBy,
   providerId: authIdentityProviders.providerId,
   providerSub: authIdentityProviders.providerSub,
 }
 
 /** What a read needs of a handle: `db` itself, or the `tx` a transaction hands its callback. */
-type Reader = Pick<Mysql.AnyMySql2Database, 'select'>
+type Reader = Pick<MySql2Database<Record<string, unknown>>, 'select'>
 
 /** The row contract: each table minus its generated columns, which are index carriers and not fields. */
 const { emailNorm: _emailNorm, usernameNorm: _usernameNorm, ...identityColumns } = getTableColumns(authIdentities)
-const { oauthProvider: _oauthProvider, oauthSub: _oauthSub, ...credentialColumns } = getTableColumns(authCredentials)
+const { passwordKey: _passwordKey, ...credentialColumns } = getTableColumns(authCredentials)
+const sessionColumns = getTableColumns(authSessions)
 
-/** MySQL has no `RETURNING`, so a write holds its row under a lock and re-reads it after. */
-function lockRow(tx: Reader, id: string) {
-  return tx
-    .select({ id: authIdentities.id })
-    .from(authIdentities)
-    .where(eq(authIdentities.id, id))
-    .limit(1)
-    .for('update')
-}
-
-/** One class: the four facets share the handle, the `mysqlError` mapper and the `run` boundary that
- *  attaches `wrap`. Each is declared as its slot in `Adapter.Me`, so the contract states what it answers. */
+/** One class: the four facets share the handle, the `STORE_RAISES` mapper and the `run` boundary that names
+ *  what threw. Each is declared as its slot in `Adapter.Me`, so the contract states what it answers. */
 export class DrizzleMysqlAdapter<
     TSchema extends Record<string, unknown> = Record<string, unknown>,
     Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
@@ -88,15 +80,31 @@ export class DrizzleMysqlAdapter<
     })
   }
 
-  /** Same read-then-delete as {@link _erase}, reporting one column so a set-based delete can say
-   *  which of the ids it was handed actually matched a row. */
-  private _eraseSessions(reach: SQL | undefined, name: typeof authSessions.id | typeof authSessions.identityId) {
+  /** Same read-then-delete as {@link DrizzleMysqlAdapter._erase}, answering enough of each session to name it in the
+   *  `session.revoked` the facet emits, and to say which of the ids it was handed matched a row. */
+  private _eraseSessions(reach: SQL | undefined) {
     return this._db.transaction(async (tx) => {
-      const going = await tx.selectDistinct({ hit: name }).from(authSessions).where(reach).for('update')
+      const going = await tx
+        .select({ id: authSessions.id, identityId: authSessions.identityId })
+        .from(authSessions)
+        .where(reach)
+        .for('update')
       if (going.length > 0) await tx.delete(authSessions).where(reach)
 
-      return going.map((r) => r.hit)
+      return going
     })
+  }
+
+  /** The named rows and their logins, hidden ones included: what a set-based write answers with. */
+  private async _rows(ids: string[], db: Reader = this._db): Promise<Identities.Me<Profile>[]> {
+    return rowsWithLinks(
+      await db
+        .select({ identity: identityColumns, link: linkFields })
+        .from(authIdentities)
+        .leftJoin(authIdentityProviders, eq(authIdentityProviders.identityId, authIdentities.id))
+        .where(inArray(authIdentities.id, ids))
+        .orderBy(authIdentityProviders.addedAt),
+    )
   }
 
   /** A conditional write: `expectedVersion` null is unconditional, so a miss there is a missing row. */
@@ -125,10 +133,15 @@ export class DrizzleMysqlAdapter<
     })
   }
 
-  /** A live row and its logins in one join; `hidden` is for a write reading back a row it just hid.
-   *  NOTE: inside a transaction, reached through `withClient(tx)` - `this._db` is a blind connection. */
-  async find(by: Identities.By, hidden = false) {
-    let rows = this._db
+  /** A live row and its logins in one join; `hidden` is for a write reading back a row it just hid. Inside a
+   *  transaction it takes that transaction's handle; the adapter's own is a different connection, blind to
+   *  what the transaction has written. */
+  private async _find(
+    by: { id: string } | { email: string } | { providerId: string; providerSub: string },
+    db: Reader = this._db,
+    hidden = false,
+  ) {
+    let rows = db
       .select({ identity: identityColumns, link: linkFields })
       .from(authIdentities)
       .leftJoin(authIdentityProviders, eq(authIdentityProviders.identityId, authIdentities.id))
@@ -147,13 +160,13 @@ export class DrizzleMysqlAdapter<
       )
     }
 
-    return rowWithLinks(
+    const [row] = rowsWithLinks<Profile>(
       await rows
         .where(
           and(
             hidden ? undefined : isNull(authIdentities.deletedAt),
             'id' in by ? eq(authIdentities.id, by.id) : undefined,
-            // PERF: the stored column, not the expression behind it - MySQL will not match a functional
+            // PERF: the stored column, not the expression behind it, because MySQL will not match a functional
             // index when the comparison carries the connection's collation. 24ms against 0.4ms over 50k.
             'email' in by
               ? or(...toEmailList(by.email).map((e) => eq(authIdentities.emailNorm, sql`lower(${e})`)))
@@ -162,10 +175,18 @@ export class DrizzleMysqlAdapter<
         )
         .orderBy(authIdentityProviders.addedAt),
     )
+
+    return row ?? null
   }
 
-  readonly identities = forProfile<Profile, SqlFault>({
-    find: (by) => this.run(() => this.find(by)),
+  readonly identities: Identities.Store<Profile> = {
+    find: (by) =>
+      this.run(async () => {
+        const row = await this._find(by)
+        if (!row) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
+
+        return row
+      }),
 
     create: (input) =>
       this.run(() =>
@@ -180,10 +201,12 @@ export class DrizzleMysqlAdapter<
           // SECURITY: the unique on (provider_id, provider_sub) is what refuses a login another row already
           // holds. No check runs first, so there is no window between deciding and writing.
           if (providers.length > 0) {
-            await tx.insert(authIdentityProviders).values(providers.map((link) => ({ ...link, identityId: id })))
+            await tx
+              .insert(authIdentityProviders)
+              .values(providers.map((link) => ({ ...link, addedBy: actorId(), identityId: id })))
           }
 
-          const created = await this.withClient(tx).find({ id })
+          const created = await this._find({ id }, tx)
           if (!created) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
           return created
@@ -193,148 +216,160 @@ export class DrizzleMysqlAdapter<
     erase: (id) =>
       this.run(() =>
         this._db.transaction(async (tx) => {
-          const [locked] = await lockRow(tx, id)
-          if (!locked) return null
+          // MySQL has no `RETURNING`, so the row is held under a lock and re-read after.
+          const [locked] = await tx
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(eq(authIdentities.id, id))
+            .limit(1)
+            .for('update')
+          if (!locked) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
           // The cascade takes the links with the row, so it is read whole while they are still there.
-          const found = await this.withClient(tx).find({ id }, true)
+          const found = await this._find({ id }, tx, true)
+          if (!found) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
           await tx.delete(authIdentities).where(eq(authIdentities.id, id))
 
           return found
         }),
       ),
 
-    /** One write, no transaction: the holder is the insert's own source row, so one that is gone or hidden
-     *  writes nothing and the read answers `null`, and the repeat is settled in the same where. */
-    link: (identityId, link) =>
+    /** `erase` over the set. Children go by FK cascade, as there. */
+    eraseMany: (ids) =>
+      this.run(() =>
+        this._db.transaction(async (tx) => {
+          const reach = inArray(authIdentities.id, ids)
+          const going = await tx.select({ hit: authIdentities.id }).from(authIdentities).where(reach).for('update')
+          if (going.length === 0) return []
+
+          const rows = await this._rows(
+            going.map((r) => r.hit),
+            tx,
+          )
+          await tx.delete(authIdentities).where(reach)
+
+          return rows
+        }),
+      ),
+
+    /** What makes a soft delete a delete: a window that has closed is past restoring, so the row goes for
+     *  real. `lt` never matches a NULL, so a live row is not reachable from here. */
+    gc: (now) =>
       this.run(async () => {
-        // An insert's column list is the table's own order, so the select matches it position for position -
-        // the id included, since a select has no column default to fall back on.
-        const row = [
-          sql.param(authUuidV7(), authIdentityProviders.id),
-          authIdentities.id,
-          sql.param(link.providerId, authIdentityProviders.providerId),
-          sql.param(link.providerSub, authIdentityProviders.providerSub),
-          sql.param(link.addedAt ?? new Date(), authIdentityProviders.addedAt),
-        ]
+        // The cutoff is the caller's, and every comparison against NaN is false while every one against
+        // Infinity is true, so an unusable number does not fail - it sweeps nothing or it sweeps everything,
+        // and the dialects disagreed about which.
+        if (!isFiniteNumber(now)) {
+          throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'gc(now) requires a finite epoch-ms cutoff' })
+        }
+        const [result] = await this._db.delete(authIdentities).where(lt(authIdentities.deletedAt, new Date(now)))
 
-        // SECURITY: (provider_id, provider_sub) refuses a login another identity holds. `on duplicate key
-        // update` cannot be aimed at one index - it would swallow the stolen sub - so the owned index is read.
-        await this._db.insert(authIdentityProviders).select(
-          sql`select ${sql.join(row, sql`, `)} from ${authIdentities}
-              where ${and(eq(authIdentities.id, identityId), isNull(authIdentities.deletedAt))}
-                and not exists (
-                  select 1 from (
-                    select held.id from ${authIdentityProviders} held
-                    where held.identity_id = ${identityId}
-                      and held.provider_id = ${sql.param(link.providerId, authIdentityProviders.providerId)}
-                  ) owned
-                )`,
-        )
-
-        return this.find({ id: identityId })
+        return { deleted: result.affectedRows }
       }),
 
-    /** One transaction: the dup's credentials, sessions and logins are re-pointed before it is deleted, since
-     *  the FK cascade would take them with it, and a missing side rolls the whole thing back. */
-    merge: (survivorId, dupId) =>
-      this.run(async () => {
-        if (survivorId === dupId) return this.find({ id: survivorId })
+    /** The holder is the insert's own source row, so one that is gone or hidden writes nothing and the
+     *  read that follows raises, and the repeat is settled in the same where.
+     *  SECURITY: one transaction. Both statements gate on a live row, and a `softDelete` landing between
+     *  them otherwise leaves the link written while the bump matches nothing, so the caller is told the
+     *  link failed while the sub stays claimed by a hidden row no other identity can take it from. */
+    link: (identityId, link) =>
+      this.run(() =>
+        this._db.transaction(async (tx) => {
+          // An insert's column list is the table's own order, so the select matches it position for
+          // position, the id included, since a select has no column default to fall back on.
+          const row = [
+            sql.param(authUuidV7(), authIdentityProviders.id),
+            authIdentities.id,
+            sql.param(link.providerId, authIdentityProviders.providerId),
+            sql.param(link.providerSub, authIdentityProviders.providerSub),
+            sql.param(link.addedAt ?? new Date(), authIdentityProviders.addedAt),
+            sql.param(actorId(), authIdentityProviders.addedBy),
+          ]
 
-        return this._db.transaction(async (tx) => {
-          // SECURITY: both sides are confirmed before anything moves. A merge that re-points the dup's rows
-          // and only then finds the survivor gone has destroyed the dup for nothing.
-          const present = await tx
-            .select({ id: authIdentities.id })
-            .from(authIdentities)
-            .where(inArray(authIdentities.id, [survivorId, dupId]))
-            .for('update')
-          if (present.length !== 2) return null
-
-          // Two live passwords leave the row that answers a login up to the engine. Only a kind the
-          // survivor already holds in the same tenant goes, matched in the delete rather than read out first.
-          await tx.delete(authCredentials).where(
-            and(
-              eq(authCredentials.identityId, dupId),
-              isNull(authCredentials.revokedAt),
-              inArray(authCredentials.kind, ['password', 'totp']),
-              // NOTE: through a derived table, which MySQL requires of a query naming its own delete
-              // target, and `<=>` so two global (NULL) tenants count as the same tenant.
-              sql`exists (
+          // SECURITY: (provider_id, provider_sub) refuses a login another identity holds. `on duplicate key
+          // update` cannot be aimed at one index, since it would swallow the stolen sub, so the owned index is read.
+          await tx.insert(authIdentityProviders).select(
+            sql`select ${sql.join(row, sql`, `)} from ${authIdentities}
+                where ${and(eq(authIdentities.id, identityId), isNull(authIdentities.deletedAt))}
+                  and not exists (
                     select 1 from (
-                      select kept.kind, kept.tenant_id from ${authCredentials} kept
-                      where kept.identity_id = ${survivorId} and kept.revoked_at is null
-                    ) survivor
-                    where survivor.kind = ${authCredentials.kind}
-                      and survivor.tenant_id <=> ${authCredentials.tenantId}
+                      select held.id from ${authIdentityProviders} held
+                      where held.identity_id = ${identityId}
+                        and held.provider_id = ${sql.param(link.providerId, authIdentityProviders.providerId)}
+                    ) owned
                   )`,
-            ),
           )
 
-          await tx.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
-          await tx.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
-
-          // A login both rows held would clash on the owned index, so the dup's copy stays put and the
-          // delete below takes it with the row - one statement where clearing it first was two.
           await tx
-            .update(authIdentityProviders)
-            .set({ identityId: survivorId })
-            .where(
-              and(
-                eq(authIdentityProviders.identityId, dupId),
-                // NOTE: through a derived table, which MySQL requires of a query naming its own update target.
-                sql`not exists (
-                    select 1 from (
-                      select kept.provider_id from ${authIdentityProviders} kept
-                      where kept.identity_id = ${survivorId}
-                    ) survivor
-                    where survivor.provider_id = ${authIdentityProviders.providerId}
-                  )`,
-              ),
-            )
+            .update(authIdentities)
+            .set({ version: sql`${authIdentities.version} + 1` })
+            .where(and(eq(authIdentities.id, identityId), isNull(authIdentities.deletedAt)))
 
-          await tx.delete(authIdentities).where(eq(authIdentities.id, dupId))
+          const linked = await this._find({ id: identityId }, tx)
+          if (!linked) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
-          return this.withClient(tx).find({ id: survivorId })
-        })
-      }),
+          return linked
+        }),
+      ),
 
     restore: (id) =>
       this.run(() =>
         this._db.transaction(async (tx) => {
           // No locked read first: this one answers the same question, and the write below is conditional
           // on the window still being open either way.
-          const found = await this.withClient(tx).find({ id }, true)
-          if (!found) return null
+          const found = await this._find({ id }, tx, true)
+          if (!found) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
           if (!found.deletedAt) return found
 
           await tx
             .update(authIdentities)
-            .set({ deletedAt: null, deletedBy: null })
+            .set({ deletedAt: null, deletedBy: null, version: sql`${authIdentities.version} + 1` })
             .where(and(eq(authIdentities.id, id), gte(authIdentities.deletedAt, new Date())))
 
           // The re-read, not the driver's row count, is what says whether the window was still open.
-          const after = await this.withClient(tx).find({ id }, true)
+          const after = await this._find({ id }, tx, true)
           if (after?.deletedAt) throw new AuthError('AUTH_GRACE_EXPIRED')
+          if (!after) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
           return after
         }),
       ),
 
+    /** The set form over one id. It answers with the rows it hid, so an empty answer is the miss this
+     *  raises on. */
     softDelete: (id, gracePeriodMs) =>
+      this.run(async () => {
+        const [row] = await this.identities.softDeleteMany([id], gracePeriodMs)
+        if (!row) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
+
+        return row
+      }),
+
+    /** `deletedAt` is when the grace window closes, not when the delete happened.
+     *  `isNull(deletedAt)` keeps an already-hidden row out of the answer, so re-hiding it reads as a miss
+     *  rather than moving its window. */
+    softDeleteMany: (ids, gracePeriodMs) =>
       this.run(() =>
         this._db.transaction(async (tx) => {
-          const reach = and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt))
-
-          // `deletedAt` is when the grace window closes, not when the delete happened. The update takes the
-          // row lock a locked read took, and its own count says whether it found a live row.
-          const [hidden] = await tx
+          const reach = and(inArray(authIdentities.id, ids), isNull(authIdentities.deletedAt))
+          // The rows still live are named under lock, then hidden and read back, so the answer carries the
+          // `deletedAt` and version the write just set.
+          const going = await tx.select({ hit: authIdentities.id }).from(authIdentities).where(reach).for('update')
+          if (going.length === 0) return []
+          await tx
             .update(authIdentities)
-            .set({ deletedAt: new Date(Date.now() + gracePeriodMs), deletedBy: actorId(), emailVerified: false })
+            .set({
+              deletedAt: new Date(Date.now() + gracePeriodMs),
+              deletedBy: actorId(),
+              emailVerified: false,
+              version: sql`${authIdentities.version} + 1`,
+            })
             .where(reach)
-          if (hidden.affectedRows === 0) return null
 
-          return this.withClient(tx).find({ id }, true)
+          return this._rows(
+            going.map((r) => r.hit),
+            tx,
+          )
         }),
       ),
 
@@ -347,38 +382,56 @@ export class DrizzleMysqlAdapter<
               and(eq(authIdentityProviders.identityId, identityId), eq(authIdentityProviders.providerId, providerId)),
             )
 
-          return this.withClient(tx).find({ id: identityId })
+          await tx
+            .update(authIdentities)
+            .set({ version: sql`${authIdentities.version} + 1` })
+            .where(and(eq(authIdentities.id, identityId), isNull(authIdentities.deletedAt)))
+
+          const row = await this._find({ id: identityId }, tx)
+          if (!row) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
+
+          return row
         }),
       ),
 
     update: (id, patch, expectedVersion) =>
       this.run(() =>
         this._db.transaction(async (tx) => {
-          const reach = and(eq(authIdentities.id, id), eq(authIdentities.version, expectedVersion))
-          // NOTE: it cannot name the version it found, but pg's conditional write cannot either, and one
-          // answer across every dialect is worth more than the extra field.
+          // SECURITY: a hidden row is not reachable. `softDelete` clears `emailVerified`, so an update landing
+          // on one hands a restored account back the verified claim the delete took away.
+          const reach = and(
+            eq(authIdentities.id, id),
+            eq(authIdentities.version, expectedVersion),
+            isNull(authIdentities.deletedAt),
+          )
+          // NOTE: it cannot name the version it found, as pg's conditional write cannot either.
           const [written] = await tx
             .update(authIdentities)
             // The row moves its own version on, so no caller can write a stale one or forget to bump it.
-            .set({ ...stamped(withNormalisedEmail(patch)), version: sql`${authIdentities.version} + 1` })
+            .set({
+              ...stripUndefined(withNormalisedEmail(patch)),
+              updatedBy: actorId(),
+              version: sql`${authIdentities.version} + 1`,
+            })
             .where(reach)
           if (written.affectedRows === 0)
             throw new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: expectedVersion })
 
-          const row = await this.withClient(tx).find({ id })
+          const row = await this._find({ id }, tx)
           if (!row) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
           return row
         }),
       ),
-  })
+  }
 
-  readonly credentials: Adapter.Wrapped<Adapter.Me['credentials'], SqlFault> = {
+  readonly credentials: Adapter.Me['credentials'] = {
     delete: (id, { tenantId }) =>
       this.run(async () => {
         const [row] = await this._erase(and(eq(authCredentials.id, id), inTenant(authCredentials.tenantId, tenantId)))
+        if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
-        return row ?? null
+        return row
       }),
 
     deleteByKind: (identityId, kind, { tenantId }) =>
@@ -405,29 +458,26 @@ export class DrizzleMysqlAdapter<
       ),
 
     findByHashedSecret: (secretHash, kind, { tenantId }) =>
-      this.run(() =>
-        this._credential([eq(authCredentials.secret, secretHash), eq(authCredentials.kind, kind)], tenantId),
-      ),
-
-    findById: (id, { tenantId }) => this.run(() => this._credential([eq(authCredentials.id, id)], tenantId)),
-
-    // NOTE: `provider`/`sub` live in free-form metadata, so the kind filter is what stops an api-key
-    // answering an oauth lookup. The generated columns are what let an index reach them.
-    findByProviderSub: (provider, sub, { tenantId }) =>
-      this.run(() =>
-        this._credential(
-          [
-            eq(authCredentials.kind, 'oauth'),
-            eq(authCredentials.oauthProvider, provider),
-            eq(authCredentials.oauthSub, sub),
-          ],
+      this.run(async () => {
+        const row = await this._credential(
+          [eq(authCredentials.secret, secretHash), eq(authCredentials.kind, kind)],
           tenantId,
-        ),
-      ),
+        )
+        if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+
+        return row
+      }),
+
+    findById: (id, { tenantId }) =>
+      this.run(async () => {
+        const row = await this._credential([eq(authCredentials.id, id)], tenantId)
+        if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+
+        return row
+      }),
 
     listByIdentity: (identityId, kind, { tenantId }) =>
-      // Newest first, id breaking a same-millisecond tie: callers take the first live row, so an
-      // unordered read left the engine to decide which password or totp answers.
+      // Newest first, id breaking a same-millisecond tie: callers take the first live row.
       this.run(() =>
         this._db
           .select(credentialColumns)
@@ -442,23 +492,34 @@ export class DrizzleMysqlAdapter<
           .orderBy(desc(authCredentials.createdAt), desc(authCredentials.id)),
       ),
 
-    /** Merged under the row's own lock: `json_set` writes each key where it sits. Read-then-write needed a
-     *  version to hold the two halves together and a retry for when it moved. */
-    patchMetadata: (id, patch, { tenantId }) =>
+    /** Merged under the row's own lock: `json_set` writes each key where it sits. */
+    patchMetadata: (id, patch, { tenantId }, expectedVersion) =>
       this.run(async () => {
         const metadata = jsonMerged(
           sql`coalesce(${authCredentials.metadata}, cast('{}' as json))`,
           patch,
           (json) => sql`cast(${json} as json)`,
         )
-        const written = await this._write({ expectedVersion: null, id, tenantId }, { metadata })
-        if (!written) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+        const written = await this._write({ expectedVersion: expectedVersion ?? null, id, tenantId }, { metadata })
+        if (!written) {
+          // A conditional write matches no row whether it is gone, another tenant's, or a version behind,
+          // so a caller that asked for a version is told the one thing it can act on.
+          if (expectedVersion !== undefined) {
+            throw new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: expectedVersion })
+          }
+          throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+        }
 
         return written
       }),
 
     revoke: (id, { tenantId }) =>
-      this.run(() => this._write({ expectedVersion: null, id, tenantId }, { revokedAt: new Date() })),
+      this.run(async () => {
+        const row = await this._write({ expectedVersion: null, id, tenantId }, { revokedAt: new Date() })
+        if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+
+        return row
+      }),
 
     /** The familyId is read out of `metadata`, which is where every oauth row carries it. */
     revokeFamily: (familyId, { tenantId }) =>
@@ -486,7 +547,7 @@ export class DrizzleMysqlAdapter<
         throw new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: expectedVersion })
       }),
 
-    upsert: (input, ctx) =>
+    create: (input, ctx) =>
       this.run(async () => {
         const id = authUuidV7()
         await this._db.insert(authCredentials).values({
@@ -504,8 +565,8 @@ export class DrizzleMysqlAdapter<
       }),
   }
 
-  readonly sessions: Adapter.Wrapped<Adapter.Me['sessions'], SqlFault> = {
-    /** The row arrives whole - its id is the token hash the caller computed - so nothing here is stamped. */
+  readonly sessions: Adapter.Me['sessions'] = {
+    /** The row arrives whole, its id being the token hash the caller computed, so nothing here is stamped. */
     create: (session) =>
       this.run(async () => {
         await this._db.insert(authSessions).values(session)
@@ -517,12 +578,7 @@ export class DrizzleMysqlAdapter<
       }),
 
     deleteAllForIdentities: (identityIds) =>
-      this.run(async () =>
-        outcomesFromAffected(
-          identityIds,
-          await this._eraseSessions(inArray(authSessions.identityId, [...identityIds]), authSessions.identityId),
-        ),
-      ),
+      this.run(() => this._eraseSessions(inArray(authSessions.identityId, identityIds))),
 
     deleteAllForIdentity: (identityId, ctx?) =>
       this.run(async () => {
@@ -531,14 +587,17 @@ export class DrizzleMysqlAdapter<
           .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx?.tenantId)))
       }),
 
-    deleteMany: (ids) =>
-      this.run(async () =>
-        outcomesFromAffected(ids, await this._eraseSessions(inArray(authSessions.id, [...ids]), authSessions.id)),
-      ),
+    deleteMany: (ids) => this.run(() => this._eraseSessions(inArray(authSessions.id, ids))),
 
     /** Either clock: `expiresAt` is the idle deadline, `absoluteExpiresAt` the ceiling it can never pass. */
     gc: (now) =>
       this.run(async () => {
+        // The cutoff is the caller's, and every comparison against NaN is false while every one against
+        // Infinity is true, so an unusable number does not fail - it sweeps nothing or it sweeps everything,
+        // and the dialects disagreed about which.
+        if (!isFiniteNumber(now)) {
+          throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'gc(now) requires a finite epoch-ms cutoff' })
+        }
         const when = new Date(now)
         const [result] = await this._db
           .delete(authSessions)
@@ -549,23 +608,16 @@ export class DrizzleMysqlAdapter<
 
     getByHash: (id) =>
       this.run(async () => {
-        const [row] = await this._db.select().from(authSessions).where(eq(authSessions.id, id)).limit(1)
+        const [row] = await this._db.select(sessionColumns).from(authSessions).where(eq(authSessions.id, id)).limit(1)
+        if (!row) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
 
-        return row ?? null
+        return row
       }),
-
-    listByIdentities: (identityIds) =>
-      this.run(() =>
-        this._db
-          .select()
-          .from(authSessions)
-          .where(inArray(authSessions.identityId, [...identityIds])),
-      ),
 
     listByIdentity: (identityId, ctx?) =>
       this.run(() =>
         this._db
-          .select()
+          .select(sessionColumns)
           .from(authSessions)
           .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx?.tenantId))),
       ),
@@ -574,16 +626,19 @@ export class DrizzleMysqlAdapter<
       this.run(async () => {
         // A patch with nothing to say is a no-op, not a failure: `{ csrfHash: maybeToken }` is how a caller
         // says "leave it alone", and `set({})` would reach the driver as a syntax error.
-        const set = stripUndefined(patch)
+        // `id` is the sid hash the caller's cookie carries: a patch naming it is dropped, never a move.
+        const { id: _pinnedId, ...movable } = patch
+        const set = stripUndefined(movable)
         if (Object.keys(set).length > 0) await this._db.update(authSessions).set(set).where(eq(authSessions.id, id))
 
-        const [row] = await this._db.select().from(authSessions).where(eq(authSessions.id, id)).limit(1)
+        const [row] = await this._db.select(sessionColumns).from(authSessions).where(eq(authSessions.id, id)).limit(1)
         if (!row) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
 
         return row
       }),
   }
 
+  /** Rebinds all four stores onto a transaction handle, so one unit of work shares it. */
   withClient(client: unknown): DrizzleMysqlAdapter<TSchema, Profile> {
     // A handle is `db` or the `tx` a transaction hands its callback, and both answer all three.
     const isHandle = (c: unknown): c is MySql2Database<TSchema> =>
@@ -594,4 +649,12 @@ export class DrizzleMysqlAdapter<
 
     return new DrizzleMysqlAdapter(client)
   }
+}
+
+/** Constructs a {@link DrizzleMysqlAdapter}. */
+export function drizzleMysqlAdapter<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+>(input: string | Mysql.MySql2PoolLike | MySql2Database<TSchema>): DrizzleMysqlAdapter<TSchema, Profile> {
+  return new DrizzleMysqlAdapter<TSchema, Profile>(input)
 }

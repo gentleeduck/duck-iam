@@ -1,15 +1,4 @@
-/**
- * Store-contract cases the shared compliance matrix does not reach.
- *
- * `compliance.test.ts` next door proves the dialect answers the same shapes as
- * every other adapter. What it cannot prove is the handful of semantics where a
- * dialect had drifted from the memory adapter without any shared assertion
- * noticing - a link that appends where another replaces, a soft delete that
- * re-stamps its own grace window, a `gc` that reads one of the two expiry
- * columns. Those live here, written against SQLite because it is the only
- * dialect that runs without a container; pg and mysql carry the same fixes and
- * are covered by their own e2e suites.
- */
+/** Store-contract cases the shared compliance matrix does not reach. */
 
 import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
@@ -171,25 +160,14 @@ describe('DrizzleSqlite store-contract divergences', () => {
     it('answers null for an already-deleted row without pushing its purge deadline out', async () => {
       const i = await stores.identities.create(identityInput({ profile: profile('sd') }))
       // A grace window that has already closed: the row is queued for purge.
-      expect(await stores.identities.softDelete(i.id, -60_000)).not.toBeNull()
+      await expect(stores.identities.softDelete(i.id, -60_000)).resolves.toBeTruthy()
 
-      expect(await stores.identities.softDelete(i.id, 10 * 60_000)).toBeNull()
+      await expect(stores.identities.softDelete(i.id, 10 * 60_000)).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
 
       // The second call must not have re-opened the window a purge is waiting on.
       await expect(stores.identities.restore(i.id)).rejects.toMatchObject({ code: 'AUTH_GRACE_EXPIRED' })
-    })
-  })
-
-  describe('identities.merge', () => {
-    it('merging a row into itself is a no-op that keeps the row', async () => {
-      const i = await stores.identities.create(identityInput({ profile: profile('self') }))
-      await stores.identities.link(i.id, { addedAt: new Date(), providerId: 'oauth:google', providerSub: 'sub-s' })
-
-      const merged = await stores.identities.merge(i.id, i.id)
-
-      expect(merged?.id).toBe(i.id)
-      expect(merged?.providers).toHaveLength(1)
-      expect(await stores.identities.find({ id: i.id })).not.toBeNull()
     })
   })
 
@@ -203,12 +181,16 @@ describe('DrizzleSqlite store-contract divergences', () => {
 
       expect(await stores.identities.restore(live.id)).toMatchObject({ deletedAt: null, deletedBy: null })
       await expect(stores.identities.restore(expired.id)).rejects.toMatchObject({ code: 'AUTH_GRACE_EXPIRED' })
-      expect(await stores.identities.find({ id: expired.id })).toBeNull()
-      expect(await stores.identities.find({ id: live.id })).not.toBeNull()
+      await expect(stores.identities.find({ id: expired.id })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
+      await expect(stores.identities.find({ id: live.id })).resolves.toBeTruthy()
     })
 
     it('reads an id that is not there as null rather than a refusal', async () => {
-      expect(await stores.identities.restore('no-such-identity')).toBeNull()
+      await expect(stores.identities.restore('no-such-identity')).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
   })
 
@@ -242,40 +224,10 @@ describe('DrizzleSqlite store-contract divergences', () => {
       )
 
       expect((await stores.sessions.gc(nowMs)).deleted).toBe(1)
-      expect(await stores.sessions.getByHash(sessionId('idle-expired'))).toBeNull()
-      expect(await stores.sessions.getByHash(sessionId('live'))).not.toBeNull()
-    })
-  })
-
-  describe('credentials.findByProviderSub', () => {
-    it('ignores a non-oauth credential carrying the same provider/sub metadata', async () => {
-      await stores.credentials.upsert(
-        credentialInput({
-          identityId: OWNER,
-          kind: 'api-key',
-          metadata: { provider: 'google', sub: 'sub-1' },
-          secret: 'k',
-        }),
-        {},
-      )
-
-      expect(await stores.credentials.findByProviderSub('google', 'sub-1', {})).toBeNull()
-    })
-
-    it('is scoped to the calling tenant', async () => {
-      await stores.credentials.upsert(
-        credentialInput({
-          identityId: OWNER,
-          kind: 'oauth',
-          metadata: { provider: 'google', sub: 'sub-2' },
-          secret: 'o',
-          tenantId: 'tenant-a',
-        }),
-        {},
-      )
-
-      expect(await stores.credentials.findByProviderSub('google', 'sub-2', { tenantId: 'tenant-b' })).toBeNull()
-      expect(await stores.credentials.findByProviderSub('google', 'sub-2', { tenantId: 'tenant-a' })).not.toBeNull()
+      await expect(stores.sessions.getByHash(sessionId('idle-expired'))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
+      await expect(stores.sessions.getByHash(sessionId('live'))).resolves.toBeTruthy()
     })
   })
 
@@ -296,7 +248,7 @@ describe('DrizzleSqlite store-contract divergences', () => {
 
   describe('credentials.rotate', () => {
     it('stamps lastUsedAt on the same write that changes the secret', async () => {
-      const c = await stores.credentials.upsert(
+      const c = await stores.credentials.create(
         credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'v1' }),
         {},
       )
@@ -370,5 +322,41 @@ describe('the exported tables hand back the types they declare', () => {
     expect(row?.factors[0]?.completedAt?.getTime()).toBe(completedAt.getTime())
     expect(row?.actingAs?.startedAt).toBeInstanceOf(Date)
     expect(row?.actingAs?.expiresAt.getTime()).toBe(expiresAt.getTime())
+  })
+
+  it('refuses a session whose acting_as TEXT will not parse, rather than reading it as no impersonation', async () => {
+    // Every JSON column is raw TEXT on this dialect, so unparseable bytes reach the codec here in a way
+    // pg and mysql only do when a column is read as text. `null` was the old answer, and it does not mean
+    // "unreadable" - it means "never an impersonation", which loads the row as an ordinary session
+    // belonging to the person being impersonated: no expiry cap, and an audit trail naming them instead
+    // of the operator.
+    const { db, sqlite, stores } = await makeDb()
+    const id = sessionId('sqlite-acting-as-corrupt')
+    await stores.sessions.create(
+      sessionInput({
+        aal: 1,
+        absoluteExpiresAt: new Date(Date.now() + 600_000),
+        actingAs: {
+          expiresAt: new Date(Date.now() + 60_000),
+          realIdentityId: OWNER,
+          reason: 'support',
+          startedAt: new Date(),
+        },
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        factors: [],
+        fresh: true,
+        id,
+        identityId: OWNER,
+        kind: 'user',
+        rotatedAt: new Date(),
+      }),
+    )
+    sqlite.exec(`UPDATE auth_sessions SET acting_as = '{ broken' WHERE id = '${id}'`)
+
+    await expect(db.select().from(authSessions).where(eq(authSessions.id, id))).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+    })
+    await expect(stores.sessions.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })

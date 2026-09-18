@@ -1,6 +1,7 @@
 /** What a JSON column hands back, and the parsers that turn it into row types.
  *  NOTE: a date inside a JSON column came back as an ISO string, so `$type<Date>()` names the intention. */
 
+import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
 import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from '~/core/sessions/sessions.types'
 
@@ -47,6 +48,8 @@ export function parseProviders(value: unknown): Identities.ProviderLink[] {
     if (!isProviderLink(entry)) continue
     links.push({
       addedAt: storedDate(entry.addedAt) ?? UNKNOWN_DATE,
+      // The column this reads predates `added_by`, so nothing it hands back can name an actor.
+      addedBy: null,
       providerId: entry.providerId,
       providerSub: entry.providerSub,
     })
@@ -68,13 +71,20 @@ export function parseFactors(value: unknown): Sessions.Factor[] {
 /** An impersonation window whose start or end cannot be read is not one anyone should be inside, so it
  *  is dropped whole rather than given a fallback date. */
 export function parseActingAs(value: unknown): Sessions.ActingAs | null {
-  if (typeof value !== 'object' || value === null) return null
+  // An empty column is a session that was never an impersonation.
+  if (value === null || value === undefined) return null
+  // SECURITY: present but unreadable refuses the session; `null` would say "not an impersonation", so the
+  // row loads as the impersonated person's own session with no window check and no admin in the audit trail.
+  const broken = (): never => {
+    throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the impersonation window is present but unreadable' })
+  }
+  if (typeof value !== 'object') return broken()
   const startedAt = storedDate(Reflect.get(value, 'startedAt'))
   const expiresAt = storedDate(Reflect.get(value, 'expiresAt'))
   const realIdentityId = Reflect.get(value, 'realIdentityId')
   const reason = Reflect.get(value, 'reason')
-  if (!startedAt || !expiresAt) return null
-  if (typeof realIdentityId !== 'string' || typeof reason !== 'string') return null
+  if (!startedAt || !expiresAt) return broken()
+  if (typeof realIdentityId !== 'string' || typeof reason !== 'string') return broken()
   return { expiresAt, realIdentityId, reason, startedAt }
 }
 
@@ -85,6 +95,9 @@ export function fromJsonColumn(value: unknown): unknown {
   try {
     return JSON.parse(value)
   } catch {
-    return null
+    // SECURITY: the unparseable string, not `null`. A SQL NULL is not a string and returned above, so
+    // `null` here would make a corrupt column read as an absent one - and absent is exactly the answer
+    // `parseActingAs` must refuse to give. Left present, each parser applies its own policy.
+    return value
   }
 }

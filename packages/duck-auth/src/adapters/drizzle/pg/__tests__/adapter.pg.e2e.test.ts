@@ -1,13 +1,6 @@
-/**
- * The drizzle pg adapter itself, against REAL Postgres.
- *
- * The compliance matrix covers what every adapter must agree on; these are the pg specifics under it - the
- * folded read, the CTE writes, and a typed error for every constraint the shipped schema declares.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset; `globalSetup` provisions a container when docker is there.
- */
+/** The drizzle pg adapter itself, against REAL Postgres. */
 import { createHash } from 'node:crypto'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { getTableConfig } from 'drizzle-orm/pg-core'
 import { Pool } from 'pg'
@@ -17,7 +10,7 @@ import { withActor } from '~/core/actor'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { authUuidV7 } from '~/core/crypto'
 import type { AuthError } from '~/core/errors'
-import { sqlError } from '~/core/errors'
+import { asAuthError, sqlError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { applyPgSchema, databaseUrl, isolatedDatabaseUrl } from '~/test/e2e-env'
@@ -37,6 +30,21 @@ const ago = (ms: number) => new Date(Date.now() - ms)
 const ahead = (ms: number) => new Date(Date.now() + ms)
 const GRACE = 60_000
 const anywhere = { tenantId: undefined }
+
+/** Turns a pooled read that blocks into a failure naming the cause, instead of a timeout further up. */
+function blockedRead(): Promise<never> {
+  return new Promise((_, reject) =>
+    setTimeout(
+      () =>
+        reject(
+          new Error(
+            'the pooled read blocked: the fixture is down to one connection, so this suite can no longer tell a read that used its transaction handle from one that ignored it',
+          ),
+        ),
+      5_000,
+    ),
+  )
+}
 
 /** Runs a raw statement the way an adapter call runs it, so it answers the same typed error. */
 async function attempt(query: () => Promise<unknown>): Promise<{ error: AuthError | null }> {
@@ -72,7 +80,7 @@ function row(name: string, over: Partial<Identities.Me<Profile>> = {}) {
   return { ...identity(name), createdBy: null, deletedAt: null, deletedBy: null, updatedBy: null, ...over }
 }
 
-function credential(identityId: string, over: Partial<Credential.UpsertInput> = {}): Credential.UpsertInput {
+function credential(identityId: string, over: Partial<Credential.CreateInput> = {}): Credential.CreateInput {
   return {
     expiresAt: null,
     identityId,
@@ -93,6 +101,7 @@ function session(label: string, over: Partial<Sessions.Me> = {}): Sessions.Me {
     absoluteExpiresAt: new Date(at.getTime() + 600_000),
     actingAs: null,
     createdAt: at,
+    updatedAt: at,
     csrfHash: null,
     expiresAt: new Date(at.getTime() + 60_000),
     factors: [],
@@ -179,10 +188,16 @@ suite('drizzle pg adapter (real Postgres)', () => {
       const created = await adapter.identities.create(identity('hidden'))
       await adapter.identities.softDelete(created.id, GRACE)
 
-      expect(await adapter.identities.find({ id: created.id })).toBeNull()
-      expect(await adapter.identities.find({ email: 'hidden@adapter.test' })).toBeNull()
-      expect(await adapter.identities.find({ id: authUuidV7() })).toBeNull()
-      expect(await adapter.identities.find({ email: '' })).toBeNull()
+      await expect(adapter.identities.find({ id: created.id })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
+      await expect(adapter.identities.find({ email: 'hidden@adapter.test' })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
+      await expect(adapter.identities.find({ id: authUuidV7() })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
+      await expect(adapter.identities.find({ email: '' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
     // An id the `uuid` column cannot hold is postgres's to refuse, not something the adapter reads as a miss.
@@ -230,20 +245,22 @@ suite('drizzle pg adapter (real Postgres)', () => {
       expect(hidden).toMatchObject({ emailVerified: false, id: created.id })
       expect(hidden?.providers).toHaveLength(1)
       // Re-stamping would push the purge deadline forward on every repeat.
-      expect(await adapter.identities.softDelete(created.id, 120_000)).toBeNull()
+      await expect(adapter.identities.softDelete(created.id, 120_000)).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
 
     it('erase takes the row credentials, sessions and links with it', async () => {
       const link = { addedAt: new Date(), providerId: 'google', providerSub: 'g-erase' }
       const created = await adapter.identities.create(identity('erase', { providers: [link] }))
-      await adapter.credentials.upsert(credential(created.id), anywhere)
+      await adapter.credentials.create(credential(created.id), anywhere)
       await adapter.sessions.create(session('erase', { identityId: created.id }))
 
       // The links come back on the erased row, read while they were still there.
-      expect((await adapter.identities.erase(created.id))?.providers).toHaveLength(1)
+      expect((await adapter.identities.erase(created.id)).providers).toHaveLength(1)
       expect(await adapter.credentials.listByIdentity(created.id, null, anywhere)).toEqual([])
-      expect(await adapter.sessions.getByHash(sid('erase'))).toBeNull()
-      expect(await adapter.identities.erase(authUuidV7())).toBeNull()
+      await expect(adapter.sessions.getByHash(sid('erase'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(adapter.identities.erase(authUuidV7())).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
     it('restores a row inside its window, and names why one outside it stayed hidden', async () => {
@@ -255,9 +272,9 @@ suite('drizzle pg adapter (real Postgres)', () => {
       expect(await adapter.identities.restore(ok.id)).toMatchObject({ deletedAt: null, deletedBy: null })
       expect((await adapter.identities.find({ id: ok.id }))?.id).toBe(ok.id)
       await expect(adapter.identities.restore(expired.id)).rejects.toMatchObject({ code: 'AUTH_GRACE_EXPIRED' })
-      expect(await adapter.identities.restore(authUuidV7())).toBeNull()
+      await expect(adapter.identities.restore(authUuidV7())).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
       // A live row restores to itself rather than being refused.
-      expect((await adapter.identities.restore(ok.id))?.id).toBe(ok.id)
+      expect((await adapter.identities.restore(ok.id)).id).toBe(ok.id)
     })
 
     it('links a sub once, and refuses it to a second row live or hidden', async () => {
@@ -267,7 +284,10 @@ suite('drizzle pg adapter (real Postgres)', () => {
 
       await adapter.identities.link(a.id, link)
       // A retried OAuth callback: the same pair again is a no-op, not a second entry.
-      expect((await adapter.identities.link(a.id, { ...link, addedAt: new Date() }))?.providers).toEqual([link])
+      // `addedBy` is the ambient actor, which no e2e sets.
+      expect((await adapter.identities.link(a.id, { ...link, addedAt: new Date() })).providers).toEqual([
+        { ...link, addedBy: null },
+      ])
       await expect(adapter.identities.link(b.id, link)).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_TAKEN',
         meta: { providerId: 'google' },
@@ -293,31 +313,9 @@ suite('drizzle pg adapter (real Postgres)', () => {
       expect(left?.providers.map((p) => p.providerId)).toEqual(['password'])
       // Unlinking a provider the row does not hold leaves it as it was.
       expect((await adapter.identities.unlink(created.id, 'google'))?.providers).toHaveLength(1)
-      expect(await adapter.identities.unlink(authUuidV7(), 'google')).toBeNull()
-    })
-
-    it('merges the dup into the survivor, and writes nothing when either side is missing', async () => {
-      const at = new Date()
-      const survivor = await adapter.identities.create(
-        identity('survivor', { providers: [{ addedAt: at, providerId: 'password', providerSub: 'pw-s' }] }),
-      )
-      const dup = await adapter.identities.create(
-        identity('dup', { providers: [{ addedAt: at, providerId: 'google', providerSub: 'g-dup' }] }),
-      )
-      await adapter.credentials.upsert(credential(dup.id), anywhere)
-      await adapter.sessions.create(session('dup', { identityId: dup.id }))
-
-      expect(await adapter.identities.merge(authUuidV7(), dup.id)).toBeNull()
-      expect(await adapter.identities.merge(survivor.id, authUuidV7())).toBeNull()
-      expect(await adapter.credentials.listByIdentity(dup.id, null, anywhere)).toHaveLength(1)
-
-      const merged = await adapter.identities.merge(survivor.id, dup.id)
-      expect(merged?.providers.map((p) => p.providerId).sort()).toEqual(['google', 'password'])
-      expect(await adapter.credentials.listByIdentity(survivor.id, null, anywhere)).toHaveLength(1)
-      expect((await adapter.sessions.getByHash(sid('dup')))?.identityId).toBe(survivor.id)
-      expect(await adapter.identities.find({ id: dup.id })).toBeNull()
-      // A dedupe job that hands in one id twice must not delete the account it means to keep.
-      expect((await adapter.identities.merge(survivor.id, survivor.id))?.id).toBe(survivor.id)
+      await expect(adapter.identities.unlink(authUuidV7(), 'google')).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
   })
 
@@ -325,20 +323,24 @@ suite('drizzle pg adapter (real Postgres)', () => {
     it('finds a live row before a revoked one, then the newest', async () => {
       // `created_at` defaults to the database's clock; a host clock a millisecond ahead of the container's
       // makes `chk_auth_credentials_revoked_after_created` refuse the insert, so the row names its own.
+      // NOTE: api-key, not password - `uq_auth_credentials_password` allows one password row per identity,
+      // so this ordering only ever decides between the kinds that may legitimately have several.
+      const many = { kind: 'api-key' as const, secret: 'same' }
       await db
         .insert(authCredentials)
-        .values({ ...credential(OWNER, { revokedAt: new Date(), secret: 'same' }), createdAt: ago(5000) })
-      await db.insert(authCredentials).values({ ...credential(OWNER, { secret: 'same' }), createdAt: ago(3000) })
+        .values({ ...credential(OWNER, { ...many, revokedAt: new Date() }), createdAt: ago(5000) })
+      await db.insert(authCredentials).values({ ...credential(OWNER, many), createdAt: ago(3000) })
       const [newest] = await db
         .insert(authCredentials)
-        .values({ ...credential(OWNER, { secret: 'same' }), createdAt: ago(2000) })
+        .values({ ...credential(OWNER, many), createdAt: ago(2000) })
         .returning()
 
-      expect((await adapter.credentials.findByHashedSecret('same', 'password', anywhere))?.id).toBe(newest?.id)
+      expect((await adapter.credentials.findByHashedSecret('same', 'api-key', anywhere))?.id).toBe(newest?.id)
     })
 
     it('falls back to the revoked row when no live one answers', async () => {
-      // Inserted rather than upserted, so the row names its own `created_at`: see the case above.
+      // Written straight to the table rather than through the store, so the row names its own
+      // `created_at`: see the case above.
       const [revoked] = await db
         .insert(authCredentials)
         .values({ ...credential(OWNER, { revokedAt: new Date(), secret: 'only' }), createdAt: ago(5000) })
@@ -347,23 +349,9 @@ suite('drizzle pg adapter (real Postgres)', () => {
       expect((await adapter.credentials.findByHashedSecret('only', 'password', anywhere))?.id).toBe(revoked?.id)
     })
 
-    it('matches a provider sub on oauth rows only, inside the tenant asked for', async () => {
-      const metadata = { provider: 'google', sub: 's-1' }
-      const oauth = await adapter.credentials.upsert(
-        credential(OWNER, { kind: 'oauth', metadata, tenantId: 't-1' }),
-        anywhere,
-      )
-      await adapter.credentials.upsert(credential(OWNER, { kind: 'api-key', metadata, tenantId: 't-1' }), anywhere)
-
-      expect((await adapter.credentials.findByProviderSub('google', 's-1', { tenantId: 't-1' }))?.id).toBe(oauth.id)
-      expect((await adapter.credentials.findByProviderSub('google', 's-1', anywhere))?.id).toBe(oauth.id)
-      expect(await adapter.credentials.findByProviderSub('google', 's-1', { tenantId: 't-2' })).toBeNull()
-      expect(await adapter.credentials.findByProviderSub('google', 'no-such-sub', anywhere)).toBeNull()
-    })
-
     it('lists one identity, narrowed by kind and by tenant', async () => {
-      await adapter.credentials.upsert(credential(OWNER, { tenantId: 't-1' }), anywhere)
-      await adapter.credentials.upsert(credential(OWNER, { kind: 'totp', secret: 't' }), anywhere)
+      await adapter.credentials.create(credential(OWNER, { tenantId: 't-1' }), anywhere)
+      await adapter.credentials.create(credential(OWNER, { kind: 'totp', secret: 't' }), anywhere)
 
       expect(await adapter.credentials.listByIdentity(OWNER, null, anywhere)).toHaveLength(2)
       expect((await adapter.credentials.listByIdentity(OWNER, 'password', anywhere)).map((c) => c.kind)).toEqual([
@@ -375,7 +363,7 @@ suite('drizzle pg adapter (real Postgres)', () => {
     })
 
     it('rotates against a version, and revokes by id alone', async () => {
-      const created = await adapter.credentials.upsert(credential(OWNER), anywhere)
+      const created = await adapter.credentials.create(credential(OWNER), anywhere)
 
       const rotated = await adapter.credentials.rotate(created.id, 'rotated', 1, anywhere)
       expect(rotated).toMatchObject({ secret: 'rotated', version: 2 })
@@ -385,13 +373,17 @@ suite('drizzle pg adapter (real Postgres)', () => {
         code: 'AUTH_STALE_WRITE',
       })
       // No version to lose, so a reach that matched nothing is a missing row.
-      expect(await adapter.credentials.revoke(created.id, { tenantId: 'other' })).toBeNull()
-      expect(await adapter.credentials.revoke(authUuidV7(), anywhere)).toBeNull()
-      expect((await adapter.credentials.revoke(created.id, anywhere))?.revokedAt).toBeInstanceOf(Date)
+      await expect(adapter.credentials.revoke(created.id, { tenantId: 'other' })).rejects.toMatchObject({
+        code: 'AUTH_CREDENTIAL_NOT_FOUND',
+      })
+      await expect(adapter.credentials.revoke(authUuidV7(), anywhere)).rejects.toMatchObject({
+        code: 'AUTH_CREDENTIAL_NOT_FOUND',
+      })
+      expect((await adapter.credentials.revoke(created.id, anywhere)).revokedAt).toBeInstanceOf(Date)
     })
 
     it('merges a metadata patch into what the row already held', async () => {
-      const created = await adapter.credentials.upsert(credential(OWNER, { metadata: { kept: 1 } }), anywhere)
+      const created = await adapter.credentials.create(credential(OWNER, { metadata: { kept: 1 } }), anywhere)
 
       expect(await adapter.credentials.patchMetadata(created.id, { added: 2 }, anywhere)).toMatchObject({
         metadata: { added: 2, kept: 1 },
@@ -402,11 +394,13 @@ suite('drizzle pg adapter (real Postgres)', () => {
     })
 
     it('deletes by id or by identity and kind, answering the rows as they were', async () => {
-      const password = await adapter.credentials.upsert(credential(OWNER), anywhere)
-      await adapter.credentials.upsert(credential(OWNER, { kind: 'totp', secret: 't' }), anywhere)
+      const password = await adapter.credentials.create(credential(OWNER), anywhere)
+      await adapter.credentials.create(credential(OWNER, { kind: 'totp', secret: 't' }), anywhere)
 
       expect((await adapter.credentials.deleteByKind(OWNER, 'totp', anywhere)).map((c) => c.kind)).toEqual(['totp'])
-      expect(await adapter.credentials.delete(password.id, { tenantId: 'other' })).toBeNull()
+      await expect(adapter.credentials.delete(password.id, { tenantId: 'other' })).rejects.toMatchObject({
+        code: 'AUTH_CREDENTIAL_NOT_FOUND',
+      })
       expect((await adapter.credentials.delete(password.id, anywhere))?.id).toBe(password.id)
     })
   })
@@ -446,6 +440,7 @@ suite('drizzle pg adapter (real Postgres)', () => {
         session('idle', {
           absoluteExpiresAt: ahead(60_000),
           createdAt: ago(120_000),
+          updatedAt: ago(120_000),
           expiresAt: ago(60_000),
           rotatedAt: ago(120_000),
         }),
@@ -455,13 +450,22 @@ suite('drizzle pg adapter (real Postgres)', () => {
       expect((await adapter.sessions.getByHash(sid('live')))?.id).toBe(sid('live'))
     })
 
-    it('reads factors and actingAs written as garbage as empty', async () => {
+    it('reads factors written as garbage as empty', async () => {
+      // Safe to degrade: an unreadable factor list reads as no factors, which can only lower the AAL the
+      // session claims. An unreadable impersonation window is the opposite, and is refused below.
       await adapter.sessions.create(session('garbage', { factors: [{ completedAt: new Date(), method: 'password' }] }))
-      await pool.query(`UPDATE auth_sessions SET factors = '"nope"'::jsonb, acting_as = '[1]'::jsonb WHERE id = $1`, [
-        sid('garbage'),
-      ])
+      await pool.query(`UPDATE auth_sessions SET factors = '"nope"'::jsonb WHERE id = $1`, [sid('garbage')])
 
       expect(await adapter.sessions.getByHash(sid('garbage'))).toMatchObject({ actingAs: null, factors: [] })
+    })
+
+    it('refuses a session whose actingAs is garbage, rather than reading it as no impersonation', async () => {
+      await adapter.sessions.create(session('acting-garbage'))
+      await pool.query(`UPDATE auth_sessions SET acting_as = '[1]'::jsonb WHERE id = $1`, [sid('acting-garbage')])
+
+      await expect(adapter.sessions.getByHash(sid('acting-garbage'))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
   })
 
@@ -551,14 +555,14 @@ suite('drizzle pg adapter (real Postgres)', () => {
         code: 'AUTH_ALREADY_EXISTS',
         constraint: 'auth_credentials_pkey',
         run: async () => {
-          const first = await adapter.credentials.upsert(credential(OWNER), anywhere)
+          const first = await adapter.credentials.create(credential(OWNER), anywhere)
           return db.insert(authCredentials).values({ ...credential(OWNER), id: first.id })
         },
       },
       {
         code: 'AUTH_IDENTITY_NOT_FOUND',
         constraint: 'fk_auth_credentials_identity',
-        run: () => adapter.credentials.upsert(credential(authUuidV7()), anywhere),
+        run: () => adapter.credentials.create(credential(authUuidV7()), anywhere),
       },
       {
         code: 'AUTH_INVALID_PARAMETERS',
@@ -573,27 +577,63 @@ suite('drizzle pg adapter (real Postgres)', () => {
       {
         code: 'AUTH_INVALID_PARAMETERS',
         constraint: 'chk_auth_credentials_secret_not_blank',
-        run: () => adapter.credentials.upsert(credential(OWNER, { secret: '   ' }), anywhere),
+        run: () => adapter.credentials.create(credential(OWNER, { secret: '   ' }), anywhere),
       },
       {
         code: 'AUTH_INVALID_PARAMETERS',
         constraint: 'chk_auth_credentials_tenant_not_blank',
-        run: () => adapter.credentials.upsert(credential(OWNER, { tenantId: '' }), anywhere),
+        run: () => adapter.credentials.create(credential(OWNER, { tenantId: '' }), anywhere),
       },
       {
         code: 'AUTH_INVALID_PARAMETERS',
         constraint: 'chk_auth_credentials_expires_after_created',
-        run: () => adapter.credentials.upsert(credential(OWNER, { expiresAt: ago(60_000) }), anywhere),
+        run: () => adapter.credentials.create(credential(OWNER, { expiresAt: ago(60_000) }), anywhere),
       },
       {
         code: 'AUTH_INVALID_PARAMETERS',
         constraint: 'chk_auth_credentials_revoked_after_created',
-        run: () => adapter.credentials.upsert(credential(OWNER, { revokedAt: ago(60_000) }), anywhere),
+        run: () => adapter.credentials.create(credential(OWNER, { revokedAt: ago(60_000) }), anywhere),
       },
       {
         code: 'AUTH_INVALID_PARAMETERS',
         constraint: 'chk_auth_credentials_last_used_after_created',
-        run: () => adapter.credentials.upsert(credential(OWNER, { lastUsedAt: ago(60_000) }), anywhere),
+        run: () => adapter.credentials.create(credential(OWNER, { lastUsedAt: ago(60_000) }), anywhere),
+      },
+      {
+        code: 'AUTH_ALREADY_EXISTS',
+        constraint: 'uq_auth_credentials_password',
+        run: async () => {
+          await adapter.credentials.create(credential(OWNER), anywhere)
+          return adapter.credentials.create(credential(OWNER, { secret: 'second' }), anywhere)
+        },
+      },
+      {
+        code: 'AUTH_ALREADY_EXISTS',
+        constraint: 'uq_auth_credentials_password_tenant',
+        run: async () => {
+          await adapter.credentials.create(credential(OWNER, { tenantId: 'acme' }), anywhere)
+          return adapter.credentials.create(credential(OWNER, { secret: 'second', tenantId: 'acme' }), anywhere)
+        },
+      },
+      {
+        code: 'AUTH_INVALID_PARAMETERS',
+        constraint: 'chk_auth_identities_email_length',
+        run: () =>
+          db
+            .insert(authIdentities)
+            .values(
+              row('long-email', { profile: { email: `${'e'.repeat(315)}@adapter.test`, username: 'long-email' } }),
+            ),
+      },
+      {
+        code: 'AUTH_INVALID_PARAMETERS',
+        constraint: 'chk_auth_identities_username_length',
+        run: () =>
+          db
+            .insert(authIdentities)
+            .values(
+              row('long-username', { profile: { email: 'long-username@adapter.test', username: 'u'.repeat(192) } }),
+            ),
       },
       {
         code: 'AUTH_ALREADY_EXISTS',
@@ -691,7 +731,10 @@ suite('drizzle pg adapter (real Postgres)', () => {
     it('answers a database without the auth schema as misconfigured', async () => {
       const empty = new Pool({ connectionString: await isolatedDatabaseUrl('pg_adapter_empty') })
       try {
-        const { error } = await new DrizzlePgAdapter(drizzle(empty)).identities.find({ id: OWNER }).wrap()
+        const error = await new DrizzlePgAdapter(drizzle(empty)).identities.find({ id: OWNER }).then(
+          () => null,
+          (err: unknown) => asAuthError(err, 'AUTH_ADAPTER_FAILED'),
+        )
 
         expect(error?.code).toBe('AUTH_MISCONFIGURED')
         // The table name is internal; nothing about it reaches a caller's logs.
@@ -704,12 +747,52 @@ suite('drizzle pg adapter (real Postgres)', () => {
     it('answers a server it cannot reach as unavailable', async () => {
       const unreachable = new Pool({ connectionString: 'postgres://nobody:nothing@127.0.0.1:1/none' })
       try {
-        const { error } = await new DrizzlePgAdapter(drizzle(unreachable)).identities.find({ id: OWNER }).wrap()
+        const error = await new DrizzlePgAdapter(drizzle(unreachable)).identities.find({ id: OWNER }).then(
+          () => null,
+          (err: unknown) => asAuthError(err, 'AUTH_ADAPTER_FAILED'),
+        )
 
         expect(error?.code).toBe('AUTH_ADAPTER_UNAVAILABLE')
       } finally {
         await unreachable.end()
       }
+    })
+  })
+
+  /**
+   * The guard on the fixture itself. Every assertion in this file that a write reads back what it just wrote
+   * rests on the adapter's own handle being a different connection from the one its transaction runs on. That
+   * holds because `pool` is a real pool. Give it one connection and the suite still passes while detecting
+   * nothing — which is what the sqlite suites did until they grew an async-driver case.
+   */
+  describe('the fixture', () => {
+    it('is multi-connection, so a read that ignored its transaction handle cannot hide', async () => {
+      const me = await adapter.identities.create(identity('pool-probe'))
+
+      await expect(
+        db.transaction(async (tx) => {
+          await tx.update(authIdentities).set({ version: 999 }).where(eq(authIdentities.id, me.id))
+
+          const [inTx] = await tx
+            .select({ version: authIdentities.version })
+            .from(authIdentities)
+            .where(eq(authIdentities.id, me.id))
+          // A plain select takes no lock under MVCC, so this reads rather than waits. On a one-connection
+          // pool it would instead wait for the connection the transaction holds; the race turns that into a
+          // failure that says so, rather than a timeout further up.
+          const [onPool] = await Promise.race([
+            db.select({ version: authIdentities.version }).from(authIdentities).where(eq(authIdentities.id, me.id)),
+            blockedRead(),
+          ])
+
+          expect(inTx?.version).toBe(999)
+          // If this ever reads 999 the two handles share a connection, and every threading assertion in
+          // this file has gone quietly toothless.
+          expect(onPool?.version).toBe(1)
+
+          throw new Error('pool-probe-rollback')
+        }),
+      ).rejects.toThrow('pool-probe-rollback')
     })
   })
 })

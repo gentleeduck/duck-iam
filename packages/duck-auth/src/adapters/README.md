@@ -108,9 +108,8 @@ test double, not a store to run 50k accounts through.
 | `identities.unlink` | 6 µs | 0.011 ms | — | — |
 | `identities.softDelete` | 6 µs | 9 µs | — | — |
 | `identities.restore` | 5 µs | 8 µs | — | — |
-| `identities.merge` | 9 µs | 0.015 ms | — | — |
 | `identities.erase` | 3 µs | 6 µs | — | — |
-| `credentials.upsert` | 4 µs | 8 µs | — | — |
+| `credentials.create` | 4 µs | 8 µs | — | — |
 | `credentials.findById` | 2 µs | 3 µs | — | — |
 | `credentials.findByHashedSecret` | 0.046 ms | 0.057 ms | — | — |
 | `credentials.findByProviderSub` | 6 µs | 10 µs | — | — |
@@ -146,9 +145,8 @@ roughly 1.7x slower on the reads on the same machine.
 | `identities.unlink` | 0.411 ms | 0.567 ms | — | — |
 | `identities.softDelete` | 0.320 ms | 0.426 ms | — | — |
 | `identities.restore` | 0.315 ms | 0.473 ms | — | — |
-| `identities.merge` | 0.765 ms | 1.085 ms | 0.817 ms | 10 -> 9 |
 | `identities.erase` | 0.543 ms | 1.353 ms | — | — |
-| `credentials.upsert` | 0.374 ms | 0.561 ms | — | — |
+| `credentials.create` | 0.374 ms | 0.561 ms | — | — |
 | `credentials.findById` | 0.066 ms | 0.074 ms | — | — |
 | `credentials.findByHashedSecret` | 0.077 ms | 0.085 ms | — | — |
 | `credentials.findByProviderSub` | 0.082 ms | 0.090 ms | — | — |
@@ -192,9 +190,8 @@ left that moves a read here.
 | `identities.unlink` | 0.432 ms | 0.514 ms | — | — |
 | `identities.softDelete` | 0.608 ms | 1.091 ms | — | — |
 | `identities.restore` | 0.494 ms | 0.554 ms | — | — |
-| `identities.merge` | 1.268 ms | 1.753 ms | 1.408 ms | 10 -> 9 |
 | `identities.erase` | 0.499 ms | 0.570 ms | — | — |
-| `credentials.upsert` | 0.290 ms | 0.406 ms | — | — |
+| `credentials.create` | 0.290 ms | 0.406 ms | — | — |
 | `credentials.findById` | 0.218 ms | 0.236 ms | — | — |
 | `credentials.findByHashedSecret` | 0.240 ms | 0.260 ms | — | — |
 | `credentials.findByProviderSub` | 0.236 ms | 0.271 ms | — | — |
@@ -231,9 +228,8 @@ also why there was the most here to take away.
 | `identities.unlink` | 1.210 ms | 2.118 ms | — | — |
 | `identities.softDelete` | 1.308 ms | 2.207 ms | 1.524 ms | 5 -> 4 |
 | `identities.restore` | 1.717 ms | 2.885 ms | 1.596 ms | 6 -> 5 |
-| `identities.merge` | 1.886 ms | 2.928 ms | 2.338 ms | 11 -> 9 |
 | `identities.erase` | 1.348 ms | 2.158 ms | — | — |
-| `credentials.upsert` | 1.022 ms | 2.060 ms | — | — |
+| `credentials.create` | 1.022 ms | 2.060 ms | — | — |
 | `credentials.findById` | 0.210 ms | 0.248 ms | — | — |
 | `credentials.findByHashedSecret` | 0.221 ms | 0.250 ms | — | — |
 | `credentials.findByProviderSub` | 0.227 ms | 0.258 ms | — | — |
@@ -264,7 +260,7 @@ No changed call clears it: here the statement count is the claim and the millise
   `create` is quadratic and would measure the seed.
 - **Schema.** The same `src/test/*-e2e-schema.sql` the e2e suites apply, so the indexes are the shipped
   ones and not something a benchmark invented.
-- **Containers.** `postgres:18.4-alpine3.24` and `mysql:8`, started and removed by the script, published
+- **Containers.** `postgres:18.4-alpine3.24` and `mysql:8.4`, started and removed by the script, published
   on their own ports so nothing collides with the e2e run.
 - **Timing.** 30 warm-up calls, then 300 timed reads and 200 timed writes; `performance.now()` around
   each awaited call, p50 and p95 off the sorted samples. Erases run over rows created up front, so the
