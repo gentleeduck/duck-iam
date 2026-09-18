@@ -1,10 +1,8 @@
 /**
- * The one siteverify call the three providers share.
- *
- * Turnstile, hCaptcha and reCAPTCHA all take a form-encoded `secret` + `response` POST and all
- * answer with `success`, `error-codes`, `hostname` and `challenge_ts`. Three copies of that drifted
- * apart: the status check, the timeout and the token cap each had to be added three times, and the
- * fields nobody read were dropped three times.
+ * The one siteverify call the three providers share: Turnstile, hCaptcha and reCAPTCHA all take a
+ * form-encoded `secret` + `response` POST and all answer with `success`, `error-codes`, `hostname` and
+ * `challenge_ts`. Kept together because three copies drifted, each needing the status check, the timeout
+ * and the token cap added separately.
  */
 
 import { AuthError } from '../errors'
@@ -101,6 +99,9 @@ export async function siteVerify(
       method: 'POST',
       body: body.toString(),
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      // SECURITY: `assertSafeOutboundUrl` vetted `cfg.endpoint`, not a redirect target, and a 307 would
+      // re-post this body with the secret in it.
+      redirect: 'error',
       signal: abort.signal,
     })
   } catch (err) {

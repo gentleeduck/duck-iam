@@ -1,3 +1,4 @@
+/** The verifier contract every built-in captcha implementation satisfies. */
 export namespace AuthCaptcha {
   export interface IVerifier {
     readonly id: string
@@ -23,11 +24,8 @@ export namespace AuthCaptcha {
     score?: number
     /** Provider-side error tokens (`'invalid-input-secret'`, etc.). */
     errorCodes?: string[]
-    /**
-     * The three fields the providers return and the verifier used to discard. They are surfaced
-     * whether or not this verifier was configured to check them, so a caller that wants to apply
-     * its own rule can, rather than being told only pass or fail.
-     */
+    /** Surfaced whether or not this verifier was configured to check them, so a caller can apply its own
+     *  rule rather than being told only pass or fail. */
     hostname?: string
     action?: string
     challengeTs?: string

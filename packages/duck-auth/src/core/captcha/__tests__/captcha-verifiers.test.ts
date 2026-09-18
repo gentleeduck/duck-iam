@@ -3,15 +3,6 @@
  * front of sign-in and sign-up, it talks to a third party over the network, and
  * everything about that call, the timeout, the status code, the fields it
  * chooses to read, decides whether an automated client gets through.
- *
- * The existing suite covers the response-shape validation that keeps a truthy
- * non-boolean from bypassing the check. These cover what the verifiers do not
- * look at: the HTTP status, the hostname the challenge was solved on, its
- * timestamp, and how long they are willing to wait.
- *
- * Sources: Cloudflare Turnstile and Google reCAPTCHA siteverify documentation,
- * both of which return `hostname` and `challenge_ts` and both of which tell the
- * integrator to check them.
  */
 import { describe, expect, it } from 'vitest'
 import { AuthHCaptchaVerifier, AuthNullCaptchaVerifier, AuthRecaptchaV3Verifier, AuthTurnstileVerifier } from '../index'

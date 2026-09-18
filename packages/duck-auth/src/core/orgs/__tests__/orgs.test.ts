@@ -53,19 +53,21 @@ describe('OrgsFacet', () => {
       await facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['member'] })
       await facet.setRoles('org-1', 'u', ['admin', 'editor'])
       const m = await facet.resolveMembership('org-1', 'u')
-      expect(m?.roles).toEqual(['admin', 'editor'])
+      expect(m.roles).toEqual(['admin', 'editor'])
     })
 
-    it('resolveMembership returns null for non-members', async () => {
-      const m = await facet.resolveMembership('org-1', 'ghost')
-      expect(m).toBeNull()
+    it('resolveMembership rejects for non-members', async () => {
+      await expect(facet.resolveMembership('org-1', 'ghost')).rejects.toMatchObject({
+        code: 'AUTH_MEMBERSHIP_NOT_FOUND',
+      })
     })
 
     it('resolveMembership skips left members', async () => {
       await facet.addMember({ orgId: 'org-1', identityId: 'u' })
       await facet.removeMember('org-1', 'u')
-      const m = await facet.resolveMembership('org-1', 'u')
-      expect(m).toBeNull()
+      await expect(facet.resolveMembership('org-1', 'u')).rejects.toMatchObject({
+        code: 'AUTH_MEMBERSHIP_NOT_FOUND',
+      })
     })
   })
 
@@ -84,6 +86,20 @@ describe('OrgsFacet', () => {
       await facet.removeMember('org-1', 'u2')
       const ms = await facet.listMembers('org-1')
       expect(ms.map((m) => m.identityId).sort()).toEqual(['u1', 'u3'])
+    })
+  })
+  describe('the facet answers with the row or rejects', () => {
+    it('rejects absence, and orNull reads it back as null', async () => {
+      await expect(facet.get('nope')).rejects.toMatchObject({ code: 'AUTH_ORG_NOT_FOUND' })
+      await expect(facet.get('nope').orNull()).resolves.toBeNull()
+      await expect(facet.resolveMembership('org-1', 'nobody')).rejects.toMatchObject({
+        code: 'AUTH_MEMBERSHIP_NOT_FOUND',
+      })
+      await expect(facet.resolveMembership('org-1', 'nobody').orNull()).resolves.toBeNull()
+    })
+
+    it('answers the seeded org rather than a nullable one', async () => {
+      await expect(facet.get('org-1')).resolves.toMatchObject({ id: 'org-1', name: 'Acme' })
     })
   })
 })

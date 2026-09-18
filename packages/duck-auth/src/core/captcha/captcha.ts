@@ -1,8 +1,5 @@
-/**
- * Verifier contract implementations for Cloudflare Turnstile, hCaptcha and Google reCAPTCHA v3.
- * Apps wire one into provider begin/complete paths so a sign-in cannot proceed without a fresh
- * client-side challenge solution.
- */
+/** Wire one into a provider's begin/complete path so a sign-in cannot proceed without a fresh
+ *  client-side challenge solution. */
 
 import { env } from 'node:process'
 import { AuthError } from '../errors'
@@ -47,6 +44,7 @@ export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
     this._cfg = resolveCaptchaCfg(cfg, 'AuthHCaptchaVerifier', HCAPTCHA_ENDPOINT)
   }
 
+  /** Never throws: a network fault or a provider rejection both come back as `success: false`. */
   async verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     const outcome = await siteVerify(this._cfg, input, parseSiteVerifyBasic)
     if (!outcome.ok) return outcome.result
@@ -54,10 +52,7 @@ export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
   }
 }
 
-/**
- * Google reCAPTCHA v3 verifier. Returns a score 0..1 and passes only at or above `minScore`
- * (Google recommends 0.5).
- */
+/** Scores 0..1 and passes only at or above `minScore`, which Google recommends setting to 0.5. */
 export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
   readonly id = 'recaptcha-v3'
   private readonly _cfg: ResolvedCaptchaCfg
@@ -79,6 +74,7 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
     this._expectedAction = cfg.expectedAction
   }
 
+  /** Refuses an absent score, one under the configured minimum, or an action that does not match. */
   async verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     const outcome = await siteVerify(this._cfg, input, parseSiteVerifyRecaptchaV3)
     if (!outcome.ok) return outcome.result
@@ -107,6 +103,8 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
  */
 export class AuthNullCaptchaVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'null'
+  /** Read by `strict()`: `id` is a caller-visible string a foreign verifier may also use. */
+  readonly __isNullCaptcha = true as const
 
   constructor(cfg?: { development?: boolean }) {
     if (env.NODE_ENV === 'production' && !cfg?.development) {
@@ -116,6 +114,7 @@ export class AuthNullCaptchaVerifier implements AuthCaptcha.IVerifier {
     }
   }
 
+  /** Always succeeds. */
   async verify(_input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     return { success: true }
   }
@@ -124,24 +123,17 @@ export class AuthNullCaptchaVerifier implements AuthCaptcha.IVerifier {
 /**
  * What `auth.captcha` is when `cfg.captcha` was not supplied. Every call fails with
  * `captcha-not-configured`.
- *
- * The alternative - defaulting to {@link AuthNullCaptchaVerifier} - makes the common wiring mistake
- * invisible: a host writes `if (!(await auth.captcha.verify(...)).success) throw`, ships with the
- * secret unset, and the challenge passes every bot in production while the code reads as though a
- * captcha is enforced. A host that never calls `auth.captcha` is unaffected either way, so the only
- * behaviour this changes is the one that was wrong.
  */
 export class AuthUnconfiguredCaptchaVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'unconfigured'
+  /** Always fails, with `captcha-not-configured`. */
   async verify(_input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     return { success: false, errorCodes: ['captcha-not-configured'] }
   }
 }
 
-/**
- * Carry the fields the provider sent through to the caller. They used to be narrowed away, so a
- * caller wanting to apply its own hostname or action rule could not: it was told only pass or fail.
- */
+/** Carries the provider's own fields through, so a caller can apply its own hostname or action rule
+ *  rather than being told only pass or fail. */
 function toResult(
   parsed: { errorCodes?: string[]; hostname?: string; challengeTs?: string; score?: number; action?: string },
   success: boolean,

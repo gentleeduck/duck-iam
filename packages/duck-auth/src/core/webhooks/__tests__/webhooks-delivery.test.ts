@@ -3,16 +3,6 @@
  * to an address a consumer chose, which makes it the library's SSRF surface, and
  * it is attached to the event bus, which makes its latency the authentication
  * flow's latency. Both of those are pinned here.
- *
- * The existing suite covers the happy path, retries, and the timestamp-bound
- * signature. These cover the guard's edges (what a hostname can be written as),
- * the retry loop's behaviour on failures that will never succeed, and the
- * coupling between delivery and the bus that emitted the event.
- *
- * Sources: OWASP SSRF prevention cheat sheet (deny-list weaknesses, DNS names
- * that resolve inward), RFC 4193 on unique-local IPv6, RFC 4291 section 2.5.6 on
- * the fe80::/10 link-local range, and RFC 1035 section 3.1 on the trailing-dot
- * fully qualified form.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryEvents } from '~/core/events'
@@ -556,14 +546,27 @@ describe('what actually goes on the wire', () => {
       },
       maxAttempts: 3,
     })
+    // A BigInt rather than a cycle: redaction truncates at its depth cap, so a cycle no longer
+    // survives into the body (see the case below). A value `JSON.stringify` refuses outright still
+    // does, which is the property this case is here for.
+    const [outcome] = await deliverer.deliverOne('maintenance.on', { n: 1n } as never)
+    expect(calls).toHaveLength(0)
+    expect(outcome).toMatchObject({ attempts: 0, delivered: false })
+    expect(entries[0]).toMatchObject({ attempts: 0 })
+    expect(entries[0]?.lastError).toMatch(/serialize|circular|convert/i)
+  })
+
+  it('delivers a self-referencing payload truncated, rather than dead-lettering it', async () => {
+    // A consequence of redaction failing closed at its depth cap: the cycle is cut there, so the body
+    // serialises. Truncation is the cap's contract for any deep payload, and a cycle is just the
+    // deepest one - delivering it truncated beats dead-lettering a hook the operator is waiting on.
+    const { deliverer, calls } = makeDeliverer({})
     const circular: Record<string, unknown> = {}
     circular.self = circular
 
     const [outcome] = await deliverer.deliverOne('maintenance.on', circular as never)
-    expect(calls).toHaveLength(0)
-    expect(outcome).toMatchObject({ attempts: 0, delivered: false })
-    expect(entries[0]).toMatchObject({ attempts: 0 })
-    expect(entries[0]?.lastError).toMatch(/circular|convert/i)
+    expect(outcome).toMatchObject({ delivered: true })
+    expect(JSON.parse(calls[0]?.init.body as string).payload).toBeDefined()
   })
 
   it('treats a bigint the same way, and spends no attempt on it either', async () => {
@@ -716,17 +719,61 @@ describe('signature verification', () => {
     expect(JSON.parse(calls[0]?.init.body as string).deliveryId).toBe(ids[0])
   })
 
-  it('sends the same timestamp in the header and inside the signed body, so neither can be swapped', async () => {
+  it('signs the timestamp it sends, so neither the header nor the body can be swapped', async () => {
     const { deliverer, calls } = makeDeliverer()
     await deliverer.deliverOne('maintenance.on', {})
     const header = Number((calls[0]?.init.headers as Record<string, string>)['x-duck-timestamp'])
     const body = calls[0]?.init.body as string
-    expect(JSON.parse(body).timestamp).toBe(header)
 
     const signature = (calls[0]?.init.headers as Record<string, string>)['X-Duck-Signature'] as string
     expect(verifyWebhookSignature(SECRET, body, signature, { timestamp: header })).toBe(true)
     // Altering the header alone breaks the HMAC, because the signature covers it.
     expect(verifyWebhookSignature(SECRET, body, signature, { timestamp: header - 1 })).toBe(false)
+    // And the body with it: the HMAC is over `sentAt` and these bytes together, which is what binds the
+    // pair. They are not required to be equal - the header is when this attempt left, the body's
+    // `timestamp` is when the event was raised, and on a retry those are different moments.
+    expect(verifyWebhookSignature(SECRET, `${body} `, signature, { timestamp: header })).toBe(false)
+  })
+
+  it('stamps each attempt as it is sent, so a retry is not stale when it lands', async () => {
+    // A ladder scaled down to keep the test quick; the shape is the one `backoffMs: 60_000` produces at
+    // full size, where attempt 5 is 7.5 minutes out against a 5 minute default tolerance.
+    const verdicts: boolean[] = []
+    const stamps: number[] = []
+    const fetchStub = (async (_url: unknown, init: unknown) => {
+      const { body, headers } = init as { body: string; headers: Record<string, string> }
+      const timestamp = Number(headers['x-duck-timestamp'])
+      stamps.push(timestamp)
+      verdicts.push(
+        verifyWebhookSignature(SECRET, body, headers['X-Duck-Signature'] as string, {
+          timestamp,
+          toleranceMs: 100,
+        }),
+      )
+      return new Response('nope', { status: 500 })
+    }) as unknown as typeof globalThis.fetch
+
+    const deliverer = new WebhookDeliverer({
+      backoffMs: 40,
+      endpoints: [{ secret: SECRET, url: URL_OK }],
+      fetch: fetchStub,
+      maxAttempts: 5,
+      random: () => 0,
+    })
+    await deliverer.deliverOne('maintenance.on', {})
+
+    // The live control: the ladder really did outrun the tolerance, so an unchanged stamp would have
+    // failed here rather than the whole run finishing inside 100ms.
+    expect(stamps.at(-1)! - stamps[0]!).toBeGreaterThan(100)
+    expect(verdicts).toEqual([true, true, true, true, true])
+  })
+
+  it('keeps the body byte-identical across a retry, so idempotency still keys on one delivery', async () => {
+    const { calls, deliverer } = makeDeliverer({ maxAttempts: 3 }, () => new Response('nope', { status: 500 }))
+    await deliverer.deliverOne('maintenance.on', {})
+    const bodies = calls.map((c) => c.init.body as string)
+    expect(bodies).toHaveLength(3)
+    expect(new Set(bodies).size).toBe(1)
   })
 
   it('rejects a signature of a different length without comparing it', () => {
