@@ -6,13 +6,7 @@ const DEFAULT_CONFIG: AuthImpossibleTravel.Cfg = {
   minElapsedMs: 60_000,
 }
 
-/**
- * The overshoot at which the score reaches 1.
- *
- * The score used to be `overshoot - 1`, so crossing the limit was worth nothing and only twice the
- * limit scored at all: a sustained 1500 km/h, impossible for a person, decided allow. Dividing by
- * this instead starts the ramp at half a point the moment the limit is passed.
- */
+/** The overshoot at which the score reaches 1. */
 const FULL_SCORE_OVERSHOOT = 2
 
 /** Whether a pair is a place on earth. `Number.isFinite` alone let a latitude of 900 be scored. */
@@ -30,11 +24,8 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
   return 2 * R * Math.asin(Math.sqrt(s))
 }
 
-/**
- * Build an impossible-travel detector. Pass `getLastSeen(identityId)`
- * so the detector can read the prior coords from wherever the app
- * persists them (often `Identity.attributes.lastSeen`).
- */
+/** `getLastSeen(identityId)` reads the prior coords from wherever the app persists them, often
+ *  `Identity.attributes.lastSeen`. */
 export function authImpossibleTravelDetector(opts: {
   getLastSeen: (identityId: string) => Promise<{ lat: number; lon: number; at: number } | null>
   config?: Partial<AuthImpossibleTravel.Cfg>
@@ -55,18 +46,17 @@ export function authImpossibleTravelDetector(opts: {
   return {
     id: 'impossible-travel',
     async evaluate({ identity, req }) {
-      // `=== undefined` (not truthy) so lat/lon=0 stays a valid signal.
+      // `=== undefined` rather than truthiness, so a lat or lon of 0 stays a valid signal.
       if (req.geo?.lat === undefined || req.geo?.lon === undefined) return []
       if (!isCoordinate(req.geo.lat, req.geo.lon)) return []
       const last = await opts.getLastSeen(identity.id)
       if (!last) return []
       if (!isCoordinate(last.lat, last.lon) || !Number.isFinite(last.at)) return []
       const elapsedMs = req.now - last.at
-      // `minElapsedMs` is a floor on the interval, not a reason to skip: applied as a skip it made
-      // two sign-ins from opposite sides of the planet fifty seconds apart, the least plausible
-      // pattern there is, the one case that reported nothing. A last-seen in the future is not a
-      // long gap either - clamped to zero and then floored, so writing tomorrow's date into the
-      // store no longer turns the detector off.
+      // `minElapsedMs` is a floor on the interval, not a reason to skip: applied as a skip it made two
+      // sign-ins from opposite sides of the planet fifty seconds apart, the least plausible pattern there
+      // is, the one case that reported nothing. A last-seen in the future is not a long gap either, so it
+      // clamps to zero and then floors, and tomorrow's date in the store no longer turns the detector off.
       const intervalMs = Math.max(Math.max(0, elapsedMs), cfg.minElapsedMs)
       const distanceKm = haversineKm({ lat: last.lat, lon: last.lon }, { lat: req.geo.lat, lon: req.geo.lon })
       const speedKmH = distanceKm / (intervalMs / 3_600_000)
@@ -96,11 +86,9 @@ export namespace AuthImpossibleTravel {
   export interface Cfg {
     /** Max speed (km/h) above which the gap counts as suspicious. Default 900. */
     maxKmPerHour: number
-    /**
-     * Floor on the interval the speed is computed over, ms. Default 60s: sub-minute gaps are
-     * usually NAT mobility, and dividing a real distance by one of them reports a speed the
-     * sampling resolution invented. Must be positive.
-     */
+    /** Floor on the interval the speed is computed over, ms, and it must be positive. Default 60s:
+     *  sub-minute gaps are usually NAT mobility, and dividing a real distance by one reports a speed the
+     *  sampling resolution invented. */
     minElapsedMs: number
   }
 }

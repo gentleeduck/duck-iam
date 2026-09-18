@@ -1,10 +1,4 @@
-/**
- * Host classification for the outbound SSRF guard.
- *
- * The ranges are checked numerically rather than against the spelling of a hostname, because a
- * pattern anchored on text refuses `10.example.com` while admitting `[fc00::1]`: `URL.hostname`
- * returns an ipv6 literal wrapped in brackets, and a public domain is free to begin with a digit.
- */
+/** Host classification for the outbound SSRF guard. */
 
 /** RFC 1918, RFC 6598, RFC 5735 and the ranges that are not routable on the public internet. */
 const V4_BLOCKED: Array<{ mask: number; net: number }> = [
@@ -21,13 +15,7 @@ const V4_BLOCKED: Array<{ mask: number; net: number }> = [
   { mask: 0xf0000000, net: 0xf0000000 }, // 240.0.0.0/4 reserved, incl. 255.255.255.255
 ]
 
-/**
- * Parse a dotted-quad into a 32-bit number, or null when the string is not one.
- *
- * Only the dotted form is handled on purpose: the WHATWG parser canonicalises the decimal, octal
- * and hex spellings of an address before `hostname` is read, so `0x7f.1` arrives here as
- * `127.0.0.1` and a host that still looks like anything else is a name, not an address.
- */
+/** Parse a dotted-quad into a 32-bit number, or null when the string is not one. */
 export function parseIpv4(host: string): number | null {
   const parts = host.split('.')
   if (parts.length !== 4) return null
@@ -85,13 +73,7 @@ export function isBlockedIpv4(value: number): boolean {
   return V4_BLOCKED.some((range) => (value & range.mask) >>> 0 === range.net)
 }
 
-/**
- * Whether parsed hextets name an address a webhook must never be sent to.
- *
- * The four transition prefixes carry an embedded ipv4 in their low bits, and are refused whole
- * rather than by that inner address: nothing legitimate reaches a public endpoint through 6to4,
- * NAT64, Teredo or a v4-mapped literal, so the narrower check would only be weaker.
- */
+/** Whether parsed hextets name an address a webhook must never be sent to. */
 export function isBlockedIpv6(h: number[]): boolean {
   const [h0 = 0, h1 = 0, h2 = 0, h3 = 0, h4 = 0, h5 = 0] = h
   if (h.every((x) => x === 0)) return true // ::
@@ -107,13 +89,26 @@ export function isBlockedIpv6(h: number[]): boolean {
   return false
 }
 
-/**
- * Names that resolve inside the host or the local network by definition.
- *
- * RFC 6761 reserves `localhost`, RFC 6762 reserves `.local` for mDNS. A trailing dot is the fully
- * qualified spelling of the same name and every resolver treats it as such.
- */
+/** Loopback and the cloud metadata endpoint under a name rather than an address. The `localhost` aliases
+ *  ship in the /etc/hosts of Debian-family images; `metadata.goog` is the public alias of GCP's metadata
+ *  server, which the v4 list already refuses at 169.254.169.254 but which is reached by name. */
+const BLOCKED_NAMES = new Set([
+  'internal',
+  'ip6-localhost',
+  'ip6-loopback',
+  'local',
+  'localhost',
+  'localhost4',
+  'localhost6',
+  'metadata.goog',
+])
+
+/** `.internal` is ICANN-reserved for private use, so nothing under it is publicly routable, and it is
+ *  where `metadata.google.internal` answers. */
+const BLOCKED_SUFFIXES = ['.internal', '.local', '.localhost', '.metadata.goog']
+
+/** Names that resolve inside the host or the local network by definition. */
 export function isBlockedHostname(host: string): boolean {
   const name = host.endsWith('.') ? host.slice(0, -1) : host
-  return name === 'localhost' || name.endsWith('.localhost') || name === 'local' || name.endsWith('.local')
+  return BLOCKED_NAMES.has(name) || BLOCKED_SUFFIXES.some((suffix) => name.endsWith(suffix))
 }

@@ -12,6 +12,7 @@ function makeSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
     aal: 1,
     factors: [],
     createdAt: new Date(now),
+    updatedAt: new Date(now),
     rotatedAt: new Date(now),
     expiresAt: new Date(now + 60_000),
     absoluteExpiresAt: new Date(now + 60_000),
@@ -67,7 +68,7 @@ describe('HijackFacet', () => {
     expect(r.ok).toBe(true)
   })
 
-  it('applyReaction translates mfa to AUTH/STEP_UP_REQUIRED', () => {
+  it('applyReaction translates mfa to AUTH_STEP_UP_REQUIRED', () => {
     const facet = new HijackFacet(events)
     expect(() => facet.applyReaction('mfa')).toThrow()
     try {
@@ -77,7 +78,7 @@ describe('HijackFacet', () => {
     }
   })
 
-  it('applyReaction translates revoke to AUTH/SESSION_REVOKED', () => {
+  it('applyReaction translates revoke to AUTH_SESSION_REVOKED', () => {
     const facet = new HijackFacet(events)
     try {
       facet.applyReaction('revoke')
