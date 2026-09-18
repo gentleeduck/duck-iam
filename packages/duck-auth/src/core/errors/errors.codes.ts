@@ -35,6 +35,10 @@ export const AUTH_ERRORS = {
   AUTH_UNAUTHENTICATED: 401,
   AUTH_SESSION_EXPIRED: detail<{ expiredAt: number }>(401),
   AUTH_SESSION_REVOKED: fault<{ reason: string }>(401),
+  /** SECURITY: deliberately outside the absent set, so `orNull()` cannot read a live session whose
+   *  identity was erased as a plain sign-out. Absence is `AUTH_SESSION_REVOKED`; this is a data-integrity
+   *  violation and stays loud through every reader. */
+  AUTH_SESSION_IDENTITY_ERASED: 401,
   AUTH_AAL_INSUFFICIENT: detail<{ required: Sessions.AAL; have: Sessions.AAL }>(401),
   AUTH_STEP_UP_REQUIRED: detail<{ challenge: unknown }>(401),
   AUTH_MFA_REQUIRED: detail<{ methods: string[] }>(401),
@@ -81,6 +85,10 @@ export const AUTH_ERRORS = {
   AUTH_IDENTITY_NOT_FOUND: fault(404),
   AUTH_CREDENTIAL_NOT_FOUND: fault(404),
   AUTH_SESSION_NOT_FOUND: 404,
+  AUTH_ORG_NOT_FOUND: fault(404),
+  AUTH_MEMBERSHIP_NOT_FOUND: fault(404),
+  AUTH_IDEMPOTENCY_MISS: fault(404),
+  AUTH_OPERATION_NOT_FOUND: fault(404),
   AUTH_NOT_ENOUGH_PARAMETERS: fault<{ detail?: string }>(500),
   AUTH_ADAPTER_FAILED: fault(500),
   AUTH_ALREADY_EXISTS: fault<{ detail?: string }>(409),
