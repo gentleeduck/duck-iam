@@ -1,19 +1,17 @@
 import { env } from 'node:process'
 import { AuthError } from '~/core/errors'
-import { isExpiredAt } from '../credentials/credentials'
+import { isExpiredAt } from '../predicates/predicates'
 import type { TenantContext } from '../tenant/tenant.types'
 import { IdempotencyImpl } from './idempotency'
 import type { Idempotency } from './idempotency.types'
 
 /**
- * In-memory Idempotency store. Dev / test only; production swaps in a
- * Redis-backed implementation via `SET NX EX` for true atomic claim
- * across multiple processes.
- *
- * Keys are scoped by tenantId so two tenants supplying the same
- * Idempotency-Key cannot collide.
+ * Dev and test only: production needs the Redis store, whose `SET NX EX` claim is atomic across
+ * processes. Keys are scoped by tenantId, so two tenants sending one Idempotency-Key cannot collide.
  */
 export class MemoryIdempotency implements Idempotency.Store {
+  /** Read by `strict()`, which must not go by constructor name: every plain-object store would answer to one. */
+  readonly __isInProcessIdempotency = true as const
   private readonly _entries = new Map<
     string,
     { response: Idempotency.CachedResponse; expiresAt: number; claimedAt: number }
@@ -25,38 +23,40 @@ export class MemoryIdempotency implements Idempotency.Store {
       development?: boolean
     },
   ) {
-    // Only production is refused. Requiring `development: true` everywhere made the
-    // no-arg constructor unusable, including the engine's own fallback.
+    // Only production is refused: requiring `development: true` everywhere made the no-arg constructor
+    // unusable, the engine's own fallback included.
     if (env.NODE_ENV === 'production' && !this.cfg?.development) {
       throw new AuthError('AUTH_MISCONFIGURED', { detail: 'MemoryIdempotency is not production ready' })
     }
   }
 
-  /** Compose a tenant-scoped storage key. */
   private _k(key: string, ctx: TenantContext): string {
     return `${ctx.tenantId ?? '_default'}::${key}`
   }
 
-  async get(key: string, ctx: TenantContext): Promise<Idempotency.CachedResponse | null> {
+  /** The cached response, throwing `AUTH_IDEMPOTENCY_MISS` when the key holds none. */
+  async get(key: string, ctx: TenantContext): Promise<Idempotency.CachedResponse> {
     const entry = this._entries.get(this._k(key, ctx))
-    if (!entry) return null
+    if (!entry) throw new AuthError('AUTH_IDEMPOTENCY_MISS')
     // Non-finite expiresAt would slip `NaN < now == false` past TTL.
     if (isExpiredAt(entry.expiresAt)) {
       this._entries.delete(this._k(key, ctx))
-      return null
+      throw new AuthError('AUTH_IDEMPOTENCY_MISS')
     }
     // Tombstone (status 0, body null) reports as "not yet" so caller polls.
-    if (entry.response.status === 0 && entry.response.body === null) return null
+    if (entry.response.status === 0 && entry.response.body === null) {
+      throw new AuthError('AUTH_IDEMPOTENCY_MISS')
+    }
     return entry.response
   }
 
+  /** Takes the key for this caller, answering false when someone else already holds it. */
   async claim(key: string, ttlMs: number, ctx: TenantContext): Promise<boolean> {
     const storeKey = this._k(key, ctx)
     const existing = this._entries.get(storeKey)
     const now = Date.now()
     if (existing && existing.expiresAt >= now) return false
-    // Non-finite ttlMs would set expiresAt=NaN and freeze the slot forever
-    // (NaN >= N evaluates false). Clamp to a sane window.
+    // A non-finite ttlMs sets expiresAt to NaN, and `NaN >= N` is false, so the slot never frees.
     const safeTtl = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
     this._entries.set(storeKey, {
       response: { status: 0, body: null, createdAt: new Date(now) },
@@ -66,8 +66,9 @@ export class MemoryIdempotency implements Idempotency.Store {
     return true
   }
 
+  /** Stores the response, so a replay of the key answers from cache. */
   async put(key: string, response: Idempotency.CachedResponse, ttlMs: number, ctx: TenantContext): Promise<void> {
-    // Same NaN-bypass defense as claim(): clamp ttl to a sane window.
+    // The same NaN bypass as claim().
     const safeTtl = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
     const now = Date.now()
     this._entries.set(this._k(key, ctx), {
@@ -77,17 +78,14 @@ export class MemoryIdempotency implements Idempotency.Store {
     })
   }
 
+  /** Drops the key, so the next request carrying it runs for real. */
   async delete(key: string, ctx: TenantContext): Promise<void> {
     this._entries.delete(this._k(key, ctx))
   }
 }
 
-/**
- * Build an in-memory idempotency facet in one call. Same shape as
- * {@link redisIdempotency}: store knobs and facet knobs in one object.
- *
- * Reach for `new MemoryIdempotency(...)` when you want the bare store.
- */
+/** Store knobs and facet knobs in one object, the shape `redisIdempotency` takes. Reach for
+ *  `new MemoryIdempotency(...)` when the bare store is what is wanted. */
 export function memoryIdempotency(cfg?: { development?: boolean } & Partial<Idempotency.Cfg>): IdempotencyImpl {
   return new IdempotencyImpl(new MemoryIdempotency(cfg), cfg)
 }
