@@ -1,22 +1,9 @@
-/**
- * E2E: magic links against REAL Postgres.
- *
- * A magic link is a bearer credential mailed in plaintext, so the only things
- * standing between a leaked inbox and an account are that the token works once,
- * expires, and belongs to exactly one identity. `complete` claims the row with a
- * compare-and-set on its version before revoking it, which is the right shape,
- * and is also the shape that only a real database can be tested against: an
- * in-memory store cannot lose the race the CAS exists to win.
- *
- * Findings are recorded, not repaired.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset; `globalSetup` provisions a
- * container when docker is available.
- */
+/** E2E: magic links against REAL Postgres. */
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import type { Channel } from '~/channels/channels.types'
+import { orNull } from '~/core/answer'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -82,7 +69,7 @@ suite('E2E magic links on real Postgres', () => {
     auth.providers.register(
       magicLink<Profile>({
         channels: { email: channel },
-        findIdentityByEmail: async (email) => stores.identities.find({ email }),
+        findIdentityByEmail: async (email) => orNull(stores.identities.find({ email })),
       }),
     )
   }, 60_000)

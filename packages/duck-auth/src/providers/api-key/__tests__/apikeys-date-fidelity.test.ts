@@ -41,9 +41,9 @@ describe('ApiKeysFacet date fidelity', () => {
   it('revoke answers with revokedAt set, so a caller can see which key went', async () => {
     const { key } = await facet.create('u-1', { name: 'k', scopes: [] })
     const revoked = await facet.revoke(key.id)
-    expect(revoked?.id).toBe(key.id)
-    expect(revoked?.revokedAt).toBeInstanceOf(Date)
-    expect(Number.isFinite(revoked?.revokedAt?.getTime() ?? Number.NaN)).toBe(true)
+    expect(revoked.id).toBe(key.id)
+    expect(revoked.revokedAt).toBeInstanceOf(Date)
+    expect(Number.isFinite(revoked.revokedAt?.getTime() ?? Number.NaN)).toBe(true)
   })
 
   it('lastUsedAt comes back as a Date once verify has stamped it', async () => {

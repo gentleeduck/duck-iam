@@ -2,13 +2,8 @@ import { DEFAULT_SAML_CONFIG } from '../saml.constants'
 import type { Saml } from '../saml.types'
 
 /**
- * Build the SAML SP metadata XML. Prefers the node-saml client's own
- * generator (which knows about every encoded extension) when present,
- * falls back to a minimal hand-rolled doc otherwise.
- *
- * Most IdPs will consume the XML at a stable URL like `/sso/saml/metadata`
- * and re-fetch on a TTL. Sign certificates rotate, so emit metadata
- * dynamically rather than checking it in.
+ * Prefers the node-saml client's own generator, which knows every encoded extension, and falls back to a
+ * minimal hand-rolled document.
  */
 export function buildSpMetadata(opts: { client?: Saml.Client; metadata: Saml.MetadataOptions }): string {
   if (opts.client?.generateServiceProviderMetadata) {
@@ -22,7 +17,9 @@ export function buildSpMetadata(opts: { client?: Saml.Client; metadata: Saml.Met
 
 function renderFallbackMetadata(m: Saml.MetadataOptions): string {
   const wantAssertionsSigned = m.wantAssertionsSigned ?? DEFAULT_SAML_CONFIG.wantAssertionsSigned
-  const wantAuthnResponseSigned = m.wantAuthnResponseSigned ?? DEFAULT_SAML_CONFIG.wantAuthnResponseSigned
+  // `wantAuthnResponseSigned` is deliberately not read: SPSSODescriptor has no attribute for it, so
+  // there is nothing standard to emit. It used to be read into a `${x ? '' : ''}` at the end of the
+  // document, which is a no-op in both branches - true and false rendered byte-identical XML.
   const nameIdFormat = m.nameIdFormat ?? DEFAULT_SAML_CONFIG.nameIdFormat
   const sslo = m.sloUrl
     ? `\n    <md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="${escapeXml(m.sloUrl)}"/>`
@@ -42,7 +39,7 @@ function renderFallbackMetadata(m: Saml.MetadataOptions): string {
     <md:AssertionConsumerService isDefault="true" index="0" Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="${escapeXml(m.acsUrl)}"/>
   </md:SPSSODescriptor>
 ${m.displayName ? `  <md:Organization><md:OrganizationName xml:lang="en">${escapeXml(m.displayName)}</md:OrganizationName><md:OrganizationDisplayName xml:lang="en">${escapeXml(m.displayName)}</md:OrganizationDisplayName><md:OrganizationURL xml:lang="en">${escapeXml(m.entityId)}</md:OrganizationURL></md:Organization>` : ''}
-</md:EntityDescriptor>${wantAuthnResponseSigned ? '' : ''}`
+</md:EntityDescriptor>`
 }
 
 function escapeXml(s: string): string {

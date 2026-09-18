@@ -16,7 +16,7 @@ async function plantMalformedMetadata(adapter: MemoryAdapter, identityId: string
   // Direct adapter write to seed a row with a metadata shape that the
   // facet's create() method would never produce. Mirrors what a buggy
   // store / schema drift / pre-migration value looks like.
-  const cred = await adapter.credentials.upsert(
+  const cred = await adapter.credentials.create(
     credentialInput({
       identityId,
       kind: 'api-key',
@@ -108,7 +108,7 @@ describe('ApiKeysFacet - metadata parser', () => {
       // `${prefix}${random}` -> `sha256` lets us round-trip verify().
       const plaintext = `ak_live_${randomToken(32)}`
       const hash = sha256(plaintext)
-      await adapter.credentials.upsert(
+      await adapter.credentials.create(
         credentialInput({
           identityId,
           kind: 'api-key',

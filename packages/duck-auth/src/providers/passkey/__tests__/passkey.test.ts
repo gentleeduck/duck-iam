@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { orNull } from '~/core/answer'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
+import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
 import { Identities } from '~/core/identities'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -132,7 +135,7 @@ describe('passkey provider - registration', () => {
     expect((list[0]!.metadata as { publicKey: string }).publicKey).toBeTruthy()
   })
 
-  it('completeRegistration without prior begin throws AUTH/PASSKEY_MISMATCH', async () => {
+  it('completeRegistration without prior begin throws AUTH_PASSKEY_MISMATCH', async () => {
     await expect(
       completePasskeyRegistration(opts, {
         identityId,
@@ -144,7 +147,32 @@ describe('passkey provider - registration', () => {
     ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
-  it('completeRegistration with verified:false throws AUTH/PASSKEY_MISMATCH', async () => {
+  it('completeRegistration turns a throwing verifier into AUTH_PASSKEY_MISMATCH', async () => {
+    // The real verifier reports a bad origin, a wrong rpID or an unparseable attestation by throwing a
+    // plain Error. Nothing upstream catches one, so it used to leave as an unmapped 500 carrying the
+    // library's own wording.
+    mockWebauthn.verifyRegistrationResponse = vi.fn(async () => {
+      throw new Error('Unexpected registration response origin "https://evil.test"')
+    })
+    await beginPasskeyRegistration(opts, {
+      identityId,
+      userName: 'a@b.com',
+      sessionId: 's3',
+      credentialStore: adapter.credentials,
+      tenant: {},
+    })
+    await expect(
+      completePasskeyRegistration(opts, {
+        identityId,
+        sessionId: 's3',
+        response: { id: 'webauthn-cred-1' },
+        credentialStore: adapter.credentials,
+        tenant: {},
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+  })
+
+  it('completeRegistration with verified:false throws AUTH_PASSKEY_MISMATCH', async () => {
     mockWebauthn.verifyRegistrationResponse = vi.fn(async () => ({ verified: false }))
     await beginPasskeyRegistration(opts, {
       identityId,
@@ -250,7 +278,7 @@ describe('passkey provider - sign-in', () => {
     expect((intents[0] as { aal: number }).aal).toBe(2)
   })
 
-  it('complete without prior begin throws AUTH/PASSKEY_MISMATCH', async () => {
+  it('complete without prior begin throws AUTH_PASSKEY_MISMATCH', async () => {
     const provider = passkey<ProfileShape>(opts)
     await expect(
       provider.complete(makeContext(adapter), {
@@ -260,7 +288,7 @@ describe('passkey provider - sign-in', () => {
     ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
-  it('complete with unknown credential id throws AUTH/PASSKEY_MISMATCH', async () => {
+  it('complete with unknown credential id throws AUTH_PASSKEY_MISMATCH', async () => {
     const provider = passkey<ProfileShape>(opts)
     await provider.begin(makeContext(adapter), { sessionId: 'login-5' })
     await expect(
@@ -271,7 +299,7 @@ describe('passkey provider - sign-in', () => {
     ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
-  it('complete with verified:false throws AUTH/PASSKEY_MISMATCH', async () => {
+  it('complete with verified:false throws AUTH_PASSKEY_MISMATCH', async () => {
     mockWebauthn.verifyAuthenticationResponse = vi.fn(async () => ({
       verified: false,
       authenticationInfo: { newCounter: 0, credentialID: '', userVerified: false },
@@ -319,8 +347,38 @@ describe('passkey provider - sign-in', () => {
     ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
+  it('begin answers an empty allow list when the host lookup rejects, rather than failing the ceremony', async () => {
+    // `auth.identities.getByEmail` is the wiring a host writes, and it rejects on a miss. An unknown
+    // address has to stay indistinguishable from a known one holding no passkeys.
+    opts.findIdentityByEmail = () => Promise.reject(new AuthError('AUTH_IDENTITY_NOT_FOUND'))
+    const provider = passkey<ProfileShape>(opts)
+
+    await provider.begin(makeContext(adapter), { email: 'nobody@x.com', sessionId: 'login-absent' })
+
+    const call = (mockWebauthn.generateAuthenticationOptions as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+      allowCredentials?: unknown[]
+    }
+    expect(call.allowCredentials).toEqual([])
+  })
+
+  it('complete answers a rejecting host lookup as a mismatch, not as a missing identity', async () => {
+    opts.findIdentityByEmail = () => Promise.reject(new AuthError('AUTH_IDENTITY_NOT_FOUND'))
+    const provider = passkey<ProfileShape>(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'login-absent-hint' })
+
+    // AUTH_IDENTITY_NOT_FOUND here would tell an unknown address apart from one belonging to someone else.
+    await expect(
+      provider.complete(makeContext(adapter), {
+        sessionId: 'login-absent-hint',
+        email: 'nobody@x.com',
+        response: { id: 'webauthn-cred-1' },
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+  })
+
   it('complete rejects on counter rollback (newCounter <= stored)', async () => {
-    // Authenticator presents a counter of 0 against a stored counter of 5.
+    // Authenticator presents a counter of 3 against a stored counter of 5. The zero-against-nonzero case
+    // is the one section 6.1.3 turns on and lives in `passkey-counter.test.ts`.
     // Forcing a stored counter requires editing the credential row.
     const creds = await adapter.credentials.listByIdentity(identityId, 'passkey', {})
     const cred = creds[0]
@@ -361,6 +419,39 @@ describe('passkey provider - sign-in', () => {
     ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
+  it('complete refuses a userHandle that is not a string rather than skipping the binding', async () => {
+    // `Buffer.from` throws on a number, the decoder answered null for it, and the caller read that null
+    // as "no handle was sent" - so a request could switch the binding off by sending one.
+    mockWebauthn.verifyAuthenticationResponse = vi.fn(async () => ({
+      verified: true,
+      authenticationInfo: { newCounter: 0, credentialID: 'webauthn-cred-1', userVerified: true },
+    }))
+    const provider = passkey<ProfileShape>(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'login-handle-type' })
+    await expect(
+      provider.complete(makeContext(adapter), {
+        sessionId: 'login-handle-type',
+        response: { id: 'webauthn-cred-1', response: { userHandle: 12345 } } as never,
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+  })
+
+  it('complete accepts the identity own handle, so the refusal above is the type and not the check', async () => {
+    mockWebauthn.verifyAuthenticationResponse = vi.fn(async () => ({
+      verified: true,
+      authenticationInfo: { newCounter: 0, credentialID: 'webauthn-cred-1', userVerified: true },
+    }))
+    const provider = passkey<ProfileShape>(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'login-handle-ok' })
+    const handle = createHash('sha256').update(identityId, 'utf8').digest('base64url')
+    await expect(
+      provider.complete(makeContext(adapter), {
+        sessionId: 'login-handle-ok',
+        response: { id: 'webauthn-cred-1', response: { userHandle: handle } } as never,
+      }),
+    ).resolves.toBeDefined()
+  })
+
   describe('entry-point input caps (DoS defense)', () => {
     it('begin refuses an oversize sessionId (>256 chars)', async () => {
       const provider = passkey<ProfileShape>(opts)
@@ -393,20 +484,92 @@ describe('passkey provider - sign-in', () => {
       ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
     })
   })
+
+  it('complete refuses a revoked credential whose marker is an epoch int, not a Date', async () => {
+    const provider = passkey<ProfileShape>(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'login-revoked' })
+    const live = await adapter.credentials.findByHashedSecret('webauthn-cred-1', 'passkey', {})
+    // What a store keeping timestamps as epoch ints answers for a row revoked at the epoch. `Date | null`
+    // & `number` is `never`, so this stays assignable without a cast, and stays falsy.
+    const epochMarker = Object.assign({ ...live }, { revokedAt: 0 })
+    const ctx = makeContext(adapter)
+    ctx.stores.credentials = new Proxy(adapter.credentials, {
+      get: (target, prop, receiver) => {
+        if (prop === 'findByHashedSecret') return async () => epochMarker
+        const value = Reflect.get(target, prop, receiver)
+        return typeof value === 'function' ? (...args: unknown[]) => value.apply(target, args) : value
+      },
+    })
+
+    await expect(
+      provider.complete(ctx, { sessionId: 'login-revoked', response: { id: 'webauthn-cred-1' } }),
+    ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+  })
 })
 
 describe('AuthMemoryPasskeyChallengeStore', () => {
-  it('take returns the stored challenge once + removes it', async () => {
+  it('take returns the stored challenge once, then rejects because it consumed it', async () => {
     const store = new AuthMemoryPasskeyChallengeStore()
     await store.put('k1', 'c1', 60_000)
     expect(await store.take('k1')).toBe('c1')
-    expect(await store.take('k1')).toBeNull()
+    await expect(store.take('k1')).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
   })
 
-  it('take returns null on TTL expiry', async () => {
+  it('take rejects on TTL expiry', async () => {
     const store = new AuthMemoryPasskeyChallengeStore()
     await store.put('k1', 'c1', 5)
     await new Promise((r) => setTimeout(r, 10))
-    expect(await store.take('k1')).toBeNull()
+    await expect(store.take('k1')).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
+  })
+
+  it('take rejects a key that was never put, and orNull reads every refusal back as null', async () => {
+    const store = new AuthMemoryPasskeyChallengeStore()
+    await expect(store.take('never-put')).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
+    await expect(orNull(store.take('never-put'))).resolves.toBeNull()
+  })
+})
+
+describe('passkey provider - begin is rate limited', () => {
+  /** `allowCredentials` is populated for an address that exists and empty for one that does not, so an
+   *  unbounded `begin` lets a caller read account existence off address after address. Every other
+   *  credential-presenting provider bounds its entry point; this asserts passkey does too. */
+  it('refuses once the per-address bucket is spent', async () => {
+    const adapter = new MemoryAdapter<ProfileShape>()
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
+    )
+    const ctx = { ...makeContext(adapter), limiter: new MemoryLimiter({ max: 2, windowMs: 60_000 }) }
+    const provider = passkey<ProfileShape>({
+      expectedOrigins: 'https://app.test',
+      findIdentityByEmail: async () => ({ id: identity.id }),
+      rpID: 'app.test',
+      rpName: 'Test App',
+      webauthnModule: makeMockWebAuthn(),
+    })
+
+    await provider.begin(ctx, { email: 'a@b.com', sessionId: 's1' })
+    await provider.begin(ctx, { email: 'a@b.com', sessionId: 's2' })
+    await expect(provider.begin(ctx, { email: 'a@b.com', sessionId: 's3' })).rejects.toMatchObject({
+      code: 'AUTH_RATE_LIMITED',
+    })
+  })
+
+  it('keys the bucket on the address, so one caller cannot spend another address budget', async () => {
+    const adapter = new MemoryAdapter<ProfileShape>()
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
+    )
+    const ctx = { ...makeContext(adapter), limiter: new MemoryLimiter({ max: 1, windowMs: 60_000 }) }
+    const provider = passkey<ProfileShape>({
+      expectedOrigins: 'https://app.test',
+      findIdentityByEmail: async () => ({ id: identity.id }),
+      rpID: 'app.test',
+      rpName: 'Test App',
+      webauthnModule: makeMockWebAuthn(),
+    })
+
+    await provider.begin(ctx, { email: 'a@b.com', sessionId: 's1' })
+    // A different address, and the same spent session id: a shared bucket would refuse this.
+    await expect(provider.begin(ctx, { email: 'other@b.com', sessionId: 's1' })).resolves.toBeDefined()
   })
 })

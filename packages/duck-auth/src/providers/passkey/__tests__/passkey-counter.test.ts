@@ -5,13 +5,6 @@
  * synced passkey because they all report zero forever, accepting a rollback
  * because a NaN counter short-circuits `<=`, or persisting a counter that went
  * backwards and thereby lowering the bar for the next assertion.
- *
- * Sources: WebAuthn Level 2 section 6.1.3, and the practical caveat that
- * iCloud Keychain and other synced credentials return zero on every login, so a
- * zero must never be treated as a regression.
- *
- * The provider mocks `verifyAuthenticationResponse`, so these cases drive the
- * counter branch directly by choosing what the verifier reports.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -81,6 +74,7 @@ describe('passkey signature counter', () => {
   let provider: ReturnType<typeof passkey>
   let ctx: ReturnType<typeof makeContext>
   let credentialId: string
+  let webauthnMod: Passkey.SimpleWebAuthnServerModule
 
   /** Put the stored counter at a chosen value, as a prior assertion would have. */
   async function setStoredCounter(counter: unknown): Promise<void> {
@@ -93,7 +87,7 @@ describe('passkey signature counter', () => {
   }
 
   const seedCredential = (metadata: Record<string, unknown>) =>
-    adapter.credentials.upsert(
+    adapter.credentials.create(
       {
         expiresAt: null,
         identityId,
@@ -130,7 +124,7 @@ describe('passkey signature counter', () => {
       findIdentityByEmail: async () => ({ id: identityId }),
       rpID: 'app.test',
       rpName: 'Test App',
-      webauthnModule: makeWebauthn(),
+      webauthnModule: (webauthnMod = makeWebauthn()),
     })
 
     credentialId = (await seedCredential({ counter: 5, credentialId: 'webauthn-cred-1', publicKey: 'AQIDBA' })).id
@@ -190,31 +184,52 @@ describe('passkey signature counter', () => {
     })
   })
 
-  describe('zero means the authenticator does not count', () => {
-    it('accepts zero even when a positive counter is stored', async () => {
-      // Every passkey synced through iCloud Keychain reports zero on every login,
-      // which the specification permits. Treating that as a rollback would refuse
-      // an entire class of authenticator.
-      await expect(authenticate(0)).resolves.toBeDefined()
-    })
+  describe('zero from an authenticator that never counted is normal', () => {
+    // Section 6.1.3 looks at the pair, and skips the comparison entirely when neither side is nonzero.
+    // That is the authenticator implementing no counter: it reports zero at registration and forever
+    // after, which is every passkey synced through iCloud Keychain. Its stored counter is zero, not five.
+    beforeEach(() => setStoredCounter(0))
 
-    it('leaves the stored counter alone rather than resetting it to zero', async () => {
-      await authenticate(0)
-      expect(await storedCounter()).toBe(5)
+    it('accepts zero against a stored zero', async () => {
+      await expect(authenticate(0)).resolves.toBeDefined()
     })
 
     it('accepts zero repeatedly, which is the normal case for a synced passkey', async () => {
       for (let i = 0; i < 5; i++) await expect(authenticate(0)).resolves.toBeDefined()
     })
 
-    it('accepts zero against a stored zero', async () => {
-      await setStoredCounter(0)
-      await expect(authenticate(0)).resolves.toBeDefined()
-    })
-
     it('still accepts a forward move after a zero-reporting login', async () => {
       await authenticate(0)
       await expect(authenticate(6)).resolves.toBeDefined()
+    })
+  })
+
+  describe('zero from an authenticator that was counting is the clone signal', () => {
+    // A stored five says this authenticator counts, so a zero from it is a count that went backwards -
+    // the textbook cloned-authenticator signature, and the branch section 6.1.3 exists for. It is not the
+    // synced-passkey case above, whose stored counter is zero and which no condition here refuses.
+    it('refuses zero when a positive counter is stored', async () => {
+      await expect(authenticate(0)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    })
+
+    it('reports it as a rollback, so an operator sees the clone', async () => {
+      const seen: Array<Record<string, unknown>> = []
+      events.on('suspicious', (payload) => {
+        seen.push(payload as unknown as Record<string, unknown>)
+      })
+      await authenticate(0).catch(() => undefined)
+
+      expect(seen).toHaveLength(1)
+      expect(seen[0]).toMatchObject({
+        identityId,
+        meta: { newCounter: 0, oldCounter: 5 },
+        signal: 'passkey-counter-rollback',
+      })
+    })
+
+    it('leaves the stored counter alone, so the next assertion still faces five', async () => {
+      await authenticate(0).catch(() => undefined)
+      expect(await storedCounter()).toBe(5)
     })
   })
 
@@ -264,6 +279,82 @@ describe('passkey signature counter', () => {
       await setStoredCounter(0)
       await expect(authenticate(1)).resolves.toBeDefined()
       expect(await storedCounter()).toBe(1)
+    })
+  })
+
+  describe('two assertions racing on the same stored count', () => {
+    it('lets exactly one through, since a count can only be cleared once', async () => {
+      // A cloned authenticator and the real one, both sitting at count 9. Arriving one after the other the
+      // second is the rollback above; arriving together they both read the stored 5, both clear it, and
+      // both get in - the detection lost to timing.
+      let release: (() => void) | undefined
+      let calls = 0
+      const base = adapter.credentials
+      ctx.stores.credentials = {
+        ...base,
+        patchMetadata: async (...args: Parameters<typeof base.patchMetadata>) => {
+          calls += 1
+          if (calls === 1) {
+            await new Promise<void>((resolve) => {
+              release = resolve
+            })
+          }
+          return base.patchMetadata(...args)
+        },
+      }
+      const succeeds = (call: Promise<unknown>): Promise<boolean> =>
+        call.then(
+          () => true,
+          () => false,
+        )
+
+      const held = authenticate(9)
+      await vi.waitFor(() => {
+        if (calls === 0) throw new Error('the first assertion has not reached its write yet')
+      })
+      const second = await succeeds(authenticate(9))
+      release?.()
+      const first = await succeeds(held)
+
+      // Which of the two wins is down to whose conditional write lands first - here the second, because
+      // the first is held inside its own - and either way the other is refused.
+      expect([first, second].filter(Boolean)).toHaveLength(1)
+      expect(await storedCounter()).toBe(9)
+    })
+  })
+
+  describe('what the verifier is handed, and what it is allowed to throw', () => {
+    it('hands it the WebAuthn credential id rather than the storage row id', async () => {
+      // The library only echoes this value back today, so the right one and a random uuid behave
+      // identically at runtime - which is how the wrong one survived. Its own type asks for the
+      // credential id, and `secret` is where registration put it verbatim.
+      await authenticate(6)
+
+      const handed = vi.mocked(webauthnMod.verifyAuthenticationResponse).mock.calls[0]?.[0]
+      expect(handed?.credential.id).toBe('webauthn-cred-1')
+      expect(handed?.credential.id).not.toBe(credentialId)
+    })
+
+    it('turns a raw throw into the refusal every other failure on this path answers with', async () => {
+      // The bundled verifier runs its own counter check and throws a plain Error, and nothing between
+      // here and the consumer's handler catches it: it left as a 500 carrying the stored count.
+      webauthnMod.verifyAuthenticationResponse = vi.fn(async () => {
+        throw new Error('Response counter value 0 was lower than expected 5')
+      })
+
+      await expect(authenticate(0)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    })
+
+    it("does not carry the verifier's wording out to the caller", async () => {
+      webauthnMod.verifyAuthenticationResponse = vi.fn(async () => {
+        throw new Error('Response counter value 0 was lower than expected 5')
+      })
+
+      // `message` and not `JSON.stringify`: an Error carries no enumerable properties, so stringifying
+      // one is `{}` and an assertion over that is green whatever the wording was.
+      const err = await authenticate(0).catch((e: unknown) => e)
+      expect((err as Error).message).not.toContain('lower than expected')
+      expect((err as Error).message).toBe('AUTH_PASSKEY_MISMATCH')
     })
   })
 })

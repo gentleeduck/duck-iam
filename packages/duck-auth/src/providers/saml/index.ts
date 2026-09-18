@@ -1,9 +1,3 @@
-/**
- * SAML provider — self-contained capability folder.
- * The SP-initiated / IdP-initiated sign-in provider, SP metadata generation,
- * the Single Logout controller, and all types under the `Saml` namespace.
- */
-
 export { buildSpMetadata } from './internal/metadata'
 export { samlSloController } from './internal/slo'
 export { SamlImpl, saml, samlImpl } from './saml'

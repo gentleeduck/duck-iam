@@ -1,8 +1,7 @@
+/** Passkey options, the WebAuthn surface it needs, and the challenge store contract. */
 export namespace Passkey {
-  /**
-   * Subset of `@simplewebauthn/server` we depend on. Kept narrow so
-   * the lazy import surface stays small.
-   */
+  /** The subset of `@simplewebauthn/server` this depends on, kept narrow so the lazy import surface stays
+   *  small. */
   export type SimpleWebAuthnServerModule = {
     generateRegistrationOptions: (opts: RegistrationOptionsInput) => Promise<RegistrationOptions>
     verifyRegistrationResponse: (
@@ -97,55 +96,58 @@ export namespace Passkey {
     userVerified: boolean
   }
 
-  /**
-   * Short-lived challenge persistence. Sign-up + sign-in begin store
-   * a fresh challenge keyed by `userId` (registration) or `sessionId`
-   * (authentication); complete consumes it.
-   */
+  /** Short-lived challenge persistence. Both begin paths store a fresh challenge, keyed by `userId` for
+   *  registration and `sessionId` for authentication, and complete consumes it. */
   export type ChallengeStore = {
     put(key: string, challenge: string, ttlMs: number): Promise<void>
-    take(key: string): Promise<string | null>
+    /** Reads and deletes in one step. Rejects `AUTH_CREDENTIAL_NOT_FOUND` for a key never put, an elapsed
+     *  TTL and a challenge already consumed; all three are a replay as far as the caller is concerned, and
+     *  it answers `AUTH_PASSKEY_MISMATCH` for every one. */
+    take(key: string): Promise<string>
   }
 
-  /** Cfg knobs for {@link passkey}. */
   export type Options = {
-    /** Relying-party display name (shown in the OS picker). */
+    /** Shown in the OS picker. */
     rpName: string
-    /** Relying-party id - the eTLD+1 the credential will be bound to. */
+    /** The eTLD+1 the credential is bound to. */
     rpID: string
     /** Allowed origins for verification. */
     expectedOrigins: string | string[]
-    /** Locate identity given an email. */
+    /** How an identity is found from an email. Returning `null` and rejecting with an absence code both
+     *  read as "no such address", so `auth.identities.getByEmail` wires straight in. */
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    /** Optional override of the challenge store. Default in-memory. */
+    /** In-memory by default. */
     challengeStore?: Passkey.ChallengeStore
-    /** TTL applied to issued challenges, ms. Default 5 minutes. */
+    /** Default 5 minutes. */
     challengeTtlMs?: number
-    /** Required user verification level. Default `'preferred'`. */
+    /** Default `'preferred'`. */
     userVerification?: 'discouraged' | 'preferred' | 'required'
-    /** Lazy override of the WebAuthn module (tests inject a mock). */
+    /** How much attestation registration asks the authenticator for. Default `'none'`; the `fips`
+     *  compliance preset requires `'direct'`. */
+    attestationType?: 'none' | 'direct' | 'indirect'
+    /** Default `passkey:begin:`. */
+    limiterKeyPrefix?: string
+    /** Where a test injects a mock WebAuthn module. */
     webauthnModule?: Passkey.SimpleWebAuthnServerModule
   }
 
-  /** Input to begin. */
   export type BeginInput = {
-    /** Optional email hint - narrows allowCredentials to that user. */
+    /** Narrows `allowCredentials` to that user. */
     email?: string
     /** Caller-supplied stable session id; the challenge is keyed by it. */
     sessionId: string
   }
 
-  /** Input to complete. */
   export type CompleteInput = {
-    /** The WebAuthn AuthenticatorAssertionResponse, JSON-encoded. */
+    /** A JSON-encoded WebAuthn `AuthenticatorAssertionResponse`. */
     response: unknown
-    /** Same sessionId the begin call returned. */
+    /** The one the begin call answered. */
     sessionId: string
-    /** Email used in begin (so verify can re-resolve the identity). */
+    /** The address begin used, so verify re-resolves the same identity. */
     email?: string
   }
 
-  /** Shape stored in `Credential.ICredential.metadata` for passkey credentials. */
+  /** Shape stored in `Credential.Me.metadata` for passkey credentials. */
   export type CredentialMetadata = {
     publicKey: string
     counter: number
