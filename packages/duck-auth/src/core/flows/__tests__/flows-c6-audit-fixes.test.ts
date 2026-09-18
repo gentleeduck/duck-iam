@@ -1,27 +1,10 @@
-/**
- * The last four open findings in `docs/superpowers/plans/C6-flows/AUDIT.md`, pinned.
- *
- *   F1  - `requestPasswordReset` was a timing oracle: one sha256 on the
- *         unknown-address branch against a write plus two reads on the known
- *         one, plus a channel misconfiguration that threw for a real address
- *         and answered `{ok:true}` for a fictional one.
- *   F8  - `requestEmailVerification` deleted every `recovery` credential for
- *         the identity, and four different flows share that kind.
- *   F9  - those four flows wrote two different discriminator keys, so the
- *         helper that reads one of them returned `undefined` for half of them.
- *   F21 - `beginSignUp` was the only flow that never consumed the limiter.
- *   F27 - `beginSignUp` built a profile with no `username`, which the type and
- *         duck-auth's own Postgres CHECK both require, and hid it with a cast.
- *
- * Each test is written to fail against the pre-fix code, not merely to describe
- * the post-fix code.
- */
+/** The last four open findings in `docs/superpowers/plans/C6-flows/AUDIT.md`, pinned. */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'
 import { AuthTestChannel } from '~/channels/console'
-import { getCredentialPurpose, toCredentialUpsert } from '~/core/credentials/credentials'
+import { getCredentialPurpose, toCredentialCreate } from '~/core/credentials/credentials'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -103,7 +86,7 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
     // divergence is at index 1 and nowhere else.
     expect(knownCalls[0]).toBe('credentials.deleteByKindAndPurpose')
     expect(miss[0]).toBe('credentials.deleteByKindAndPurpose')
-    expect(knownCalls[1]).toBe('credentials.upsert')
+    expect(knownCalls[1]).toBe('credentials.create')
     expect(miss[1]).toBe('credentials.listByIdentity')
     expect(miss.slice(2)).toEqual(knownCalls.slice(2))
   })
@@ -172,8 +155,8 @@ describe('F8 / F9 - one credential kind, four flows, one discriminator', () => {
   })
 
   async function plant(purpose: string, secret: string): Promise<void> {
-    await adapter.credentials.upsert(
-      toCredentialUpsert({ identityId, kind: 'recovery', metadata: { purpose }, secret }),
+    await adapter.credentials.create(
+      toCredentialCreate({ identityId, kind: 'recovery', metadata: { purpose }, secret }),
       {},
     )
   }
@@ -237,8 +220,10 @@ describe('F27 - beginSignUp builds a profile the identity store accepts', () => 
     // `ProfileMetadataBase` requires it and pg enforces it with a CHECK plus a
     // unique index; the old `as unknown as Profile` laundered a profile without
     // one straight into an INSERT the library's own adapter rejects.
+    // The address is folded on the way in, so one lookup spelling reaches it on every dialect. The
+    // username it is derived from is not, which is why the two differ here.
     expect(created?.profile.username).toBe('Nobody@Example.com')
-    expect(created?.profile.email).toBe('Nobody@Example.com')
+    expect(created?.profile.email).toBe('nobody@example.com')
   })
 
   it('keeps a username the caller supplied', async () => {
@@ -254,30 +239,25 @@ describe('F27 - beginSignUp builds a profile the identity store accepts', () => 
     // `username` carries a unique index. Deriving from the local part would
     // refuse this second signup over a handle neither user picked.
     await expect(auth.flows.beginSignUp({ email: 'sam@b.com' })).resolves.toBeTruthy()
-    expect((await auth.identities.getByEmail('sam@b.com'))?.profile.username).toBe('sam@b.com')
+    expect((await auth.identities.getByEmail('sam@b.com')).profile.username).toBe('sam@b.com')
   })
 })
 
 describe('what these fixes did NOT close', () => {
   it('beginSignUp writes a real identity for an address nobody proved they own', async () => {
     // Pinned as the residue of F21 rather than fixed. Deferring the write is not buildable -
-    // `fk_auth_credentials_identity` is a NOT NULL foreign key to the very row
-    // the deferral removes - so the row is still written on an unauthenticated
-    // request. What is closed is that it can no longer be a claim (D1): the next
-    // signup for the address takes it, and the limiter bounds how many exist.
+    // `fk_auth_credentials_identity` is a NOT NULL foreign key to the very row the deferral
+    // removes - so the row is still written on an unauthenticated request.
     const { auth } = build()
     await auth.flows.beginSignUp({ email: 'victim@corp.com' })
-    expect(await auth.identities.getByEmail('victim@corp.com')).not.toBeNull()
+    await expect(auth.identities.getByEmail('victim@corp.com')).resolves.toBeDefined()
   })
 
   it('signup still answers whether an address is an established account', async () => {
     // Pinned as reduced, not closed. A squat is reclaimed silently, so the old "any row
-    // exists" oracle is gone; an address behind a real account still has to be
-    // refused, because the unique index means a second account for it cannot be
-    // created and the caller has to be told something. Closing it needs a channel
-    // to answer through - the `requestPasswordReset` shape, where both branches
-    // return `{ok:true}` and the owner gets the mail - and `beginSignUp` takes
-    // none.
+    // exists" oracle is gone; an address behind a real account still has to be refused,
+    // because the unique index means a second account for it cannot be created and the
+    // caller has to be told something.
     const { adapter, auth } = build()
     const ident = await auth.identities.create({ profile: { email: 'taken@corp.com', username: 'taken' } })
     await auth.passwords.set(ident.id, 'correct-horse-battery', adapter.credentials)
@@ -301,14 +281,13 @@ describe('what these fixes did NOT close', () => {
       input: { email: 'real@x.com' },
     })
     // Index 1: both branches spend index 0 on the delete that retires the older tokens.
-    expect(calls[1]).toBe('credentials.upsert')
+    expect(calls[1]).toBe('credentials.create')
   })
 
   it('serves a password reset with no mfa provider registered', async () => {
     // `requireMfa()` throws when the provider is absent, and the reset flow reads it on every
     // request to decide one template variable. A deployment with no MFA answered a public endpoint
-    // with AUTH_PROVIDER_NOT_REGISTERED instead of sending a reset mail. There is no second factor
-    // to require when nobody wired one, which is what the flow now reads.
+    // with AUTH_PROVIDER_NOT_REGISTERED instead of sending a reset mail.
     const adapter = new MemoryAdapter<MyProfile>()
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',

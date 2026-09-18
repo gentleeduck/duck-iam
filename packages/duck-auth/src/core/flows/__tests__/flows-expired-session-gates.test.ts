@@ -5,11 +5,6 @@
  * them feed the result to `rotateOrCreate`, which mints a brand new live session
  * from whatever it is given. So an expired sid was not merely accepted at those
  * gates; presenting one resurrected the session.
- *
- * One root cause, four exploit paths. This file holds one test per path, plus
- * the compounding half: `fresh` was a stored boolean that only `touch` ever
- * refreshed, so the freshness side of the password-reset gate was decorative on
- * any session nobody had touched.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -63,10 +58,12 @@ function tokenFrom(url: string): string {
   return new URL(url).searchParams.get('token') ?? ''
 }
 
-/** Push a live session past its sliding deadline, leaving the absolute cap far off. */
+/** Push a live session past its sliding deadline, leaving the absolute cap far off. `createdAt` moves back
+ *  with it, because `expires_at >= created_at` is a constraint every dialect carries. */
 async function expire(adapter: MemoryAdapter<MyProfile>, sid: string): Promise<void> {
   await adapter.sessions.update(sha256(sid), {
     absoluteExpiresAt: new Date(Date.now() + 86_400_000),
+    createdAt: new Date(Date.now() - 86_400_000),
     expiresAt: new Date(Date.now() - 1000),
   })
 }
@@ -92,7 +89,7 @@ describe('expired sessions are refused at every privileged gate', () => {
       auth.flows.completeStepUp({ code: totpAt(challenge.secret, enrolledStep + 1), currentSid: sid, method: 'totp' }),
     ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
     // And the dead row is gone rather than left for the next attempt.
-    expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
+    await expect(adapter.sessions.getByHash(sha256(sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('impersonate refuses an expired admin sid, and never asks authorize() to judge a dead session', async () => {
@@ -170,8 +167,10 @@ describe('expired sessions are refused at every privileged gate', () => {
       identityId: identity.id,
       kind: 'user',
     })
-    // Live on both deadlines, but rotated long enough ago that it is not fresh.
+    // Live on both deadlines, but rotated long enough ago that it is not fresh. Creation moves back with
+    // the rotation: a session cannot have been rotated before it existed.
     await adapter.sessions.update(sha256(sid), {
+      createdAt: new Date(Date.now() - DEFAULT_SESSION_CONFIG.freshnessMs - 2000),
       fresh: true,
       rotatedAt: new Date(Date.now() - DEFAULT_SESSION_CONFIG.freshnessMs - 1000),
     })

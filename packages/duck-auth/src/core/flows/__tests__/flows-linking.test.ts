@@ -126,7 +126,7 @@ describe('FlowsImpl - account linking', () => {
       providerSub: 'authGoogle|111',
     })
     // Add a password credential so the lockout guard does not trip.
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({ identityId: identityA, kind: 'password', secret: 'hashedXYZ' }),
       {},
     )

@@ -1,36 +1,9 @@
 /**
  * The fifteen findings `docs/superpowers/plans/C6-flows/AUDIT.md` still had open, pinned - plus
  * one the work turned up.
- *
- *   F2  - password reset stored the raw address a second time, in credential
- *         metadata, which `identities.erase` has no reason to sweep.
- *   F6  - a failed MFA gate threw without consuming or bounding anything, so
- *         the token stayed grindable for its whole TTL.
- *   F7  - the password was written before the sessions were revoked, and the
- *         revoke bypassed the single rotation path.
- *   F10 - `requestEmailVerification` spent the limiter before it knew whether
- *         there was anything to send.
- *   F11 - `completeEmailVerification` let a stale write surface raw, after the
- *         token was already spent.
- *   F14 - impersonation sessions carried the admin's `aal` and `factors`.
- *   F15 - `releaseImpersonation` cleared the bearer, logging the admin out.
- *   F17 - `ctxFactory` was called two and three times per call.
- *   F18 - the unlink lockout guard was a read-then-write race.
- *   F19 - unlinking an authentication factor emitted nothing.
- *   F20 - `providerSub` was an unverifiable string with no stated invariant.
- *   F23 - `advanceSignUp` revoked its own token and re-inserted it.
- *   F24 - a signup rotated as a `guest-promotion`.
- *   F25 - flow state, `profilePatch` included, dodged `profileMaxBytes`.
- *   F26 - flows wrote identities through the raw store, past the facet.
- *   F28 - NEW. The MFA gate on `completePasswordReset` accepted any fresh AAL=2
- *         session, without asking whose it was.
- *
- * Each test is written to fail against the pre-fix code, not merely to describe
- * the post-fix code.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AdapterStore } from '~/adapters/adapter'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'
 import { AuthTestChannel } from '~/channels/console'
@@ -123,13 +96,13 @@ describe('F14 / F15 - impersonation neither carries nor returns assurance', () =
     // A `transport.revoke()` intent carries no cookie value; an `issue` does.
     expect(released.intents.some((i) => i.type === 'setCookie' && i.value !== '')).toBe(true)
     // And the returned sid actually resolves.
-    expect((await auth.sessions.getBySid(released.sid))?.identityId).toBe(adminId)
+    expect((await auth.sessions.getBySid(released.sid)).identityId).toBe(adminId)
   })
 
   it('F15 - the impersonation sid is dead once released', async () => {
     const out = await start()
     await auth.flows.releaseImpersonation(out.sid)
-    expect(await auth.sessions.getBySid(out.sid)).toBeNull()
+    await expect(auth.sessions.getBySid(out.sid)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('F15 - the returned session starts at AAL 1, so privileged work needs a fresh step-up', async () => {
@@ -145,7 +118,7 @@ describe('F14 / F15 - impersonation neither carries nor returns assurance', () =
     const released = await auth.flows.releaseImpersonation(out.sid)
     expect(released.session).toBeNull()
     expect(released.sid).toBe('')
-    expect(await auth.sessions.getBySid(out.sid)).toBeNull()
+    await expect(auth.sessions.getBySid(out.sid)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })
 
@@ -169,7 +142,7 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
         providerSub: 'sub-1',
       }),
     ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
-    expect((await auth.identities.getById(identityId))?.providers).toEqual([])
+    expect((await auth.identities.getById(identityId)).providers).toEqual([])
   })
 
   it('F20 - a refusal writes nothing and reports as a provider failure', async () => {
@@ -181,7 +154,7 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
         providerSub: 'sub-1',
       }),
     ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED', meta: { detail: 'authorize() returned false' } })
-    expect((await auth.identities.getById(identityId))?.providers).toEqual([])
+    expect((await auth.identities.getById(identityId)).providers).toEqual([])
   })
 
   it('F20 - the callback sees the identity it is being asked about', async () => {
@@ -269,7 +242,7 @@ describe('F17 / F18 / F19 / F20 - provider linking', () => {
     await expect(auth.flows.unlinkProvider({ identityId, providerId: 'authGoogle' })).resolves.toMatchObject({
       identityId,
     })
-    expect((await auth.identities.getById(identityId))?.providers).toEqual([])
+    expect((await auth.identities.getById(identityId)).providers).toEqual([])
   })
 })
 
@@ -295,7 +268,7 @@ describe('F23 / F24 / F25 / F26 - signup', () => {
     ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
     // Refused, not destroyed: the token is still the one the caller holds.
     const flow = await auth.flows.getSignUpFlow(flowToken)
-    expect(flow?.completed).toEqual(['email-collected'])
+    expect(flow.completed).toEqual(['email-collected'])
   })
 
   it('F23 - advancing never revokes the token it was handed', async () => {
@@ -308,7 +281,7 @@ describe('F23 / F24 / F25 / F26 - signup', () => {
     // stage, so a failure between the two left the user holding a dead token.
     expect(rows).toHaveLength(1)
     expect(rows[0]?.revokedAt).toBeNull()
-    expect((await auth.flows.getSignUpFlow(flowToken))?.completed).toEqual([
+    expect((await auth.flows.getSignUpFlow(flowToken)).completed).toEqual([
       'email-collected',
       'email-verified',
       'terms-accepted',
@@ -343,7 +316,7 @@ describe('F23 / F24 / F25 / F26 - signup', () => {
       purpose: 'sign-up',
     })
     expect(out.session.identityId).toBe(ident.id)
-    expect(await auth.sessions.getBySid(guest.sid)).toBeNull()
+    await expect(auth.sessions.getBySid(guest.sid)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('F24 - completeSignUp still revokes what it came in on', async () => {
@@ -352,7 +325,7 @@ describe('F23 / F24 / F25 / F26 - signup', () => {
     const { flowToken } = await auth.flows.beginSignUp({ email: 'a@x.com', required: [] })
     const out = await auth.flows.completeSignUp({ flowToken, previousSid: guest.sid })
     expect(out.sid).not.toBe(guest.sid)
-    expect(await auth.sessions.getBySid(guest.sid)).toBeNull()
+    await expect(auth.sessions.getBySid(guest.sid)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('F26 - completeSignUp goes through the facet, so the cap applies to the merge', async () => {
@@ -407,7 +380,7 @@ describe('F10 / F11 / F26 - email verification', () => {
     await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: ident.id })
     const out = await auth.flows.completeEmailVerification({ token: tokenFrom(channel) })
     expect(out.identity.emailVerified).toBe(true)
-    expect((await auth.identities.getById(ident.id))?.emailVerified).toBe(true)
+    expect((await auth.identities.getById(ident.id)).emailVerified).toBe(true)
   })
 
   it('F11 - a profile write landing mid-verification is absorbed, not surfaced', async () => {
@@ -423,16 +396,14 @@ describe('F10 / F11 / F26 - email verification', () => {
     const original = store.update.bind(store)
     let raced = false
     store.update = (id, patch, expectedVersion) =>
-      AdapterStore.answer(
-        (async () => {
-          if (!raced && 'emailVerified' in patch) {
-            raced = true
-            const cur = await store.find({ id })
-            if (cur) await original(id, { profile: { ...cur.profile, touched: true } }, cur.version)
-          }
-          return original(id, patch, expectedVersion)
-        })(),
-      )
+      (async () => {
+        if (!raced && 'emailVerified' in patch) {
+          raced = true
+          const cur = await store.find({ id })
+          if (cur) await original(id, { profile: { ...cur.profile, touched: true } }, cur.version)
+        }
+        return original(id, patch, expectedVersion)
+      })()
     try {
       const out = await auth.flows.completeEmailVerification({ token: tokenFrom(channel) })
       expect(raced).toBe(true)

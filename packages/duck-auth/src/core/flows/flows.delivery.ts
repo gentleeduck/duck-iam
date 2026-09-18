@@ -1,12 +1,7 @@
 import type { Channel } from '~/channels/channels.types'
 import type { Events } from '~/core/events'
 
-/**
- * A send whose result is read.
- *
- * `Channel.send` reports a failure rather than throwing, so `await channel.send(...)` reads as a
- * delivery whether or not one happened, and three flows answered `ok: true` for a mail nobody sent.
- */
+/** A send whose result is read. */
 export async function deliver(
   events: Pick<Events.IBus, 'emit'>,
   flow: string,

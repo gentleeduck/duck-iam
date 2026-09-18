@@ -1,12 +1,4 @@
-/**
- * Direct tests of the extracted flow free functions.
- *
- * The `FlowsImpl` class methods are thin shims that delegate to free
- * functions in `flows/*.ts`. These tests import each free function by
- * name and assert (a) the module exports it with the right shape and
- * (b) the function produces the same result as the class method that
- * wraps it. This proves the extraction is real, not a rename.
- */
+/** Direct tests of the extracted flow free functions. */
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -150,7 +142,7 @@ describe('flows/signup.ts - direct exports', () => {
     expect(flow.identityId).toBeTruthy()
     expect(flowToken.length).toBeGreaterThan(20)
     const fetched = await getSignUpFlow(auth.flows.deps, flowToken)
-    expect(fetched?.identityId).toBe(flow.identityId)
+    expect(fetched.identityId).toBe(flow.identityId)
   })
 
   it('advanceSignUp rejects unknown token directly', async () => {

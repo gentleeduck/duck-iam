@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'
+import type { Credential } from '~/core/credentials'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -27,7 +28,7 @@ function fakeChannel(): Channel.Channel & { sent: Array<{ to: string; url: strin
   }
 }
 
-function buildAuth(): {
+function buildAuth(opts: { credentials?: (base: Credential.Store) => Credential.Store } = {}): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
   channel: Channel.Channel & { sent: Array<{ to: string; url: string }> }
@@ -41,7 +42,7 @@ function buildAuth(): {
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
-      credentials: adapter.credentials,
+      credentials: opts.credentials?.(adapter.credentials) ?? adapter.credentials,
     },
     limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
     providers: [passwords({ hasher: fastHasher }), mfaProvider()],
@@ -112,7 +113,7 @@ describe('FlowsImpl - step-up', () => {
     expect(stepped.session.factors.some((f) => f.method === 'totp')).toBe(true)
   })
 
-  it('completeStepUp with wrong code surfaces AUTH/INVALID_CREDENTIALS', async () => {
+  it('completeStepUp with wrong code surfaces AUTH_INVALID_CREDENTIALS', async () => {
     const { auth } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
     const challenge = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
@@ -188,7 +189,56 @@ describe('FlowsImpl - password reset', () => {
     expect(completedHandler).toHaveBeenCalledOnce()
   })
 
-  it('replay of reset token surfaces AUTH/RECOVERY_TOKEN_INVALID', async () => {
+  it('a second reset reading between the winner claim and its revoke is refused', async () => {
+    // The claim and the revoke are two statements. Holding the revoke open is what a loaded connection
+    // pool does by itself, and it is the window a second reset slipped through - taking the password
+    // with it, after the winner had already swept the sessions.
+    let gatedId: string | null = null
+    let calls = 0
+    let release = (): void => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { auth, adapter, channel } = buildAuth({
+      credentials: (base) => ({
+        ...base,
+        revoke: async (id, ctx) => {
+          if (id === gatedId) {
+            calls += 1
+            if (calls === 1) await held
+          }
+          return base.revoke(id, ctx)
+        },
+      }),
+    })
+    const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
+    await auth.flows.requestPasswordReset({
+      channels: { email: channel },
+      findIdentityByEmail: (email) => auth.identities.getByEmail(email),
+      input: { email: 'a@x.com' },
+    })
+    const token = tokenFrom(channel.sent[0]?.url ?? '')
+    const [recovery] = await adapter.credentials.listByIdentity(identity.id, 'recovery', {})
+    gatedId = recovery?.id ?? null
+
+    const winner = auth.flows.completePasswordReset({ newPassword: 'winner-password-9', token })
+    await vi.waitFor(() => {
+      if (calls === 0) throw new Error('the winner has not claimed the row yet')
+    })
+
+    await expect(auth.flows.completePasswordReset({ newPassword: 'attacker-password-9', token })).rejects.toMatchObject(
+      { code: 'AUTH_RECOVERY_TOKEN_INVALID' },
+    )
+    release()
+    await winner
+
+    // The password the loser sent is not the one left on the account.
+    expect((await auth.passwords.verify(identity.id, 'winner-password-9', adapter.credentials)).ok).toBe(true)
+    expect((await auth.passwords.verify(identity.id, 'attacker-password-9', adapter.credentials)).ok).toBe(false)
+  })
+
+  it('replay of reset token surfaces AUTH_RECOVERY_TOKEN_INVALID', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
     await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
@@ -253,7 +303,7 @@ describe('FlowsImpl - password reset', () => {
     expect(reset.intents.length).toBeGreaterThan(0)
   })
 
-  it('expired reset token surfaces AUTH/RECOVERY_TOKEN_EXPIRED', async () => {
+  it('expired reset token surfaces AUTH_RECOVERY_TOKEN_EXPIRED', async () => {
     const { auth, channel, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
     await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)

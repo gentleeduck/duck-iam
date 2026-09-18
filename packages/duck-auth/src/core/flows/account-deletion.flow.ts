@@ -1,11 +1,11 @@
+import { orNull } from '~/core/answer'
 import {
-  deleteCredentialsByPurpose,
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
-  RECOVERY_PURPOSES,
-  toCredentialUpsert,
+  toCredentialCreate,
 } from '~/core/credentials/credentials'
+import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Identities } from '~/core/identities'
@@ -26,14 +26,12 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
     })
   }
 
-  const identity = await ctx.stores.identities.find({ id: opts.identityId })
+  const identity = await orNull(ctx.stores.identities.find({ id: opts.identityId }))
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
-  // Below the lookup, the way `requestEmailVerification` was already ordered.
-  // An id with no row behind it used to spend a bucket and, now that a spent
-  // bucket also emits `lockout`, would have paged an operator about an account
-  // that does not exist. It leaks nothing to move: an unknown id answers
-  // `AUTH_UNAUTHENTICATED` on either side of the limiter.
+  // Below the lookup, like `requestEmailVerification`: an id with no row would otherwise spend a
+  // bucket and page an operator about an account that does not exist. Moving it leaks nothing, since
+  // an unknown id answers `AUTH_UNAUTHENTICATED` on either side.
   const limited = await ctx.limiter.consume(`account-delete:${opts.identityId}`)
   if (!limited.ok) await refuseRateLimited(ctx.events, limited, identity.id)
 
@@ -47,8 +45,7 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
 
   // By purpose, the way `requestEmailVerification` does it, and for the same
   // reason: `recovery` is seven token families in one column.
-  await deleteCredentialsByPurpose(
-    ctx.stores.credentials,
+  await ctx.stores.credentials.deleteByKindAndPurpose(
     opts.identityId,
     'recovery',
     RECOVERY_PURPOSES.accountDeletion,
@@ -57,8 +54,8 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
 
   const token = ctx.crypto.authRandomToken(32)
   const tokenHash = ctx.crypto.authSha256(token)
-  await ctx.stores.credentials.upsert(
-    toCredentialUpsert({
+  await ctx.stores.credentials.create(
+    toCredentialCreate({
       identityId: opts.identityId,
       kind: 'recovery',
       secret: tokenHash,
@@ -82,22 +79,8 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
 }
 
 /**
- * Confirm a deletion, and mint the undo token that makes the grace window
- * usable by the person whose account it is.
- *
- * Until this existed, `cancelAccountDeletion` had exactly one gate - an
- * `authorize` callback - which is the operator's route, not the user's. A user
- * clicking "undo" in their mail has no admin rights to authorize against, so the
- * grace window `restorableUntil` advertises was reachable only by asking support.
- *
- * The token is minted after the soft delete lands, so a delete that fails leaves
- * no undo behind, and expires exactly when the window does: `restore` refuses
- * past `deletedAt` anyway, and a token that outlives the thing it unlocks is a
- * credential that answers `AUTH_GRACE_EXPIRED` instead of refusing itself.
- *
- * Plaintext comes back once. Pass `channels` and the library mails it; omit
- * `channels` and it is the caller's to deliver - or to drop, which is how a host
- * that does not want undo turns it off, since nobody else ever holds it.
+ * Confirm a deletion and mint the undo token, which is what makes the grace window reachable by the
+ * account holder rather than only by an operator with an `authorize` callback.
  */
 export async function completeAccountDeletion<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
@@ -113,7 +96,7 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
   }
   const ctx = deps.ctxFactory(input.tenantId)
   const hash = ctx.crypto.authSha256(input.token)
-  const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
+  const row = await orNull(ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant))
   if (!row || isRevoked(row) || getCredentialPurpose(row) !== RECOVERY_PURPOSES.accountDeletion) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   }
@@ -122,8 +105,12 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
     throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
   }
 
+  // The CAS claim burns the token in the same write, so the claim alone refuses a second completion
+  // reading between here and the delete below. Until now that was caught one line later instead, by
+  // `softDelete` reporting an already-hidden row as a miss - a guard in another file, for another reason.
+  const burnt = ctx.crypto.authSha256(ctx.crypto.authRandomToken(32))
   try {
-    await ctx.stores.credentials.rotate(row.id, row.secret, row.version, ctx.tenant)
+    await ctx.stores.credentials.rotate(row.id, burnt, row.version, ctx.tenant)
   } catch (err) {
     if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') {
       throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
@@ -131,20 +118,19 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
     throw err
   }
   const identityId = row.identityId
-  const identity = await deps.identities.softDelete(identityId)
-  // A valid token whose identity has since been erased has nothing left to
-  // delete. Reporting success would tell the caller a deletion happened.
+  const identity = await deps.identities.softDelete(identityId).orNull()
+  // A valid token whose identity was erased has nothing left to delete, and reporting success would
+  // tell the caller one happened.
   if (!identity) throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   await deps.sessions.revokeAllForIdentity(identityId)
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
-  // Read off the row the store actually wrote rather than taking a second
-  // clock reading: `deletedAt` IS the moment the grace window closes, so the
-  // deadline reported here is the one restore will be measured against.
+  // Read off the row the store wrote rather than from a second clock reading: `deletedAt` is when the
+  // grace window closes, so the deadline reported here is the one restore is measured against.
   const restorableUntil = identity.deletedAt?.getTime() ?? Date.now() + deps.identities.softDeleteGracePeriodMs
 
   const cancellationToken = ctx.crypto.authRandomToken(32)
-  await ctx.stores.credentials.upsert(
-    toCredentialUpsert({
+  await ctx.stores.credentials.create(
+    toCredentialCreate({
       identityId,
       kind: 'recovery',
       secret: ctx.crypto.authSha256(cancellationToken),
@@ -169,14 +155,9 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
   return { identity, identityId, restorableUntil, cancellationToken }
 }
 
-/**
- * Undo a deletion inside the grace window. Two gates, one of which must apply:
- * the undo token `completeAccountDeletion` minted (the user's route), or an
- * `authorize` callback (the operator's).
- *
- * Both, or neither, is a wiring mistake and is refused. Resolving "both" in favour of one gate
- * would mean a bad token silently falling back to a callback that says yes.
- */
+/** Undo a deletion inside the grace window, through exactly one of two gates: the undo token
+ *  `completeAccountDeletion` minted, or an `authorize` callback. Both or neither is refused as a
+ *  wiring mistake, or a bad token would fall back to a callback that says yes. */
 export async function cancelAccountDeletion<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   input: Flows.AccountDeletionCancelInput,
@@ -210,24 +191,16 @@ export async function cancelAccountDeletion<Profile extends Identities.ProfileMe
   if (!(await input.authorize(input.identityId))) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
-  const identity = await deps.identities.restore(input.identityId)
-  // The store reports "no such id" as data; at the flow boundary it is an
-  // error - there is no account whose deletion this could be cancelling, and
-  // the caller is asking about one by id.
+  const identity = await deps.identities.restore(input.identityId).orNull()
+  // `orNull` reads a missing id back as a value; at the flow boundary it is still an error, since the
+  // caller named an account by id and there is none whose deletion this could cancel.
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
   return { identity, identityId: input.identityId }
 }
 
-/**
- * The token branch of {@link cancelAccountDeletion}. The token names its own
- * subject, so nothing here reads an id from the caller: an undo link cannot be
- * pointed at an account other than the one it was minted for.
- *
- * Deleted rather than revoked once spent, and deleted before the restore rather
- * than after: a restore that throws (`AUTH_GRACE_EXPIRED`, or a profile clash
- * with somebody who took the freed address) must not leave a live token behind
- * for a second attempt that will fail the same way.
- */
+/** The token branch of {@link cancelAccountDeletion}. The token names its own subject, so nothing
+ *  here reads an id from the caller and an undo link cannot be pointed at another account. Deleted
+ *  before the restore, so a restore that throws leaves no live token for a retry that fails alike. */
 async function cancelByToken<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   token: string,
@@ -238,7 +211,7 @@ async function cancelByToken<Profile extends Identities.ProfileMetadataBase>(
   }
   const ctx = deps.ctxFactory(tenantId)
   const hash = ctx.crypto.authSha256(token)
-  const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
+  const row = await orNull(ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant))
   if (!row || isRevoked(row) || getCredentialPurpose(row) !== RECOVERY_PURPOSES.accountDeletionCancel) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   }
@@ -247,8 +220,19 @@ async function cancelByToken<Profile extends Identities.ProfileMetadataBase>(
     throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
   }
   const identityId = row.identityId
-  await ctx.stores.credentials.delete(row.id, ctx.tenant)
-  const identity = await deps.identities.restore(identityId)
+  // The delete is the claim: it is exclusive, refusing a row another cancellation already took, so one
+  // of two racing on a token gets through and one does not. Its `AUTH_CREDENTIAL_NOT_FOUND` is remapped
+  // because that code is in `ABSENT`, and a caller with `orNull` would otherwise read a lost race as
+  // "there is no such token" - the one answer a spent undo link must not give.
+  try {
+    await ctx.stores.credentials.delete(row.id, ctx.tenant)
+  } catch (err) {
+    if (err instanceof AuthError && err.code === 'AUTH_CREDENTIAL_NOT_FOUND') {
+      throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
+    }
+    throw err
+  }
+  const identity = await deps.identities.restore(identityId).orNull()
   // A row that went between the read above and the restore. An *erased* identity
   // does not reach here: erase cascades to the credential table, so its undo
   // token is already gone and the lookup above answered "invalid".

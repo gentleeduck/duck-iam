@@ -1,25 +1,4 @@
-/**
- * D1 - `beginSignUp` wrote a real identity row for any address, unrated.
- *
- * The rate limit closed the write-amplification third of F21. Two thirds were
- * left: an attacker parking on `victim@corp.com` collided with the real owner
- * forever (the unique email index means the second signup cannot have a row of
- * its own), and the duplicate-email refusal answered "is this an account?".
- *
- * Deferring the identity until the address is verified - the original plan - is
- * not buildable: `fk_auth_credentials_identity` is a NOT NULL foreign key to the
- * row that plan defers, and `Provider.Context` carries no store that could hold
- * the flow state instead.
- *
- * So the squat is disarmed rather than prevented. A row in exactly the state
- * `beginSignUp` leaves behind - unverified, no links, nothing but `signup-flow`
- * credentials - is reclaimed by the next signup for that address. Anything that
- * carries or proves something is an account, and stays untouchable.
- *
- * The safety of that rule is the whole test file: `completeSignUp` mints a
- * session for the reclaimed row, so a rule one notch too loose is not a squat
- * reclaim, it is account takeover.
- */
+/** D1 - `beginSignUp` wrote a real identity row for any address, unrated. */
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -74,7 +53,9 @@ describe('D1 - a squat is reclaimed', () => {
 
     // Two live tokens on one row would let whoever started first finish the
     // signup the second caller is paying for.
-    expect(await auth.flows.getSignUpFlow(squat.flowToken)).toBeNull()
+    await expect(auth.flows.getSignUpFlow(squat.flowToken)).rejects.toMatchObject({
+      code: 'AUTH_CREDENTIAL_NOT_FOUND',
+    })
     await expect(
       auth.flows.advanceSignUp({ flowToken: squat.flowToken, stage: 'email-verified' }),
     ).rejects.toMatchObject({ code: 'AUTH_SIGNUP_TOKEN_INVALID' })
@@ -93,7 +74,7 @@ describe('D1 - a squat is reclaimed', () => {
   it('the reclaimed profile is the new signup, not the squatter', async () => {
     await auth.flows.beginSignUp({ email: 'victim@corp.com', initialProfile: { username: 'attacker' } })
     const real = await auth.flows.beginSignUp({ email: 'victim@corp.com', initialProfile: { username: 'realuser' } })
-    expect((await auth.identities.getById(real.flow.identityId))?.profile.username).toBe('realuser')
+    expect((await auth.identities.getById(real.flow.identityId)).profile.username).toBe('realuser')
   })
 })
 
@@ -111,7 +92,7 @@ describe('D1 - an account is not a squat', () => {
     // account to whoever asked for the address next.
     const ident = await auth.identities.create({ profile: { email: 'sam@x.com', username: 'sam' } })
     await auth.passwords.set(ident.id, 'correct-horse-battery', adapter.credentials)
-    expect((await auth.identities.getById(ident.id))?.emailVerified).toBe(false)
+    expect((await auth.identities.getById(ident.id)).emailVerified).toBe(false)
 
     await expect(auth.flows.beginSignUp({ email: 'sam@x.com' })).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
   })
@@ -151,7 +132,7 @@ describe('D1 - an account is not a squat', () => {
     // Identities are global, credentials are not. A tenant-scoped read would call
     // an account with a password in tenant B abandoned and hand it over.
     const ident = await auth.identities.create({ profile: { email: 'sam@x.com', username: 'sam' } })
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       {
         expiresAt: null,
         identityId: ident.id,
@@ -197,6 +178,6 @@ describe('D1 - a completed signup stops being reclaimable', () => {
     const { auth } = build()
     const { flowToken } = await auth.flows.beginSignUp({ email: 'lax@x.com', required: [] })
     await auth.flows.completeSignUp({ flowToken })
-    expect((await auth.identities.getByEmail('lax@x.com'))?.emailVerified).toBe(false)
+    expect((await auth.identities.getByEmail('lax@x.com')).emailVerified).toBe(false)
   })
 })

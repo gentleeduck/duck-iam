@@ -1,10 +1,4 @@
-/**
- * Every flow that mails a link reads the result of the send it made.
- *
- * `Channel.send` reports a failure rather than throwing, so `await channel.send(...)` reads as a
- * delivery whichever it was: three flows answered `ok: true` for a mail nobody sent, and the only
- * record of it was a `providerMessageId` nobody asked for.
- */
+/** Every flow that mails a link reads the result of the send it made. */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'

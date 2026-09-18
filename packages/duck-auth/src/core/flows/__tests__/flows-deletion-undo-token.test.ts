@@ -3,16 +3,12 @@
  * callback - which is the operator's route. A user clicking "undo" in their mail
  * has the mail and no admin rights, so the grace window `restorableUntil`
  * advertises was reachable only by asking support.
- *
- * `completeAccountDeletion` now mints a single-use undo token, expiring exactly
- * when the window does, and `cancelAccountDeletion` takes either that or the
- * callback - one or the other, never both.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthTestChannel } from '~/channels/console'
-import { RECOVERY_PURPOSES } from '~/core/credentials/credentials'
+import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -112,12 +108,14 @@ describe('account deletion - the undo token', () => {
   describe('redeeming', () => {
     it('the token restores the account with no callback at all', async () => {
       const { cancellationToken } = await deleteAccount()
-      expect(await adapter.identities.find({ id: identityId })).toBeNull()
+      await expect(adapter.identities.find({ id: identityId })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
 
       const cancelled = await auth.flows.cancelAccountDeletion({ token: cancellationToken })
       expect(cancelled.identityId).toBe(identityId)
       expect(cancelled.identity.deletedAt).toBeNull()
-      expect(await adapter.identities.find({ id: identityId })).not.toBeNull()
+      await expect(adapter.identities.find({ id: identityId })).resolves.toBeTruthy()
     })
 
     it('it is single-use', async () => {
@@ -126,6 +124,59 @@ describe('account deletion - the undo token', () => {
       await expect(auth.flows.cancelAccountDeletion({ token: cancellationToken })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_INVALID',
       })
+    })
+
+    it('of two cancellations racing on one token, the loser is refused as an invalid token', async () => {
+      // The delete is the claim and it is genuinely exclusive - it throws for a row already taken - but
+      // the code it throws is `AUTH_CREDENTIAL_NOT_FOUND`, which is in `ABSENT`. A caller reading
+      // absence took a lost race for "there is no such token", where every other refusal in this flow
+      // answers `AUTH_RECOVERY_TOKEN_INVALID`.
+      let gatedId: string | null = null
+      let calls = 0
+      let release = (): void => {}
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const ad = new MemoryAdapter<MyProfile>()
+      const engine = new AuthEngine<MyProfile>({
+        baseUrl: 'https://app',
+        limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+        providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+        stores: {
+          credentials: {
+            ...ad.credentials,
+            delete: async (id, ctx) => {
+              if (id === gatedId) {
+                calls += 1
+                if (calls === 1) await held
+              }
+              return ad.credentials.delete(id, ctx)
+            },
+          },
+          identities: ad.identities,
+          sessions: ad.sessions,
+        },
+        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      })
+      const ident = await engine.identities.create({ profile: { email: 'c@x.com', username: 'c@x.com' } })
+      const ch = new AuthTestChannel()
+      await engine.flows.requestAccountDeletion({ channels: { email: ch }, identityId: ident.id })
+      const reqToken = new URL((ch.outbox.at(-1)!.vars as { url: string }).url).searchParams.get('token')!
+      const { cancellationToken } = await engine.flows.completeAccountDeletion({ token: reqToken })
+      const [undo] = await ad.credentials.listByIdentity(ident.id, 'recovery', {})
+      gatedId = undo?.id ?? null
+
+      const held_at_delete = engine.flows.cancelAccountDeletion({ token: cancellationToken })
+      await vi.waitFor(() => {
+        if (calls === 0) throw new Error('the first call has not reached its delete yet')
+      })
+
+      // Reads the row the first call has not removed yet, and takes it out from under it.
+      await expect(engine.flows.cancelAccountDeletion({ token: cancellationToken })).resolves.toMatchObject({
+        identityId: ident.id,
+      })
+      release()
+      await expect(held_at_delete).rejects.toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
     })
 
     it('the spent row is gone, not left revoked', async () => {
@@ -144,7 +195,9 @@ describe('account deletion - the undo token', () => {
       await expect(auth.flows.cancelAccountDeletion({ token: 'not-a-real-token' })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_INVALID',
       })
-      expect(await adapter.identities.find({ id: identityId })).toBeNull()
+      await expect(adapter.identities.find({ id: identityId })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
 
     it('the deletion token is not an undo token', async () => {
@@ -169,7 +222,9 @@ describe('account deletion - the undo token', () => {
       } finally {
         vi.useRealTimers()
       }
-      expect(await adapter.identities.find({ id: identityId })).toBeNull()
+      await expect(adapter.identities.find({ id: identityId })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
 
     it('a token whose identity was erased is refused, not honoured', async () => {
@@ -208,14 +263,18 @@ describe('account deletion - the undo token', () => {
         token: cancellationToken,
       } as unknown as CancelInput
       await expect(auth.flows.cancelAccountDeletion(input)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
-      expect(await adapter.identities.find({ id: identityId })).toBeNull()
+      await expect(adapter.identities.find({ id: identityId })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
 
     it('a bad token does not fall through to a callback that would say yes', async () => {
       await deleteAccount()
       const input = { authorize: async () => true, token: 'not-a-real-token' } as unknown as CancelInput
       await expect(auth.flows.cancelAccountDeletion(input)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
-      expect(await adapter.identities.find({ id: identityId })).toBeNull()
+      await expect(adapter.identities.find({ id: identityId })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
 
     it('neither gate is still a wiring error', async () => {

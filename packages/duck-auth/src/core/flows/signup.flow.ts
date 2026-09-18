@@ -1,12 +1,15 @@
+import { orNull } from '~/core/answer'
 import {
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
-  toCredentialUpsert,
+  toCredentialCreate,
 } from '~/core/credentials/credentials'
+import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
+import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
-import { canonicalEmail, emailSpellings, type Identities } from '~/core/identities'
+import { canonicalEmail, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import type { Flows } from './flows.types'
@@ -30,11 +33,8 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   const now = Date.now()
   const required = opts.required ?? ['email-verified', 'terms-accepted']
 
-  // The only flow in the unit that never consumed the limiter - password reset,
-  // email verification and account deletion all do. Without it one unauthenticated
-  // request equals one permanent identity row, unbounded. Keyed on the address, the
-  // same shape `requestPasswordReset` uses, so hammering one victim's address is
-  // what gets capped.
+  // Keyed on the address, the shape `requestPasswordReset` uses: without it one unauthenticated
+  // request is one permanent identity row, unbounded.
   const emailCanonical = canonicalEmail(opts.email) ?? ''
   const limited = await ctx.limiter.consume(`signup:begin:${emailCanonical}`)
   // No subject to name. This bucket guards an address that, by construction, has
@@ -43,50 +43,27 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   if (!limited.ok) await refuseRateLimited(ctx.events, limited, null)
 
   const initial = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
-  // No cast. `ProfileMetadataBase` requires `username`, duck-auth's own Postgres
-  // schema enforces it with a CHECK and a unique index, and this line used to
-  // launder a profile without one past the type with `as unknown as Profile` -
-  // so `beginSignUp({ email })`, the documented happy path, produced an INSERT
-  // that the library's own adapter rejects. Nothing caught it because the sqlite
-  // conformance DDL omits CHECK constraints and memory/Redis have no schema.
+  // Totalled, not cast: `username` is required by the type, by a CHECK and by a unique index, and only
+  // pg enforces it, the sqlite conformance DDL omitting CHECKs and memory and Redis having no schema.
   const profile = buildSignUpProfile<Profile>(initial, opts.email)
 
-  // The row is claimed, not minted, whenever one is already sitting on this
-  // address doing nothing.
-  //
-  // `beginSignUp` writes an identity for an address nobody has proved they own,
-  // which let an attacker park on `victim@corp.com` and collide with the real
-  // owner's signup forever - the unique index on email means the second signup
-  // cannot have a row of its own. Deferring the write was the plan; it is not
-  // buildable, because the credential row holding the flow token is a NOT NULL
-  // foreign key to the identity it would defer (`fk_auth_credentials_identity`,
-  // every dialect).
-  //
-  // So the squat is disarmed instead of prevented: a row in exactly the state
-  // `beginSignUp` leaves behind, and nothing else, is handed to the next signup
-  // for that address. The attacker's parking spot becomes the real user's
-  // account, and the state check is what keeps this from being a takeover of
-  // somebody's real one - see `isAbandonedSignUp`.
-  const existing = await ctx.stores.identities.find({ email: emailSpellings(opts.email) ?? emailCanonical })
+  // SECURITY: the row is claimed, not minted, when one is already sitting on this address doing
+  // nothing. `beginSignUp` writes an identity for an unproven address, so a squatter could otherwise
+  // park on `victim@corp.com` forever.
+  const existing = await orNull(ctx.stores.identities.find({ email: opts.email }))
   let identityId: string
   if (existing) {
     if (!(await isAbandonedSignUp(existing, ctx))) {
-      // An established account. This is the one thing signup cannot hide: the
-      // address is unique, so a second account for it is impossible and the
-      // caller has to be told something. Every path that reaches here answers
-      // with this single code rather than whatever unique-index error the
-      // dialect raised, so the answer is deliberate and identical everywhere.
-      // Closing it entirely needs what `requestPasswordReset` has - a channel to
-      // answer through, so the "someone tried to sign up with your address" mail
-      // goes to the owner and the caller gets the same reply either way - and a
-      // channel is the host's to supply.
+      // WARN: the one thing signup cannot hide, since the address is unique and the caller has to be
+      // told something. One code on every path, rather than whatever the dialect raised, so the answer
+      // is identical everywhere.
       throw new AuthError('AUTH_EMAIL_TAKEN')
     }
     // Kill the flow the previous attempt was holding. Two live tokens on one row
     // would let whoever started first finish the signup the second caller is
     // paying for.
     for (const c of await ctx.stores.credentials.listByIdentity(existing.id, 'recovery', {})) {
-      if (!isRevoked(c) && getCredentialPurpose(c) === 'signup-flow') {
+      if (!isRevoked(c) && getCredentialPurpose(c) === RECOVERY_PURPOSES.signupFlow) {
         await ctx.stores.credentials.revoke(c.id, {})
       }
     }
@@ -105,12 +82,8 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   const flowTokenHash = ctx.crypto.authSha256(flowToken)
   const dataInit: Partial<Profile> = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
   const data: Partial<Profile> = { ...dataInit, email: opts.email }
-  // The same cap the identity row is held to. `flow.data` is profile data that
-  // has not landed yet: it is staged in credential metadata, which has no size
-  // limit of its own, for up to 24 hours and re-read on every stage. Checking it
-  // only at `completeSignUp` - where it finally meets `identities.update` - meant
-  // the bytes were already stored and already being served before anything
-  // objected, which is exactly the amplification `profileMaxBytes` exists to stop.
+  // The cap the identity row is held to, applied where the bytes are actually staged: credential
+  // metadata has no size limit of its own and is re-read on every stage for up to 24 hours.
   deps.identities.assertProfileWithinCap(data)
   const flow: Flows.SignUpFlowState<Profile> = {
     id: ctx.crypto.authRandomToken(8),
@@ -122,12 +95,12 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
     absoluteExpiresAt: now + 24 * 60 * 60_000,
     createdAt: now,
   }
-  await ctx.stores.credentials.upsert(
-    toCredentialUpsert({
+  await ctx.stores.credentials.create(
+    toCredentialCreate({
       identityId,
       kind: 'recovery',
       secret: flowTokenHash,
-      metadata: { flow, purpose: 'signup-flow' },
+      metadata: { flow, purpose: RECOVERY_PURPOSES.signupFlow },
       expiresAt: new Date(flow.absoluteExpiresAt),
     }),
     ctx.tenant,
@@ -135,21 +108,49 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   return { flow, flowToken }
 }
 
+/** The live flow behind this token, through {@link liveSignUpFlow}. Every way of not being one rejects
+ *  `AUTH_CREDENTIAL_NOT_FOUND`, which is in the absent set, so the facet's `orNull()` reads them all back as
+ *  null the way this used to answer it. */
 export async function getSignUpFlow<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   flowToken: string,
   tenantId?: string,
-): Promise<Flows.SignUpFlowState<Profile> | null> {
-  const ctx = deps.ctxFactory(tenantId)
+): Promise<Flows.SignUpFlowState<Profile>> {
+  const { flow } = await liveSignUpFlow<Profile>(deps.ctxFactory(tenantId), flowToken, 'AUTH_CREDENTIAL_NOT_FOUND')
+
+  return flow
+}
+
+/**
+ * The live flow behind a token. A miss, a revoked row, an elapsed TTL — the credential's absolute cap or the
+ * flow's own sliding window — and metadata that will not parse all mean one thing: there is no live flow here.
+ * Spelled out separately by each of the three callers, the list drifted: only the read path checked either
+ * deadline, so the two write paths, `completeSignUp` among them, took a token whose cap had passed. Nothing
+ * sweeps an expired credential — the store contract has no `gc` — so that window had no end.
+ *
+ * `code` is the caller's, because `getSignUpFlow` answers `AUTH_CREDENTIAL_NOT_FOUND` so the facet's `orNull()`
+ * reads it back as null, while the write paths name the token.
+ */
+async function liveSignUpFlow<Profile extends Identities.ProfileMetadataBase>(
+  ctx: Provider.Context<Profile>,
+  flowToken: string,
+  code: 'AUTH_CREDENTIAL_NOT_FOUND' | 'AUTH_SIGNUP_TOKEN_INVALID',
+): Promise<{ flow: Flows.SignUpFlowState<Profile>; row: Credential.Me }> {
   const hash = ctx.crypto.authSha256(flowToken)
-  const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
-  if (!row || isRevoked(row)) return null
+  const row = await orNull(ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant))
+  if (!row || isRevoked(row)) throw new AuthError(code)
+  const flow = parseSignUpFlow<Profile>(row.metadata)
+  // `parseSignUpFlow` answers null for metadata it cannot read, which used to leave `getSignUpFlow`'s
+  // `| null` covering two unrelated things at once.
+  if (flow === null) throw new AuthError(code)
   const now = Date.now()
-  if (isCredentialExpired(row, now)) {
+  if (isCredentialExpired(row, now) || now >= flow.expiresAt) {
+    // Cleanup after the decision, never the decision itself.
     await ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
-    return null
+    throw new AuthError(code)
   }
-  return parseSignUpFlow<Profile>(row.metadata)
+
+  return { flow, row }
 }
 
 export async function advanceSignUp<Profile extends Identities.ProfileMetadataBase>(
@@ -168,11 +169,7 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
     throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
   }
   const ctx = deps.ctxFactory(opts.tenantId)
-  const hash = ctx.crypto.authSha256(opts.flowToken)
-  const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
-  if (!row || isRevoked(row)) throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
-  const flow = parseSignUpFlow<Profile>(row.metadata)
-  if (flow === null) throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
+  const { flow, row } = await liveSignUpFlow<Profile>(ctx, opts.flowToken, 'AUTH_SIGNUP_TOKEN_INVALID')
 
   const next: Flows.SignUpFlowState<Profile> = {
     ...flow,
@@ -180,22 +177,12 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
     data: opts.profilePatch ? { ...flow.data, ...opts.profilePatch } : flow.data,
     expiresAt: Math.min(flow.absoluteExpiresAt, Date.now() + 30 * 60_000),
   }
-  // Before either write, so an oversized patch is refused rather than stored.
-  // `profilePatch` is caller-supplied and was bounded by nothing at all on this
-  // path - each stage merged it into `flow.data` and wrote the result back into
-  // credential metadata, so a signup could stage megabytes and re-read them on
-  // every subsequent call.
+  // Before either write, so a caller-supplied `profilePatch` is refused rather than stored.
   deps.identities.assertProfileWithinCap(next.data)
 
-  // The version guard, then the metadata write. Nothing may revoke between them: there is no
-  // transaction here, so a failure after a revoke strands the user mid-signup holding a token the
-  // store has already marked dead.
-  //
-  // `rotate` with the row's own secret keeps the compare-and-set - a concurrent
-  // `advanceSignUp` still loses on `expectedVersion` - without invalidating the
-  // token, and `patchMetadata` is a single atomic merge. The worst outcome is now
-  // a version bump whose stage did not record, which the user fixes by retrying
-  // the same call with the same token.
+  // The version guard, then the metadata write, and no revoke between them: there is no transaction
+  // here, so a failure after a revoke strands the user holding a token the store has marked dead.
+  // `rotate` with the row's own secret keeps the compare-and-set without invalidating the token.
   try {
     await ctx.stores.credentials.rotate(row.id, row.secret, row.version, ctx.tenant)
   } catch (err) {
@@ -204,7 +191,7 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
     }
     throw err
   }
-  await ctx.stores.credentials.patchMetadata(row.id, { flow: next, purpose: 'signup-flow' }, ctx.tenant)
+  await ctx.stores.credentials.patchMetadata(row.id, { flow: next, purpose: RECOVERY_PURPOSES.signupFlow }, ctx.tenant)
   return next
 }
 
@@ -224,30 +211,36 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
     throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
   }
   const ctx = deps.ctxFactory(opts.tenantId)
-  const hash = ctx.crypto.authSha256(opts.flowToken)
-  const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
-  if (!row || isRevoked(row)) throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
-  const flow = parseSignUpFlow<Profile>(row.metadata)
-  if (flow === null) throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
+  const { flow, row } = await liveSignUpFlow<Profile>(ctx, opts.flowToken, 'AUTH_SIGNUP_TOKEN_INVALID')
 
   const missing = flow.required.filter((stage) => !flow.completed.includes(stage))
   if (missing.length > 0) {
     throw new AuthError('AUTH_SIGNUP_INCOMPLETE', { missing })
   }
 
-  const identity = await ctx.stores.identities.find({ id: flow.identityId })
+  const identity = await orNull(ctx.stores.identities.find({ id: flow.identityId }))
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
+
+  // A CAS claim that also burns the token, placed after the validation so a refused completion leaves
+  // the token usable, and before the first write so every write below is covered by it. The revoke at
+  // the end is not a claim: it is unconditional, so without this two concurrent completions both read a
+  // live row, both run the whole tail, and both get a session.
+  const burnt = ctx.crypto.authSha256(ctx.crypto.authRandomToken(32))
+  try {
+    await ctx.stores.credentials.rotate(row.id, burnt, row.version, ctx.tenant)
+  } catch (err) {
+    if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') {
+      throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
+    }
+    throw err
+  }
+
   // Through the facet, not the store: it is what enforces `profileMaxBytes`, and this is where the
   // staged profile is finally big enough to need it.
-  // `identity` is stale past this line; listeners need the profile we just wrote.
+  // `identity` is stale past this line; listeners need the profile just written.
   const merged = await deps.identities.updateProfile(identity.id, flow.data, identity.version)
-  // The stage said the address was proven; the column never recorded it. Nothing
-  // in this flow ever set `emailVerified`, so an account created through the
-  // documented happy path stayed unverified for good - which now also means it
-  // stayed reclaimable by `beginSignUp` forever, turning a stale column into a
-  // way to take over finished accounts. Written here, from the stage the host
-  // completed, so the row leaves the abandoned state the moment it stops being
-  // abandoned.
+  // SECURITY: written from the stage the host completed, so the row leaves the abandoned state the
+  // moment it stops being abandoned; an unrecorded `emailVerified` keeps it reclaimable forever.
   const settled = flow.completed.includes('email-verified')
     ? await deps.identities.markEmailVerified(identity.id)
     : merged
@@ -258,8 +251,7 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
   const { session, sid, csrfToken } = await deps.sessions.rotateOrCreate({
     // `sign-up`, not `guest-promotion`. `previousSid` is optional here: most
     // signups arrive with no prior session at all, and calling those a promotion
-    // made every rotation event describe a transition that never took place. The
-    // revocation semantics are identical; the name is now true.
+    // made every rotation event describe a transition that never took place.
     purpose: 'sign-up',
     ...(opts.previousSid !== undefined && { previousSid: opts.previousSid }),
     identityId: flow.identityId,
@@ -276,29 +268,14 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
 }
 
 /**
- * True only for a row in the exact state `beginSignUp` leaves behind: an
- * unverified address, no provider links, and no credential that is not a
- * `signup-flow` token or already revoked.
+ * True only for a row in the exact state `beginSignUp` leaves behind: an unverified address, no
+ * provider links, and no credential that is not a `signup-flow` token or already revoked.
  *
- * The three checks are the whole safety argument. Reusing a row means the next
- * caller's `completeSignUp` mints a session for it, so anything short of
- * "carries nothing and proves nothing" would be an account takeover rather than
- * a squat reclaim: an unverified account with a password set is somebody's, and
- * so is one with a Google link or a TOTP secret. MFA backup codes are stored as
- * `kind: 'recovery'` too, under `purpose: 'mfa-backup-code'`, so they fail the
- * `=== 'signup-flow'` test below and read as established here, which is right.
- *
- * The credential read is deliberately unscoped (`{}`), not run under the
- * caller's tenant: identities are global while credentials are not, so a
- * tenant-scoped read would miss a password living in another tenant and call an
- * established account abandoned. Fail closed - look everywhere.
- *
- * The cost is that a genuine user who started a signup and has not finished can
- * have their in-progress flow taken by someone else who asks for the same
- * address. That is bounded by `signup:begin:<address>`, it ends at the address's
- * real owner because completing still requires proving control of it, and it is
- * strictly better than the alternative it replaces: a squat nobody can ever
- * clear.
+ * SECURITY: the three checks are the whole safety argument, because reusing a row means the next
+ * caller's `completeSignUp` mints a session for it. Anything that carries or proves something, a
+ * password, a Google link, a TOTP secret or an MFA backup code, reads as established, which is right.
+ * The credential read is unscoped on purpose: identities are global while credentials are not, so a
+ * tenant-scoped read would miss a password in another tenant and call the account abandoned.
  */
 async function isAbandonedSignUp<Profile extends Identities.ProfileMetadataBase>(
   identity: Identities.Me<Profile>,
@@ -307,7 +284,7 @@ async function isAbandonedSignUp<Profile extends Identities.ProfileMetadataBase>
   if (identity.emailVerified) return false
   if (identity.providers.length > 0) return false
   const credentials = await ctx.stores.credentials.listByIdentity(identity.id, null, {})
-  return credentials.every((c) => isRevoked(c) || getCredentialPurpose(c) === 'signup-flow')
+  return credentials.every((c) => isRevoked(c) || getCredentialPurpose(c) === RECOVERY_PURPOSES.signupFlow)
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -315,24 +292,12 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Total a caller's partial profile into one the identity store will accept.
+ * Total a caller's partial profile into one the identity store will accept. `username` is required by
+ * the type and by the Postgres CHECK while `initialProfile` is optional, so it is derived here and
+ * replaced by `completeSignUp` once the flow carries a real one.
  *
- * `username` is required by the type and by the Postgres CHECK, and
- * `beginSignUp`'s `initialProfile` is optional, so something has to supply it.
- * Deriving beats requiring it: a signature change would break every caller for
- * a field most signups do not collect until a later stage, and the derived
- * handle is replaced by `completeSignUp` the moment the flow carries a real one.
- *
- * The address itself, not its local part. `username` carries a unique index of
- * its own, so deriving from the local part would refuse `sam@b.com` because
- * `sam@a.com` signed up first - a collision on a field neither of them chose.
- * The full address is unique by construction, and it is already what every
- * fixture and every store-compliance case in this library uses.
- *
- * The one remaining cast is the generic's: `Profile` may declare fields beyond
- * the base two, and only its caller knows them. It is a widening of a value that
- * now genuinely carries both required keys, not the `as unknown as` that used to
- * launder one missing them.
+ * WARN: the whole address, not its local part. `username` has a unique index, so `sam@a.com` would
+ * otherwise refuse `sam@b.com` on a field neither of them chose.
  */
 function buildSignUpProfile<Profile extends Identities.ProfileMetadataBase>(
   initial: Record<string, unknown>,
@@ -360,9 +325,8 @@ function parseSignUpFlow<Profile extends Identities.ProfileMetadataBase>(
   meta: unknown,
 ): Flows.SignUpFlowState<Profile> | null {
   if (!isPlainObject(meta)) return null
-  // `purpose`, the one discriminator every flow writes. This row used to be the
-  // odd one out with `kind`, which meant `getCredentialPurpose` - the helper the
-  // deletes and the guards read - returned `undefined` for it.
+  // `purpose`, the one discriminator every flow writes. This row was the odd one out with `kind`, so
+  // `getCredentialPurpose`, the helper the deletes and the guards read, answered `undefined` for it.
   if (meta.purpose !== 'signup-flow') return null
   const flow = meta.flow
   if (!isPlainObject(flow)) return null
