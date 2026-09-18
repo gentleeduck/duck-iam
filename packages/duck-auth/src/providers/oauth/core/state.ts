@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { randomToken } from '~/core/crypto'
 import type { OAuth } from './oauth.types'
 
-/** Sign a state payload into the oauth `state` parameter string. */
+/** Signs a state payload into the `state` parameter the IdP round-trips. */
 export function signState(payload: OAuth.StatePayload, secret: string): string {
   const json = JSON.stringify(payload)
   const body = Buffer.from(json, 'utf8').toString('base64url')
@@ -10,18 +10,15 @@ export function signState(payload: OAuth.StatePayload, secret: string): string {
   return `${body}.${sig}`
 }
 
-/**
- * Verify a signed `state` parameter. Returns the payload on success,
- * null on signature mismatch or expiry.
- */
+/** Null on signature mismatch or expiry, the payload otherwise. */
 export function authVerifyState(
   state: string,
   secret: string,
   opts: { maxAgeMs?: number } = {},
 ): OAuth.StatePayload | null {
   const maxAgeMs = opts.maxAgeMs ?? 10 * 60 * 1000
-  // 8KB cap on `state` to prevent multi-MB base64/JSON parse DoS.
-  // Defensive typeof: caller types it `string` but the wire surface is `unknown`.
+  // Capped at 8KB so a multi-MB base64/JSON parse cannot be forced. The typeof holds because the caller
+  // types this `string` while the wire surface is really unknown.
   if (typeof state !== 'string' || state.length === 0 || state.length > 8192) return null
   const [body, sig, ...rest] = state.split('.')
   if (rest.length > 0 || body === undefined || sig === undefined) return null
@@ -48,12 +45,10 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-/** SEC: hard cap on returnTo length. The state is HMAC-signed + carried
- * in the oauth provider's URL on the redirect dance; an oversize value
- * blows up the URL (browsers cap at ~2k, providers reject longer). Cap
- * here so a hostile caller cannot use begin() to mint enormous state
- * cookies / URLs that fail unpredictably. 2048 is generous - real
- * returnTo paths are tens of bytes. */
+/** SECURITY: the state is HMAC-signed and carried in the provider's URL through the redirect dance, so an
+ *  oversize `returnTo` blows up that URL, browsers capping near 2k and providers rejecting longer. Without
+ *  the cap a hostile caller mints enormous state cookies through begin() that fail unpredictably. Real
+ *  returnTo paths are tens of bytes, so 2048 is generous. */
 const RETURN_TO_MAX = 2048
 
 function parseStatePayload(raw: unknown): OAuth.StatePayload | null {
@@ -75,10 +70,8 @@ function parseStatePayload(raw: unknown): OAuth.StatePayload | null {
   return payload
 }
 
-/**
- * Build a fresh state payload with a random nonce + the given verifier
- * + providerId + the digest of the cookie that binds it to one browser.
- */
+/** Builds a payload carrying a fresh nonce, the verifier, the providerId, and the digest of the cookie that
+ *  binds it to one browser. */
 export function authBuildState(
   providerId: string,
   verifier: string,

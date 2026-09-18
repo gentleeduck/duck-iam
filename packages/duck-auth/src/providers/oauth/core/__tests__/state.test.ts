@@ -2,14 +2,6 @@
  * The OAuth `state` parameter is this client's CSRF defence, its PKCE verifier
  * carrier, and its mix-up defence, all in one HMAC-signed string that makes a
  * round trip through an authorization server the client does not control.
- *
- * That means every byte of it comes back attacker-reachable. RFC 9700 asks a
- * client to prevent CSRF at the redirection endpoint, to bind the response to
- * the issuer it was requested from, and to keep the PKCE verifier out of an
- * attacker's hands. All three live or die on `authVerifyState` refusing anything
- * it did not itself sign.
- *
- * Nothing here is repaired; surprising behaviour is pinned.
  */
 import { Buffer } from 'node:buffer'
 import { createHmac } from 'node:crypto'
@@ -274,8 +266,7 @@ describe('the state is stateless, so it verifies as many times as it is presente
     // Pinned as a property rather than fixed: single use needs a server-side record of what is
     // outstanding, and this helper is handed a secret and a string. The authorization code it
     // accompanies is single-use at the authorization server, which is what stops a second use
-    // going anywhere. What the state does not do is bind the flow to the browser that began it,
-    // and that is a provider-level gap rather than one this function can close.
+    // going anywhere.
     const state = sign(build())
     for (let i = 0; i < 5; i++) expect(authVerifyState(state, SECRET)).not.toBeNull()
   })
