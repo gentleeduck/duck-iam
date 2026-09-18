@@ -2,17 +2,6 @@
  * The DEK here is deterministic: HKDF over the master key and the context. The
  * same field of the same identity is always encrypted under the same key, which
  * means the twelve-byte IV is the only thing keeping two ciphertexts apart.
- *
- * That makes IV uniqueness the single catastrophic failure in this adapter. Reuse
- * one IV under one key and GCM stops protecting anything: the XOR of two
- * ciphertexts is the XOR of their plaintexts, and the authentication tag becomes
- * forgeable. Nothing tested it, so a change that hoisted the IV out of `encrypt`
- * or seeded it from the context would have looked fine in review and passed the
- * existing round-trip tests.
- *
- * The rest of the file covers the other property a deterministic-DEK design
- * needs: that the context genuinely separates keys, so one field's ciphertext
- * cannot be decrypted as another's.
  */
 import { Buffer } from 'node:buffer'
 import { createCipheriv, createHash, randomBytes } from 'node:crypto'
@@ -271,7 +260,7 @@ describe('the values it is asked to protect', () => {
   })
 
   it('round-trips unicode and emoji without mangling them', async () => {
-    for (const value of ['naïve', '🦆🦆🦆', '中文', 'café', 'a b']) {
+    for (const value of ['naïve', '🦆🦆🦆', '中文', 'café', 'a\u0000b']) {
       expect(await adapter.decrypt(await adapter.encrypt(value, ctx), ctx)).toBe(value)
     }
   })

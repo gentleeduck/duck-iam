@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual as nodeTimingSafeEqual, randomBytes, randomFillSync } from 'node:crypto'
 
-/** 32-byte random token, base64url. Used for session IDs, CSRF, magic links. */
+/** base64url, so the value is URL- and cookie-safe as it stands. */
 export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString('base64url')
 }
@@ -33,14 +33,12 @@ export function authUuidV7(): string {
 }
 
 /**
- * SHA-256 hash of input, hex-encoded. Used for at-rest token storage:
- * session ids, CSRF tokens, API keys, OAuth/OIDC refresh tokens, MFA codes.
- * Every caller passes a high-entropy value already produced by `randomToken()`
- * or an equivalent generator - never a human-chosen password, which goes
- * through `Argon2idHasher`/`ScryptHasher` in providers/passwords instead. A
- * fast hash is correct here: these values can't be brute-forced by guessing
- * regardless of hash speed, and a slow KDF would make every lookup (e.g. one
- * per API request) needlessly expensive.
+ * At-rest storage for session ids, CSRF tokens, API keys, refresh tokens and MFA codes.
+ *
+ * SECURITY: every caller passes a high-entropy value from {@link randomToken} or the like, never a
+ * human-chosen password, which goes through `Argon2idHasher`/`ScryptHasher` instead. A fast hash is
+ * right here: guessing cannot brute-force these whatever the hash costs, and a slow KDF would price
+ * every lookup, one per API request among them.
  */
 // codeql[js/insufficient-password-hash]: false positive - hashes random tokens/API keys, not passwords; see doc comment above.
 export function sha256(s: string): string {

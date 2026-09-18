@@ -3,11 +3,8 @@ import type { DataAtRest, Kms } from '../dataAtRest/dataAtRest.types'
 import { AuthError } from '../errors'
 
 /**
- * Envelope-encryption `DataAtRest.IAdapter` driven by any `Kms.IProvider`.
- * Per-record DEK + AES-256-GCM locally; `{identityId, field}` is pinned in
- * the KMS encryption context (AAD) to defeat ciphertext relocation.
- *
- * Ciphertext layout: `kms-env$v1$<keyId>$<wrappedB64u>$<ivB64u>$<tagB64u>$<ctB64u>`.
+ * Envelope encryption over any `Kms.Provider`: a per-record DEK and AES-256-GCM locally, with
+ * `{identityId, field}` pinned in the KMS encryption context (AAD) so a ciphertext cannot be relocated.
  */
 export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
   readonly id: string
@@ -18,6 +15,7 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
     this.id = `kms-envelope:${cfg.kms.id}`
   }
 
+  /** Mints a per-record data key, encrypts locally under it, and stores it wrapped alongside. */
   async encrypt(plain: string, ctx: DataAtRest.Context): Promise<string> {
     const dek = await this._kms.generateDataKey(this._aad(ctx))
     if (dek.plaintext.length !== 32) {
@@ -29,9 +27,8 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
     const cipher = createCipheriv('aes-256-gcm', dek.plaintext, iv)
     const ct = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
     const tag = cipher.getAuthTag()
-    // zero the plaintext DEK as soon as AES-GCM has consumed it.
-    // The wrapped form is what we persist; holding the plaintext any
-    // longer just widens the memory-disclosure blast radius.
+    // Zeroed as soon as AES-GCM has consumed it: the wrapped form is what persists, and holding the
+    // plaintext longer only widens the memory-disclosure radius.
     dek.plaintext.fill(0)
     return [
       'kms-env',
@@ -44,15 +41,21 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
     ].join('$')
   }
 
+  /** Unwraps the record's own data key through KMS, then decrypts locally. */
   async decrypt(cipherText: string, ctx: DataAtRest.Context): Promise<string> {
     const parts = cipherText.split('$')
     if (parts.length !== 7 || parts[0] !== 'kms-env' || parts[1] !== 'v1') {
       throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: malformed ciphertext' })
     }
-    const [, , , wrappedB64, ivB64, tagB64, ctB64] = parts as [string, string, string, string, string, string, string]
+    // No cast: the length check above leaves seven strings, and the guard below rejects a missing one.
+    const [wrappedB64, ivB64, tagB64, ctB64] = [parts[3], parts[4], parts[5], parts[6]]
+    if (wrappedB64 === undefined || ivB64 === undefined || tagB64 === undefined || ctB64 === undefined) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: malformed ciphertext' })
+    }
     const wrapped = Buffer.from(wrappedB64, 'base64url')
     const dekPlain = await this._kms.decryptDataKey(wrapped, this._aad(ctx))
     if (dekPlain.length !== 32) {
+      dekPlain.fill(0)
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `kms-envelope: KMS returned ${dekPlain.length}-byte DEK on decrypt; expected 32`,
       })
@@ -60,6 +63,17 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
     const iv = Buffer.from(ivB64, 'base64url')
     const tag = Buffer.from(tagB64, 'base64url')
     const ct = Buffer.from(ctB64, 'base64url')
+    // SECURITY: standard GCM sizes, as the aes-gcm adapter checks. Node accepts a shorter tag - it only
+    // warns - and a 32-bit tag is a forgery target of 2^32 rather than 2^128, on a column whose whole
+    // purpose is to hold when someone can already write to it.
+    if (iv.length !== 12) {
+      dekPlain.fill(0)
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: IV must be 12 bytes' })
+    }
+    if (tag.length !== 16) {
+      dekPlain.fill(0)
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: auth tag must be 16 bytes' })
+    }
     try {
       const decipher = createDecipheriv('aes-256-gcm', dekPlain, iv)
       decipher.setAuthTag(tag)
@@ -75,10 +89,10 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
     }
   }
 
+  /** Always false; KMS rotates server-side under the same key id. */
   needsReEncrypt(_cipherText: string): boolean {
-    // KMS handles key rotation server-side under the same keyId, so
-    // ciphertexts don't carry a rotation-version we can compare to.
-    // Operators trigger re-encrypt out-of-band when they retire a key.
+    // KMS rotates server-side under the same keyId, so an operator retiring a key triggers the
+    // re-encrypt out of band.
     return false
   }
 
@@ -92,13 +106,14 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
   }
 }
 
+/** Configuration for the envelope encryptor that wraps each data key with a KMS provider. */
 export namespace AuthKmsEnvelopeDataAtRest {
   export interface Cfg {
     kms: Kms.Provider
   }
 }
 
-/** Factory around {@link AuthKmsEnvelopeDataAtRest}, for callers who prefer functions to `new`. */
+/** Constructs an {@link AuthKmsEnvelopeDataAtRest} encryptor. */
 export function authKmsEnvelopeDataAtRest(
   ...args: ConstructorParameters<typeof AuthKmsEnvelopeDataAtRest>
 ): AuthKmsEnvelopeDataAtRest {
