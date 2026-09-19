@@ -184,6 +184,11 @@ jobs:
       - name: Verify docker is up (a skipped e2e tier is not a passing one)
         run: docker info --format '{{.ServerVersion}}'
       - name: Pre-pull container images
-        run: docker pull postgres:16-alpine && docker pull redis:7-alpine
+        run: docker pull postgres:18.4-alpine3.24 && docker pull valkey/valkey:9-alpine && docker pull mysql:8.4
+      # Both packages, not just iam: duck-auth's 31 e2e files ran in no job at all, which is the
+      # gap this job was added to close. `DUCKAUTH_E2E_REQUIRE=1` makes an unprovisioned backend a
+      # failure here rather than a silent skip.
       - name: E2E
-        run: bunx turbo run test:e2e --filter=@gentleduck/iam
+        env:
+          DUCKAUTH_E2E_REQUIRE: '1'
+        run: bunx turbo run test:e2e --filter=@gentleduck/iam --filter=@gentleduck/auth
