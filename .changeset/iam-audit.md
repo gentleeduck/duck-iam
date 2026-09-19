@@ -18,10 +18,23 @@ is evaluated against the attributes it carries. A check that omits them is
 unchanged, and still answers about an instance that has none — now stated in the
 reference instead of being inferred from the key.
 
-The route guards (`iamAccessMiddleware`, `iamGuard`, `iamNestAccessGuard`,
-`createIamNextMiddleware`, `checkIamAccess`, `createIamSubjectCan`) share the
-blind spot for a structural reason: they run before the handler has loaded the
-row, so there are no attributes to pass. That is now documented on each of them
-and in the server reference, with the guidance the omission was hiding — the
-guard is the coarse gate on type, id and scope, and an attribute-dependent rule
-has to be re-checked with `can()` once the row is in hand.
+The route guards had the same hole, and it was not structural. NestJS's
+`iamNestAccessGuard` already accepted a `getResourceAttributes`; the express and
+Hono `iamAccessMiddleware`s already took attributes synchronously through
+`getResource`. The rest could not be told at all. Express and Hono's `iamGuard`,
+`withIamAccess` and `createIamNextMiddleware` now take the same
+`getResourceAttributes` option Nest has; `checkIamAccess` and the checker
+`createIamSubjectCan` returns take the attributes as an argument. Supplying them
+costs a load the guard exists to skip, so it stays opt-in: omit the callback and
+the guard remains the coarse gate on type, id and scope, with the
+attribute-dependent rule re-checked by `can()` once the row is in hand. All
+eight surfaces are now pinned against one policy so they cannot drift apart.
+
+### A Server Component check ignored the environment
+
+`checkIamAccess` and `getIamPermissions` passed `undefined` where every other
+integration passes a request-derived environment, and neither accepted one. A
+policy keyed on `environment.ip`, `environment.userAgent` or a custom key read
+as a non-match, so a deny that fired in Next middleware was inert in a Server
+Component asking the same question. Both now take an `environment` argument and
+forward it.

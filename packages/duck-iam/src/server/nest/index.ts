@@ -217,8 +217,8 @@ function getHandlerMeta(handler: object): IHandlerMeta {
  * Builds a NestJS `canActivate` that reads {@link IamAuthorize} metadata off the handler and runs `engine.can(...)`.
  * Handlers without metadata are allowed.
  *
- * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
- * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ * SECURITY: a rule reading `resource.attributes.*` sees only what `getResourceAttributes` returns; without it the
+ * resource is the route's type and id alone, and such a rule cannot fire.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.

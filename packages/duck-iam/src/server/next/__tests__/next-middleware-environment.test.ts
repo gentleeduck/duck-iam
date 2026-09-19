@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine'
 import type { AccessControl } from '../../../core/types'
-import { createIamNextMiddleware, withIamAccess } from '../index'
+import { checkIamAccess, createIamNextMiddleware, getIamPermissions, withIamAccess } from '../index'
 
 // SECURITY: `createIamNextMiddleware` must populate the environment like every other integration, or a deny rule on
 // `environment.userAgent`, `.ip` or `.hour` is inert where a Next app guards `/admin`.
@@ -96,5 +96,45 @@ describe('createIamNextMiddleware environment', () => {
     const viaMiddleware = await mw(request('evilbot/1'))
     expect(viaWith.status).toBe(403)
     expect(viaMiddleware?.status).toBe(403)
+  })
+})
+
+// The two Server Component helpers take the environment as an argument; they used to drop it on the floor.
+describe('the Server Component helpers and the environment', () => {
+  it('checkIamAccess enforces a deny rule keyed on the environment', async () => {
+    const denied = await checkIamAccess(makeEngine(), 'user-staff', 'read', 'admin', undefined, undefined, {
+      userAgent: 'evilbot/1',
+    })
+    expect(denied).toBe(false)
+  })
+
+  // Control: the same call with a benign agent, so a helper that denied everything would fail.
+  it('checkIamAccess allows a user agent the rule does not match', async () => {
+    const allowed = await checkIamAccess(makeEngine(), 'user-staff', 'read', 'admin', undefined, undefined, {
+      userAgent: 'Mozilla/5.0',
+    })
+    expect(allowed).toBe(true)
+  })
+
+  it('getIamPermissions enforces the same rule', async () => {
+    const check = [{ action: 'read', resource: 'admin' }] as const
+    const denied = await getIamPermissions(makeEngine(), 'user-staff', check, { userAgent: 'evilbot/1' })
+    const allowed = await getIamPermissions(makeEngine(), 'user-staff', check, { userAgent: 'Mozilla/5.0' })
+    expect(Object.values(denied)).toEqual([false])
+    expect(Object.values(allowed)).toEqual([true])
+  })
+
+  // The helper and the route wrapper are two ways to ask one question.
+  it('checkIamAccess agrees with withIamAccess on the same environment', async () => {
+    const engine = makeEngine()
+    const handler = withIamAccess(engine, 'read', 'admin', async () => Response.json({ ok: true }), {
+      getUserId: () => 'user-staff',
+    })
+    const viaHandler = (await handler(request('evilbot/1'), { params: {} })).status
+    const viaHelper = await checkIamAccess(engine, 'user-staff', 'read', 'admin', undefined, undefined, {
+      userAgent: 'evilbot/1',
+    })
+    expect(viaHandler).toBe(403)
+    expect(viaHelper).toBe(false)
   })
 })

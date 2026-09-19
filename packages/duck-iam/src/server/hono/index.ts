@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import type { AccessControl, IamRequest } from '../../core/types'
+import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import { iamIsValidationError } from '../../shared/errors'
 import {
   iamAsActionLiteral,
@@ -135,8 +135,8 @@ function defaultEnv(c: HonoContext, trustCloudflareHeaders = false): IamRequest.
 /**
  * Builds Hono middleware that runs `engine.can(...)` on every request: 401 without a user, 403 on deny.
  *
- * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
- * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ * SECURITY: a rule reading `resource.attributes.*` sees only what `getResource` puts there, and it is synchronous:
+ * attributes an earlier middleware already attached work, loading the row here does not.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -371,8 +371,8 @@ export function iamBindAdminRouter<
 /**
  * Builds Hono middleware that checks `(action, resourceType)` for the current user, with the id from `:id`.
  *
- * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
- * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ * SECURITY: a rule reading `resource.attributes.*` sees only what `getResourceAttributes` returns; without it the
+ * resource is the route's type and id alone, and such a rule cannot fire.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -403,6 +403,14 @@ export function iamGuard<
     'getUserId' | 'getEnvironment' | 'onDenied' | 'onError' | 'trustCloudflareHeaders'
   > & {
     scope?: TScope
+    /**
+     * The resource's own attributes for this check; receives the context and the resolved tuple.
+     * Declared here, not on {@link IamHono.IOptions}, because `iamAccessMiddleware` takes them from `getResource`.
+     */
+    getResourceAttributes?: (
+      c: HonoContext,
+      ctx: { action: TAction; resource: TResource; scope: TScope | undefined },
+    ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
   } = {},
 ): HonoMiddleware {
   const {
@@ -412,6 +420,7 @@ export function iamGuard<
     getEnvironment = (c: HonoContext) => defaultEnv(c, trustCloudflareHeaders),
     onDenied = (c) => c.json({ error: 'Forbidden' }, 403),
     onError = (_err, c) => c.json({ error: 'Internal server error' }, 500),
+    getResourceAttributes,
     scope,
   } = opts
 
@@ -420,10 +429,13 @@ export function iamGuard<
       const userId = getUserId(c)
       if (!iamIsSubjectId(userId)) return c.json({ error: 'Unauthorized' }, 401)
 
+      const attributes = getResourceAttributes
+        ? await getResourceAttributes(c, { action, resource: resourceType, scope })
+        : {}
       const allowed = await engine.can(
         userId,
         action,
-        { type: resourceType, id: c.req.param('id'), attributes: {} },
+        { type: resourceType, id: c.req.param('id'), attributes },
         getEnvironment(c),
         scope,
       )

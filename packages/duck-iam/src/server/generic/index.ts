@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import type { AccessControl, IamClient, IamRequest } from '../../core/types'
+import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
 import { IamValidationError } from '../../shared/errors'
 import { IAM_RESERVED_REFUSAL } from '../../shared/reserved'
 
@@ -478,8 +478,8 @@ export async function generateIamPermissionMap<
 /**
  * Builds a typed `(action, resourceType, resourceId?, scope?) => Promise<boolean>` checker bound to one subject.
  *
- * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
- * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ * SECURITY: a rule reading `resource.attributes.*` sees only the attributes passed to the returned checker;
+ * without them the resource is a type and an id, and such a rule cannot fire.
  *
  * @template TAction - Valid action strings.
  * @template TResource - Valid resource strings.
@@ -497,8 +497,20 @@ export function createIamSubjectCan<
   TRole extends string = string,
   TScope extends string = string,
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, subjectId: string, environment?: IamRequest.IEnvironment) {
-  return (action: TAction, resourceType: TResource, resourceId?: string, scope?: TScope) =>
-    engine.can(subjectId, action, { type: resourceType, id: resourceId, attributes: {} }, environment, scope)
+  return (
+    action: TAction,
+    resourceType: TResource,
+    resourceId?: string,
+    scope?: TScope,
+    attributes?: Readonly<IamPrimitives.Attributes>,
+  ) =>
+    engine.can(
+      subjectId,
+      action,
+      { type: resourceType, id: resourceId, attributes: attributes ?? {} },
+      environment,
+      scope,
+    )
 }
 
 /**

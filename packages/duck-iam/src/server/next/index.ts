@@ -3,7 +3,7 @@
  */
 
 import type { IamEngine } from '../../core'
-import type { AccessControl, IamClient, IamRequest } from '../../core/types'
+import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
 import { iamIsValidationError } from '../../shared/errors'
 import { iamAsActionLiteral, iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
@@ -44,6 +44,11 @@ export namespace IamNext {
     getEnvironment?: (req: Request) => IamRequest.IEnvironment
     /** Applies a scope to the access check. */
     scope?: TScope
+    /** The resource's own attributes for the check; receives the request and the resolved tuple. */
+    getResourceAttributes?: (
+      req: Request,
+      ctx: { action: string; resource: string; resourceId: string | undefined; scope: TScope | undefined },
+    ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
     onError?: (err: Error, req: Request) => Response
   }
@@ -75,6 +80,11 @@ export namespace IamNext {
     getUserId: (req: Request) => string | null | Promise<string | null>
     /** Extracts environment context (IP, user-agent, etc.) from the request. */
     getEnvironment?: (req: Request) => IamRequest.IEnvironment
+    /** The resource's own attributes for the check; receives the request and the resolved tuple. */
+    getResourceAttributes?: (
+      req: Request,
+      ctx: { action: TAction; resource: TResource; scope: TScope | undefined },
+    ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles a denied or ambiguous-path request (defaults to 403 JSON). */
     onDenied?: (req: Request) => Response
     /** Handles a request with no user (defaults to 401 JSON). */
@@ -154,6 +164,7 @@ export function withIamAccess<
     getEnvironment = (req) => iamExtractEnvironment({ headers: req.headers, method: req.method, url: req.url }),
     scope,
     onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
+    getResourceAttributes,
   } = opts
 
   return async (req, ctx) => {
@@ -167,10 +178,13 @@ export function withIamAccess<
       const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
       const resourceId = params?.id
 
+      const attributes = getResourceAttributes
+        ? await getResourceAttributes(req, { action, resource: resourceType, resourceId, scope })
+        : {}
       const allowed = await engine.can(
         userId,
         action,
-        { type: resourceType, id: resourceId, attributes: {} },
+        { type: resourceType, id: resourceId, attributes },
         getEnvironment(req),
         scope,
       )
@@ -189,8 +203,8 @@ export function withIamAccess<
 /**
  * Whether `subjectId` can perform `(action, resourceType)`, for Server Components and server actions.
  *
- * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
- * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ * SECURITY: `environment` and `attributes` default to absent, so a rule reading `environment.*` or
+ * `resource.attributes.*` cannot fire unless this call passes them.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -209,6 +223,8 @@ export async function checkIamAccess<
   resourceType: TResource,
   resourceId?: string,
   scope?: TScope,
+  environment?: IamRequest.IEnvironment,
+  attributes?: Readonly<IamPrimitives.Attributes>,
 ): Promise<boolean> {
   return engine.can(
     subjectId,
@@ -216,9 +232,9 @@ export async function checkIamAccess<
     {
       type: resourceType,
       id: resourceId,
-      attributes: {},
+      attributes: attributes ?? {},
     },
-    undefined,
+    environment,
     scope,
   )
 }
@@ -243,16 +259,17 @@ export async function getIamPermissions<
   engine: IamEngine<TAction, TResource, TRole, TScope, TMode>,
   subjectId: string,
   checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
+  environment?: IamRequest.IEnvironment,
 ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
-  return engine.permissions(subjectId, checks)
+  return engine.permissions(subjectId, checks, environment)
 }
 
 /**
  * Builds a Next.js Middleware check from pattern-keyed rules: `null` when the request passes or no rule matches,
  * else a 401/403/500 `Response`.
  *
- * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
- * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ * SECURITY: a rule reading `resource.attributes.*` sees only what `getResourceAttributes` returns; without it the
+ * resource is the matched rule's type alone, and such a rule cannot fire.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -288,6 +305,7 @@ export function createIamNextMiddleware<
     onDenied = () => Response.json({ error: 'Forbidden' }, { status: 403 }),
     onUnauthorized = () => Response.json({ error: 'Unauthorized' }, { status: 401 }),
     onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
+    getResourceAttributes,
   } = opts
 
   return async (req: Request): Promise<Response | null> => {
@@ -327,12 +345,15 @@ export function createIamNextMiddleware<
       // widens through the named helper the other adapters use.
       const action: TAction = matchedRule.action ?? iamAsActionLiteral<TAction>(iamActionForMethod(req.method))
 
+      const attributes = getResourceAttributes
+        ? await getResourceAttributes(req, { action, resource: matchedRule.resource, scope: matchedRule.scope })
+        : {}
       const allowed = await engine.can(
         userId,
         action,
         {
           type: matchedRule.resource,
-          attributes: {},
+          attributes,
         },
         getEnvironment(req),
         matchedRule.scope,
