@@ -1,13 +1,4 @@
-/**
- * E2E: `valkeyLimiter` against a REAL server.
- *
- * `redis-limiter.e2e.test.ts` covers `RedisLimiter`'s atomic counter and window
- * expiry. This proves `valkeyLimiter` wires a raw ioredis client into a working
- * limiter, on the property that matters: two instances share one counter.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
- */
+/** E2E: `valkeyLimiter` against a REAL server. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { valkeyLimiter } from '~/limiters/valkey'

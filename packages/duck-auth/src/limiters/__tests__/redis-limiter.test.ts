@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FakeRedis } from '~/adapters/redis'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import { RedisLimiter } from '../redis'
 
 describe('RedisLimiter', () => {
