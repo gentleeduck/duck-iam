@@ -468,7 +468,7 @@ precisely because role permissions are allow-only — there is no deny to lose.
 | `getEffectiveRoles()` | The adapter read fails (no catch on this path) |
 | `withTransaction(client)` | The adapter has no `withClient` |
 | `engine.admin.*` | Input validation (see §9), validator rejection, adapter errors |
-| `preload()` | The policy load fails, or the compile fails for any reason other than the role limit |
+| `preload()` | The policy load fails, the compile fails for any reason other than the role limit, or `{ validator: true }` finds an invalid stored policy or role |
 
 ### 5.3 The fail-open signal
 
@@ -1175,13 +1175,40 @@ call `pending.discard()` to say so explicitly.
 
 ### `preload(opts?)`
 
-Warms `mergedPolicyCache` and builds the compiled table concurrently; `{ validator: true }`
-additionally pulls the lazy validate chunk. Roughly 15× faster first call than
-cold. Both modes build the table, since both evaluate through it.
+Warms `mergedPolicyCache` and builds the compiled table concurrently. Roughly
+15× faster first call than cold. Both modes build the table, since both evaluate
+through it.
 
 An over-limit role count does **not** make `preload()` throw — `_getCompiledTable`
 catches `IamRoleLimitExceededError` and returns `null`, because the interpreter
 can serve. Any other compile failure does propagate.
+
+#### `{ validator: true }` — the only check on rows the write path never saw
+
+`engine.admin` validates every policy and role it writes; all six adapters call
+the same gate. **The read path validates nothing.** A row that entered storage
+another way — a migration, a seed script, a restore, a direct SQL insert, another
+service writing the same table — is loaded and evaluated exactly as stored.
+
+That is not a theoretical risk, because the two failure modes differ:
+
+| Invalid row | Evaluation |
+| --- | --- |
+| A condition the evaluator refuses (`eq` against an array) | Indeterminate → the policy denies. Loud, fail-closed. |
+| A rule that merely never matches (`actions: ["read\n"]`, an unreachable resource pattern) | The rule misses. A **deny** in that shape silently never fires. |
+
+`preload({ validator: true })` loads the validate chunk and runs
+`validatePolicy` / `validateRole` over every stored policy and role, then throws
+once with the exact number of offending rows and up to ten of them named:
+
+```
+[@gentleduck/iam:engine] preload({ validator: true }): 12 stored row(s) are invalid:
+policy "planted-0": Action must not contain control characters | … (+2 more)
+```
+
+Only `type: 'error'` issues count; a `BROAD_ALLOW` warning is not a boot failure.
+Without the flag `preload()` reads no roles and runs no validator, so the cost
+is opt-in — but so is ever finding out.
 
 ### `healthCheck()`
 

@@ -155,7 +155,7 @@ at 15-25 KB.
 
 ### SRE primitives
 
-- **`engine.preload()`** - warm cache at boot
+- **`engine.preload()`** - warm cache at boot; `{ validator: true }` also validates every stored row
 - **`engine.healthCheck()`** - `/healthz`-ready probe with adapter latency + cache hit rate
 - **`engine.stats.get()` / `engine.stats.reset()`** - cache hit / miss counters per cache
 - **`engine.cache.invalidate()` / `invalidatePolicies()` / `invalidateRoles(id?)` / `invalidateSubject(id)`** - targeted cache flushes

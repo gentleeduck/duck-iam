@@ -165,6 +165,14 @@ once, falls back to the interpreter, and `healthCheck().compiledTable` reports
 the table as unavailable from then on. The answers stay correct; only the
 throughput changes.
 
+`preload({ validator: true })` does one more thing, and it is the only place the
+package does it: it validates every stored policy and role. The write path
+validates, the read path never has, so a row written by a migration or a seed
+script is evaluated exactly as stored — and an invalid **deny** can silently
+never fire. Run it at boot in any deployment where something other than
+`engine.admin` writes those tables; it throws with the count and the offending
+ids.
+
 ---
 
 ## Part 2: the questions people ask

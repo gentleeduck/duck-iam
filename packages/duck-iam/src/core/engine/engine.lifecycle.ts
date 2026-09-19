@@ -1,5 +1,7 @@
 // Boot, health and dispose helpers, testable without an engine.
 
+import type { AccessControl } from '../types'
+import type { IamValidate } from '../validate/validate.types'
 import { aggregateCacheHitRate, type IIamCachesForStats, statsSnapshot } from './engine.stats'
 import type { IamEngineTypes } from './engine.types'
 
@@ -31,19 +33,48 @@ export async function runHealthCheck(
   }
 }
 
+/** At most this many offending rows are named in the preload error; the count is always exact. */
+const PRELOAD_REPORT_LIMIT = 10
+
 /**
  * Warms policies, plus the lazily imported validator and the compiled table when this engine uses them.
  * Runs everything concurrently to move first-request latency into startup.
+ * SECURITY: with `loadValidator`, every stored policy and role is validated and a failure throws. Only the write
+ * path validates otherwise, so a row that entered storage another way runs unchecked — a deny whose condition the
+ * validator would have refused never fires.
  */
 export async function preloadEngine(args: {
-  loadAllPolicies: () => Promise<unknown>
+  loadAllPolicies: () => Promise<readonly AccessControl.IPolicy[]>
+  loadAllRoles: () => Promise<readonly AccessControl.IRole[]>
   loadValidator: boolean
   buildCompiledTable?: () => Promise<unknown>
 }): Promise<void> {
-  const tasks: Array<Promise<unknown>> = [args.loadAllPolicies()]
-  if (args.loadValidator) tasks.push(import('../validate'))
-  if (args.buildCompiledTable) tasks.push(args.buildCompiledTable())
-  await Promise.all(tasks)
+  const [policies, roles, validate] = await Promise.all([
+    args.loadAllPolicies(),
+    args.loadValidator ? args.loadAllRoles() : undefined,
+    args.loadValidator ? import('../validate') : undefined,
+    args.buildCompiledTable?.(),
+  ])
+  if (validate === undefined || roles === undefined) return
+
+  const problems: string[] = []
+  const record = (kind: 'policy' | 'role', id: string, result: IamValidate.IResult): void => {
+    if (result.valid) return
+    const why = result.issues
+      .filter((i) => i.type === 'error')
+      .map((i) => i.message)
+      .join('; ')
+    problems.push(`${kind} "${id}": ${why}`)
+  }
+  for (const policy of policies) record('policy', policy.id, validate.validatePolicy(policy))
+  for (const role of roles) record('role', role.id, validate.validateRole(role))
+
+  if (problems.length === 0) return
+  const shown = problems.slice(0, PRELOAD_REPORT_LIMIT).join(' | ')
+  const more = problems.length > PRELOAD_REPORT_LIMIT ? ` (+${problems.length - PRELOAD_REPORT_LIMIT} more)` : ''
+  throw new Error(
+    `[@gentleduck/iam:engine] preload({ validator: true }): ${problems.length} stored row(s) are invalid: ${shown}${more}`,
+  )
 }
 
 /**
