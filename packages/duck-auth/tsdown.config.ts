@@ -9,6 +9,7 @@ export default createTsdownConfig({
     'core/idempotency/index': 'src/core/idempotency/index.ts',
     'core/dataAtRest/index': 'src/core/dataAtRest/index.ts',
     'core/errors': 'src/core/errors/index.ts',
+    'adapters/index': 'src/adapters/index.ts',
     'adapters/memory/index': 'src/adapters/memory/index.ts',
     'adapters/redis/index': 'src/adapters/redis/index.ts',
     'adapters/drizzle/index': 'src/adapters/drizzle/index.ts',
