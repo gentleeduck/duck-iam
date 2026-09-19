@@ -138,3 +138,26 @@ stored policy and role, throwing once with the exact number of offending rows
 and up to ten named with their reason. Only `type: 'error'` issues fail the
 boot; a `BROAD_ALLOW` warning does not. Without the flag `preload()` reads no
 roles and runs no validator, so the cost stays opt-in.
+
+### A route guard could not name the tenant it was deciding in
+
+The access request has four dimensions — action, resource type, row, scope —
+and the scope was the one no guard could derive from the request. `iamGuard`
+(express and hono), `withIamAccess` and `createIamNextMiddleware` took only a
+fixed `scope` fixed at mount time, so on the canonical multi-tenant route,
+`/orgs/:orgId/posts/:postId`, every check ran with `scope: undefined` even
+though the tenant was in the path. Only the nest guard could already read one
+per request.
+
+Running unscoped is not neutral in either direction. A scoped assignment —
+`assignRole('u1', 'editor', { scope: 'org-1' })` — only enriches the subject
+when the request carries a matching scope, so the grant did not apply and the
+guard denied a caller who genuinely held the role. A rule conditioned on
+`scope` is the opposite: the field resolves to `null`, the condition does not
+match, and a **deny** in that shape silently never fired.
+
+All four now take `getScope`, matching the extractor the two
+`iamAccessMiddleware` surfaces already had and the shape nest already used. A
+fixed `scope` still wins where both are given, so existing mounts keep their
+meaning, and the resolved scope is handed to `getResourceAttributes` so an
+attribute loader can read the row from the right tenant.

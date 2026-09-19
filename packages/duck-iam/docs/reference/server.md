@@ -188,6 +188,35 @@ In Next.js middleware there is no id at all unless you extract one. `createIamNe
 
 `src/server/__tests__/guard-resource-id.test.ts` drives all five surfaces against one policy denying post `42`: the default refuses it on `/posts/:id`, lets it through when the route calls the param `:postId`, and refuses it again once `getResourceId` names that param.
 
+### 2.8 Which scope the guard runs under
+
+The scope is the fourth dimension of the request, alongside action, resource type and row. Unlike the other three it has **no default anywhere** — a guard given nothing runs the check with `scope: undefined`.
+
+| Surface | Fixed scope | Per-request scope |
+| --- | --- | --- |
+| `iamGuard` (express) | `opts.scope` | `opts.getScope(req)` |
+| `iamGuard` (hono) | `opts.scope` | `opts.getScope(c)` |
+| `iamNestAccessGuard` | `@IamAuthorize({ scope })` | `opts.getScope(request)` |
+| `withIamAccess` | `opts.scope` | `opts.getScope(req, params)` |
+| `createIamNextMiddleware` | the matched rule's `scope` | `opts.getScope(req, { action, resource })` |
+| `iamAccessMiddleware` (express, hono) | — | `opts.getScope(req | c)` |
+| `checkIamAccess` / `createIamSubjectCan` | positional argument | — |
+
+The fixed scope wins wherever both are given, so an existing `{ scope: 'admin' }` keeps its meaning and `getScope` is the fallback for routes that do not name one.
+
+Running unscoped is not neutral. A scoped assignment — `assignRole('u1', 'editor', { scope: 'org-1' })` — only enriches the subject when the request carries a matching scope, so the grant does not apply and the check fails closed. A rule conditioned on `scope` is the other direction: the field resolves to `null`, the condition does not match, and a **deny** in that shape silently never fires. On the canonical multi-tenant route, `/orgs/:orgId/posts/:id`, the tenant is right there in the path and the guard has to be told to read it:
+
+```ts
+app.delete('/orgs/:orgId/posts/:postId', iamGuard(engine, 'delete', 'post', {
+  getResourceId: (req) => req.params.postId,
+  getScope: (req) => req.params.orgId,
+}), handler)
+```
+
+`ctx.scope` on `getResourceAttributes` is the resolved scope, so an attribute loader can fetch the row from the right tenant.
+
+`src/server/__tests__/guard-scope.test.ts` drives all five surfaces against one policy denying scope `org-1`: unscoped the deny misses, `getScope` reading `:orgId` fires it, a fixed `scope` still works, and a fixed scope beats `getScope`.
+
 ---
 
 ## 3. Express

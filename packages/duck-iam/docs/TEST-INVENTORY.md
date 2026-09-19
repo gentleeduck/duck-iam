@@ -335,6 +335,7 @@ drift the way the hand-maintained version did.
 | `server/__tests__/e2e-http-servers.e2e.test.ts` | 172 | harness |
 | `server/__tests__/guard-resource-attributes.test.ts` | 17 | a guard and the row it has not loaded |
 | `server/__tests__/guard-resource-id.test.ts` | 19 | a guard and the instance it names |
+| `server/__tests__/guard-scope.test.ts` | 23 | a guard and the scope it runs under |
 | `server/express/__tests__/express-path-bypass.test.ts` | 12 | iamAccessMiddleware refuses a path it cannot map, even for a wildcard admin |
 | `server/express/__tests__/express.test.ts` | 51 | iamAccessMiddleware (express) |
 | `server/generic/__tests__/admin-audit-target-id.test.ts` | 9 | admin audit targetId is read, not asserted |
@@ -354,7 +355,7 @@ drift the way the hand-maintained version did.
 | `server/next/__tests__/next-middleware-environment.test.ts` | 8 | createIamNextMiddleware environment |
 | `server/next/__tests__/next-middleware-rule-matching.test.ts` | 4 | next middleware: a string rule pattern matches as a prefix |
 | `server/next/__tests__/next.test.ts` | 31 | withIamAccess |
-| **Subtotal** | **839** | |
+| **Subtotal** | **862** | |
 
 ---
 
@@ -412,8 +413,8 @@ drift the way the hand-maintained version did.
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
-| Server | 27 | 839 |
+| Server | 28 | 862 |
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **297** | **5835** |
+| **Total** | **298** | **5858** |
