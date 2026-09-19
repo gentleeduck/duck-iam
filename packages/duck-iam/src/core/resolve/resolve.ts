@@ -127,7 +127,10 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
   return false
 }
 
-/** Dot-notation resource match: `*` is global, `prefix.*` matches the subtree, anything else is literal. */
+/**
+ * Dot-notation resource match: `*` is global, `prefix.*` matches the subtree, anything else is literal.
+ * A strict subset of {@link matchesResource}, which the engine uses everywhere; this one ignores `':*'`.
+ */
 export function matchesResourceHierarchical(pattern: string, resourceType: string): boolean {
   if (pattern === '*') return true
   if (pattern === resourceType) return true

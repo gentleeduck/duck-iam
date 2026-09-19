@@ -2,7 +2,7 @@
 
 import { evalConditionGroup } from '../conditions/conditions'
 import { IAM_RBAC_POLICY_ID } from '../rbac/rbac'
-import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
+import { matchesAction, matchesResource } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import {
   combiners,
@@ -17,12 +17,7 @@ import {
 import type { Evaluate } from './evaluate.types'
 
 /** Action+resource shape only, no conditions: `ruleTargetsMatch` inlined for the indexed hot path. */
-function candidateShapeMatches(
-  entry: Evaluate.IIndexedRule,
-  action: string,
-  resType: string,
-  resHasDot: boolean,
-): boolean {
+function candidateShapeMatches(entry: Evaluate.IIndexedRule, action: string, resType: string): boolean {
   // PERF: `entry.actions.has` is the exact-literal fast path; a wildcard entry still runs `matchesAction`.
   if (!entry.actions.has(action)) {
     let ok = false
@@ -37,11 +32,7 @@ function candidateShapeMatches(
 
   // Resource - always verified; a wildcard entry never skips this check.
   for (const r of entry.rule.resources) {
-    if (resHasDot || r.includes('.')) {
-      if (matchesResourceHierarchical(r, resType)) return true
-    } else {
-      if (matchesResource(r, resType)) return true
-    }
+    if (matchesResource(r, resType)) return true
   }
   return false
 }
@@ -337,7 +328,6 @@ export function evaluatePolicyFast(
   const literalBuckets: Evaluate.IIndexedRule[][] = []
   const exactAR = idx.byActionResource.get(action)?.get(resType)
   if (exactAR) literalBuckets.push(exactAR)
-  const resHasDot = resType.includes('.')
   const algo = policy.algorithm
 
   // PERF: narrows the expansive scan to rules whose literal side already matches. Each still needs its other
@@ -367,7 +357,7 @@ export function evaluatePolicyFast(
       const bucket = wildcardBuckets[bi]!
       for (let i = 0; i < bucket.length; i++) {
         const entry = bucket[i]!
-        if (!candidateShapeMatches(entry, action, resType, resHasDot)) continue
+        if (!candidateShapeMatches(entry, action, resType)) continue
         hasCandidate = true
         if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
         if (entry.rule.effect === 'deny') return false
@@ -396,7 +386,7 @@ export function evaluatePolicyFast(
       const bucket = wildcardBuckets[bi]!
       for (let i = 0; i < bucket.length; i++) {
         const entry = bucket[i]!
-        if (!candidateShapeMatches(entry, action, resType, resHasDot)) continue
+        if (!candidateShapeMatches(entry, action, resType)) continue
         hasCandidate = true
         if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
         if (entry.rule.effect === 'allow') return true
@@ -432,7 +422,7 @@ export function evaluatePolicyFast(
     const bucket = wildcardBuckets[bi]!
     for (let i = 0; i < bucket.length; i++) {
       const entry = bucket[i]!
-      if (!candidateShapeMatches(entry, action, resType, resHasDot)) continue
+      if (!candidateShapeMatches(entry, action, resType)) continue
       hasCandidate = true
       if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
       const p = rulePriority(entry.rule)

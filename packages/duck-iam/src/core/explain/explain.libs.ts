@@ -3,7 +3,7 @@
 import { evalConditionGroup, resolveConditionValue } from '../conditions/conditions'
 import { evalCondition, IamConditionGroupError } from '../conditions/conditions.libs'
 import { policyHasDenyRule, rulePriority } from '../evaluate/evaluate.libs'
-import { matchesAction, matchesResource, matchesResourceHierarchical, resolve } from '../resolve'
+import { matchesAction, matchesResource, resolve } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import type { Explain } from './explain.types'
 
@@ -72,12 +72,7 @@ function traceGroup(
 function traceRule(rule: AccessControl.IRule, req: IamRequest.IAccessRequest): Explain.IRuleTrace {
   const actionMatch = rule.actions.some((a) => matchesAction(a, req.action))
 
-  const resourceMatch = rule.resources.some((r) => {
-    if (r.includes('.') || req.resource.type.includes('.')) {
-      return matchesResourceHierarchical(r, req.resource.type)
-    }
-    return matchesResource(r, req.resource.type)
-  })
+  const resourceMatch = rule.resources.some((r) => matchesResource(r, req.resource.type))
 
   // `evalConditionGroup` throws on an unknown operator, a non-group `conditions` and an oversized regex input -
   // exactly the cases `explain()` exists for. Record the failure so `tracePolicy` can cast the Indeterminate vote.

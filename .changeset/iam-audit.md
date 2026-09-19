@@ -30,6 +30,25 @@ the guard remains the coarse gate on type, id and scope, with the
 attribute-dependent rule re-checked by `can()` once the row is in hand. All
 eight surfaces are now pinned against one policy so they cannot drift apart.
 
+### A dot in the resource type retired a `:*` deny
+
+`resources: ['posts:*']` is documented to cover everything under `posts:`, and
+it did — until the resource type contained a dot anywhere. The three evaluators
+each switched to a dot-only matcher whenever either side contained a `.`, and
+that matcher ignores `':*'` entirely. So a deny rule covering `posts:comment`
+silently stopped covering `posts:comment.reply`: adding a dot to a resource
+type removed it from every colon-wildcard rule in the policy set.
+
+The policy-target level never switched, so the policy was still selected while
+its own rule missed — the inconsistency that made it invisible.
+
+All three evaluators (interpreter, compiled table, `explain()`) now use the
+documented matcher, which reads the separator from the *pattern* and treats one
+in the request as data. `.*` subtree matching, bare-literal behaviour and the
+"a `:` pattern never matches a `.` type" rule are unchanged and pinned.
+`matchesResourceHierarchical` stays exported as the strict dot-only variant and
+is documented as no longer used by the engine.
+
 ### A route guard named the wrong row, or none
 
 The guards that read the resource id read one path param, `id`, and could not be

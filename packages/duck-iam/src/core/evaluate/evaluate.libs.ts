@@ -7,7 +7,7 @@ import {
   ops,
   VALUELESS_OPERATORS,
 } from '../conditions/conditions.libs'
-import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
+import { matchesAction, matchesResource } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import type { Evaluate } from './evaluate.types'
 /**
@@ -18,16 +18,8 @@ export function ruleTargetsMatch(rule: AccessControl.IRule, req: IamRequest.IAcc
   const actionMatch = rule.actions.some((a) => matchesAction(a, req.action))
   if (!actionMatch) return false
 
-  // PERF: hoisted out of the loop below.
-  const resourceHasDot = req.resource.type.includes('.')
-
-  return rule.resources.some((r) => {
-    // A dot on either side means hierarchical matching.
-    if (resourceHasDot || r.includes('.')) {
-      return matchesResourceHierarchical(r, req.resource.type)
-    }
-    return matchesResource(r, req.resource.type)
-  })
+  // The separator comes from the pattern, as `policy.targets` does: `a:*` is a colon prefix, `a.*` a dot subtree.
+  return rule.resources.some((r) => matchesResource(r, req.resource.type))
 }
 
 /** `ruleTargetsMatch` plus conditions: `true` only when the shape matches AND every condition holds. */
