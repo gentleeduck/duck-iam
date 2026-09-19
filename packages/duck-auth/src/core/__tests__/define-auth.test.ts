@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { memoryStorage } from '~/adapters/memory'
+import { memoryAdapter } from '~/adapters/memory'
 import { AuthConsoleChannel } from '~/channels/console'
 import { apiKeyProvider } from '~/providers/api-key'
 import { magicLink } from '~/providers/magic-link'
@@ -17,7 +17,7 @@ type Profile = Identities.ProfileMetadataBase
 
 describe('createAuth', () => {
   it('returns an AuthEngine instance with the supplied storage', () => {
-    const storage = memoryStorage<Profile>()
+    const storage = memoryAdapter<Profile>()
     const auth = createAuth({ baseUrl: 'http://x', stores: storage })
     expect(auth).toBeInstanceOf(AuthEngine)
     expect(auth.cfg.stores.identities).toBe(storage.identities)
@@ -26,7 +26,7 @@ describe('createAuth', () => {
   })
 
   it('defaults transport to AuthCookieTransport with name "duck-sid"', () => {
-    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>() })
+    const auth = createAuth({ baseUrl: 'http://x', stores: memoryAdapter<Profile>() })
     expect(auth.transport).toBeDefined()
     // AuthCookieTransport sets a private _name; we observe via issue() output shape.
     expect(typeof auth.transport.extract).toBe('function')
@@ -34,17 +34,17 @@ describe('createAuth', () => {
 
   it('respects explicit transport', () => {
     const custom = new CookieTransport({ name: 'custom-sid' })
-    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>(), transport: custom })
+    const auth = createAuth({ baseUrl: 'http://x', stores: memoryAdapter<Profile>(), transport: custom })
     expect(auth.transport).toBe(custom)
   })
 
   it('passwords defaults its hasher to scrypt when not supplied', () => {
-    const auth = createAuth({ baseUrl: 'http://x', providers: [passwords()], stores: memoryStorage<Profile>() })
+    const auth = createAuth({ baseUrl: 'http://x', providers: [passwords()], stores: memoryAdapter<Profile>() })
     expect(auth.passwords).toBeDefined()
   })
 
   it('accessing auth.passwords without the password provider throws', () => {
-    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>() })
+    const auth = createAuth({ baseUrl: 'http://x', stores: memoryAdapter<Profile>() })
     expect(() => auth.passwords).toThrow(/AUTH_PROVIDER_NOT_REGISTERED|password/)
   })
 
@@ -52,7 +52,7 @@ describe('createAuth', () => {
     const auth = createAuth({
       baseUrl: 'http://x',
       providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10 }) })],
-      stores: memoryStorage<Profile>(),
+      stores: memoryAdapter<Profile>(),
     })
     expect(auth.passwords).toBeDefined()
   })
@@ -64,13 +64,13 @@ describe('createAuth', () => {
       createAuth({
         baseUrl: 'http://x',
         providers: [passwords({ hasher: new Argon2idHasher() })],
-        stores: memoryStorage<Profile>(),
+        stores: memoryAdapter<Profile>(),
       }),
     ).not.toThrow()
   })
 
   it('registers every provider in the array', () => {
-    const storage = memoryStorage<Profile>()
+    const storage = memoryAdapter<Profile>()
     const auth = createAuth({
       baseUrl: 'http://x',
       providers: [
@@ -84,7 +84,7 @@ describe('createAuth', () => {
   })
 
   it('silently skips false / null / undefined provider entries', () => {
-    const storage = memoryStorage<Profile>()
+    const storage = memoryAdapter<Profile>()
     const auth = createAuth({
       baseUrl: 'http://x',
       providers: [
@@ -101,7 +101,7 @@ describe('createAuth', () => {
   })
 
   it('lets createAuth carry the profile generic for nested providers', () => {
-    const storage = memoryStorage<Profile>()
+    const storage = memoryAdapter<Profile>()
     const auth = createAuth<Profile>({
       baseUrl: 'http://x',
       providers: [
@@ -147,7 +147,7 @@ describe('createAuth', () => {
   })
 
   it('omitting providers leaves the registry empty', () => {
-    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>() })
+    const auth = createAuth({ baseUrl: 'http://x', stores: memoryAdapter<Profile>() })
     expect(auth.providers.list()).toEqual([])
   })
 
@@ -155,7 +155,7 @@ describe('createAuth', () => {
     expect(() =>
       createAuth({
         baseUrl: 'http://x',
-        stores: memoryStorage<Profile>(),
+        stores: memoryAdapter<Profile>(),
         strict: 'production',
       }),
     ).toThrow()
@@ -165,7 +165,7 @@ describe('createAuth', () => {
     expect(() =>
       createAuth({
         baseUrl: 'http://x',
-        stores: memoryStorage<Profile>(),
+        stores: memoryAdapter<Profile>(),
         strict: 'development',
       }),
     ).not.toThrow()
@@ -175,7 +175,7 @@ describe('createAuth', () => {
     const auth = createAuth({
       baseUrl: 'http://x',
       session: { ttlMs: 60_000 },
-      stores: memoryStorage<Profile>(),
+      stores: memoryAdapter<Profile>(),
     })
     expect(auth.cfg.session?.ttlMs).toBe(60_000)
   })
@@ -184,14 +184,14 @@ describe('createAuth', () => {
     const auth = createAuth({
       baseUrl: 'http://x',
       providers: [apiKeyProvider({ prefix: 'demo_' })],
-      stores: memoryStorage<Profile>(),
+      stores: memoryAdapter<Profile>(),
     })
     const created = await auth.apiKeys.create('user-1', { name: 'ci', scopes: [] })
     expect(created.plaintext.startsWith('demo_')).toBe(true)
   })
 
   it('accessing auth.apiKeys without the api-key provider throws', () => {
-    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>() })
+    const auth = createAuth({ baseUrl: 'http://x', stores: memoryAdapter<Profile>() })
     expect(() => auth.apiKeys).toThrow(/AUTH_PROVIDER_NOT_REGISTERED|api-key/)
   })
 
@@ -199,14 +199,14 @@ describe('createAuth', () => {
     const auth = createAuth({
       baseUrl: 'http://x',
       providers: [mfaProvider({ issuer: 'duck-demo' })],
-      stores: memoryStorage<Profile>(),
+      stores: memoryAdapter<Profile>(),
     })
     const challenge = await auth.mfa.beginTotpEnrollment('user-1', 'a@x.com')
     expect(challenge.uri).toContain('issuer=duck-demo')
   })
 
   it('accessing auth.mfa without the mfa provider throws', () => {
-    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>() })
+    const auth = createAuth({ baseUrl: 'http://x', stores: memoryAdapter<Profile>() })
     expect(() => auth.mfa).toThrow(/AUTH_PROVIDER_NOT_REGISTERED|mfa/)
   })
 })

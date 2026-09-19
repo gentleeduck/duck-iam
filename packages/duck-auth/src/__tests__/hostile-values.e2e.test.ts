@@ -1,18 +1,4 @@
-/**
- * E2E: values that are the right type and the wrong thing entirely.
- *
- * `hostile-input` throws malformed data at the stores. This one sends values that
- * parse fine and pass every type check, and asks whether anything is actually
- * looking at them: an AAL of nine, a session kind nobody defined, an impersonation
- * window that closed before it opened, a rate-limit weight of minus five, a
- * redirect target of `javascript:alert(1)`.
- *
- * Nothing here is repaired. Cases named FINDING pin behaviour that is wrong or
- * surprising, so it is written down rather than rediscovered.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL or DUCKAUTH_E2E_REDIS_URL is unset;
- * `globalSetup` provisions both when docker is available.
- */
+/** E2E: values that are the right type and the wrong thing entirely. */
 import { Buffer } from 'node:buffer'
 import { createHmac } from 'node:crypto'
 import Redis from 'ioredis'
@@ -333,15 +319,17 @@ suite('E2E hostile values on real Postgres + Redis', () => {
     it('a tenant id that differs only by case does not match', async () => {
       const { sid } = await auth.sessions.create({ ...guest, tenantId: 'Tenant-A' })
       const headers = { headers: new Headers({ cookie: `duck-sid=${sid}` }) }
-      expect(await auth.resolveSession(headers, { expectedTenantId: 'tenant-a' })).toBeNull()
-      expect(await auth.resolveSession(headers, { expectedTenantId: 'Tenant-A' })).not.toBeNull()
+      await expect(auth.resolveSession(headers, { expectedTenantId: 'tenant-a' })).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
+      await expect(auth.resolveSession(headers, { expectedTenantId: 'Tenant-A' })).resolves.toBeDefined()
     })
 
     it('a tenant id carrying an injection payload is just a string', async () => {
       const tenantId = `'; DROP TABLE auth_sessions; --`
       const { sid } = await auth.sessions.create({ ...guest, tenantId })
       const headers = { headers: new Headers({ cookie: `duck-sid=${sid}` }) }
-      expect((await auth.resolveSession(headers, { expectedTenantId: tenantId }))?.session.tenantId).toBe(tenantId)
+      expect((await auth.resolveSession(headers, { expectedTenantId: tenantId })).session.tenantId).toBe(tenantId)
     })
   })
 })

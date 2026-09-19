@@ -118,19 +118,16 @@ async function report(label: string, adapter: Adapter.Me) {
   await add('identities.softDelete', () => identities.softDelete(hiding(), 60_000), WRITES)
   const restoring = each(hidden)
   await add('identities.restore', () => identities.restore(restoring()), WRITES)
-  const survivors = each(await pool())
-  const dups = each(await pool())
-  await add('identities.merge', () => identities.merge(survivors(), dups()), WRITES)
   const doomed = each(await pool())
   await add('identities.erase', () => identities.erase(doomed()), WRITES)
 
   const owner = (await identities.create(input())).id
-  const credential = (over: Partial<Credential.UpsertInput> = {}) =>
-    credentials.upsert(
+  const credential = (over: Partial<Credential.CreateInput> = {}) =>
+    credentials.create(
       credentialInput({ identityId: owner, kind: 'oauth', secret: `sec-${n++}`, metadata: { provider: 'google', sub: `sub-${n++}` }, ...over }),
       ctx,
     )
-  await add('credentials.upsert', () => credential(), WRITES)
+  await add('credentials.create', () => credential(), WRITES)
   const seeded = await credential()
   await add('credentials.findById', () => credentials.findById(seeded.id, ctx))
   await add('credentials.findByHashedSecret', () => credentials.findByHashedSecret(seeded.secret, 'oauth', ctx))
@@ -142,7 +139,7 @@ async function report(label: string, adapter: Adapter.Me) {
   // A holder with what an account really carries, since the pools above pile a thousand rows on `owner`.
   const lister = (await identities.create(input())).id
   for (let i = 0; i < 5; i++) {
-    await credentials.upsert(credentialInput({ identityId: lister, kind: 'oauth', secret: `list-${n++}` }), ctx)
+    await credentials.create(credentialInput({ identityId: lister, kind: 'oauth', secret: `list-${n++}` }), ctx)
   }
   await add('credentials.listByIdentity', () => credentials.listByIdentity(lister, 'oauth', ctx))
   const patched = seeded.id
@@ -162,7 +159,7 @@ async function report(label: string, adapter: Adapter.Me) {
   const kinds: string[] = []
   for (let i = 0; i < WRITES + WARM; i++) {
     const id = (await identities.create(input())).id
-    await credentials.upsert(credentialInput({ identityId: id, kind: 'password', secret: `pw-${n++}` }), ctx)
+    await credentials.create(credentialInput({ identityId: id, kind: 'password', secret: `pw-${n++}` }), ctx)
     kinds.push(id)
   }
   const kindOne = each(kinds)
@@ -304,7 +301,7 @@ if (wanted('pg')) {
 if (wanted('mysql')) {
   const name = 'duckauth-bench-my'
   const cli = ['mysql', '-uroot', '-pbench', 'bench']
-  await container(name, ['-p', '55434:3306', '-e', 'MYSQL_ROOT_PASSWORD=bench', '-e', 'MYSQL_DATABASE=bench', 'mysql:8'], [
+  await container(name, ['-p', '55434:3306', '-e', 'MYSQL_ROOT_PASSWORD=bench', '-e', 'MYSQL_DATABASE=bench', 'mysql:8.4'], [
     ...cli,
     '-e',
     'select 1',
@@ -323,7 +320,7 @@ if (wanted('mysql')) {
     analyze table auth_identities, auth_identity_providers;
   `)
   await wait(SETTLE_MS)
-  await report('MySQL 8 (mysql2, localhost)', new DrizzleMysqlAdapter('mysql://root:bench@127.0.0.1:55434/bench'))
+  await report('MySQL 8.4 (mysql2, localhost)', new DrizzleMysqlAdapter('mysql://root:bench@127.0.0.1:55434/bench'))
   sh('docker', ['rm', '-f', name])
 }
 

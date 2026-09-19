@@ -38,7 +38,9 @@ CREATE TABLE "auth_identities" (
 	"deleted_by" text,
 	CONSTRAINT "chk_auth_identities_profile_shape" CHECK (coalesce(jsonb_typeof(profile->'username'), '') = 'string' and coalesce(profile->>'username', '') <> ''
         and coalesce(jsonb_typeof(profile->'email'), '') = 'string' and coalesce(profile->>'email', '') <> ''),
-	CONSTRAINT "chk_auth_identities_version" CHECK (version >= 1)
+	CONSTRAINT "chk_auth_identities_version" CHECK (version >= 1),
+	CONSTRAINT "chk_auth_identities_email_length" CHECK (length(profile->>'email') <= 320),
+	CONSTRAINT "chk_auth_identities_username_length" CHECK (length(profile->>'username') <= 191)
 );
 
 CREATE TABLE "auth_identity_providers" (
@@ -47,6 +49,7 @@ CREATE TABLE "auth_identity_providers" (
 	"provider_id" text NOT NULL,
 	"provider_sub" text NOT NULL,
 	"added_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"added_by" text,
 	CONSTRAINT "chk_auth_identity_providers_provider_not_blank" CHECK (provider_id <> ''),
 	CONSTRAINT "chk_auth_identity_providers_sub_not_blank" CHECK (provider_sub <> '')
 );
@@ -84,10 +87,12 @@ ALTER TABLE "auth_sessions" ADD CONSTRAINT "fk_auth_sessions_identity" FOREIGN K
 CREATE INDEX "auth_credentials_identity_kind" ON "auth_credentials" USING btree ("identity_id","kind");
 CREATE INDEX "auth_credentials_kind_secret" ON "auth_credentials" USING btree ("kind","secret");
 CREATE INDEX "auth_credentials_tenant" ON "auth_credentials" USING btree ("tenant_id");
-CREATE INDEX "auth_credentials_oauth" ON "auth_credentials" USING btree (((metadata->>'provider')),((metadata->>'sub'))) WHERE kind = 'oauth';
+CREATE UNIQUE INDEX "uq_auth_credentials_password" ON "auth_credentials" USING btree ("identity_id") WHERE kind = 'password' and tenant_id is null;
+CREATE UNIQUE INDEX "uq_auth_credentials_password_tenant" ON "auth_credentials" USING btree ("identity_id","tenant_id") WHERE kind = 'password' and tenant_id is not null;
 CREATE INDEX "auth_credentials_expires_at" ON "auth_credentials" USING btree ("expires_at") WHERE expires_at IS NOT NULL;
 CREATE UNIQUE INDEX "uq_auth_identities_email" ON "auth_identities" USING btree (((lower(profile->>'email'))));
 CREATE UNIQUE INDEX "uq_auth_identities_username" ON "auth_identities" USING btree (((lower(profile->>'username'))));
+CREATE INDEX "auth_identities_deleted_at" ON "auth_identities" USING btree ("deleted_at") WHERE deleted_at is not null;
 CREATE UNIQUE INDEX "uq_auth_identity_providers_sub" ON "auth_identity_providers" USING btree ("provider_id","provider_sub");
 CREATE UNIQUE INDEX "uq_auth_identity_providers_owned" ON "auth_identity_providers" USING btree ("identity_id","provider_id");
 CREATE INDEX "auth_identity_providers_identity" ON "auth_identity_providers" USING btree ("identity_id","added_at");

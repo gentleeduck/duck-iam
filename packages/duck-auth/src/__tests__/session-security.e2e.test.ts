@@ -1,15 +1,4 @@
-/**
- * E2E: the session rules that only mean anything against a real store.
- *
- * The cases are the OWASP Session Management ones: rotate the identifier on every
- * privilege change, and enforce idle and absolute timeouts as two separate
- * deadlines rather than one. Each is a claim about a row that a later request
- * reads back, so an in-memory double answers from the same object it was handed
- * and proves nothing about what was written.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL or DUCKAUTH_E2E_REDIS_URL is unset;
- * `globalSetup` provisions both when docker is available.
- */
+/** E2E: the session rules that only mean anything against a real store. */
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -115,8 +104,8 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
 
       expect(signedIn.sid).not.toBe(guest.sid)
-      expect(await auth.resolveSession(cookie(guest.sid))).toBeNull()
-      expect((await auth.resolveSession(cookie(signedIn.sid)))?.identity?.id).toBe(user.id)
+      await expect(auth.resolveSession(cookie(guest.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      expect((await auth.resolveSession(cookie(signedIn.sid))).identity?.id).toBe(user.id)
     })
 
     it('promoteGuest carries no identifier across the boundary', async () => {
@@ -131,7 +120,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
 
       expect(promoted.sid).not.toBe(guest.sid)
-      expect(await stores.sessions.getByHash(guest.session.id)).toBeNull()
+      await expect(stores.sessions.getByHash(guest.session.id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
       expect(promoted.session.kind).toBe('user')
     })
 
@@ -176,7 +165,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
 
       expect(second.sid).not.toBe(first.sid)
-      expect(await auth.resolveSession(cookie(first.sid))).toBeNull()
+      await expect(auth.resolveSession(cookie(first.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('every sign-in produces a distinct identifier', async () => {
@@ -204,8 +193,8 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       // deadline has passed, and it alone must be enough.
       await stores.sessions.update(rowId(signedIn), idledOut())
 
-      expect(await auth.resolveSession(cookie(signedIn.sid))).toBeNull()
-      expect(await stores.sessions.getByHash(rowId(signedIn))).toBeNull()
+      await expect(auth.resolveSession(cookie(signedIn.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_EXPIRED' })
+      await expect(stores.sessions.getByHash(rowId(signedIn))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('the schema refuses a row whose absolute cap precedes its sliding expiry', async () => {
@@ -245,8 +234,8 @@ suite('E2E session security rules on real Postgres + Redis', () => {
         rotatedAt: new Date(past - 119_000),
       })
 
-      expect(await auth.resolveSession(cookie(signedIn.sid))).toBeNull()
-      expect(await stores.sessions.getByHash(rowId(signedIn))).toBeNull()
+      await expect(auth.resolveSession(cookie(signedIn.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_EXPIRED' })
+      await expect(stores.sessions.getByHash(rowId(signedIn))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('touch() will not revive a session that idled out', async () => {
@@ -257,8 +246,8 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
       await stores.sessions.update(rowId(signedIn), idledOut())
 
-      expect(await auth.sessions.touch(signedIn.sid)).toBeNull()
-      expect(await stores.sessions.getByHash(rowId(signedIn))).toBeNull()
+      await expect(auth.sessions.touch(signedIn.sid)).rejects.toMatchObject({ code: 'AUTH_SESSION_EXPIRED' })
+      await expect(stores.sessions.getByHash(rowId(signedIn))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('touch() never pushes the idle deadline past the absolute cap', async () => {
@@ -277,7 +266,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
 
       const touched = await auth.sessions.touch(signedIn.sid)
-      expect(touched?.expiresAt.getTime()).toBeLessThanOrEqual(cap.getTime())
+      expect(touched.expiresAt.getTime()).toBeLessThanOrEqual(cap.getTime())
     })
 
     it('gc removes the idled-out rows and leaves the live ones', async () => {
@@ -300,8 +289,8 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
 
       await auth.sessions.gc()
-      expect(await stores.sessions.getByHash(rowId(dead))).toBeNull()
-      expect(await stores.sessions.getByHash(rowId(live))).not.toBeNull()
+      await expect(stores.sessions.getByHash(rowId(dead))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(stores.sessions.getByHash(rowId(live))).resolves.toBeTruthy()
     })
   })
 
@@ -313,7 +302,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
         providerId: 'password',
       })
       await auth.flows.signOut(signedIn.sid)
-      expect(await stores.sessions.getByHash(rowId(signedIn))).toBeNull()
+      await expect(stores.sessions.getByHash(rowId(signedIn))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('revokeAllForIdentity clears every device and spares other users', async () => {
@@ -328,9 +317,9 @@ suite('E2E session security rules on real Postgres + Redis', () => {
 
       await auth.sessions.revokeAllForIdentity(victim.id)
 
-      expect(await auth.resolveSession(cookie(a.sid))).toBeNull()
-      expect(await auth.resolveSession(cookie(b.sid))).toBeNull()
-      expect(await auth.resolveSession(cookie(other.sid))).not.toBeNull()
+      await expect(auth.resolveSession(cookie(a.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(auth.resolveSession(cookie(b.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(auth.resolveSession(cookie(other.sid))).resolves.toBeDefined()
     })
 
     it('erasing the identity takes its sessions with it, via the foreign key', async () => {
@@ -344,8 +333,10 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
       await stores.identities.erase(user.id)
 
-      expect(await stores.sessions.getByHash(rowId(signedIn))).toBeNull()
-      expect(await resolveBySid(signedIn.sid, stores.sessions, stores.identities)).toBeNull()
+      await expect(stores.sessions.getByHash(rowId(signedIn))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(resolveBySid(signedIn.sid, stores.sessions, stores.identities)).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
 
     it('a soft-deleted identity stops resolving without erasing the row', async () => {
@@ -356,8 +347,10 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
       await stores.identities.softDelete(user.id, 60_000)
 
+      // The row is still there, so this is the erasure code and not absence - and it stays outside the
+      // absent set so a caller reading it through `orNull()` cannot mistake it for a sign-out.
       await expect(resolveBySid(signedIn.sid, stores.sessions, stores.identities)).rejects.toMatchObject({
-        code: 'AUTH_SESSION_REVOKED',
+        code: 'AUTH_SESSION_IDENTITY_ERASED',
       })
     })
   })
@@ -380,7 +373,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
         purpose: 'impersonate-start',
       })
 
-      expect((await auth.resolveSession(cookie(impersonation.sid)))?.session.actingAs?.realIdentityId).toBe(admin.id)
+      expect((await auth.resolveSession(cookie(impersonation.sid))).session.actingAs?.realIdentityId).toBe(admin.id)
 
       // Close the window; the session row itself is still well inside its own TTL.
       await stores.sessions.update(impersonation.session.id, {
@@ -392,7 +385,9 @@ suite('E2E session security rules on real Postgres + Redis', () => {
         },
       })
 
-      expect(await auth.resolveSession(cookie(impersonation.sid))).toBeNull()
+      await expect(auth.resolveSession(cookie(impersonation.sid))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
 
     it('leaves the admin’s own session untouched', async () => {
@@ -418,7 +413,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
         purpose: 'impersonate-start',
       })
 
-      expect(await auth.resolveSession(cookie(adminSession.sid))).not.toBeNull()
+      await expect(auth.resolveSession(cookie(adminSession.sid))).resolves.toBeDefined()
     })
   })
 
@@ -433,10 +428,12 @@ suite('E2E session security rules on real Postgres + Redis', () => {
         tenantId: 'tenant-a',
       })
 
-      expect((await auth.resolveSession(cookie(scoped.sid), { expectedTenantId: 'tenant-a' }))?.session.tenantId).toBe(
+      expect((await auth.resolveSession(cookie(scoped.sid), { expectedTenantId: 'tenant-a' })).session.tenantId).toBe(
         'tenant-a',
       )
-      expect(await auth.resolveSession(cookie(scoped.sid), { expectedTenantId: 'tenant-b' })).toBeNull()
+      await expect(auth.resolveSession(cookie(scoped.sid), { expectedTenantId: 'tenant-b' })).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
   })
 
@@ -451,7 +448,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       const sids = results.map((r) => r.sid)
       expect(new Set(sids).size).toBe(5)
       for (const sid of sids) {
-        expect(await auth.resolveSession(cookie(sid))).not.toBeNull()
+        await expect(auth.resolveSession(cookie(sid))).resolves.toBeDefined()
       }
     })
 
@@ -472,7 +469,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
 
       for (const s of sessions) {
-        expect(await auth.resolveSession(cookie(s.sid))).toBeNull()
+        await expect(auth.resolveSession(cookie(s.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
       }
     })
   })
