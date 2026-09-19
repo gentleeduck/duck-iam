@@ -1,4 +1,4 @@
-/** Svelte client - exposes the vanilla AuthClient as duck-typed `Readable` stores. Types live in `./types`. */
+/** Exposes the vanilla client as duck-typed `Readable` stores. Types live in `./types`. */
 import type { Identities } from '~/core/identities'
 import { createAuthClient } from '../vanilla'
 import type { SvelteClient } from './types'

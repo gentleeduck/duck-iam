@@ -38,7 +38,7 @@ export function createAuthVuePlugin<Profile extends Identities.ProfileMetadataBa
 }
 
 /** Shared Symbol key used by `app.provide` / `inject`. */
-export const AUTH_VUE_KEY = Symbol.for('@gentleduck/AUTH/client/vue')
+export const AUTH_VUE_KEY = Symbol.for('@gentleduck/auth/client/vue')
 
 function useAuthCtx<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
@@ -47,12 +47,13 @@ function useAuthCtx<
   const ctx = vue.inject(AUTH_VUE_KEY) as VueClient.Injected<Profile> | undefined
   if (!ctx) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: '[@gentleduck/AUTH/client/vue] use* composables require app.use(authCreateVuePlugin(...))',
+      detail: '[@gentleduck/auth/client/vue] use* composables require app.use(authCreateVuePlugin(...))',
     })
   }
   return ctx
 }
 
+/** The current session, refetched when the client says it changed. */
 export function useAuthSession<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VueClient.UseSessionResult<Profile> {
@@ -79,6 +80,7 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): VueClient.MutationResu
   return { error, loading, mutate }
 }
 
+/** Signs in through a provider. */
 export function useAuthSignIn<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VueClient.MutationResult<VanillaClient.SignInOptions, Envelope<VanillaClient.SessionResult<Profile>, string>> {
@@ -86,11 +88,13 @@ export function useAuthSignIn<
   return useMutation((opts: VanillaClient.SignInOptions) => client.signIn(opts))
 }
 
-export function useAuthSignOut(): VueClient.MutationResult<void, Envelope<Record<string, never>, string>> {
+/** Signs the current session out. */
+export function useAuthSignOut(): VueClient.MutationResult<void, Envelope<unknown, string>> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
+/** The client on the context, for a call no composable covers. */
 export function useAuthClient<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VanillaClient.Client<Profile> {
@@ -109,7 +113,7 @@ function loadVueSync(): VueClient.VueModule {
     return _vueModule
   } catch {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: '[@gentleduck/AUTH/client/vue] `vue` is not installed. Add it: `bun add vue` (^3).',
+      detail: '[@gentleduck/auth/client/vue] `vue` is not installed. Add it: `bun add vue` (^3).',
     })
   }
 }

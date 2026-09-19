@@ -1,5 +1,5 @@
 /**
- * Vanilla client: the framework-free auth client. `authCreateClient` builds a
+ * Vanilla client: the framework-free auth client. `createAuthClient` builds a
  * fetch-based client with a session pub/sub store; every method resolves to the
  * `Envelope` envelope. Types live in `./types`.
  */
@@ -13,7 +13,7 @@ import type { VanillaClient } from './types'
 /**
  * The wire-to-row converters. `VanillaClient.Serialized<T>` maps `Date -> string`
  * to describe what `JSON.stringify` actually put on the wire, and these are the
- * only things that produce the row type from it - so an app calling `/session`
+ * only things that produce the row type from it, so an app calling `/session`
  * with its own fetch reaches the same `Date`s the client hands back.
  */
 export { reviveIdentity, reviveSession, reviveSessionResult } from './revive'
@@ -22,6 +22,7 @@ export type { VanillaClient } from './types'
 /** Mirrors SAFE_METHODS in core/csrf. */
 const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
+/** Framework-free auth client. Every framework client wraps this one. */
 export function createAuthClient<Profile extends Identities.ProfileMetadataBase>(
   cfg: VanillaClient.Cfg = {},
 ): VanillaClient.Client<Profile> {
@@ -29,7 +30,7 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
   const fetchImpl: typeof globalThis.fetch = cfg.fetch ?? (globalThis.fetch as typeof globalThis.fetch)
   if (!fetchImpl) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: '@gentleduck/AUTH/client/vanilla: no fetch available - pass `fetch` via config',
+      detail: '@gentleduck/auth/client/vanilla: no fetch available - pass `fetch` via config',
     })
   }
   const headers = { 'content-type': 'application/json', ...(cfg.headers ?? {}) }
@@ -42,7 +43,7 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
       try {
         fn(state)
       } catch (err) {
-        console.error('[@gentleduck/AUTH/client/vanilla] observer threw:', err)
+        console.error('[@gentleduck/auth/client/vanilla] observer threw:', err)
       }
     }
   }
@@ -60,9 +61,8 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
   }
 
   /**
-   * Perform a request and always resolve to an {@link Envelope}. The server
-   * is expected to speak the envelope; if it doesn't (or the network fails) we
-   * synthesize one so callers never have to branch on transport details.
+   * Always resolves to an {@link Envelope}. The server is expected to speak it; when it does not, or
+   * the network fails, one is synthesised so callers never branch on transport details.
    */
   async function call(method: string, path: string, body?: unknown): Promise<Envelope<unknown, string>> {
     let res: Response
@@ -110,17 +110,17 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
     },
     async signOut() {
       const res = await call('POST', '/signout')
-      // Best-effort: clear local session regardless of transport outcome.
+      // The local state clears either way: the caller asked to sign out, and a cached session that
+      // outlives the request is worse than none. The envelope still reports what the server did,
+      // because a refused signout leaves the session live on the server and only the caller can
+      // decide whether to retry or to say so.
       notify({ session: null, identity: null })
-      return (res.ok ? res : { ok: true, code: 'AUTH_SIGNOUT_OK', data: {} }) as Envelope<Record<string, never>, string>
+      return res
     },
     async getSession() {
-      // Typed as what the wire carries, not what callers are owed: asserting the
-      // row type here is what hid the missing revival from `tsc`. `| null`
-      // because `call` synthesises `data: parsed`, and an empty 200 parses to
-      // `null` - which the old code returned as `data` under a type promising a
-      // `SessionResult`. Revived once here, so `onChange` subscribers and the
-      // framework clients wrapping this one all agree.
+      // Typed as what the wire carries, not what callers are owed: asserting the row type here
+      // would hide a missing revival from `tsc`. `| null` because `call` synthesises `data:
+      // parsed`, and an empty 200 parses to `null`.
       const raw = (await call('GET', '/session')) as Envelope<
         VanillaClient.SerializedSessionResult<Profile> | null,
         string
