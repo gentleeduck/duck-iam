@@ -1,14 +1,4 @@
-/**
- * The actor scope, end to end through the framework adapters.
- *
- * The scope existed (`withActor`, `runWithAuditEnvelope`, `setDefaultActorResolver`)
- * and `events.audit.ts` documented the wrap in its own docblock, but no adapter
- * shipped it - so `created_by` / `updated_by` / `deleted_by` and
- * `Events.Envelope.actorId` were `null` on every write a request drove.
- *
- * These assert what `actorId()` resolves to at the point a store write would
- * read it, which is the only thing the columns depend on.
- */
+/** The actor scope, end to end through the framework adapters. */
 
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -161,7 +151,7 @@ describe('the adapters bind an actor scope around handler execution', () => {
     await nestActorContext(auth).use(
       // The guard ran first and populated `session`; no second resolveSession.
       // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
-      { headers: {}, identity: null, method: 'POST', session: resolved?.session ?? null } as any,
+      { headers: {}, identity: null, method: 'POST', session: resolved.session } as any,
       {},
       () => {
         seen = actorId()
@@ -235,9 +225,7 @@ describe('what the middleware costs beside a guard', () => {
   it('costs one resolveSession for the pairing the adapter recommends', async () => {
     // `makeGuard` as an `APP_GUARD` with `nestActorContext` as middleware. Nest runs middleware
     // before guards, so the `req.session` shortcut could never fire from that side: the middleware
-    // resolves, stashes the session and the identity, and the guard reuses both. It used to read
-    // the session store twice for every authenticated request, which on a SQL store is two round
-    // trips.
+    // resolves, stashes the session and the identity, and the guard reuses both.
     const { auth } = buildAuth()
     const { identityId, sid } = await signIn(auth)
     const resolveSession = vi.spyOn(auth, 'resolveSession')
@@ -281,7 +269,7 @@ describe('what the middleware costs beside a guard', () => {
     let seen: string | null = 'never ran'
     await nestActorContext(auth).use(
       // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
-      { headers: {}, identity: null, method: 'GET', session: resolved?.session ?? null } as any,
+      { headers: {}, identity: null, method: 'GET', session: resolved.session } as any,
       {},
       () => {
         seen = actorId()

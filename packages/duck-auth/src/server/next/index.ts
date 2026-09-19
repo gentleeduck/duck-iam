@@ -14,7 +14,7 @@ import {
   requestSecurity,
 } from '../generic'
 
-/** `nextSignIn`. CSRF-guarded. */
+/** CSRF-guarded. */
 export function nextSignIn(auth: AuthEngine): NextAdapter.Handler {
   return async (req) => {
     try {
@@ -34,7 +34,7 @@ export function nextSignIn(auth: AuthEngine): NextAdapter.Handler {
   }
 }
 
-/** `nextSignOut`. CSRF-guarded. */
+/** CSRF-guarded. */
 export function nextSignOut(auth: AuthEngine): NextAdapter.Handler {
   return async (req) => {
     try {
@@ -49,15 +49,15 @@ export function nextSignOut(auth: AuthEngine): NextAdapter.Handler {
   }
 }
 
-/** `nextSession`. */
+/** Next.js route handler answering the current session. */
 export function nextSession(auth: AuthEngine): NextAdapter.Handler {
   return async (req) => {
     try {
-      const resolved = await auth.resolveSession({ headers: req.headers })
-      const body = resolved
-        ? { session: resolved.session, identity: resolved.identity }
-        : { session: null, identity: null }
-      return Response.json(body)
+      const resolved = await auth.resolveSession({ headers: req.headers }).orNull()
+      // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
+      const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
+      const body = resolved ? { session, identity: resolved.identity } : { session: null, identity: null }
+      return Response.json(body, { headers: { 'cache-control': 'no-store' } })
     } catch (err) {
       return handleError(err)
     }
@@ -88,12 +88,9 @@ export function nextProviderBegin(auth: AuthEngine, providerId: string): NextAda
 }
 
 /**
- * Catch-all router for `app/api/AUTH/[...auth]/route.ts`. Returns `{ GET, POST }`
+ * Catch-all router for `app/api/auth/[...auth]/route.ts`. Returns `{ GET, POST }`
  * tied to the configured AuthEngine. Apps map the parsed path segments to
  * provider/flow handlers.
- *
- * Apps can also wire the individual nextSignIn / nextSignOut / etc. directly
- * - `mountNext` is an ergonomic helper.
  */
 export function mountNext(
   auth: AuthEngine,
@@ -137,7 +134,7 @@ export function mountNext(
 
 function handleError(err: unknown): Response {
   const { status, body } = errorToHttp(err)
-  return Response.json(body, { status })
+  return Response.json(body, { headers: { 'cache-control': 'no-store' }, status })
 }
 
 /**
@@ -161,16 +158,6 @@ export function withNextCsrf(
 }
 
 /**
- * Wrap one handler so its writes carry the request's actor. `A route handler` composes no
- * `next`, so the binding is per-handler rather than a middleware: without it a
- * write records `created_by` / `updated_by` / `deleted_by` as `null`, because
- * nothing else in the package opens the scope the stores read.
- *
- * Anonymous requests and unresolvable sessions run unbound, which is the honest
- * `null`; while impersonating, the operator behind `actingAs` is the actor, not
- * the account being acted on.
- */
-/**
  * The fingerprint Next exposes, the same pair {@link nextSignIn} stamps at sign-in: User-Agent
  * only. A Web `Request` carries no resolved peer address, and the forwarded header that would
  * stand in for one is written by the caller.
@@ -179,15 +166,7 @@ export function nextCaller(req: Request): CallerFingerprint {
   return callerContext({ userAgent: req.headers.get('user-agent') ?? undefined })
 }
 
-/**
- * Options for the actor-context wrapper.
- *
- * `getCaller` is the opt-in: omit it and the wrapper is what it has always been, an attribution
- * scope that refuses nothing. Supply it - {@link nextCaller} reads the same values the sign-in
- * route already stamps onto the session - and every request's fingerprint is compared with the
- * session's, running the anomaly detectors and the hijack policy. Switching that on in a live
- * deployment starts acting on IP and User-Agent drift for sessions already issued.
- */
+/** Options for the actor-context wrapper. */
 export type NextActorOptions = {
   /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
   getCaller?: (req: Request) => CallerFingerprint
@@ -195,6 +174,9 @@ export type NextActorOptions = {
   onHijack?: RequestSecurityOptions['onHijack']
 }
 
+/** Wrap one handler so its writes carry the request's actor. Per-handler rather than middleware,
+ *  since a route handler composes no `next`. Anonymous and unresolvable sessions run unbound, which is the
+ *  honest `null`; while impersonating the actor is the operator behind `actingAs`. */
 export function nextWithActor(
   auth: AuthEngine,
   handler: NextAdapter.Handler,
@@ -205,10 +187,14 @@ export function nextWithActor(
       auth,
       { headers: req.headers },
       () => handler(req),
-      requestSecurity(auth, { ...(opts.onHijack && { onHijack: opts.onHijack }), caller: opts.getCaller?.(req) ?? {} }),
+      requestSecurity(auth, {
+        ...(opts.onHijack && { onHijack: opts.onHijack }),
+        ...(opts.getCaller && { caller: opts.getCaller(req) }),
+      }),
     )
 }
 
+/** The Next.js request and response surface the adapter touches. */
 export namespace NextAdapter {
   export type Handler = (req: Request) => Promise<Response>
 }

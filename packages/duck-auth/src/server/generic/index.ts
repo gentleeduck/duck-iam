@@ -11,6 +11,9 @@ export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Re
   let status = baseStatus
   let body: string | null = null
   const headers = new Headers()
+  // Auth responses vary by cookie on a URL that does not: a shared cache holding one would answer
+  // the next caller with it.
+  headers.set('cache-control', 'no-store')
   let bodyContentType: string | undefined
 
   for (const intent of intents) {
@@ -25,10 +28,14 @@ export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Re
       }
       case 'redirect': {
         if (!isSafeRedirectUrl(intent.url)) {
-          status = 500
-          body = JSON.stringify({ code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected' })
-          bodyContentType = 'application/json; charset=utf-8'
-          break
+          // SECURITY: returns rather than breaking. A `break` leaves the switch, not the loop, so the
+          // next intent reassigned `status` and `body` and the refusal was gone - a following `json`
+          // answered 200, and a following safe redirect answered 302 with a Location.
+          headers.set('content-type', 'application/json; charset=utf-8')
+          return new Response(JSON.stringify({ code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected' }), {
+            headers,
+            status: 500,
+          })
         }
         status = intent.status ?? 302
         headers.set('location', intent.url)
@@ -72,6 +79,7 @@ export function parseProviderBeginBody(raw: unknown): object | null {
 }
 
 const PROVIDER_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/
+/** Whether a string is a well-formed provider id. */
 export function isValidProviderId(value: unknown): value is string {
   return typeof value === 'string' && PROVIDER_ID_RE.test(value)
 }
@@ -189,12 +197,6 @@ export function serializeCookie(
  * The caller, for the session row. Only ever what the framework resolved: reading a forwarded
  * header here would take the value the caller wrote, and the host is the only layer that knows
  * how many proxies it trusts. Omitted keys stay omitted so the flow's own defaults apply.
- *
- * Truncated to {@link SESSION_COLUMN_CAPS}, the same lengths `SessionsImpl.create` stores. That
- * is not belt-and-braces: `hijack.evaluate` compares the fingerprint read off a later request
- * against the truncated value on the row, so normalising to a *different* length would make a
- * client with a long User-Agent read as drift on every request it ever sends. Truncated rather
- * than dropped for the same reason - both sides go through here, so both clip identically.
  */
 export function callerContext(input: { ip?: string; userAgent?: unknown }): { ip?: string; userAgent?: string } {
   const ip = typeof input.ip === 'string' && input.ip.length > 0 ? input.ip.slice(0, SESSION_COLUMN_CAPS.ip) : undefined
@@ -230,6 +232,7 @@ export type HijackEvaluable = {
   }
 }
 
+/** What {@link requestSecurity} takes: the request fingerprint, and what to do when it drifts. */
 export type RequestSecurityOptions = {
   /**
    * The request fingerprint. Passing one is what switches these checks on: without it the
@@ -248,15 +251,19 @@ export type RequestSecurityOptions = {
 /**
  * Build the {@link RequestActorOptions} that turn an actor-context wrapper into a fingerprint
  * check as well: the anomaly detectors get a snapshot to run against, and every resolved session
- * is compared with `hijack.evaluate` - which emits `suspicious` on any drift, even when the
+ * is compared with `hijack.evaluate`, which emits `suspicious` on any drift, even when the
  * configured reaction is `'ignore'`.
- *
- * Returns an empty bag when no fingerprint was read, so an adapter that was given no `getCaller`
- * behaves exactly as it did before: actor scope only, nothing refused.
  */
 export function requestSecurity(auth: HijackEvaluable, opts: RequestSecurityOptions = {}): RequestActorOptions {
   const caller = opts.caller
-  if (!caller || (caller.ip === undefined && caller.userAgent === undefined)) return {}
+  // SECURITY: `!caller` alone. Supplying a `getCaller` is the host's opt-in; supplying no values is the
+  // *caller's* choice, and those were the same early return, so a request that sent neither an IP nor a
+  // User-Agent was never compared with the session at all. `nextCaller` and `grpcCaller` resolve no IP
+  // by design - a Web `Request` has no peer and gRPC's is on the runtime's object - so on those two the
+  // User-Agent was the whole fingerprint and dropping one header turned the check off, `suspicious`
+  // included. `onMissingSignal: 'strict'` exists for exactly that move and could never be reached.
+  // The facet already distinguishes a stripped value from an absent baseline, so it decides now.
+  if (!caller) return {}
   return {
     onSession: async (session) => {
       const evaluation = await auth.hijack.evaluate(session, caller)

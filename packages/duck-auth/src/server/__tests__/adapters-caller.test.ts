@@ -16,11 +16,6 @@ import { nextSignIn } from '../next'
  * One case per adapter, asserting the session row it produced can name the device. The unit
  * tests next door prove the helper; these prove each adapter reaches for it, which is the part
  * that was missing everywhere and silently.
- *
- * Split by whether the framework resolves an address. express, fastify, koa and nest do, so
- * both land. hono, elysia and next are Web Request shaped and resolve none, so the user agent
- * lands and the address only if the host threaded it: reading a forwarded header inside the
- * library would take the value the caller wrote.
  */
 
 const EMAIL = 'adapter@example.test'

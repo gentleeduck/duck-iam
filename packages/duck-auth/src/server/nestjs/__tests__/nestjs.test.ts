@@ -80,7 +80,7 @@ describe('NestJS adapter - handlers', () => {
     ;({ auth, adapter } = buildAuth())
   })
 
-  it('signIn missing providerId -> 400 + AUTH/INVALID_CREDENTIALS', async () => {
+  it('signIn missing providerId -> 400 + AUTH_INVALID_CREDENTIALS', async () => {
     const reply = makeReply()
     await nestSignIn(auth)({ method: 'POST', url: '/AUTH/signin', headers: {}, body: {} } as NestAdapter.Request, reply)
     expect(reply._status).toBe(400)
@@ -139,7 +139,7 @@ describe('NestJS adapter - makeGuard', () => {
     ;({ auth } = buildAuth())
   })
 
-  it('required:true + no cookie -> throws AUTH/UNAUTHENTICATED', async () => {
+  it('required:true + no cookie -> throws AUTH_UNAUTHENTICATED', async () => {
     const guard = makeGuard(auth)
     const req: NestAdapter.Request = { method: 'GET', headers: {}, session: null, identity: null }
     await expect(
@@ -244,7 +244,7 @@ describe('NestJS adapter - nestSignIn onAuthenticated', () => {
 
   /** Is the SID the flow just minted still good? */
   async function sessionAlive(sid: string): Promise<boolean> {
-    const resolved = await auth.resolveSession({ headers: new Headers({ cookie: `duck-sid=${sid}` }) })
+    const resolved = await auth.resolveSession({ headers: new Headers({ cookie: `duck-sid=${sid}` }) }).orNull()
     return resolved !== null
   }
 
