@@ -30,6 +30,25 @@ the guard remains the coarse gate on type, id and scope, with the
 attribute-dependent rule re-checked by `can()` once the row is in hand. All
 eight surfaces are now pinned against one policy so they cannot drift apart.
 
+### A route guard named the wrong row, or none
+
+The guards that read the resource id read one path param, `id`, and could not be
+told otherwise. On a nested route that names a different row: `/orgs/:id/posts/:postId`
+guarded as a `post` sends the **org's** id as `resource.id`, so a rule denying a
+particular post, or comparing `resource.id` against what the subject owns, was
+answered about the wrong instance. Express and Hono's `iamGuard` and
+`withIamAccess` now take the `getResourceId` option Nest already had; the default
+is unchanged.
+
+`createIamNextMiddleware` had no id at all. It matches a path prefix and knows
+the rule's resource type, so a rule reading `resource.id` could not fire and the
+request passed — the same fail-open shape as an attribute rule with no
+attributes. It now takes `getResourceId` too, with no default, because only the
+rule's own path shape says which segment is the id.
+
+The resolved id is also handed to `getResourceAttributes` on every guard, so a
+loader can fetch the row the check is actually about rather than re-deriving it.
+
 ### A Server Component check ignored the environment
 
 `checkIamAccess` and `getIamPermissions` passed `undefined` where every other
