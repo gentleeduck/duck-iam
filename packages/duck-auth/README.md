@@ -50,10 +50,10 @@ Optional peer dependencies (install only what you wire):
 ## Quick start
 
 ```typescript
-import { createAuth } from '@gentleduck/auth/core/config'
+import { createAuth } from '@gentleduck/auth/core'
 import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
 import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
-import { password } from '@gentleduck/auth/providers/password'
+import { Argon2idHasher, passwords } from '@gentleduck/auth/providers/passwords'
 
 const storage = new MemoryAdapter()
 
@@ -61,12 +61,7 @@ export const auth = createAuth({
   baseUrl: 'http://localhost:3000',
   storage,
   limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
-  providers: [
-    (a) => password({
-      findIdentityByEmail: (email) => storage.identities.find({ email }),
-      passwords: a.passwords,
-    }),
-  ],
+  providers: [passwords({ hasher: new Argon2idHasher() })],
 })
 
 const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
@@ -146,7 +141,7 @@ import {
   MemoryDPoPNonceStore,
   computeJwkThumbprint,
   bindPayloadToDPoP,
-} from '@gentleduck/auth/core/transport/dpop' // RFC 9449
+} from '@gentleduck/auth/core/transport' // RFC 9449
 ```
 
 ## Storage adapters
@@ -157,13 +152,12 @@ import { DrizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
 import { DrizzleMysqlAdapter } from '@gentleduck/auth/adapters/drizzle/mysql'
 import { DrizzleSqliteAdapter } from '@gentleduck/auth/adapters/drizzle/sqlite'
 import {
-  RedisSessionStore,
-  RedisIdempotencyStore,
-  RedisLimiter,
+  RedisSessionImpl,
   RedisEvents,
   RedisDPoPNonceStore,
-  FakeRedis, // in-tree, for tests
 } from '@gentleduck/auth/adapters/redis'
+import { RedisLimiter } from '@gentleduck/auth/limiters/redis'
+import { FakeRedis } from '@gentleduck/auth/test' // in-tree, for tests
 
 // One class per dialect, implementing the three store contracts. The constructor takes a
 // connection string, a driver pool, or a drizzle handle you already have.
@@ -327,8 +321,8 @@ import { mountSignIn, mountSignOut, mountProviderBegin } from '@gentleduck/auth/
 app.post('/auth/signin', mountSignIn(auth))
 
 // Hono
-import { mount } from '@gentleduck/auth/server/hono'
-mount(app, auth, { prefix: '/auth' })
+import { mountHono } from '@gentleduck/auth/server/hono'
+mountHono(app, auth, { prefix: '/auth' })
 
 // Next.js App Router
 import { nextSignIn, nextSignOut } from '@gentleduck/auth/server/next'
@@ -339,7 +333,7 @@ import { fastifySignIn } from '@gentleduck/auth/server/fastify'
 import { koaSignIn }     from '@gentleduck/auth/server/koa'
 import { nestSignIn }    from '@gentleduck/auth/server/nestjs'
 import { elysiaSignIn }  from '@gentleduck/auth/server/elysia'
-import { authGrpcService } from '@gentleduck/auth/server/grpc'
+import { withGrpc } from '@gentleduck/auth/server/grpc'
 
 // Generic Web-Fetch executor (Cloudflare Workers, Bun, Deno)
 import { executeIntents, parseSignInBody } from '@gentleduck/auth/server/generic'
@@ -360,12 +354,12 @@ import { executeIntents, parseSignInBody } from '@gentleduck/auth/server/generic
 
 ```typescript
 // React - <Provider> + useSession / useSignIn / useSignOut
-import { createAuthClient } from '@gentleduck/auth/client/react'
+import { Provider, useSession, useSignIn, useSignOut } from '@gentleduck/auth/client/react'
 
-// Vue, Solid, Svelte - parallel APIs
-import { createAuthClient as createVueAuth }    from '@gentleduck/auth/client/vue'
-import { createAuthClient as createSolidAuth }  from '@gentleduck/auth/client/solid'
-import { createAuthClient as createSvelteAuth } from '@gentleduck/auth/client/svelte'
+// Vue, Solid, Svelte - parallel APIs under each framework's own idiom
+import { createAuthVuePlugin, useAuthSession } from '@gentleduck/auth/client/vue'
+import { Provider as SolidProvider, authUseSession } from '@gentleduck/auth/client/solid'
+import { createAuthStore } from '@gentleduck/auth/client/svelte'
 
 // Vanilla - promise-based signIn / signOut / resolveSession
 import { createAuthClient } from '@gentleduck/auth/client/vanilla'
@@ -374,9 +368,11 @@ import { createAuthClient } from '@gentleduck/auth/client/vanilla'
 ## Captcha verifiers
 
 ```typescript
-import { turnstileVerifier } from '@gentleduck/auth/captcha/turnstile'
-import { hcaptchaVerifier }  from '@gentleduck/auth/captcha/hcaptcha'
-import { recaptchaVerifier } from '@gentleduck/auth/captcha/recaptcha'
+import {
+  authTurnstileVerifier,
+  authHCaptchaVerifier,
+  authRecaptchaV3Verifier,
+} from '@gentleduck/auth/core'
 ```
 
 ## Tooling
