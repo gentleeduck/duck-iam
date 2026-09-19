@@ -1,13 +1,6 @@
 /**
  * Module-surface contract tests for the pg + mysql + sqlite Drizzle OP
  * stores.
- *
- * Validates that every dialect exports the same table set + factory
- * signature so consumers can swap engines via a one-import change. The
- * actual SQL execution path is covered by sqlite.test.ts (which runs
- * against bun:sqlite). Equivalent pg + mysql integration tests need a
- * running Postgres / MySQL or an embedded driver (pglite, mysql2 in
- * mock mode); both are dev-dep additions, not in this workspace.
  */
 
 import { describe, expect, it } from 'vitest'

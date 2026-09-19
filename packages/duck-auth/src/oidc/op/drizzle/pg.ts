@@ -1,10 +1,4 @@
-/**
- * Postgres Drizzle stores for the OIDC OP.
- *
- * Provides the five table schemas + a `authCreateDrizzlePgOidcOpStores(db)`
- * factory that returns one row store per OP concern. Plug the result
- * into `authCreateOidcOP({ stores: ... })`.
- */
+/** Postgres Drizzle stores for the OIDC OP. */
 
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'

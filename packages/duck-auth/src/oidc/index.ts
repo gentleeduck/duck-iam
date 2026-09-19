@@ -1,4 +1,4 @@
-/** OIDC discovery-doc + JWKS helper. For the full OP, see `@gentleduck/AUTH/oidc/op`. */
+/** OIDC discovery-doc + JWKS helper. For the full OP, see `@gentleduck/auth/oidc/op`. */
 
 import { AuthError } from '../core/errors'
 
