@@ -1,3 +1,5 @@
+import type { IamPrimitives } from './primitives'
+
 /** Types derived from the caller's declared actions, resources and scopes. Type-only. */
 export namespace IamClient {
   /**
@@ -66,5 +68,11 @@ export namespace IamClient {
     readonly resourceId?: string
     /** Optional scope for multi-tenant checks. */
     readonly scope?: TScope
+    /**
+     * The instance's own attributes, as `can()` would receive them.
+     * SECURITY: omitting them evaluates the check against a resource that has none, so a rule conditioned on
+     * `resource.attributes.*` cannot fire and the map may be more permissive than `can()`.
+     */
+    readonly attributes?: IamPrimitives.Attributes
   }
 }

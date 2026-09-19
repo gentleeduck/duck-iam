@@ -478,6 +478,9 @@ export async function generateIamPermissionMap<
 /**
  * Builds a typed `(action, resourceType, resourceId?, scope?) => Promise<boolean>` checker bound to one subject.
  *
+ * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
+ * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ *
  * @template TAction - Valid action strings.
  * @template TResource - Valid resource strings.
  * @template TRole - Valid role strings.

@@ -35,6 +35,12 @@ before the API:
 - **The map is stale by construction.** It was computed once. A role revoked
   after the map was built stays visible in the UI until something reloads it.
   The reload paths are the subject of the last third of this document.
+- **A key names an instance; the verdict may not know it.** Each check is
+  evaluated against `{ type, id, attributes }` and `attributes` defaults to
+  `{}`, so a rule conditioned on `resource.attributes.*` evaluates as if the
+  instance had none. `'update:post:post-42': true` can therefore sit beside a
+  server-side `can()` that refuses the loaded row. Pass the row's attributes on
+  the check when a policy reads them.
 
 ## Where the map comes from
 

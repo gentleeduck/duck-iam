@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { iamBuildPermissionKey } from '../../../shared/keys'
-import type { AccessControl } from '../../types'
+import type { AccessControl, IamPrimitives } from '../../types'
 import { IamEngine } from '../engine'
 
 // One verdict, five ways of asking for it: production `can`, development `can` and `check`, `explain`, and the
@@ -32,16 +32,44 @@ function role(id: string, perms: { action: string; resource: string }[], scope?:
   return { description: '', id, inherits, name: id, permissions: perms, ...(scope ? { scope } : {}) }
 }
 
-function policy(id: string, effect: AccessControl.Effect, action: string, resource: string): AccessControl.IPolicy {
+function policy(
+  id: string,
+  effect: AccessControl.Effect,
+  action: string,
+  resource: string,
+  on: 'subject' | 'resource' = 'subject',
+): AccessControl.IPolicy {
+  // A policy whose only rule is a deny answers `defaultEffect` when the rule misses, and under `policyCombine: 'and'`
+  // that denies everything. The resource-conditioned one carries an allow rule so its deny is the only variable.
+  const baseline: AccessControl.IRule[] =
+    on === 'resource'
+      ? [
+          {
+            actions: [action],
+            conditions: { all: [{ field: 'action', operator: 'eq', value: action }] },
+            effect: 'allow',
+            id: `${id}-r0`,
+            priority: 1,
+            resources: [resource],
+          },
+        ]
+      : []
   return {
     algorithm: 'deny-overrides',
     description: '',
     id,
     name: id,
     rules: [
+      ...baseline,
       {
         actions: [action],
-        conditions: { all: [{ field: 'subject.attributes.tier', operator: 'eq', value: 'gold' }] },
+        conditions: {
+          all: [
+            on === 'subject'
+              ? { field: 'subject.attributes.tier', operator: 'eq', value: 'gold' }
+              : { field: 'resource.attributes.archived', operator: 'eq', value: true },
+          ],
+        },
         effect,
         id: `${id}-r1`,
         priority: 10,
@@ -73,13 +101,16 @@ async function parity(seed: number, devScopeMode: 'flat' | 'hierarchical'): Prom
     const tier = rng() < 0.5 ? 'gold' : 'silver'
     const inheritPick = pick(rng, ROLE_IDS)
     const deletePick = rng() < 0.5 ? 'p1' : 'p2'
+    // The instance the surfaces are asked about: every one must be handed the same id and attributes.
+    const rid = rng() < 0.5 ? '42' : undefined
+    const resAttrs: IamPrimitives.Attributes = rng() < 0.5 ? { archived: true } : {}
     const ops: { name: string; run: () => Promise<unknown> }[] = [
       { name: 'saveRole', run: () => writer.admin.saveRole(role(r, [perm], rscope, [inheritPick])) },
       { name: 'deleteRole', run: () => writer.admin.deleteRole(r) },
       { name: 'savePolicy', run: () => writer.admin.savePolicy(policy('p1', 'allow', perm.action, perm.resource)) },
       {
         name: 'savePolicy(deny)',
-        run: () => writer.admin.savePolicy(policy('p2', 'deny', perm.action, perm.resource)),
+        run: () => writer.admin.savePolicy(policy('p2', 'deny', perm.action, perm.resource, 'resource')),
       },
       { name: 'deletePolicy', run: () => writer.admin.deletePolicy(deletePick) },
       { name: 'assignRole', run: () => writer.admin.assignRole(s, r, sc) },
@@ -100,15 +131,17 @@ async function parity(seed: number, devScopeMode: 'flat' | 'hierarchical'): Prom
       for (const action of ACTIONS) {
         for (const resource of RESOURCES) {
           for (const scope of SCOPES) {
-            const res = { attributes: {}, type: resource }
+            const res = { attributes: resAttrs, id: rid, type: resource }
             const viaCan = await prod.can(subject, action, res, undefined, scope)
             const viaCheck = await dev.check(subject, action, res, undefined, scope)
             const viaExplain = await dev.explain(subject, action, res, undefined, scope)
             const viaDevCan = await dev.can(subject, action, res, undefined, scope)
-            const map = await prod.permissions(subject, [{ action, resource, scope }])
-            const viaMap = map[iamBuildPermissionKey(action, resource, undefined, scope)]
+            const map = await prod.permissions(subject, [
+              { action, attributes: resAttrs, resource, resourceId: rid, scope },
+            ])
+            const viaMap = map[iamBuildPermissionKey(action, resource, rid, scope)]
             if (viaCan) out.allows++
-            const label = `i=${i} ${op.name} ${subject}/${action}/${resource}/${scope}`
+            const label = `i=${i} ${op.name} ${subject}/${action}/${resource}/${scope}/${rid}/${JSON.stringify(resAttrs)}`
             if (viaCheck.allowed !== viaCan) out.divergences.push(`${label} can=${viaCan} check=${viaCheck.allowed}`)
             if (viaExplain.decision.allowed !== viaCan)
               out.divergences.push(`${label} can=${viaCan} explain=${viaExplain.decision.allowed}`)

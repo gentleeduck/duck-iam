@@ -189,6 +189,9 @@ export function withIamAccess<
 /**
  * Whether `subjectId` can perform `(action, resourceType)`, for Server Components and server actions.
  *
+ * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
+ * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
@@ -247,6 +250,9 @@ export async function getIamPermissions<
 /**
  * Builds a Next.js Middleware check from pattern-keyed rules: `null` when the request passes or no rule matches,
  * else a 401/403/500 `Response`.
+ *
+ * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
+ * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.

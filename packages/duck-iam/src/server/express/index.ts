@@ -110,6 +110,9 @@ export namespace IamExpress {
 /**
  * Builds global Express middleware that runs `engine.can(...)` on every request: 401 without a user, 403 on deny.
  *
+ * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
+ * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
@@ -164,6 +167,9 @@ export function iamAccessMiddleware<
 /**
  * Builds per-route middleware that checks `(action, resourceType)` for the
  * current user, pulling the resource ID from `req.params.id`.
+ *
+ * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
+ * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.

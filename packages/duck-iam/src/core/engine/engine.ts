@@ -962,7 +962,7 @@ export class IamEngine<
         let req: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
           subject: enrichedSubject,
           action: c.action,
-          resource: { type: c.resource, id: c.resourceId, attributes: {} },
+          resource: { type: c.resource, id: c.resourceId, attributes: c.attributes ?? {} },
           environment,
           scope: c.scope,
         }
@@ -991,7 +991,7 @@ export class IamEngine<
         const errReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
           subject,
           action: c.action,
-          resource: { type: c.resource, id: c.resourceId, attributes: {} },
+          resource: { type: c.resource, id: c.resourceId, attributes: c.attributes ?? {} },
           environment,
           scope: c.scope,
         }

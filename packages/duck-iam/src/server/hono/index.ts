@@ -135,6 +135,9 @@ function defaultEnv(c: HonoContext, trustCloudflareHeaders = false): IamRequest.
 /**
  * Builds Hono middleware that runs `engine.can(...)` on every request: 401 without a user, 403 on deny.
  *
+ * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
+ * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
+ *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
@@ -367,6 +370,9 @@ export function iamBindAdminRouter<
 
 /**
  * Builds Hono middleware that checks `(action, resourceType)` for the current user, with the id from `:id`.
+ *
+ * SECURITY: the resource is built from the route, so `attributes` is empty and a rule reading
+ * `resource.attributes.*` cannot fire here; re-check with `can()` once the handler has the row.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
