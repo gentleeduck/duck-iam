@@ -24,7 +24,7 @@ export namespace AuthWebPushChannel {
     }
   }
 
-  /** Subset of the `web-push` library we depend on. */
+  /** The subset of the `web-push` library this uses. */
   export interface IModule {
     setVapidDetails(subject: string, publicKey: string, privateKey: string): void
     sendNotification(
@@ -40,7 +40,6 @@ export namespace AuthWebPushChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ payload: string; ttl?: number }> | { payload: string; ttl?: number }
 
-  /** Cfg knobs for {@link AuthWebPushChannel}. */
   export interface Cfg extends ChannelGuard.Cfg {
     /** VAPID subject (HTTPS URL or mailto: URI). Required. */
     subject: string
@@ -128,8 +127,8 @@ export class AuthWebPushChannel implements Channel.Channel {
     } catch (err) {
       return { error: describeSendError(err), ok: false, retryable: false }
     }
-    const denied = await this._guard.spend(input)
-    if (denied) return { error: denied, ok: false, retryable: true }
+    const budget = await this._guard.spend(input).wrap()
+    if (budget.error) return { error: budget.error.code, ok: false, retryable: true }
     let resolved: Awaited<ReturnType<AuthWebPushChannel.ITemplateResolver>>
     try {
       resolved = await this._cfg.templates(input.templateId, input.vars)
@@ -164,7 +163,7 @@ export class AuthWebPushChannel implements Channel.Channel {
   }
 }
 
-/** Factory around {@link AuthWebPushChannel}, for callers who prefer functions to `new`. */
+/** Web Push channel over VAPID. */
 export function authWebPushChannel(...args: ConstructorParameters<typeof AuthWebPushChannel>): AuthWebPushChannel {
   return new AuthWebPushChannel(...args)
 }

@@ -9,25 +9,19 @@ import { ChannelGuard } from '../channels.guard'
 import { checkRenderedEmail, describeSendError, resolveEmailRecipient, sanitizeSubject } from '../channels.outbound'
 
 export namespace AuthSesChannel {
-  /** Subset of the SES v3 SDK we depend on. */
+  /** The subset of the SES v3 SDK this uses. */
   export interface IClient {
     send(command: { input: unknown }): Promise<{ MessageId?: string }>
   }
 
   /** Template resolver. */
-  export type ITemplateResolver = (
-    templateId: string,
-    vars: Record<string, unknown>,
-  ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
-
-  /** Cfg knobs for {@link AuthSesChannel}. */
   export interface Cfg<TClient extends IClient = IClient> extends ChannelGuard.Cfg {
     /** Pre-built SESv3 client. Required. */
     client: TClient
     /** From: address; must be on a verified SES identity. */
     from: string
     /** Template resolver invoked per send. */
-    templates: ITemplateResolver
+    templates: Channel.IEmailTemplateResolver
     /** Identifier appearing in logs + diagnostics. Default `ses`. */
     id?: string
     /** Optional configuration-set name (SES feedback notifications). */
@@ -56,7 +50,7 @@ async function loadSendEmailCommand(): Promise<new (input: unknown) => { input: 
   }
 }
 
-/** A client the caller built needs no command class from us; a real SESClient rejects this envelope. */
+/** A client the caller built needs no command class from here; a real SESClient rejects this envelope. */
 class PlainCommand {
   constructor(readonly input: unknown) {}
 }
@@ -104,10 +98,10 @@ export class AuthSesChannel<TClient extends AuthSesChannel.IClient = AuthSesChan
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
     const recipient = resolveEmailRecipient(input.identity.profile, 'AuthSesChannel')
     if (!recipient.ok) return { error: recipient.error, ok: false, retryable: false }
-    const denied = await this._guard.spend(input)
-    if (denied) return { error: denied, ok: false, retryable: true }
+    const budget = await this._guard.spend(input).wrap()
+    if (budget.error) return { error: budget.error.code, ok: false, retryable: true }
     const to = recipient.to
-    let resolved: Awaited<ReturnType<AuthSesChannel.ITemplateResolver>>
+    let resolved: Awaited<ReturnType<Channel.IEmailTemplateResolver>>
     try {
       resolved = await this._cfg.templates(input.templateId, input.vars)
     } catch (err) {
@@ -145,7 +139,7 @@ export class AuthSesChannel<TClient extends AuthSesChannel.IClient = AuthSesChan
   }
 }
 
-/** Factory around {@link AuthSesChannel}, for callers who prefer functions to `new`. */
+/** Email channel over Amazon SES. */
 export function authSesChannel(...args: ConstructorParameters<typeof AuthSesChannel>): AuthSesChannel {
   return new AuthSesChannel(...args)
 }
