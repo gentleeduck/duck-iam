@@ -9,9 +9,11 @@ import {
 } from '../../shared/tenant-literals'
 import {
   IAM_UNKNOWN_RESOURCE,
+  type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
   iamActionForMethod,
+  iamAdminActorOptions,
   iamAuditIdOf,
   iamDefaultCsrfCheck,
   iamDefaultResource,
@@ -114,7 +116,8 @@ export namespace IamNest {
 
   /**
    * Required admin gate: a falsy answer or a throw blocks the operation, a truthy one lets it proceed.
-   * Prefer returning the actor over `true`, so the audit event records who acted; see {@link IamAdminAuthzAnswer}.
+   * Prefer returning the actor over `true`, so the audit event and the write itself record who acted; a string
+   * answer also reaches `engine.admin`. See {@link IamAdminAuthzAnswer} and `getMutationActor`.
    */
   export type IAdminAuthorize = (request: NestRequest) => IamAdminAuthzAnswer | Promise<IamAdminAuthzAnswer>
 
@@ -124,6 +127,11 @@ export namespace IamNest {
     authorize: IAdminAuthorize
     /** Audit hook fired after every mutation (not the list reads), on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
+    /**
+     * Names the caller for `engine.admin`, which reaches the adapter's `created_by` / `updated_by`.
+     * A string `authorize` answer is forwarded without this; an object one names no one until this picks the field.
+     */
+    getMutationActor?: (actor: IamAdminActor) => string | undefined
     /**
      * Builds the error thrown when `authorize` refuses; defaults to a 401.
      * INFO: Nest's base filter duck-types `statusCode`, not `status`: set it, or return an `HttpException`.
@@ -391,7 +399,8 @@ export function createIamAdminOperations<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[@gentleduck/iam:nest] createIamAdminOperations requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
+    opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
@@ -417,7 +426,7 @@ export function createIamAdminOperations<
    * The shared {@link iamRunAdminAuthz} gate, returning the nameable actor for the audit event.
    * Throws `onForbidden` (CSRF), `onUnauthorized` (refused), or `onError` (a throwing `authorize`).
    */
-  const gateWithActor = async (req: NestRequest): Promise<unknown> => {
+  const gateWithActor = async (req: NestRequest): Promise<IamAdminActor | undefined> => {
     // SECURITY: CSRF runs before authorize, so a cookie-based authorize cannot be ridden by a cross-origin POST.
     const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
     if (authz.phase === 'forbidden') throw onForbidden(req)
@@ -433,7 +442,7 @@ export function createIamAdminOperations<
     action: IamAdminAudit.Action,
     target: IamAdminAudit.Target,
     targetId: string | undefined,
-    handler: () => Promise<T>,
+    handler: (who: { actor?: string }) => Promise<T>,
   ): Promise<T> => {
     // A gate refusal throws before the wrapper, so no audit event fires: the mutation never started.
     const actor = await gateWithActor(req)
@@ -452,7 +461,7 @@ export function createIamAdminOperations<
           onAuditHookError,
           includeErrorMessage,
         },
-        handler,
+        () => handler(iamAdminActorOptions(actor, getMutationActor)),
       )
     } catch (err) {
       // The wrapper has already audited the failure; `asThrowable` only decides what the framework sees.
@@ -476,14 +485,14 @@ export function createIamAdminOperations<
     },
     async savePolicy(req: NestRequest, body: AccessControl.IPolicy<TAction, TResource, TRole>) {
       // `iamAuditIdOf`, not a cast: the declared type is only what the controller promises, not the JSON that arrived.
-      return runMutation(req, 'replace', 'policy', iamAuditIdOf(body), async () => {
-        await engine.admin.savePolicy(body)
+      return runMutation(req, 'replace', 'policy', iamAuditIdOf(body), async (who) => {
+        await engine.admin.savePolicy(body, who)
         return { ok: true as const }
       })
     },
     async saveRole(req: NestRequest, body: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
-      return runMutation(req, 'replace', 'role', iamAuditIdOf(body), async () => {
-        await engine.admin.saveRole(body)
+      return runMutation(req, 'replace', 'role', iamAuditIdOf(body), async (who) => {
+        await engine.admin.saveRole(body, who)
         return { ok: true as const }
       })
     },
@@ -492,21 +501,24 @@ export function createIamAdminOperations<
      * so a refusal is audited as a failure.
      */
     async assignRole(req: NestRequest, subjectId: string, body: { roleId: TRole; scope?: TScope }) {
-      return runMutation(req, 'create', 'role-assignment', subjectId, async () => {
+      return runMutation(req, 'create', 'role-assignment', subjectId, async (who) => {
         const scope = iamOptionalStringField(body, 'scope')
         await engine.admin.assignRole(
           iamRequirePathParam(subjectId, 'id'),
           iamAsRoleLiteral<TRole>(iamRequireStringField(body, 'roleId')),
           scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+          who,
         )
         return { ok: true as const }
       })
     },
     async revokeRole(req: NestRequest, subjectId: string, roleId: TRole) {
-      return runMutation(req, 'delete', 'role-assignment', subjectId, async () => {
+      return runMutation(req, 'delete', 'role-assignment', subjectId, async (who) => {
         await engine.admin.revokeRole(
           iamRequirePathParam(subjectId, 'id'),
           iamAsRoleLiteral<TRole>(iamRequirePathParam(roleId, 'roleId')),
+          undefined,
+          who,
         )
         return { ok: true as const }
       })

@@ -7,9 +7,11 @@ import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../
 import { iamIsValidationError } from '../../shared/errors'
 import { iamAsActionLiteral, iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
+  type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
   iamActionForMethod,
+  iamAdminActorOptions,
   iamAuditIdOf,
   iamDefaultCsrfCheck,
   iamExtractEnvironment,
@@ -95,7 +97,8 @@ export namespace IamNext {
 
   /**
    * Required admin gate: a falsy answer or a throw blocks the request, a truthy one lets it proceed.
-   * Prefer returning the actor over `true`, so the audit event records who acted; see {@link IamAdminAuthzAnswer}.
+   * Prefer returning the actor over `true`, so the audit event and the write itself record who acted; a string
+   * answer also reaches `engine.admin`. See {@link IamAdminAuthzAnswer} and `getMutationActor`.
    */
   export type IAdminAuthorize = (req: Request) => IamAdminAuthzAnswer | Promise<IamAdminAuthzAnswer>
 
@@ -109,6 +112,11 @@ export namespace IamNext {
     onError?: (err: Error, req: Request) => Response
     /** Audit hook fired after every mutation, on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
+    /**
+     * Names the caller for `engine.admin`, which reaches the adapter's `created_by` / `updated_by`.
+     * A string `authorize` answer is forwarded without this; an object one names no one until this picks the field.
+     */
+    getMutationActor?: (actor: IamAdminActor) => string | undefined
   }
 }
 
@@ -412,7 +420,8 @@ export function createIamAdminHandlers<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[@gentleduck/iam:next] createIamAdminHandlers requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
+    opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
@@ -449,6 +458,7 @@ export function createIamAdminHandlers<
         req: Request,
         ctx: { params: Promise<P> | P },
         setTargetId: (id: string | undefined) => void,
+        who: { actor?: string },
       ) => Promise<Response>,
     ) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
@@ -485,9 +495,14 @@ export function createIamAdminHandlers<
       }
       try {
         return await iamWithAdminAudit(auditCtx, () =>
-          fn(req, { params: resolvedParams as P }, (id) => {
-            auditCtx.targetId = id
-          }),
+          fn(
+            req,
+            { params: resolvedParams as P },
+            (id) => {
+              auditCtx.targetId = id
+            },
+            iamAdminActorOptions(authz.actor, getMutationActor),
+          ),
         )
       } catch (err) {
         // A body the validator rejected is the caller's mistake, not ours.
@@ -501,23 +516,23 @@ export function createIamAdminHandlers<
   return {
     listPolicies: gate(async () => Response.json(await engine.admin.listPolicies())),
     listRoles: gate(async () => Response.json(await engine.admin.listRoles())),
-    savePolicy: mutate<Record<string, string>>('replace', 'policy', undefined, async (req, _ctx, setTargetId) => {
+    savePolicy: mutate<Record<string, string>>('replace', 'policy', undefined, async (req, _ctx, setTargetId, who) => {
       const body = (await iamReadJsonBody(() => req.json())) as AccessControl.IPolicy<TAction, TResource, TRole>
       setTargetId(iamAuditIdOf(body))
-      await engine.admin.savePolicy(body)
+      await engine.admin.savePolicy(body, who)
       return Response.json({ ok: true })
     }),
-    saveRole: mutate<Record<string, string>>('replace', 'role', undefined, async (req, _ctx, setTargetId) => {
+    saveRole: mutate<Record<string, string>>('replace', 'role', undefined, async (req, _ctx, setTargetId, who) => {
       const body = (await iamReadJsonBody(() => req.json())) as AccessControl.IRole<TAction, TResource, TRole, TScope>
       setTargetId(iamAuditIdOf(body))
-      await engine.admin.saveRole(body)
+      await engine.admin.saveRole(body, who)
       return Response.json({ ok: true })
     }),
     assignRole: mutate<{ id: string }>(
       'create',
       'role-assignment',
       (_req, params) => params.id,
-      async (req, ctx) => {
+      async (req, ctx, _setTargetId, who) => {
         // Validated at the edge, like the other adapters, so the refusal does not depend on the storage adapter.
         const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
         const body: unknown = await iamReadJsonBody(() => req.json())
@@ -526,6 +541,7 @@ export function createIamAdminHandlers<
           iamRequirePathParam(params?.id, 'id'),
           iamAsRoleLiteral<TRole>(iamRequireStringField(body, 'roleId')),
           scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+          who,
         )
         return Response.json({ ok: true })
       },
@@ -534,11 +550,13 @@ export function createIamAdminHandlers<
       'delete',
       'role-assignment',
       (_req, params) => params.id,
-      async (_req, ctx) => {
+      async (_req, ctx, _setTargetId, who) => {
         const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
         await engine.admin.revokeRole(
           iamRequirePathParam(params?.id, 'id'),
           iamAsRoleLiteral<TRole>(iamRequirePathParam(params?.roleId, 'roleId')),
+          undefined,
+          who,
         )
         return Response.json({ ok: true })
       },

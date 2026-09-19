@@ -694,6 +694,11 @@ constraint text (portable across all three drivers) plus Postgres's SQLSTATE
 `opts.actor` is written to `created_by` **by spread**, so an insert against a
 table that predates the column names no such column unless an actor is supplied.
 
+An admin write over HTTP names an actor when `authorize` returns a string, or
+when `getMutationActor` maps its answer to one; see `server.md` §7.6. Until
+both were wired these columns were null for every request-driven write, and
+`admin.import` left them null even when the caller named an actor.
+
 ### 7.3 `assignRoleMany` and the column list
 
 One multi-row insert. One subtlety worth stating: a multi-row insert builds its

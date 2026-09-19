@@ -344,6 +344,23 @@ function describeActor(actor: unknown): string {
 }
 
 /**
+ * The `actor` an admin router hands `engine.admin.*`, so an HTTP write reaches the adapter's provenance columns.
+ * The engine's actor is a string, so a string actor names the caller and anything else names no one unless `map`
+ * resolves it.
+ *
+ * @param actor - What `authorize` returned, as {@link iamRunAdminAuthz} resolved it.
+ * @param map - `getMutationActor`: picks the naming field out of an object actor.
+ */
+export function iamAdminActorOptions(
+  actor: IamAdminActor | undefined,
+  map?: (actor: IamAdminActor) => string | undefined,
+): { actor?: string } {
+  if (actor === undefined) return {}
+  const named = map ? map(actor) : typeof actor === 'string' ? actor : undefined
+  return typeof named === 'string' && named.trim().length > 0 ? { actor: named } : {}
+}
+
+/**
  * Whether a value can be recorded as an admin mutation's actor: a non-blank string or a non-array object.
  * The admin-path counterpart of {@link iamIsSubjectId}.
  */

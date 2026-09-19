@@ -145,6 +145,7 @@ drift the way the hand-maintained version did.
 | `core/config/__tests__/config.test.ts` | 18 | createIam() |
 | `core/config/__tests__/declared-surface.test.ts` | 17 | createIam().validateRoles checks grants against the declared vocabulary |
 | `core/engine/__tests__/adapter-interchangeability.test.ts` | 5 | the memory and file adapters |
+| `core/engine/__tests__/admin-actor-provenance.test.ts` | 9 | every admin write tells the adapter who made it |
 | `core/engine/__tests__/admin-star-scope.test.ts` | 7 | admin refuses a "*" scope on a grant |
 | `core/engine/__tests__/admin-write-cache-coherence.test.ts` | 7 | a long-lived engine after every admin write |
 | `core/engine/__tests__/admin.batch.test.ts` | 9 | IAdmin batch writes |
@@ -265,7 +266,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2374** | |
+| **Subtotal** | **2383** | |
 
 ---
 
@@ -324,6 +325,7 @@ drift the way the hand-maintained version did.
 | File | Tests | Covers |
 |---|---|---|
 | `server/__tests__/adapter-failure-mode-parity.test.ts` | 13 | a throwing getUserId denies through the adapter, not the framework |
+| `server/__tests__/admin-actor-parity.test.ts` | 16 | the actor an admin router authenticated |
 | `server/__tests__/admin-cross-adapter.test.ts` | 84 |  |
 | `server/__tests__/admin-request-validation-parity.test.ts` | 15 | the four admin routers answer one bad request the same way |
 | `server/__tests__/cross-adapter.test.ts` | 108 | the path-deriving integrations build the same tuple |
@@ -348,7 +350,7 @@ drift the way the hand-maintained version did.
 | `server/next/__tests__/next-middleware-environment.test.ts` | 8 | createIamNextMiddleware environment |
 | `server/next/__tests__/next-middleware-rule-matching.test.ts` | 4 | next middleware: a string rule pattern matches as a prefix |
 | `server/next/__tests__/next.test.ts` | 31 | withIamAccess |
-| **Subtotal** | **804** | |
+| **Subtotal** | **820** | |
 
 ---
 
@@ -402,12 +404,12 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 146 | 2374 |
+| Core | 147 | 2383 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
-| Server | 25 | 804 |
+| Server | 26 | 820 |
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **291** | **5692** |
+| **Total** | **293** | **5717** |

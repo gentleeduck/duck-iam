@@ -38,3 +38,24 @@ policy keyed on `environment.ip`, `environment.userAgent` or a custom key read
 as a non-match, so a deny that fired in Next middleware was inert in a Server
 Component asking the same question. Both now take an `environment` argument and
 forward it.
+
+### An admin write over HTTP was recorded as nobody's
+
+The admin routers authenticate a caller and hand it to their own audit hook.
+They never handed it to `engine.admin`, so the engine's `onMutation` fired with
+no actor and the SQL adapters wrote `created_by` / `updated_by` as null for
+every request-driven write — the columns the drizzle and prisma schemas ship for
+exactly this. An operator who wired `onMutation` instead of `onAdminMutation`
+had no attribution at all, and nothing said so.
+
+All four routers now forward a string `authorize` answer to `engine.admin`. An
+object answer — a claims object, the documented common case — still names no one
+to the engine, because its actor is a string and picking a field would be a
+guess; the new `getMutationActor` option picks it. A value that names no one,
+blank or non-string, is discarded rather than written.
+
+`admin.import` had the same defect one layer down: it stamped its mutation
+events with the actor it was given and passed nothing to `adapter.savePolicy` /
+`saveRole`. It was the only admin write in the package that did. Fixed, and
+every engine-side write is now pinned against a recording adapter so a new one
+cannot be added without provenance.

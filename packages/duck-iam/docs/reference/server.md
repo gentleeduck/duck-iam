@@ -640,6 +640,21 @@ Two path facts:
 
 A refused handler is never recorded as a success. `refusalStatus` (`:326`) duck-types a numeric `status >= 400` on the handler's return value — hono's context, next's `Response` and a test double are three classes across three realms, so `instanceof Response` would not do — and records `success: false` with `error: 'HTTP <n>'`. Before that, hono's inline `c.json({error}, 400)` refusals were written into the trail as successful mutations, which is worse than omitting them: it invents grants that were never made.
 
+### 7.6 Who the write is recorded as
+
+There are two records of one admin write and they are not the same record. The router's own hook (§7.5) receives `actor` as whatever `authorize` returned. The engine's `onMutation` and the adapter's `created_by` / `updated_by` receive `IActorOptions.actor`, which is a **string**.
+
+The routers bridge the two:
+
+| `authorize` returns | Router audit event | `engine.admin` / `created_by` |
+| --- | --- | --- |
+| `'alice'` | `'alice'` | `'alice'` |
+| `{ sub: 'alice' }` | the object | nothing, unless `getMutationActor` picks a field |
+| `{ sub: 'alice' }` + `getMutationActor: (a) => a.sub` | the object | `'alice'` |
+| `true` | `undefined` | nothing |
+
+`getMutationActor` exists because the engine's actor is a string and picking a field out of a claims object would be a guess. A value it returns that names no one — a blank string, a non-string — is discarded rather than written (`iamAdminActorOptions`, `src/server/generic/index.ts`). All four routers are pinned together by `src/server/__tests__/admin-actor-parity.test.ts`, and every engine-side write, `admin.import` included, by `src/core/engine/__tests__/admin-actor-provenance.test.ts`.
+
 Rate limiting is out of scope. Compose it at the mount point: `express-rate-limit` before the router, a hono middleware before the sub-app, `@nestjs/throttler` on the controller, or a `middleware.ts` check on `/api/admin/`.
 
 ---
