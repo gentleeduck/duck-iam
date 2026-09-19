@@ -1,5 +1,5 @@
 /**
- * E2E: `IamRedisAdapter` on a real `redis:7-alpine` and ioredis, covering what the in-repo fake cannot: how a real
+ * E2E: `IamRedisAdapter` on a real `valkey/valkey:9-alpine` and ioredis, covering what the in-repo fake cannot: how a real
  * client materialises `HGETALL`, and two connections writing at once. Starts and removes its own container.
  */
 import { execFile } from 'node:child_process'
@@ -43,10 +43,20 @@ async function waitFor(what: string, probe: () => Promise<boolean>, budgetMs = 6
 const CONTAINER = `duck-iam-adapterconf-redis-${randomBytes(4).toString('hex')}`
 
 async function startRedis(): Promise<number> {
-  await docker(['run', '-d', '--name', CONTAINER, '--label', 'duck-iam-e2e-owned', '-p', '0:6379', 'redis:7-alpine'])
+  await docker([
+    'run',
+    '-d',
+    '--name',
+    CONTAINER,
+    '--label',
+    'duck-iam-e2e-owned',
+    '-p',
+    '0:6379',
+    'valkey/valkey:9-alpine',
+  ])
   await waitFor(`${CONTAINER} answering PING`, async () => {
     try {
-      const out = await docker(['exec', CONTAINER, 'redis-cli', 'PING'], 10_000)
+      const out = await docker(['exec', CONTAINER, 'valkey-cli', 'PING'], 10_000)
       return out.includes('PONG')
     } catch {
       return false

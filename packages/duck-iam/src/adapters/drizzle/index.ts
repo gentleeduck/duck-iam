@@ -213,7 +213,7 @@ export class IamDrizzleAdapter<
   private readonly _json: 'native' | 'string'
   private readonly _dialect: 'pg' | 'mysql' | 'sqlite'
   private readonly _onPolicyError?: IamAdapter.RowErrorHandler<'drizzle'>
-  /** Retained whole so {@link withClient} can re-make this adapter with only `db` swapped. */
+  /** Retained whole so {@link IamDrizzleAdapter.withClient} can re-make this adapter with only `db` swapped. */
   private readonly _config: IamDrizzle.IConfig<TDb, TType>
 
   /** Warns, once per process, when `ops.isNull` or `ops.or` is missing. */
@@ -600,7 +600,7 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Grants every row in one multi-row insert, skipping existing grants like {@link assignRole}.
+   * Grants every row in one multi-row insert, skipping existing grants like {@link IamDrizzleAdapter.assignRole}.
    * @returns Indices of rows this call inserted (read via `RETURNING`), or `null` on MySQL.
    */
   async assignRoleMany(rows: readonly IamAdapter.IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null> {

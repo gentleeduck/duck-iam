@@ -73,7 +73,7 @@ All fields live on `IamEngineTypes.IConfig` (`engine.types.ts:482`).
 | `maxCacheSize` | `1000` | Subject-cache capacity only. The other four caches are hard-coded single-entry (`engine.ts:279-282`). Non-finite or `< 1` throws from `IamLRUCache`'s constructor. |
 | `maxPolicies` | `10_000` | Ceiling on `listPolicies()` results. Over-cap throws at cache fill, not per request. |
 | `maxRoles` | `10_000` | Same for `listRoles()`. |
-| `adapterTimeoutMs` | `5_000` | Per-adapter-call timeout, enforced with a fresh `AbortController` per call. `0` disables. |
+| `adapterTimeoutMs` | `5_000` | Per-adapter-call timeout, enforced with a fresh `AbortController` per call. Covers the decision path *and* every `engine.admin` call, read or write; a write cannot take the signal, so the timeout frees the caller while the write runs on. `0` disables. The transaction-bound admin is deliberately unbounded — see §5.4. |
 | `hookTimeoutMs` | `5_000` | Bound on a promise a hook returns. `0` waits indefinitely. A `beforeEvaluate` that times out fails the evaluation through `onError` and denies; every other hook is logged and left running while the call returns. A hook that returns synchronously starts no timer. Applies on the transaction path too, where `pending.flush()` drains `onMutation`. |
 | `maxConcurrentSubjectLoads` | `512` | Ceiling on concurrent *distinct, never-before-cached* subject loads. `0` restores unbounded. |
 | `hooks` | `{}` | `beforeEvaluate`, `afterEvaluate`, `onDeny`, `onError`, `onPolicyError`, `onMetrics`, `onMutation`. See §8. |
@@ -484,6 +484,30 @@ ReDoS-dropped rules — that the boolean verdict alone hides. Production carries
 its own copy of the vote logic through `abacFlatVote`/`rbacVote`/
 `evaluateDynamicCell`, and `failopen-metric-parity.test.ts` pins that the two
 modes report the same flag for the same policy set.
+
+### 5.4 A wedged adapter does not wedge the caller
+
+`adapterTimeoutMs` bounds every adapter call the engine makes, on both sides of
+the API. The decision path fails closed: `can()` answers `false`. `engine.admin`
+rejects instead, with the call named — `admin.listPolicies timed out after
+5000ms` — because an admin operation has no safe default answer and an operator
+needs to know the write did not land.
+
+Two consequences follow from the adapter contract.
+
+A **read** takes `IReadOptions.signal`, so the abort reaches an adapter that
+honours it and the query is cancelled. A **write** takes `IActorOptions`, which
+has no signal, so the timeout frees the caller while the write runs on: a
+rejection means "not confirmed", not "not applied". Every admin write is
+idempotent by id, so a retry converges.
+
+Inside a transaction the admin is unbounded on purpose. `createAdmin` takes
+`withTimeout` as an option and `engine.transaction` does not pass it: aborting a
+statement mid-transaction leaves the transaction for the caller to roll back,
+and the transaction's own lifetime already bounds it.
+`core/engine/__tests__/admin-adapter-timeout.test.ts` runs all seventeen admin
+operations against an adapter that never answers, and pins the exclusion so it
+stays a decision.
 
 ---
 

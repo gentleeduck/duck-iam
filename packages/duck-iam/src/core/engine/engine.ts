@@ -124,7 +124,7 @@ export class IamEngine<
   private _hookTimeoutMs: number
   private _maxConcurrentSubjectLoads: number
   private _invalidator?: IamEngineTypes.IInvalidator<TRole>
-  /** Retained whole so {@link withTransaction} can re-make this engine with only the adapter swapped. */
+  /** Retained whole so {@link IamEngine.withTransaction} can re-make this engine with only the adapter swapped. */
   private readonly _config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>
   private _invalidatorUnsub: (() => void) | null = null
   /** One-shot: a broken `status()` is warned about once, not once per probe. */
@@ -180,7 +180,7 @@ export class IamEngine<
       mergedPolicies: { hits: number; misses: number; size: number }
       subjects: { hits: number; misses: number; size: number }
     } => this._statsSnapshot(),
-    /** Zero the counters returned by {@link stats.get}. */
+    /** Zero the counters returned by `stats.get`. */
     reset: (): void => this._resetStats(),
   }
 
@@ -469,7 +469,7 @@ export class IamEngine<
     return evaluate(allPolicies, req, this._defaultEffect, this._policyCombine, onPolicyError, signals, this._caches)
   }
 
-  /** Set once the role count has outrun the compiled table; see {@link _getCompiledTable}. */
+  /** Set once the role count has outrun the compiled table; see {@link IamEngine._getCompiledTable}. */
   private _roleLimitExceeded = false
   private _roleLimitReported = false
   private _roleLimitDetail: { roleCount: number; limit: number } | null = null
@@ -779,7 +779,7 @@ export class IamEngine<
     return enriched.roles.map((r) => iamAsRoleLiteral<TRole>(r))
   }
 
-  /** {@link can}, returning an {@link AccessControl.IDecision} in development mode and a `boolean` in production. */
+  /** {@link IamEngine.can}, returning an {@link AccessControl.IDecision} in development mode and a `boolean` in production. */
   async check(
     subjectId: string,
     action: TAction,
@@ -1022,6 +1022,7 @@ export class IamEngine<
   get admin(): IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
     this._admin ??= createAdmin<TAction, TResource, TRole, TScope>(this._adapter, {
       cache: this.cache,
+      withTimeout: (fn, label) => this._withTimeout(fn, label),
       // PERF: omitted without `onMutation`, so no events are built.
       ...(this._hooks.onMutation !== undefined && {
         mutations: {
@@ -1075,7 +1076,7 @@ export class IamEngine<
     }
   }
 
-  /** @internal Snapshot per-cache counters. Reached via {@link stats.get}. */
+  /** @internal Snapshot per-cache counters. Reached via `stats.get`. */
   private _statsSnapshot(): {
     policies: { hits: number; misses: number; size: number }
     roles: { hits: number; misses: number; size: number }
@@ -1086,12 +1087,12 @@ export class IamEngine<
     return statsSnapshotHelper(this._cachesForStats())
   }
 
-  /** @internal Zero per-cache counters. Reached via {@link stats.reset}. */
+  /** @internal Zero per-cache counters. Reached via `stats.reset`. */
   private _resetStats(): void {
     resetStatsHelper(this._cachesForStats())
   }
 
-  /** @internal Clear all caches + in-flight resolvers. Reached via {@link cache.invalidate}. */
+  /** @internal Clear all caches + in-flight resolvers. Reached via `cache.invalidate`. */
   private _invalidateAll(opts: { broadcast?: boolean } = {}): void {
     invalidateAll(this._cacheBag(), opts)
     this._compiledTable = null
@@ -1099,12 +1100,12 @@ export class IamEngine<
     this._clearRoleLimitLatch()
   }
 
-  /** @internal Clear one subject's cached data. Reached via {@link cache.invalidateSubject}. */
+  /** @internal Clear one subject's cached data. Reached via `cache.invalidateSubject`. */
   private _invalidateSubject(subjectId: string, opts: { broadcast?: boolean } = {}): void {
     invalidateSubject(this._cacheBag(), subjectId, opts)
   }
 
-  /** @internal Clear cached policies. Reached via {@link cache.invalidatePolicies}. */
+  /** @internal Clear cached policies. Reached via `cache.invalidatePolicies`. */
   private _invalidatePolicies(opts: { broadcast?: boolean } = {}): void {
     invalidatePolicies(this._cacheBag(), opts)
     this._compiledTable = null
@@ -1121,7 +1122,7 @@ export class IamEngine<
     this._roleLimitDetail = null
   }
 
-  /** @internal Clear cached roles + selectively drop affected subjects. Reached via {@link cache.invalidateRoles}. */
+  /** @internal Clear cached roles + selectively drop affected subjects. Reached via `cache.invalidateRoles`. */
   private _invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
     invalidateRoles(this._cacheBag(), roleId, opts)
     this._compiledTable = null

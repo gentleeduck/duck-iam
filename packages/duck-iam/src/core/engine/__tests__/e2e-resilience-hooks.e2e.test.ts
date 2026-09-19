@@ -17,7 +17,7 @@ import type { IamEngineTypes } from '../engine.types'
 
 const exec = promisify(execFile)
 
-const PG_IMAGE = 'postgres:16-alpine'
+const PG_IMAGE = 'postgres:18.4-alpine3.24'
 const PG_USER = 'duckiam'
 const PG_PASSWORD = 'duckiam'
 const PG_DB = 'duckiam_hooks'

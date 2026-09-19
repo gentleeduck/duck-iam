@@ -58,6 +58,24 @@ as a non-match, so a deny that fired in Next middleware was inert in a Server
 Component asking the same question. Both now take an `environment` argument and
 forward it.
 
+### A wedged database hung every admin call forever
+
+`adapterTimeoutMs` is documented as a per-adapter-call timeout and was wired
+only into the decision path. Against an adapter that never answers, `can()`
+returned `false` as designed while every `engine.admin` call — including
+`admin.listPolicies()`, the *same adapter method* `can()` bounds — never
+settled. An admin route or dashboard hit a wedged database and hung, with no
+error, no audit event, and nothing to say whether the write had landed.
+
+All seventeen admin operations now run under the same timeout and reject with
+the call named. Reads pass the abort signal through, so an adapter that honours
+it cancels the query. Writes take no signal, so the timeout frees the caller
+while the write runs on: a rejection means "not confirmed" rather than "not
+applied", and every admin write is idempotent by id. The transaction-bound
+admin stays unbounded on purpose — aborting mid-transaction leaves the
+transaction for the caller to roll back — and that exclusion is now pinned by a
+test rather than left to be rediscovered.
+
 ### An admin write over HTTP was recorded as nobody's
 
 The admin routers authenticate a caller and hand it to their own audit hook.

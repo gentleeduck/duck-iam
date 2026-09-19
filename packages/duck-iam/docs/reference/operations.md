@@ -845,7 +845,7 @@ What the harness contains, for anyone working on the package:
 
 | File | Exports | Purpose |
 | --- | --- | --- |
-| `e2e-containers.ts` | `setup`, `teardown`, `OWNED_LABEL` | Vitest `globalSetup`/`globalTeardown`. Starts a throwaway `postgres:16-alpine` on an ephemeral port and publishes `DUCKIAM_E2E_DATABASE_URL`. |
+| `e2e-containers.ts` | `setup`, `OWNED_LABEL` | Vitest `globalSetup`. Brings up one kept `postgres:18.4-alpine3.24` on an ephemeral port, resets its schema and publishes `DUCKIAM_E2E_DATABASE_URL`. |
 | `e2e-env.ts` | `databaseUrl`, `isolatedDatabaseUrl`, `applyPgSchema`, `assertE2eReachable`, `dockerIsUp` | Per-suite database provisioning and the anti-silent-skip guard. |
 | `adapter-capabilities.ts` | `withoutInPlaceUpdate`, `withoutSetBasedWrites` | Hide optional adapter methods so their fallback paths are actually exercised — `updateAssignmentScope` for the first, `assignRoleMany` and `revokeRoleMany` for the second. |
 | `pg-e2e-schema.sql` | — | Mirrors `adapters/drizzle/pg/pg.schema.ts`. Update both together. |

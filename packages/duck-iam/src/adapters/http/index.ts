@@ -460,7 +460,7 @@ export class IamHttpAdapter<
     return out
   }
 
-  /** Like {@link _request}, but a 404 returns `null`, per the "row or null" contract of `getPolicy`/`getRole`. */
+  /** Like {@link IamHttpAdapter._request}, but a 404 returns `null`, per the "row or null" contract of `getPolicy`/`getRole`. */
   private async _requestOrNull(path: string, init?: IHttpInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (res.status === 404) return null
@@ -611,7 +611,7 @@ export class IamHttpAdapter<
 
   /**
    * Lists a subject's unscoped role IDs via `GET /subjects/{id}/roles`.
-   * SECURITY: the server must omit scoped roles (see {@link getSubjectScopedRoles}); mixing them in grants too much.
+   * SECURITY: the server must omit scoped roles (see {@link IamHttpAdapter.getSubjectScopedRoles}); mixing them in grants too much.
    */
   async getSubjectRoles(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     if (typeof subjectId !== 'string' || subjectId.length === 0) return []

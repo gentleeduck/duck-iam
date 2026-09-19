@@ -5,7 +5,7 @@ import { iamChosenWhen, When } from './when'
 
 /**
  * Chainable builder for an {@link AccessControl.IRule}: an effect, the actions and resources it covers,
- * an optional scope and a condition tree. Its {@link PolicyBuilder}'s algorithm resolves conflicts.
+ * an optional scope and a condition tree. Its `PolicyBuilder`'s algorithm resolves conflicts.
  *
  * @example
  * ```ts

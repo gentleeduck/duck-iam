@@ -1,9 +1,15 @@
 /**
- * Vitest `globalSetup` for the e2e Postgres: a preset `DUCKIAM_E2E_DATABASE_URL`, else a throwaway docker container
+ * Vitest `globalSetup` for the e2e Postgres: a preset `DUCKIAM_E2E_DATABASE_URL`, else a docker container
  * on an ephemeral port, else nothing and the e2e suites skip.
+ *
+ * The container is named and kept, and a run resets the schema instead of provisioning storage. Creating
+ * one per run under a random name is what let 1149 abandoned data volumes reach 104GB next door in
+ * duck-auth. The suite-owned containers still come and go, but they are removed with `-v`.
+ *
+ * WARN: two runs at once therefore share one database and reset it under each other. Point the second at
+ * its own with `DUCKIAM_E2E_DATABASE_URL`.
  */
 import { execFile } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
 import { connect } from 'node:net'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -11,13 +17,17 @@ import { promisify } from 'node:util'
 const exec = promisify(execFile)
 
 const LABEL = 'duck-iam-e2e'
-const PG_IMAGE = 'postgres:16-alpine'
+const PG_IMAGE = 'postgres:18.4-alpine3.24'
+const PG_CONTAINER = `${LABEL}-pg`
+const PG_VOLUME = `${LABEL}-pgdata`
+const KEPT = [PG_CONTAINER]
 const PG_USER = 'duckiam'
 const PG_PASSWORD = 'duckiam'
 const PG_DB = 'duckiam_e2e'
 const READY_TIMEOUT_MS = 60_000
 
-const started: string[] = []
+/** Every container this run brought up, created or reused, so a half-built stack can undo itself. */
+const touched: { name: string; volume: string | null }[] = []
 
 /**
  * Timeout for `docker info`, which hangs when the daemon socket exists but nothing listens (a stopped Docker Desktop).
@@ -101,11 +111,11 @@ async function waitUntilReachable(port: number): Promise<void> {
 }
 
 /**
- * Removes harness containers ({@link LABEL}) leaked by an earlier run that crashed.
+ * Removes harness containers ({@link LABEL}) leaked by an earlier run that crashed, sparing the one reused.
  * WARN: keep it age-bounded; an unbounded sweep removes the Postgres a concurrent run is still using.
  */
 async function removeStrays(): Promise<void> {
-  await removeAgedStrays(LABEL)
+  await removeAgedStrays(LABEL, KEPT)
 }
 
 /**
@@ -121,58 +131,94 @@ async function removeAgedOwnedStrays(): Promise<void> {
 }
 
 /**
- * Removes containers carrying `label` created more than {@link OWNED_MAX_AGE} ago.
+ * Removes containers carrying `label` created more than {@link OWNED_MAX_AGE} ago, except those in `keep`.
  * INFO: `--filter until=` is docker's own created-before filter, so no timestamp parsing is needed.
+ * WARN: the reused container outlives the window by design, so age alone would collect the live one.
  */
-async function removeAgedStrays(label: string): Promise<void> {
-  const ids = await docker([
+async function removeAgedStrays(label: string, keep: string[] = []): Promise<void> {
+  const listed = await docker([
     'ps',
-    '-aq',
+    '-a',
     '--filter',
     `label=${label}`,
     '--filter',
     `until=${OWNED_MAX_AGE}`,
+    '--format',
+    '{{.Names}}',
   ]).catch(() => '')
-  if (ids.length === 0) return
-  const names = ids.split('\n').filter(Boolean)
+  const names = listed.split('\n').filter((name) => name !== '' && !keep.includes(name))
+  if (names.length === 0) return
   // `-v`: these died without cleanup, so their anonymous volumes have been piling up.
   await docker(['rm', '-f', '-v', ...names]).catch(() => '')
   console.info(`[e2e] removed ${names.length} abandoned test container(s) older than ${OWNED_MAX_AGE}`)
 }
 
+/** `docker inspect -f`, or null when there is no such container. */
+async function inspect(name: string, format: string): Promise<string | null> {
+  return docker(['inspect', '-f', format, name]).catch(() => null)
+}
+
+/**
+ * The one container for a backend: created on the first run, started again on every later one.
+ * WARN: a pinned image that has moved forces a rebuild, volume included. The data directory a new major
+ * finds is one it refuses to read.
+ */
+async function reuse(name: string, image: string, volume: string | null, args: string[]): Promise<void> {
+  const current = await inspect(name, '{{.Config.Image}}')
+  touched.push({ name, volume })
+  if (current === image) {
+    if ((await inspect(name, '{{.State.Running}}')) !== 'true') await docker(['start', name])
+    return
+  }
+  if (current !== null) {
+    await docker(['rm', '-f', '-v', name]).catch(() => '')
+    if (volume) await docker(['volume', 'rm', '-f', volume]).catch(() => '')
+  }
+  await docker(['run', '-d', '--name', name, '--label', LABEL, ...args, image])
+}
+
+/** Undoes what this run brought up, volumes included, so a backend that never came up is not reused. */
+async function discard(): Promise<void> {
+  for (const { name, volume } of touched.splice(0, touched.length)) {
+    await docker(['rm', '-f', '-v', name]).catch(() => '')
+    if (volume) await docker(['volume', 'rm', '-f', volume]).catch(() => '')
+  }
+}
+
+function psql(args: string[]): Promise<string> {
+  return docker(['exec', PG_CONTAINER, 'psql', '-U', PG_USER, '-d', PG_DB, '-v', 'ON_ERROR_STOP=1', ...args])
+}
+
 async function startPostgres(): Promise<string> {
-  const name = `${LABEL}-pg-${randomBytes(4).toString('hex')}`
-  await docker([
-    'run',
-    '-d',
-    '--name',
-    name,
-    '--label',
-    LABEL,
+  await reuse(PG_CONTAINER, PG_IMAGE, PG_VOLUME, [
     '-p',
     '0:5432',
+    // Postgres 18 declares `/var/lib/postgresql`. Mounting the `data` under it crash-loops.
+    '-v',
+    `${PG_VOLUME}:/var/lib/postgresql`,
     '-e',
     `POSTGRES_USER=${PG_USER}`,
     '-e',
     `POSTGRES_PASSWORD=${PG_PASSWORD}`,
     '-e',
     `POSTGRES_DB=${PG_DB}`,
-    PG_IMAGE,
   ])
-  started.push(name)
-  await waitUntilReady(name, ['pg_isready', '-U', PG_USER, '-d', PG_DB])
+  await waitUntilReady(PG_CONTAINER, ['pg_isready', '-U', PG_USER, '-d', PG_DB])
   // `pg_isready` goes true once during init, before the server restarts; prove a query round-trips first.
-  await waitUntilReady(name, ['psql', '-U', PG_USER, '-d', PG_DB, '-c', 'SELECT 1'])
+  await waitUntilReady(PG_CONTAINER, ['psql', '-U', PG_USER, '-d', PG_DB, '-c', 'SELECT 1'])
+  // The schema file only creates, and a reused database already holds the tables. Dropping the schema
+  // is what stands in for provisioning a new one.
+  await psql(['-c', 'DROP SCHEMA public CASCADE; CREATE SCHEMA public'])
   // Seed the schema once for every suite. Copied in, not piped, because `execFile` has no stdin.
-  await docker(['cp', join(import.meta.dirname, 'pg-e2e-schema.sql'), `${name}:/tmp/schema.sql`])
-  await docker(['exec', name, 'psql', '-U', PG_USER, '-d', PG_DB, '-v', 'ON_ERROR_STOP=1', '-f', '/tmp/schema.sql'])
-  const port = await publishedPort(name, 5432)
+  await docker(['cp', join(import.meta.dirname, 'pg-e2e-schema.sql'), `${PG_CONTAINER}:/tmp/schema.sql`])
+  await psql(['-f', '/tmp/schema.sql'])
+  const port = await publishedPort(PG_CONTAINER, 5432)
   await waitUntilReachable(port)
   return `postgres://${PG_USER}:${PG_PASSWORD}@127.0.0.1:${port}/${PG_DB}`
 }
 
 /**
- * Vitest `globalSetup`: starts the e2e Postgres once and publishes it as `DUCKIAM_E2E_DATABASE_URL`.
+ * Vitest `globalSetup`: brings the e2e Postgres up once and publishes it as `DUCKIAM_E2E_DATABASE_URL`.
  * A preset URL wins; missing docker skips unless `DUCKIAM_E2E_REQUIRE_DOCKER` is set. A failed start tears down.
  */
 export async function setup(): Promise<void> {
@@ -201,24 +247,10 @@ export async function setup(): Promise<void> {
   try {
     process.env.DUCKIAM_E2E_DATABASE_URL = await startPostgres()
   } catch (err) {
-    // A half-built stack is worse than none: tear down and let the suites skip.
-    await teardown()
+    // A half-built stack is worse than none, and one that never came up must not be what the next run
+    // reuses: undo this run's containers and let the suites skip.
+    await discard()
     delete process.env.DUCKIAM_E2E_DATABASE_URL
     console.info(`[e2e] container setup failed, suites will skip: ${err instanceof Error ? err.message : err}`)
-  }
-}
-
-/**
- * Vitest `globalTeardown`: removes this run's containers with `-v`, so their anonymous volumes go too.
- * Logs rather than throws, so a green run stays green; the aged-stray sweep in {@link setup} collects leftovers.
- */
-export async function teardown(): Promise<void> {
-  if (started.length === 0) return
-  const names = started.splice(0, started.length)
-  try {
-    await docker(['rm', '-f', '-v', ...names])
-  } catch (err) {
-    // Surface it: a silent failure here leaks containers until the next sweep.
-    console.warn(`[e2e] could not remove ${names.join(', ')}: ${err instanceof Error ? err.message : err}`)
   }
 }

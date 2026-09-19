@@ -124,7 +124,7 @@ export namespace IamAdapter {
   export interface ISubjectStore<TRole extends string = string, TScope extends string = string> {
     /**
      * Returns the subject's GLOBAL (unscoped) role IDs.
-     * SECURITY: never collapse scoped assignments into this list; surface them via {@link getSubjectScopedRoles}.
+     * SECURITY: never collapse scoped assignments into this list; surface them via {@link IamAdapter.ISubjectStore.getSubjectScopedRoles}.
      */
     getSubjectRoles(subjectId: string, opts?: IReadOptions): Promise<TRole[]>
     /** Scoped role assignments. Optional - only when multi-tenant scoped roles are in use. */
@@ -138,7 +138,7 @@ export namespace IamAdapter {
     revokeRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IRevokeOptions): Promise<void>
     /**
      * Moves a `(subjectId, roleId, fromScope)` assignment to `toScope` in one write. Returns `false` when none matches,
-     * and the engine falls back to {@link assignRole}. Adapters with no in-place update omit it (revoke + assign).
+     * and the engine falls back to {@link IamAdapter.ISubjectStore.assignRole}. Adapters with no in-place update omit it (revoke + assign).
      */
     updateAssignmentScope?(
       subjectId: string,
@@ -148,12 +148,12 @@ export namespace IamAdapter {
       actor?: string,
     ): Promise<boolean>
     /**
-     * Set-based assign in one statement; the admin loops {@link assignRole} when absent.
+     * Set-based assign in one statement; the admin loops {@link IamAdapter.ISubjectStore.assignRole} when absent.
      * Returns indices into `rows` of the rows actually written, or `null` when the driver cannot say.
      * NOTE: take indices from `RETURNING`, never an extra read; credit each write once, as `creditWrites` does.
      */
     assignRoleMany?(rows: readonly IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null>
-    /** Set-based revoke. See {@link assignRoleMany}. */
+    /** Set-based revoke. See {@link IamAdapter.ISubjectStore.assignRoleMany}. */
     revokeRoleMany?(rows: readonly IRevokeRow<TRole, TScope>[]): Promise<readonly number[] | null>
     /**
      * Epoch ms of the earliest future `startsAt` / `expiresAt` among the subject's grants, or `null` when none.
@@ -171,7 +171,7 @@ export namespace IamAdapter {
 
   /**
    * Combined storage interface: policies + roles + subjects.
-   * Expected by the {@link IamEngine} constructor via `IamEngineTypes.IConfig.adapter`.
+   * Expected by the `IamEngine` constructor via `IamEngineTypes.IConfig.adapter`.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.

@@ -16,8 +16,8 @@ const exec = promisify(execFile)
  * NOTE: they also carry `OWNED_LABEL`, swept by age in `e2e-containers.ts`; add no unbounded sweeper here.
  */
 export const E2E_LABEL = 'duck-iam-e2e-invalidation'
-const REDIS_IMAGE = 'redis:7-alpine'
-const PG_IMAGE = 'postgres:16-alpine'
+const VALKEY_IMAGE = 'valkey/valkey:9-alpine'
+const PG_IMAGE = 'postgres:18.4-alpine3.24'
 const PG_USER = 'duckiam'
 const PG_PASSWORD = 'duckiam'
 const PG_DB = 'duckiam_inv_e2e'
@@ -71,7 +71,7 @@ export async function startRedis(): Promise<{ name: string; port: number }> {
     E2E_LABEL,
     '-p',
     '0:6379',
-    REDIS_IMAGE,
+    VALKEY_IMAGE,
   ])
   const raw = await docker(['port', name, '6379'])
   const portText = raw.split('\n')[0]?.split(':').pop()

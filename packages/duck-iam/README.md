@@ -161,7 +161,7 @@ at 15-25 KB.
 - **`engine.cache.invalidate()` / `invalidatePolicies()` / `invalidateRoles(id?)` / `invalidateSubject(id)`** - targeted cache flushes
 - **`engine.admin.export()` / `import(snapshot, { mode })`** - schema-versioned policy + role snapshots for env promotion
 - **`engine.dispose()`** - release the cross-instance invalidator subscription on shutdown
-- **`IConfig.adapterTimeoutMs`** - `AbortController`-driven timeout on every adapter read (default 5 s)
+- **`IConfig.adapterTimeoutMs`** - `AbortController`-driven timeout on every adapter call, decision path and `engine.admin` alike (default 5 s)
 - **`IConfig.hookTimeoutMs`** - bound on a promise a hook returns (default 5 s; `0` waits indefinitely)
 - **`IConfig.maxPolicies` / `maxRoles`** - load-time caps that fail closed
 - **`IConfig.allowFailOpen`** - explicit opt-in required whenever `defaultEffect` is `'allow'`, in every mode
