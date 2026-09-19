@@ -1,9 +1,3 @@
-/**
- * Password provider — self-contained capability folder (mechanism A).
- * Everything password-related lives here: the sign-in provider, the facet,
- * its config, the hashers, and all types under the `Password` namespace.
- */
-
 export { ARGON2ID_COMPLIANCE, ARGON2ID_DEFAULTS, Argon2idHasher, argon2idHasher } from './hashers/argon2'
 export type { Hasher } from './hashers/hashers.types'
 export { SCRYPT_DEFAULTS, ScryptHasher, scryptHasher } from './hashers/scrypt'

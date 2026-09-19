@@ -1,37 +1,32 @@
 import type { Compliance } from '~/core/compliance'
 import type { Hasher } from './hashers/hashers.types'
-// import type { PasswordsFacet } from './password.facet'
 
-/**
- * Every type the password provider exposes lives under this one namespace, so
- * consumers reach for `Password.Cfg`, `Password.Options`, etc. from a single
- * place.
- */
+/** Password provider configuration and the hasher contract it drives. */
 export namespace Passwords {
-  /** Resolved, total facet config — every field explicit (null-discipline). */
+  /** Total: every field explicit. */
   export type Cfg = {
-    /** Minimum password length. Default 8; compliance presets force >=12. */
+    /** Default 8; the compliance presets force it to 12 or more. */
     minLength: number
-    /** Maximum password length. Default 1024. SEC: caps argon2/scrypt DoS surface. */
+    /** Default 1024.
+     *  SECURITY: caps the argon2 and scrypt DoS surface. */
     maxLength: number
-    /** Reject obvious junk. Default true. */
+    /** Rejects obvious junk. Default true. */
     rejectCommon: boolean
-    /** Pluggable hasher. Defaults to scrypt (Node built-in, zero deps). */
+    /** Defaults to Argon2id at OWASP parameters, which needs the `@node-rs/argon2` peerDep. */
     hasher: Hasher.Me
-    /** Compliance preset(s); ratchets `minLength` up to the preset floor. */
+    /** Ratchets `minLength` up to the preset's floor. */
     compliance: Compliance.Preset | Compliance.Preset[]
-    /** Per-email rate-limit key prefix. Default 'signin:password:'. */
+    /** Default 'signin:password:'. */
     limiterKeyPrefix: string
-    /** Auto-rehash on successful verify when needsRehash=true. Default true. */
+    /** Re-hashes on a successful verify that reported `needsRehash`. Default true. */
     autoRehash: boolean
   }
 
-  /** Input to `begin` (unused for password sign-in but kept for parity). */
+  /** Unused by password sign-in, kept for parity with the other providers. */
   export type BeginInput = {
     email: string
   }
 
-  /** Input to `complete`. */
   export type CompleteInput = {
     email: string
     password: string

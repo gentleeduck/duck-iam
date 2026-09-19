@@ -1,9 +1,10 @@
+import { orNull } from '~/core/answer'
 import { resolveCompliance } from '~/core/compliance'
-import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
+import { isCredentialExpired, isRevoked, toCredentialCreate } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
-import { canonicalEmail, emailSpellings, type Identities } from '~/core/identities'
+import { canonicalEmail, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { TenantContext } from '~/core/tenant'
 import {
@@ -14,16 +15,23 @@ import {
 } from './passwords.constants'
 import type { Passwords } from './passwords.types'
 
+/** Password provider: verifies a plaintext against the stored hash and rehashes when parameters move. */
 export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<Passwords.BeginInput, Passwords.CompleteInput, Profile>
 {
   readonly id = 'password'
   readonly kind = 'password' as const
   readonly cfg: Omit<Passwords.Cfg, 'compliance'>
-  // Lazy reference hash used by verify() in the no-credential branch
-  // so the hasher runs scrypt/argon2 work and matches the existing-user
-  // timing - defeats username enumeration via wall-clock probes.
+  // A lazy reference hash for `verify`'s no-credential branch, so the hasher does its scrypt or argon2
+  // work and the timing matches the existing-user path, against wall-clock enumeration.
   private _referenceHash: string | null = null
+  /** What `this.cfg.hasher` answered about the `fipsValidatedHasher` compliance check, or `undefined` for
+   *  a hasher that publishes no answer. `AuthEngine.strict()` omits the check entirely in that case, so a
+   *  host's own FIPS-validated implementation is attested for rather than refused. */
+  readonly __fipsValidatedHasher: boolean | undefined
+  /** Whether `this.cfg.hasher` reports parameters below its own defaults, for `strict()` to refuse in
+   *  production. `undefined` for a hasher that publishes no answer. */
+  readonly __weakHasherParams: boolean | undefined
 
   constructor(readonly _cfg?: Partial<Passwords.Cfg>) {
     const floor = _cfg?.compliance ? resolveCompliance(_cfg.compliance).passwords.minLength : 0
@@ -35,28 +43,27 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
       rejectCommon: _cfg?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
       hasher: _cfg?.hasher ?? DEFAULT_PASSWORDS_CONFIG.hasher,
     }
+    const brand: unknown = Reflect.get(this.cfg.hasher, '__fipsParams')
+    this.__fipsValidatedHasher = typeof brand === 'boolean' ? brand : undefined
+    const weak: unknown = Reflect.get(this.cfg.hasher, '__weakHasherParams')
+    this.__weakHasherParams = typeof weak === 'boolean' ? weak : undefined
   }
 
-  /**
-   * produce (and cache) a valid encoded
-   * hash to feed `hasher.verify` in the no-credential branch. The
-   * dummy plaintext is fixed; what matters is the OUTPUT is a real
-   * scrypt/argon2 string the hasher will execute against.
-   */
+  /** A cached encoded hash to feed `hasher.verify` in the no-credential branch. The plaintext is fixed and
+   *  irrelevant; what matters is that the output is a real hash string the hasher will work against. */
   private async _ensureReferenceHash(): Promise<string> {
     if (this._referenceHash !== null) return this._referenceHash
     this._referenceHash = await this.cfg.hasher.hash(NO_CREDENTIAL_REFRENCE)
     return this._referenceHash
   }
 
-  /** Throws AUTH/INVALID_CREDENTIALS for weak passwords; never reveals the rule. */
+  /** Throws `AUTH_INVALID_CREDENTIALS` for a weak password, never naming the rule it broke. */
   private _validateStrength(plaintext: string): void {
     if (plaintext.length < this.cfg.minLength) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
-    // cap upper bound to prevent CPU/memory DoS via huge passwords
-    // sent to argon2/scrypt. 1024 chars is well above any realistic
-    // human-typed password while staying far below memory-cost amplifiers.
+    // An upper bound against a CPU and memory DoS through argon2 or scrypt: 1024 chars is well above any
+    // human-typed password and far below where the memory cost amplifies.
     if (plaintext.length > this.cfg.maxLength) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
@@ -65,11 +72,8 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     }
   }
 
-  /**
-   * Re-hash an existing password under current params. Called on successful
-   * verify when {@link verify} returns `needsRehash: true`, so a slow
-   * parameter upgrade rolls out as users sign in.
-   */
+  /** Re-hashes under the current params on a successful verify that reported `needsRehash`, so a
+   *  parameter upgrade rolls out as people sign in. */
   async rehash(
     identityId: string,
     plaintext: string,
@@ -77,14 +81,17 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     ctx: TenantContext = {},
   ): Promise<void> {
     if (plaintext.length > this.cfg.maxLength) return
-    const rows = await credentials.listByIdentity(identityId, 'password', ctx)
-    const row = rows.find((c) => !isRevoked(c))
-    if (!row) return
+    // Hashed before the row is read, so the version below is not held across the hasher's whole cost:
+    // `verify`'s own `lastUsedAt` rotate lands inside the hash and the compare-and-set below loses to it.
     const newSecret = await this.cfg.hasher.hash(plaintext)
+    const rows = await credentials.listByIdentity(identityId, 'password', ctx)
+    // The same row `verify` accepts, expiry included, so a rehash cannot rewrite one a sign-in refused.
+    const row = rows.find((c) => !isRevoked(c) && !isCredentialExpired(c))
+    if (!row) return
     await credentials.rotate(row.id, newSecret, row.version, ctx)
   }
 
-  /** Set/replace the password credential for an identity. Used by signUp + reset flows. */
+  /** For the signUp and reset flows. */
   async set(
     identityId: string,
     plaintext: string,
@@ -96,12 +103,11 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     }
     this._validateStrength(plaintext)
     const secret = await this.cfg.hasher.hash(plaintext)
-    // Atomicity: delete previous password row, then upsert. Two ops because
-    // adapter contract doesn't expose a single-call "replace by kind"; the
-    // window is short and protected by SessionsFacet.rotateOrCreate downstream.
+    // Delete the previous row, then create: two operations, because the adapter contract has no
+    // single-call "replace by kind". The window is short, and `SessionsImpl.rotateOrCreate` covers it.
     await credentials.deleteByKind(identityId, 'password', ctx)
-    await credentials.upsert(
-      toCredentialUpsert({
+    await credentials.create(
+      toCredentialCreate({
         identityId,
         kind: 'password',
         secret,
@@ -111,76 +117,73 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     )
   }
 
-  /**
-   * Verify a password against the stored credential. Always runs the hasher
-   * (even on missing credential) to keep timing constant across the
-   * exists/doesn't-exist branch - defeats user enumeration via timing.
-   *
-   * Returns `{ ok: true, needsRehash }` when the password matches; `needsRehash`
-   * is true if the stored hash was produced with weaker params than current.
-   */
+  /** Answers `{ ok: true, needsRehash }` on a match, `needsRehash` meaning the stored hash used weaker
+   *  params than the current ones.
+   *  SECURITY: the hasher runs even with no credential, so the exists and does-not-exist branches take
+   *  the same time. */
   async verify(
     identityId: string,
     plaintext: string,
     credentials: Credential.Store,
     ctx: TenantContext = {},
   ): Promise<{ ok: true; needsRehash: boolean } | { ok: false }> {
-    // Cap plaintext before hashing so a multi-MB input cannot DoS
-    // the argon2/scrypt verify path.
+    // Capped before hashing, so a multi-MB input cannot DoS the argon2 or scrypt verify path.
     if (plaintext.length > this.cfg.maxLength) {
       return { ok: false }
     }
     const rows = await credentials.listByIdentity(identityId, 'password', ctx)
-    const row = rows.find((c) => !isRevoked(c)) ?? null
-    // Use a real reference hash on the no-credential branch so both
-    // branches pay the full hasher cost (defeats timing enumeration).
+    // SECURITY: `expiresAt` is a column on every credential and a documented option on `createApiKey`,
+    // and `ApiKeyImpl.verify` refuses an elapsed one as it does a revoked one. This gate read `revokedAt`
+    // alone, so a password carrying a rotation deadline signed in for ever after it passed - measured,
+    // `complete` answered a full `startSession` intent on a lapsed row. `isStandingFactor`, which both
+    // lockout guards use to count the ways back into an account, already calls that same row no factor
+    // at all: the engine refused to unlink the last provider on the grounds the account was unreachable
+    // through a password that was, at that moment, minting sessions.
+    const row = rows.find((c) => !isRevoked(c) && !isCredentialExpired(c)) ?? null
+    // A real reference hash here, so both branches pay the full hasher cost and neither can be told
+    // from the other by timing.
     const reference = row?.secret ?? (await this._ensureReferenceHash())
     const ok = await this.cfg.hasher.verify(plaintext, reference)
     if (!row || !ok) return { ok: false }
-    // Touch lastUsedAt opportunistically; ignore adapter errors.
+    // Opportunistic, and an adapter error is ignored.
     void credentials.rotate(row.id, row.secret, row.version, ctx).catch(() => {})
     return { ok: true, needsRehash: this.cfg.hasher.needsRehash(row.secret) }
   }
 
+  /** No begin step: a password is presented outright, not negotiated. */
   async begin(_ctx: Provider.Context<Profile>, _input: Passwords.BeginInput): Promise<Provider.Intent[]> {
     return []
   }
 
+  /** Verifies the password and answers the intents that open the session. */
   async complete(ctx: Provider.Context<Profile>, input: Passwords.CompleteInput): Promise<Provider.InternalIntent[]> {
     const { email, password: pw } = input
-    // email cap per RFC 5321 (254); authPassword cap matches the
-    // PasswordsFacet maxLength (default 1024). Without caps, an
-    // attacker can DoS via huge inputs reaching the hasher / store.
+    // The email cap is RFC 5321's 254, and the password cap is the configured `maxLength`, 1024 by
+    // default. Uncapped, a huge input reaches the hasher and the store.
     if (
       typeof email !== 'string' ||
       typeof pw !== 'string' ||
       email.length === 0 ||
       email.length > 254 ||
       pw.length === 0 ||
-      pw.length > 1024
+      pw.length > this.cfg.maxLength
     ) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
 
-    // Canonical email so the rate-limit bucket AND the identity lookup share one key. If the
-    // operator wires findByEmail without internal case-folding, raw `email` would let `A@x.com`
-    // and `a@x.com` register/sign-in as distinct accounts.
+    // Canonical, so the rate-limit bucket and the identity lookup share one key. With a `findByEmail`
+    // that does not case-fold internally, a raw `email` lets `A@x.com` and `a@x.com` be two accounts.
     const emailCanonical = canonicalEmail(email) ?? ''
-    // Above the limiter, unlike everywhere else, so a refusal can say whose
-    // account is being ground. This is the bucket `lockout` was invented for -
-    // repeated failed sign-ins against one address - and an event with no
-    // subject is a page an operator cannot act on.
-    //
-    // It costs a refused request one indexed read that the limiter used to shed.
-    // Worth it here and nowhere else: the read is a fraction of the argon2
-    // verification below, which is the cost the guard actually exists to stop,
-    // and the happy path is unchanged - it made this same call one line later.
-    const identity = await ctx.stores.identities.find({ email: emailSpellings(email) ?? emailCanonical })
+    // NOTE: above the limiter, unlike everywhere else, so a refusal can name whose account is being
+    // ground: an event with no subject is a page an operator cannot act on. It costs a refused request
+    // one indexed read, a fraction of the argon2 verify the guard exists to stop, and the happy path is
+    // unchanged.
+    const identity = await orNull(ctx.stores.identities.find({ email }))
     const limitKey = `${this.cfg.limiterKeyPrefix}${emailCanonical}`
     const limited = await ctx.limiter.consume(limitKey)
     if (!limited.ok) await refuseRateLimited(ctx.events, limited, identity?.id ?? null)
 
-    // ALWAYS run verify (even with no matching identity) to keep timing constant.
+    // Always run verify, matching identity or not, to keep the timing constant.
     const verifyResult = identity
       ? await this.verify(identity.id, pw, ctx.stores.credentials, ctx.tenant)
       : await this.verify(NO_IDENTITY_SENTINEL, pw, ctx.stores.credentials, ctx.tenant)
@@ -205,14 +208,14 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
   }
 }
 
-/** Factory around {@link PasswordsImpl} for functional-style config. */
+/** The password provider, ready to hand to `providers`. */
 export function passwords<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   cfg?: Partial<Passwords.Cfg>,
 ): Provider.Me<Passwords.BeginInput, Passwords.CompleteInput, Profile> {
   return new PasswordsImpl(cfg)
 }
 
-/** Factory around {@link PasswordsImpl}, for callers who prefer functions to `new`. */
+/** Constructs {@link PasswordsImpl} directly, for a caller wiring the facet by hand. */
 export function passwordsImpl(...args: ConstructorParameters<typeof PasswordsImpl>): PasswordsImpl {
   return new PasswordsImpl(...args)
 }
