@@ -7,7 +7,7 @@ export function buildOpenApiSpec(cfg: OpenApi.Cfg): OpenApi.ISpec {
   const title = cfg.title ?? 'Auth API'
   const version = cfg.version ?? '0.1.0'
   const prefix = cfg.prefix ?? '/auth'
-  const providers = new Set(cfg.providers ?? ['password', 'magic-link', 'oauth', 'passkey'])
+  const providers = new Set(cfg.providers ?? ['magic-link', 'oauth', 'passkey', 'totp'])
 
   const spec: OpenApi.ISpec = {
     openapi: '3.1.0',
@@ -23,7 +23,7 @@ export function buildOpenApiSpec(cfg: OpenApi.Cfg): OpenApi.ISpec {
       schemas: {
         AuthError: schemaAuthError(),
         Session: schemaSession(),
-        SignInResult: schemaSignInResult(),
+        SessionResult: schemaSessionResult(),
       },
       securitySchemes: {
         cookieAuth: { type: 'apiKey', in: 'cookie', name: '__Host-duck-sid' },
@@ -34,56 +34,80 @@ export function buildOpenApiSpec(cfg: OpenApi.Cfg): OpenApi.ISpec {
     security: [{ cookieAuth: [] }, { bearerAuth: [] }],
   }
 
-  if (providers.has('password')) {
-    spec.paths[`${prefix}/password/sign-in`] = {
-      post: routePost({
-        summary: 'Sign in with email + password',
-        body: schemaPasswordCompleteIn(),
-        ok: refSignInResult(),
-        idempotent: true,
-      }),
-    }
+  // The routes the framework adapters register at default config, one for one with `mountHono`'s skip
+  // flags. `/signin` takes any registered provider by id, so no provider gates it.
+  spec.paths[`${prefix}/signin`] = {
+    post: routeSignsIn({
+      summary: 'Sign in through a registered provider',
+      body: {
+        type: 'object',
+        required: ['providerId'],
+        properties: {
+          providerId: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' },
+          input: { type: 'object', additionalProperties: true },
+        },
+      },
+    }),
   }
 
-  if (providers.has('magic-link')) {
-    spec.paths[`${prefix}/magic-link/request`] = {
-      post: routePost({
-        summary: 'Issue a one-time magic-link token to the email channel',
-        body: { type: 'object', properties: { email: { type: 'string', format: 'email' } }, required: ['email'] },
-        ok: { type: 'object', properties: { delivered: { type: 'boolean' } } },
-        idempotent: true,
-      }),
-    }
-    spec.paths[`${prefix}/magic-link/verify`] = {
-      post: routePost({
-        summary: 'Exchange a magic-link token for a session',
-        body: { type: 'object', properties: { token: { type: 'string' } }, required: ['token'] },
-        ok: refSignInResult(),
-        idempotent: true,
-      }),
-    }
+  spec.paths[`${prefix}/signout`] = {
+    post: {
+      summary: 'Revoke the current session',
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+      responses: {
+        '200': { description: 'Session revoked; clears the session cookie' },
+        '401': errResponse(),
+      },
+    },
+  }
+
+  spec.paths[`${prefix}/session`] = {
+    get: {
+      summary: 'Return the current session and identity',
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+      responses: { '200': okJson(refSessionResult()), '401': errResponse() },
+    },
+  }
+
+  spec.paths[`${prefix}/providers/{id}/begin`] = {
+    post: routePost({
+      summary: 'Begin a two-step provider flow (oauth start, magic-link request, ...)',
+      // Provider-specific; `magic-link` takes `{ email }`, oauth takes none.
+      body: { type: 'object', additionalProperties: true },
+      ok: { type: 'object', additionalProperties: true },
+      params: [pathParam('id')],
+    }),
   }
 
   if (providers.has('oauth')) {
-    spec.paths[`${prefix}/oauth/{provider}/start`] = {
-      get: {
-        summary: 'Begin an oauth authorization-code flow',
-        parameters: [pathProvider()],
-        responses: { '302': { description: 'Redirect to the provider authorization endpoint' } },
-      },
-    }
-    spec.paths[`${prefix}/oauth/{provider}/callback`] = {
+    spec.paths[`${prefix}/providers/{provider}/callback`] = {
       get: {
         summary: 'Complete an oauth authorization-code flow + issue a session',
         parameters: [
-          pathProvider(),
+          pathParam('provider'),
           { name: 'code', in: 'query', required: true, schema: { type: 'string' } },
           { name: 'state', in: 'query', required: true, schema: { type: 'string' } },
         ],
         responses: {
-          '200': okJson(refSignInResult()),
+          '200': signedInResponse(),
+          '302': { description: 'Redirect carried by the provider intents' },
           '400': errResponse(),
-          '401': errResponse(),
+          '401': stepUpResponse(),
+        },
+      },
+    }
+  }
+
+  if (providers.has('magic-link')) {
+    spec.paths[`${prefix}/magic-link/verify`] = {
+      get: {
+        summary: 'Exchange a magic-link token for a session',
+        parameters: [{ name: 'token', in: 'query', required: true, schema: { type: 'string' } }],
+        responses: {
+          '200': signedInResponse(),
+          '302': { description: 'Redirect carried by the provider intents' },
+          '400': errResponse(),
+          '401': stepUpResponse(),
         },
       },
     }
@@ -95,44 +119,60 @@ export function buildOpenApiSpec(cfg: OpenApi.Cfg): OpenApi.ISpec {
         summary: 'Issue WebAuthn authentication options',
         body: {
           type: 'object',
-          properties: { email: { type: 'string', format: 'email' }, sessionId: { type: 'string' } },
           required: ['sessionId'],
+          properties: { email: { type: 'string', format: 'email' }, sessionId: { type: 'string' } },
         },
         ok: { type: 'object', additionalProperties: true },
-        idempotent: false,
       }),
     }
-    spec.paths[`${prefix}/passkey/verify`] = {
-      post: routePost({
+    spec.paths[`${prefix}/passkey/complete`] = {
+      post: routeSignsIn({
         summary: 'Verify a WebAuthn assertion + issue a session',
         body: {
           type: 'object',
-          properties: { sessionId: { type: 'string' }, response: { type: 'object' } },
           required: ['sessionId', 'response'],
+          properties: { sessionId: { type: 'string' }, response: { type: 'object' } },
         },
-        ok: refSignInResult(),
-        idempotent: true,
       }),
     }
   }
 
-  spec.paths[`${prefix}/sign-out`] = {
-    post: {
-      summary: 'Revoke the current session',
-      security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-      responses: { '204': { description: 'No content' }, '401': errResponse() },
-    },
-  }
-
-  spec.paths[`${prefix}/session`] = {
-    get: {
-      summary: 'Return the current session and identity',
-      security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-      responses: {
-        '200': okJson({ $ref: '#/components/schemas/Session' }),
-        '401': errResponse(),
-      },
-    },
+  if (providers.has('totp')) {
+    spec.paths[`${prefix}/mfa/totp/begin`] = {
+      post: routeAuthed({
+        summary: 'Begin TOTP enrollment',
+        body: { type: 'object', properties: { label: { type: 'string', maxLength: 128 } } },
+        ok: { type: 'object', additionalProperties: true },
+      }),
+    }
+    spec.paths[`${prefix}/mfa/totp/confirm`] = {
+      post: routeAuthed({
+        summary: 'Confirm TOTP enrollment with a code',
+        body: totpCodeBody(),
+        ok: { type: 'object', additionalProperties: true },
+      }),
+    }
+    spec.paths[`${prefix}/mfa/totp/verify`] = {
+      post: routeAuthed({
+        summary: 'Verify a TOTP code against the enrolled factor',
+        body: totpCodeBody(),
+        ok: { type: 'object', properties: { ok: { type: 'boolean' } } },
+      }),
+    }
+    spec.paths[`${prefix}/mfa/totp/remove`] = {
+      post: routeAuthed({
+        summary: 'Remove the enrolled TOTP factor; requires a satisfied step-up',
+        body: totpCodeBody(),
+        ok: { type: 'object', properties: { ok: { type: 'boolean' } } },
+      }),
+    }
+    spec.paths[`${prefix}/mfa/backup-codes/regenerate`] = {
+      post: routeAuthed({
+        summary: 'Replace the identity backup codes; requires a satisfied step-up',
+        body: { type: 'object' },
+        ok: { type: 'object', additionalProperties: true },
+      }),
+    }
   }
 
   if (cfg.includeJwks) {
@@ -153,9 +193,8 @@ export function buildOpenApiSpec(cfg: OpenApi.Cfg): OpenApi.ISpec {
 }
 
 /**
- * Render the spec as YAML. Trivial emitter: handles primitives + arrays +
- * objects in their natural order. Sufficient for the OpenApiSpec shape we
- * produce; not a general-purpose YAML library.
+ * Renders the spec as YAML. A trivial emitter over primitives, arrays and objects in their natural
+ * order: enough for the shape built here, and not a general-purpose YAML library.
  */
 export function renderOpenApiYaml(spec: OpenApi.ISpec): string {
   return yamlify(spec, 0)
@@ -246,62 +285,75 @@ function schemaSession(): Record<string, unknown> {
           },
         },
       },
-      // ISO strings, not epoch integers. The handler answers with
-      // `Response.json(session)`, and `JSON.stringify` writes a `Date` as
-      // `"2026-09-04T09:00:00.000Z"` - so a client generated from the old
-      // `integer` got `number` for a field that is a string on the wire.
+      // ISO strings, not epoch integers: the handler answers `Response.json(session)`, and
+      // `JSON.stringify` writes a `Date` as `"2026-09-04T09:00:00.000Z"`. Declaring `integer` here
+      // generates a client typing these `number` for a field that is a string on the wire.
       createdAt: { format: 'date-time', type: 'string' },
+      updatedAt: { format: 'date-time', type: 'string' },
       rotatedAt: { format: 'date-time', type: 'string' },
       expiresAt: { format: 'date-time', type: 'string' },
       absoluteExpiresAt: { format: 'date-time', type: 'string' },
       fresh: { type: 'boolean' },
-    },
-  }
-}
-
-function schemaSignInResult(): Record<string, unknown> {
-  return {
-    type: 'object',
-    oneOf: [
-      {
-        type: 'object',
-        required: ['session'],
-        properties: { session: { $ref: '#/components/schemas/Session' } },
-      },
-      {
-        type: 'object',
-        required: ['mfaRequired'],
+      // Captured at create for hijack detection. Non-secret, and the handler already writes them, so
+      // leaving them undeclared only made the generated client narrower than the wire.
+      ip: { type: ['string', 'null'] },
+      userAgent: { type: ['string', 'null'] },
+      fingerprint: { type: ['string', 'null'] },
+      actingAs: {
+        type: ['object', 'null'],
         properties: {
-          mfaRequired: { type: 'boolean', enum: [true] },
-          methods: { type: 'array', items: { type: 'string' } },
+          realIdentityId: { type: 'string' },
+          startedAt: { format: 'date-time', type: 'string' },
+          reason: { type: 'string' },
+          expiresAt: { format: 'date-time', type: 'string' },
         },
       },
-    ],
-  }
-}
-
-function schemaPasswordCompleteIn(): Record<string, unknown> {
-  return {
-    type: 'object',
-    required: ['email', 'password'],
-    properties: {
-      email: { type: 'string', format: 'email' },
-      password: { type: 'string', minLength: 8, maxLength: 4096 },
     },
   }
 }
 
-function refSignInResult(): Record<string, unknown> {
-  return { $ref: '#/components/schemas/SignInResult' }
+/** Every sign-in completing route answers the same way: the session rides in the `Set-Cookie` the
+ *  transport issues, and the body is empty. Read it back with `GET /session`. */
+function signedInResponse(): Record<string, unknown> {
+  return {
+    description: 'Signed in. The session cookie is set and the body is empty; read it with GET /session.',
+    headers: { 'Set-Cookie': { schema: { type: 'string' } } },
+  }
 }
 
-function pathProvider(): Record<string, unknown> {
+/** A second factor is an error, not a 200 with a flag: the engine throws `AUTH_STEP_UP_REQUIRED` and
+ *  the adapter maps it to a 401 carrying `detail.challenge`. */
+function stepUpResponse(): Record<string, unknown> {
   return {
-    name: 'provider',
-    in: 'path',
-    required: true,
-    schema: { type: 'string', enum: ['authGoogle', 'authGithub'] },
+    description: 'AuthError; `AUTH_STEP_UP_REQUIRED` carries `detail.challenge` with the allowed methods.',
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthError' } } },
   }
+}
+
+/** What `GET /session` answers: the envelope, not a bare session. Both members are null when no
+ *  session resolves, which is a 200 and not a 401. */
+function schemaSessionResult(): Record<string, unknown> {
+  return {
+    type: 'object',
+    required: ['session', 'identity'],
+    properties: {
+      session: { oneOf: [{ $ref: '#/components/schemas/Session' }, { type: 'null' }] },
+      identity: { type: ['object', 'null'], additionalProperties: true },
+    },
+  }
+}
+
+function pathParam(name: string): Record<string, unknown> {
+  return { name, in: 'path', required: true, schema: { type: 'string' } }
+}
+
+/** The `{ code }` body the three TOTP routes share; `parseBodyStringField` bounds it at 64. */
+function totpCodeBody(): Record<string, unknown> {
+  return { type: 'object', required: ['code'], properties: { code: { type: 'string', maxLength: 64 } } }
+}
+
+function refSessionResult(): Record<string, unknown> {
+  return { $ref: '#/components/schemas/SessionResult' }
 }
 
 function okJson(schema: Record<string, unknown>): Record<string, unknown> {
@@ -322,7 +374,8 @@ function routePost(opts: {
   summary: string
   body: Record<string, unknown>
   ok: Record<string, unknown>
-  idempotent?: boolean
+  params?: Array<Record<string, unknown>>
+  security?: Array<Record<string, never[]>>
 }): Record<string, unknown> {
   const route: Record<string, unknown> = {
     summary: opts.summary,
@@ -337,16 +390,32 @@ function routePost(opts: {
       '429': errResponse(),
     },
   }
-  if (opts.idempotent) {
-    route.parameters = [
-      {
-        name: 'Idempotency-Key',
-        in: 'header',
-        required: false,
-        schema: { type: 'string', maxLength: 200 },
-        description: 'Optional client-supplied key; replays the cached response within ttl.',
-      },
-    ]
+  if (opts.params) route.parameters = opts.params
+  if (opts.security) route.security = opts.security
+  return route
+}
+
+/** A route that completes a sign-in: no response body, and a 401 that may be a step-up demand. */
+function routeSignsIn(opts: {
+  summary: string
+  body: Record<string, unknown>
+  params?: Array<Record<string, unknown>>
+}): Record<string, unknown> {
+  const route = routePost({ ...opts, ok: {} })
+  route.responses = {
+    '200': signedInResponse(),
+    '400': errResponse(),
+    '401': stepUpResponse(),
+    '429': errResponse(),
   }
   return route
+}
+
+/** A route the adapter refuses without a resolved session. */
+function routeAuthed(opts: {
+  summary: string
+  body: Record<string, unknown>
+  ok: Record<string, unknown>
+}): Record<string, unknown> {
+  return routePost({ ...opts, security: [{ cookieAuth: [] }, { bearerAuth: [] }] })
 }

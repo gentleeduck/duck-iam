@@ -1,3 +1,12 @@
+/**
+ * `duck-auth migrate` emits DDL by hand while the drizzle adapters declare the same tables in TypeScript, so the
+ * two drift silently - which is how four columns went missing and how the CLI came to emit an
+ * `auth_identities.tenant_id` no query in any dialect reads. Both directions are checked, because they fail
+ * differently: a column the schema declares and the CLI omits breaks writes outright, while one the CLI emits
+ * and no schema declares is created, never written, and reads as data forever after. MySQL is the reference,
+ * its schema being the widest.
+ */
+
 import { getTableConfig } from 'drizzle-orm/mysql-core'
 import { describe, expect, it } from 'vitest'
 import {
@@ -9,30 +18,13 @@ import {
 import { renderMigration } from '../index'
 
 /**
- * `duck-auth migrate` emits DDL by hand while the drizzle adapters declare the
- * same tables in TypeScript, so the two drift silently. That is how
- * `email_verified`, `created_by`, `updated_by` and both `updated_at` columns
- * went missing, and how the CLI came
- * to emit an `auth_identities.tenant_id` that no query in any dialect reads.
- *
- * Both directions are checked, because both are defects and they fail
- * differently. A column the schema declares and the CLI omits breaks writes
- * outright: the adapter names a column the database does not have. A column the
- * CLI emits and no schema declares is the quieter one - it is created, nothing
- * ever writes it, and it reads as data forever after. That is the same defect
- * this release removed from `auth_sessions`, so the test that would have caught
- * it belongs here.
- *
- * MySQL is the reference because its schema is the widest.
- */
-/**
  * Carriers for the MySQL unique indexes, not columns of the row contract. They
  * exist because MySQL cannot index a JSON path directly; pg and sqlite express
  * the same two indexes over the profile inline and declare nothing extra. The
  * CLI targets the generic bridge, which stores the profile as text, so it has
  * neither these nor the indexes - uniqueness is the bridge author's to enforce.
  */
-const MYSQL_INDEX_CARRIERS = new Set(['email_norm', 'username_norm', 'oauth_provider', 'oauth_sub'])
+const MYSQL_INDEX_CARRIERS = new Set(['email_norm', 'username_norm', 'oauth_provider', 'oauth_sub', 'password_key'])
 
 const TABLES = [
   {
