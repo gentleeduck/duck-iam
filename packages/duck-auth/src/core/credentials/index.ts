@@ -1,17 +1,9 @@
 export {
-  deleteCredentialsByPurpose,
   getCredentialPurpose,
-  getProfileNumber,
-  getProfileString,
   isCredentialExpired,
-  isExpiredAt,
-  isFiniteNumber,
-  isProfileBooleanFalse,
-  isProfileBooleanTrue,
   isRevoked,
-  isSoftDeleted,
-  RECOVERY_PURPOSES,
-  toCredentialUpsert,
+  toCredentialCreate,
+  toPublicCredential,
 } from './credentials'
+export { AUTH_CREDENTIAL_KINDS, RECOVERY_PURPOSES } from './credentials.constants'
 export type { Credential } from './credentials.types'
-export { AUTH_CREDENTIAL_KINDS } from './credentials.types'

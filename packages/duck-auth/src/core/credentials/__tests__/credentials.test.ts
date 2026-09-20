@@ -1,98 +1,8 @@
-/**
- * The credential predicates had no tests, and every one of them is a security
- * decision expressed as a boolean: is this credential revoked, is it expired, is
- * this account soft-deleted, is this profile flag actually true.
- *
- * Each is documented to fail closed, which is the part worth testing. A predicate
- * that answers "not expired" for a NaN timestamp, or "verified" for the string
- * `"true"`, is wrong in the direction that admits people.
- */
+/** The credential predicates are all fail-closed, which is the part worth testing. */
 import { describe, expect, it } from 'vitest'
-import {
-  getProfileNumber,
-  getProfileString,
-  isCredentialExpired,
-  isExpiredAt,
-  isFiniteNumber,
-  isProfileBooleanFalse,
-  isProfileBooleanTrue,
-  isRevoked,
-  isSoftDeleted,
-} from '../credentials'
+import { isCredentialExpired, isRevoked, toPublicCredential } from '../credentials'
 
 const NOW = 1_700_000_000_000
-
-describe('isExpiredAt', () => {
-  describe('the live sentinel', () => {
-    it('treats null as no expiry configured', () => {
-      expect(isExpiredAt(null, NOW)).toBe(false)
-    })
-
-    it('treats undefined as no expiry configured', () => {
-      expect(isExpiredAt(undefined, NOW)).toBe(false)
-    })
-  })
-
-  describe('ordinary values', () => {
-    it('is false for a future timestamp', () => {
-      expect(isExpiredAt(NOW + 1000, NOW)).toBe(false)
-    })
-
-    it('is true for a past timestamp', () => {
-      expect(isExpiredAt(NOW - 1, NOW)).toBe(true)
-    })
-
-    it('is false at exactly now, so the boundary is inclusive of the last instant', () => {
-      expect(isExpiredAt(NOW, NOW)).toBe(false)
-    })
-
-    it('handles a future Date', () => {
-      expect(isExpiredAt(new Date(NOW + 1000), NOW)).toBe(false)
-    })
-
-    it('handles a past Date', () => {
-      expect(isExpiredAt(new Date(NOW - 1000), NOW)).toBe(true)
-    })
-  })
-
-  describe('fails closed on anything it cannot read', () => {
-    // Each of these would be "not expired" under a naive `value < now`, because
-    // every comparison with NaN is false. That is the bug this function exists to
-    // avoid, so each case is worth its own line.
-    for (const [label, value] of [
-      ['NaN', Number.NaN],
-      ['Infinity', Number.POSITIVE_INFINITY],
-      ['negative Infinity', Number.NEGATIVE_INFINITY],
-      ['a numeric string', '1700000000000'],
-      ['a non-numeric string', 'never'],
-      ['an empty string', ''],
-      ['true', true],
-      ['false', false],
-      ['an array', [NOW + 1000]],
-      ['an object', { time: NOW + 1000 }],
-      ['a function', () => NOW + 1000],
-      ['a symbol', Symbol('later')],
-      ['a bigint', 10n],
-    ] as const) {
-      it(`treats ${label} as expired`, () => {
-        expect(isExpiredAt(value, NOW)).toBe(true)
-      })
-    }
-
-    it('treats an invalid Date as expired', () => {
-      expect(isExpiredAt(new Date(Number.NaN), NOW)).toBe(true)
-    })
-
-    it('treats a Date built from a non-finite number as expired', () => {
-      expect(isExpiredAt(new Date(Number.POSITIVE_INFINITY), NOW)).toBe(true)
-    })
-  })
-
-  it('defaults `now` to the current clock', () => {
-    expect(isExpiredAt(Date.now() + 60_000)).toBe(false)
-    expect(isExpiredAt(Date.now() - 60_000)).toBe(true)
-  })
-})
 
 describe('isCredentialExpired', () => {
   it('is false when no expiry is set', () => {
@@ -133,155 +43,62 @@ describe('isRevoked', () => {
   })
 })
 
-describe('isSoftDeleted', () => {
-  it('is false when deletedAt is null or absent', () => {
-    expect(isSoftDeleted({ deletedAt: null })).toBe(false)
-    expect(isSoftDeleted({})).toBe(false)
+describe('toPublicCredential', () => {
+  const row = {
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    createdBy: null,
+    expiresAt: null,
+    id: 'c1',
+    identityId: 'i1',
+    kind: 'totp' as const,
+    lastUsedAt: null,
+    metadata: { confirmed: true },
+    revokedAt: null,
+    // A totp seed is stored as plaintext base32, so this is the live factor.
+    secret: 'JBSWY3DPEHPK3PXP',
+    tenantId: null,
+    updatedBy: null,
+    version: 1,
+  }
+
+  it('drops the secret', () => {
+    const pub = toPublicCredential(row)
+    expect('secret' in pub).toBe(false)
+    expect(JSON.stringify(pub)).not.toContain('JBSWY3DPEHPK3PXP')
   })
 
-  it('is true when deletedAt is set', () => {
-    expect(isSoftDeleted({ deletedAt: new Date() })).toBe(true)
+  it('keeps every other field', () => {
+    const { secret: _secret, ...rest } = row
+    expect(toPublicCredential(row)).toEqual(rest)
   })
 
-  it('is true for a deletedAt in the future, which is how the grace period is stored', () => {
-    // `softDelete(id, gracePeriodMs)` writes now + grace, so a future value is the
-    // normal case and must still hide the row.
-    expect(isSoftDeleted({ deletedAt: new Date(Date.now() + 60_000) })).toBe(true)
+  it('does not mutate the row it was given', () => {
+    toPublicCredential(row)
+    expect(row.secret).toBe('JBSWY3DPEHPK3PXP')
   })
 
-  it('accepts a numeric timestamp as well as a Date', () => {
-    expect(isSoftDeleted({ deletedAt: Date.now() })).toBe(true)
-  })
-})
-
-describe('isFiniteNumber', () => {
-  it('accepts ordinary numbers including zero and negatives', () => {
-    for (const n of [0, -0, 1, -1, 1.5, Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER]) {
-      expect(isFiniteNumber(n)).toBe(true)
-    }
+  it('redacts a secret the metadata carries, which Omit cannot see', () => {
+    const pub = toPublicCredential({
+      ...row,
+      kind: 'oauth',
+      metadata: { provider: 'oauth:google', sub: 's', accessToken: 'ya29-LIVE' },
+    })
+    expect(pub.metadata).toEqual({ provider: 'oauth:google', sub: 's' })
+    expect(JSON.stringify(pub)).not.toContain('ya29-LIVE')
   })
 
-  it('rejects the non-finite numbers', () => {
-    for (const n of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
-      expect(isFiniteNumber(n)).toBe(false)
-    }
+  it('drops a key the kind never declared, so a new secret cannot leak by being forgotten', () => {
+    const pub = toPublicCredential({ ...row, metadata: { confirmed: true, futureToken: 'nope' } })
+    expect(pub.metadata).toEqual({ confirmed: true })
   })
 
-  it('rejects things that merely look numeric', () => {
-    for (const v of ['1', '', null, undefined, true, false, [], [1], {}, 1n, new Number(1)]) {
-      expect(isFiniteNumber(v)).toBe(false)
-    }
-  })
-})
-
-describe('getProfileString', () => {
-  it('reads a non-empty string field', () => {
-    expect(getProfileString({ email: 'a@x.com' }, 'email')).toBe('a@x.com')
+  it('keeps each kind to its own keys, so one kind cannot borrow another', () => {
+    const pub = toPublicCredential({ ...row, kind: 'password', metadata: { algorithm: 'argon2id', sub: 's' } })
+    expect(pub.metadata).toEqual({ algorithm: 'argon2id' })
   })
 
-  it('returns undefined for an empty string, which is not a usable value', () => {
-    expect(getProfileString({ email: '' }, 'email')).toBeUndefined()
-  })
-
-  it('returns undefined when the field is any non-string', () => {
-    for (const value of [42, true, null, undefined, [], {}, () => 'x']) {
-      expect(getProfileString({ email: value }, 'email')).toBeUndefined()
-    }
-  })
-
-  it('returns undefined when the profile is not a plain object', () => {
-    for (const profile of [null, undefined, 'string', 42, true, ['a@x.com']]) {
-      expect(getProfileString(profile, 'email')).toBeUndefined()
-    }
-  })
-
-  it('returns undefined for a key that is absent', () => {
-    expect(getProfileString({ email: 'a@x.com' }, 'username')).toBeUndefined()
-  })
-
-  it('does not read up the prototype chain', () => {
-    // A key inherited from Object.prototype is not profile data.
-    expect(getProfileString({}, 'toString')).toBeUndefined()
-    expect(getProfileString({}, 'constructor')).toBeUndefined()
-  })
-
-  it('reads a key that shadows a prototype member when it is genuinely present', () => {
-    expect(getProfileString({ toString: 'shadowed' }, 'toString')).toBe('shadowed')
-  })
-})
-
-describe('isProfileBooleanTrue', () => {
-  it('is true only for the boolean true', () => {
-    expect(isProfileBooleanTrue({ emailVerified: true }, 'emailVerified')).toBe(true)
-  })
-
-  it('is false for every truthy impostor', () => {
-    // `"true"`, `1` and `"yes"` all pass a loose check and all mean nothing. A
-    // verified-email gate reading one of these would admit an unverified account.
-    for (const value of ['true', 'TRUE', 1, -1, 'yes', [], {}, 'false', new Boolean(true)]) {
-      expect(isProfileBooleanTrue({ emailVerified: value }, 'emailVerified')).toBe(false)
-    }
-  })
-
-  it('is false for the falsy values', () => {
-    for (const value of [false, 0, '', null, undefined, Number.NaN]) {
-      expect(isProfileBooleanTrue({ emailVerified: value }, 'emailVerified')).toBe(false)
-    }
-  })
-
-  it('is false when the profile is not a plain object', () => {
-    for (const profile of [null, undefined, 'true', 1, true, [true]]) {
-      expect(isProfileBooleanTrue(profile, 'emailVerified')).toBe(false)
-    }
-  })
-
-  it('is false for an absent key', () => {
-    expect(isProfileBooleanTrue({}, 'emailVerified')).toBe(false)
-  })
-})
-
-describe('getProfileNumber', () => {
-  it('reads a finite number', () => {
-    expect(getProfileNumber({ lastTotpStep: 42 }, 'lastTotpStep')).toBe(42)
-    expect(getProfileNumber({ lastTotpStep: 0 }, 'lastTotpStep')).toBe(0)
-    expect(getProfileNumber({ lastTotpStep: -1 }, 'lastTotpStep')).toBe(-1)
-  })
-
-  it('refuses NaN and Infinity rather than handing back a number that loses every comparison', () => {
-    // The reason this helper exists. A caller guarding with `typeof x ===
-    // 'number'` accepts NaN, and `step <= NaN` is `false`, so a TOTP replay
-    // check written the obvious way waves the replay through.
-    expect(getProfileNumber({ lastTotpStep: Number.NaN }, 'lastTotpStep')).toBeUndefined()
-    expect(getProfileNumber({ lastTotpStep: Number.POSITIVE_INFINITY }, 'lastTotpStep')).toBeUndefined()
-  })
-
-  it('refuses a numeric string, an absent key, and a non-object', () => {
-    expect(getProfileNumber({ lastTotpStep: '42' }, 'lastTotpStep')).toBeUndefined()
-    expect(getProfileNumber({}, 'lastTotpStep')).toBeUndefined()
-    expect(getProfileNumber(null, 'lastTotpStep')).toBeUndefined()
-    expect(getProfileNumber([1, 2], 'lastTotpStep')).toBeUndefined()
-    expect(getProfileNumber('nope', 'lastTotpStep')).toBeUndefined()
-  })
-})
-
-describe('isProfileBooleanFalse', () => {
-  it('is true only for a literal false', () => {
-    expect(isProfileBooleanFalse({ confirmed: false }, 'confirmed')).toBe(true)
-    expect(isProfileBooleanFalse({ confirmed: true }, 'confirmed')).toBe(false)
-  })
-
-  it('is not the negation of isProfileBooleanTrue - an absent key is neither', () => {
-    // What tells "explicitly not yet confirmed" apart from "never had the
-    // field". A pending TOTP enrollment is found by the first; a row that
-    // never carried the key must not be.
-    expect(isProfileBooleanFalse({}, 'confirmed')).toBe(false)
-    expect(isProfileBooleanTrue({}, 'confirmed')).toBe(false)
-  })
-
-  it('refuses the string "false" and other falsy values', () => {
-    expect(isProfileBooleanFalse({ confirmed: 'false' }, 'confirmed')).toBe(false)
-    expect(isProfileBooleanFalse({ confirmed: 0 }, 'confirmed')).toBe(false)
-    expect(isProfileBooleanFalse({ confirmed: null }, 'confirmed')).toBe(false)
-    expect(isProfileBooleanFalse(null, 'confirmed')).toBe(false)
+  it('leaves null metadata alone', () => {
+    expect(toPublicCredential({ ...row, metadata: null }).metadata).toBeNull()
   })
 })

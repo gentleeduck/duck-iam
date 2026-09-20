@@ -1,74 +1,64 @@
-import { BATCH_NOT_FOUND, type Batch, batchResult, loopFallback } from '~/core/batch'
+import { type Answer, answer, orNull } from '~/core/answer'
 import { withActor } from '../actor'
-import { getProfileString, isCredentialExpired, isRevoked } from '../credentials/credentials'
+import { isStandingFactor, toPublicCredential } from '../credentials/credentials'
 import type { Credential } from '../credentials/credentials.types'
 import { AuthError } from '../errors'
 import type { Events } from '../events'
+import { getProfileString } from '../predicates/predicates'
 import type { Sessions } from '../sessions/sessions.types'
 import type { TenantContext } from '../tenant/tenant.types'
-import { DEFAULT_IDENTITIES_CONFIG, emailSpellings } from './identities.constants'
+import { DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
 import type { Identities } from './identities.types'
 
-/**
- * Identities facet - CRUD + linking + merging + GDPR primitives.
- * Optimistic locking discipline: every write that mutates `Identity` flows
- * through `update(expectedVersion)`; callers that pass a stale version see
- * `AUTH/STALE_WRITE` and decide retry/surface.
- */
-/**
- * Outcome id for a provider link. One identity may appear several times in a
- * batch - two links for the same person - so keying outcomes by identity alone
- * would collide and silently drop rows.
- */
-function linkKey(identityId: string, providerId: string): string {
-  return `${identityId} ${providerId}`
+export function isSoftDeleted(row: { deletedAt?: Date | number | null }): boolean {
+  return row.deletedAt != null
 }
 
+/** Every mutating write goes through `update(expectedVersion)`, so a stale caller sees `AUTH_STALE_WRITE`. */
 export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
   constructor(
     private readonly _store: Identities.Store<Profile>,
     private readonly _events: Events.IBus,
     private readonly _cfg: Identities.Cfg = DEFAULT_IDENTITIES_CONFIG,
-    /** Read-only, and only by {@link unlink}: a password is a credential, so the links alone cannot answer
-     *  whether dropping one locks the account out. Absent means no credential can answer for it. */
+    /** Read by {@link IdentitiesImpl.unlink} alone, to count the ways in that are not links. Absent means none can be. */
     private readonly _credentials?: Credential.Store,
   ) {}
 
-  /**
-   * Public read of the configured soft-delete grace period. Sibling
-   * facets (FlowsImpl.requestAccountDeletion) need it to compute the
-   * caller-visible `restorableUntil` deadline; the legacy approach
-   * reached into `_cfg` via an `as unknown as { _cfg }` double-cast
-   * which both broke encapsulation and was an unsafe runtime assumption
-   * (other constructors might not have the same private name). Read-only.
-   */
+  /** Exposed for `FlowsImpl.requestAccountDeletion`, which needs it for `restorableUntil`. */
   get softDeleteGracePeriodMs(): number {
     return this._cfg.softDeleteGracePeriodMs
   }
 
-  async getById(id: string): Promise<Identities.Me<Profile> | null> {
-    return this._store.find({ id })
+  /** The identity with this id. */
+  getById(id: string): Answer.Me<Identities.Me<Profile>> {
+    return answer(this._store.find({ id }))
   }
 
-  async getByEmail(email: string): Promise<Identities.Me<Profile> | null> {
-    // RFC 5321 cap + typeof guard: prevents multi-MB lookups + non-string crashes
-    // before reaching adapter.
-    if (typeof email !== 'string' || email.length === 0 || email.length > 254) return null
-    const spellings = emailSpellings(email)
-    return spellings === null ? null : this._store.find({ email: spellings })
+  /** The identity holding this email address. */
+  getByEmail(email: string): Answer.Me<Identities.Me<Profile>> {
+    return answer(() => {
+      // RFC 5321 cap, so a multi-MB or non-string lookup never reaches the adapter.
+      assertKey(email, 254, 'email')
+
+      return this._store.find({ email })
+    })
   }
 
-  async getByProviderSub(providerId: string, sub: string): Promise<Identities.Me<Profile> | null> {
-    // Defensive caps; both keys flow into SQL `=`-comparisons + JSONB extracts.
-    if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 128) return null
-    if (typeof sub !== 'string' || sub.length === 0 || sub.length > 512) return null
-    return this._store.find({ providerId, providerSub: sub })
+  /** The identity linked to this provider's subject. */
+  getByProviderSub(providerId: string, sub: string): Answer.Me<Identities.Me<Profile>> {
+    return answer(() => {
+      assertKey(providerId, 128, 'providerId')
+      assertKey(sub, 512, 'providerSub')
+
+      return this._store.find({ providerId, providerSub: sub })
+    })
   }
 
+  /** Creates an identity, with its provider links in the same write. */
   async create(input: {
     profile: Profile
     tenantId?: string
-    providers?: Identities.ProviderLink[]
+    providers?: Identities.ProviderLinkInput[]
     emailVerified?: boolean
   }): Promise<Identities.Me<Profile>> {
     this.assertProfileWithinCap(input.profile)
@@ -81,12 +71,13 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     return created
   }
 
+  /** Merges a partial profile onto the row, refusing a concurrent edit. */
   async updateProfile(
     id: string,
     profilePatch: Partial<Profile>,
     expectedVersion: number,
   ): Promise<Identities.Me<Profile>> {
-    const cur = await this._store.find({ id })
+    const cur = await orNull(this._store.find({ id }))
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
     const nextProfile = { ...(cur.profile ?? {}), ...profilePatch } as Profile
     this.assertProfileWithinCap(nextProfile)
@@ -94,28 +85,15 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   }
 
   /**
-   * Turn `emailVerified` on, and answer with the row that carries it.
+   * A lost version race is retried once, since the caller has already spent their single-use token.
    *
-   * The column, never the profile - `updateProfile` merges a caller-supplied
-   * patch without filtering keys, so routing verification through it would make
-   * "my address is verified" something the account holder can assert about
-   * themselves.
-   *
-   * Reads its own expected version rather than taking one, and retries once on
-   * `AUTH_STALE_WRITE`. `completeEmailVerification` calls this after it has
-   * already consumed the single-use token, so there is no second attempt for
-   * the user to make: a concurrent profile write bumping the version between
-   * the read and the write used to surface as a raw stale-write error with the
-   * token already spent. One retry is enough - the write is idempotent and the
-   * losing racer re-reads the version the winner just wrote.
-   *
-   * Already-verified is a no-op that answers with the current row, so a
-   * duplicated verification click is not an error.
+   * SECURITY: the column, never the profile. `updateProfile` merges a caller-supplied patch without
+   * filtering keys, so routing verification through it would let the account holder assert it.
    */
   async markEmailVerified(id: string): Promise<Identities.Me<Profile>> {
     let lastErr: unknown
     for (let attempt = 0; attempt < 2; attempt++) {
-      const cur = await this._store.find({ id })
+      const cur = await orNull(this._store.find({ id }))
       if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
       if (cur.emailVerified) return cur
       try {
@@ -128,29 +106,8 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     throw lastErr
   }
 
-  /**
-   * bound the serialized profile size to defend the identity store
-   * (and every downstream `findById` / `findByEmail` that materializes
-   * it) from amplification. With no cap, an attacker who can drive a
-   * sign-up route or profile-update flow can store multi-MB profiles
-   * indefinitely - each read amplifies the per-request cost and the
-   * underlying row balloons. JSON byte length (UTF-8) is the right
-   * proxy: it matches what gets serialized to the database column,
-   * encrypted at rest, and emitted over the wire. Default 16 KiB
-   * comfortably accommodates typical profiles (email + display name +
-   * picture URL + locale + a few custom fields) without leaving the
-   * door open to multi-MB blobs. Operators with richer schemas can
-   * raise via `profiles.profileMaxBytes`.
-   *
-   * Public, and typed `unknown`, because the signup flow stages a partial
-   * profile in the credentials store for up to 24 hours before any of it
-   * reaches an identity row. A cap the profile only meets on the last hop is
-   * not a cap: `advanceSignUp` accepted an arbitrarily large `profilePatch`
-   * and `completeSignUp` was where it finally bounced, after the bytes had
-   * already been stored and re-read on every stage. The check reads nothing
-   * off `Profile` - it serializes and measures - so widening the parameter
-   * costs no safety and saves the callers a cast.
-   */
+  /** Public and typed `unknown` because the signup flow stages a partial profile for up to 24 hours, and
+   *  a cap the profile only meets on the last hop is not a cap. */
   assertProfileWithinCap(profile: unknown): void {
     const cap = this._cfg.profileMaxBytes
     if (cap === undefined || cap <= 0) return
@@ -158,8 +115,7 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     try {
       bytes = Buffer.byteLength(JSON.stringify(profile) ?? '', 'utf8')
     } catch {
-      // JSON.stringify can throw on circular refs / BigInt. Fail closed
-      // - the operator should not store unserializable values anyway.
+      // JSON.stringify throws on a circular ref or a BigInt.
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'identity profile is not JSON-serializable',
       })
@@ -171,40 +127,37 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     }
   }
 
-  /** Answers with the identity as it stands after the link, providers included. */
+  /** Refuses a provider the identity already holds, where the store takes a repeat as a no-op. */
   async link(identityId: string, link: Identities.ProviderLinkInput): Promise<Identities.Me<Profile>> {
-    const cur = await this._store.find({ id: identityId })
+    const cur = await orNull(this._store.find({ id: identityId }))
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
-    // Reject duplicate provider link for same identity.
     if (cur.providers.some((p) => p.providerId === link.providerId)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: link.providerId,
         detail: 'already linked',
       })
     }
-    const linked = await this._store.link(identityId, link)
-    // `null` here means the row disappeared between the read above and the
-    // write - the same condition the read rejected, so it gets the same answer.
+    const linked = await orNull(this._store.link(identityId, link))
+    // Null here is the row going between the read and the write, which is what the read already refused.
     if (!linked) throw new AuthError('AUTH_UNAUTHENTICATED')
     await this._events.emit('identity.linked', { identityId, providerId: link.providerId })
     return linked
   }
 
-  /** How many credentials could still sign this identity in. No tenant is named, so every one counts:
-   *  the question is whether the account is reachable at all, not from which tenant. */
+  /** Across every tenant: the question is whether the account is reachable at all. */
   private async _liveCredentials(identityId: string): Promise<number> {
     if (!this._credentials) return 0
     const rows = await this._credentials.listByIdentity(identityId, null, {})
 
-    return rows.filter((row) => !isRevoked(row) && !isCredentialExpired(row)).length
+    return rows.filter(isStandingFactor).length
   }
 
-  /** Answers with the identity as it stands after the link is dropped. */
+  /** Drops one provider link from the identity. */
   async unlink(identityId: string, providerId: string): Promise<Identities.Me<Profile>> {
-    const cur = await this._store.find({ id: identityId })
+    const cur = await orNull(this._store.find({ id: identityId }))
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
-    // SECURITY: dropping the last way in leaves the account unreachable, so the count is every way in -
-    // the links that remain, plus the credentials kept here, which is where a password lives.
+    // SECURITY: dropping the last way in leaves the account unreachable, so the count is the links that
+    // remain plus the credentials, which is where a password lives.
     if (
       cur.providers.filter((p) => p.providerId !== providerId).length + (await this._liveCredentials(identityId)) ===
       0
@@ -214,77 +167,36 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
         detail: 'cannot unlink last provider; add another method first',
       })
     }
-    const unlinked = await this._store.unlink(identityId, providerId)
+    const unlinked = await orNull(this._store.unlink(identityId, providerId))
     if (!unlinked) throw new AuthError('AUTH_UNAUTHENTICATED')
+    // The mirror of `identity.linked`, which `link` has always emitted. This facet dropped a factor
+    // silently, so the one write an account takeover performs was the one the audit log could not see.
+    // Always `false` here: the override lives on `flows.unlinkProvider`, and this path has none.
+    await this._events.emit('identity.unlinked', { allowedLockout: false, identityId, providerId })
     return unlinked
   }
 
-  /** Answers with the survivor, carrying the union of both provider lists. */
-  async merge(survivorId: string, dupId: string): Promise<Identities.Me<Profile>> {
-    if (survivorId === dupId) {
-      throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: 'merge',
-        detail: 'survivor and dup are the same identity',
-      })
-    }
-    // The store re-points the dup's credentials and sessions and then deletes
-    // it, so a survivor that does not exist would destroy the dup and orphan
-    // everything that pointed at it. Refuse before any of that runs.
-    if (!(await this._store.find({ id: survivorId }))) throw new AuthError('AUTH_UNAUTHENTICATED')
-    const survivor = await this._store.merge(survivorId, dupId)
-    if (!survivor) throw new AuthError('AUTH_UNAUTHENTICATED')
-    await this._events.emit('identity.merged', {
-      survivorId,
-      mergedFromId: dupId,
-    })
-    return survivor
+  /** Hides the identity and starts the configured grace period before erasure. */
+  softDelete(id: string): Answer.Me<Identities.Me<Profile>> {
+    return answer(this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs))
   }
 
-  /**
-   * Answers with the hidden row - its `deletedAt` is when the grace window
-   * closes, so a caller can tell the user how long they have to change their
-   * mind without a second read. `null` when no such identity.
-   */
-  async softDelete(id: string): Promise<Identities.Me<Profile> | null> {
-    return this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs)
+  /** A window already closed throws `AUTH_GRACE_EXPIRED`, as an id matching nothing throws not-found. */
+  restore(id: string): Answer.Me<Identities.Me<Profile>> {
+    return answer(this._store.restore(id))
   }
 
-  /**
-   * Clears a soft delete. `null` means the id matched nothing, the same as
-   * {@link softDelete} and {@link erase}. A row that WAS matched and then
-   * refused throws `AUTH_GRACE_EXPIRED` instead. There is no freeness check:
-   * the unique indexes are unconditional, so a hidden row held its address,
-   * its handle and its logins the whole time and nothing can have taken them.
-   */
-  async restore(id: string): Promise<Identities.Me<Profile> | null> {
-    return this._store.restore(id)
+  /** Irreversible. Answers the row as it was, since nothing can read it now.
+   *  `reason` is the caller's to log: the library does not own the shape of a compliance envelope. */
+  erase(id: string, opts: { reason: string; operatorId?: string }): Answer.Me<Identities.Me<Profile>> {
+    // Bound only when there is an actor: `withActor(undefined)` is a fence that clears the scope.
+    // `async`, because `withActor` is typed to hand back either the value or a promise of it.
+    return answer(async () =>
+      opts.operatorId === undefined ? this._store.erase(id) : withActor(opts.operatorId, () => this._store.erase(id)),
+    )
   }
 
-  /**
-   * Hard-erase. Audit-logged for compliance. Cannot be undone. Answers with the
-   * row as it was immediately before deletion - the caller's last chance to
-   * record what went, since a second read would find nothing.
-   */
-  async erase(id: string, opts: { reason: string; operatorId?: string }): Promise<Identities.Me<Profile> | null> {
-    // Binds the ambient actor for the duration, so anything the erase cascades into is attributed
-    // to the operator who asked for it rather than to whoever the request was running as.
-    // Bound only when there is something to bind: `withActor(undefined, ...)`
-    // is a fence that clears the scope - the same as `withTenant` - so passing
-    // an omitted `operatorId` straight through would erase a request-scoped
-    // actor the caller had already established.
-    const erased = await (opts.operatorId === undefined
-      ? this._store.erase(id)
-      : withActor(opts.operatorId, () => this._store.erase(id)))
-    // `reason` stays the caller's to log: the library does not own the shape of
-    // a compliance audit envelope.
-    return erased
-  }
-
-  /**
-   * Bulk import. Used for migrations from legacy systems. Skips already-existing
-   * identities by email (mode='skipExisting') or merges into existing
-   * (mode='merge'). Returns counts so caller can surface to ops.
-   */
+  /** `skipExisting` passes over an address already present, `merge` folds the new logins into it. */
   async bulkCreate(
     rows: Array<{
       profile: Profile
@@ -299,18 +211,17 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     let failed = 0
     for (const row of rows) {
       try {
-        const spellings = emailSpellings(getProfileString(row.profile, 'email'))
-        const existing = spellings ? await this._store.find({ email: spellings }) : null
+        const email = getProfileString(row.profile, 'email')
+        const existing = email ? await orNull(this._store.find({ email })) : null
         if (existing && mode === 'skipExisting') {
           skipped++
           continue
         }
         if (existing && mode === 'merge') {
-          // Link any new providers without duplicating; do not patch profile here.
+          // Through `link`, so a folded-in provider emits `identity.linked` like every other link and
+          // a providerId the row already holds is refused there rather than re-checked here.
           for (const link of row.providers ?? []) {
-            if (!existing.providers.some((p) => p.providerId === link.providerId)) {
-              await this._store.link(existing.id, link)
-            }
+            await refusable(() => this.link(existing.id, link))
           }
           skipped++
           continue
@@ -320,162 +231,157 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
         }
         await this.create(row)
         created++
-      } catch {
+      } catch (err) {
+        // The rule `refusable` applies, for the same reason: a refusal this layer decided is a failed
+        // row, a driver failure is not. Postgres leaves the transaction aborted once a statement has
+        // failed, so counting one here would make a later COMMIT a silent ROLLBACK.
+        if (!(err instanceof AuthError) || err.cause !== undefined) throw err
         failed++
       }
     }
     return { created, skipped, failed }
   }
 
-  /**
-   * Portable export under GDPR right-to-access. Argon2id secrets, oauth
-   * tokens, recovery code hashes, and other credential `secret` fields are
-   * always stripped. Sessions are exported separately by Sessions facet if
-   * the consumer wants them.
-   */
+  /** GDPR right-to-access, with every credential `secret` and session `csrfHash` stripped, and both
+   *  lists narrowed to `ctx`. */
   async exportAll(
     id: string,
     credentials: Credential.Store,
     ctx: TenantContext = {},
     opts: { sessions?: Sessions.Store } = {},
   ): Promise<Identities.ExportBlob<Profile>> {
-    const identity = await this._store.find({ id })
+    const identity = await orNull(this._store.find({ id }))
     if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
     const creds = await credentials.listByIdentity(id, null, ctx)
-    const sessions = opts.sessions ? await opts.sessions.listByIdentity(id) : []
+    // SECURITY: scoped like the credentials read a line above, which is the `ctx` this method already
+    // took and then dropped here. Identities are global, so the unfiltered list was the one the store
+    // contract warns about in so many words: tenant A's right-to-access blob named every session
+    // tenant B had issued the same person, carrying that `tenantId`, the ip, the user-agent and the
+    // fingerprint of each. `sessions-tenant-scope.test.ts` proved the store and `listForIdentity`
+    // honour the filter; this caller was the one that never asked for it. An unscoped `ctx` matches
+    // every row, so a single-tenant export answers exactly what it did before.
+    const sessions = opts.sessions ? await opts.sessions.listByIdentity(id, ctx) : []
     return {
       identity,
-      credentials: creds.map(({ secret: _secret, ...rest }) => rest),
+      credentials: creds.map(toPublicCredential),
       sessions: sessions.map(({ csrfHash: _csrfHash, ...rest }) => rest),
       schemaVersion: '1',
       exportedAt: Date.now(),
     }
   }
 
-  /**
-   * Serialise an `ExportBlob` to a canonical JSON string suitable for
-   * delivery to the user (file download / portable archive). Stable
-   * key ordering across runs so checksum comparisons work.
-   */
+  /** Stable key ordering, so checksums compare across runs. */
   static exportToJson<P extends Identities.ProfileMetadataBase>(blob: Identities.ExportBlob<P>): string {
     return JSON.stringify(blob, sortKeys, 2)
   }
 
-  /**
-   * Soft-deletes many identities, one call per id. Reports per-row outcomes: an
-   * id with no live identity is `not-found`, not an exception.
-   */
-  async softDeleteMany(ids: readonly string[]): Promise<Batch.Result> {
-    if (ids.length === 0) return batchResult([])
-    return loopFallback(ids, async (id) => {
-      if (!(await this._store.find({ id }))) return BATCH_NOT_FOUND
-      await this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs)
-    })
+  /** Soft-deletes every id in one adapter call. */
+  async softDeleteMany(ids: string[]): Promise<Identities.Me<Profile>[]> {
+    if (ids.length === 0) return []
+
+    return this._store.softDeleteMany(ids, this._cfg.softDeleteGracePeriodMs)
   }
 
-  /**
-   * Restores many soft-deleted identities. See {@link softDeleteMany}.
-   *
-   * `restore` answers `null` for an id that matched nothing and throws when the
-   * grace window has closed, so the loop passes both shapes through: `null`
-   * becomes `not-found` and `loopFallback` maps the throw to `grace-expired`.
-   * Flattening them into one outcome would report both as `not-found`, which is
-   * true of only the first: an expired row is still there and is being refused.
-   */
-  async restoreMany(ids: readonly string[]): Promise<Batch.Result<Identities.Me<Profile>>> {
-    if (ids.length === 0) return batchResult([])
-    return loopFallback(ids, async (id) => (await this._store.restore(id)) ?? BATCH_NOT_FOUND)
+  /** One whose window has closed is left out, as a missing row is, where {@link IdentitiesImpl.restore} throws. */
+  async restoreMany(ids: string[]): Promise<Identities.Me<Profile>[]> {
+    const restored: Identities.Me<Profile>[] = []
+    for (const id of ids) {
+      const row = await refusable(() => this._store.restore(id))
+      if (row) restored.push(row)
+    }
+
+    return restored
   }
 
-  /** Hard-erases many identities, one call per id. Cannot be undone. */
-  async eraseMany(ids: readonly string[]): Promise<Batch.Result> {
-    if (ids.length === 0) return batchResult([])
-    // `erase` hands back the row it removed, so a miss is the return value rather than a read
-    // before every delete.
-    return loopFallback(ids, async (id) => {
-      if (!(await this._store.erase(id))) return BATCH_NOT_FOUND
-    })
+  /** Erases every id in one adapter call, under the same envelope {@link IdentitiesImpl.erase} takes:
+   *  a batch erasure is no less irreversible for being a batch, so it records who ran it the same way. */
+  async eraseMany(ids: string[], opts: { reason: string; operatorId?: string }): Promise<Identities.Me<Profile>[]> {
+    if (ids.length === 0) return []
+    // Bound once around the one adapter call. Omitting `operatorId` leaves an outer request-scoped
+    // actor alone, because `withActor(undefined)` is a fence that clears the scope rather than a no-op.
+    return opts.operatorId === undefined
+      ? this._store.eraseMany(ids)
+      : withActor(opts.operatorId, () => this._store.eraseMany(ids))
   }
 
-  /**
-   * Updates many profiles, one call per row, each against its own expected
-   * version. Rows that lose the optimistic-lock race are reported as
-   * `stale-write`; the rest still apply. Every patch is resolved and cap-checked before anything is written,
-   * so an oversized profile fails the batch rather than half-applying it.
-   */
+  /** The caller schedules it, under a leader lock in a distributed deployment. Until it runs, a row whose
+   *  window closed is hidden but still there, which is not what a deletion promised. */
+  async gc(): Promise<{ deleted: number }> {
+    return this._store.gc(Date.now())
+  }
+
+  /** Every patch is cap-checked up front, so one oversized patch fails the whole batch. A lost version
+   *  race is left out. */
   async updateProfileMany(
-    rows: readonly { id: string; patch: Partial<Profile>; expectedVersion: number }[],
-  ): Promise<Batch.Result<Identities.Me<Profile>>> {
-    if (rows.length === 0) return batchResult([])
-
+    rows: { id: string; patch: Partial<Profile>; expectedVersion: number }[],
+  ): Promise<Identities.Me<Profile>[]> {
     const resolved: { id: string; profile: Profile; expectedVersion: number }[] = []
-    const missing: Batch.Outcome<Identities.Me<Profile>>[] = []
     for (const row of rows) {
-      const cur = await this._store.find({ id: row.id })
-      if (!cur) {
-        missing.push({ id: row.id, ok: false, reason: 'not-found' })
-        continue
-      }
+      const cur = await orNull(this._store.find({ id: row.id }))
+      if (!cur) continue
       const next = { ...cur.profile, ...row.patch }
       this.assertProfileWithinCap(next)
       resolved.push({ expectedVersion: row.expectedVersion, id: row.id, profile: next })
     }
 
-    const byId = new Map<string, Batch.Outcome<Identities.Me<Profile>>>()
-    if (resolved.length > 0) {
-      const applied = await loopFallback(
-        resolved.map((r) => r.id),
-        async (id) => {
-          const r = resolved.find((x) => x.id === id)
-          if (!r) return BATCH_NOT_FOUND
-          return this._store.update(id, { profile: r.profile }, r.expectedVersion)
-        },
-      )
-      for (const o of applied.outcomes) byId.set(o.id, o)
+    const written: Identities.Me<Profile>[] = []
+    for (const r of resolved) {
+      const row = await refusable(() => this._store.update(r.id, { profile: r.profile }, r.expectedVersion))
+      if (row) written.push(row)
     }
-    for (const m of missing) byId.set(m.id, m)
 
-    // Re-assemble in the caller's input order - `missing` rows never reached the store.
-    return batchResult(rows.map((r) => byId.get(r.id) ?? { id: r.id, ok: false, reason: 'not-found' as const }))
+    return written
   }
 
-  /**
-   * Links several provider identities at once. Emits one `identity.linked` per
-   * link that actually landed.
-   */
-  async linkMany(links: readonly { identityId: string; link: Identities.ProviderLinkInput }[]): Promise<Batch.Result> {
-    if (links.length === 0) return batchResult([])
-    const result = await loopFallback(
-      links.map((l) => linkKey(l.identityId, l.link.providerId)),
-      async (key) => {
-        const entry = links.find((l) => linkKey(l.identityId, l.link.providerId) === key)
-        if (!entry) return BATCH_NOT_FOUND
-        await this._store.link(entry.identityId, entry.link)
-      },
-    )
-    for (const [i, outcome] of result.outcomes.entries()) {
-      const entry = links[i]
-      if (outcome.ok && entry) {
-        await this._events.emit('identity.linked', {
-          identityId: entry.identityId,
-          providerId: entry.link.providerId,
-        })
-      }
+  /** Adds each provider link, one write per identity. Through {@link IdentitiesImpl.link}, so a
+   *  providerId already on the identity is skipped here as it is refused there. */
+  async linkMany(
+    links: { identityId: string; link: Identities.ProviderLinkInput }[],
+  ): Promise<Identities.Me<Profile>[]> {
+    const linked: Identities.Me<Profile>[] = []
+    for (const l of links) {
+      const row = await refusable(() => this.link(l.identityId, l.link))
+      if (row) linked.push(row)
     }
-    return result
+
+    return linked
   }
 
-  /** Unlinks several provider identities at once. */
-  async unlinkMany(links: readonly { identityId: string; providerId: string }[]): Promise<Batch.Result> {
-    if (links.length === 0) return batchResult([])
-    return loopFallback(
-      links.map((l) => linkKey(l.identityId, l.providerId)),
-      async (key) => {
-        const entry = links.find((l) => linkKey(l.identityId, l.providerId) === key)
-        if (!entry) return BATCH_NOT_FOUND
-        await this._store.unlink(entry.identityId, entry.providerId)
-      },
-    )
+  /** Drops each provider link, one write per identity. Through {@link IdentitiesImpl.unlink}, not the
+   *  store: a row that would leave the account with no way in is skipped rather than stranding it, and
+   *  the batch is the path a bulk admin action takes, so it is the one that most needs the guard. */
+  async unlinkMany(links: { identityId: string; providerId: string }[]): Promise<Identities.Me<Profile>[]> {
+    const unlinked: Identities.Me<Profile>[] = []
+    for (const l of links) {
+      const row = await refusable(() => this.unlink(l.identityId, l.providerId))
+      if (row) unlinked.push(row)
+    }
+
+    return unlinked
+  }
+}
+
+/**
+ * Runs one row of a batch. A refused write answers null, so the row is left out instead of taking the rest.
+ *
+ * SECURITY: a driver failure is hard whatever code it carries, and `cause` is what tells it from a refusal
+ * this layer's own read decided. Postgres leaves the transaction aborted once a statement has failed, so swallowing
+ * one would make COMMIT a silent ROLLBACK.
+ */
+async function refusable<T>(run: () => Promise<T>): Promise<T | null> {
+  try {
+    return await run()
+  } catch (err) {
+    if (!(err instanceof AuthError) || err.cause !== undefined) throw err
+
+    return null
+  }
+}
+
+/** A lookup key flows into SQL comparisons and JSONB extracts, so the bound is here rather than at the adapter. */
+function assertKey(value: string, max: number, name: string): void {
+  if (typeof value !== 'string' || value.length === 0 || value.length > max) {
+    throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: `${name} is empty or longer than ${max} characters` })
   }
 }
 
@@ -493,7 +399,6 @@ function sortKeys(_key: string, value: unknown): unknown {
   return value
 }
 
-/** Factory around {@link Identities} for functional-style config. */
 export function identities<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   store: Identities.Store<Profile>,
   events: Events.IBus,

@@ -41,13 +41,13 @@ describe('emailSpellings', () => {
 })
 
 describe('toEmailList', () => {
-  it('takes either shape', () => {
-    expect(toEmailList('a@x')).toEqual(['a@x'])
-    expect(toEmailList(['a@x', 'b@x'])).toEqual(['a@x', 'b@x'])
+  it('answers every spelling of the one address it is given', () => {
+    expect(toEmailList(NFC)).toEqual([NFC])
+    expect(toEmailList(NFD)).toEqual([NFC, NFD])
   })
 
-  it('refuses an empty list, which would be no condition at all', () => {
-    expect(() => toEmailList([])).toThrow(expect.objectContaining({ code: 'AUTH_INVALID_PARAMETERS' }))
+  it("answers [''] for a blank address, so the lookup matches nothing instead of no condition at all", () => {
+    expect(toEmailList('  ')).toEqual([''])
   })
 })
 
@@ -56,8 +56,12 @@ describe('withNormalisedEmail', () => {
     expect(withNormalisedEmail({ profile: { email: NFD } }).profile.email).toBe(NFC)
   })
 
-  it('leaves case alone, because the index folds that and the local part is the holder to spell', () => {
-    expect(withNormalisedEmail({ profile: { email: 'Ada@x.com' } }).profile.email).toBe('Ada@x.com')
+  it('folds case, because the index cannot be relied on to', () => {
+    // RFC 5321 does leave the local part to the holder to spell, and this package has never taken that
+    // reading: `toEmailList` looks up in lowercase and all three dialects index `lower(...)`. What was new
+    // is that sqlite's `lower()` is ASCII-only, so leaving case to the index there meant nothing folded it
+    // at all and the row became unfindable. Fold on the way in and every dialect is holding one spelling.
+    expect(withNormalisedEmail({ profile: { email: 'Ada@x.com' } }).profile.email).toBe('ada@x.com')
   })
 
   it('hands back the same object when there is nothing to change', () => {
