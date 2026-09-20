@@ -6,7 +6,6 @@ import type { Events } from './events.types'
 /** Exhaustive by construction: a newly audited event fails to compile until it's listed. */
 const AUDITED_EVENTS: Record<Events.AuditedEvent, true> = {
   'identity.linked': true,
-  'identity.merged': true,
   'identity.unlinked': true,
   lockout: true,
   'mfa.enrolled': true,
@@ -28,21 +27,13 @@ const _ambient = new AsyncLocalStorage<Events.Envelope>()
 /**
  * Run `fn` with `envelope` on every audited event emitted inside it. Adapters wrap
  * request handling in this once the session is resolved:
- *
- * ```ts
- * const resolved = await auth.resolveSession(req)
- * return runWithAuditEnvelope(auditEnvelopeFor(resolved?.session), () => handle(req))
- * ```
- *
- * It has to be explicit, because doing it inside `resolveSession` would need
- * `AsyncLocalStorage.enterWith`, which segfaults on Bun 1.3.14-canary. `run()` is fine.
  */
 export function runWithAuditEnvelope<T>(envelope: Events.Envelope | undefined, fn: () => Promise<T>): Promise<T> {
   if (envelope === undefined) return fn()
   return _ambient.run(envelope, fn)
 }
 
-/** The envelope in effect for the current async context, if any. */
+/** The audit envelope in scope, or `undefined` outside `runWithAuditEnvelope`. */
 export function currentAuditEnvelope(): Events.Envelope | undefined {
   return _ambient.getStore()
 }
@@ -76,9 +67,6 @@ function stamp<K extends Events.EventName>(event: K, payload: Events.EventMap[K]
  * Wrap a bus so audited events carry their envelope. It lives here because most emitters
  * have no session in scope (`IdentitiesImpl` emits `signup.completed` without one), and
  * threading a session into every facet to satisfy audit would be worse.
- *
- * `listenerCount` must survive the wrap: `AuthEngine.strict()` duck-types it and silently
- * skips its `lockout` gate when it's missing.
  */
 export function withAuditStamping(bus: Events.IBus): Events.IBus {
   const wrapper: Events.IBus & { listenerCount?: (event: Events.EventName) => number } = {

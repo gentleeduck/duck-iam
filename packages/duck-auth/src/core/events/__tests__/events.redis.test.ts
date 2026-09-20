@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeRedis } from '~/core/drivers/redis-like'
+import { InMemoryEvents } from '../events.memory'
 import { RedisEvents } from '../events.redis'
 
 describe('RedisEvents', () => {
@@ -115,5 +116,151 @@ describe('RedisEvents', () => {
       await new Promise((r) => setTimeout(r, 10))
       expect(handler).not.toHaveBeenCalled()
     })
+  })
+})
+
+/**
+ * `on()` subscribes to the channel once per event, guarded by `_subscriptions.has(event)` - but the
+ * map is only written inside the subscribe promise's `.then()`. Two `on()` calls for one event in the
+ * same tick both read an empty map and both subscribe, which is the ordinary case: handlers for one
+ * event are registered together at boot.
+ */
+describe('RedisEvents subscribes to each channel once', () => {
+  it('two handlers for one event do not open two subscriptions', async () => {
+    const redis = new FakeRedis()
+    const bus = new RedisEvents({ prefix: 'test:events', redis })
+    const subscribeSpy = vi.spyOn(redis, 'subscribe')
+
+    bus.on('lockout', vi.fn())
+    bus.on('lockout', vi.fn())
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(subscribeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('a remote emit reaches each local handler exactly once', async () => {
+    const redis = new FakeRedis()
+    const publisher = new RedisEvents({ prefix: 'test:events', redis })
+    const subscriber = new RedisEvents({ prefix: 'test:events', redis })
+    const first = vi.fn()
+    const second = vi.fn()
+
+    subscriber.on('lockout', first)
+    subscriber.on('lockout', second)
+    await new Promise((r) => setTimeout(r, 10))
+
+    await publisher.emit('lockout', { identityId: 'u1', until: 0 })
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).toHaveBeenCalledTimes(1)
+  })
+
+  it('unsubscribing every handler really closes the channel', async () => {
+    const redis = new FakeRedis()
+    const publisher = new RedisEvents({ prefix: 'test:events', redis })
+    const subscriber = new RedisEvents({ prefix: 'test:events', redis })
+    const handler = vi.fn()
+
+    const offFirst = subscriber.on('lockout', vi.fn())
+    const offSecond = subscriber.on('lockout', handler)
+    await new Promise((r) => setTimeout(r, 10))
+    offFirst()
+    offSecond()
+    await new Promise((r) => setTimeout(r, 10))
+
+    await publisher.emit('lockout', { identityId: 'u1', until: 0 })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handler).not.toHaveBeenCalled()
+    // `publish` answers the number of subscribers on the channel, which is the only public view of
+    // it. The second subscribe's unsubscribe overwrote the first in the map, leaving the first
+    // unreachable and open for the life of the process.
+    expect(await redis.publish('test:events:lockout', '{}')).toBe(0)
+  })
+})
+
+/**
+ * `InMemoryEvents.emit` snapshots its handler set before dispatching, with a comment saying why: a
+ * handler that subscribes or unsubscribes mid-emit must not reorder the dispatch or extend it.
+ * `RedisEvents._dispatchLocal` iterates the live `Set`, and a `for...of` over a Set visits entries
+ * added after the cursor - so the two implementations of one bus contract disagree about what an
+ * emit is.
+ */
+describe('RedisEvents dispatches the handlers that were registered when the emit began', () => {
+  it('a handler subscribed during dispatch does not receive the in-flight event', async () => {
+    const redis = new FakeRedis()
+    const bus = new RedisEvents({ prefix: 'test:events', redis })
+    const late = vi.fn()
+    bus.on('lockout', () => {
+      bus.on('lockout', late)
+    })
+
+    await bus.emit('lockout', { identityId: 'u1', until: 0 })
+
+    expect(late).not.toHaveBeenCalled()
+  })
+
+  it('a handler unsubscribed by a sibling mid-emit still receives that event', async () => {
+    const redis = new FakeRedis()
+    const bus = new RedisEvents({ prefix: 'test:events', redis })
+    const second = vi.fn()
+    let offSecond: () => void = () => undefined
+    bus.on('lockout', () => {
+      offSecond()
+    })
+    offSecond = bus.on('lockout', second)
+
+    await bus.emit('lockout', { identityId: 'u1', until: 0 })
+
+    expect(second).toHaveBeenCalledTimes(1)
+  })
+
+  it('matches InMemoryEvents, which is the same contract', async () => {
+    const memory = new InMemoryEvents()
+    const late = vi.fn()
+    memory.on('lockout', () => {
+      memory.on('lockout', late)
+    })
+    await memory.emit('lockout', { identityId: 'u1', until: 0 })
+
+    expect(late).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The class docstring promises every `on()` subscriber across the fleet receives each emit. A rejected
+ * `publish` was answered with `() => 0`, so the fan-out could be down indefinitely and `emit` still
+ * resolved as success with nothing anywhere recording it — the one failure in this file that said
+ * nothing, where a failed subscribe retries and a throwing listener is logged.
+ */
+describe('RedisEvents reports a fan-out it could not perform', () => {
+  const refusing = () => {
+    const redis = new FakeRedis()
+    Object.assign(redis, {
+      publish: async () => {
+        throw new Error('NOPUBSUB')
+      },
+    })
+    return new RedisEvents({ prefix: 'test:events', redis })
+  }
+
+  it('names the event it could not publish', async () => {
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await refusing().emit('session.created', { identity: null, session: { id: 's1' } as never })
+    expect(stderr).toHaveBeenCalledOnce()
+    expect(String(stderr.mock.calls[0]?.[0])).toContain('session.created')
+    stderr.mockRestore()
+  })
+
+  it('still resolves and still runs local handlers, since those already fired', async () => {
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const bus = refusing()
+    const handler = vi.fn()
+    bus.on('session.created', handler)
+    await expect(
+      bus.emit('session.created', { identity: null, session: { id: 's1' } as never }),
+    ).resolves.toBeUndefined()
+    expect(handler).toHaveBeenCalledOnce()
+    stderr.mockRestore()
   })
 })
