@@ -208,6 +208,65 @@ export const VALID_SCOPE_MODES = ['flat', 'hierarchical'] as const
 export const VALID_SCOPE_COMBINES = ['union', 'override'] as const
 
 /**
+ * Whether any concrete action/resource string could match both patterns. Patterns are `*`, a literal, or a
+ * `prefix:*` / `prefix.*` form, so two of them intersect unless their fixed parts diverge.
+ */
+function patternsCanIntersect(a: string, b: string): boolean {
+  if (a === '*' || b === '*') return true
+  const aPrefix = a.endsWith(':*') || a.endsWith('.*') ? a.slice(0, -1) : null
+  const bPrefix = b.endsWith(':*') || b.endsWith('.*') ? b.slice(0, -1) : null
+  if (aPrefix === null && bPrefix === null) return a === b
+  if (aPrefix === null) return bPrefix !== null && a.startsWith(bPrefix)
+  if (bPrefix === null) return b.startsWith(aPrefix)
+  return aPrefix.startsWith(bPrefix) || bPrefix.startsWith(aPrefix)
+}
+
+/** True when some rule in `policy` names a pattern that could match a request the targets admit. */
+function someRuleReachable(policy: AccessControl.IPolicy, dimension: 'actions' | 'resources'): boolean {
+  const targeted = policy.targets?.[dimension]
+  if (!Array.isArray(targeted) || targeted.length === 0) return true
+  for (const rule of policy.rules) {
+    const patterns = rule?.[dimension]
+    if (!Array.isArray(patterns)) continue
+    for (const pattern of patterns) {
+      if (typeof pattern !== 'string') continue
+      if (targeted.some((t) => typeof t === 'string' && patternsCanIntersect(t, pattern))) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Reports a policy whose `targets.actions` or `targets.resources` admits no request any of its own rules could
+ * match, once per policy and dimension. Like an unreachable role target it is a policy that never fires, but it
+ * needs no catalogue to detect: the rules are the vocabulary.
+ */
+export function reportDeadPolicyTargets(
+  policies: readonly AccessControl.IPolicy[],
+  seen: Set<string>,
+  report: (err: Error, policyId: string) => void,
+): void {
+  for (const policy of policies) {
+    if (!Array.isArray(policy.rules) || policy.rules.length === 0) continue
+    for (const dimension of ['actions', 'resources'] as const) {
+      if (someRuleReachable(policy, dimension)) continue
+      const key = `${policy.id}\u0000targets.${dimension}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      report(
+        new Error(
+          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} has targets.${dimension} ` +
+            `${JSON.stringify(policy.targets?.[dimension])}, which no rule in the policy can match. ` +
+            'The policy is NotApplicable for every request - a deny written this way never fires. ' +
+            `Check for a typo, or widen targets.${dimension}.`,
+        ),
+        policy.id,
+      )
+    }
+  }
+}
+
+/**
  * Reports each `targets.roles` entry naming no stored role, once per pair. `policyApplies` matches that list by
  * equality, so the policy applies to nobody: a deny written that way never fires and nothing else reports it.
  */

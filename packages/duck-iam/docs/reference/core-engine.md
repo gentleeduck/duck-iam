@@ -483,6 +483,7 @@ configuration mistake throws.
 | `permissions()` one check throws | that key `false`, batch continues | `onError`, `onMetrics` |
 | A policy throws during evaluation | Indeterminate: deny if the **policy** carries any deny rule, else the `defaultEffect` vote | `onPolicyError` |
 | A policy's `targets.roles` names a role nothing defines | **not a deny** — the policy is NotApplicable for every request, which retires it | `onPolicyError` once per pair, else one `console.warn` |
+| A policy's `targets.actions` / `targets.resources` match no rule the policy holds | **not a deny** — the targets admit only requests no rule answers, which retires it | `onPolicyError` once per policy and dimension, else one `console.warn` |
 | A subject holds a role nothing defines | **not a deny** — the id stays an effective role, but its `inherits` are unwalkable, so a deny targeting a role it conferred retires | `onPolicyError` once per role id, else one `console.warn` |
 | The compiled table cannot be built (malformed policy) | `false` for every request until fixed | `onPolicyError` for `IamPolicyCompileError`; one `console.error` otherwise |
 | Development table/interpreter disagreement | `false` + `console.error` | `onError` |
@@ -1040,7 +1041,7 @@ interface IHooks<TAction, TResource, TScope, TRole> {
 | `afterEvaluate` | after every verdict, both modes, evaluated or not | no |
 | `onDeny` | after `afterEvaluate`, only when denied, both modes | no |
 | `onError` | on the fail-closed error paths | no |
-| `onPolicyError` | when one policy throws, a policy fails to compile, a policy targets a role nothing defines, or a subject holds a role nothing defines | no |
+| `onPolicyError` | when one policy throws, a policy fails to compile, a policy's targets make it unreachable, or a subject holds a role nothing defines | no |
 | `onMetrics` | once per verdict (per check in a batch, unless `telemetry: false`) | no |
 | `onMutation` | after every `engine.admin` write lands and caches are invalidated | no |
 
@@ -1090,8 +1091,8 @@ The offending policy stays **applicable** and votes Indeterminate. It is not
 treated as NotApplicable: "skipping a policy that could have denied is what
 turns a throw into an allow under `combine: 'and'`."
 
-The hook carries two advisory reports as well, and they are the only ones that
-are not about a throw. `targets.roles` is matched by equality against the request's
+The hook carries three advisory reports as well, and they are the only ones
+that are not about a throw. `targets.roles` is matched by equality against the request's
 effective roles and against nothing else — there is no catalogue lookup — so an
 entry naming a role no stored row defines matches no subject and the whole
 policy is skipped on every request. A typo does it; so does deleting the role
@@ -1105,6 +1106,20 @@ instead. Both evaluator paths carry the check — the compiled-table build and
 is de-duplicated per `(policyId, roleId)` for the engine's lifetime, which is
 what keeps development mode (where both paths run) from reporting twice. With no
 `onPolicyError` installed it is one `console.warn`. It changes no verdict.
+
+The same silence has a sibling one dimension over. `targets.actions` and
+`targets.resources` are matched against the request through `matchesAction` /
+`matchesResource`, so a misspelled entry admits nothing and the policy is
+skipped exactly as an unreachable role target is. There is no catalogue to check
+those against — the engine is never handed the declared vocabulary, which lives
+on `createIam` and reaches only its `validatePolicy` — but none is needed, since
+a policy's own rules are the vocabulary that matters. If no pattern in any rule
+could match a request the targets admit, the policy cannot fire for any input,
+whatever the catalogue says. That is what is reported, once per policy and
+dimension. Pattern intersection follows the matchers: `*` intersects anything, a
+prefix form keeps its separator, so `post:*` and `post.*` are disjoint the same
+way `matchesResource` treats them. A policy with one live rule among dead ones
+is reachable and stays quiet.
 
 The second advisory is the same silence approached from the grant side.
 `resolveEffectiveRoles` keeps a directly assigned id that no stored role
