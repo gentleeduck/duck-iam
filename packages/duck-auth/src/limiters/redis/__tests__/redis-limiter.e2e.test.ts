@@ -1,15 +1,4 @@
-/**
- * E2E: RedisLimiter against a REAL Redis.
- *
- * A rate limiter is only worth anything if the counter is atomic across processes
- * and the window actually expires. `FakeRedis` fakes both: its `incr` is a JS
- * `Map` write that cannot race, and its TTL is a timestamp checked on read rather
- * than eviction by the server. Neither property survives being faked, so both are
- * asserted here or nowhere.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
- */
+/** E2E: RedisLimiter against a REAL Redis. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'

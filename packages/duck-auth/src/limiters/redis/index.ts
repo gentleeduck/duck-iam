@@ -3,10 +3,13 @@
 export type { Limiter } from '../limiters.types'
 
 import type { RedisLike } from '~/core/drivers/redis-like'
+import { AuthError } from '~/core/errors'
 import type { Limiter } from '../limiters.types'
 
+/** Past this `now + windowMs` stops being a representable `Date`, and a window this long is a ban. */
+const WINDOW_MAX_MS = 8_640_000_000_000
+
 export namespace RedisLimiter {
-  /** Cfg knobs for {@link RedisLimiter}. */
   export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
     /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: TRedis
@@ -20,10 +23,15 @@ export namespace RedisLimiter {
 }
 
 /**
- * Redis-backed token bucket. Uses fixed-window counter semantics via
- * `INCR + EXPIRE` on first hit per window - production-grade for single
- * Redis primary; for clustered Redis with cross-shard accuracy use a
- * Lua script (see `evalScript` below).
+ * Fixed-window counter over `INCR + EXPIRE` on the first hit of each window, which is accurate
+ * against a single Redis primary. Clustered Redis needs a Lua script for cross-shard accuracy.
+ *
+ * WARN: `resetAt` is `now + windowMs` on every call, not the key's remaining TTL, so a refusal fourteen
+ * minutes into a fifteen-minute window reports a full window left and the `Retry-After` built from it
+ * over-states the wait. The budget itself resets correctly - that is the store's TTL - so this misleads
+ * a client rather than locking it out, and `MemoryLimiter` reports the true window end. Reading
+ * the real one means a `pttl` on `RedisLike.Client`, which every implementer would have to grow, so it
+ * is left to a deliberate change rather than added here.
  */
 export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> implements Limiter.Me {
   private readonly _redis: TRedis
@@ -36,6 +44,22 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
     this._max = cfg.max ?? 10
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000
     this._prefix = cfg.prefix ?? 'auth:rl'
+    // SECURITY: `consume` bounds the `weight` a caller passes and the `key` it names, and these two -
+    // the numbers that decide whether it limits at all - arrived unchecked. `max` non-finite makes
+    // `count > NaN` false on every call, so the limiter answers `ok` to an unbounded number of attempts
+    // and the brute-force defence `strict()` insists on is simply off. A `windowMs` that is not a
+    // positive number never elapses, so the first budget spent is the last: `resetAt` reads
+    // `Invalid Date` and the key is locked out until the process restarts.
+    if (!Number.isFinite(this._max) || this._max < 1 || this._max > Number.MAX_SAFE_INTEGER) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `redisLimiter: max must be a number between 1 and ${Number.MAX_SAFE_INTEGER} (got ${this._max})`,
+      })
+    }
+    if (!Number.isFinite(this._windowMs) || this._windowMs < 1 || this._windowMs > WINDOW_MAX_MS) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `redisLimiter: windowMs must be a number between 1 and ${WINDOW_MAX_MS} (got ${this._windowMs})`,
+      })
+    }
   }
 
   /** Compose the bucket key. */
@@ -44,12 +68,11 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
   }
 
   /**
-   * Consume `weight` units. One INCRBY establishes the new count, then EXPIRE sets the TTL on the
-   * first hit of the window. Returns the standard `Limiter.IResult` shape.
+   * One INCRBY establishes the new count, then EXPIRE sets the TTL on the first hit of the window.
    *
-   * This used to loop `weight` times issuing one INCR each, so `consume(key, 1_000_000)` sent a
-   * million sequential commands - a caller-controlled flood - and the count was only atomic for a
-   * weight of one. A client with no INCRBY still loops, but stops as soon as the budget is gone.
+   * PERF: one command whatever the weight. Looping `weight` INCRs instead makes `consume(key, 1e6)`
+   * a caller-controlled flood of a million sequential commands, and leaves the count atomic only
+   * for a weight of one. A client with no INCRBY still loops, but stops once the budget is gone.
    */
   async consume(key: string, weight = 1): Promise<Limiter.Result> {
     const now0 = Date.now()
@@ -83,7 +106,7 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
   }
 }
 
-/** Factory around {@link RedisLimiter} for functional-style config. */
+/** Constructs a {@link RedisLimiter}. */
 export function redisLimiter<TRedis extends RedisLike.Client = RedisLike.Client>(
   cfg: RedisLimiter.Cfg<TRedis>,
 ): RedisLimiter<TRedis> {
