@@ -355,6 +355,8 @@ export class IamPrismaAdapter<
     toScope?: TScope,
     actor?: string,
   ): Promise<boolean> {
+    iamAssertAssignableScope('prisma', fromScope, 'lookup')
+    iamAssertAssignableScope('prisma', toScope)
     // Confirm the source row exists first, or a stale `fromScope` would delete the grant being moved onto.
     const existing = await this._prisma.accessAssignment.findMany({
       where: { subjectId, roleId, scope: fromScope ?? null },

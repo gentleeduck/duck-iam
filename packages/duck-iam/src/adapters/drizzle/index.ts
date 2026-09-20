@@ -700,6 +700,8 @@ export class IamDrizzleAdapter<
     toScope: TScope | undefined,
     actor?: string,
   ): Promise<boolean> {
+    iamAssertAssignableScope('drizzle', fromScope, 'lookup')
+    iamAssertAssignableScope('drizzle', toScope)
     if (!this._isNull) return false
     const table = this._t.assignments
     const isNull = this._isNull

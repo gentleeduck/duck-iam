@@ -195,6 +195,8 @@ export class IamMemoryAdapter<
    * @returns `false` when no `(roleId, fromScope)` assignment exists for this subject.
    */
   async updateAssignmentScope(id: string, roleId: TRole, fromScope?: TScope, toScope?: TScope): Promise<boolean> {
+    iamAssertAssignableScope('memory', fromScope, 'lookup')
+    iamAssertAssignableScope('memory', toScope)
     const entries = this._assignments.get(id)
     const entry = entries?.find((e) => e.role === roleId && e.scope === fromScope)
     if (!entry) return false

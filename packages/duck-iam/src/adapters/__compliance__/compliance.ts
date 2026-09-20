@@ -313,6 +313,32 @@ export function runAdapterCompliance(
         await expect(a.revokeRole('user-1', 'editor', '')).rejects.toThrow(/empty string/)
       })
 
+      // The third method that writes a scope. It used to take the two values the other two refuse, and answer
+      // `true` — a grant the operator believes moved, stored under a scope no request can name.
+      it('updateAssignmentScope refuses the scopes assignRole refuses, and writes nothing', async () => {
+        if (!supports.updateAssignmentScope) return
+        for (const bad of ['', '*']) {
+          const a = await seeded(factory)
+          await a.assignRole('user-1', 'editor', 'org-1')
+          const move = a.updateAssignmentScope
+          if (!move) return
+          await expect(move.call(a, 'user-1', 'editor', 'org-1', bad)).rejects.toThrow(
+            bad === '' ? /empty string/ : /must not be "\*"/,
+          )
+          expect(await requireScoped(a)('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
+        }
+      })
+
+      // `'*'` is accepted as a `from`, so a row written before the guard existed can still be moved off it.
+      it('updateAssignmentScope refuses an empty from-scope but accepts a legacy "*" one', async () => {
+        if (!supports.updateAssignmentScope) return
+        const a = await seeded(factory)
+        const move = a.updateAssignmentScope
+        if (!move) return
+        await expect(move.call(a, 'user-1', 'editor', '', 'org-1')).rejects.toThrow(/empty string/)
+        await expect(move.call(a, 'user-1', 'editor', '*', 'org-1')).resolves.toBe(false)
+      })
+
       it('an empty-string id is not a readable row', async () => {
         const a = await factory()
         expect(await a.getPolicy('')).toBeNull()
