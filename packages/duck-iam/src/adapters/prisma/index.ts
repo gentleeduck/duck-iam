@@ -232,7 +232,8 @@ export class IamPrismaAdapter<
 
   /**
    * Parses one role row, or warns naming it and returns `null`; roles are skipped where policies are refused.
-   * The warning matters: subjects keep holding a skipped role's id while it grants nothing.
+   * The warning matters: a subject keeps holding a skipped role's id, which still matches a rule naming it while
+   * the roles it inherited are gone - the engine reports that side separately.
    */
   private _readRole(row: IamPrisma.IRoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
     const candidate = toRole(row)

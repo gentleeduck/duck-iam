@@ -71,7 +71,8 @@ export function iamNormalizePolicy<TAction extends string, TResource extends str
 
 /**
  * The error every adapter raises for a policy row it cannot read; the row is never skipped.
- * SECURITY: fails closed; unlike an allow-only role row, a dropped policy may be the deny. Reads fail until repaired.
+ * SECURITY: fails closed; a dropped policy may be the deny. A dropped role row is reported instead, since the
+ * grant that still names it is reported in its own right (`subject-holds-undefined-role.test.ts`).
  */
 export function iamUnreadablePolicy(adapter: string, id: string, detail: string): Error {
   return new Error(

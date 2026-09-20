@@ -385,7 +385,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
       await reset()
       await pool.query(`INSERT INTO iam_policies (id, name, rules) VALUES ('p1','Broken','null'::jsonb)`)
       // SECURITY: the row may have been a deny, and `null` would look like a deleted policy.
-      // Roles are allow-only, so a corrupt role can be dropped; a policy cannot.
+      // A corrupt role can be dropped because the engine reports the grants left naming it; a policy cannot.
       await expect(adapter.getPolicy('p1')).rejects.toThrow(/cannot be read/)
       await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
     })

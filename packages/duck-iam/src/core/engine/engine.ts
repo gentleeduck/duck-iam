@@ -385,10 +385,34 @@ export class IamEngine<
       maxPolicies: this._maxPolicies,
       maxRoles: this._maxRoles,
       maxConcurrentSubjectLoads: this._maxConcurrentSubjectLoads,
+      reportUndefinedAssignedRole: (subjectId, roleId) => this._reportUndefinedAssignedRole(subjectId, roleId),
       reportUnreachableRoleTargets: (policies, roles) => this._reportUnreachableRoleTargets(policies, roles),
       scopeMode: this._scopeMode,
       withTimeout: (fn, label) => this._withTimeout(fn, label),
     }
+  }
+
+  /** Keyed by role id, not by subject: the absent definition is the thing to repair, and every holder shares it. */
+  private _reportedUndefinedRoles = new Set<string>()
+
+  /**
+   * @internal Reports a grant of a role nothing defines. The id still counts as an effective role, so an ABAC rule
+   * naming it still matches; what is gone is everything it inherits, and with it any deny targeting those.
+   */
+  private _reportUndefinedAssignedRole(subjectId: string, roleId: string): void {
+    if (this._reportedUndefinedRoles.has(roleId)) return
+    this._reportedUndefinedRoles.add(roleId)
+    const err = new Error(
+      `[@gentleduck/iam:engine] subject ${JSON.stringify(subjectId)} holds role ${JSON.stringify(roleId)}, which no ` +
+        'stored role defines. The id still matches a rule naming it, but its `inherits` cannot be walked, so every ' +
+        'role it confers is absent - including one a deny targets. Restore the role or revoke the grant.',
+    )
+    const hook = this._hooks.onPolicyError
+    // Advisory: it decides nothing, so a throwing hook must not become the verdict.
+    try {
+      if (hook) hook(err, roleId)
+      else console.warn(err.message)
+    } catch {}
   }
 
   /** Pairs already reported, so the warning is one line per bad target, not one per cache fill. */

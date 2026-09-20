@@ -30,6 +30,12 @@ export interface IIamLoaderDeps<
   /** `IConfig.scopeMode`; decides how `rolesToPolicy` gates a role-declared scope. */
   scopeMode: 'flat' | 'hierarchical'
   /**
+   * Reports a role a subject holds that no stored role defines. The id stays an effective role, but its
+   * `inherits` edges are gone, so a deny targeting a role it conferred stops applying with nothing to show it.
+   */
+  reportUndefinedAssignedRole: (subjectId: string, roleId: string) => void
+
+  /**
    * Reports a policy whose `targets.roles` names no stored role. Called from here and from the compiled-table
    * build, since either path can be the only one that runs.
    */
@@ -153,7 +159,9 @@ export async function resolveSubject<
               })
           : Promise.resolve(null),
       ])
-      const roles = resolveEffectiveRoles(assignedRoles, allRoles)
+      const roles = resolveEffectiveRoles(assignedRoles, allRoles, (roleId) =>
+        deps.reportUndefinedAssignedRole(subjectId, roleId),
+      )
       const scopedRolesFn = deps.adapter.getSubjectScopedRoles
       const assignedScopedRoles = scopedRolesFn
         ? await deps.withTimeout((opts) => scopedRolesFn.call(deps.adapter, subjectId, opts), 'getSubjectScopedRoles')
@@ -162,8 +170,9 @@ export async function resolveSubject<
       // `rolesToPolicy` gates them), else the row's; the directly assigned role keeps `sr.scope`.
       const rolesById = new Map(allRoles.map((r) => [r.id, r]))
       const scopedRoles = assignedScopedRoles?.flatMap((sr) =>
-        resolveEffectiveRoles([sr.role], allRoles).map((role) =>
-          role === sr.role ? { ...sr, role } : { ...sr, role, scope: rolesById.get(role)?.scope ?? sr.scope },
+        resolveEffectiveRoles([sr.role], allRoles, (roleId) => deps.reportUndefinedAssignedRole(subjectId, roleId)).map(
+          (role) =>
+            role === sr.role ? { ...sr, role } : { ...sr, role, scope: rolesById.get(role)?.scope ?? sr.scope },
         ),
       )
       // Passed to the cache write below, not returned, so waiters still get a plain `Promise<ISubject>`.
