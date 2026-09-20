@@ -1,17 +1,14 @@
-// Runtime surface stays narrow - prefer subpath imports for anything not here.
+// The runtime surface stays narrow; anything not here is a subpath import.
 
 /**
- * The domain types, re-exported so the root can name what the root can return.
- *
- * Exporting `AuthEngine` without them meant you could call a method but not
- * write down the type of what it handed back without a second import from
- * `@gentleduck/auth/core`. These are types only - they cost nothing at runtime
- * and the narrow runtime surface above is unchanged.
+ * The domain types, re-exported so the root can name what the root returns. Without them a caller
+ * can invoke a method but cannot write down the type of what it hands back without a second import
+ * from `@gentleduck/auth/core`. Types only: they cost nothing at runtime.
  */
 export type {
   ActorContext,
   Anomaly,
-  Batch,
+  Answer,
   Bound,
   Compliance,
   Credential,
@@ -33,6 +30,7 @@ export type {
   Transport,
 } from './core'
 export { actorId, currentActor, resolveActor, setDefaultActorResolver, withActor } from './core/actor'
+export { ABSENT, answer, orNull } from './core/answer'
 export { AuthEngine, authEngine } from './core/engine'
 export { AuthError, rethrowAuthError, throwAuthError } from './core/errors'
 export {

@@ -1,14 +1,4 @@
-/**
- * Drop keys explicitly set to `undefined` before a patch is merged or turned
- * into a `SET` clause.
- *
- * `{ ...current, ...patch }` treats `{ profile: undefined }` as "write
- * undefined over profile", which is not what a caller spreading an optional
- * field ever means - `{ profile: maybeProfile }` with nothing to say should
- * leave the column alone, not clear it. Every store does this, so the rule
- * lives in one place: three copies of a semantics this quiet is how the three
- * adapters drift apart.
- */
+/** Drops keys explicitly set to `undefined` before a patch is merged or turned into a `SET` clause. */
 export function stripUndefined<T extends object>(obj: T): Partial<T> {
   const out: Partial<T> = {}
   for (const key in obj) {
@@ -17,15 +7,7 @@ export function stripUndefined<T extends object>(obj: T): Partial<T> {
   return out
 }
 
-/**
- * The same patch, or `undefined` when it names nothing a store can write.
- *
- * A patch that says nothing must move nothing, and the column it would have
- * touched is the tell: `metadata` is NULL until something is put in it, and
- * `coalesce(metadata, '{}') || '{}'` quietly makes it `{}` instead. Two
- * dialects already skipped the write and two did not, which is a `null` a
- * caller branches on turning into an object on half the adapters.
- */
+/** The same patch, or `undefined` when it names nothing a store can write. */
 export function patchOrNone<T extends object>(obj: T): Partial<T> | undefined {
   const kept = stripUndefined(obj)
   return Object.keys(kept).length === 0 ? undefined : kept
