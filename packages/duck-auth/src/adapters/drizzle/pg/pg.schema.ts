@@ -14,7 +14,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 import { fromJsonColumn, parseActingAs, parseFactors } from '~/adapters/drizzle/drizzle.stored-json'
-import { AUTH_CREDENTIAL_KINDS, type Credential } from '~/core/credentials/credentials.types'
+import { AUTH_CREDENTIAL_KINDS } from '~/core/credentials/credentials.constants'
+import type { Credential } from '~/core/credentials/credentials.types'
 import { authUuidV7 } from '~/core/crypto'
 import type { Identities } from '~/core/identities/identities.types'
 import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
@@ -31,6 +32,7 @@ const actingAsColumn = customType<{ data: Sessions.ActingAs | null; driverData: 
   toDriver: (value) => JSON.stringify(value),
 })
 
+/** The identity row. Every other table cascades from it. */
 export const authIdentities = pgTable(
   'auth_identities',
   {
@@ -48,7 +50,7 @@ export const authIdentities = pgTable(
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     deletedBy: text('deleted_by'),
   },
-  () => [
+  (t) => [
     // A profile names an account, so both keys must be a string that says something. WARN: coalesced and
     // type-checked, a CHECK passes on NULL, and MySQL unquotes a JSON null to the text 'null'.
     check(
@@ -60,21 +62,31 @@ export const authIdentities = pgTable(
     uniqueIndex('uq_auth_identities_email').on(sql`((lower(profile->>'email')))`),
     uniqueIndex('uq_auth_identities_username').on(sql`((lower(profile->>'username')))`),
     check('chk_auth_identities_version', sql`version >= 1`),
+    // Bounded to match mysql's norm columns, so the row is refused alike on all three.
+    check('chk_auth_identities_email_length', sql`length(profile->>'email') <= 320`),
+    check('chk_auth_identities_username_length', sql`length(profile->>'username') <= 191`),
+    // PERF: only the soft-deleted rows are ever swept, so the live ones stay out of the index.
+    index('auth_identities_deleted_at').on(t.deletedAt).where(sql`deleted_at is not null`),
   ],
 )
 
+/** One row per external provider linked to an identity. */
 export const authIdentityProviders = pgTable(
   'auth_identity_providers',
   {
     id: uuid('id').primaryKey().$defaultFn(authUuidV7),
     identityId: uuid('identity_id').notNull(),
     /** Which party issued the login, namespaced so two of them cannot collide on a shared sub: this is
-     *  ours - 'oauth:authGoogle', 'saml:acme' - where the sub below is theirs. */
+     *  ours, such as 'oauth:authGoogle' or 'saml:acme', where the sub below is theirs. */
     providerId: text('provider_id').notNull(),
     /** The issuing party's own stable subject id for the account. NOT NULL: a row without one answers no
      *  login, and a credential kept here is a `credentials` row, never one of these. */
     providerSub: text('provider_sub').notNull(),
     addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Who attached the login, from the ambient actor. A provider link is a new way to sign in as this
+     *  identity, so an admin attaching one and the account holder attaching their own must not read alike.
+     *  Null on rows written before the column existed. */
+    addedBy: text('added_by'),
   },
   (t) => [
     // SECURITY: one sub, one row. A hidden row keeps its logins until it is erased, as it keeps its address.
@@ -94,6 +106,7 @@ export const authIdentityProviders = pgTable(
   ],
 )
 
+/** One row per credential: password, passkey, TOTP, api-key and every recovery purpose. */
 export const authCredentials = pgTable(
   'auth_credentials',
   {
@@ -122,10 +135,12 @@ export const authCredentials = pgTable(
     index('auth_credentials_tenant').on(t.tenantId),
     // An empty tenant is a scope of its own that matches no global row, so it is refused outright.
     check('chk_auth_credentials_tenant_not_blank', sql`tenant_id IS NULL OR tenant_id <> ''`),
-    // PERF: `findByProviderSub` reads these two out of `metadata`, so without this every social sign-in scans the table.
-    index('auth_credentials_oauth')
-      .on(sql`((metadata->>'provider'))`, sql`((metadata->>'sub'))`)
-      .where(sql`kind = 'oauth'`),
+    // `PasswordsImpl.set` keeps one row by hand; this turns a dropped delete into a write error. Split in two
+    // because a NULL tenant is distinct from every other NULL, so one index cannot bind both scopes.
+    uniqueIndex('uq_auth_credentials_password').on(t.identityId).where(sql`kind = 'password' and tenant_id is null`),
+    uniqueIndex('uq_auth_credentials_password_tenant')
+      .on(t.identityId, t.tenantId)
+      .where(sql`kind = 'password' and tenant_id is not null`),
     index('auth_credentials_expires_at').on(t.expiresAt).where(sql`expires_at IS NOT NULL`),
     check('chk_auth_credentials_kind', sql.raw(`kind IN (${AUTH_CREDENTIAL_KINDS.map((k) => `'${k}'`).join(', ')})`)),
     check('chk_auth_credentials_version', sql`version >= 1`),
@@ -141,6 +156,7 @@ export const authCredentials = pgTable(
   ],
 )
 
+/** The session row, keyed by the hash of the session id rather than the id itself. */
 export const authSessions = pgTable(
   'auth_sessions',
   {
@@ -197,14 +213,17 @@ export const authIdentitiesRelations = relations(authIdentities, ({ many }) => (
   sessions: many(authSessions),
 }))
 
+/** Drizzle relations for the query API; the foreign keys themselves live on the tables. */
 export const authIdentityProvidersRelations = relations(authIdentityProviders, ({ one }) => ({
   identity: one(authIdentities, { fields: [authIdentityProviders.identityId], references: [authIdentities.id] }),
 }))
 
+/** Drizzle relations for the query API; the foreign keys themselves live on the tables. */
 export const authCredentialsRelations = relations(authCredentials, ({ one }) => ({
   identity: one(authIdentities, { fields: [authCredentials.identityId], references: [authIdentities.id] }),
 }))
 
+/** Drizzle relations for the query API; the foreign keys themselves live on the tables. */
 export const authSessionsRelations = relations(authSessions, ({ one }) => ({
   identity: one(authIdentities, { fields: [authSessions.identityId], references: [authIdentities.id] }),
 }))

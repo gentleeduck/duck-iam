@@ -1,21 +1,4 @@
-/**
- * Store-contract compliance matrix for the Drizzle SQLite adapter.
- *
- * Runs the shared `run*StoreCompliance` suites against a live in-memory
- * SQLite DB, proving the drizzle sqlite adapter behaves identically
- * to every other adapter (memory, redis, ...).
- *
- * Runs on both runtimes: bun:sqlite under Bun, better-sqlite3 under Node, so
- * `bun run test` verifies this adapter rather than skipping it.
- *
- * The DDL is the declared schema, constraints and all. It used to be a
- * hand-written copy that omitted them deliberately - "exercise store behaviour,
- * not dialect-level column checks" - but the effect was that the suite ran
- * against a schema no deployment has: no foreign keys, no unique indexes, no
- * checks. Store behaviour that only holds without those is not store behaviour
- * that holds. pg and mysql have always run their matrices against the real
- * thing; this now matches.
- */
+/** Store-contract compliance matrix for the Drizzle SQLite adapter. */
 
 import { createHash } from 'node:crypto'
 import { beforeAll, describe } from 'vitest'

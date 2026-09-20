@@ -1,4 +1,4 @@
-export { DrizzleMysqlAdapter } from './mysql'
+export { DrizzleMysqlAdapter, drizzleMysqlAdapter } from './mysql'
 export {
   authCredentials,
   authCredentialsRelations,

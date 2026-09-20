@@ -1,4 +1,4 @@
-export { DrizzlePgAdapter } from './pg'
+export { DrizzlePgAdapter, drizzlePgAdapter } from './pg'
 export {
   authCredentials,
   authCredentialsRelations,

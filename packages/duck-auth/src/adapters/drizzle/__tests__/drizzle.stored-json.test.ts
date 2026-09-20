@@ -1,11 +1,4 @@
-/**
- * The parsers every dialect reads its JSON columns through.
- *
- * Lowest-covered file in the adapter tree at 61.5% statements and 50% branches, reached only
- * incidentally by whichever adapter suite happened to store a well-formed value. Every refusal
- * path - the ones that decide whether a malformed row is dropped, defaulted or lets `Invalid Date`
- * through - was unexercised.
- */
+/** The parsers every dialect reads its JSON columns through. */
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -99,14 +92,14 @@ describe('parseProviders', () => {
 
   it('drops a malformed entry and keeps the rest', () => {
     expect(parseProviders([{ providerId: 'github', providerSub: '1' }, { providerId: 'gitlab' }, null])).toEqual([
-      { addedAt: expect.any(Date), providerId: 'github', providerSub: '1' },
+      { addedAt: expect.any(Date), addedBy: null, providerId: 'github', providerSub: '1' },
     ])
   })
 
   it('keeps a link whose addedAt is unreadable, dated to the epoch', () => {
     // Dropping it would remove a way into the account; an epoch reads as the unknown it is.
     expect(parseProviders([{ addedAt: 'nope', providerId: 'github', providerSub: '1' }])).toEqual([
-      { addedAt: EPOCH, providerId: 'github', providerSub: '1' },
+      { addedAt: EPOCH, addedBy: null, providerId: 'github', providerSub: '1' },
     ])
   })
 
@@ -157,14 +150,23 @@ describe('parseActingAs', () => {
 
   it.each([
     ['null', null],
+    ['undefined', undefined],
+  ])('reads %s as no impersonation, which is what an empty column means', (_label, value) => {
+    expect(parseActingAs(value)).toBeNull()
+  })
+
+  it.each([
     ['a string', 'admin'],
     ['an unreadable startedAt', { ...window, startedAt: 'nope' }],
     ['an unreadable expiresAt', { ...window, expiresAt: undefined }],
     ['a non-string realIdentityId', { ...window, realIdentityId: 7 }],
     ['a non-string reason', { ...window, reason: null }],
-  ])('drops the window whole for %s', (_label, value) => {
-    // Never a fallback date: a window nobody can read the bounds of is not one anyone should be inside.
-    expect(parseActingAs(value)).toBeNull()
+  ])('refuses the session whole for %s, rather than answering no impersonation', (_label, value) => {
+    // Never a fallback date, and never `null` either: `null` is the answer for a session that was never
+    // an impersonation, so returning it here loads the session as an ordinary one belonging to the
+    // person being impersonated - the expiry cap gone, and the audit envelope naming the real admin
+    // gone with it. The redis store already refuses the whole read for this; the dialects now match.
+    expect(() => parseActingAs(value)).toThrow(expect.objectContaining({ code: 'AUTH_SESSION_REVOKED' }))
   })
 })
 
@@ -180,7 +182,24 @@ describe('fromJsonColumn', () => {
     expect(fromJsonColumn('[{"providerId":"github"}]')).toEqual([{ providerId: 'github' }])
   })
 
-  it('answers null for a string that is not JSON', () => {
-    expect(fromJsonColumn('{ broken')).toBeNull()
+  it('hands back the unparseable string rather than laundering it into an empty column', () => {
+    // `null` here would be a lie the parsers cannot see through: a SQL NULL already arrives as `null`
+    // and returns above, so answering it for unparseable TEXT makes a corrupt column indistinguishable
+    // from an absent one. Left as the string, it is still *present*, and each parser applies its own
+    // policy - `parseFactors` degrades, `parseActingAs` refuses.
+    expect(fromJsonColumn('{ broken')).toBe('{ broken')
+  })
+
+  it('refuses an impersonation window whose TEXT will not parse, which is every sqlite read', () => {
+    // sqlite hands every JSON column back as raw TEXT, so this composition is the only thing standing
+    // between a corrupt `acting_as` and a session that loads as an ordinary one for the impersonated
+    // person. pg and mysql reach it too whenever a column is read as text.
+    expect(() => parseActingAs(fromJsonColumn('{ broken'))).toThrow(
+      expect.objectContaining({ code: 'AUTH_SESSION_REVOKED' }),
+    )
+  })
+
+  it('still degrades an unparseable factor list to empty, which only lowers the AAL claimed', () => {
+    expect(parseFactors(fromJsonColumn('{ broken'))).toEqual([])
   })
 })

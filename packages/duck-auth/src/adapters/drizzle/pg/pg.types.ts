@@ -1,9 +1,9 @@
-import type { NodePgDatabase, NodePgQueryResultHKT } from 'drizzle-orm/node-postgres'
-import type { PgDatabase } from 'drizzle-orm/pg-core'
 import type { authCredentials, authIdentities, authSessions } from './pg.schema'
 
+/** Row types inferred from the Postgres schema, and the adapter's own options. */
 export namespace Pg {
   export type IdentityRow = typeof authIdentities.$inferSelect
+  /** What a store answers: the table minus the columns the projections in the adapter drop. */
   export type CredentialRow = typeof authCredentials.$inferSelect
   export type SessionRow = typeof authSessions.$inferSelect
 
@@ -11,12 +11,4 @@ export namespace Pg {
     connect: () => Promise<unknown>
     query: (...args: unknown[]) => unknown
   }
-
-  export type AnyNodePgDatabase = NodePgDatabase<Record<string, unknown>>
-
-  /** What a statement runs on: the adapter's own handle, or the `tx` a transaction hands its callback. */
-  export type Handle<TSchema extends Record<string, unknown> = Record<string, unknown>> = PgDatabase<
-    NodePgQueryResultHKT,
-    TSchema
-  >
 }
