@@ -21,6 +21,7 @@ drift the way the hand-maintained version did.
 | File | Tests | Covers |
 |---|---|---|
 | `core/engine/compiled/__tests__/compiled-interpreter-parity.test.ts` | 10 | compiled table / interpreter parity (round 13) |
+| `core/engine/compiled/__tests__/compiled-interpreter-shape-differential.test.ts` | 4 | the compiled table and the interpreter answer every shape the same |
 | `core/engine/compiled/__tests__/compiled.boundary.test.ts` | 17 | boundary: 0 roles - no RBAC source at all |
 | `core/engine/compiled/__tests__/compiled.combine-invariance.test.ts` | 4 | wildcard action/resource patterns are separator-bound, not raw substring prefixes (confirmation) |
 | `core/engine/compiled/__tests__/compiled.compile.test.ts` | 27 | compileTable: basic classification |
@@ -30,7 +31,7 @@ drift the way the hand-maintained version did.
 | `core/engine/compiled/__tests__/compiled.lookup-sources.test.ts` | 15 | a wildcarded role permission grants only through `rbacResidual` |
 | `core/engine/compiled/__tests__/compiled.lookup.test.ts` | 12 | lookup: RBAC mask (fast path) + CONST_ALLOW + CONST_DENY, differential vs evaluate() |
 | `core/engine/compiled/__tests__/compiled.property-fuzz.test.ts` | 1 | property fuzz: production (compiled table) vs development (interpreter) agree |
-| **Subtotal** | **149** | |
+| **Subtotal** | **153** | |
 
 ---
 
@@ -428,7 +429,7 @@ drift the way the hand-maintained version did.
 
 | Area | Files | Tests |
 |---|---|---|
-| Core / compiled engine | 10 | 149 |
+| Core / compiled engine | 11 | 153 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
 | Core | 169 | 2813 |
@@ -439,4 +440,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **320** | **6273** |
+| **Total** | **321** | **6277** |

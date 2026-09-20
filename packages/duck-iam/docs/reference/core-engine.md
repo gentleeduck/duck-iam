@@ -442,7 +442,16 @@ Three details of the development run that are easy to get wrong:
 Production does **not** run the interpreter and therefore cannot detect a
 disagreement. That asymmetry is deliberate: the second evaluator is the cost the
 fast path exists to avoid, and development is where the divergence is meant to
-be caught.
+be caught. Which is also why the divergence has to be hunted at
+build time rather than waited for: `compiled-interpreter-parity.test.ts` pins
+named cases, and `compiled-interpreter-shape-differential.test.ts` sweeps
+instead - every rule and condition shape the audit has named, crossed with
+`policyCombine`, `defaultEffect`, scope mode and the effect of the rule under
+test, then every policy `targets` shape against every rule set and request form.
+Both sweeps assert that the two paths agree **and** that the answers are not all
+one value, and a third case re-runs the sweep against a deliberately wrong
+second opinion, so a green is evidence the comparison happened rather than
+evidence it compared nothing.
 
 ### What you actually give up in production
 
