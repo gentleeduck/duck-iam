@@ -2,23 +2,11 @@ import type { Identities } from '~/core/identities'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import type { VanillaClient } from './types'
 
-/**
- * Put the `Date`s back on a session envelope that arrived over HTTP.
- *
- * `Response.json` is `JSON.stringify`, so every `Date` on these rows leaves as
- * an ISO string while `Sessions.Me` / `Identities.Me` still promise `Date`.
- * `expiresAt.getTime()` then throws, and `expiresAt < new Date()` compares a
- * string to a Date and is always `false` - a session that never looks expired.
- *
- * Taking `Serialized<…>` and returning the row type makes this the only route
- * between the two, so skipping it does not typecheck. Fields are named rather
- * than sniffed: guessing by shape would rewrite `identity.profile`, which is the
- * consumer's data. A row type that gains a `Date` belongs in the lists below.
- */
+/** Put the `Date`s back on a session envelope that arrived over HTTP. */
 function asDate(value: unknown): unknown {
   if (typeof value !== 'string') return value
   const parsed = new Date(value)
-  // Unparseable stays as it arrived - an Invalid Date passes `instanceof Date`
+  // Unparseable stays as it arrived, an Invalid Date passing `instanceof Date`
   // and compares `false` against everything, hiding a broken server.
   return Number.isFinite(parsed.getTime()) ? parsed : value
 }
@@ -37,18 +25,19 @@ function withDates<Revived>(row: object, keys: readonly string[]): Revived {
   return out as Revived
 }
 
-const SESSION_DATES = ['createdAt', 'rotatedAt', 'expiresAt', 'absoluteExpiresAt'] as const
+const SESSION_DATES = ['createdAt', 'updatedAt', 'rotatedAt', 'expiresAt', 'absoluteExpiresAt'] as const
 const ACTING_AS_DATES = ['startedAt', 'expiresAt'] as const
 const FACTOR_DATES = ['completedAt'] as const
 const IDENTITY_DATES = ['createdAt', 'updatedAt', 'deletedAt'] as const
 const PROVIDER_DATES = ['addedAt'] as const
 
-export function reviveSession(session: VanillaClient.Serialized<Sessions.Me> | null): Sessions.Me | null {
+/** Turns a session's serialised date strings back into `Date`s. */
+export function reviveSession(session: VanillaClient.Serialized<Sessions.Public> | null): Sessions.Public | null {
   if (!session) return session
   // The array guards stay despite the types: the wire is a server's word, and a
   // `.map` on a non-array would throw out of a method that otherwise returns an
   // envelope for every failure.
-  return withDates<Sessions.Me>(
+  return withDates<Sessions.Public>(
     {
       ...session,
       actingAs: session.actingAs ? withDates<Sessions.ActingAs>(session.actingAs, ACTING_AS_DATES) : session.actingAs,
@@ -60,6 +49,7 @@ export function reviveSession(session: VanillaClient.Serialized<Sessions.Me> | n
   )
 }
 
+/** Turns an identity's serialised date strings back into `Date`s. */
 export function reviveIdentity<Profile extends Identities.ProfileMetadataBase>(
   identity: VanillaClient.SerializedIdentity<Profile> | null,
 ): Identities.Me<Profile> | null {

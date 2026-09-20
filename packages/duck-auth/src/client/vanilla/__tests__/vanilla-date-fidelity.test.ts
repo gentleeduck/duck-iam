@@ -2,20 +2,16 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import type { Identities } from '~/core/identities'
 import type { Sessions } from '~/core/sessions/sessions.types'
+import { SESSION_FIELDS } from '~/test/type-fidelity'
 import { createAuthClient } from '../index'
 
 /**
  * The server sends a session with `Response.json(...)`, which is
  * `JSON.stringify`, so every `Date` on the row leaves as an ISO string. The
  * client declares it hands back `Sessions.Me` and `Identities.Me`, whose
- * `createdAt`, `expiresAt`, `rotatedAt`, `absoluteExpiresAt`, `deletedAt`,
- * `providers[].addedAt` and `factors[].completedAt` are all typed `Date`.
- *
- * Nothing between the two converts them back, and the cast at the end of
- * `getSession` stops `tsc` from noticing. A consumer writing
- * `session.expiresAt.getTime()` gets a TypeError; one writing
- * `session.expiresAt < new Date()` compares a string to a Date and always gets
- * `false` - the session reads as live forever.
+ * `createdAt`, `updatedAt`, `expiresAt`, `rotatedAt`, `absoluteExpiresAt`,
+ * `deletedAt`, `providers[].addedAt` and `factors[].completedAt` are all typed
+ * `Date`.
  */
 const NOW = new Date('2026-09-04T10:00:00.000Z')
 const LATER = new Date('2026-09-04T11:00:00.000Z')
@@ -52,6 +48,7 @@ function wireSession() {
       kind: 'user',
       rotatedAt: NOW,
       tenantId: null,
+      updatedAt: NOW,
       userAgent: null,
     },
   }
@@ -80,6 +77,20 @@ describe('the client hands back the Dates its types promise', () => {
     expect(session?.rotatedAt).toBeInstanceOf(Date)
     expect(session?.expiresAt).toBeInstanceOf(Date)
     expect(session?.absoluteExpiresAt).toBeInstanceOf(Date)
+  })
+
+  it('every top-level Date the row type declares survives the wire', async () => {
+    // Derived, not listed: `reviveSession` keys off an allowlist, so a field added to the row type
+    // without a matching entry there reaches the caller as a string typed `Date`. That is what
+    // happened to `updatedAt`, and a hand-written list of assertions is what missed it.
+    const { session } = await getSession()
+    const declared = Object.entries(SESSION_FIELDS)
+      .filter(([key, kind]) => kind === 'date' && !key.includes('.'))
+      .map(([key]) => key)
+    expect(declared.length).toBeGreaterThan(0)
+    for (const key of declared) {
+      expect((session as unknown as Record<string, unknown>)[key], key).toBeInstanceOf(Date)
+    }
   })
 
   it('a deadline compares correctly against a Date', async () => {

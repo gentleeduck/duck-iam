@@ -5,7 +5,7 @@
  *
  * @example
  * ```tsx
- * import { Provider, useSession, useSignIn } from '@gentleduck/AUTH/client/react'
+ * import { Provider, useSession, useSignIn } from '@gentleduck/auth/client/react'
  *
  * <Provider baseUrl="/auth">
  *   <App />
@@ -28,7 +28,7 @@ export type { ReactClient } from './types'
 
 const AuthContext = createContext<ReactClient.ContextValue<Identities.ProfileMetadataBase> | null>(null)
 
-/** `Provider`. */
+/** Puts an auth client on the React context. Every hook below reads it. */
 export function Provider<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   props: ReactClient.IProviderProps<Profile>,
 ): ReturnType<typeof createElement> {
@@ -74,7 +74,7 @@ function useAuthCtx<
   const ctx = useContext(AuthContext) as ReactClient.ContextValue<Profile> | null
   if (!ctx) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: '[@gentleduck/AUTH/client/react] use* hooks must be used inside <Provider>',
+      detail: '[@gentleduck/auth/client/react] use* hooks must be used inside <Provider>',
     })
   }
   return ctx
@@ -101,7 +101,7 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): ReactClient.MutationRe
   return { mutate, loading, error }
 }
 
-/** `useSession`. */
+/** The current session, refetched when the client says it changed. */
 export function useSession<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): ReactClient.UseSessionResult<Profile> {
@@ -109,7 +109,7 @@ export function useSession<
   return { data: ctx.state, status: ctx.status, refresh: ctx.refresh }
 }
 
-/** `useSignIn`. */
+/** Signs in through a provider. */
 export function useSignIn<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): ReactClient.MutationResult<VanillaClient.SignInOptions, Envelope<VanillaClient.SessionResult<Profile>, string>> {
@@ -128,13 +128,13 @@ export function useSignUp<
   return useMutation((input: Input) => client.signUp(input))
 }
 
-/** `useSignOut`. */
-export function useSignOut(): ReactClient.MutationResult<void, Envelope<Record<string, never>, string>> {
+/** Signs the current session out. */
+export function useSignOut(): ReactClient.MutationResult<void, Envelope<unknown, string>> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
-/** `useBeginProvider`. */
+/** Starts a provider flow, for the redirect and challenge providers. */
 export function useBeginProvider(): ReactClient.MutationResult<
   { id: string; input?: unknown },
   Envelope<unknown, string>
@@ -143,7 +143,7 @@ export function useBeginProvider(): ReactClient.MutationResult<
   return useMutation(({ id, input }) => client.beginProvider(id, input))
 }
 
-/** `useAuthClient`. */
+/** The client on the context, for a call no hook covers. */
 export function useAuthClient<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VanillaClient.Client<Profile> {

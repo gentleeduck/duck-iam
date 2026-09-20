@@ -1,18 +1,12 @@
-/** React client types - context shape + the public `ReactClient` namespace. */
 import type { ReactNode } from 'react'
 import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
 import type { Sessions } from '~/core/sessions'
 import type { VanillaClient } from '../vanilla'
 
+/** React provider props, hook results and the vanilla types a consumer needs. */
 export namespace ReactClient {
-  /**
-   * The vanilla types a React consumer actually needs, surfaced here.
-   *
-   * Without these an app using only the React entry still has to import from
-   * `client/vanilla` to name the session it just received from `useSession`,
-   * which makes the vanilla client part of its public API for no reason.
-   */
+  /** The vanilla types a React consumer actually needs, surfaced here. */
   export type Profile = Identities.ProfileMetadataBase
   export type Identity<P extends Profile = Profile> = Identities.Me<P>
   export type Session = Sessions.Me
@@ -26,6 +20,7 @@ export namespace ReactClient {
   export type ContextValue<Profile extends Identities.ProfileMetadataBase> = {
     client: VanillaClient.Client<Profile>
     state: VanillaClient.SessionResult<Profile>
+    /** `loading` until the first resolve settles, then `authed` or `guest`. */
     status: 'loading' | 'authed' | 'guest'
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }
@@ -40,6 +35,7 @@ export namespace ReactClient {
 
   export type UseSessionResult<Profile extends Identities.ProfileMetadataBase> = {
     data: VanillaClient.SessionResult<Profile>
+    /** `loading` until the first resolve settles, then `authed` or `guest`. */
     status: 'loading' | 'authed' | 'guest'
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }
