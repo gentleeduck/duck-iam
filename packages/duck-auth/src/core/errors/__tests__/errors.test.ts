@@ -2,10 +2,6 @@
  * `AuthError.toJSON` is the last thing between an error's metadata and an HTTP
  * response body, and it had no tests. Its job is to strip secrets, so the way it
  * fails is by letting one through, which nothing else in the stack would notice.
- *
- * The cases below attack the redactor the way a real payload would arrive: keys
- * in unexpected case, secrets buried in nested objects and arrays, near-miss key
- * names, and shapes designed to make a recursive walker misbehave.
  */
 import { describe, expect, it } from 'vitest'
 import { AuthError, rethrowAuthError, throwAuthError } from '../errors'

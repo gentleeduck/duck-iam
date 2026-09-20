@@ -2,16 +2,14 @@ import { type AuthError, asAuthError } from './errors'
 
 /** A mapper and the range it draws from. `codes` is the same table, at runtime. */
 export type ErrorMap<C extends AuthError.Code> = {
-  /** WARN: wide on purpose - `asAuthError` passes an already-typed error through with its own code. */
+  /** WARN: wide on purpose, since `asAuthError` passes an already-typed error through with its own
+   *  code. */
   (err: unknown): AuthError
   readonly codes: ReadonlySet<C>
 }
 
 /** The range an {@link ErrorMap} draws from, so a caller reads it off the map rather than restating it. */
 export type RangeOf<M> = M extends ErrorMap<infer C> ? C : never
-
-/** Every code a failure can arrive as: the range the map declared, and the label anything outside it is given. */
-export type Failed<C extends AuthError.Code> = C | 'AUTH_ADAPTER_FAILED'
 
 /** A mapper and the range it draws from, as one value: the only shape an {@link ErrorMap} is built in. */
 export function errorMap<const C extends AuthError.Code>(

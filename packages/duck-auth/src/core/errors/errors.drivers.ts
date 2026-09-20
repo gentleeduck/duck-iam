@@ -147,9 +147,10 @@ export const sqlError = errorMap(
   [...Object.values(MEANS).map(codeOf), ...WORDS.map(([, is]) => codeOf(is)), 'AUTH_ADAPTER_FAILED'],
 )
 
-/** The codes every SQL store throws itself, which no driver signal produces and the tables therefore never name.
- *  WARN: a `throw new AuthError(...)` in a store whose code is in neither is re-labelled AUTH_ADAPTER_FAILED by
- *  `wrap()` - add it here in the same change. */
+/** The codes every SQL store throws itself, which no driver signal produces and the tables therefore
+ *  never name.
+ *  WARN: a `throw new AuthError(...)` in a store whose code is in neither is re-labelled
+ *  AUTH_ADAPTER_FAILED by `run()`, so add it here in the same change. */
 export const STORE_RAISES = declares(sqlError, [
   'AUTH_CREDENTIAL_NOT_FOUND',
   'AUTH_GRACE_EXPIRED',

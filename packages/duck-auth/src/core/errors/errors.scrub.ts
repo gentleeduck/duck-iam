@@ -1,25 +1,25 @@
-/**
- * What may not reach the wire, by key name.
- *
- * Matching a substring rather than a whole key over-redacts a `tokenCount`, which costs a reader a
- * number. Matching whole keys only let `oldPassword`, `userSecret` and `apiToken` through, which
- * are exactly the names a caller invents for the thing that must not be seen.
- */
+/** What may not reach the wire, by key name. */
 const SECRET_KEY =
   /secret|password|passphrase|plaintext|token|hash|salt|signature|credential|private|otp|recovery|apikey|api_key/i
 
 const DEPTH_CAP = 8
 
+/** Whether a key name may not reach the wire. */
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY.test(key)
 }
 
 /**
  * Every secret-bearing key replaced by a marker, at any depth. The shape survives, the value does
- * not, which is what a consumer reading someone else's payload shape needs.
+ * not, which is what a consumer reading someone else's payload shape needs. Past the cap the subtree
+ * is truncated, not walked.
  */
 export function redactSecrets(value: unknown, depth = 0): unknown {
-  if (depth > DEPTH_CAP || value === null || typeof value !== 'object') return value
+  // SECURITY: truncated at the cap, not handed back. Returning `value` here returned a whole unwalked
+  // subtree, so anything nested past the cap carried its secrets out in full while the redaction read as
+  // if it had run - and this one guards a webhook POST to somebody else's server.
+  if (depth > DEPTH_CAP) return '[depth-cap]'
+  if (value === null || typeof value !== 'object') return value
   if (Array.isArray(value)) return value.map((item) => redactSecrets(item, depth + 1))
   if (value instanceof Date) return value
   const out: Record<string, unknown> = {}

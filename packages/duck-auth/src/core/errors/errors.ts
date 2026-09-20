@@ -28,12 +28,8 @@ export function throwAuthError<C extends AuthError.Code>(code: C, ...args: AuthE
   throw new AuthError(code, ...args)
 }
 
-/**
- * An already-typed error as it stands; anything else as a typed AuthError with
- * the given fallback code, keeping what actually failed on `cause`. This is the
- * one place an unknown failure becomes a typed one - an adapter translating its
- * driver names the code and leaves the rest here.
- */
+/** An already-typed error as it stands, anything else under the fallback code with what actually failed
+ *  on `cause`. The one place an unknown failure becomes a typed one. */
 export function asAuthError<C extends AuthError.Code>(error: unknown, code: C, ...args: AuthError.Args<C>): AuthError {
   if (error instanceof AuthError) return error
 
@@ -53,6 +49,7 @@ function isOrigin(value: unknown): value is AuthError.Origin {
   return typeof value === 'object' && value !== null
 }
 
+/** Where an `AuthError` came from, and the wire shape `toJSON` produces. */
 export namespace AuthError {
   export interface Origin {
     providerId?: string
@@ -68,7 +65,7 @@ export namespace AuthError {
   /** The codes as a union a caller can match on, each with what it carries. */
   export type Error = { [C in Code]: { code: C } & Meta<C> }[Code]
 
-  /** Whether T has at least one required (non-optional) key. */
+  /** True when T has at least one non-optional key. */
   export type HasRequired<T> = { [K in keyof T]-?: undefined extends T[K] ? never : K }[keyof T]
 
   /** The codes an adapter answers with: what a store raises itself, and what a driver refusal becomes. */
