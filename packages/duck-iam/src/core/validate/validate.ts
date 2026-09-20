@@ -1,5 +1,5 @@
 import { IAM_RBAC_CONDITION_DEPTH, MAX_INHERITANCE_DEPTH } from '../rbac'
-import { matchesAction, matchesResource } from '../resolve'
+import { matchesAction, matchesResource, matchesScope } from '../resolve'
 import type { AccessControl } from '../types'
 import {
   checkKnownKeys,
@@ -164,6 +164,7 @@ export function validateRoles(
 /**
  * Push an `UNREACHABLE_TARGET` error when `value` is outside the declared vocabulary.
  * Never reported: an empty axis, a `'*'` grant, or an absent value (an unscoped permission is global).
+ * Matched with the engine's own matchers, so a prefix grant is cleared on exactly what it would reach.
  */
 function undeclared(
   issues: IamValidate.IIssue[],
@@ -175,7 +176,8 @@ function undeclared(
 ): void {
   if (allowed === undefined || allowed.length === 0) return
   if (value === undefined || value === '*') return
-  if (allowed.includes(value)) return
+  const match = axis === 'action' ? matchesAction : axis === 'resource' ? matchesResource : matchesScope
+  if (allowed.some((declaredValue) => match(value, declaredValue))) return
   issues.push({
     type: 'error',
     code: 'UNREACHABLE_TARGET',

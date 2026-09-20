@@ -265,6 +265,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/policy-declared-vocabulary.test.ts` | 16 | a rule action outside the declared vocabulary |
 | `core/validate/__tests__/policy-targets-types.test.ts` | 22 | every key of targets is type-checked, not just the first two |
 | `core/validate/__tests__/resolvable-path-parity.test.ts` | 12 | isResolvablePath agrees with resolve about what will not resolve |
+| `core/validate/__tests__/role-grant-wildcards.test.ts` | 10 | a prefix grant the engine honours is not unreachable |
 | `core/validate/__tests__/validate-boundary-robustness.test.ts` | 14 | validatePolicy never throws on a malformed rule row |
 | `core/validate/__tests__/validate-control-chars.test.ts` | 28 | validatePolicy rejects control characters in action and resource names |
 | `core/validate/__tests__/validate-operand.test.ts` | 29 | condition operand presence |
@@ -277,7 +278,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2684** | |
+| **Subtotal** | **2694** | |
 
 ---
 
@@ -417,7 +418,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 158 | 2684 |
+| Core | 159 | 2694 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -425,4 +426,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **306** | **6060** |
+| **Total** | **307** | **6070** |

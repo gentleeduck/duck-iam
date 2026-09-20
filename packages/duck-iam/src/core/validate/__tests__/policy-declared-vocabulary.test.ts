@@ -9,7 +9,7 @@ import type { AccessControl } from '../../types'
 import { validatePolicy } from '../validate'
 
 const access = createIam({
-  actions: ['read', 'delete', 'post:create'] as const,
+  actions: ['read', 'delete', 'post:create', 'admin.reset'] as const,
   resources: ['post', 'doc', 'org.team'] as const,
   roles: ['editor', 'viewer'] as const,
 })
@@ -105,6 +105,8 @@ describe('wildcard patterns are cleared on what they would actually match', () =
 
   it('flags a dot pattern on the action axis, which matchesAction reads as a literal', () => {
     expect(vocabularyIssues(access.validatePolicy(withActions(['post.*'])))).toEqual(['rules[0].actions[0]'])
+    // `admin.reset` is declared, so only the action axis using `matchesAction` keeps this reported.
+    expect(vocabularyIssues(access.validatePolicy(withActions(['admin.*'])))).toEqual(['rules[0].actions[0]'])
   })
 
   it('clears a dot pattern on the resource axis, which matchesResource honours', () => {
