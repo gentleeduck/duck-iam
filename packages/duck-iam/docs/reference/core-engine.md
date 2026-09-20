@@ -484,6 +484,7 @@ configuration mistake throws.
 | A policy throws during evaluation | Indeterminate: deny if the **policy** carries any deny rule, else the `defaultEffect` vote | `onPolicyError` |
 | A policy's `targets.roles` names a role nothing defines | **not a deny** — the policy is NotApplicable for every request, which retires it | `onPolicyError` once per pair, else one `console.warn` |
 | A policy's `targets.actions` / `targets.resources` match no rule the policy holds | **not a deny** — the targets admit only requests no rule answers, which retires it | `onPolicyError` once per policy and dimension, else one `console.warn` |
+| A rule's condition reads a path that can never resolve | **not a deny** — `resolve` answers `null` for every request, so the rule never matches | `onPolicyError` once per policy, rule and path, else one `console.warn` |
 | A subject holds a role nothing defines | **not a deny** — the id stays an effective role, but its `inherits` are unwalkable, so a deny targeting a role it conferred retires | `onPolicyError` once per role id, else one `console.warn` |
 | The compiled table cannot be built (malformed policy) | `false` for every request until fixed | `onPolicyError` for `IamPolicyCompileError`; one `console.error` otherwise |
 | Development table/interpreter disagreement | `false` + `console.error` | `onError` |
@@ -1091,7 +1092,7 @@ The offending policy stays **applicable** and votes Indeterminate. It is not
 treated as NotApplicable: "skipping a policy that could have denied is what
 turns a throw into an allow under `combine: 'and'`."
 
-The hook carries three advisory reports as well, and they are the only ones
+The hook carries four advisory reports as well, and they are the only ones
 that are not about a throw. `targets.roles` is matched by equality against the request's
 effective roles and against nothing else — there is no catalogue lookup — so an
 entry naming a role no stored row defines matches no subject and the whole
@@ -1136,6 +1137,30 @@ It is de-duplicated per role id rather than per `(subject, role)` pair, since
 the absent definition is the thing to repair and every holder shares it, and
 that also keeps the set bounded by the catalogue rather than by traffic. With no
 `onPolicyError` installed it is one `console.warn`, and it changes no verdict.
+
+The fourth advisory moves the same question down a level, from the policy's
+targets to a rule's conditions. `resolve` answers `null` for a path whose root
+is not `subject`, `resource` or `environment`, and for one carrying a prototype
+key at any segment — on every request, for every input. A rule reading such a
+path can never match, so a deny written that way never fires, and `user.banned`
+where `subject.attributes.banned` was meant is enough to cause it. The oracle
+already existed: `isResolvablePath` is exported for the validator and kept in
+parity with `resolve` by `resolvable-path-parity.test.ts`; what was missing was
+a caller on the load path, since `validatePolicy` is invoked by users, not by
+the engine.
+
+The line this check does **not** cross is the one that separates a dead path
+from an absent attribute. `subject.attributes.bannd` has a legal root and a
+resolvable shape; whether that key exists is a fact about the request, not about
+the policy, and attributes are open-ended by design. Only paths that are dead
+for every possible input are reported.
+
+A `$`-prefixed *value* operand is a path too, and is deliberately left alone:
+`evalCondition` already reports it and answers **Indeterminate** rather than
+false, which is the stronger of the two treatments. That a dead `field` answers
+false while a dead operand answers Indeterminate is a real asymmetry in the
+verdict, not just in the reporting, and closing it would change decisions for
+existing policies — so it is reported and left as it is.
 
 `onMutation` is the audit seam, and the only evidence a revocation happened —
 the assignment row is hard-deleted. It fires after the adapter write resolves and

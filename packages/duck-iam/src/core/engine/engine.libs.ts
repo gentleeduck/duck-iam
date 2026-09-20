@@ -3,8 +3,10 @@ import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import type { Batch } from '../batch'
 import { appliedRows, batchResult, loopFallback } from '../batch'
+import { MAX_CONDITION_DEPTH } from '../conditions/conditions.libs'
 import { matchesScope } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
+import { isResolvablePath } from '../validate/validate.libs'
 import type { IamValidate } from '../validate/validate.types'
 import type { IamEngineTypes } from './engine.types'
 
@@ -206,6 +208,54 @@ export const VALID_SCOPE_MODES = ['flat', 'hierarchical'] as const
 
 /** Accepted `IConfig.scopeCombine` values. */
 export const VALID_SCOPE_COMBINES = ['union', 'override'] as const
+
+/**
+ * Visits every `field` in a condition tree, bounded as `evalConditionGroup` is. A `$`-prefixed *value* operand is
+ * a path too, but `evalCondition` already reports that one and answers Indeterminate rather than false.
+ */
+function eachConditionPath(node: unknown, depth: number, visit: (path: string) => void): void {
+  if (depth >= MAX_CONDITION_DEPTH || typeof node !== 'object' || node === null) return
+  for (const key of ['all', 'any', 'none'] as const) {
+    const branch = Reflect.get(node, key)
+    if (!Array.isArray(branch)) continue
+    for (const item of branch) eachConditionPath(item, depth + 1, visit)
+  }
+  const field = Reflect.get(node, 'field')
+  if (typeof field === 'string') visit(field)
+}
+
+/**
+ * Reports a condition naming a dot-path that can never resolve - a root outside `subject` / `resource` /
+ * `environment`, or a segment the resolver refuses. `resolve` answers `null` for those on every request, so the
+ * rule never matches for any input. Unlike an absent attribute, this is decidable without seeing a request.
+ */
+export function reportDeadConditionPaths(
+  policies: readonly AccessControl.IPolicy[],
+  seen: Set<string>,
+  report: (err: Error, policyId: string) => void,
+): void {
+  for (const policy of policies) {
+    if (!Array.isArray(policy.rules)) continue
+    for (const rule of policy.rules) {
+      if (typeof rule !== 'object' || rule === null) continue
+      eachConditionPath(rule.conditions, 0, (path) => {
+        if (isResolvablePath(path)) return
+        const key = `${policy.id}\u0000${rule.id}\u0000${path}`
+        if (seen.has(key)) return
+        seen.add(key)
+        report(
+          new Error(
+            `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} reads ` +
+              `${JSON.stringify(path)}, which resolves to null on every request - the root must be "subject", ` +
+              '"resource" or "environment", and no segment may be a prototype key. The condition cannot be ' +
+              `satisfied by any input, so ${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
+          ),
+          policy.id,
+        )
+      })
+    }
+  }
+}
 
 /**
  * Whether any concrete action/resource string could match both patterns. Patterns are `*`, a literal, or a
