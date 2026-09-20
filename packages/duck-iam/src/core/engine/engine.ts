@@ -26,6 +26,7 @@ import {
   createAdmin,
   enrichSubjectWithScopedRoles,
   ensureEnvNow,
+  reportDeadConditionPaths,
   reportDeadPolicyTargets,
   reportUnreachableRoleTargets,
   VALID_MODES,
@@ -434,6 +435,7 @@ export class IamEngine<
     }
     reportUnreachableRoleTargets(policies, roles, this._reportedRoleTargets, report)
     reportDeadPolicyTargets(policies, this._reportedRoleTargets, report)
+    reportDeadConditionPaths(policies, this._reportedRoleTargets, report)
   }
 
   private _resolveSubject(subjectId: string): Promise<IamRequest.ISubject> {

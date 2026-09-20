@@ -643,6 +643,32 @@ the matchers, so `*` intersects anything and a prefix form keeps its separator,
 leaving `post:*` and `post.*` disjoint exactly as `matchesResource` treats them.
 One live rule among dead ones keeps the policy reachable and quiet.
 
+### A condition reading a misspelled path silently stopped its deny from firing
+
+One level below the targets: a rule's condition `field`. `resolve` answers
+`null` for a path whose root is not `subject`, `resource` or `environment`, and
+for one carrying a prototype key at any segment — on every request, for every
+input. The rule then never matches, and the deny never fires.
+
+Measured with a deny given a companion allow in the same policy, so the verdict
+distinguishes a deny that fired from one that did not:
+`subject.attributes.banned` denies, `resource.attributes.sensitive` denies, the
+same subject unbanned is allowed — and `user.banned`,
+`Subject.attributes.banned`, `subject.__proto__.banned` are all **allowed**,
+with nothing reported.
+
+The oracle already existed. `isResolvablePath` is exported for the validator and
+kept in parity with `resolve` by its own test; it had no caller on the load
+path, because `validatePolicy` is something users invoke and the engine does
+not. The engine now runs it over every rule's conditions when policies load,
+reporting once per policy, rule and path.
+
+Deliberately not reported: a path that is merely *absent*, such as
+`subject.attributes.bannd`. Its root is legal and its shape resolvable — whether
+the key exists is a fact about the request, and attributes are open-ended. Also
+not reported: a `$`-prefixed value operand, which `evalCondition` already
+reports and answers Indeterminate rather than false.
+
 ### A recreated role id handed its permissions to everyone who inherited the old one
 
 `deleteRole` removes the role and, on every adapter, the grants that named it —

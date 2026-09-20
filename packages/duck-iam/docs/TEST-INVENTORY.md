@@ -156,6 +156,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/admin.batch.test.ts` | 9 | IAdmin batch writes |
 | `core/engine/__tests__/broken-adapter-fail-closed.test.ts` | 5 | a broken store read |
 | `core/engine/__tests__/compile-failure-is-reported.test.ts` | 12 | a role count past the compiled table capacity falls back and says so |
+| `core/engine/__tests__/condition-path-dead-on-arrival.test.ts` | 11 | a condition reading a path that can never resolve is reported |
 | `core/engine/__tests__/decision-failure-discriminant.test.ts` | 6 | IDecision distinguishes a policy deny from a broken engine |
 | `core/engine/__tests__/e2e-resilience-db-kill.e2e.test.ts` | 11 | E2E fail-closed: Postgres frozen (docker pause) mid-flight |
 | `core/engine/__tests__/e2e-resilience-hooks.e2e.test.ts` | 18 | E2E fail-closed: a throwing hook |
@@ -287,7 +288,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2774** | |
+| **Subtotal** | **2785** | |
 
 ---
 
@@ -427,7 +428,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 165 | 2774 |
+| Core | 166 | 2785 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -435,4 +436,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **316** | **6234** |
+| **Total** | **317** | **6245** |
