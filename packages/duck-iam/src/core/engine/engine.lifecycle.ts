@@ -79,14 +79,20 @@ export async function preloadEngine(args: {
 
 /**
  * Unsubscribes from the invalidator and returns the cleared handle to store back.
- * NOTE: a throw is dropped so it cannot mask the reason for shutting down.
+ * NOTE: a throw is reported rather than raised, so it cannot mask the reason for shutting down - but never
+ * dropped: a teardown that failed may leave the subscription delivering into an engine already released.
  */
 export function disposeInvalidator(invalidatorUnsub: (() => void) | null): { unsub: (() => void) | null } {
   if (invalidatorUnsub) {
     try {
       invalidatorUnsub()
-    } catch {
-      /* last-resort: drop the throw, we're already tearing down */
+    } catch (err) {
+      try {
+        console.warn(
+          '[@gentleduck/iam:engine] the invalidator teardown threw; this engine may keep receiving invalidations ' +
+            `after being released. (${err instanceof Error ? err.message : String(err)})`,
+        )
+      } catch {}
     }
   }
   return { unsub: null }

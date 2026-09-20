@@ -366,17 +366,31 @@ export class IamEngine<
     }
     // Unsubscribe first, so a throwing `subscribe` cannot leave the old subscription attached.
     this._invalidatorUnsub = disposeInvalidator(this._invalidatorUnsub).unsub
-    if (invalidator === null) {
-      this._invalidator = undefined
+    this._invalidator = undefined
+    if (invalidator === null) return
+    // SECURITY: attached only once `subscribe` returns. An engine holding one that threw publishes its own
+    // revocations and applies nobody else's - stale forever, fleet-wide, and no health field says so.
+    const unsub = invalidator.subscribe((event) => this._applyInvalidateEvent(event))
+    this._invalidator = invalidator
+    if (typeof unsub === 'function') {
+      this._invalidatorUnsub = unsub
       return
     }
-    this._invalidator = invalidator
-    this._invalidatorUnsub = invalidator.subscribe((event) => this._applyInvalidateEvent(event))
+    this._invalidatorUnsub = null
+    console.warn(
+      '[@gentleduck/iam:engine] setInvalidator: `subscribe` returned no teardown function, so this subscription ' +
+        'cannot be released. It keeps delivering into this engine after `dispose()` and after another invalidator ' +
+        'replaces it.',
+    )
   }
 
-  /** Release the invalidator subscription. Call when discarding the engine. */
+  /**
+   * Release the invalidator subscription and detach the invalidator. Call when discarding the engine.
+   * Detaches both directions: an engine that still publishes but can no longer receive is the worse half.
+   */
   dispose(): void {
     this._invalidatorUnsub = disposeInvalidator(this._invalidatorUnsub).unsub
+    this._invalidator = undefined
   }
 
   /** @internal Build the loader deps. */

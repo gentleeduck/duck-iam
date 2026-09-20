@@ -22,7 +22,7 @@ linked, not repeated.
 | `engine.loaders.ts` | 305 | `loadPolicies`, `loadRoles`, `loadRbacPolicy`, `loadAllPolicies`, `resolveSubject` — cache-fronted adapter reads |
 | `engine.invalidation.ts` | 287 | `invalidateAll/Policies/Roles/Subject`, `applyInvalidateEvent`, the cache + in-flight bags |
 | `engine.bound.ts` | 151 | `withTransaction`'s facade: fresh caches, buffered invalidation, buffered mutation events |
-| `engine.lifecycle.ts` | 86 | `preloadEngine`, `runHealthCheck`, `disposeInvalidator` |
+| `engine.lifecycle.ts` | 99 | `preloadEngine`, `runHealthCheck`, `disposeInvalidator` |
 | `engine.hooks.ts` | 76 | `safeHookCall`, `emitMetrics` — both swallow user throws |
 | `engine.stats.ts` | 80 | `statsSnapshot`, `resetStats`, `aggregateCacheHitRate` |
 | `compiled/compiled.compile.ts` | 326 | `compileTable()` — the bake |
@@ -885,7 +885,7 @@ against `/^[A-Za-z0-9_-]{1,64}$/`. Without `secret` the invalidator falls back
 to unsigned envelopes and warns once at construction; anyone with PUBLISH
 rights on the channel can then wipe caches.
 
-Three guarantees:
+Four guarantees:
 
 1. **Validated, not trusted.** `isInvalidatorLike` checks for callable `publish`
    and `subscribe` and throws `TypeError` otherwise. A malformed one "would
@@ -895,7 +895,14 @@ Three guarantees:
    unconditionally, so an exception from the new `subscribe` cannot leave the old
    subscription attached to an invalidator this engine no longer considers
    current.
-3. **`null` detaches** and goes back to local-only invalidation.
+3. **Never attached in one direction only.** The invalidator is stored *after*
+   `subscribe` returns. Before, it was stored first, so a `subscribe` that threw
+   left an engine that publishes its own revocations and applies nobody else's -
+   stale for as long as the process lives, with `healthCheck()` reporting
+   nothing about it. The engine is now left fully detached and the error reaches
+   the caller. This matters for a third-party transport; the shipped redis
+   invalidator catches its own synchronous subscribe failures.
+4. **`null` detaches** and goes back to local-only invalidation.
 
 The constructor routes `config.invalidator` through this same setter, so the
 constructor path and the late-attach path validate and subscribe identically. A
@@ -903,7 +910,17 @@ constructor path and the late-attach path validate and subscribe identically. A
 unaffected; its buffered invalidations broadcast through the parent on
 `pending.flush()`, picking up whatever is attached at flush time.
 
-`dispose()` releases the subscription. Call it when discarding an engine.
+`dispose()` releases the subscription **and detaches the invalidator**, for the
+same reason: an engine that has stopped receiving but still broadcasts is the
+worse half of the pair to keep.
+
+Two things `subscribe` can hand back are reported rather than absorbed. A return
+value that is not a function means the subscription can never be released - it
+keeps delivering after `dispose()` and after another invalidator replaces it -
+so nothing callable is stored and a warning says exactly that. A teardown that
+*throws* is caught, because it must not mask the reason for shutting down, but
+it is warned about: the subscription may still be delivering into an engine that
+was already released.
 
 ### 6.7 Single-flight
 
