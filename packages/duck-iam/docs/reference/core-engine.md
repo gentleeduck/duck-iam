@@ -573,14 +573,15 @@ Six caches, five of them `IamLRUCache` instances built in the constructor
 | `_roleCache` | `'all'` | 1 | `now + cacheTTL` | `loadRoles` |
 | `_rbacPolicyCache` | `'rbac'` | 1 | `min(now + cacheTTL, roleCache.expiresAt('all'))` | `loadRbacPolicy` |
 | `_mergedPolicyCache` | `'merged'` | 1 | `min(now + cacheTTL, policyCache.expiresAt, rbacPolicyCache.expiresAt)` | `loadAllPolicies` |
-| `_subjectCache` | `subjectId` | `maxCacheSize` | `min(now + cacheTTL, grantBoundary)` | `resolveSubject` |
+| `_subjectCache` | `subjectId` | `maxCacheSize` | `min(now + cacheTTL, grantBoundary, roleCache.expiresAt('all'))` | `resolveSubject` |
 | `_compiledTable` | — | 1 | `_derivedBuiltAt + cacheTTL` | `_rebuildCompiledTable` |
 
 ```mermaid
 flowchart LR
     ADAPTER["adapter"] --> PC["policyCache 'all'"]
     ADAPTER --> RC["roleCache 'all'"]
-    ADAPTER --> SC["subjectCache subjectId<br/>capped by getSubjectGrantBoundary"]
+    ADAPTER --> SC["subjectCache subjectId<br/>notAfter = min(grantBoundary, roleCache.expiresAt)"]
+    RC --> SC
     RC --> RBAC["rbacPolicyCache 'rbac'<br/>notAfter = roleCache.expiresAt"]
     PC --> MERGED["mergedPolicyCache 'merged'<br/>notAfter = min(policyCache, rbacPolicyCache)"]
     RBAC --> MERGED
@@ -592,7 +593,7 @@ flowchart LR
 
 ### 6.1 A derived cache is never fresher than its oldest input
 
-This is the invariant that three separate fixes converge on. `IamLRUCache.set`
+This is the invariant that four separate fixes converge on. `IamLRUCache.set`
 takes an optional `notAfter`:
 
 ```ts
@@ -634,6 +635,23 @@ cache entry imposes no cap, because it was read live and so is as fresh as now.
 `engine-compiled-table-ttl.test.ts` covers both directions in both modes,
 including the counterweight — a table built from genuinely fresh inputs must
 keep its whole TTL.
+
+The fourth consumer is the subject entry, and it is the one that reads least
+like a derived cache. `resolveSubject` stores `{id, roles, scopedRoles,
+attributes}`, and `attributes` really are the subject's own — but `roles` is
+`resolveEffectiveRoles(assigned, snapshot)` and `scopedRoles` closes over
+`inherits` the same way, so both halves are as old as the role snapshot they
+were resolved against. Only the grant boundary used to cap the entry, and the
+boundary describes the *assignment* rows, not the role graph. Each entry is
+written at its own moment, so one written with ten seconds left on the snapshot
+took a fresh sixty: measured at the default `cacheTTL`, a subject resolved at
+t=50s still held a role's inherited permission at t=61s, eleven seconds after
+the engine had already re-read the role graph without that edge and was
+answering deny for every subject resolved since. Capping the entry at
+`min(grantBoundary, roleCache.expiresAt('all'))` costs nothing when the snapshot
+is fresh, since the two caps are then the same instant.
+`subject-cache-vs-role-snapshot.test.ts` covers it, including the counterweight
+that the tighter grant boundary still wins.
 
 ### 6.2 `entries()` and `get()` agree at the expiry millisecond
 
