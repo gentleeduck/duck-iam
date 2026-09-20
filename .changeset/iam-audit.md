@@ -184,3 +184,23 @@ per map entry, because there is one verdict per map entry, and
 `{ telemetry: false }` still reports the deny while skipping the metric, as it
 already did on the evaluated path. A malformed id does not also fire `onError`:
 it is input, not a fault.
+
+### A mistyped `scopeCombine` widened the role set
+
+`policyCombine` has a boot-time guard because both evaluators branch on one
+literal and fall through to the most permissive option for anything else. The
+two scope settings have the identical shape and had no guard at all.
+
+`scopeCombine` is the sharper of the two, because its fall-through is the
+*wider* branch. A subject holding `admin` at `org-1` and `viewer` at
+`org-1.team-a`, checked at `org-1.team-a` under `scopeMode: 'hierarchical'`,
+resolves to `['viewer']` with `'override'` and to `['admin', 'viewer']` with
+anything that is not that exact string — so `'overide'` in a config file
+silently handed the caller every ancestor scope's roles, and `can('delete')`
+flipped from `false` to `true`. `scopeMode` falls through to `'flat'`, which is
+narrower, but it still means a hierarchical deployment quietly stops honouring
+descendant scopes.
+
+Both are now refused at construction with the same message shape as
+`policyCombine`, so a bad value is a failed start rather than a quiet change of
+meaning.

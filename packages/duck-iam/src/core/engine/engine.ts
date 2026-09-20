@@ -22,7 +22,13 @@ import {
   invalidateRoles,
   invalidateSubject,
 } from './engine.invalidation'
-import { createAdmin, enrichSubjectWithScopedRoles, ensureEnvNow } from './engine.libs'
+import {
+  createAdmin,
+  enrichSubjectWithScopedRoles,
+  ensureEnvNow,
+  VALID_SCOPE_COMBINES,
+  VALID_SCOPE_MODES,
+} from './engine.libs'
 import { disposeInvalidator, preloadEngine, runHealthCheck } from './engine.lifecycle'
 import { type IIamLoaderDeps, loadAllPolicies, loadPolicies, loadRoles, resolveSubject } from './engine.loaders'
 import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
@@ -203,6 +209,18 @@ export class IamEngine<
     this._hooks = config.hooks ?? {}
 
     // SECURITY: both evaluators treat an unknown value as first-applicable, the most permissive combine.
+    // SECURITY: unvalidated, a typo fell through to the default. `scopeCombine` defaults to the *wider* branch, so
+    // `'overide'` hands a subject every ancestor scope's roles instead of the most specific level's.
+    if (!VALID_SCOPE_MODES.includes(this._scopeMode)) {
+      throw new Error(
+        `[@gentleduck/iam:engine] unknown scopeMode ${JSON.stringify(this._scopeMode)}. Must be one of: ${VALID_SCOPE_MODES.join(', ')}.`,
+      )
+    }
+    if (!VALID_SCOPE_COMBINES.includes(this._scopeCombine)) {
+      throw new Error(
+        `[@gentleduck/iam:engine] unknown scopeCombine ${JSON.stringify(this._scopeCombine)}. Must be one of: ${VALID_SCOPE_COMBINES.join(', ')}.`,
+      )
+    }
     if (!VALID_POLICY_COMBINES.includes(this._policyCombine)) {
       throw new Error(
         `[@gentleduck/iam:engine] unknown policyCombine ${JSON.stringify(this._policyCombine)}. Must be one of: ${VALID_POLICY_COMBINES.join(', ')}.`,
