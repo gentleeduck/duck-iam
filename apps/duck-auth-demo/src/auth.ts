@@ -7,7 +7,7 @@
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
-import { drizzlePgStorage } from '@gentleduck/auth/adapters/drizzle/pg'
+import { drizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
 import { AuthConsoleChannel } from '@gentleduck/auth/channels/console'
 import { createAuth } from '@gentleduck/auth/core'
 import { CookieTransport } from '@gentleduck/auth/core/transport'
@@ -29,7 +29,7 @@ export interface DemoProfile {
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8787'
 const STATE = process.env.OAUTH_STATE_SECRET ?? 'demo-state-signing-secret-change-me-32-chars'
 
-export const storage = drizzlePgStorage<DemoProfile>(
+export const adapter = drizzlePgAdapter<Record<string, unknown>, DemoProfile>(
   process.env.DATABASE_URL ?? 'postgres://duck:duck_dev_pw@localhost:5433/duck_auth_demo',
 )
 
@@ -45,7 +45,7 @@ export const auth = createAuth<DemoProfile>({
         autoCreateProfile: (email) => ({ username: email, email, emailVerified: false }),
         callbackPath: '/auth/magic-link/verify',
         channels: { email: new AuthConsoleChannel() },
-        findIdentityByEmail: (e) => storage.identities.find({ email: e }),
+        findIdentityByEmail: (e) => adapter.identities.find({ email: e }),
       }),
     process.env.GOOGLE_CLIENT_ID &&
       google<DemoProfile>({
@@ -64,11 +64,11 @@ export const auth = createAuth<DemoProfile>({
     () =>
       passkey<DemoProfile>({
         expectedOrigins: BASE_URL,
-        findIdentityByEmail: (e) => storage.identities.find({ email: e }),
+        findIdentityByEmail: (e) => adapter.identities.find({ email: e }),
         rpID: 'localhost',
         rpName: 'duck-auth-demo',
       }),
   ],
-  stores: storage,
+  stores: adapter,
   transport: new CookieTransport({ name: 'duck-sid', secure: false }),
 })
