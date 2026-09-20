@@ -45,7 +45,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     expect(errors.some((e) => e.includes('expected object'))).toBe(true)
   })
 
-  it('drops an individual assignment row whose value is a string', async () => {
+  it('refuses to read an individual assignment row whose value is a string', async () => {
     const { adapter, errors } = await makeAdapter({
       assignments: {
         'user-good': [{ role: 'editor' }],
@@ -53,19 +53,20 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
       },
     })
     expect(await adapter.getSubjectRoles('user-good')).toEqual(['editor'])
-    expect(await adapter.getSubjectRoles('user-bad')).toEqual([])
+    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
-  // Entries are grants, so keeping the valid ones never grants more than the file asks, while dropping the row
-  // would cost the subject unrelated authority.
-  it("drops only the malformed entry, keeping the subject's valid grants", async () => {
+  // These three used to assert the opposite, on the premise that keeping the readable grants "never grants more
+  // than the file asks". It does: a policy with `targets.roles` stops applying when the grant it names goes
+  // missing, so its deny stops firing. `file-corrupt-assignments.test.ts` drives that through a real engine.
+  it("refuses the row rather than keeping the subject's readable grants", async () => {
     const { adapter, errors } = await makeAdapter({
       assignments: {
         'user-bad': [{ role: 'editor' }, null, { role: 'viewer' }],
       },
     })
-    expect(await adapter.getSubjectRoles('user-bad')).toEqual(['editor', 'viewer'])
+    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
@@ -75,7 +76,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
         'user-bad': [{ role: 'editor' }, null, { role: 42 }],
       },
     })
-    expect(await adapter.getSubjectRoles('user-bad')).toEqual(['editor'])
+    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
     expect(errors.some((e) => e.includes('[1]'))).toBe(true)
     expect(errors.some((e) => e.includes('[2]'))).toBe(true)
   })
@@ -88,13 +89,13 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     await expect(adapter.assignRole('u1', 'editor', emptyScope)).rejects.toThrow(/empty string/)
   })
 
-  it('drops entries with non-string role', async () => {
+  it('refuses a row whose entry has a non-string role', async () => {
     const { adapter, errors } = await makeAdapter({
       assignments: {
         'user-bad': [{ role: 42 }],
       },
     })
-    expect(await adapter.getSubjectRoles('user-bad')).toEqual([])
+    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
     expect(errors.some((e) => e.includes('missing/non-string role'))).toBe(true)
   })
 

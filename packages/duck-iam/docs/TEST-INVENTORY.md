@@ -57,6 +57,7 @@ drift the way the hand-maintained version did.
 | `adapters/drizzle/__tests__/with-client.test.ts` | 5 | IamAdapter.withClient |
 | `adapters/file/__tests__/file-atomic-write.test.ts` | 7 | file adapter writes atomically when the driver supports rename |
 | `adapters/file/__tests__/file-containment-window.test.ts` | 3 | file adapter containment is checked on a cache miss and on every write |
+| `adapters/file/__tests__/file-corrupt-assignments.test.ts` | 16 | file adapter: a malformed assignments row fails closed |
 | `adapters/file/__tests__/file-corrupt-attributes-persist.test.ts` | 3 | file adapter: a corrupt attributes row survives a flush |
 | `adapters/file/__tests__/file-failed-write-cache.test.ts` | 5 | a write the store refused leaves no grant behind |
 | `adapters/file/__tests__/file-input-shape.test.ts` | 3 | IamFileAdapter direct-call input shape |
@@ -92,7 +93,7 @@ drift the way the hand-maintained version did.
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
 | `adapters/redis/__tests__/redis.test.ts` | 123 | IamRedisAdapter |
-| **Subtotal** | **1601** | |
+| **Subtotal** | **1617** | |
 
 ---
 
@@ -418,7 +419,7 @@ drift the way the hand-maintained version did.
 | Area | Files | Tests |
 |---|---|---|
 | Core / compiled engine | 10 | 149 |
-| Adapters | 54 | 1601 |
+| Adapters | 55 | 1617 |
 | Clients | 11 | 136 |
 | Core | 161 | 2739 |
 | Devtools | 9 | 201 |
@@ -428,4 +429,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **309** | **6123** |
+| **Total** | **310** | **6139** |

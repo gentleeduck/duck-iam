@@ -530,3 +530,36 @@ express control in the HTTP e2e boots a real express app to show why the one
 adapter still calling its downstream inside the try is unaffected: express
 dispatches each layer inside a try of its own and turns the throw into
 `next(err)` before it could unwind.
+
+### A malformed role grant in the file store turned a deny into an allow
+
+The file adapter's assignment parser dropped a malformed `{role, scope?}`
+entry, reported it through `onPolicyError`, and answered the read with the
+grants that did parse. Losing a grant reads like *less* authority, so this
+looked safe. It is not: a policy's `targets.roles` names the subject's
+**grants**, and `policyApplies` drops a policy whose targets no longer
+intersect the subject's roles. A deny policy targeting `banned` stops applying
+the moment the `banned` grant cannot be read, and the allow that the same file
+grants through another role carries the decision.
+
+Measured through the engine, with an `allow-all-read` policy and a
+`deny-banned` policy targeting `targets.roles: ['banned']`: a subject holding
+`reader` + `banned` is denied; the same subject whose `banned` entry is
+`{role: 'banned', scope: 5}` — a number where a string belongs — is **allowed**.
+Same for `{role: 42}`, for a bare string entry, and for a row that is not an
+array at all.
+
+The same file already fails closed for a corrupt *attributes* row, for the same
+stated reason, so the fix is that design applied to assignments: the row moves
+into `corruptAssignments`, `getSubjectRoles` and `getSubjectScopedRoles` throw,
+and `assignRole` / `revokeRole` / `updateAssignmentScope` refuse — an
+incremental edit would write back a row with the unreadable entry silently
+gone.
+
+The second half was worse than the read. `_serializableState` wrote the
+*parsed* assignments back, so the next flush of any kind — an unrelated grant
+for another subject — erased the malformed entry from disk permanently, and the
+store then looked clean. The raw row is now written back verbatim, as the
+corrupt attributes row already was, so the file still holds what an operator
+has to repair. `deleteRole` cannot sweep a row it refuses to read, and now
+reports each one it skipped rather than implying the role is gone.
