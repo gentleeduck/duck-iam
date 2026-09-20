@@ -15,27 +15,30 @@ describe('authBuildOpenApiSpec', () => {
     expect(spec.servers[0]!.url).toBe('https://app.test')
   })
 
-  it('default config emits routes for password + magic-link + oauth + passkey', () => {
+  it('default config emits the routes the adapters mount', () => {
     const spec = buildOpenApiSpec({ baseUrl: 'https://app.test' })
     const paths = Object.keys(spec.paths)
-    expect(paths).toContain('/auth/password/sign-in')
-    expect(paths).toContain('/auth/magic-link/request')
-    expect(paths).toContain('/auth/magic-link/verify')
-    expect(paths).toContain('/auth/oauth/{provider}/start')
-    expect(paths).toContain('/auth/oauth/{provider}/callback')
-    expect(paths).toContain('/auth/passkey/begin')
-    expect(paths).toContain('/auth/passkey/verify')
-    expect(paths).toContain('/auth/sign-out')
+    expect(paths).toContain('/auth/signin')
+    expect(paths).toContain('/auth/signout')
     expect(paths).toContain('/auth/session')
+    expect(paths).toContain('/auth/providers/{id}/begin')
+    expect(paths).toContain('/auth/providers/{provider}/callback')
+    expect(paths).toContain('/auth/magic-link/verify')
+    expect(paths).toContain('/auth/passkey/begin')
+    expect(paths).toContain('/auth/passkey/complete')
+    expect(paths).toContain('/auth/mfa/totp/verify')
   })
 
-  it('providers:[] narrows the surface to just the framework routes', () => {
+  it('providers:[] narrows the surface to the ungated routes', () => {
     const spec = buildOpenApiSpec({ baseUrl: 'https://app.test', providers: [] })
     const paths = Object.keys(spec.paths)
-    expect(paths).not.toContain('/auth/password/sign-in')
-    expect(paths).not.toContain('/auth/magic-link/request')
-    expect(paths).toContain('/auth/sign-out')
+    expect(paths).not.toContain('/auth/magic-link/verify')
+    expect(paths).not.toContain('/auth/passkey/begin')
+    expect(paths).not.toContain('/auth/mfa/totp/verify')
+    expect(paths).toContain('/auth/signin')
+    expect(paths).toContain('/auth/signout')
     expect(paths).toContain('/auth/session')
+    expect(paths).toContain('/auth/providers/{id}/begin')
   })
 
   it('includeJwks:true adds the /.well-known/jwks.json route', () => {
@@ -43,12 +46,11 @@ describe('authBuildOpenApiSpec', () => {
     expect(Object.keys(spec.paths)).toContain('/.well-known/jwks.json')
   })
 
-  it('idempotent POST routes declare an Idempotency-Key parameter', () => {
-    const spec = buildOpenApiSpec({ baseUrl: 'https://app.test' })
-    const passwordRoute = spec.paths['/auth/password/sign-in']!.post as {
-      parameters?: Array<{ name: string }>
-    }
-    expect(passwordRoute.parameters?.some((p) => p.name === 'Idempotency-Key')).toBe(true)
+  it('advertises no Idempotency-Key, which no adapter reads', () => {
+    // `auth.idempotency` is a facet a host wraps its own routes in; the mounted routes never look at
+    // the header, so declaring it told a generated client that retries were replayed when they are not.
+    const yaml = renderOpenApiYaml(buildOpenApiSpec({ baseUrl: 'https://app.test' }))
+    expect(yaml).not.toContain('Idempotency-Key')
   })
 
   it('security schemes include cookieAuth + bearerAuth + dpop', () => {
@@ -56,14 +58,16 @@ describe('authBuildOpenApiSpec', () => {
     expect(Object.keys(spec.components.securitySchemes).sort()).toEqual(['bearerAuth', 'cookieAuth', 'dpop'])
   })
 
-  it('components.schemas covers AuthError + Session + SignInResult', () => {
+  it('components.schemas covers AuthError + Session + SessionResult', () => {
     const spec = buildOpenApiSpec({ baseUrl: 'https://app.test' })
-    expect(Object.keys(spec.components.schemas).sort()).toEqual(['AuthError', 'Session', 'SignInResult'])
+    // No `SignInResult`: a sign-in answers with a cookie and an empty body, and a second factor is a
+    // 401 rather than a 200 carrying `mfaRequired`, which nothing has ever sent.
+    expect(Object.keys(spec.components.schemas).sort()).toEqual(['AuthError', 'Session', 'SessionResult'])
   })
 
   it('respects a custom prefix', () => {
     const spec = buildOpenApiSpec({ baseUrl: 'https://app.test', prefix: '/v2/auth' })
-    expect(Object.keys(spec.paths)).toContain('/v2/auth/password/sign-in')
+    expect(Object.keys(spec.paths)).toContain('/v2/auth/signin')
     expect(Object.keys(spec.paths)).toContain('/v2/auth/session')
   })
 })
@@ -74,7 +78,7 @@ describe('authRenderOpenApiYaml', () => {
     const yaml = renderOpenApiYaml(spec)
     expect(yaml).toContain('openapi: 3.1.0')
     expect(yaml).toContain('title: Auth API')
-    expect(yaml).toContain('/auth/password/sign-in')
+    expect(yaml).toContain('/auth/signin')
     expect(yaml).toContain('cookieAuth')
   })
 
@@ -102,6 +106,7 @@ describe('the Session schema describes what the handler serialises', () => {
     absoluteExpiresAt: LATER,
     actingAs: null,
     createdAt: NOW,
+    updatedAt: NOW,
     csrfHash: null,
     expiresAt: LATER,
     factors: [{ completedAt: NOW, method: 'totp' }],

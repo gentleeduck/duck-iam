@@ -78,17 +78,17 @@ export class AuthLinguiResolver implements AuthI18n.IResolver {
  * fallback so an English-only deploy works without configuration.
  */
 export const AUTH_DEFAULT_EN_MESSAGES: Record<string, string> = {
-  'AUTH/UNAUTHENTICATED': 'Sign in to continue.',
-  'AUTH/SESSION_EXPIRED': 'Your session expired. Sign in again.',
-  'AUTH/SESSION_REVOKED': 'Your session was revoked. Sign in again.',
+  AUTH_UNAUTHENTICATED: 'Sign in to continue.',
+  AUTH_SESSION_EXPIRED: 'Your session expired. Sign in again.',
+  AUTH_SESSION_REVOKED: 'Your session was revoked. Sign in again.',
   AUTH_INVALID_CREDENTIALS: 'Invalid email or password.',
-  'AUTH/EMAIL_NOT_VERIFIED': 'Please verify your email before continuing.',
-  'AUTH/RATE_LIMITED': 'Too many attempts. Try again later.',
-  'AUTH/LOCKED': 'Your account is temporarily locked.',
-  'AUTH/MFA_REQUIRED': 'Multi-factor authentication is required.',
-  'AUTH/PASSKEY_MISMATCH': 'Passkey did not match. Try again.',
-  'AUTH/RECOVERY_TOKEN_INVALID': 'This link is invalid.',
-  'AUTH/RECOVERY_TOKEN_EXPIRED': 'This link has expired. Request a new one.',
+  AUTH_EMAIL_NOT_VERIFIED: 'Please verify your email before continuing.',
+  AUTH_RATE_LIMITED: 'Too many attempts. Try again later.',
+  AUTH_LOCKED: 'Your account is temporarily locked.',
+  AUTH_MFA_REQUIRED: 'Multi-factor authentication is required.',
+  AUTH_PASSKEY_MISMATCH: 'Passkey did not match. Try again.',
+  AUTH_RECOVERY_TOKEN_INVALID: 'This link is invalid.',
+  AUTH_RECOVERY_TOKEN_EXPIRED: 'This link has expired. Request a new one.',
   'magic-link.subject': 'Your sign-in link',
   'magic-link.body': 'Click {{url}} to sign in (expires in {{ttlMin}} minutes).',
   'email-verification.subject': 'Verify your email',
@@ -99,6 +99,7 @@ export const AUTH_DEFAULT_EN_MESSAGES: Record<string, string> = {
   'account-deletion.body': 'Confirm deletion: {{url}} (expires in {{ttlMin}} minutes).',
 }
 
+/** The message-resolver contract, and the catalogue shape the built-in resolver takes. */
 export namespace AuthI18n {
   export interface IResolver {
     /** Resolve a message id under the chosen locale; falls back to the default locale. */
@@ -126,14 +127,14 @@ export namespace AuthI18n {
   }
 }
 
-/** Factory around {@link AuthI18nMessageCatalog}, for callers who prefer functions to `new`. */
+/** Resolver backed by a plain message catalogue. */
 export function authI18nMessageCatalog(
   ...args: ConstructorParameters<typeof AuthI18nMessageCatalog>
 ): AuthI18nMessageCatalog {
   return new AuthI18nMessageCatalog(...args)
 }
 
-/** Factory around {@link AuthLinguiResolver}, for callers who prefer functions to `new`. */
+/** Resolver backed by a Lingui catalogue. */
 export function authLinguiResolver(...args: ConstructorParameters<typeof AuthLinguiResolver>): AuthLinguiResolver {
   return new AuthLinguiResolver(...args)
 }

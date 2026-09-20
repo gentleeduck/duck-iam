@@ -7,6 +7,7 @@
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { AuthError } from '~/core/errors'
 
 interface CliCommand {
   name: string
@@ -58,35 +59,35 @@ function printHelp(): void {
   process.stdout.write('\nRun `duck-auth <command> --help` for command-specific options.\n')
 }
 
-/**
- * Resolve the path to the scaffolded auth.ts template. Two flavors:
- *   - quickstart: in-memory adapter, suitable for hello-world
- *   - production: Redis + JWT transport, real defaults
- */
+/** The scaffolded `auth.ts` template: `quickstart` is the in-memory adapter, `production` is Redis plus the JWT
+ *  transport on real defaults. Every specifier and symbol here is pinned by `cli-scaffold.test.ts`, because
+ *  nothing else type-checks a string. */
 function scaffoldTemplate(flavor: 'quickstart' | 'production'): string {
   if (flavor === 'quickstart') {
-    return `import { AuthEngine, AuthInMemoryEvents, AuthScryptHasher } from '@gentleduck/auth/core'
-import { AuthMemoryAdapter } from '@gentleduck/auth/adapters/memory'
-import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
-import { AuthCookieTransport } from '@gentleduck/auth/core/transport'
-import { passwords } from '@gentleduck/auth/providers/password'
+    return `import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
+import { AuthEngine, InMemoryEvents } from '@gentleduck/auth/core'
+import { CookieTransport } from '@gentleduck/auth/core/transport'
+import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
+import { passwords, ScryptHasher } from '@gentleduck/auth/providers/passwords'
 
-const adapter = new AuthMemoryAdapter()
+const adapter = new MemoryAdapter()
 
 export const auth = new AuthEngine({
-  baseUrl: process.env.DUCK_AUTH/BASE_URL ?? 'http://localhost:3000',
-  transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+  baseUrl: process.env.DUCK_AUTH_BASE_URL ?? 'http://localhost:3000',
+  transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
   stores: adapter,
-  events: new AuthInMemoryEvents(),
-  limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-  providers: [passwords({ hasher: new AuthScryptHasher() })],
+  events: new InMemoryEvents(),
+  limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+  providers: [passwords({ hasher: new ScryptHasher() })],
 })
 `
   }
-  return `import { AuthEngine, AuthArgon2idHasher } from '@gentleduck/auth/core'
-import { AuthJwtTransport } from '@gentleduck/auth/core/transport'
-import { RedisIdempotencyStore, RedisLimiter, RedisSessionStore } from '@gentleduck/auth/adapters/redis'
-import { passwords } from '@gentleduck/auth/providers/password'
+  return `import { RedisSessionImpl } from '@gentleduck/auth/adapters/redis'
+import { AuthEngine } from '@gentleduck/auth/core'
+import { redisIdempotency } from '@gentleduck/auth/core/idempotency'
+import { JwtTransport } from '@gentleduck/auth/core/transport'
+import { RedisLimiter } from '@gentleduck/auth/limiters/redis'
+import { Argon2idHasher, passwords } from '@gentleduck/auth/providers/passwords'
 import { Redis } from 'ioredis'
 
 const redis = new Redis(process.env.REDIS_URL!)
@@ -97,42 +98,40 @@ declare const identities: never
 declare const credentials: never
 
 export const auth = new AuthEngine({
-  baseUrl: process.env.DUCK_AUTH/BASE_URL!,
-  transport: new AuthJwtTransport({
-    issuer: process.env.DUCK_AUTH/ISSUER!,
-    signKey: { kid: 'k1', key: process.env.DUCK_AUTH/HS256_SECRET! },
-    verifyKeys: [{ kid: 'k1', key: process.env.DUCK_AUTH/HS256_SECRET! }],
+  baseUrl: process.env.DUCK_AUTH_BASE_URL!,
+  transport: new JwtTransport({
+    issuer: process.env.DUCK_AUTH_ISSUER!,
+    signKey: { kid: 'k1', key: process.env.DUCK_AUTH_HS256_SECRET! },
+    verifyKeys: [{ kid: 'k1', key: process.env.DUCK_AUTH_HS256_SECRET! }],
     refresh: { ttlMs: 7 * 24 * 60 * 60 * 1000 },
   }),
   stores: {
     identities,
-    sessions: new RedisSessionStore({ redis }),
+    sessions: new RedisSessionImpl({ redis }),
     credentials,
   },
   limiter: new RedisLimiter({ redis, max: 5, windowMs: 60_000 }),
-  providers: [passwords({ hasher: new AuthArgon2idHasher() })],
-  idempotency: { store: new RedisIdempotencyStore({ redis }), ttlMs: 24 * 60 * 60 * 1000 },
-  env: 'production',
+  providers: [passwords({ hasher: new Argon2idHasher() })],
+  idempotency: redisIdempotency({ prefix: 'auth:idem', redis }),
 })
+
+// env is not an AuthEngine option: production hardening is this call, which refuses to start on a
+// weak secret, an insecure cookie, or a missing limiter.
+auth.strict({ env: 'production' })
 `
 }
 
 function envTemplate(): string {
   return `# @gentleduck/auth environment variables
-DUCK_AUTH/BASE_URL=http://localhost:3000
-DUCK_AUTH/ISSUER=https://your-issuer.example
-DUCK_AUTH/HS256_SECRET=replace-me-with-32-bytes-of-entropy
+DUCK_AUTH_BASE_URL=http://localhost:3000
+DUCK_AUTH_ISSUER=https://your-issuer.example
+DUCK_AUTH_HS256_SECRET=replace-me-with-32-bytes-of-entropy
 REDIS_URL=redis://127.0.0.1:6379
 `
 }
 
-/**
- * `duck-auth init` subcommand. Writes `auth.ts` + `.env.duck-auth` into
- * the target directory; refuses to overwrite existing files.
- *
- * Flags:
- *   --production: emit the production-grade scaffold (Redis + JWT)
- */
+/** `duck-auth init`: write `auth.ts` and `.env.duck-auth` into the target directory, refusing to overwrite
+ *  either. `--production` emits the Redis and JWT scaffold instead of the quickstart one. */
 async function cmdInit(args: string[]): Promise<number> {
   const dir = args.find((a) => !a.startsWith('--')) ?? 'src/auth'
   const flavor = args.includes('--production') ? 'production' : 'quickstart'
@@ -147,10 +146,13 @@ async function cmdInit(args: string[]): Promise<number> {
     return 1
   }
   writeFileSync(authPath, scaffoldTemplate(flavor), 'utf8')
-  if (!existsSync(envPath)) {
-    writeFileSync(envPath, envTemplate(), 'utf8')
+  // The file exists to hold an HS256 secret, so it is created owner-only rather than at the umask
+  // default. `mode` is masked by the umask, so this can only narrow the permissions, never widen them.
+  const wroteEnv = !existsSync(envPath)
+  if (wroteEnv) {
+    writeFileSync(envPath, envTemplate(), { encoding: 'utf8', mode: 0o600 })
   }
-  process.stdout.write(`scaffolded ${authPath}\nscaffolded ${envPath}\n`)
+  process.stdout.write(`scaffolded ${authPath}\n${wroteEnv ? 'scaffolded' : 'kept existing'} ${envPath}\n`)
   if (flavor === 'production') {
     process.stdout.write(
       'next: install peerDeps (`bun add ioredis @node-rs/argon2`); wire `identities` + `credentials` stores; export `auth` from your framework adapter.\n',
@@ -161,11 +163,9 @@ async function cmdInit(args: string[]): Promise<number> {
   return 0
 }
 
-/**
- * `duck-auth doctor` subcommand. Looks for an `auth.ts` (or path passed
- * as the first arg), dynamic-imports it, and calls `auth.strict()` on
- * the default export named `auth`. Reports any thrown error verbatim.
- */
+/** `duck-auth doctor`: find an `auth.ts`, or take one as the first argument, import it and call `strict()` on
+ *  its `auth` export, reporting whatever it throws verbatim. Production is the env asked about: outside it
+ *  `strict()` checks only a branded compliance preset, which is not what someone runs a doctor for. */
 async function cmdDoctor(args: string[]): Promise<number> {
   const pathArg = args.find((a) => !a.startsWith('--')) ?? findAuthFile()
   if (!pathArg) {
@@ -183,18 +183,21 @@ async function cmdDoctor(args: string[]): Promise<number> {
       process.stderr.write(`module at ${absolute} does not export a named \`auth\` with a strict() method\n`)
       return 1
     }
-    mod.auth.strict()
+    mod.auth.strict({ env: 'production' })
     process.stdout.write('AuthEngine.strict() OK\n')
     return 0
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`strict() rejected: ${message}\n`)
+    // An `AuthError`'s `message` is its bare code; the checks that failed are in `meta.detail`. A verdict
+    // and a crash are named apart, which is how a `strict()` called with no arguments read as a rejection.
+    const failed = err instanceof AuthError
+    const message = failed ? String(err.meta.detail ?? err.code) : err instanceof Error ? err.message : String(err)
+    process.stderr.write(`${failed ? 'strict() rejected' : 'could not run strict()'}: ${message}\n`)
     return 1
   }
 }
 
 function findAuthFile(): string | undefined {
-  const candidates = ['src/AUTH/auth.ts', 'src/auth.ts', 'auth.ts']
+  const candidates = ['src/auth/auth.ts', 'src/auth.ts', 'auth.ts']
   for (const c of candidates) {
     if (existsSync(resolve(process.cwd(), c))) return c
   }
@@ -216,7 +219,7 @@ async function cmdKeys(args: string[]): Promise<number> {
     switch (args[1]) {
       case 'hs256': {
         const secret = randomBytes(32).toString('base64url')
-        process.stdout.write(`# HS256 secret (paste into DUCK_AUTH/HS256_SECRET, never commit):\n${secret}\n`)
+        process.stdout.write(`# HS256 secret (paste into DUCK_AUTH_HS256_SECRET, never commit):\n${secret}\n`)
         return 0
       }
       case 'ec256': {
@@ -251,19 +254,19 @@ async function cmdKeys(args: string[]): Promise<number> {
   process.stdout.write(
     `# HS256 rotation. New signing kid: ${newKid}. Keep previous kid (${prevKid}) on verifyKeys for the rollover window.\n`,
   )
-  process.stdout.write(`# 1. Store the new secret as DUCK_AUTH/HS256_SECRET_${newKid.toUpperCase()}:\n`)
+  process.stdout.write(`# 1. Store the new secret as DUCK_AUTH_HS256_SECRET_${newKid.toUpperCase()}:\n`)
   process.stdout.write(`${newSecret}\n\n`)
   process.stdout.write('# 2. Update your AuthJwtTransport config:\n')
   process.stdout.write('# new AuthJwtTransport({\n')
   process.stdout.write(
-    `#   signKey: { kid: '${newKid}', key: process.env.DUCK_AUTH/HS256_SECRET_${newKid.toUpperCase()}! },\n`,
+    `#   signKey: { kid: '${newKid}', key: process.env.DUCK_AUTH_HS256_SECRET_${newKid.toUpperCase()}! },\n`,
   )
   process.stdout.write('#   verifyKeys: [\n')
   process.stdout.write(
-    `#     { kid: '${newKid}', key: process.env.DUCK_AUTH/HS256_SECRET_${newKid.toUpperCase()}! },\n`,
+    `#     { kid: '${newKid}', key: process.env.DUCK_AUTH_HS256_SECRET_${newKid.toUpperCase()}! },\n`,
   )
   process.stdout.write(
-    `#     { kid: '${prevKid}', key: process.env.DUCK_AUTH/HS256_SECRET_${prevKid.toUpperCase()}! },\n`,
+    `#     { kid: '${prevKid}', key: process.env.DUCK_AUTH_HS256_SECRET_${prevKid.toUpperCase()}! },\n`,
   )
   process.stdout.write('#   ],\n')
   process.stdout.write('# })\n')
@@ -271,14 +274,14 @@ async function cmdKeys(args: string[]): Promise<number> {
   return 0
 }
 
-/** `duck-auth migrate <pg|mysql|sqlite> [--prefix=AUTH/] [--out=path]` emits duck-auth CREATE TABLE DDL. */
+/** `duck-auth migrate <pg|mysql|sqlite> [--prefix=auth_] [--out=path]` emits duck-auth CREATE TABLE DDL. */
 async function cmdMigrate(args: string[]): Promise<number> {
   const dialect = args.find((a) => !a.startsWith('--')) as 'pg' | 'mysql' | 'sqlite' | undefined
   if (!dialect || !['pg', 'mysql', 'sqlite'].includes(dialect)) {
-    process.stderr.write('usage: duck-auth migrate <pg|mysql|sqlite> [--prefix=AUTH/] [--out=path]\n')
+    process.stderr.write('usage: duck-auth migrate <pg|mysql|sqlite> [--prefix=auth_] [--out=path]\n')
     return 1
   }
-  const prefix = (args.find((a) => a.startsWith('--prefix=')) ?? '--prefix=AUTH/').slice('--prefix='.length)
+  const prefix = (args.find((a) => a.startsWith('--prefix=')) ?? '--prefix=auth_').slice('--prefix='.length)
   const outPath = args.find((a) => a.startsWith('--out='))?.slice('--out='.length)
   const ddl = renderMigration(dialect, prefix)
   if (outPath) {
@@ -292,13 +295,8 @@ async function cmdMigrate(args: string[]): Promise<number> {
   return 0
 }
 
-/**
- * Resolve `--out=path` to an absolute path and refuse anything that
- * escapes the current working directory. `--out` shows up in npm
- * scripts and CI pipelines where the input can be tainted; constraining
- * to cwd prevents `--out=../../etc/whatever` from clobbering files
- * outside the repo.
- */
+/** Resolve `--out=path` and refuse anything escaping the working directory. SECURITY: `--out` reaches this from
+ *  npm scripts and CI where the value can be tainted, so `--out=../../etc/whatever` must not land. */
 function resolveOutPath(relative: string): string | null {
   const cwd = process.cwd()
   const absolute = resolve(cwd, relative)
@@ -358,12 +356,8 @@ async function cmdEmitOpenapi(args: string[]): Promise<number> {
   }
 }
 
-/**
- * Build the SQL DDL for the three auth tables under the chosen dialect.
- * Bigints are used for ms-since-epoch columns; JSON-encoded blobs sit
- * as `text` for portability (no jsonb / json column types so sqlite +
- * mysql + pg all share the same shape).
- */
+/** SQL DDL for the three auth tables under one dialect. Timestamps are bigint ms-since-epoch and JSON blobs sit
+ *  in `text`, so sqlite, mysql and pg all share the one shape. */
 export function renderMigration(dialect: 'pg' | 'mysql' | 'sqlite', prefix: string): string {
   // `id` split from generic `text` because MySQL rejects BLOB/TEXT in
   // PRIMARY KEY/INDEX without a length prefix (ERROR 1170).
@@ -403,14 +397,15 @@ export function renderMigration(dialect: 'pg' | 'mysql' | 'sqlite', prefix: stri
 );
 ${createIdx} ${prefix}identities_deleted_at ON ${prefix}identities(deleted_at);`
 
-  // One row per external login. It used to be a JSON column on the identity, which no index could reach:
-  // a sign-in through a provider scanned every row, and nothing stopped two identities claiming one sub.
+  // One row per external login, rather than a JSON column on the identity that no index can reach:
+  // that made a sign-in through a provider scan every row, and let two identities claim one sub.
   const identityProviders = `CREATE TABLE IF NOT EXISTS ${prefix}identity_providers (
   id ${t.id} PRIMARY KEY NOT NULL,
   identity_id ${t.id} NOT NULL,
   provider_id ${t.shortText} NOT NULL,
   provider_sub ${t.shortText} NOT NULL,
-  added_at ${t.big} NOT NULL
+  added_at ${t.big} NOT NULL,
+  added_by ${t.shortText}
 );
 CREATE UNIQUE INDEX ${dialect === 'mysql' ? '' : 'IF NOT EXISTS '}${prefix}identity_providers_sub ON ${prefix}identity_providers(provider_id, provider_sub);
 CREATE UNIQUE INDEX ${dialect === 'mysql' ? '' : 'IF NOT EXISTS '}${prefix}identity_providers_owned ON ${prefix}identity_providers(identity_id, provider_id);
@@ -476,11 +471,7 @@ ${createIdx} ${prefix}sessions_absolute_expires ON ${prefix}sessions(absolute_ex
   return `${header}\n${identities}\n\n${identityProviders}\n\n${credentials}\n\n${sessions}\n`
 }
 
-/**
- * CLI entry point. Parses argv, dispatches to the matching subcommand,
- * surfaces errors back through the exit code. Exported so the bin
- * shim can call it.
- */
+/** CLI entry point: parse argv, dispatch to the subcommand, surface failures through the exit code. */
 export async function authRun(argv: string[]): Promise<number> {
   const [sub, ...rest] = argv
   if (!sub || sub === '--help' || sub === '-h') {
@@ -496,7 +487,7 @@ export async function authRun(argv: string[]): Promise<number> {
   return cmd.run(rest)
 }
 
-// Avoid silent eats when imported by another module - run only when invoked.
+// Runs only when invoked, so importing this module does not silently swallow the argv.
 if (import.meta.url === `file://${process.argv[1]}`) {
   authRun(process.argv.slice(2)).then((code) => {
     process.exit(code)
@@ -504,6 +495,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 }
 
 /** Re-exported for tests + programmatic use. */
+/** The CLI's commands, exposed under `__` names for its own tests. Not a supported surface. */
 export {
   cmdDoctor as __doctor,
   cmdEmitOpenapi as __emitOpenapi,
