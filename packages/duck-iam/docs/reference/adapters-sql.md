@@ -149,7 +149,10 @@ Constraints on every dialect:
   makes `assignRole` refuse an unknown role, and it does work no application
   check can: it stops `deleteRole` leaving orphan grants that a role later
   recreated under the same id would resurrect
-  (`src/shared/assignment-target.ts`).
+  (`src/shared/assignment-target.ts`). The constraint cannot reach the other
+  place a role id is written down — `iam_roles.inherits` is a JSON array, not a
+  referencing column — so `deleteRole` sweeps those edges itself
+  (`iamRoleWithoutInherit`), on every adapter.
 - `uq_iam_assignments_subject_role_scope` — see the NULL note below.
 - `idx_iam_assignments_subject`, `idx_iam_assignments_role`,
   `idx_iam_assignments_subject_scope`, `idx_iam_assignments_expires_at`.

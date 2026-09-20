@@ -79,3 +79,24 @@ export function iamUnreadablePolicy(adapter: string, id: string, detail: string)
       `the one that denies. Repair or delete the row. (${detail})`,
   )
 }
+
+/**
+ * The role rewritten without the `inherits` entry naming `deletedId`, or `null` when it never named it.
+ * SECURITY: an orphan edge re-attaches if the id is recreated, exactly as an orphan grant would.
+ */
+export function iamRoleWithoutInherit<
+  TAction extends string,
+  TResource extends string,
+  TRole extends string,
+  TScope extends string,
+>(
+  role: AccessControl.IRole<TAction, TResource, TRole, TScope>,
+  deletedId: string,
+): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  const inherits = role.inherits
+  if (!Array.isArray(inherits) || !inherits.includes(deletedId)) return null
+  const kept = inherits.filter((parent) => parent !== deletedId)
+  const { inherits: _dropped, ...rest } = role
+  // An absent `inherits` is how every writer spells "inherits nothing"; an empty array is not the same row.
+  return kept.length === 0 ? rest : { ...rest, inherits: kept }
+}

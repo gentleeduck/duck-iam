@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { resolveEffectiveRoles } from '../../core/rbac'
 import type { AccessControl, IamAdapter } from '../../core/types'
 import type { OptionalSupport } from './optional-support'
 
@@ -282,6 +283,27 @@ export function runAdapterCompliance(
         await a.deleteRole('editor')
         expect(await a.getSubjectRoles('user-1')).toEqual(['viewer'])
         if (supports.getSubjectScopedRoles) expect(await requireScoped(a)('user-2')).toEqual([])
+      })
+
+      // The other thing that names a role id. An edge left behind is `DANGLING_INHERIT`, which `validateRoles`
+      // calls an error, and it re-attaches every holder of the child to whatever is recreated under the id.
+      it('deleting a role drops the inherits edges that named it', async () => {
+        const a = await seeded(factory)
+        await a.saveRole({ id: 'staff', inherits: ['editor'], name: 'Staff', permissions: [] })
+        await a.deleteRole('editor')
+        expect((await a.getRole('staff'))?.inherits ?? []).toEqual([])
+        expect((await a.listRoles()).flatMap((r) => r.inherits ?? [])).toEqual([])
+      })
+
+      // SECURITY: the escalation the edge sweep exists to stop, end to end.
+      it('recreating a deleted role id does not re-grant it through a surviving child', async () => {
+        const a = await seeded(factory)
+        await a.saveRole({ id: 'staff', inherits: ['editor'], name: 'Staff', permissions: [] })
+        await a.assignRole('user-1', 'staff')
+        await a.deleteRole('editor')
+        await a.saveRole({ id: 'editor', name: 'Editor v2', permissions: [{ action: 'delete', resource: 'post' }] })
+        const roles = resolveEffectiveRoles(await a.getSubjectRoles('user-1'), await a.listRoles())
+        expect(roles.sort()).toEqual(['staff'])
       })
 
       // SECURITY: redis spells "no scope" as "", so an empty scope would be stored as a global grant.

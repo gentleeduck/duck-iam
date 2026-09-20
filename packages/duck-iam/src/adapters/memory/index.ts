@@ -2,7 +2,13 @@ import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../..
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
 import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamCopyAttributes } from '../../shared/attributes'
-import { iamAssertSavablePolicy, iamAssertSavableRole, iamCloneRow, iamNormalizePolicy } from '../../shared/rows'
+import {
+  iamAssertSavablePolicy,
+  iamAssertSavableRole,
+  iamCloneRow,
+  iamNormalizePolicy,
+  iamRoleWithoutInherit,
+} from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 
 /** Types for the in-memory adapter. Type-only namespace - zero bundle cost. */
@@ -123,6 +129,10 @@ export class IamMemoryAdapter<
    */
   async deleteRole(id: string): Promise<void> {
     this._roles.delete(id)
+    for (const [roleId, role] of this._roles) {
+      const stripped = iamRoleWithoutInherit(role, id)
+      if (stripped !== null) this._roles.set(roleId, stripped)
+    }
     for (const [subjectId, entries] of this._assignments) {
       const kept = entries.filter((e) => e.role !== id)
       if (kept.length === entries.length) continue

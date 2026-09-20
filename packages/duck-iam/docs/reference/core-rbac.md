@@ -108,14 +108,24 @@ The same memo cuts cycles: `a inherits b inherits a` terminates with `['a','b']`
 `rbac.ts:228` is `if (role === undefined && depth > 0) return`. An `inherits`
 entry no role defines never reaches `subject.roles`. That matters because a role
 id in `subject.roles` is not only a permission carrier — a hand-written ABAC rule
-`subject.roles contains 'ghost'` fires on it. The operator route in is ordinary:
-`deleteRole` cascades the role's *assignments* on every adapter, so the direct
-grant goes, but an `inherits: ['ghost']` on a surviving role used to keep feeding
-the id back and the check kept answering allow. `validateRoles` already calls
-this catalog state `DANGLING_INHERIT` with `type: 'error'`. Depth 0 — the
-subject's own assignment — is exempt: that is a row an operator wrote, and
-dropping it would narrow `getEffectiveRoles` wherever the catalog is not the
-sole authority on which ids exist.
+`subject.roles contains 'ghost'` fires on it. `validateRoles` calls this catalog
+state `DANGLING_INHERIT` with `type: 'error'`. Depth 0 — the subject's own
+assignment — is exempt: that is a row an operator wrote, and dropping it would
+narrow `getEffectiveRoles` wherever the catalog is not the sole authority on
+which ids exist.
+
+**The drop is a backstop, not the fix.** It reads in one direction only. A role
+id in `subject.roles` is also a *selector*: `policy.targets.roles` matches it,
+and a hand-written condition can test it in a **deny** as easily as in an allow.
+So cutting the id removes the deny that was watching for it — measured, a
+subject reaching `banned` through `staff inherits banned` is denied while
+`banned` is defined and **allowed** once its row is not. A direct grant of
+`banned` still denies, because depth 0 is kept. Both directions escalate, which
+is why the state must not arise: `deleteRole` now sweeps the `inherits` edges
+that named the role, the same way it sweeps the grants (`compliance.ts`,
+*deleting a role drops the inherits edges that named it*). What is left for the
+drop to catch is a hand-edited or partially-readable catalog, where reporting —
+`Invalid role "x"` from the adapter's read path — is the operator's signal.
 
 **Depth is bounded at `MAX_INHERITANCE_DEPTH = 32`** (`rbac.ts:16`). Not
 configurable, deliberately: one hard limit keeps every adapter and validator in

@@ -13,6 +13,7 @@ import {
   iamAssertSavablePolicy,
   iamAssertSavableRole,
   iamNormalizePolicy,
+  iamRoleWithoutInherit,
   iamUnreadablePolicy,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
@@ -512,9 +513,22 @@ export class IamDrizzleAdapter<
     await this._upsert(this._t.roles, { ...data, ...who.insert }, this._t.roles.id, r.id, { ...data, ...who.update })
   }
 
-  /** Removes a role by ID. */
+  /**
+   * Removes a role by ID; the grants go with it through `ON DELETE CASCADE`, the `inherits` edges here.
+   * SECURITY: an orphan edge re-attaches to a role recreated under the same id, as an orphan grant would.
+   */
   async deleteRole(id: string): Promise<void> {
     await this._db.delete(this._t.roles).where(this._eq(this._t.roles.id, id))
+    for (const row of await this._selectAll<IamDrizzle.RoleRow>(this._t.roles)) {
+      const role = this._safeParseRole(row)
+      if (role === null) continue
+      const stripped = iamRoleWithoutInherit(role, id)
+      if (stripped === null) continue
+      await this._db
+        .update(this._t.roles)
+        .set({ inherits: encodeJson(stripped.inherits ?? [], this._json) })
+        .where(this._eq(this._t.roles.id, stripped.id))
+    }
   }
 
   /** Deduplicated IDs of the subject's active *unscoped* roles; scoped ones come from `getSubjectScopedRoles`. */

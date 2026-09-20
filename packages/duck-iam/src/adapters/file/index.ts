@@ -9,6 +9,7 @@ import {
   iamAssertSavableRole,
   iamCloneRow,
   iamNormalizePolicy,
+  iamRoleWithoutInherit,
   iamUnreadablePolicy,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
@@ -485,6 +486,10 @@ export class IamFileAdapter<
   async deleteRole(id: string): Promise<void> {
     const s = await this._loadState()
     delete s.roles[id]
+    for (const [roleId, role] of Object.entries(s.roles)) {
+      const stripped = iamRoleWithoutInherit(role, id)
+      if (stripped !== null) s.roles[roleId] = stripped
+    }
     for (const subjectId of s.corruptAssignments?.keys() ?? []) {
       // The raw row is what gets written back, so the sweep below cannot reach it; say so rather than imply it did.
       this._reportPolicyError(

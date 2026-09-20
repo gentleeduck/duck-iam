@@ -563,3 +563,32 @@ store then looked clean. The raw row is now written back verbatim, as the
 corrupt attributes row already was, so the file still holds what an operator
 has to repair. `deleteRole` cannot sweep a row it refuses to read, and now
 reports each one it skipped rather than implying the role is gone.
+
+### A recreated role id handed its permissions to everyone who inherited the old one
+
+`deleteRole` removes the role and, on every adapter, the grants that named it —
+with the reason written into the compliance suite: *"an orphan grant would be
+held again if a role were recreated under the same id."* An `inherits` edge is
+the other place a role id is written down, and nothing swept it. `iam_roles`
+stores `inherits` as a JSON array, so the SQL foreign key that cascades the
+grants cannot reach it either.
+
+Measured on the memory and file stores: `u1` holds `reader` and `staff`, and
+`staff` has `inherits: ['ghost']` where `ghost` grants `write:post`.
+`deleteRole('ghost')` correctly takes the write away, but `staff.inherits` still
+reads `['ghost']`. An operator then recreates `ghost` for something unrelated,
+granting `delete:post` — and `u1` can delete, a permission nobody granted them.
+`resolveEffectiveRoles` walks the surviving edge into the new role.
+
+The interim protection was `resolveEffectiveRoles` dropping an inherited id no
+role defines, which stops the *phantom-allow* half. It reads in one direction
+only: a role id in `subject.roles` is also a selector — `policy.targets.roles`
+matches it — so cutting the id retires the deny that was targeting it. Measured
+on the same store: a subject reaching `banned` through `staff inherits banned`
+is denied while `banned` is defined and **allowed** once its row is not. Both
+directions escalate, so the state must not arise in the first place.
+
+`deleteRole` now strips the edges as well as the grants, on all six adapters
+(the HTTP adapter's reference server included), and the compliance suite pins
+both the edge sweep and the end-to-end escalation, so a new adapter cannot miss
+it.

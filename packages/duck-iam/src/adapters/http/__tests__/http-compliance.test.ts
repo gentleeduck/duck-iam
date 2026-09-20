@@ -1,4 +1,5 @@
 import type { AccessControl, IamPrimitives } from '../../../core/types'
+import { iamRoleWithoutInherit } from '../../../shared/rows'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { runEngineCapabilityCompliance } from '../../__compliance__/engine-capability'
 import { OPTIONAL_SUPPORT } from '../../__compliance__/optional-support'
@@ -70,6 +71,11 @@ function makeReferenceServer(): typeof globalThis.fetch {
             subjectId,
             entries.filter((e) => e.role !== id),
           )
+        }
+        // And its `inherits` edges, for the same reason: both name the id a recreated role would take back.
+        for (const [roleId, role] of roles) {
+          const stripped = iamRoleWithoutInherit(role, id)
+          if (stripped !== null) roles.set(roleId, stripped)
         }
         return json({})
       }

@@ -45,7 +45,7 @@ compatibility and name the parameter `_opts` to say so.
 | `listRoles` | `(opts?) => Promise<IRole[]>` | yes | Every stored role. |
 | `getRole` | `(id, opts?) => Promise<IRole \| null>` | yes | `null` on a miss. |
 | `saveRole` | `(role, opts?: IActorOptions) => Promise<void>` | yes | Upsert by `id`. Validates before writing. |
-| `deleteRole` | `(id) => Promise<void>` | yes | Deletes the role **and every grant that named it**. |
+| `deleteRole` | `(id) => Promise<void>` | yes | Deletes the role, **every grant that named it**, and **every `inherits` edge that named it**. |
 | `getSubjectRoles` | `(subjectId, opts?) => Promise<TRole[]>` | yes | **Global (unscoped) grants only.** Deduplicated. A *corrupt* row throws rather than answering the grants it could read — see below. |
 | `getSubjectScopedRoles` | `(subjectId, opts?) => Promise<IScopedRole[]>` | optional | **Scoped grants only** — the complement of the above, never overlapping it. A *corrupt* row throws here too. |
 | `assignRole` | `(subjectId, roleId, scope?, opts?: IAssignOptions) => Promise<void>` | yes | Idempotent per `(subject, role, scope)`. Refuses an unstored role. Refuses `opts` it cannot store. |
