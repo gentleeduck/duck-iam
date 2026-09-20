@@ -1,7 +1,7 @@
 import type { Kms } from '../dataAtRest/dataAtRest.types'
 import { AuthError } from '../errors'
 
-/** Reference `Kms.IProvider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
+/** Reference `Kms.Provider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
 export class AuthAwsKmsProvider implements Kms.Provider {
   readonly id = 'aws-kms'
   private readonly _keyId: string
@@ -12,6 +12,7 @@ export class AuthAwsKmsProvider implements Kms.Provider {
     this._client = cfg.client
   }
 
+  /** One KMS round trip answering a fresh data key in both its plaintext and its wrapped form. */
   async generateDataKey(ctx?: Kms.EncryptionContext): Promise<Kms.DataKey> {
     const cmd = await loadCommand('GenerateDataKeyCommand')
     const out = (await this._client.send(
@@ -30,6 +31,7 @@ export class AuthAwsKmsProvider implements Kms.Provider {
     }
   }
 
+  /** Unwraps a data key; the encryption context must match the one it was generated under. */
   async decryptDataKey(wrapped: Uint8Array, ctx?: Kms.EncryptionContext): Promise<Uint8Array> {
     const cmd = await loadCommand('DecryptCommand')
     const out = (await this._client.send(
@@ -51,9 +53,8 @@ async function loadCommand<K extends 'GenerateDataKeyCommand' | 'DecryptCommand'
 ): Promise<new (input: unknown) => unknown> {
   if (!_kmsModule) {
     try {
-      // dynamic import so consumers without AWS workloads never
-      // pay the @aws-sdk install cost. The package is an OPTIONAL
-      // peerDep declared in package.json.
+      // Dynamic, so consumers with no AWS workload never pay the @aws-sdk install cost: it is an
+      // optional peerDep.
       // @ts-expect-error -- optional peerDep, may not be installed.
       _kmsModule = (await import('@aws-sdk/client-kms')) as unknown as {
         GenerateDataKeyCommand: unknown
@@ -75,14 +76,15 @@ function toUint8(v: Uint8Array | Buffer | ArrayBuffer): Uint8Array {
   return new Uint8Array(v as ArrayBuffer)
 }
 
+/** Configuration for the AWS KMS key provider, and the client surface it calls. */
 export namespace AuthAwsKmsProvider {
   export interface IKmsLike {
     send(command: unknown): Promise<unknown>
   }
   export interface Cfg {
-    /** KMS key id, ARN, or alias (e.g., 'alias/duck-auth-data-at-rest'). */
+    /** KMS key id, ARN or alias, such as 'alias/duck-auth-data-at-rest'. */
     keyId: string
-    /** A pre-configured KmsClient (or any object with a `send` method, for tests). */
+    /** A pre-configured KmsClient, or anything with a `send` method for tests. */
     client: IKmsLike
   }
   export interface IGenerateDataKeyOutput {
@@ -96,7 +98,7 @@ export namespace AuthAwsKmsProvider {
   }
 }
 
-/** Factory around {@link AuthAwsKmsProvider}, for callers who prefer functions to `new`. */
+/** Constructs an {@link AuthAwsKmsProvider}. */
 export function authAwsKmsProvider(...args: ConstructorParameters<typeof AuthAwsKmsProvider>): AuthAwsKmsProvider {
   return new AuthAwsKmsProvider(...args)
 }

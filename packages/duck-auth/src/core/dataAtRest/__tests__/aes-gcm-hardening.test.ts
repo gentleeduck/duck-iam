@@ -97,3 +97,32 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     })
   })
 })
+
+/**
+ * The ciphertext layout is `$`-separated and the kid is written into it verbatim, so a kid carrying a
+ * `$` produces a six-field ciphertext that `decrypt` rejects as malformed. Encryption never complains,
+ * which makes it the worst shape of misconfiguration: writes succeed and every read of them fails.
+ */
+describe('AuthAesGcmDataAtRest - kid cannot collide with the field separator', () => {
+  const KEY = 'x'.repeat(32)
+
+  it.each([['key$1'], ['prod$2026'], ['$'], ['']])('refuses kid %j at construction', (kid) => {
+    expect(() => new AuthAesGcmDataAtRest({ kid, masterKey: KEY })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+  })
+
+  it('refuses it in previousKeys too, which is where a rotation would smuggle one in', () => {
+    expect(
+      () => new AuthAesGcmDataAtRest({ kid: 'k2', masterKey: KEY, previousKeys: [{ kid: 'k$1', masterKey: KEY }] }),
+    ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+  })
+
+  it('still accepts the ordinary shapes an operator uses', async () => {
+    for (const kid of ['k1', '2026-05-01', 'prod.v2', 'a_b-c']) {
+      const a = new AuthAesGcmDataAtRest({ kid, masterKey: KEY })
+      const ctx = { field: 'email', identityId: 'u1' }
+      expect(await a.decrypt(await a.encrypt('secret@example.com', ctx), ctx)).toBe('secret@example.com')
+    }
+  })
+})

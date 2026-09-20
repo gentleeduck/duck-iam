@@ -75,7 +75,7 @@ describe('AuthAesGcmDataAtRest', () => {
     expect(v2.needsReEncrypt(reEncrypted)).toBe(false)
   })
 
-  it('rotation - ciphertext under an unknown kid throws AUTH/MISCONFIGURED (not silent data loss)', async () => {
+  it('rotation - ciphertext under an unknown kid throws AUTH_MISCONFIGURED (not silent data loss)', async () => {
     const v1 = new AuthAesGcmDataAtRest({ kid: 'k1', masterKey: Buffer.alloc(32, 1) })
     const ct = await v1.encrypt('payload', { field: 'f', identityId: 'u' })
     const v2 = new AuthAesGcmDataAtRest({ kid: 'k2', masterKey: Buffer.alloc(32, 2) })
