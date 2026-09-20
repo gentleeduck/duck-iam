@@ -1,14 +1,4 @@
-/**
- * E2E: `valkeyIdempotency` against a REAL server.
- *
- * `idempotency.redis.e2e.test.ts` covers `RedisIdempotency`'s `SET NX EX` claim
- * atomicity. This proves `valkeyIdempotency` wires a raw ioredis client into a
- * working `handle()` facet: the second caller gets the first caller's response,
- * not a fresh execution.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
- */
+/** E2E: `valkeyIdempotency` against a REAL server. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { valkeyIdempotency } from '~/core/idempotency/idempotency.valkey'

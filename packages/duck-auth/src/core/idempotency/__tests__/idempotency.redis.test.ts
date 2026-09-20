@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FakeRedis } from '~/adapters/redis'
+import { orNull } from '~/core/answer'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import { RedisIdempotency } from '../idempotency.redis'
 
 const ctx = { tenantId: 'acme' }
@@ -18,17 +19,22 @@ describe('RedisIdempotencyStore', () => {
     expect(await store.claim('k1', 60_000, ctx)).toBe(false)
   })
 
-  it('get() returns null while only the claim tombstone exists', async () => {
+  it('get() rejects while only the claim tombstone exists', async () => {
     await store.claim('k1', 60_000, ctx)
-    expect(await store.get('k1', ctx)).toBeNull()
+    await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
+  })
+
+  it('get() rejects an unseen key the same way memory does, and orNull reads both back as null', async () => {
+    await expect(store.get('never', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
+    await expect(orNull(store.get('never', ctx))).resolves.toBeNull()
   })
 
   it('put() overwrites the tombstone with the executor response; get() reads it back', async () => {
     await store.claim('k1', 60_000, ctx)
     await store.put('k1', { status: 200, body: { ok: true }, createdAt: new Date() }, 60_000, ctx)
     const cached = await store.get('k1', ctx)
-    expect(cached?.status).toBe(200)
-    expect(cached?.body).toEqual({ ok: true })
+    expect(cached.status).toBe(200)
+    expect(cached.body).toEqual({ ok: true })
   })
 
   it('tenant scoping: same key under two tenants does not collide', async () => {
