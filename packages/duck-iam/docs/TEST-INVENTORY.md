@@ -208,6 +208,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/rule-excluded-by-its-own-policy.test.ts` | 10 | a rule its own policy’s targets never admit is reported |
 | `core/engine/__tests__/scope-config-guards.test.ts` | 14 | scopeMode and scopeCombine are checked at boot, like policyCombine |
 | `core/engine/__tests__/scope-covers-contract.test.ts` | 45 | scopeCovers agrees with matchesScope on the flat axis |
+| `core/engine/__tests__/scope-deny-follows-no-hierarchy.test.ts` | 6 | a scope condition does not inherit the hierarchy a grant has |
 | `core/engine/__tests__/subject-cache-vs-role-snapshot.test.ts` | 4 | a subject entry does not outlive the role snapshot it was resolved against |
 | `core/engine/__tests__/subject-holds-undefined-role.test.ts` | 8 | a subject holding a role nothing defines is reported, not silent |
 | `core/engine/__tests__/surface-parity.test.ts` | 4 | every way of asking for a verdict |
@@ -289,7 +290,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2795** | |
+| **Subtotal** | **2801** | |
 
 ---
 
@@ -429,7 +430,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 167 | 2795 |
+| Core | 168 | 2801 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -437,4 +438,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **318** | **6255** |
+| **Total** | **319** | **6261** |
