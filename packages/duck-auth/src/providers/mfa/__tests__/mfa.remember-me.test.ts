@@ -27,7 +27,7 @@ describe('AuthRememberMeFacet', () => {
 
   it('verify returns null for bogus token', async () => {
     await facet.issue(identityId)
-    expect(await facet.verify('not-a-real-token')).toBeNull()
+    await expect(facet.verify('not-a-real-token')).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
   })
 
   it('verify rejects empty / non-string input', async () => {
@@ -36,15 +36,15 @@ describe('AuthRememberMeFacet', () => {
 
   it('verify does NOT consume the token (reusable across requests)', async () => {
     const { token } = await facet.issue(identityId)
-    expect(await facet.verify(token)).not.toBeNull()
-    expect(await facet.verify(token)).not.toBeNull()
-    expect(await facet.verify(token)).not.toBeNull()
+    await expect(facet.verify(token)).resolves.toBeDefined()
+    await expect(facet.verify(token)).resolves.toBeDefined()
+    await expect(facet.verify(token)).resolves.toBeDefined()
   })
 
   it('verify returns null after revoke', async () => {
     const { token, credentialId } = await facet.issue(identityId)
     await facet.revoke(identityId, credentialId)
-    expect(await facet.verify(token)).toBeNull()
+    await expect(facet.verify(token)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
   })
 
   it('revoke is a no-op when (identityId, credentialId) ownership does not match', async () => {
@@ -54,7 +54,7 @@ describe('AuthRememberMeFacet', () => {
     const { token, credentialId } = await facet.issue(identityId)
     await facet.revoke(otherIdentity.id, credentialId)
     // Token still verifies - the cross-identity revoke was refused.
-    expect(await facet.verify(token)).not.toBeNull()
+    await expect(facet.verify(token)).resolves.toBeDefined()
   })
 
   it('list returns live trusted devices with metadata', async () => {
@@ -76,7 +76,7 @@ describe('AuthRememberMeFacet', () => {
     // Manually insert a non-trusted-device recovery row + ensure verify
     // does not accept it as a trusted device.
     const token = randomToken(32)
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({
         identityId,
         kind: 'recovery',
@@ -85,7 +85,7 @@ describe('AuthRememberMeFacet', () => {
       }),
       {},
     )
-    expect(await facet.verify(token)).toBeNull()
+    await expect(facet.verify(token)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
   })
 
   it('respects ttl: expired token returns null + is auto-deleted', async () => {
@@ -96,7 +96,7 @@ describe('AuthRememberMeFacet', () => {
     )
     const { token, credentialId } = await tiny.issue(identityId)
     await new Promise((r) => setTimeout(r, 20))
-    expect(await tiny.verify(token)).toBeNull()
+    await expect(tiny.verify(token)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
     // Best-effort delete + may still be in the store briefly; explicit
     // list() filters revoked anyway. Assert the row no longer surfaces
     // via verify; cleanup is implementation detail.
