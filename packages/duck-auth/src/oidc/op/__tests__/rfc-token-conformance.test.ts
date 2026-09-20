@@ -1,10 +1,6 @@
 /**
  * RFC 6749 §5.1 (Successful Response) + RFC 6749 §5.2 (Error Response)
  * + OIDC Core §3.1.3.3 (Token Endpoint Response) conformance for the
- *
- * /token endpoint output.
- * Mainstream OIDC client libs (openid-client, oidc-client-ts, MSAL) all
- * parse this shape. Drift = silent client-side rejection.
  */
 
 import { createHmac } from 'node:crypto'

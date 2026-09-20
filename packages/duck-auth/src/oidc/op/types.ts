@@ -1,13 +1,4 @@
-/**
- * Types for the minimal OIDC OP.
- *
- * Scope: authorization_code grant + refresh_token grant + S256 PKCE,
- * /userinfo with bearer-opaque access tokens, scope-gated claims.
- *
- * Out of scope: implicit / hybrid flows, JAR/PAR, DCR, request URI,
- * pairwise subject identifiers, claims request parameter, ACR/AMR
- * claim mapping, distributed claims, RP-initiated logout (separate).
- */
+/** Types for the minimal OIDC OP. */
 
 import type { Identities } from '~/core'
 
@@ -16,7 +7,6 @@ export namespace OidcOP {
   export type ResponseType = 'code'
   export type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none'
   export type CodeChallengeMethod = 'S256' | 'plain'
-  export type Prompt = 'none' | 'login' | 'consent' | 'select_account'
 
   /** A registered OIDC client. */
   export type Client = {

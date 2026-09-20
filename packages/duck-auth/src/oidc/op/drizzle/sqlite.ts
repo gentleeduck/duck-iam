@@ -1,9 +1,4 @@
-/**
- * SQLite Drizzle stores for the OIDC OP.
- *
- * Mirrors pg.ts column-for-column with sqlite-core types. Suitable for
- * dev / single-instance prod / edge runtimes that ship libsql/turso.
- */
+/** SQLite Drizzle stores for the OIDC OP. */
 
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'

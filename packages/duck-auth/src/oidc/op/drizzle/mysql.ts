@@ -1,10 +1,4 @@
-/**
- * MySQL Drizzle stores for the OIDC OP. Mirrors pg.ts / sqlite.ts.
- *
- * MySQL note: `text` columns max out at 64 KB and cannot be indexed in
- * full. We index the hash + family_id columns (both fixed-length sha256
- * hex strings) so lookups stay O(log n).
- */
+/** MySQL Drizzle stores for the OIDC OP, mirroring pg.ts and sqlite.ts. */
 
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { MySqlDatabase, MySqlQueryResultHKT } from 'drizzle-orm/mysql-core'
@@ -183,23 +177,25 @@ function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): OidcOP.Co
 }
 
 /**
- * The OP stores take a loosely-typed `MySqlDatabase`, so drizzle cannot tell us the
- * shape of a mutation result and it arrives as `unknown`. Read the row count through
- * one narrow place rather than casting at each call site: these counts are what make
- * code and refresh-token consumption single-use, so they must not be guesswork.
+ * The OP stores take a loosely-typed `MySqlDatabase`, so drizzle cannot name the shape of a mutation
+ * result and it arrives as `unknown`. The row count is read through one narrow place rather than cast
+ * at each call site: these counts are what make code and refresh-token consumption single-use.
  */
+/** How many rows a write touched: mysql2 answers `[ResultSetHeader]`, the serverless drivers a `{ rowsAffected }`. */
 function affectedRows(result: unknown): number {
-  const header = Array.isArray(result) ? (result[0] as { affectedRows?: number } | undefined) : undefined
-  return header?.affectedRows ?? 0
+  const header: unknown = Array.isArray(result) ? result[0] : result
+  if (typeof header !== 'object' || header === null) return 0
+  if ('affectedRows' in header && typeof header.affectedRows === 'number') return header.affectedRows
+  if ('rowsAffected' in header && typeof header.rowsAffected === 'number') return header.rowsAffected
+  return 0
 }
 
 type AnyMySqlDatabase = MySqlDatabase<MySqlQueryResultHKT, any, any>
 
 /**
- * MySQL note: this adapter uses two SQL statements for `consume` rather
- * than a single `DELETE ... RETURNING` (MySQL lacks RETURNING; we run
- * SELECT then DELETE in a transaction). Net throughput is unchanged for
- * the OP's request volume (codes are single-use, low-rate).
+ * `consume` takes two SQL statements rather than a single `DELETE ... RETURNING`, which MySQL has no
+ * equivalent for: a SELECT then a DELETE inside a transaction. Net throughput is unchanged at the
+ * OP's request volume, codes being single-use and low-rate.
  */
 export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
   clients: OidcOP.ClientStore
@@ -260,7 +256,6 @@ export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
           // plain SELECT is a snapshot read, so every concurrent transaction sees
           // the row and, without this check, every one of them returns it: an
           // authorization code redeemable as many times as it is presented at once.
-          // DELETE is atomic, so exactly one statement can report a row removed.
           const result = await tx.delete(authOidcCodesTable).where(eq(authOidcCodesTable.code, code))
           if (affectedRows(result) !== 1) return null
           if (row.exp <= now) return null
@@ -380,13 +375,5 @@ export async function authGcDrizzleMysqlOidcOp(db: AnyMySqlDatabase, now: number
   const refresh = await db
     .delete(authOidcRefreshTokensTable)
     .where(or(lt(authOidcRefreshTokensTable.exp, now), sql`${authOidcRefreshTokensTable.consumedAt} IS NOT NULL`))
-  // MySQL Drizzle delete returns affectedRows on the result envelope.
-  function rows(r: unknown): number {
-    if (typeof r === 'object' && r !== null && 'rowsAffected' in r && typeof r.rowsAffected === 'number') {
-      return r.rowsAffected
-    }
-    if (Array.isArray(r) && typeof r[0]?.affectedRows === 'number') return r[0].affectedRows
-    return 0
-  }
-  return rows(codes) + rows(access) + rows(refresh)
+  return affectedRows(codes) + affectedRows(access) + affectedRows(refresh)
 }
