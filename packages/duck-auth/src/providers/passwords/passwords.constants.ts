@@ -1,7 +1,7 @@
 import { Argon2idHasher } from './hashers/argon2'
 import type { Passwords } from './passwords.types'
 
-/** Default resolved facet config (null-discipline: every field explicit). */
+/** Total: every field explicit. */
 export const DEFAULT_PASSWORDS_CONFIG: Passwords.Cfg = {
   minLength: 8,
   maxLength: 1024,
@@ -25,14 +25,8 @@ export const COMMON_PASSWORDS: ReadonlySet<string> = new Set([
   'letmein1',
 ])
 
-/**
- * Sentinel identity id fed to `verify` on the no-such-user branch to keep
- * timing constant (defeats account enumeration). MUST be a syntactically
- * valid UUID: the SQL adapters store `identity_id` as a `uuid` column, so a
- * non-UUID sentinel (e.g. `'__never__'`) makes Postgres throw
- * `invalid input syntax for type uuid` instead of returning zero rows. The
- * all-zero UUID is well-formed and matches no real identity.
- */
+/** Fed to `verify` on the no-such-user branch, so the timing matches and the account cannot be enumerated. */
 export const NO_IDENTITY_SENTINEL = '00000000-0000-0000-0000-000000000000'
 
+/** The marker a lookup returns in place of a credential, so an absent row costs the same as a present one. */
 export const NO_CREDENTIAL_REFRENCE = 'duck-auth:no-credential-reference'

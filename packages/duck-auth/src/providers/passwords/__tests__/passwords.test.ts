@@ -68,7 +68,7 @@ describe('password provider - end-to-end sign-in', () => {
     }
   })
 
-  it('wrong password surfaces AUTH/INVALID_CREDENTIALS without revealing which side failed', async () => {
+  it('wrong password surfaces AUTH_INVALID_CREDENTIALS without revealing which side failed', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
     await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
 
@@ -84,7 +84,7 @@ describe('password provider - end-to-end sign-in', () => {
     expect(failedHandler).toHaveBeenCalledOnce()
   })
 
-  it('unknown email surfaces AUTH/INVALID_CREDENTIALS (no enumeration)', async () => {
+  it('unknown email surfaces AUTH_INVALID_CREDENTIALS (no enumeration)', async () => {
     await expect(
       auth.flows.signIn({
         providerId: 'password',
@@ -95,9 +95,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('no-user branch queries credentials with a syntactically valid UUID (pg uuid column safe)', async () => {
     // Regression: the timing-defense verify on the no-such-user branch must
-    // feed a well-formed UUID. A non-UUID sentinel (e.g. '__never__') makes
-    // Postgres reject `identity_id = '__never__'` on the uuid column with
-    // `invalid input syntax for type uuid`, turning a 401 into a raw 500.
+    // feed a well-formed UUID. A non-UUID sentinel (e.g.
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     const spy = vi.spyOn(adapter.credentials, 'listByIdentity')
 
@@ -130,7 +128,7 @@ describe('password provider - end-to-end sign-in', () => {
     ).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
   })
 
-  it('unknown provider id surfaces AUTH/PROVIDER_FAILED', async () => {
+  it('unknown provider id surfaces AUTH_PROVIDER_FAILED', async () => {
     await expect(
       auth.flows.signIn({
         providerId: 'does-not-exist',
@@ -151,8 +149,7 @@ describe('password provider - end-to-end sign-in', () => {
 
     // Session no longer resolvable via store.
     const headers = new Headers({ cookie: `duck-sid=${signin.sid}` })
-    const resolved = await auth.resolveSession({ headers })
-    expect(resolved).toBeNull()
+    await expect(auth.resolveSession({ headers })).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     void adapter
   })
 
@@ -165,8 +162,8 @@ describe('password provider - end-to-end sign-in', () => {
     })
     const headers = new Headers({ cookie: `duck-sid=${signin.sid}` })
     const resolved = await auth.resolveSession({ headers })
-    expect(resolved?.session.id).toBe(signin.session!.id)
-    expect(resolved?.identity?.profile?.email).toBe('a@x.com')
+    expect(resolved.session.id).toBe(signin.session!.id)
+    expect(resolved.identity?.profile?.email).toBe('a@x.com')
   })
 
   describe('email case-folding parity', () => {
