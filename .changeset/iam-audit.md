@@ -161,3 +161,26 @@ All four now take `getScope`, matching the extractor the two
 fixed `scope` still wins where both are given, so existing mounts keep their
 meaning, and the resolved scope is handed to `getResourceAttributes` so an
 attribute loader can read the row from the right tenant.
+
+### A fail-closed deny told the observers nothing
+
+`afterEvaluate`, `onDeny` and `onMetrics` fired for every verdict the evaluator
+produced — and for none of the verdicts the engine produced without reaching
+it. A malformed `subjectId` was refused silently, with no hook at all. An
+adapter that would not answer fired `onError` and then denied, unobserved.
+`permissions()` returned an all-`false` map on a batch load failure after one
+`onError`, and a `false` per check that threw with only a metric.
+
+These are exactly the denials worth watching. During an adapter outage the
+engine refuses every request while `iamCreateMetricsAggregator().snapshot()`
+held `total` and `deny` flat — an authorization failure that reads on a
+dashboard as a traffic drop rather than a deny spike, and a security log fed by
+`onDeny` that records nothing for the whole window.
+
+Every verdict now reaches the observers. `decision.failure` names the path:
+`'input'` for a malformed subject id, `'resolution'` for a subject or policy
+load that threw, `'evaluation'` for a throw mid-check. `permissions()` emits one
+per map entry, because there is one verdict per map entry, and
+`{ telemetry: false }` still reports the deny while skipping the metric, as it
+already did on the evaluated path. A malformed id does not also fire `onError`:
+it is input, not a fault.

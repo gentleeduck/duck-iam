@@ -202,6 +202,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/transaction.pg.e2e.test.ts` | 17 |  |
 | `core/engine/__tests__/two-node-convergence.test.ts` | 4 | two nodes on one store |
 | `core/engine/__tests__/unevaluable-condition-group.test.ts` | 7 | a condition group nobody can evaluate does not retire the deny holding it |
+| `core/engine/__tests__/unevaluated-deny-is-observed.test.ts` | 10 | a deny the engine returned without evaluating is still observed |
 | `core/engine/__tests__/unified-verdict-path.test.ts` | 11 | development keeps the rich decision while the table supplies the verdict |
 | `core/engine/__tests__/unvalidated-policy-operand.test.ts` | 12 | a policy that never passed the validator still cannot over-grant |
 | `core/engine/__tests__/verdict-differential.test.ts` | 2 | E2E verdict parity: compiled table vs interpreter over generated catalogs |
@@ -269,7 +270,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2482** | |
+| **Subtotal** | **2492** | |
 
 ---
 
@@ -409,7 +410,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 150 | 2482 |
+| Core | 151 | 2492 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -417,4 +418,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **298** | **5858** |
+| **Total** | **299** | **5868** |

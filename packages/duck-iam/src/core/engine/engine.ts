@@ -100,6 +100,13 @@ function maskFromRoles(table: CompiledTable, roles: readonly string[]): number {
  * const trace = await engine.explain('user-1', 'delete', post)
  * ```
  */
+/** The reason on a deny the engine returned without evaluating; `IDecision.failure` carries the same three names. */
+const UNEVALUATED_DENY_REASON = {
+  evaluation: 'Evaluation error',
+  input: 'invalid subjectId',
+  resolution: 'Subject resolution error',
+} as const
+
 export class IamEngine<
   TAction extends string = string,
   TResource extends string = string,
@@ -695,6 +702,37 @@ export class IamEngine<
     }
   }
 
+  /** Whether any hook wants the evaluation clock; `0` keeps `performance.now()` off a path nobody observes. */
+  private _observerT0(): number {
+    return this._hooks.onMetrics || this._hooks.afterEvaluate || this._hooks.onDeny ? performance.now() : 0
+  }
+
+  /**
+   * Fires `afterEvaluate`, `onDeny` and `onMetrics` for a deny the engine returned without evaluating.
+   * SECURITY: these are the fail-closed denies - a malformed subject id, an adapter that will not answer. Skipping
+   * them makes an outage look like a traffic drop instead of a deny spike.
+   */
+  private async _emitUnevaluatedDeny(
+    req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+    failure: 'input' | 'resolution' | 'evaluation',
+    t0: number,
+    telemetry = true,
+  ): Promise<void> {
+    if (this._hooks.afterEvaluate || this._hooks.onDeny) {
+      const d: AccessControl.IDecision = {
+        allowed: false,
+        effect: 'deny',
+        failure,
+        reason: UNEVALUATED_DENY_REASON[failure],
+        duration: performance.now() - t0,
+        timestamp: Date.now(),
+      }
+      await this._safeHookCall(() => this._hooks.afterEvaluate?.(req, d), 'afterEvaluate')
+      await this._safeHookCall(() => this._hooks.onDeny?.(req, d), 'onDeny')
+    }
+    if (telemetry) this._emitMetrics(req, false, t0, false)
+  }
+
   /** {@link safeHookCall} with this engine's `hookTimeoutMs`. */
   private async _safeHookCall(fn: () => unknown, hookName: string): Promise<void> {
     await safeHookCall(fn, hookName, this._hookTimeoutMs)
@@ -747,7 +785,18 @@ export class IamEngine<
     environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
     scope?: TScope,
   ): Promise<boolean> {
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return false
+    const t0 = this._observerT0()
+    const denyReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
+      subject: { id: typeof subjectId === 'string' ? subjectId : '', roles: [], attributes: {} },
+      action,
+      resource,
+      environment,
+      scope,
+    }
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
+      await this._emitUnevaluatedDeny(denyReq, 'input', t0)
+      return false
+    }
     try {
       const subject = await this._resolveSubject(subjectId)
       const result = await this.authorize({ subject, action, resource, environment, scope })
@@ -756,14 +805,8 @@ export class IamEngine<
       // Subject resolution runs outside authorize()'s catch, so deny here too.
       const err = error instanceof Error ? error : new Error(String(error))
       // Wrapped, so a throwing onError cannot bypass `return false`.
-      const errReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
-        subject: { id: subjectId, roles: [], attributes: {} },
-        action,
-        resource,
-        environment,
-        scope,
-      }
-      await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
+      await this._safeHookCall(() => this._hooks.onError?.(err, denyReq), 'onError')
+      await this._emitUnevaluatedDeny(denyReq, 'resolution', t0)
       return false
     }
   }
@@ -787,8 +830,17 @@ export class IamEngine<
     environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
     scope?: TScope,
   ): Promise<AccessControl.ModeResult<TMode>> {
+    const t0 = this._observerT0()
+    const req: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
+      subject: { id: typeof subjectId === 'string' ? subjectId : '', roles: [], attributes: {} },
+      action,
+      resource,
+      environment,
+      scope,
+    }
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
       // Fail-closed: in production mode return false; otherwise a synthesized deny.
+      await this._emitUnevaluatedDeny(req, 'input', t0)
       if (this._mode === 'production') return this._asResult(false)
       return this._asResult({
         allowed: false,
@@ -804,15 +856,9 @@ export class IamEngine<
       return await this.authorize({ subject, action, resource, environment, scope })
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
-      const req: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
-        subject: { id: subjectId, roles: [], attributes: {} },
-        action,
-        resource,
-        environment,
-        scope,
-      }
       // Wrapped, so a throwing onError cannot escape the deny.
       await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
+      await this._emitUnevaluatedDeny(req, 'resolution', t0)
       if (this._mode === 'production') return this._asResult(false)
       return this._asResult({
         allowed: false,
@@ -924,6 +970,18 @@ export class IamEngine<
         environment,
       }
       await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
+      // One observed deny per map entry, as the evaluated path emits, so a batch under an outage is countable.
+      const t0 = this._observerT0()
+      for (const c of checks) {
+        const denyReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
+          subject: { id: subjectId, roles: [], attributes: {} },
+          action: c.action,
+          resource: { type: c.resource, id: c.resourceId, attributes: c.attributes ?? {} },
+          environment,
+          scope: c.scope,
+        }
+        await this._emitUnevaluatedDeny(denyReq, 'resolution', t0, telemetry)
+      }
       return failClosed as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
     }
 
@@ -996,7 +1054,7 @@ export class IamEngine<
           scope: c.scope,
         }
         await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
-        if (telemetry) this._emitMetrics(errReq, false, t0, false)
+        await this._emitUnevaluatedDeny(errReq, 'evaluation', t0, telemetry)
         map[key] = false
         continue
       }
