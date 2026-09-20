@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FakeRedis } from '~/core/drivers/redis-like'
 
 describe('FakeRedis.scan - glob MATCH', () => {
@@ -144,5 +144,79 @@ describe('FakeRedis - sorted sets', () => {
     const r = new FakeRedis()
     expect(await r.zrangebyscore('nope', '-inf', '+inf')).toEqual([])
     expect(await r.zrem('nope', 'a')).toBe(0)
+  })
+})
+
+/**
+ * `EXPIRE` applies to a key of any type. `FakeRedis` held the TTL on its string entry, so it answered
+ * `0` and set nothing for a set or a sorted set — and `RedisSessionImpl` keeps its per-identity session
+ * index in a set, bounding it with exactly one `expire` call.
+ */
+describe('FakeRedis - TTL applies to every key type', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('answers 1 for a set key, where a string-only TTL answered 0', async () => {
+    const r = new FakeRedis()
+    await r.sadd('idx:u1', 'sid-a', 'sid-b')
+
+    expect(await r.expire('idx:u1', 60)).toBe(1)
+  })
+
+  it('drops the set once its TTL elapses, rather than keeping it for ever', async () => {
+    vi.useFakeTimers()
+    const r = new FakeRedis()
+    await r.sadd('idx:u1', 'sid-a')
+    await r.expire('idx:u1', 60)
+
+    vi.advanceTimersByTime(61_000)
+
+    expect(await r.smembers('idx:u1')).toEqual([])
+    expect((await r.scan('0', { match: 'idx:*' }))[1]).toEqual([])
+  })
+
+  it('drops a sorted set once its TTL elapses', async () => {
+    vi.useFakeTimers()
+    const r = new FakeRedis()
+    await r.zadd('exp:all', 100, 'sid-a')
+    expect(await r.expire('exp:all', 60)).toBe(1)
+
+    vi.advanceTimersByTime(61_000)
+
+    expect(await r.zrangebyscore('exp:all', '-inf', '+inf')).toEqual([])
+  })
+
+  it('scans sorted-set keys too, which the docstring already claimed', async () => {
+    const r = new FakeRedis()
+    await r.zadd('exp:all', 1, 'm')
+
+    expect((await r.scan('0', { match: 'exp:*' }))[1]).toEqual(['exp:all'])
+  })
+
+  it('still answers 0 for a key of no type at all', async () => {
+    expect(await new FakeRedis().expire('nothing', 60)).toBe(0)
+  })
+
+  it('drops the TTL on a bare SET, as real Redis does without KEEPTTL', async () => {
+    vi.useFakeTimers()
+    const r = new FakeRedis()
+    await r.set('k', 'v', { ex: 60 })
+    await r.set('k', 'v2')
+
+    vi.advanceTimersByTime(61_000)
+
+    expect(await r.get('k')).toBe('v2')
+  })
+
+  it('keeps the TTL across an INCR, which is what bounds a rate-limit window', async () => {
+    vi.useFakeTimers()
+    const r = new FakeRedis()
+    await r.set('rl:ip', '0', { ex: 60 })
+    await r.incr('rl:ip')
+
+    vi.advanceTimersByTime(61_000)
+
+    expect(await r.get('rl:ip')).toBeNull()
   })
 })
