@@ -260,6 +260,15 @@ app.use('/api/access-admin', iamAdminRouter(engine, {
 Two express-specific decisions:
 
 - **`getUserId` is called inside the `try`.** It is the extractor most likely to do I/O — JWT verification, a session lookup, an IdP call — and an Express 4 middleware that returns a rejected promise writes nothing to the socket. The client hung until it timed out. All five integrations now call it inside their own try; only express could actually stop responding.
+- **`next()` sits outside the try**, as `await next()` does in hono (§4) and
+  `handler(req, ctx)` does in next (§6). Express 4 invokes the next middleware
+  synchronously, so a route that threw synchronously came back out of `next()`,
+  was caught here, and was answered by this middleware's `onError` — a fixed 500
+  that pre-empts the app's own error middleware and reports a route failure as
+  an authorization failure. Both `iamAccessMiddleware` and `iamGuard` now let a
+  route error past; an evaluation error still reaches `onError`.
+  `proceed-runs-outside-the-guard.test.ts` runs the same assertion against all
+  three adapters.
 - **`onError` is not handed `next`.** It used to be, and the obvious handler to write with it — `(err, req, res, next) => next()` — resumes the request with no decision made, i.e. fails open on the exact path where the decision could not be computed. `iamGuard`'s default was also `next(err)`, which with no app error handler and `NODE_ENV !== 'production'` makes finalhandler write `err.stack` into the response body. Both now answer a fixed 500. `src/server/__tests__/cross-adapter.test.ts` asserts `onError.mock.calls[0].length === 3`.
 
 ---

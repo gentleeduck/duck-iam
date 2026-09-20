@@ -693,6 +693,22 @@ conservative choice at the time and this round measured it wrong: the policy is
 reachable, and the dead rule still needs naming. It now asserts the policy-level
 silence *and* the new per-rule report.
 
+### The Express middleware no longer answers for errors that are not its own
+
+Hono and Next both call the downstream handler outside their `try`, each with a
+comment saying why: a route's own error belongs to the framework, not to the
+authorization guard. Express called `next()` inside it.
+
+Express 4 invokes the next middleware synchronously, so a route that threw
+synchronously came back out of `next()`, was caught by the authorization
+middleware and was answered by its `onError` - a fixed 500 that pre-empts the
+app's own error-handling middleware and reports a route failure as an
+authorization failure. Both `iamAccessMiddleware` and `iamGuard` were affected.
+
+Both now let a route error past. Evaluation errors, a throwing `getUserId` and
+every other failure the guard is responsible for still reach `onError`
+unchanged, and a denial still answers 403 without calling `next()`.
+
 ### `mode: 'development'` now announces itself, like the other fail-open setting
 
 `defaultEffect: 'allow'` has always warned unconditionally at construction, so
