@@ -61,7 +61,8 @@ function assertItems(
 
 /**
  * Evaluates an `all` (AND) / `any` (OR) / `none` (NOR) condition tree against the request.
- * SECURITY: too deep or unknown keys throw {@link IamConditionGroupError}; `false` would retire a deny rule.
+ * SECURITY: too deep, a non-object, or unknown keys throw {@link IamConditionGroupError}; `false` would retire a
+ * deny rule.
  * @param req - The access request providing field values.
  * @param group - The condition group to evaluate.
  * @param depth - Current recursion depth (internal, do not set).
@@ -77,6 +78,11 @@ export function evalConditionGroup(
     throw new IamConditionGroupError('depth', `condition nesting exceeds ${MAX_CONDITION_DEPTH}`)
   }
 
+  // SECURITY: `in` throws a bare TypeError on a non-object, so the key tests below cannot report one. Indeterminate.
+  if (group === null || typeof group !== 'object') {
+    throw new IamConditionGroupError('unknown-keys', `condition group is not an object (saw ${typeof group})`)
+  }
+
   if ('all' in group) {
     return assertItems(group.all, 'all').every((item) => evalItem(req, item, depth + 1, caches))
   }
@@ -90,14 +96,11 @@ export function evalConditionGroup(
   }
 
   // `{}` means no conditions, which is unconditionally true.
-  if (group !== null && typeof group === 'object' && Object.keys(group).length === 0) return true
+  const keys = Object.keys(group)
+  if (keys.length === 0) return true
 
   // Unknown keys (a typo, a hand-edited row): "no conditions" would grant and `false` would retire a deny, so throw.
-  const keys = group === null || typeof group !== 'object' ? [] : Object.keys(group)
-  throw new IamConditionGroupError(
-    'unknown-keys',
-    `condition group has no recognised key (saw ${keys.length === 0 ? 'a non-object' : keys.join(', ')})`,
-  )
+  throw new IamConditionGroupError('unknown-keys', `condition group has no recognised key (saw ${keys.join(', ')})`)
 }
 
 /**

@@ -265,7 +265,8 @@ function conditionMayThrow(item: unknown, depth = 0): boolean {
   // `>=`, matching `evalConditionGroup`: under-approximating would answer a group the interpreter throws on,
   // over-approximating only costs a delegation.
   if (depth >= MAX_CONDITION_DEPTH) return true
-  if (item === null || typeof item !== 'object') return false
+  // SECURITY: `evalConditionGroup` throws on a non-object, so this is a throw site, not a leaf that cannot throw.
+  if (item === null || typeof item !== 'object') return true
   if (Array.isArray(item)) return item.some((child) => conditionMayThrow(child, depth + 1))
   if ('operator' in item) {
     const { operator } = item

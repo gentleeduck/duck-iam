@@ -94,7 +94,8 @@ export function rolesToPolicy(
         )
       }
 
-      // SECURITY: pass the author's group whole; `evalConditionGroup` reads an unknown group key as `false`.
+      // SECURITY: pass the author's group whole; `evalConditionGroup` refuses an unknown group key rather than
+      // guessing, and flattening it here would change which key it sees.
       // Base conditions get their own `all` so the author's group sits at the same depth whatever its key.
       const conditions = perm.conditions ? { all: [{ all: baseConditions }, perm.conditions] } : { all: baseConditions }
 
