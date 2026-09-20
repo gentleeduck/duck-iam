@@ -1,52 +1,38 @@
-import { type Batch, batchResult, outcomesFromAffected } from '~/core/batch'
 import type { RedisLike } from '~/core/drivers/redis-like'
 import { AuthError } from '~/core/errors'
 import { stripUndefined } from '~/core/patch'
+import { isFiniteNumber } from '~/core/predicates'
+import { assertSessionAllowed } from '~/core/sessions/sessions.constants'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { AUTH_SESSION_FACTOR_METHODS, AUTH_SESSION_KINDS } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 
+/** Configuration for the Redis-backed session store. */
 export namespace RedisSession {
-  /** Cfg knobs for {@link RedisSessionImpl}. */
   export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
-    /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: TRedis
     /**
-     * Key namespace prefix. Default: `auth`. Final keys:
+     * Default `auth`. Final keys:
      *   `${prefix}:sess:{sessionId}`
      *   `${prefix}:idx:identity:{identityId}` (Set of sessionId hashes)
      *   `${prefix}:exp` (ZSet of `sessionId:identityId`, scored by expiry)
      *   `${prefix}:gc:lease`
      */
     prefix?: string
-    /**
-     * TTL safety cap applied to every session write. The session's own
-     * `absoluteExpiresAt` is authoritative; this is a defense-in-depth
-     * ceiling. Default: 30 days.
-     */
+    /** A ceiling on every key TTL; the row's own `absoluteExpiresAt` is authoritative. Default 30 days. */
     maxTtlSec?: number
-    /**
-     * How long `gc` holds its exclusive lease. Long enough to cover a sweep,
-     * short enough that a crashed holder frees it quickly. Default: 5 minutes.
-     */
+    /** Default 5 minutes. */
     gcLeaseSec?: number
   }
 }
 
-/**
- * Redis-backed `Session.Store`. Session.id is already the sha-256 of
- * the plaintext sid (see SessionsFacet) so the primary key + lookup
- * key are the same value.
- */
-/**
- * The tenant rule, identical to the credential store's: no ctx, or a ctx with no
- * `tenantId`, sees every tenant; a named tenant sees only its own rows, so a
- * global (`tenantId: null`) session is invisible to one.
- */
+/** No ctx, or one with no `tenantId`, sees every tenant; a named tenant sees only its own rows. */
 function inTenant(s: Sessions.Me, ctx: TenantContext | undefined): boolean {
   return ctx?.tenantId === undefined || s.tenantId === ctx.tenantId
 }
 
+/** `Sessions.Me.id` is already the sha-256 of the sid, so the primary key and the lookup key are the
+ *  same value. */
 export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client> implements Sessions.Store {
   private readonly _redis: TRedis
   private readonly _prefix: string
@@ -72,26 +58,13 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     return `${this._prefix}:gc:lease`
   }
 
-  /**
-   * The expiry index: one sorted set for the whole deployment, scored by the
-   * instant a session stops being usable. `gc` reads it instead of walking every
-   * identity index, so a sweep costs one range query plus the rows it actually
-   * removes - not a scan of every session that exists.
-   */
+  /** Deployment-wide, scored by the instant a session stops being usable. */
   private _expKey(): string {
     return `${this._prefix}:exp`
   }
 
-  /**
-   * `sessionId:identityId`, so `gc` can remove a row from its owner's index
-   * without reading the record first. A guest session carries an empty tail; it
-   * still gets swept, which the identity-index walk this replaced could never do.
-   *
-   * The split is on the first `:`, which is why `create` refuses an id
-   * containing one.
-   */
   /** One round trip where the client has `MGET`, one per key where it does not. Values come back in
-   *  the order asked, so a miss is positional rather than something to look up. */
+   *  the order asked, so a miss is positional. */
   private _getMany(ids: readonly string[]): Promise<(string | null)[]> {
     if (ids.length === 0) return Promise.resolve([])
 
@@ -100,14 +73,9 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
       : Promise.all(ids.map((id) => this._redis.get(this._sessKey(id))))
   }
 
-  /**
-   * The rows behind `ids`, missing and corrupted ones dropped.
-   *
-   * No `srem` for a miss. A missing record may be a `create` between its index write and its record
-   * write, and pruning the entry would orphan the session it is about to store - nothing else names
-   * it yet, not even the expiry index. Retiring entries is `gc`'s job, and it does that on the
-   * session's own deadline rather than on one absent read.
-   */
+  /** The rows behind `ids`, missing and corrupted ones dropped.
+   *  WARN: no `srem` for a miss: it may be a `create` between its index write and its record write,
+   *  and pruning would orphan it. Retiring entries is `gc`'s job. */
   private async _readMany(ids: readonly string[]): Promise<Sessions.Me[]> {
     const raws = await this._getMany(ids)
     const rows: Sessions.Me[] = []
@@ -121,137 +89,119 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     return rows
   }
 
+  /** `sessionId:identityId`, so `gc` reaches the owner's index without reading the record. A guest
+   *  carries an empty tail, and the split is on the first `:`, which is why `create` refuses an id
+   *  holding one. */
   private _expMember(sessionId: string, identityId: string | null): string {
     return `${sessionId}:${identityId ?? ''}`
   }
 
-  /** Inverse of {@link _expMember}. An identity may legitimately contain `:`; a session id may not. */
+  /** Inverse of {@link RedisSessionImpl._expMember}. An identity may legitimately contain `:`; a session id may not. */
   private _parseExpMember(member: string): { sessionId: string; identityId: string | null } {
     const cut = member.indexOf(':')
-    // No separator at all is not a member this class wrote. Treat the whole
-    // string as the id and no identity: `del` and `srem` are both no-ops on
-    // something that does not exist, so the sweep still clears the member.
+    // Not a member this class wrote. Read as all id and no identity; `del` and `srem` are no-ops on
+    // what is not there, so the sweep still clears it.
     if (cut === -1) return { identityId: null, sessionId: member }
     const identityId = member.slice(cut + 1)
     return { identityId: identityId === '' ? null : identityId, sessionId: member.slice(0, cut) }
   }
 
-  /**
-   * Whichever deadline comes first. The Redis key TTL tracks `absoluteExpiresAt`
-   * alone, so scoring on the minimum is what gives the sliding `expiresAt` a
-   * storage-layer enforcer at all.
-   */
+  /** Whichever deadline comes first: the key TTL tracks `absoluteExpiresAt` alone, so this is all the
+   *  enforcement the sliding `expiresAt` gets here. */
   private _expScore(session: Pick<Sessions.Me, 'expiresAt' | 'absoluteExpiresAt'>): number {
     const abs = parseStoredDate(session.absoluteExpiresAt)
     const idle = parseStoredDate(session.expiresAt)
-    // A row we cannot date is a row we cannot schedule. Score it as already due
-    // rather than never: `gc` then drops it, which is the same fail-closed answer
-    // `parseStoredSession` gives a reader.
+    // A row nothing can date is scored as already due rather than never, so `gc` drops it. The same
+    // fail-closed answer `parseStoredSession` gives a reader.
     if (!abs && !idle) return 0
     return Math.min(abs?.getTime() ?? Number.POSITIVE_INFINITY, idle?.getTime() ?? Number.POSITIVE_INFINITY)
   }
 
   private _ttlFor(session: Pick<Sessions.Me, 'absoluteExpiresAt'>): number {
-    // The parser the read path already uses, so a date that arrived serialised
-    // yields the session's real TTL instead of the ceiling. The old branch
-    // assumed anything that was not a `Date` was a number, so an ISO string made
-    // every step below it `NaN` and `{ ex: NaN }` reached the client - which some
-    // clients store as a key with no expiry at all, an immortal session.
+    // WARN: the read path's parser, not a number cast. A serialised date would make every step below
+    // `NaN`, and `{ ex: NaN }` is a key with no expiry on some clients.
     const abs = parseStoredDate(session.absoluteExpiresAt)
-    // Fail closed on a value nothing can parse. The cap bounds the damage without
-    // destroying a live session the way a 1-second floor would, and `resolveBySid`
-    // still refuses the row if it really is stale.
+    // The cap bounds an unparseable value without destroying a live session the way a 1-second floor
+    // would, and `resolveBySid` still refuses the row if it really is stale.
     if (!abs) return this._maxTtlSec
     const remainingSec = Math.ceil(Math.max(0, abs.getTime() - Date.now()) / 1000)
     return Math.max(1, Math.min(this._maxTtlSec, remainingSec))
   }
 
-  /**
-   * Undo the index entry a failed `create` added - and only that one. `sadd`
-   * reports whether it actually added, so a call that collided with an id already
-   * in the set cannot remove the entry that was there first.
-   */
+  /** Undoes the entry a failed `create` added, and only that one: `sadd` reports whether it actually
+   *  added, so a collision cannot remove the entry that was there first. */
   private async _unindex(identityId: string | null, sessionId: string, added: number): Promise<void> {
-    // Best effort throughout: the record write has already failed, and losing a
-    // compensation on top of it leaves an entry that names nothing, which every
-    // reader skips and the index key's own TTL eventually takes.
+    // Best effort: the record write has already failed, and an entry naming nothing is skipped by
+    // every reader and taken by the index key's own TTL.
     await this._redis.zrem(this._expKey(), this._expMember(sessionId, identityId)).catch(() => 0)
     if (!identityId || added === 0) return
     await this._redis.srem(this._idxKey(identityId), sessionId).catch(() => 0)
   }
 
+  /** Writes the session and adds it to its identity's index. */
   async create(s: Sessions.CreateInput): Promise<void> {
     if (!s.id) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'RedisSessionStore.create requires session.id to be set (sha-256 of sid)',
       })
     }
-    // The expiry index packs `sessionId:identityId` into one member and splits on
-    // the first `:`. A sha-256 hex digest never contains one; refusing here means
-    // a custom id that does cannot silently corrupt that split - `gc` would
-    // otherwise srem a truncated id from the wrong identity's set.
+    // A custom id holding `:` would corrupt the expiry member's split, and `gc` would srem the wrong
+    // identity's set.
     if (s.id.includes(':')) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `RedisSessionStore.create requires a session.id without ':' (got ${s.id})`,
       })
     }
+    // Refused here rather than stored: `parseStoredSession` rejects these, so the row would be written
+    // and then read back as a revoked session for the rest of its life.
+    assertSessionAllowed(s)
     const ttl = this._ttlFor(s)
-    // Index BEFORE the record. A record the index does not name authenticates
-    // fine but survives `deleteAllForIdentity` forever - a session that outlives
-    // the password change or ban that was supposed to end it. A dangling index
-    // entry is the far cheaper failure: it is compensated below, and a crash
-    // that skips even that leaves an entry `listByIdentity` reads past and the
-    // index key's own TTL eventually takes. This is also why `listByIdentity`
-    // no longer prunes - see the note there.
+    // SECURITY: index BEFORE the record. A record the index does not name survives
+    // `deleteAllForIdentity` forever; a dangling entry is compensated below and swept anyway.
     let indexed = 0
     let stored: 'OK' | null
     try {
       if (s.identityId) {
         indexed = await this._redis.sadd(this._idxKey(s.identityId), s.id)
-        // Bounded here rather than after the record write, so a crash in between
-        // cannot leave an index key with no expiry of its own.
+        // Bounded before the record write, so a crash between them cannot leave a key with no expiry.
         await this._redis.expire(this._idxKey(s.identityId), this._maxTtlSec)
       }
-      // `nx`, because a session id is a primary key. Every SQL dialect raises a
-      // unique violation on a duplicate insert; a plain `SET` overwrote the
-      // existing session and returned as though it had created one, so a caller
-      // that reused an id silently destroyed a live session instead of hearing
-      // about the collision.
+      // `nx`, because a session id is a primary key: a plain `SET` would destroy a live session on a
+      // reused id instead of reporting the collision every SQL dialect raises.
       stored = await this._redis.set(this._sessKey(s.id), JSON.stringify(s), { ex: ttl, nx: true })
     } catch (err) {
       await this._unindex(s.identityId, s.id, indexed)
       throw err
     }
     if (stored === null) {
-      // No compensation on this branch. The id is taken, so the entry names a
-      // record that is genuinely there; removing it would unindex somebody
-      // else's live session. If the entry was missing before this call, adding
-      // it repaired an orphan - keep that too.
-      throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${s.id} already exists` })
+      // No compensation here: the id is taken, so the entry names a record that is genuinely there and
+      // removing it would unindex somebody else's live session.
+      throw new AuthError('AUTH_ALREADY_EXISTS', { detail: `session ${s.id} already exists` })
     }
-    // The expiry entry goes in AFTER the record, unlike the identity index.
-    // `nx` may have just collided with a live session under this id, and the
-    // member is keyed by that id - re-scoring it from a different session's
-    // deadlines would move a sweep onto a session that is still valid. Only a
-    // create that actually stored gets to schedule one.
+    // After the record, unlike the identity index: the member is keyed by session id, so re-scoring it
+    // after an `nx` collision would move a sweep onto a session that is still valid.
     try {
       await this._redis.zadd(this._expKey(), this._expScore(s), this._expMember(s.id, s.identityId))
     } catch (err) {
-      // A session nothing will ever sweep is not a session we agreed to store,
-      // so unwind the whole create rather than report success. `nx` proved the
-      // record is this call's to remove.
+      // A session nothing will ever sweep is not one worth storing, and `nx` proved the record is
+      // this call's to remove.
       await this._redis.del(this._sessKey(s.id)).catch(() => 0)
       await this._unindex(s.identityId, s.id, indexed)
       throw err
     }
   }
 
-  async getByHash(sidHash: string): Promise<Sessions.Me | null> {
+  /** The session under this hashed id, throwing `AUTH_SESSION_REVOKED` when the key is gone. */
+  async getByHash(sidHash: string): Promise<Sessions.Me> {
     const raw = await this._redis.get(this._sessKey(sidHash))
-    if (!raw) return null
-    return parseStoredSession(raw, sidHash)
+    if (!raw) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${sidHash} not found` })
+    const row = parseStoredSession(raw, sidHash)
+    if (!row) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${sidHash} corrupted` })
+
+    return row
   }
 
+  /** Merges a patch onto the stored session, rewriting it under the remaining TTL. */
   async update(id: string, patch: Partial<Sessions.Me>): Promise<Sessions.Me> {
     const raw = await this._redis.get(this._sessKey(id))
     if (!raw) {
@@ -261,26 +211,19 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     if (!current) {
       throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} corrupted` })
     }
-    // `id` is pinned to the key the row lives under, and `undefined` in a patch
-    // means "leave this alone" rather than "clear it" - the same two rules the
-    // memory and SQL stores follow. A patch that moved `id` would file the row
-    // under a key that disagrees with its own body, and `revoke(next.id)` would
-    // then delete a key that was never this session.
-    const next: Sessions.Me = { ...current, ...stripUndefined(patch), id: current.id }
+    // `id` is pinned to the key the row lives under, and `undefined` means "leave this alone", as in
+    // the memory and SQL stores.
+    // Stamped here rather than taken from the patch, so it tracks the write the way `$onUpdate` does in
+    // SQL and a caller cannot backdate it.
+    const next: Sessions.Me = { ...current, ...stripUndefined(patch), id: current.id, updatedAt: new Date() }
+    assertSessionAllowed(next)
     const ttl = this._ttlFor(next)
-    // Reschedule BEFORE the record write. A patch that slides `expiresAt`
-    // forward is a renewal, and if the record landed first and this failed, `gc`
-    // would still be holding the pre-renewal deadline and would sweep a session
-    // that had just been extended. In this order a failure leaves the session
-    // scheduled later than the record justifies, which costs one late sweep -
-    // and readers reject a stale row regardless.
+    // Reschedule BEFORE the record write: the other order lets `gc` sweep a session a renewal had just
+    // extended. This order costs at worst one late sweep, and readers reject a stale row regardless.
     await this._redis.zadd(this._expKey(), this._expScore(next), this._expMember(current.id, next.identityId))
     await this._redis.set(this._sessKey(id), JSON.stringify(next), { ex: ttl })
-    // A patch that repoints the session at another identity has to move it
-    // between the indexes too. Leaving it in the old set made the session
-    // invisible to `listByIdentity` for its new owner and, worse, unreachable by
-    // `deleteAllForIdentity` - a "sign out everywhere" that could not reach it.
-    // The expiry member carries the identity as well, so it moves with them.
+    // SECURITY: a repointed session moves between the indexes, or "sign out everywhere" cannot reach
+    // it under its new owner. The expiry member carries the identity, so it moves too.
     if (current.identityId !== next.identityId) {
       await this._redis.zrem(this._expKey(), this._expMember(current.id, current.identityId))
       if (current.identityId) await this._redis.srem(this._idxKey(current.identityId), current.id)
@@ -292,6 +235,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     return next
   }
 
+  /** Removes the session and takes it out of its identity's index. */
   async delete(id: string): Promise<void> {
     const raw = await this._redis.get(this._sessKey(id))
     const session = raw ? parseStoredSession(raw, id) : null
@@ -299,28 +243,20 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     if (session?.identityId) {
       await this._redis.srem(this._idxKey(session.identityId), id)
     }
-    // The expiry member is keyed by identity too, so a row we could not read
-    // leaves an entry only `gc` can retire. That entry names a record that is
-    // already gone, so the sweep it triggers is a `del` and an `srem` on nothing.
+    // The expiry member is keyed by identity too, so an unreadable row leaves an entry only `gc` can
+    // retire, naming a record already gone.
     await this._redis.zrem(this._expKey(), this._expMember(id, session?.identityId ?? null))
   }
 
+  /** Every live session for this identity, dropping index entries whose row has expired. */
   async listByIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
-    // The index is keyed by identity, not by identity+tenant, so the filter is
-    // applied to the rows rather than to the read. Identities are global; a
-    // tenant asking for its own device list must not be shown the same person's
-    // sessions in another tenant.
+    // The index is keyed by identity, not identity+tenant, so the filter falls on the rows rather than
+    // the read. A tenant asking for its device list must not see the same person in another tenant.
     return (await this._readMany(ids)).filter((row) => inTenant(row, ctx))
   }
 
-  /** The union over several identities, unscoped by tenant like the other set-based forms. */
-  async listByIdentities(identityIds: readonly string[]): Promise<Sessions.Me[]> {
-    const ids = await Promise.all(identityIds.map((identityId) => this._redis.smembers(this._idxKey(identityId))))
-
-    return this._readMany(ids.flat())
-  }
-
+  /** Removes every session for this identity, and the index itself. */
   async deleteAllForIdentity(identityId: string, ctx?: TenantContext): Promise<void> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
     if (ids.length === 0) {
@@ -330,17 +266,13 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     // Unscoped, the index key goes with the rows and nothing has to be read.
     if (ctx?.tenantId === undefined) {
       await this._redis.del(...ids.map((id) => this._sessKey(id)))
-      // Every member is known exactly here - the identity is the one we were
-      // handed - so none of these rows has to wait for its deadline to leave the
-      // expiry index.
+      // Every member is known exactly, so no row has to wait for its deadline to leave the index.
       await this._redis.zrem(this._expKey(), ...ids.map((id) => this._expMember(id, identityId)))
       await this._redis.del(this._idxKey(identityId))
       return
     }
-    // Scoped, membership has to be decided per row, so each is read first. An id
-    // whose record is unreadable is left alone rather than swept: it may be a
-    // `create` between its index write and its record write, and its tenant is
-    // exactly what cannot be established. `gc` retires it on its own deadline.
+    // Scoped, membership is per row, so each is read first. An unreadable one is left alone rather than
+    // swept: it may be a `create` mid-flight, and its tenant is exactly what cannot be established.
     const doomed: string[] = []
     for (const id of ids) {
       const raw = await this._redis.get(this._sessKey(id))
@@ -351,20 +283,14 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     if (doomed.length === 0) return
     await this._redis.del(...doomed.map((id) => this._sessKey(id)))
     await this._redis.zrem(this._expKey(), ...doomed.map((id) => this._expMember(id, identityId)))
-    // `srem`, never `del`: the identity's other tenants still have live sessions
-    // filed under this key, and dropping it would make them unreachable by every
-    // later read and sweep - alive, and impossible to sign out.
+    // `srem`, never `del`: the identity's other tenants still have live sessions under this key, and
+    // dropping it would leave them alive and impossible to sign out.
     await this._redis.srem(this._idxKey(identityId), ...doomed)
   }
 
-  /**
-   * Sign out every one of `identityIds`. Three round trips for the whole set rather than three per
-   * identity, which is what makes an org-wide revocation usable.
-   *
-   * Unscoped by tenant, like the rest of the set-based forms, so each index key goes with its rows.
-   */
-  async deleteAllForIdentities(identityIds: readonly string[]): Promise<Batch.Result> {
-    if (identityIds.length === 0) return batchResult([])
+  /** Unscoped by tenant, like the rest of the set-based forms. */
+  async deleteAllForIdentities(identityIds: string[]): Promise<Sessions.Revoked[]> {
+    if (identityIds.length === 0) return []
     const found = await Promise.all(
       identityIds.map(async (identityId) => ({
         identityId,
@@ -374,8 +300,6 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     const live = found.filter((f) => f.ids.length > 0)
     if (live.length > 0) {
       await this._redis.del(...live.flatMap((f) => f.ids.map((id) => this._sessKey(id))))
-      // Every member is known exactly here, so none of these rows has to wait for
-      // its deadline to leave the expiry index.
       await this._redis.zrem(
         this._expKey(),
         ...live.flatMap((f) => f.ids.map((id) => this._expMember(id, f.identityId))),
@@ -383,18 +307,14 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     }
     await this._redis.del(...found.map((f) => this._idxKey(f.identityId)))
 
-    return outcomesFromAffected(
-      identityIds,
-      live.map((f) => f.identityId),
-    )
+    // Keyed off the index rather than the records: a record that no longer parses was still revoked.
+    return live.flatMap((f) => f.ids.map((id) => ({ id, identityId: f.identityId })))
   }
 
-  /**
-   * Revoke by session id. The records are read first because the index entry and the expiry member
-   * are both keyed by the owning identity, which only the record names.
-   */
-  async deleteMany(ids: readonly string[]): Promise<Batch.Result> {
-    if (ids.length === 0) return batchResult([])
+  /** The records are read first because the index entry and the expiry member are both keyed by the
+   *  owning identity, which only the record names. */
+  async deleteMany(ids: string[]): Promise<Sessions.Revoked[]> {
+    if (ids.length === 0) return []
     const raws = await this._getMany(ids)
     // Presence is the key existing, not the row parsing: a corrupted record is still a record, and
     // leaving it behind would make `deleteMany` the one delete that cannot clear one.
@@ -404,71 +324,45 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
       if (!raw) return
       present.push({ id, identityId: parseStoredSession(raw, id)?.identityId ?? null })
     })
-    if (present.length === 0) return outcomesFromAffected(ids, [])
+    if (present.length === 0) return []
 
     await this._redis.del(...present.map((p) => this._sessKey(p.id)))
     await this._redis.zrem(this._expKey(), ...present.map((p) => this._expMember(p.id, p.identityId)))
     const byIdentity = new Map<string, string[]>()
     for (const p of present) {
       if (p.identityId === null) continue
-      byIdentity.set(p.identityId, [...(byIdentity.get(p.identityId) ?? []), p.id])
+      const ids = byIdentity.get(p.identityId)
+      if (ids) ids.push(p.id)
+      else byIdentity.set(p.identityId, [p.id])
     }
     await Promise.all([...byIdentity].map(([identityId, sids]) => this._redis.srem(this._idxKey(identityId), ...sids)))
 
-    return outcomesFromAffected(
-      ids,
-      present.map((p) => p.id),
-    )
+    return present
   }
 
   /**
-   * Purge every session whose deadline has passed, and clear it out of the
-   * indexes on the way. The record's key TTL is derived from
-   * `absoluteExpiresAt` alone, so without this sweep nothing at the storage
-   * layer ever enforces the sliding `expiresAt`.
+   * Driven by the `{prefix}:exp` ZSet, one range query per page. `deleted` counts what `zrem` took, so a
+   * row swept concurrently is counted once. Serialised by a `{prefix}:gc:lease` taken with SET NX; an
+   * instance that misses it returns immediately.
    *
-   * Driven by the `{prefix}:exp` ZSet, which is scored by whichever of the two
-   * deadlines comes first, so the run costs one range query per page plus the
-   * rows it actually removes - not a walk of every session that exists. The
-   * member carries the owning identity, so a row is removed from its identity
-   * index without reading its body at all.
-   *
-   * Guest sessions are swept here like any other. They sit in no identity index,
-   * so the index walk this replaced could never reach them and their expiry was
-   * TTL-only.
-   *
-   * `deleted` counts the members this run removed. `zrem` reports what it
-   * actually took, so a row swept concurrently by another instance is counted
-   * once, by whichever run won.
-   *
-   * Serialised across the fleet by a `{prefix}:gc:lease` taken with SET NX, the
-   * lease the `Sessions.Store` contract has always promised. An instance that
-   * does not get it returns immediately rather than sweeping alongside the
-   * holder.
-   *
-   * NOTE: the lease is not extended mid-sweep. A run that outlasts `gcLeaseSec`
-   * loses it, and another instance may start sweeping alongside it. That is
-   * tolerated rather than prevented: `del`, `srem` and `zrem` on the same rows
-   * are no-ops the second time. On a keyspace big enough for a sweep to outrun
-   * the default, raise `gcLeaseSec` rather than reaching for a watchdog: a
-   * refresh is only safe if it can prove it still holds the lease, which needs
-   * `eval`, which is optional on `RedisLike.Client`.
+   * NOTE: the lease is not extended mid-sweep, so a run outlasting `gcLeaseSec` may be joined by
+   * another instance. Tolerated, since `del`, `srem` and `zrem` are no-ops the second time.
    */
   async gc(now: number): Promise<{ deleted: number }> {
+    // The cutoff is the caller's, and every comparison against NaN is false while every one against
+    // Infinity is true, so an unusable number does not fail - it sweeps nothing or it sweeps everything,
+    // and the dialects disagreed about which.
+    if (!isFiniteNumber(now)) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'gc(now) requires a finite epoch-ms cutoff' })
+    }
     const acquired = await this._redis.set(this._leaseKey(), '1', { ex: this._gcLeaseSec, nx: true })
     if (acquired === null) return { deleted: 0 }
-    // The lease is never released, only left to expire. Releasing it in a
-    // `finally` is the classic unsafe unlock: a sweep that outruns `gcLeaseSec`
-    // has already lost the lease to another instance, and deleting it then frees
-    // a lease this run no longer owns. A compare-and-delete would need a fencing
-    // token and therefore `eval`, which is optional on `RedisLike.Client`.
-    // Waiting out the key costs one skipped cycle and removes the failure mode.
+    // WARN: the lease is left to expire, never released. Releasing it in a `finally` is the unsafe
+    // unlock: a sweep that outran `gcLeaseSec` would free a lease another instance now holds.
     let deleted = 0
     for (;;) {
-      // Only what is already due, oldest first. A session still in flight - one
-      // whose record write has not landed yet - has a future score or no member
-      // at all, so this cannot see it, let alone prune it. That is the whole
-      // reason the index walk needed a second confirming read and this does not.
+      // Only what is already due, oldest first. A session still in flight has a future score or no
+      // member at all, which is why this needs no confirming read where the index walk does.
       const due = await this._redis.zrangebyscore(this._expKey(), '-inf', now, {
         limit: { count: GC_PAGE, offset: 0 },
       })
@@ -480,21 +374,18 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
           if (identityId) await this._redis.srem(this._idxKey(identityId), sessionId)
         }),
       )
-      // Last, so a crash mid-page leaves the members due and the next run
-      // repeats the work rather than abandoning a half-cleaned row.
+      // Last, so a crash mid-page leaves the members due and the next run repeats rather than abandons.
       deleted += await this._redis.zrem(this._expKey(), ...due)
-      // A short page means the range is exhausted; anything that became due
-      // while this ran belongs to the next cycle.
+      // A short page exhausts the range; anything that came due while this ran is the next cycle's.
       if (due.length < GC_PAGE) break
     }
     return { deleted }
   }
 }
 
-/** How many expiry members one `gc` page retires. Bounds both the reply size and the fan-out below it. */
+/** Bounds both the `zrangebyscore` reply and the fan-out under it. */
 const GC_PAGE = 250
 
-/** A plain JSON object - not null, not an array. */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
@@ -511,7 +402,6 @@ function isAal(v: unknown): v is Sessions.AAL {
   return v === 1 || v === 2 || v === 3
 }
 
-/** Parse a Date value stored as ISO string or number in JSON. Returns null if unparseable. */
 function parseStoredDate(v: unknown): Date | null {
   if (v instanceof Date) return v
   if (typeof v === 'string') {
@@ -522,13 +412,8 @@ function parseStoredDate(v: unknown): Date | null {
   return null
 }
 
-/**
- * Structural validator for a stored Redis session; SEC-critical fields enforced,
- * rest is trusted.
- *
- * `expectedId` is the key the row was read under. Every field below fails
- * closed, and so does the row's agreement with its own key.
- */
+/** `expectedId` is the key the row was read under. Every field below fails closed, and so does the
+ *  row's agreement with its own key. */
 function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null {
   let obj: Record<string, unknown>
   try {
@@ -540,21 +425,16 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
   }
   const id = obj.id
   if (typeof id !== 'string' || id.length === 0) return null
-  // The body's `id` is what callers revoke by, and the key is where the row
-  // actually lives. When they disagree the row is not this session, and acting
-  // on it deletes some other key while leaving this one live - so a stale or
-  // planted body could survive its own revocation.
+  // Callers revoke by the body's `id`, but the row lives under the key. On a disagreement, acting on
+  // the row deletes some other key and leaves this one live, surviving its own revocation.
   if (id !== expectedId) return null
 
-  // `identityId` decides whose session this is. Coercing a non-string to `null`
-  // quietly turned an authenticated session into a guest one: it belongs to
-  // nobody, sits in no index, and `deleteAllForIdentity` can no longer reach it.
+  // `identityId` decides whose session this is. Coercing a non-string to `null` makes an authenticated
+  // session a guest one: it belongs to nobody and `deleteAllForIdentity` cannot reach it.
   if (obj.identityId !== undefined && obj.identityId !== null && typeof obj.identityId !== 'string') return null
 
-  // Same shape of mistake with the opposite blast radius. A caller reads
-  // `csrfHash` and skips the check when it is `null`, so coercing a corrupt
-  // value to `null` did not degrade CSRF protection - it switched it off for
-  // that session.
+  // The same mistake with the opposite blast radius: a caller skips the check when `csrfHash` is
+  // `null`, so coercing a corrupt value there switches CSRF protection off rather than degrading it.
   if (obj.csrfHash !== undefined && obj.csrfHash !== null && typeof obj.csrfHash !== 'string') return null
 
   const kind = obj.kind
@@ -567,35 +447,19 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
   if (!expiresAtDate) return null
   const absoluteExpiresAtDate = parseStoredDate(obj.absoluteExpiresAt)
   if (!absoluteExpiresAtDate) return null
-  // These two fail closed like every field above them. They used to fall back to
-  // `expiresAtDate`, which for a live session is by construction in the future -
-  // and `rotatedAt` is exactly what the freshness gate measures against, so
-  // `now - rotatedAt` went negative and the session read as *permanently* fresh.
-  // A row with a missing or corrupt `rotatedAt` was waved through the step-up
-  // that guards password changes and payouts, forever. A session we cannot date
-  // is a session we cannot judge, so it does not resolve at all.
   const createdAtDate = parseStoredDate(obj.createdAt)
   if (!createdAtDate) return null
+  // SECURITY: rejected rather than defaulted. The freshness gate measures against `rotatedAt`, so a
+  // row falling back to any later date would read as permanently fresh.
   const rotatedAtDate = parseStoredDate(obj.rotatedAt)
   if (!rotatedAtDate) return null
 
-  // `completedAt` may be an ISO string, since that is what a JSON round-trip
-  // makes of a Date.
-  //
-  // The asymmetry below is deliberate. A *structurally* broken entry - `null`, a
-  // primitive, a missing `method` - rejects the whole row, because that is
-  // corruption: `Array.isArray` narrows to `any[]`, so the old `.filter` read
-  // `.method` off whatever was in there and a single `null` element turned every
-  // read of that session into a thrown `TypeError` instead of the `null` this
-  // parser exists to return. Every other malformed shape was worse for being
-  // quiet: it was dropped, handing back an `aal: 2` session carrying no factors
-  // at all, which the step-up logic then reads as authoritative. An *unknown but
-  // well-formed* method is the one case that is not corruption - it is what a
-  // newer writer adding a factor method produces - so it is skipped instead.
+  // WARN: the asymmetry is deliberate. A structurally broken entry rejects the whole row, since
+  // dropping it hands back an `aal: 2` session with no factors that step-up reads as authoritative.
+  // An unknown but well-formed method is what a newer writer produces, so it is skipped.
   if (obj.factors !== undefined && !Array.isArray(obj.factors)) return null
   const factorList: unknown[] = Array.isArray(obj.factors) ? obj.factors : []
-  // The same 16-element cap `sessions.create` and `parseJwtPayload` apply; this
-  // parser was the one door into a session that did not.
+  // The same 16-element cap `sessions.create` applies.
   if (factorList.length > 16) return null
   const factors: Sessions.Factor[] = []
   for (const entry of factorList) {
@@ -605,10 +469,8 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
     factors.push({ method: entry.method, completedAt: parseStoredDate(entry.completedAt) ?? createdAtDate })
   }
 
-  // A malformed impersonation envelope used to degrade to `actingAs: null`,
-  // which reads as an ordinary session belonging to the person being
-  // impersonated - the audit trail gone and the window's own expiry cap with it.
-  // A present-but-broken envelope fails closed like every field above it.
+  // A present-but-broken envelope fails closed like every field above. Degrading it to `null` reads as
+  // an ordinary session belonging to the person being impersonated, audit trail and expiry cap gone.
   let actingAs: Sessions.ActingAs | null = null
   if (obj.actingAs !== undefined && obj.actingAs !== null) {
     const envelope = obj.actingAs
@@ -638,6 +500,9 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
     fingerprint: typeof obj.fingerprint === 'string' ? obj.fingerprint : null,
     fresh: typeof obj.fresh === 'boolean' ? obj.fresh : false,
     createdAt: createdAtDate,
+    // Falls back rather than refusing: a row written before `updatedAt` existed is a live session, and
+    // rejecting it here would sign every one of them out on deploy.
+    updatedAt: parseStoredDate(obj.updatedAt) ?? createdAtDate,
     rotatedAt: rotatedAtDate,
     expiresAt: expiresAtDate,
     absoluteExpiresAt: absoluteExpiresAtDate,
@@ -646,14 +511,14 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
   return session
 }
 
-/** Factory around {@link RedisSessionImpl} for functional-style config. */
+/** Constructs a {@link RedisSessionImpl} session store. */
 export function session<TRedis extends RedisLike.Client = RedisLike.Client>(
   cfg: RedisSession.Cfg<TRedis>,
 ): RedisSessionImpl<TRedis> {
   return new RedisSessionImpl(cfg)
 }
 
-/** Factory around {@link RedisSessionImpl}, for callers who prefer functions to `new`. */
+/** {@link session} under its longer name. */
 export function redisSessionImpl(...args: ConstructorParameters<typeof RedisSessionImpl>): RedisSessionImpl {
   return new RedisSessionImpl(...args)
 }

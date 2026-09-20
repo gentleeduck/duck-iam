@@ -1,20 +1,6 @@
 /**
  * E2E: what `parseStoredSession` does with a blob it did not write, against REAL
  * Redis.
- *
- * The parser's contract is that it never throws: every failure returns `null`, so
- * a corrupt or tampered row reads as "no session" rather than taking a request
- * down. It did not hold, and the first block below is the set of blobs that broke
- * it - S1, S1b and S6 from the C1 audit, now that
- * `docs/superpowers/plans/C1-sessions/02-sessions-redis-hardening.md` has been
- * applied. The blobs are unchanged; only what they are expected to produce is.
- *
- * The unit suite covers the same shapes through `FakeRedis`. This file exists to
- * prove the real client agrees, since the row a real deployment has to survive is
- * one Redis handed back, not one a fake did.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
  */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -73,7 +59,7 @@ suite('E2E RedisSessionImpl parser under corrupt rows (real Redis)', () => {
       const id = 'parser-null-factor'
       await plant(id, wellFormed(id, { factors: [null] }))
 
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('no longer takes listByIdentity down with it (audit S1)', async () => {
@@ -95,19 +81,19 @@ suite('E2E RedisSessionImpl parser under corrupt rows (real Redis)', () => {
       const id = 'parser-string-factor'
       await plant(id, wellFormed(id, { aal: 2, factors: ['password'] }))
 
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('refuses the row when factors holds a number (audit S1b)', async () => {
       const id = 'parser-number-factor'
       await plant(id, wellFormed(id, { factors: [7] }))
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('refuses the row when a factor entry carries no method (audit S1b)', async () => {
       const id = 'parser-empty-factor'
       await plant(id, wellFormed(id, { factors: [{}] }))
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('enforces the sixteen-factor cap on read (audit S6)', async () => {
@@ -117,7 +103,7 @@ suite('E2E RedisSessionImpl parser under corrupt rows (real Redis)', () => {
       const factors = Array.from({ length: 17 }, () => ({ completedAt: Date.now(), method: 'password' }))
       await plant(id, wellFormed(id, { factors }))
 
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('keeps a row sitting exactly on the cap', async () => {
@@ -135,7 +121,7 @@ suite('E2E RedisSessionImpl parser under corrupt rows (real Redis)', () => {
       const id = 'parser-partial-acting'
       await plant(id, wellFormed(id, { actingAs: { realIdentityId: 'admin-1' } }))
 
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('keeps a complete actingAs envelope intact', async () => {
@@ -157,45 +143,45 @@ suite('E2E RedisSessionImpl parser under corrupt rows (real Redis)', () => {
   describe('where the parser does hold its contract', () => {
     it('returns null for a blob that is not JSON at all', async () => {
       await raw.set(`${prefix}:sess:not-json`, 'definitely-not-json{{{')
-      expect(await store.getByHash('not-json')).toBeNull()
+      await expect(store.getByHash('not-json')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for a top-level array', async () => {
       await plant('an-array', ['nope'])
-      expect(await store.getByHash('an-array')).toBeNull()
+      await expect(store.getByHash('an-array')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for a top-level number', async () => {
       await plant('a-number', 42)
-      expect(await store.getByHash('a-number')).toBeNull()
+      await expect(store.getByHash('a-number')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for an out-of-range aal', async () => {
       const id = 'bad-aal'
       await plant(id, wellFormed(id, { aal: 99 }))
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for an unrecognised kind', async () => {
       const id = 'bad-kind'
       await plant(id, wellFormed(id, { kind: 'browser' }))
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null when expiresAt is unparseable', async () => {
       const id = 'bad-expiry'
       await plant(id, wellFormed(id, { expiresAt: 'never' }))
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null when the id is missing', async () => {
       await plant('no-id', { ...wellFormed('no-id'), id: undefined })
-      expect(await store.getByHash('no-id')).toBeNull()
+      await expect(store.getByHash('no-id')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for an empty object', async () => {
       await plant('empty-object', {})
-      expect(await store.getByHash('empty-object')).toBeNull()
+      await expect(store.getByHash('empty-object')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('drops an unrecognised factor method while keeping the row', async () => {

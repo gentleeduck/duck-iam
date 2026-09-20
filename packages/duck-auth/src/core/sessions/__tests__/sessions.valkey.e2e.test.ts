@@ -1,13 +1,4 @@
-/**
- * E2E: `valkeySessionImpl` against a REAL server.
- *
- * `sessions.redis.e2e.test.ts` covers `RedisSessionImpl` itself; `valkey.e2e.test.ts`
- * covers `valkeyAdapter`'s command translation. This is the layer in between: that
- * `valkeySessionImpl` actually wires a raw ioredis client into a working store.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
- */
+/** E2E: `valkeySessionImpl` against a REAL server. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sha256 } from '~/core/crypto'
@@ -52,6 +43,7 @@ suite('E2E valkeySessionImpl (real server)', () => {
       userAgent: null,
       fingerprint: null,
       createdAt: now,
+      updatedAt: now,
       rotatedAt: now,
       expiresAt: new Date(now.getTime() + 60_000),
       absoluteExpiresAt: new Date(now.getTime() + 120_000),
@@ -79,6 +71,7 @@ suite('E2E valkeySessionImpl (real server)', () => {
       userAgent: null,
       fingerprint: null,
       createdAt: now,
+      updatedAt: now,
       rotatedAt: now,
       expiresAt: new Date(now.getTime() + 60_000),
       absoluteExpiresAt: new Date(now.getTime() + 120_000),
@@ -86,6 +79,6 @@ suite('E2E valkeySessionImpl (real server)', () => {
       actingAs: null,
     })
     await store.delete(id)
-    expect(await store.getByHash(id)).toBeNull()
+    await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })

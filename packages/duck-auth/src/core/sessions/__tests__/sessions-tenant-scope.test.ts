@@ -1,27 +1,8 @@
-/**
- * D4 - sessions were the only tenant-scoped store with no tenant parameter.
- *
- * Every store meant to be tenant-scoped takes a `TenantContext` on every method:
- * `Credential.Store` on all ten, `Org.Store` on all six. `Identities.Store` takes
- * none and is deliberately global - the conformance suite says "identities are
- * global" in as many words. Sessions sat between the two: a `tenantId` column no
- * method could select on.
- *
- * Because identities are global, one person is routinely a user of tenant A and
- * of tenant B with all their sessions hanging off one id. So `listByIdentity`
- * handed tenant A the IP, user-agent and existence of that person's tenant B
- * sessions, and `deleteAllForIdentity` - "sign out everywhere" - logged them out
- * of tenant B when tenant A revoked.
- *
- * `resolveSession(req, { expectedTenantId })` is not the answer: it compares
- * after the read and the option is optional, and `core/tenant/tenant.ts` says
- * outright that "`withTenant` is a default, not a fence".
- *
- * Option A: an optional `ctx`. Supplied, it filters; omitted, nothing changes.
- */
+/** D4 - sessions were the only tenant-scoped store with no tenant parameter. */
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { sha256 } from '~/core/crypto'
 import { FakeRedis } from '~/core/drivers/redis-like'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
@@ -75,7 +56,7 @@ describe('D4 - sessions are tenant-scopable', () => {
     expect(a).toHaveLength(1)
     expect(a[0]?.tenantId).toBe('a')
     // Not merely a count: the leak was IP, user-agent and session existence.
-    expect(a.map((s) => s.id)).not.toContain((await auth.sessions.getBySid(sidB))?.id)
+    expect(a.map((s) => s.id)).not.toContain((await auth.sessions.getBySid(sidB)).id)
   })
 
   it('a session with no tenant belongs to no tenant, rather than to all of them', async () => {
@@ -88,9 +69,9 @@ describe('D4 - sessions are tenant-scopable', () => {
   it('revokeAllForIdentity scoped leaves the person signed in to the other tenant', async () => {
     const gone = await auth.sessions.revokeAllForIdentity(id, { tenantId: 'a' })
     expect(gone).toHaveLength(1)
-    expect(await auth.sessions.getBySid(sidA)).toBeNull()
-    expect((await auth.sessions.getBySid(sidB))?.tenantId).toBe('b')
-    expect(await auth.sessions.getBySid(sidGlobal)).not.toBeNull()
+    await expect(auth.sessions.getBySid(sidA)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    expect((await auth.sessions.getBySid(sidB)).tenantId).toBe('b')
+    await expect(auth.sessions.getBySid(sidGlobal)).resolves.toBeDefined()
   })
 
   it('a scoped revoke emits one session.revoked, not three', async () => {
@@ -117,8 +98,8 @@ describe('D4 - sessions are tenant-scopable', () => {
       previousSid: sidA,
       purpose: 'credential-change',
     })
-    expect(await auth.sessions.getBySid(sidB)).toBeNull()
-    expect(await auth.sessions.getBySid(sidGlobal)).toBeNull()
+    await expect(auth.sessions.getBySid(sidB)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(auth.sessions.getBySid(sidGlobal)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })
 
@@ -136,6 +117,7 @@ describe('D4 - the Redis store keeps its index reachable after a scoped sweep', 
       aal: 1 as const,
       actingAs: null,
       createdAt: now,
+      updatedAt: now,
       csrfHash: null,
       expiresAt: exp,
       factors: [],
@@ -147,14 +129,14 @@ describe('D4 - the Redis store keeps its index reachable after a scoped sweep', 
       rotatedAt: now,
       userAgent: null,
     }
-    await store.create({ ...base, id: 'ra', tenantId: 'a' })
-    await store.create({ ...base, id: 'rb', tenantId: 'b' })
+    await store.create({ ...base, id: sha256('ra'), tenantId: 'a' })
+    await store.create({ ...base, id: sha256('rb'), tenantId: 'b' })
 
     await store.deleteAllForIdentity('sam', { tenantId: 'a' })
 
-    expect((await store.listByIdentity('sam')).map((s) => s.id)).toEqual(['rb'])
+    expect((await store.listByIdentity('sam')).map((s) => s.id)).toEqual([sha256('rb')])
     await store.deleteAllForIdentity('sam')
     expect(await store.listByIdentity('sam')).toEqual([])
-    expect(await store.getByHash('rb')).toBeNull()
+    await expect(store.getByHash(sha256('rb'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })

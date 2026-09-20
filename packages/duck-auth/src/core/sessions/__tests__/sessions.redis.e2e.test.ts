@@ -1,16 +1,8 @@
-/**
- * E2E: RedisSessionImpl against a REAL Redis.
- *
- * Every prior finding about this store was proven against `FakeRedis`, whose own
- * header disclaims review and which has two known bugs. This suite re-runs the
- * shared contract and the two races against a real server, where network
- * latency and real command semantics apply.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset. See `.env.example`.
- */
+/** E2E: RedisSessionImpl against a REAL Redis. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { sha256 } from '~/core/crypto'
 import type { RedisLike } from '~/core/drivers/redis-like'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 import { runSessionStoreCompliance } from '~/test/store-compliance'
@@ -20,10 +12,14 @@ import type { Sessions } from '../sessions.types'
 const URL = redisUrl()
 const suite = URL ? describe : describe.skip
 
+/** The id is hashed here rather than at each call site: `assertSessionAllowed` pins it at 64 hex
+ *  characters, a raw token being exactly what that guard refuses, so a readable name passed in by a
+ *  caller below still reaches the store as a real key. */
 function sess(over: Partial<Sessions.Me> = {}): Sessions.Me {
   const now = new Date()
+  const { id, ...rest } = over
   return {
-    id: `s-${Math.random().toString(36).slice(2)}`,
+    id: sha256(id ?? `s-${Math.random().toString(36).slice(2)}`),
     identityId: 'ident-e2e',
     tenantId: null,
     kind: 'user',
@@ -34,12 +30,13 @@ function sess(over: Partial<Sessions.Me> = {}): Sessions.Me {
     userAgent: null,
     fingerprint: null,
     createdAt: now,
+    updatedAt: now,
     rotatedAt: now,
     expiresAt: new Date(now.getTime() + 60_000),
     absoluteExpiresAt: new Date(now.getTime() + 86_400_000),
     fresh: true,
     actingAs: null,
-    ...over,
+    ...rest,
   }
 }
 
@@ -72,7 +69,7 @@ suite('E2E RedisSessionImpl (real Redis)', () => {
     it('R1 — concurrent update(): does a write get lost on a real server?', async () => {
       const store = new RedisSessionImpl({ redis: client, prefix })
       const s = sess({ id: `r1-${Date.now()}` })
-      await store.create(s as never)
+      await store.create(s)
 
       await Promise.all([store.update(s.id, { aal: 2 }), store.update(s.id, { fresh: false })])
 
@@ -88,11 +85,11 @@ suite('E2E RedisSessionImpl (real Redis)', () => {
     it('R2 — a session created during deleteAllForIdentity survives it', async () => {
       const store = new RedisSessionImpl({ redis: client, prefix })
       const identityId = `race-${Date.now()}`
-      await store.create(sess({ id: `old-${Date.now()}`, identityId }) as never)
+      await store.create(sess({ id: `old-${Date.now()}`, identityId }))
 
       await Promise.all([
         store.deleteAllForIdentity(identityId),
-        store.create(sess({ id: `new-${Date.now()}`, identityId }) as never),
+        store.create(sess({ id: `new-${Date.now()}`, identityId })),
       ])
 
       const survivors = await store.listByIdentity(identityId)
@@ -108,7 +105,7 @@ suite('E2E RedisSessionImpl (real Redis)', () => {
 
       for (let i = 0; i < rounds; i++) {
         const s = sess({ id: `load-${i}-${Date.now()}` })
-        await store.create(s as never)
+        await store.create(s)
         await Promise.all([store.update(s.id, { aal: 2 }), store.update(s.id, { fresh: false })])
         const f = await store.getByHash(s.id)
         if (!(f?.aal === 2 && f?.fresh === false)) lost++
@@ -126,18 +123,26 @@ suite('E2E RedisSessionImpl (real Redis)', () => {
       const store = new RedisSessionImpl({ prefix: `${prefix}:gcscale`, redis: client })
       const identityId = `gc-${Date.now()}`
       const past = new Date(Date.now() - 60_000)
+      // A row that expired has to have been created before it did: `assertSessionAllowed` refuses an
+      // `expiresAt` that precedes its `createdAt`, so a due row is backdated rather than just expired.
+      const born = new Date(Date.now() - 120_000)
       // 500 due rows against a 250-member page: a single-page sweep leaves half
       // of them behind. 100 live ones alongside, because a sweep that took them
       // too would be signing every one of those users out.
       await Promise.all([
         ...Array.from({ length: 500 }, (_, i) =>
           store.create(
-            sess({ absoluteExpiresAt: past, expiresAt: past, id: `gc-dead-${i}-${Date.now()}`, identityId }) as never,
+            sess({
+              absoluteExpiresAt: past,
+              createdAt: born,
+              expiresAt: past,
+              id: `gc-dead-${i}-${Date.now()}`,
+              identityId,
+              rotatedAt: born,
+            }),
           ),
         ),
-        ...Array.from({ length: 100 }, (_, i) =>
-          store.create(sess({ id: `gc-live-${i}-${Date.now()}`, identityId }) as never),
-        ),
+        ...Array.from({ length: 100 }, (_, i) => store.create(sess({ id: `gc-live-${i}-${Date.now()}`, identityId }))),
       ])
 
       const started = Date.now()
