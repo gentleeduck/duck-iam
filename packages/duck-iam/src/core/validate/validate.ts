@@ -418,13 +418,33 @@ export function validatePolicy(input: unknown, declared?: IamValidate.IDeclaredS
       checkKnownKeys(targets, TARGET_KEYS, 'targets', issues)
       for (const key of ['actions', 'resources', 'roles'] as const) {
         const value = Reflect.get(targets, key)
-        if (value !== undefined && !Array.isArray(value)) {
+        if (value === undefined) continue
+        if (!Array.isArray(value)) {
           issues.push({
             type: 'error',
             code: 'INVALID_TYPE',
             message: `targets.${key} must be an array`,
             path: `targets.${key}`,
           })
+          continue
+        }
+        // Same entry checks `validateRuleShape` applies to `rule.actions`; a target is matched by the same matchers.
+        for (const [i, entry] of value.entries()) {
+          if (typeof entry !== 'string') {
+            issues.push({
+              type: 'error',
+              code: 'INVALID_TYPE',
+              message: `targets.${key}[${i}] must be a string`,
+              path: `targets.${key}[${i}]`,
+            })
+          } else if (hasControlChar(entry)) {
+            issues.push({
+              type: 'error',
+              code: 'INVALID_TYPE',
+              message: `targets.${key}[${i}] must not contain control characters`,
+              path: `targets.${key}[${i}]`,
+            })
+          }
         }
       }
     }

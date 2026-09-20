@@ -406,3 +406,31 @@ cleared by the matcher the engine actually uses — `matchesAction`,
 `matchesResource`, `matchesScope` — so `'post:*'` and `'org.*'` pass, while
 `'admin.*'` on the action axis is still reported (there is no dot form there)
 and `'org-1.*'` as a scope is still reported (scopes match exactly).
+
+### A non-string entry in `policy.targets` retired the policy, or the whole engine
+
+`validatePolicy` type-checked every entry of `rule.actions` and `rule.resources`
+— string, no control characters — and checked `targets.actions`,
+`targets.resources` and `targets.roles` only for `Array.isArray`. Not one entry
+inside them was looked at, and the vocabulary pass skipped a list that was not
+already all strings, so a malformed target was the one corner nothing read.
+
+Both outcomes are reachable from a policy the validator called `valid: true`:
+
+- **A target the roles axis cannot match retires the policy's denies.**
+  `targets.roles` is compared with `includes`, so a number — or a role id
+  carrying a stray control character — matches no subject. The policy becomes
+  NotApplicable for everyone and the deny inside it never runs. Measured with a
+  policy that allows `'*'` and denies a locked resource: with
+  `targets: { roles: ['editor'] }` the locked request answers `false`; with
+  `roles: [42]` it answers `true`.
+- **A target on the action or resource axis takes the process down.**
+  `matchesAction` calls `.endsWith` on the pattern, so a number throws while the
+  compiled table is being built. The engine fails closed and warns, but every
+  request in that process is denied until the row is removed.
+
+Entries are now checked the way rule entries always were, per axis and per
+index, so the write path refuses the row: `savePolicy` reports
+`targets.roles[0] must be a string`. Rows already in a store are not
+re-validated, so the runtime behaviour above is pinned by tests rather than
+changed.
