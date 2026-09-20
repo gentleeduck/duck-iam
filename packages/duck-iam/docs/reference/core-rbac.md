@@ -319,6 +319,28 @@ did not, so a hierarchical deployment silently lost every role-declared grant
 below the exact level — and the obvious workaround is to widen the role to `'*'`.
 `role-declared-scope-hierarchy.test.ts` covers both modes in both engines.
 
+**Write your own scope conditions the same way.** That two-arm shape is not an
+implementation detail of `rolesToPolicy`; it is the only correct spelling of
+"this scope and everything under it", and a rule you author gets no help
+producing it. There is no `scope_under` operator — `scope` is an ordinary field
+and `eq` / `starts_with` are ordinary string operators — so each of the three
+obvious attempts is wrong in a different direction, and two of them fail *open*:
+
+| condition on `scope` | `org-1` | `org-1.team-a` | `org-10` |
+| --- | --- | --- | --- |
+| `eq 'org-1'` | matches | **misses** | — |
+| `starts_with 'org-1'` | matches | matches | **also matches** |
+| `starts_with 'org-1.'` | **misses** | matches | — |
+| `any: [eq 'org-1', starts_with 'org-1.']` | matches | matches | — |
+
+For a deny this matters more than for an allow, because the grant it is meant to
+override *is* hierarchical: a subject granted at `org-1` reaches `org-1.team-a`,
+so a deny written `eq 'org-1'` refuses the parent and permits the whole subtree
+below it. The bare prefix errs the other way and reaches `org-10`, which is a
+different organisation. `scope-deny-follows-no-hierarchy.test.ts` pins all four
+spellings in both modes. In `'flat'` mode none of this applies: a grant does not
+descend either, so `eq` is the whole contract.
+
 ---
 
 ## 3. Scope, mechanism two: the assignment scope

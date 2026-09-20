@@ -693,6 +693,29 @@ conservative choice at the time and this round measured it wrong: the policy is
 reachable, and the dead rule still needs naming. It now asserts the policy-level
 silence *and* the new per-rule report.
 
+### A deny written against `scope` does not follow the hierarchy its grant does
+
+Reported and documented, not changed — the behaviour is each operator doing
+exactly what it says.
+
+In `'hierarchical'` mode a grant at `org-1` reaches `org-1.team-a`, because
+`rolesToPolicy` emits `any: [eq 'org-1', starts_with 'org-1.']` for it. A rule
+an operator writes gets no such help: `scope` is an ordinary field and there is
+no `scope_under` operator, so each obvious spelling of "this scope and below" is
+wrong in a different direction, and two fail *open*.
+
+Measured with an allow and a deny in one policy, subject granted at `org-1`:
+`eq 'org-1'` denies the parent and **allows** `org-1.team-a`; `starts_with
+'org-1.'` denies the child and **allows** the parent itself; bare `starts_with
+'org-1'` denies both but also reaches `org-10`, a different organisation. Only
+the two-arm form is right, and it is the one the package already generates
+internally.
+
+`core-rbac.md` now states this where the generated condition is shown, with the
+table of all four spellings, and `scope-deny-follows-no-hierarchy.test.ts` pins
+them in both modes so it cannot drift. Whether to add a `scope_under` operator
+is a public-surface decision and is on the open-findings ledger.
+
 ### A recreated role id handed its permissions to everyone who inherited the old one
 
 `deleteRole` removes the role and, on every adapter, the grants that named it —
