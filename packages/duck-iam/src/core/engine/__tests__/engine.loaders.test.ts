@@ -42,6 +42,7 @@ function makeDeps(overrides: Partial<IIamLoaderDeps<A, R, Ro, S>> = {}): IIamLoa
     rbacPolicyCache: new IamLRUCache<AccessControl.IPolicy>(100, 60_000),
     mergedPolicyCache: new IamLRUCache<AccessControl.IPolicy[]>(100, 60_000),
     subjectCache: new IamLRUCache<IamRequest.ISubject>(100, 60_000),
+    reportUnreachableRoleTargets: () => {},
     scopeMode: 'flat',
     inFlight: {
       policies: { value: null },

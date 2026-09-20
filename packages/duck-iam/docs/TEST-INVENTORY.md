@@ -196,6 +196,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/partial-batch-invalidation.test.ts` | 6 | a batch that fails part-way still settles the rows that landed |
 | `core/engine/__tests__/permission-map-resource-attributes.test.ts` | 5 | a permission check and the instance it names |
 | `core/engine/__tests__/policy-combine-validation.test.ts` | 11 | policyCombine validation |
+| `core/engine/__tests__/policy-targets-unknown-role.test.ts` | 9 | a policy targeting a role nothing defines is reported, not silent |
 | `core/engine/__tests__/preload-surfaces-compile-error.test.ts` | 6 |  |
 | `core/engine/__tests__/preload-validates-storage.test.ts` | 9 | preload is the only check on rows the write path never saw |
 | `core/engine/__tests__/role-created-after-subject-cached.test.ts` | 4 | a role created after a subject was cached |
@@ -283,7 +284,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2743** | |
+| **Subtotal** | **2752** | |
 
 ---
 
@@ -423,7 +424,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 56 | 1669 |
 | Clients | 11 | 136 |
-| Core | 162 | 2743 |
+| Core | 163 | 2752 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -431,4 +432,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **312** | **6195** |
+| **Total** | **313** | **6204** |

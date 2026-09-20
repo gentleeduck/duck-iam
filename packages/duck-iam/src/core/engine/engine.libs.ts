@@ -208,6 +208,37 @@ export const VALID_SCOPE_MODES = ['flat', 'hierarchical'] as const
 export const VALID_SCOPE_COMBINES = ['union', 'override'] as const
 
 /**
+ * Reports each `targets.roles` entry naming no stored role, once per pair. `policyApplies` matches that list by
+ * equality, so the policy applies to nobody: a deny written that way never fires and nothing else reports it.
+ */
+export function reportUnreachableRoleTargets(
+  policies: readonly AccessControl.IPolicy[],
+  roles: readonly AccessControl.IRole[],
+  seen: Set<string>,
+  report: (err: Error, policyId: string) => void,
+): void {
+  const stored = new Set(roles.map((r) => r.id))
+  for (const policy of policies) {
+    const targeted = policy.targets?.roles
+    if (!Array.isArray(targeted)) continue
+    for (const roleId of targeted) {
+      if (typeof roleId !== 'string' || stored.has(roleId)) continue
+      const key = `${policy.id}\u0000${roleId}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      report(
+        new Error(
+          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} targets role ${JSON.stringify(roleId)}, ` +
+            'which no stored role defines. Targets are matched by equality, so the policy applies to no subject - ' +
+            'a deny written this way never fires. Fix the id or drop the target.',
+        ),
+        policy.id,
+      )
+    }
+  }
+}
+
+/**
  * Whether a scope a role or permission declares reaches a request at `requestScope`.
  * `'flat'` is exact match; `'hierarchical'` also covers descendants, as {@link scopeAncestors} does for assignments.
  */

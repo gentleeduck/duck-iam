@@ -29,6 +29,14 @@ export interface IIamLoaderDeps<
   maxConcurrentSubjectLoads: number
   /** `IConfig.scopeMode`; decides how `rolesToPolicy` gates a role-declared scope. */
   scopeMode: 'flat' | 'hierarchical'
+  /**
+   * Reports a policy whose `targets.roles` names no stored role. Called from here and from the compiled-table
+   * build, since either path can be the only one that runs.
+   */
+  reportUnreachableRoleTargets: (
+    policies: readonly AccessControl.IPolicy[],
+    roles: readonly AccessControl.IRole[],
+  ) => void
   withTimeout: <T>(fn: (opts: { signal: AbortSignal }) => Promise<T>, label: string) => Promise<T>
 }
 
@@ -224,7 +232,13 @@ export async function loadAllPolicies<
       deps.inFlight.merged.value = p
     },
     async () => {
-      const [policies, rbacPolicy] = await Promise.all([loadPolicies(deps), loadRbacPolicy(deps)])
+      // `loadRoles` is a cache hit behind `loadRbacPolicy`, so the target check costs no extra read.
+      const [policies, rbacPolicy, roles] = await Promise.all([
+        loadPolicies(deps),
+        loadRbacPolicy(deps),
+        loadRoles(deps),
+      ])
+      deps.reportUnreachableRoleTargets(policies, roles)
       return rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
     },
     (merged) => {

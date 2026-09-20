@@ -207,6 +207,16 @@ Details that bite:
 - **`targets.roles` reads `request.subject.roles` defensively**: a non-array
   (an adapter row that lost the column) is treated as the empty list, so the
   policy is NotApplicable rather than throwing.
+- **A role id here is matched by equality against nothing but the request.**
+  There is no catalogue lookup: an entry naming a role no stored row defines
+  matches no subject, so the whole policy is skipped on every request. A typo is
+  enough, and for a deny policy the result is a deny that silently never fires —
+  the one failure this module otherwise refuses to be quiet about. Because
+  emptying `targets.roles` would *widen* the policy to every subject (see the
+  empty-array rule above) rather than narrow it to none, there is nothing to
+  sweep and nothing to fix at evaluation time; the engine reports the entry
+  instead, once per pair, through `onPolicyError`. See
+  `core-engine.md` §8.
 - **Target resources are matched with `matchesResource`, never the hierarchical
   variant.** Both recognise `.*`, so `targets: { resources: ['dashboard.*'] }`
   works; a bare `dashboard` target still does not cover `dashboard.users`.
