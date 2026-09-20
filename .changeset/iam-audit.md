@@ -592,3 +592,26 @@ directions escalate, so the state must not arise in the first place.
 (the HTTP adapter's reference server included), and the compliance suite pins
 both the edge sweep and the end-to-end escalation, so a new adapter cannot miss
 it.
+
+### The one write path the scope guard did not cover
+
+`iamAssertAssignableScope` is the adapter-boundary guard that refuses two scope
+values: `''`, because the redis adapter spells "no scope" as `''` and would
+store it as a global grant, and `'*'` on a grant, because a scoped assignment is
+matched *literally* — a `'*'` row answers only a request whose own scope is the
+string `"*"`.
+
+`assignRole` and `revokeRole` called it. So did drizzle's `assignRoleMany` and
+`revokeRoleMany`. `updateAssignmentScope` — the third method that takes a scope
+to write, and the only one that takes two — called it on neither end, on all
+four adapters that implement it. Its own doc comment listed the two methods it
+covered, which is why it read as complete.
+
+Measured on memory, file, prisma and drizzle:
+`updateAssignmentScope('u1', 'editor', 'org-1', '')` and the same with `'*'`
+both returned `true` and left the subject holding `editor` under a scope no
+request can name. The operator is told the grant moved; it is dead.
+
+Both ends are now guarded — the `from` as a lookup, so a legacy `'*'` row can
+still be moved off, the `to` as a grant — and two compliance clauses hold every
+adapter to it.

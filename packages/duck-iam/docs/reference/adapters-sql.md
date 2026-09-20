@@ -658,7 +658,7 @@ has no adapter-side default and so is nullable in `AssignmentRow`.
 | Guard | Applies to | Refuses |
 | --- | --- | --- |
 | `iamAssertSavablePolicy` / `iamAssertSavableRole` | `savePolicy`, `saveRole` | anything the read path would later drop |
-| `iamAssertAssignableScope` | `assignRole`, `revokeRole`, both batch methods | `''` always; `'*'` on a grant (not on a lookup) |
+| `iamAssertAssignableScope` | `assignRole`, `revokeRole`, `updateAssignmentScope` (both ends), both batch methods | `''` always; `'*'` on a grant (not on a lookup) |
 | `iamAssertValidAssignWindow` | drizzle `assignRole`, `assignRoleMany` | `startsAt >= expiresAt`, and any `Invalid Date` |
 | `iamAssertNoAssignOptions` | **prisma** `assignRole` | `startsAt`, `expiresAt`, `attributes` |
 | `iamAssertAttributesParam` | `setSubjectAttributes` | a non-plain-object payload, and any payload carrying a `__proto__` key |
@@ -670,6 +670,14 @@ matched *literally* — `assignRole(u, r, '*')` beside a role declared
 the call reports success, and the grant answers only a request whose own scope is
 the string `"*"`. Lookups are exempt so an operator can still delete `'*'` rows
 written before the guard existed.
+
+`updateAssignmentScope` was the one write path this guard did not cover, on all
+four adapters that implement it. It took `''` and `'*'` as the destination and
+answered `true`, so the operator was told the grant had moved while it sat under
+a scope no request can name — a silently dead grant, and a row the adapter's own
+`assignRole` refuses. The engine's admin layer already guarded both ends, so the
+hole was reachable only by driving an adapter directly, which the compliance
+suite and every published adapter constructor do.
 
 Batch guards run over the **whole** batch before the first write. A batch with
 one bad row is refused entirely rather than half-applied — a partially-applied

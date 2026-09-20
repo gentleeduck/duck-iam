@@ -580,6 +580,8 @@ export class IamFileAdapter<
    * @returns `false` when no `(roleId, fromScope)` assignment exists for this subject.
    */
   async updateAssignmentScope(id: string, roleId: TRole, fromScope?: TScope, toScope?: TScope): Promise<boolean> {
+    iamAssertAssignableScope('file', fromScope, 'lookup')
+    iamAssertAssignableScope('file', toScope)
     const s = await this._loadState()
     this._assertReadableAssignments(s, id)
     const entries = s.assignments[id]

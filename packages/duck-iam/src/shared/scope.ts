@@ -1,5 +1,6 @@
 /**
- * Adapter-boundary guard for the scope argument of `assignRole` / `revokeRole`; omit the scope for a global grant.
+ * Adapter-boundary guard for every scope an adapter writes: `assignRole`, `revokeRole`, `updateAssignmentScope`
+ * (both ends) and drizzle's `assignRoleMany` / `revokeRoleMany`. Omit the scope for a global grant.
  * NOTE: neither `''` nor `'*'` means global, since assignments match scope literally; a `'lookup'` still accepts `'*'`
  * so rows written before this guard can be revoked.
  *
