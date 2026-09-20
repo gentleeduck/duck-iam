@@ -271,17 +271,17 @@ function patternsCanIntersect(a: string, b: string): boolean {
   return aPrefix.startsWith(bPrefix) || bPrefix.startsWith(aPrefix)
 }
 
-/** True when some rule in `policy` names a pattern that could match a request the targets admit. */
-function someRuleReachable(policy: AccessControl.IPolicy, dimension: 'actions' | 'resources'): boolean {
-  const targeted = policy.targets?.[dimension]
-  if (!Array.isArray(targeted) || targeted.length === 0) return true
-  for (const rule of policy.rules) {
-    const patterns = rule?.[dimension]
-    if (!Array.isArray(patterns)) continue
-    for (const pattern of patterns) {
-      if (typeof pattern !== 'string') continue
-      if (targeted.some((t) => typeof t === 'string' && patternsCanIntersect(t, pattern))) return true
-    }
+/** True when a rule names a pattern that could match a request the targets admit. */
+function ruleMatchesTargets(
+  rule: AccessControl.IRule,
+  targeted: readonly unknown[],
+  dimension: 'actions' | 'resources',
+): boolean {
+  const patterns = rule?.[dimension]
+  if (!Array.isArray(patterns)) return true
+  for (const pattern of patterns) {
+    if (typeof pattern !== 'string') continue
+    if (targeted.some((t) => typeof t === 'string' && patternsCanIntersect(t, pattern))) return true
   }
   return false
 }
@@ -299,19 +299,41 @@ export function reportDeadPolicyTargets(
   for (const policy of policies) {
     if (!Array.isArray(policy.rules) || policy.rules.length === 0) continue
     for (const dimension of ['actions', 'resources'] as const) {
-      if (someRuleReachable(policy, dimension)) continue
-      const key = `${policy.id}\u0000targets.${dimension}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      report(
-        new Error(
-          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} has targets.${dimension} ` +
-            `${JSON.stringify(policy.targets?.[dimension])}, which no rule in the policy can match. ` +
-            'The policy is NotApplicable for every request - a deny written this way never fires. ' +
-            `Check for a typo, or widen targets.${dimension}.`,
-        ),
-        policy.id,
-      )
+      const targeted = policy.targets?.[dimension]
+      if (!Array.isArray(targeted) || targeted.length === 0) continue
+      const live = policy.rules.filter((rule) => ruleMatchesTargets(rule, targeted, dimension))
+      if (live.length === 0) {
+        const key = `${policy.id}\u0000targets.${dimension}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        report(
+          new Error(
+            `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} has targets.${dimension} ` +
+              `${JSON.stringify(targeted)}, which no rule in the policy can match. ` +
+              'The policy is NotApplicable for every request - a deny written this way never fires. ' +
+              `Check for a typo, or widen targets.${dimension}.`,
+          ),
+          policy.id,
+        )
+        continue
+      }
+      // The policy is reachable, so the report above stays quiet - but a rule the targets exclude never fires
+      // either, and nothing else would say so.
+      for (const rule of policy.rules) {
+        if (live.includes(rule)) continue
+        const key = `${policy.id}\u0000${rule.id}\u0000rule.${dimension}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        report(
+          new Error(
+            `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} has ` +
+              `${dimension} ${JSON.stringify(rule[dimension])}, which the policy's targets.${dimension} ` +
+              `${JSON.stringify(targeted)} never admits. The rule cannot fire, though other rules in the policy ` +
+              `can - so ${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way is dead on its own.`,
+          ),
+          policy.id,
+        )
+      }
     }
   }
 }
