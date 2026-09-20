@@ -165,6 +165,19 @@ states a static configuration fact, and one findable line is what a log search
 needs. Note the shape of the trap - `policyCombine: 'first-applicable'` is
 refused in production, so choosing that combine chooses this mode with it.
 
+Three more, for the same reason. `adapterTimeoutMs`, `hookTimeoutMs` and
+`maxConcurrentSubjectLoads` all read `0` as "off", and each one turned off is a
+fail-closed mechanism: with a timeout, an adapter that stops answering makes
+`can()` **deny**; with `0` it hangs the check instead, forever. A hook whose
+promise never settles does the same to the evaluation. An unbounded subject
+loader never sheds a cache-miss burst.
+
+The non-finite guard beside them does not catch this, and cannot: `0` is a legal
+value and a documented one. What makes it worth a line is that **`Number('')` is
+`0`** - an environment variable that is *set but empty* lands on the off switch,
+while an *unset* one gives `NaN` and is refused. Each option warns once per
+process, naming what stops happening.
+
 ### 2.3 `TMode` is a type argument, not a setting
 
 ```ts
