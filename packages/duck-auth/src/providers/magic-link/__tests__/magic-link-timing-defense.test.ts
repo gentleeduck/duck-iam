@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'
+import { orNull } from '~/core/answer'
 import { AuthEngine } from '~/core/engine'
 import { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -30,7 +31,7 @@ function buildAuth(channel: Channel.Channel): {
   auth.providers.register(
     magicLink<MyProfile>({
       channels: { email: channel },
-      findIdentityByEmail: (email) => adapter.identities.find({ email }),
+      findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
       autoCreateIdentity: false,
       ttlMs: 60_000,
     }),
@@ -54,6 +55,20 @@ function makeSlowChannel(delayMs: number): Channel.Channel & { sendStarted: numb
   return ch
 }
 
+// Records every store method the provider reaches for, so a branch that skips one is visible.
+function recording<T extends object>(store: T, label: string, log: string[]): T {
+  return new Proxy(store, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver)
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        log.push(`${label}.${String(prop)}`)
+        return value.apply(target, args)
+      }
+    },
+  })
+}
+
 describe('magic-link.begin - timing-defense', () => {
   it('existing-identity branch returns BEFORE channel.send resolves (fire-and-forget)', async () => {
     const channel = makeSlowChannel(200) // 200 ms simulated SMTP
@@ -63,7 +78,7 @@ describe('magic-link.begin - timing-defense', () => {
     const start = performance.now()
     await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
     const elapsed = performance.now() - start
-    // The handler returned in tens of ms (token mint + sha256 + upsert),
+    // The handler returned in tens of ms (token mint + sha256 + create),
     // NOT after the 200 ms channel delay.
     expect(elapsed).toBeLessThan(100)
     // But channel.send WAS scheduled (fire-and-forget kicked off).
@@ -86,9 +101,50 @@ describe('magic-link.begin - timing-defense', () => {
     await auth.flows.beginProvider('magic-link', { email: 'ghost@x.com' })
     const ghostElapsed = performance.now() - ghostStart
 
-    // The timing gap must be well below the 200 ms channel delay; the
-    // fire-and-forget dispatch makes both branches return in ~ms.
+    // Proves neither branch blocks on the channel, and nothing more: against the memory adapter a
+    // skipped insert costs microseconds, so a 50 ms window cannot see store asymmetry. The call-count
+    // test below is what does.
     expect(Math.abs(existsElapsed - ghostElapsed)).toBeLessThan(50)
+  })
+
+  it('both branches make the same store calls, in the same order', async () => {
+    // Wall-clock cannot answer this one: the work an early return skips is a single indexed write,
+    // invisible in memory and measurable only against a real database. Count the round trips instead.
+    const log: string[] = []
+    const channel = makeSlowChannel(0)
+    const adapter = new MemoryAdapter<MyProfile>()
+    const auth = new AuthEngine<MyProfile>({
+      baseUrl: 'https://app.example.com',
+      transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+      stores: {
+        credentials: recording(adapter.credentials, 'credentials', log),
+        identities: recording(adapter.identities, 'identities', log),
+        sessions: adapter.sessions,
+      },
+      limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
+    })
+    auth.providers.register(
+      magicLink<MyProfile>({
+        channels: { email: channel },
+        findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
+        autoCreateIdentity: false,
+        ttlMs: 60_000,
+      }),
+    )
+    await adapter.identities.create(identityInput({ profile: { email: 'known@x.com', username: 'k' }, providers: [] }))
+
+    log.length = 0
+    await auth.flows.beginProvider('magic-link', { email: 'known@x.com' })
+    const known = [...log]
+
+    log.length = 0
+    await auth.flows.beginProvider('magic-link', { email: 'ghost@x.com' })
+    const ghost = [...log]
+
+    expect(known.length).toBeGreaterThan(0)
+    // Which store, not which method: the write has no decoy (`identity_id` is a foreign key), so the
+    // unknown branch answers it with a read of the same table. The round trips must still line up.
+    expect(ghost.map((c) => c.split('.')[0])).toEqual(known.map((c) => c.split('.')[0]))
   })
 
   it('channel.send rejection does NOT crash the fire-and-forget - emits signin.failed', async () => {

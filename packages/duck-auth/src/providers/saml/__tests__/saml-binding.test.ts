@@ -3,15 +3,6 @@
  * ask for over a channel the relying party does not control, so the provider's
  * job is deciding which assertions belong to which request. The existing suites
  * cover the input caps, the nameID guard, and the error redaction.
- *
- * These cover the binding: what ties a response to the request that started it,
- * what the assurance level of the resulting session is based on, and which
- * configured options actually take part in the decision.
- *
- * Sources: SAML 2.0 core section 3.2.2 (InResponseTo), the Web Browser SSO
- * profile section 4.1.4.3 on validating Destination and Recipient, OWASP's SAML
- * security cheat sheet on assertion replay and login CSRF, and NIST SP 800-63B
- * section 4 on what an AAL 2 claim requires.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -143,6 +134,43 @@ describe('what ties a response to the request that started it', () => {
       code: 'AUTH_PROVIDER_FAILED',
     })
     expect(signIns).toHaveLength(1)
+  })
+
+  it('refuses an assertion carrying no id rather than skipping the replay store wired for it', async () => {
+    // The suite's default profile has no `ID`, which is also the shape an attacker controls. Skipping the
+    // check for it means an operator who explicitly wired replay protection has none for exactly those
+    // bodies, and nothing reports that the guard never ran. SAML 2.0 core requires `ID` on an assertion.
+    const adapter = new MemoryAdapter<MyProfile>()
+    const consumed: string[] = []
+    const replayStore = {
+      consume: async (id: string) => {
+        consumed.push(id)
+        return true
+      },
+    }
+
+    const { provider, signIns } = makeProvider({ replayStore })
+    await expect(provider.complete(ctxFor(adapter), { SAMLResponse: 'no-id' })).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+    })
+
+    // Blank is the same refusal: consumed as a key it would burn once and lock out every later one.
+    const blank = makeProvider(
+      { replayStore },
+      makeClient({
+        validatePostResponseAsync: vi.fn(async () => ({
+          loggedOut: false,
+          profile: { ID: '   ', nameID: 'sso-user-1' } as Saml.Profile,
+        })),
+      }),
+    )
+    await expect(blank.provider.complete(ctxFor(adapter), { SAMLResponse: 'blank-id' })).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+    })
+
+    expect(signIns).toHaveLength(0)
+    expect(blank.signIns).toHaveLength(0)
+    expect(consumed).toHaveLength(0)
   })
 
   it('refuses a callbackUrl the client does not validate Destination against', () => {

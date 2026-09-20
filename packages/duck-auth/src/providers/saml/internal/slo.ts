@@ -2,24 +2,7 @@ import { AuthError } from '~/core/errors'
 import { DEFAULT_SAML_CONFIG, SAML_RELAY_STATE_MAX, SAML_RESPONSE_MAX } from '../saml.constants'
 import type { Saml } from '../saml.types'
 
-/**
- * SLO controller. Three methods cover the three message flows:
- *
- *   1. `beginSp(input)` - we want to log the user out. Build a
- *      LogoutRequest URL and redirect the browser to the IdP's SLO
- *      endpoint.
- *   2. `completeSp(input)` - IdP replied to our LogoutRequest with a
- *      LogoutResponse. Validate the signature; the host then kills
- *      the local session.
- *   3. `completeIdp(input)` - IdP sent us a LogoutRequest (the user
- *      logged out elsewhere). Validate, kill the local session, and
- *      return a redirect URL the browser uses to POST a LogoutResponse
- *      back to the IdP.
- *
- * Every method requires the node-saml client to expose the matching
- * optional method on {@link Saml.Client}. Missing methods raise
- * AUTH/MISCONFIGURED so misconfig fails fast at boot, not at SLO time.
- */
+/** Three methods for the three message flows: */
 export function samlSloController(opts: { providerId?: string; client: Saml.Client }): {
   beginSp(input: Saml.SloBeginSpInput): Promise<{ redirectUrl: string }>
   completeSp(input: Saml.SloCompleteSpInput): Promise<{ nameID: string | null }>

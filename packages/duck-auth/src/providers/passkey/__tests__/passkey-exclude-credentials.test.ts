@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { toCredentialUpsert } from '~/core/credentials/credentials'
+import { toCredentialCreate } from '~/core/credentials/credentials'
 import type { Identities } from '~/core/identities'
 import { identityInput } from '~/test/store-inputs'
 import { AuthMemoryPasskeyChallengeStore, beginPasskeyRegistration } from '../index'
@@ -66,8 +66,8 @@ describe('beginPasskeyRegistration excludes the keys the identity already holds'
   }
 
   async function addPasskey(id: string, metadata: Record<string, unknown>, revokedAt?: Date) {
-    const row = await adapter.credentials.upsert(
-      toCredentialUpsert({ identityId, kind: 'passkey', metadata, secret: id }),
+    const row = await adapter.credentials.create(
+      toCredentialCreate({ identityId, kind: 'passkey', metadata, secret: id }),
       {},
     )
     if (revokedAt) await adapter.credentials.revoke(row.id, {})
@@ -101,10 +101,50 @@ describe('beginPasskeyRegistration excludes the keys the identity already holds'
   })
 
   it('ignores credentials of other kinds', async () => {
-    await adapter.credentials.upsert(
-      toCredentialUpsert({ identityId, kind: 'password', metadata: {}, secret: 'hash' }),
+    await adapter.credentials.create(
+      toCredentialCreate({ identityId, kind: 'password', metadata: {}, secret: 'hash' }),
       {},
     )
     expect(await begin()).toEqual([])
+  })
+})
+
+/**
+ * `attestationType` was hardcoded to `'none'` at the one call that sets it, and `Passkey.Options` had no
+ * knob for it — so the `fips` preset's `webauthnAttestationDirect` clause was unreachable on this path,
+ * while `mfa`'s webauthn registration took the same option per call and honoured it.
+ */
+describe('beginPasskeyRegistration asks for the attestation it was configured for', () => {
+  const asked = async (attestationType?: Passkey.Options['attestationType']) => {
+    const adapter = new MemoryAdapter<ProfileShape>()
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
+    )
+    const webauthn = makeMockWebAuthn()
+    await beginPasskeyRegistration(
+      {
+        challengeStore: new AuthMemoryPasskeyChallengeStore(),
+        expectedOrigins: 'https://app.test',
+        findIdentityByEmail: async () => ({ id: identity.id }),
+        rpID: 'app.test',
+        rpName: 'Test App',
+        webauthnModule: webauthn,
+        ...(attestationType && { attestationType }),
+      },
+      { credentialStore: adapter.credentials, identityId: identity.id, sessionId: 's1', tenant: {}, userName: 'a' },
+    )
+    return vi.mocked(webauthn.generateRegistrationOptions).mock.calls.at(-1)?.[0]?.attestationType
+  }
+
+  it('asks for none when nothing was configured, which is the safe default and was the only option', async () => {
+    expect(await asked()).toBe('none')
+  })
+
+  it('asks for direct when configured, which is what the fips preset requires', async () => {
+    expect(await asked('direct')).toBe('direct')
+  })
+
+  it('asks for indirect when configured, rather than collapsing anything non-default to none', async () => {
+    expect(await asked('indirect')).toBe('indirect')
   })
 })

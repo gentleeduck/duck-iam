@@ -60,14 +60,14 @@ describe('api-key provider', () => {
     expect(intent.factors[0]!.method).toBe('api-key')
   })
 
-  it('complete with empty token throws AUTH/APIKEY_INVALID', async () => {
+  it('complete with empty token throws AUTH_APIKEY_INVALID', async () => {
     const provider = authApiKey<ProfileShape>({ apiKeys: env.facet })
     await expect(provider.complete(env.ctx, { token: '' })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_INVALID',
     })
   })
 
-  it('complete with a non-string token surfaces AUTH/APIKEY_INVALID (defeats authSha256 TypeError)', async () => {
+  it('complete with a non-string token surfaces AUTH_APIKEY_INVALID (defeats authSha256 TypeError)', async () => {
     const provider = authApiKey<ProfileShape>({ apiKeys: env.facet })
     await expect(provider.complete(env.ctx, { token: 42 as unknown as string })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_INVALID',
@@ -77,21 +77,21 @@ describe('api-key provider', () => {
     })
   })
 
-  it('complete with an oversize token throws AUTH/APIKEY_INVALID without authSha256-ing the payload', async () => {
+  it('complete with an oversize token throws AUTH_APIKEY_INVALID without authSha256-ing the payload', async () => {
     const provider = authApiKey<ProfileShape>({ apiKeys: env.facet })
     await expect(provider.complete(env.ctx, { token: 'x'.repeat(513) })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_INVALID',
     })
   })
 
-  it('complete with a wrong-prefix token throws AUTH/APIKEY_INVALID', async () => {
+  it('complete with a wrong-prefix token throws AUTH_APIKEY_INVALID', async () => {
     const provider = authApiKey<ProfileShape>({ apiKeys: env.facet })
     await expect(provider.complete(env.ctx, { token: 'bogus_xyz' })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_INVALID',
     })
   })
 
-  it('complete with a revoked key throws AUTH/APIKEY_REVOKED', async () => {
+  it('complete with a revoked key throws AUTH_APIKEY_REVOKED', async () => {
     const all = await env.facet.list(identityId)
     await env.facet.revoke(all[0]!.id)
     const provider = authApiKey<ProfileShape>({ apiKeys: env.facet })

@@ -1,10 +1,3 @@
-/**
- * Passkey provider: self-contained capability folder.
- * Everything passkey-related lives here: the sign-in provider, registration
- * ceremony helpers, the challenge store, and all types under the `Passkey`
- * namespace.
- */
-
 export {
   MemoryPasskeyChallengeStore as AuthMemoryPasskeyChallengeStore,
   memoryPasskeyChallengeStore,

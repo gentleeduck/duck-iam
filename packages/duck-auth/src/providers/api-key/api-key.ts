@@ -1,8 +1,10 @@
+import { type Answer, answer, orNull } from '~/core/answer'
 import { isCredentialExpired } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { randomToken, sha256 } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
+import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Events } from '~/core/events/events.types'
 import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
@@ -10,11 +12,8 @@ import type { TenantContext } from '~/core/tenant/tenant.types'
 import { DEFAULT_APIKEYS_CONFIG, isScopeToken, toApiKeysCfg } from './api-key.constants'
 import type { ApiKeys } from './api-key.types'
 
-/**
- * Project a credential row onto the public `ApiKey` shape - no secret, and the
- * optional timestamps only when the row actually carries them. Shared by
- * `list` and `revoke` so the two can never drift.
- */
+/** Project a credential row onto the public `ApiKey` shape: no secret, and the optional timestamps
+ *  only when the row carries them. Shared by `list` and `revoke` so the two cannot drift. */
 function toApiKey(row: Credential.Me): ApiKeys.ApiKey {
   const meta = parseApiKeyMetadata(row.metadata)
   const key: ApiKeys.ApiKey = {
@@ -23,27 +22,20 @@ function toApiKey(row: Credential.Me): ApiKeys.ApiKey {
     identityId: row.identityId,
     name: meta.name,
     scopes: meta.scopes,
+    updatedAt: row.updatedAt,
   }
+  if (row.tenantId != null) key.tenantId = row.tenantId
   if (row.lastUsedAt != null) key.lastUsedAt = row.lastUsedAt
   if (row.expiresAt != null) key.expiresAt = row.expiresAt
-  // `revoke()` promises "the key as it stands revoked" and this used to drop the
-  // one field that says so, so `ApiKeys.ApiKey.revokedAt` was a field the
-  // package declared and never once populated - a UI reading it back could not
-  // tell a revoked key from a live one. `list()` filters revoked rows out, so
-  // there it stays absent, which is the truth about those rows.
+  // `revoke()` promises the key as it stands revoked, so this is the field that says so. `list()`
+  // filters revoked rows out, so there it stays absent.
   if (row.revokedAt != null) key.revokedAt = row.revokedAt
   return key
 }
 
-/**
- * API key facet - long-lived bearer tokens for service-to-service callers
- * that can't do mTLS
- *
- * Tokens are namespaced by prefix (`ak_live_` / `ak_test_`), scope-controlled
- * via iam policies (the scopes string set is projected into iam Subject
- * attributes by the bridge), and hashed at rest. Plaintext is returned
- * exactly once - at create - and never persisted.
- */
+/** Long-lived bearer tokens for service-to-service callers that cannot do mTLS. Namespaced by prefix
+ *  (`ak_live_` / `ak_test_`), scope-controlled via iam policies and hashed at rest; the plaintext is
+ *  answered exactly once, at create, and never persisted. */
 export class ApiKeysFacet {
   readonly id = 'api-keys'
   readonly kind = 'api-key' as const
@@ -56,26 +48,20 @@ export class ApiKeysFacet {
       sha256(s: string): string
     },
     private readonly _cfg: ApiKeys.Cfg = DEFAULT_APIKEYS_CONFIG,
-    /**
-     * Optional so a direct `new ApiKeysFacet(...)` keeps working, but
-     * `apiKeyProvider()` always supplies it: without it `verify` answers for an
-     * identity that has since been soft-deleted. Structural rather than
-     * `Identities.Store` so the facet stays non-generic and the dependency
-     * stays honest about the one call it makes.
-     */
+    /** Optional so a direct `new ApiKeysFacet(...)` keeps working, though `apiKeyProvider()` always
+     *  supplies it, and without it `verify` answers for a soft-deleted identity. Structural rather than
+     *  `Identities.Store`, so the facet stays non-generic and names the one call it makes. */
     private readonly _identities?: ApiKeys.IdentityProbe,
   ) {}
 
-  /**
-   * Re-bind to a caller's transaction. Must live inside the class: `_credentials`, `_crypto` and `_cfg` are
-   * private, so nothing outside can reconstruct the facet. The probe comes off the same bound bag, so a key
-   * verified inside the transaction sees that transaction's deletions too.
-   */
+  /** Re-bind to a caller's transaction. Inside the class because `_credentials`, `_crypto` and `_cfg`
+   *  are private. The probe comes off the same bound bag, so a key verified inside the transaction
+   *  sees its deletions too. */
   withClient(stores: Provider.Stores, events: Events.IBus): ApiKeysFacet {
     return new ApiKeysFacet(stores.credentials, events, this._crypto, this._cfg, stores.identities)
   }
 
-  /** Create a new API key. Returns plaintext exactly once. */
+  /** The plaintext comes back exactly once. */
   async create(
     identityId: string,
     opts: { name: string; scopes: string[]; expiresAt?: number; tenantId?: string },
@@ -102,7 +88,7 @@ export class ApiKeysFacet {
     const random = this._crypto.randomToken(this._cfg.randomBytes)
     const plaintext = `${this._cfg.prefix}${random}`
     const hash = this._crypto.sha256(plaintext)
-    const cred = await this._credentials.upsert(
+    const cred = await this._credentials.create(
       {
         identityId,
         kind: 'api-key',
@@ -121,34 +107,35 @@ export class ApiKeysFacet {
       name: opts.name,
       scopes: opts.scopes,
       createdAt: cred.createdAt,
+      updatedAt: cred.updatedAt,
       ...(opts.expiresAt !== undefined && { expiresAt: new Date(opts.expiresAt) }),
     }
     return { key, plaintext }
   }
 
-  /** List the api keys belonging to an identity. No plaintext returned. */
+  /** No plaintext. */
   async list(identityId: string, ctx: TenantContext = {}): Promise<ApiKeys.ApiKey[]> {
     const rows = await this._credentials.listByIdentity(identityId, 'api-key', ctx)
     return rows.filter((r) => r.revokedAt == null).map(toApiKey)
   }
 
-  /**
-   * Revoke an api key by row id. Used by UI "delete key" flow. Answers with the
-   * key as it stands revoked - `null` when there was no such key - so a caller
-   * can show which one went without reading it back.
-   */
-  async revoke(keyId: string, ctx: TenantContext = {}): Promise<ApiKeys.ApiKey | null> {
-    const row = await this._credentials.revoke(keyId, ctx)
-    if (row?.kind !== 'api-key') return null
-    return toApiKey(row)
+  /** Revoke an api key by row id, answering with it as it stands revoked so a caller can show which
+   *  one went. A row that is not an api key is not one to revoke, and rejects as absent. */
+  revoke(keyId: string, ctx: TenantContext = {}): Answer.Me<ApiKeys.ApiKey> {
+    return answer(async () => {
+      // SECURITY: the kind is checked before the write, as in `rotate`. Revoking first and rejecting
+      // afterwards let this facet revoke a recovery or oauth row and report that it found nothing.
+      const existing = await this._credentials.findById(keyId, ctx)
+      if (existing.kind !== 'api-key') throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+
+      return toApiKey(await this._credentials.revoke(keyId, ctx))
+    })
   }
 
-  /**
-   * Rotate: issues a new plaintext, marks the old row revoked. Caller
-   * tells consumers to swap. Returns the new plaintext exactly once.
-   */
+  /** Issues a new plaintext, exactly once, and marks the old row revoked; telling consumers to swap is
+   *  the caller's job. */
   async rotate(keyId: string, ctx: TenantContext = {}): Promise<ApiKeys.CreatedApiKey> {
-    const existing = await this._credentials.findById(keyId, ctx)
+    const existing = await orNull(this._credentials.findById(keyId, ctx))
     if (existing?.kind !== 'api-key') {
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
@@ -165,38 +152,31 @@ export class ApiKeysFacet {
     )
   }
 
-  /**
-   * Verify a plaintext key. Returns the identity + scopes on success;
-   * throws AUTH/APIKEY_INVALID / AUTH/APIKEY_REVOKED on failure.
-   */
+  /** Answers the identity and its scopes, or throws `AUTH_APIKEY_INVALID` or `AUTH_APIKEY_REVOKED`. */
   async verify(
     plaintext: string,
     ctx: TenantContext = {},
   ): Promise<{ identityId: string; keyId: string; scopes: string[]; tenantId?: string }> {
-    // 512-char cap before sha256 prevents multi-MB DoS via hashing.
+    // Capped at 512 chars before sha256, against a multi-MB hashing DoS.
     if (typeof plaintext !== 'string' || plaintext.length > 512) {
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
     if (!plaintext.startsWith(this._cfg.prefix)) {
-      // Synthetic sha256+lookup so prefix mismatch timing matches success path.
+      // A synthetic sha256 and lookup, so a prefix mismatch takes as long as the success path.
       this._crypto.sha256(plaintext)
       await this._credentials.findByHashedSecret('___invalid_prefix___', 'api-key', ctx).catch(() => null)
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
     const hash = this._crypto.sha256(plaintext)
-    const row = await this._credentials.findByHashedSecret(hash, 'api-key', ctx)
+    const row = await orNull(this._credentials.findByHashedSecret(hash, 'api-key', ctx))
     if (!row) throw new AuthError('AUTH_APIKEY_INVALID')
     if (row.revokedAt != null) throw new AuthError('AUTH_APIKEY_REVOKED')
     if (isCredentialExpired(row)) throw new AuthError('AUTH_APIKEY_REVOKED')
-    // A key outlives its owner otherwise. Sign-in providers are covered because
-    // `flows.signIn` re-reads the identity behind the `startSession` intent, but
-    // nothing re-reads it here - `verify` hands the id straight back, and
-    // `M2MImpl.exchange` mints a session from it - so a soft-deleted account
-    // kept full API access. `find` filters `deletedAt`, so a missing row is
-    // exactly "deleted or erased".
-    if (this._identities && !(await this._identities.find({ id: row.identityId }))) {
-      // Same error as an unknown key: whether an id still exists is not
-      // something an unauthenticated caller should be able to probe.
+    // SECURITY: a key outlives its owner otherwise. Nothing re-reads the identity here the way
+    // `flows.signIn` does, and `M2MImpl.exchange` mints a session straight from the id.
+    if (this._identities && !(await orNull(this._identities.find({ id: row.identityId })))) {
+      // The same error as an unknown key: whether an id still exists is not for an unauthenticated
+      // caller to probe.
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
     void this._credentials.rotate(row.id, row.secret, row.version, ctx).catch(() => {})
@@ -209,10 +189,8 @@ export class ApiKeysFacet {
     }
   }
 
-  /**
-   * Helper for scope enforcement at the route. Throws AUTH/APIKEY_SCOPE_INSUFFICIENT
-   * when the key lacks at least one required scope.
-   */
+  /** For scope enforcement at the route. Throws `AUTH_APIKEY_SCOPE_INSUFFICIENT` when the key lacks any
+   *  required scope. */
   requireScopes(have: string[], required: string[]): void {
     if (!Array.isArray(have) || !Array.isArray(required)) {
       throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', { required: [], missing: [] })
@@ -227,7 +205,7 @@ export class ApiKeysFacet {
   }
 }
 
-/** Parser for api-key `metadata`. Returns `{ name: '', scopes: [] }` on any malformed input. */
+/** `{ name: '', scopes: [] }` on any malformed input. */
 function parseApiKeyMetadata(meta: unknown): { name: string; scopes: string[] } {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
     return { name: '', scopes: [] }
@@ -243,12 +221,9 @@ function parseApiKeyMetadata(meta: unknown): { name: string; scopes: string[] } 
   return { name, scopes }
 }
 
-/**
- * `api-key` sign-in provider - bearer-style sign-in for service-to-service
- * callers. The provider verifies the plaintext token via `ApiKeysFacet`,
- * applies the configured per-key rate-limit, and emits a `startSession`
- * Intent with `kind: 'api-key'` + `aal: 1`.
- */
+/** Bearer-style sign-in for service-to-service callers: verifies the plaintext token via
+ *  `ApiKeysFacet`, applies the per-key rate limit and emits a `startSession` intent at
+ *  `kind: 'api-key'`, `aal: 1`. */
 export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<ApiKeys.BeginInput, ApiKeys.CompleteInput, Profile>
 {
@@ -260,37 +235,34 @@ export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Ide
     this.prefix = opts.limiterKeyPrefix ?? 'signin:api-key:'
   }
 
-  /**
-   * The facet is captured in `opts`, not read from `ctx` (see `complete` below,
-   * which calls `this.opts.apiKeys.verify`), so re-binding the context is not
-   * enough - swap in a facet bound to the caller's client.
-   */
+  /** The facet is captured in `opts` rather than read from `ctx`, so re-binding the context is not
+   *  enough: this swaps in a facet bound to the caller's client. */
   withClient(stores: Provider.Stores, events: Events.IBus): AuthApiKeyImpl<Profile> {
     return new AuthApiKeyImpl<Profile>({ ...this.opts, apiKeys: this.opts.apiKeys.withClient(stores, events) })
   }
 
+  /** No begin step: an api key is presented outright, not negotiated. */
   async begin(): Promise<Provider.Intent[]> {
     return []
   }
 
+  /** Verifies the presented key and answers the intents that open the session. */
   async complete(ctx: Provider.Context<Profile>, input: ApiKeys.CompleteInput): Promise<Provider.InternalIntent[]> {
-    // typeof-guard prevents sha256(non-string) throwing TypeError before the
-    // rate limiter can fire (caller would see 500 instead of 401, plus the
-    // call would bypass the per-token brute-force quota).
+    // Guarded, or `sha256` on a non-string throws TypeError before the rate limiter can fire: the caller
+    // sees a 500 rather than a 401, and the call skips the per-token brute-force quota.
     if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 512) {
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
     const keyHash = ctx.crypto.authSha256(input.token).slice(0, 16)
     const rl = await ctx.limiter.consume(`${this.prefix}${keyHash}`)
-    if (!rl.ok) {
-      throw new AuthError('AUTH_RATE_LIMITED', {
-        retryAfter: Math.max(1, Math.ceil((rl.resetAt.getTime() - Date.now()) / 1000)),
-      })
-    }
+    // Through the shared refusal, like every other limiter guard. The version built here called
+    // `.getTime()` on `resetAt` directly, and `Limiter.Me` is the host's to implement: one backed by
+    // redis, or by anything with a JSON hop, hands back epoch milliseconds and that throws - a 500 out
+    // of the guard whose whole job is to answer 429.
+    if (!rl.ok) await refuseRateLimited(ctx.events, rl, null)
     const verified = await this.opts.apiKeys.verify(input.token, ctx.tenant)
-    // A tenant-bound api-key must NOT identify-confirm on a different (or empty)
-    // tenant scope; otherwise the resulting session lacks the key's tenancy
-    // while the caller still holds proof-of-key for that tenant.
+    // A tenant-bound api-key must not identify-confirm on a different or empty tenant scope, or the
+    // resulting session lacks the key's tenancy while the caller still holds proof-of-key for it.
     if (verified.tenantId !== undefined && ctx.tenant.tenantId !== verified.tenantId) {
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
@@ -308,18 +280,15 @@ export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Ide
   }
 }
 
-/** Factory around {@link AuthApiKeyImpl} for functional-style config. */
+/** The api-key provider, ready to hand to `providers`. */
 export function authApiKey<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: ApiKeys.Options,
 ): Provider.Me<ApiKeys.BeginInput, ApiKeys.CompleteInput, Profile> {
   return new AuthApiKeyImpl(opts)
 }
 
-/**
- * API-key capability. Owns the ApiKeysFacet, resolved via `auth.apiKeys`.
- * The bearer *sign-in* provider ({@link authApiKey}) is registered separately
- * by the app, since it binds to the mounted facet + app-specific scope rules.
- */
+/** Owns the `ApiKeysFacet`, resolved via `auth.apiKeys`. The bearer sign-in provider
+ *  ({@link authApiKey}) is registered separately, since it binds to the mounted facet. */
 export function apiKeyProvider<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   Tenant = string,
@@ -335,12 +304,12 @@ export function apiKeyProvider<
     )
 }
 
-/** Factory around {@link ApiKeysFacet}, for callers who prefer functions to `new`. */
+/** Constructs an {@link ApiKeysFacet}. */
 export function apiKeysFacet(...args: ConstructorParameters<typeof ApiKeysFacet>): ApiKeysFacet {
   return new ApiKeysFacet(...args)
 }
 
-/** Factory around {@link AuthApiKeyImpl}, for callers who prefer functions to `new`. */
+/** Constructs {@link AuthApiKeyImpl} directly, for a caller wiring the facet by hand. */
 export function authApiKeyImpl(...args: ConstructorParameters<typeof AuthApiKeyImpl>): AuthApiKeyImpl {
   return new AuthApiKeyImpl(...args)
 }
