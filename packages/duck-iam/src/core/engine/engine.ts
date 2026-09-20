@@ -26,6 +26,7 @@ import {
   createAdmin,
   enrichSubjectWithScopedRoles,
   ensureEnvNow,
+  reportDeadPolicyTargets,
   reportUnreachableRoleTargets,
   VALID_MODES,
   VALID_SCOPE_COMBINES,
@@ -386,7 +387,7 @@ export class IamEngine<
       maxRoles: this._maxRoles,
       maxConcurrentSubjectLoads: this._maxConcurrentSubjectLoads,
       reportUndefinedAssignedRole: (subjectId, roleId) => this._reportUndefinedAssignedRole(subjectId, roleId),
-      reportUnreachableRoleTargets: (policies, roles) => this._reportUnreachableRoleTargets(policies, roles),
+      reportPolicyTargetProblems: (policies, roles) => this._reportPolicyTargetProblems(policies, roles),
       scopeMode: this._scopeMode,
       withTimeout: (fn, label) => this._withTimeout(fn, label),
     }
@@ -415,22 +416,24 @@ export class IamEngine<
     } catch {}
   }
 
-  /** Pairs already reported, so the warning is one line per bad target, not one per cache fill. */
+  /** Targets already reported, so the warning is one line per bad target, not one per cache fill. */
   private _reportedRoleTargets = new Set<string>()
 
   /** @internal Both evaluator paths call this; either can be the only one that runs for a given config. */
-  private _reportUnreachableRoleTargets(
+  private _reportPolicyTargetProblems(
     policies: readonly AccessControl.IPolicy[],
     roles: readonly AccessControl.IRole[],
   ): void {
     const hook = this._hooks.onPolicyError
-    reportUnreachableRoleTargets(policies, roles, this._reportedRoleTargets, (err, policyId) => {
-      // Advisory: it decides nothing, so a throwing hook must not become the verdict.
+    // Advisory: they decide nothing, so a throwing hook must not become the verdict.
+    const report = (err: Error, policyId: string): void => {
       try {
         if (hook) hook(err, policyId)
         else console.warn(err.message)
       } catch {}
-    })
+    }
+    reportUnreachableRoleTargets(policies, roles, this._reportedRoleTargets, report)
+    reportDeadPolicyTargets(policies, this._reportedRoleTargets, report)
   }
 
   private _resolveSubject(subjectId: string): Promise<IamRequest.ISubject> {
@@ -624,7 +627,7 @@ export class IamEngine<
     const deps = this._loaderDeps()
     const build = (async () => {
       const [roles, policies] = await Promise.all([this._loadRoles(), loadPolicies(deps)])
-      this._reportUnreachableRoleTargets(policies, roles)
+      this._reportPolicyTargetProblems(policies, roles)
       const { compileTable } = await import('./compiled/compiled.compile')
       const table = this._compileOrReport(compileTable, roles, policies)
       // An invalidation that landed mid-build wins; do not store this table.

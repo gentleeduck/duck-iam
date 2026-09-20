@@ -621,6 +621,28 @@ scoped. It changes no verdict.
 The premise had been written into five comments and a test-file header across
 the adapters; those now say what is actually true.
 
+### A misspelled action or resource target retired a policy in silence
+
+The third carrier of the same defect. `targets.actions` and `targets.resources`
+are matched against the request, so an entry naming an operation the policy's
+own rules never mention admits nothing and the policy is skipped for every
+request — the same retired deny as a `targets.roles` entry naming no stored
+role, which is already reported.
+
+Measured with a `deny delete:post` rule: `targets: {actions: ['delte']}` allows,
+`{resources: ['psot']}` allows, and both are silent, while the identical typo in
+`targets.roles` is reported. Spelled correctly, or with no targets at all, the
+deny fires.
+
+No catalogue is needed to see it. The engine is never handed the declared
+vocabulary — that lives on `createIam` and reaches only its `validatePolicy`,
+which callers invoke or do not — but a policy's own rules are the vocabulary
+that matters: if no pattern in any rule could match a request the targets admit,
+the policy cannot fire whatever the catalogue says. Pattern intersection follows
+the matchers, so `*` intersects anything and a prefix form keeps its separator,
+leaving `post:*` and `post.*` disjoint exactly as `matchesResource` treats them.
+One live rule among dead ones keeps the policy reachable and quiet.
+
 ### A recreated role id handed its permissions to everyone who inherited the old one
 
 `deleteRole` removes the role and, on every adapter, the grants that named it —

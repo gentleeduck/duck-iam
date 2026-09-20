@@ -36,10 +36,11 @@ export interface IIamLoaderDeps<
   reportUndefinedAssignedRole: (subjectId: string, roleId: string) => void
 
   /**
-   * Reports a policy whose `targets.roles` names no stored role. Called from here and from the compiled-table
-   * build, since either path can be the only one that runs.
+   * Reports a policy whose targets make it unreachable - a `targets.roles` naming no stored role, or an
+   * action/resource target no rule can match. Called from here and from the compiled-table build, since either
+   * path can be the only one that runs.
    */
-  reportUnreachableRoleTargets: (
+  reportPolicyTargetProblems: (
     policies: readonly AccessControl.IPolicy[],
     roles: readonly AccessControl.IRole[],
   ) => void
@@ -247,7 +248,7 @@ export async function loadAllPolicies<
         loadRbacPolicy(deps),
         loadRoles(deps),
       ])
-      deps.reportUnreachableRoleTargets(policies, roles)
+      deps.reportPolicyTargetProblems(policies, roles)
       return rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
     },
     (merged) => {
