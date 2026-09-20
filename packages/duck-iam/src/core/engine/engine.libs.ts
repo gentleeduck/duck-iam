@@ -3,6 +3,7 @@ import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import type { Batch } from '../batch'
 import { appliedRows, batchResult, loopFallback } from '../batch'
+import { matchesUnconditionally } from '../conditions/conditions'
 import { MAX_CONDITION_DEPTH } from '../conditions/conditions.libs'
 import { matchesScope } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
@@ -229,6 +230,100 @@ function eachConditionPath(node: unknown, depth: number, visit: (path: string) =
  * `environment`, or a segment the resolver refuses. `resolve` answers `null` for those on every request, so the
  * rule never matches for any input. Unlike an absent attribute, this is decidable without seeing a request.
  */
+/** Narrows a condition item to the group arm; a flat condition is the one that carries `field`. */
+function isConditionGroup(item: object): item is AccessControl.IConditionGroup {
+  return !('field' in item)
+}
+
+function isEmptyList(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 0
+}
+
+/** Why this item is false for every request, decided from the item alone; `undefined` when it is not. */
+function neverMatchesReason(item: object): string | undefined {
+  if (isEmptyList(Reflect.get(item, 'any'))) {
+    return 'has an empty "any" condition group, which is false for every request'
+  }
+  if (Reflect.get(item, 'operator') === 'in' && isEmptyList(Reflect.get(item, 'value'))) {
+    return `tests ${JSON.stringify(String(Reflect.get(item, 'field')))} with "in" against an empty list, and nothing is a member of the empty list`
+  }
+  return undefined
+}
+
+/** Whether this item is true for every request: `{}`, an empty `all`/`none`, or `nin` against an empty list. */
+function alwaysMatches(item: unknown): boolean {
+  if (typeof item !== 'object' || item === null) return false
+  if (!isConditionGroup(item)) {
+    return Reflect.get(item, 'operator') === 'nin' && isEmptyList(Reflect.get(item, 'value'))
+  }
+  return matchesUnconditionally(item)
+}
+
+/**
+ * Why the rule's conditions are false for every request. Recurses through `all` chains only: under `any` a false
+ * item is a dead disjunct, and under `none` it helps the rule apply, so neither carries the rule's fate.
+ */
+function deadConditionReason(node: unknown, depth: number): string | undefined {
+  if (depth >= MAX_CONDITION_DEPTH || typeof node !== 'object' || node === null) return undefined
+
+  const direct = neverMatchesReason(node)
+  if (direct !== undefined) return direct
+  if (!isConditionGroup(node)) return undefined
+
+  const all = Reflect.get(node, 'all')
+  if (Array.isArray(all)) {
+    for (const item of all) {
+      const nested = deadConditionReason(item, depth + 1)
+      if (nested !== undefined) return nested
+    }
+  }
+
+  const none = Reflect.get(node, 'none')
+  if (Array.isArray(none) && none.some(alwaysMatches)) {
+    return 'has a "none" group holding an item that is true for every request, which makes the group false for every request'
+  }
+  return undefined
+}
+
+/** Why this rule can never match, decided from the rule alone; `undefined` when some request could reach it. */
+function unmatchableReason(rule: AccessControl.IRule): string | undefined {
+  if (isEmptyList(rule.actions)) return 'has an empty "actions" list, which matches no action'
+  if (isEmptyList(rule.resources)) return 'has an empty "resources" list, which matches no resource'
+  return deadConditionReason(rule.conditions, 0)
+}
+
+/**
+ * Reports a rule that no request can reach, for reasons wholly inside the rule - an empty target list or a
+ * condition that is false whatever the request holds.
+ * SECURITY: `validatePolicy` rejects the empty lists, but nothing on the load path calls it, so a seeded or
+ * migrated row carries them in silently; the condition shapes are not rejected even at write time.
+ */
+export function reportUnmatchableRules(
+  policies: readonly AccessControl.IPolicy[],
+  seen: Set<string>,
+  report: (err: Error, policyId: string) => void,
+): void {
+  for (const policy of policies) {
+    if (!Array.isArray(policy.rules)) continue
+    for (const rule of policy.rules) {
+      if (typeof rule !== 'object' || rule === null) continue
+      const reason = unmatchableReason(rule)
+      if (reason === undefined) continue
+      const key = `${policy.id}\u0000${rule.id}\u0000unmatchable`
+      if (seen.has(key)) continue
+      seen.add(key)
+      report(
+        new Error(
+          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} ${reason}. ` +
+            'No request can reach the rule, so ' +
+            `${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
+        ),
+        policy.id,
+      )
+    }
+  }
+}
+
 export function reportDeadConditionPaths(
   policies: readonly AccessControl.IPolicy[],
   seen: Set<string>,
@@ -301,7 +396,11 @@ export function reportDeadPolicyTargets(
     for (const dimension of ['actions', 'resources'] as const) {
       const targeted = policy.targets?.[dimension]
       if (!Array.isArray(targeted) || targeted.length === 0) continue
-      const live = policy.rules.filter((rule) => ruleMatchesTargets(rule, targeted, dimension))
+      // A rule with an empty list of its own is dead whatever the targets say; `reportUnmatchableRules` owns it,
+      // and naming the targets here would misdiagnose it.
+      const candidates = policy.rules.filter((rule) => !isEmptyList(rule?.[dimension]))
+      if (candidates.length === 0) continue
+      const live = candidates.filter((rule) => ruleMatchesTargets(rule, targeted, dimension))
       if (live.length === 0) {
         const key = `${policy.id}\u0000targets.${dimension}`
         if (seen.has(key)) continue
@@ -319,7 +418,7 @@ export function reportDeadPolicyTargets(
       }
       // The policy is reachable, so the report above stays quiet - but a rule the targets exclude never fires
       // either, and nothing else would say so.
-      for (const rule of policy.rules) {
+      for (const rule of candidates) {
         if (live.includes(rule)) continue
         const key = `${policy.id}\u0000${rule.id}\u0000rule.${dimension}`
         if (seen.has(key)) continue

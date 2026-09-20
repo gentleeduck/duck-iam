@@ -486,6 +486,7 @@ configuration mistake throws.
 | A policy's `targets.actions` / `targets.resources` match no rule the policy holds | **not a deny** — the targets admit only requests no rule answers, which retires it | `onPolicyError` once per policy and dimension, else one `console.warn` |
 | A rule's `actions` / `resources` fall outside its own policy's targets | **not a deny** — the policy fires, but that rule never does | `onPolicyError` once per policy, rule and dimension, else one `console.warn` |
 | A rule's condition reads a path that can never resolve | **not a deny** — `resolve` answers `null` for every request, so the rule never matches | `onPolicyError` once per policy, rule and path, else one `console.warn` |
+| A rule is unreachable from its own contents (empty `actions`/`resources`, an empty `any`, `in` against an empty list) | **not a deny** — no request can reach the rule | `onPolicyError` once per policy and rule, else one `console.warn` |
 | A subject holds a role nothing defines | **not a deny** — the id stays an effective role, but its `inherits` are unwalkable, so a deny targeting a role it conferred retires | `onPolicyError` once per role id, else one `console.warn` |
 | The compiled table cannot be built (malformed policy) | `false` for every request until fixed | `onPolicyError` for `IamPolicyCompileError`; one `console.error` otherwise |
 | Development table/interpreter disagreement | `false` + `console.error` | `onError` |
@@ -1043,7 +1044,7 @@ interface IHooks<TAction, TResource, TScope, TRole> {
 | `afterEvaluate` | after every verdict, both modes, evaluated or not | no |
 | `onDeny` | after `afterEvaluate`, only when denied, both modes | no |
 | `onError` | on the fail-closed error paths | no |
-| `onPolicyError` | when one policy throws, a policy fails to compile, a policy's targets make it unreachable, or a subject holds a role nothing defines | no |
+| `onPolicyError` | when one policy throws, a policy fails to compile, a policy's targets make it unreachable, a rule can never match, or a subject holds a role nothing defines | no |
 | `onMetrics` | once per verdict (per check in a batch, unless `telemetry: false`) | no |
 | `onMutation` | after every `engine.admin` write lands and caches are invalidated | no |
 
@@ -1093,7 +1094,7 @@ The offending policy stays **applicable** and votes Indeterminate. It is not
 treated as NotApplicable: "skipping a policy that could have denied is what
 turns a throw into an allow under `combine: 'and'`."
 
-The hook carries five advisory reports as well, and they are the only ones
+The hook carries six advisory reports as well, and they are the only ones
 that are not about a throw. `targets.roles` is matched by equality against the request's
 effective roles and against nothing else — there is no catalogue lookup — so an
 entry naming a role no stored row defines matches no subject and the whole
@@ -1173,6 +1174,40 @@ false, which is the stronger of the two treatments. That a dead `field` answers
 false while a dead operand answers Indeterminate is a real asymmetry in the
 verdict, not just in the reporting, and closing it would change decisions for
 existing policies — so it is reported and left as it is.
+
+The four advisories above all work by comparison: a policy against the role
+catalogue, a policy against its own rules, a rule against its policy's targets,
+a path against `resolve`'s contract. The last one needs no second thing at all.
+A rule can be unreachable from its own contents, and then there is nothing to
+compare it with and nothing above would say so.
+
+Three shapes are unconditionally dead, and each is reported once per policy and
+rule. An empty `actions` or `resources` list matches nothing, because both are
+`.some()` over the list. An empty `any` group is `false` — `[].some()` is —
+where an empty `all`, an empty `none` and `{}` are all `true`, so the one
+spelling that reads like "no conditions" is the one that retires the rule. And
+`in` against an empty list can hold for no value, since nothing is a member of
+the empty set. To these is added the mirror case, a `none` group holding an item
+true for every request, which makes the group false for every request;
+`matchesUnconditionally` is the oracle for it, and `nin` against an empty list
+is the flat condition that qualifies.
+
+Only falsity that reaches the rule is reported, so the walk descends `all`
+chains and stops at the other two keys: under `any` a false item is a dead
+disjunct and the rule still fires through its siblings, and under `none` a false
+item *helps* the rule apply. A `subset_of` or `superset_of` against an empty
+list is not reported either — both hold for an empty array field, which is a
+fact about the request rather than the policy, the same line the dead-path check
+draws at an absent attribute.
+
+`validatePolicy` already rejects the empty `actions` and `resources` lists, and
+that is exactly why the engine now checks them too: nothing on the load path
+calls the validator, so a seeded row, a migration or a hand-edited store carries
+them straight past it. The two condition shapes are not rejected even at write
+time. A rule with an empty list inside a policy that *has* targets used to be
+reported by the check above, which named the targets — a misdiagnosis, since the
+rule is dead whatever the targets say; that case now belongs to this check
+alone, and is reported once.
 
 `onMutation` is the audit seam, and the only evidence a revocation happened —
 the assignment row is hard-deleted. It fires after the adapter write resolves and
