@@ -802,6 +802,27 @@ Every invalidate method republishes to the invalidator unless
 Pass it yourself when you are applying an invalidation you already know every
 peer has seen. Otherwise leave it off.
 
+**A publish that fails cannot fail the write.** `publish` is operator-supplied
+code, it is allowed to return a promise, and it runs on the revocation path, so
+it gets the same treatment every other advisory callback in this engine gets: a
+synchronous throw is caught and a rejection is handled. Before, both escaped -
+the rejection as an unhandled one, which ends the process under Node's default
+`--unhandled-rejections=throw`, and the throw as a rejected `admin.revokeRole`
+for a revoke that had already landed and already cleared the local caches. It
+now runs inside a write's `finally`, where a throw would also have replaced the
+real reason a failing write failed.
+
+The failure is reported, never swallowed: one `console.warn` naming the event
+kind and saying plainly that this instance is up to date while other instances
+keep their caches until their own TTL expires. There is no budget on it, because
+the shipped redis invalidator reports and absorbs its own publish failures and
+never reaches this path - anything that does is an invalidator that chose not
+to, and the engine says so every time.
+
+Note what is *not* affected: the local caches are cleared before the publish, so
+a fleet-wide transport failure degrades to per-instance TTL staleness rather
+than to a local one.
+
 ### 6.6 The invalidator, and `setInvalidator`
 
 ```ts

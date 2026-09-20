@@ -2,6 +2,7 @@
 
 import type { IamLRUCache } from '../../shared/cache'
 import type { AccessControl, IamRequest } from '../types'
+import { isThenable } from './engine.hooks'
 import type { IamEngineTypes } from './engine.types'
 
 /** Every cache one engine owns, passed explicitly so each function here is testable on its own. */
@@ -13,6 +14,36 @@ export interface IEngineCacheBag<TRole extends string = string> {
   subjectCache: IamLRUCache<IamRequest.ISubject>
   inFlight: IEngineInFlightBag
   invalidator?: IamEngineTypes.IInvalidator<TRole>
+}
+
+/**
+ * Publishes to the fleet without letting the transport decide a local call's outcome. The local caches are
+ * already cleared by the time this runs, so the only thing at stake is whether peers hear about it.
+ * SECURITY: a bare `void publish(...)` left a rejection unhandled, which ends the process under Node's default
+ * `--unhandled-rejections=throw`, and a synchronous throw propagated out of a write that had already succeeded -
+ * on the revocation path, from code an operator supplies.
+ */
+function publishQuietly<TRole extends string>(
+  bag: IEngineCacheBag<TRole>,
+  event: IamEngineTypes.IInvalidateEvent<TRole>,
+): void {
+  try {
+    const result = bag.invalidator?.publish(event)
+    if (isThenable(result)) result.then(undefined, (err: unknown) => reportPublishFailure(event, err))
+  } catch (err) {
+    reportPublishFailure(event, err)
+  }
+}
+
+/** Never silent: every peer that missed the event serves the old answer until its own TTL expires. */
+function reportPublishFailure(event: { kind: string }, err: unknown): void {
+  try {
+    console.warn(
+      `[@gentleduck/iam:engine] invalidator.publish(${JSON.stringify(event.kind)}) failed; this instance is ` +
+        'up to date but other instances keep their caches until their own TTL expires. ' +
+        `(${err instanceof Error ? err.message : String(err)})`,
+    )
+  } catch {}
 }
 
 /**
@@ -51,7 +82,7 @@ export function invalidateAll<TRole extends string>(bag: IEngineCacheBag<TRole>,
   bag.mergedPolicyCache.clear()
   bag.inFlight.subjects.clear()
   if (opts.broadcast !== false && bag.invalidator) {
-    void bag.invalidator.publish({ kind: 'all' })
+    publishQuietly(bag, { kind: 'all' })
   }
 }
 
@@ -68,7 +99,7 @@ export function invalidateSubject<TRole extends string>(
   bag.subjectCache.delete(subjectId)
   bag.inFlight.subjects.delete(subjectId)
   if (opts.broadcast !== false && bag.invalidator) {
-    void bag.invalidator.publish({ kind: 'subject', subjectId })
+    publishQuietly(bag, { kind: 'subject', subjectId })
   }
 }
 
@@ -85,7 +116,7 @@ export function invalidatePolicies<TRole extends string>(
   bag.inFlight.merged.value = null
   bag.mergedPolicyCache.clear()
   if (opts.broadcast !== false && bag.invalidator) {
-    void bag.invalidator.publish({ kind: 'policies' })
+    publishQuietly(bag, { kind: 'policies' })
   }
 }
 
@@ -153,7 +184,7 @@ export function invalidateRoles<TRole extends string>(
     }
   }
   if (opts.broadcast !== false && bag.invalidator) {
-    void bag.invalidator.publish({ kind: 'roles', roleId })
+    publishQuietly(bag, { kind: 'roles', roleId })
   }
 }
 

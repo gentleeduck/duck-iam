@@ -693,6 +693,25 @@ conservative choice at the time and this round measured it wrong: the policy is
 reachable, and the dead rule still needs naming. It now asserts the policy-level
 silence *and* the new per-rule report.
 
+### An invalidator whose `publish` fails can no longer take the process down
+
+`IInvalidator.publish` is operator-supplied code, is allowed to return a
+promise, and runs on the revocation path. The engine called it as a bare
+`void publish(...)`, so a rejection was unhandled - fatal under Node's default
+`--unhandled-rejections=throw` - and a synchronous throw came back out of
+`admin.revokeRole` as a failure, for a revoke that had already landed and
+already cleared the local caches.
+
+Both are now caught, as every other advisory callback in the engine already was,
+and reported as one `console.warn` naming the event kind and stating that this
+instance is up to date while other instances keep their caches until their own
+TTL expires. No verdict changes, and the local caches are cleared before the
+publish either way, so a transport failure degrades to per-instance TTL
+staleness rather than to a local one.
+
+The shipped redis invalidator already absorbed and reported its own publish
+failures, so it never reached this path.
+
 ### A write that timed out no longer leaves the old answer cached
 
 `adapterTimeoutMs` bounds how long the caller waits, not how long the store
