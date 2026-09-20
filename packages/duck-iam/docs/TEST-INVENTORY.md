@@ -74,6 +74,7 @@ drift the way the hand-maintained version did.
 | `adapters/http/__tests__/http-io-failure.test.ts` | 15 | IamHttpAdapter I/O failure handling |
 | `adapters/http/__tests__/http-malformed-row.test.ts` | 5 | IamHttpAdapter refuses malformed policy rows and drops malformed role rows |
 | `adapters/http/__tests__/http-path-segments.test.ts` | 13 | http adapter builds path segments safely |
+| `adapters/http/__tests__/http-subject-partial-row.test.ts` | 8 | a partial subject grant list does not silently retire the denies it carries |
 | `adapters/http/__tests__/http-subject-shape.test.ts` | 18 | IamHttpAdapter subject-data shape validation |
 | `adapters/http/__tests__/http-timeout-timer.test.ts` | 2 | IamHttpAdapter per-request timeout timer |
 | `adapters/http/__tests__/http.test.ts` | 61 | IamHttpAdapter |
@@ -94,7 +95,7 @@ drift the way the hand-maintained version did.
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
 | `adapters/redis/__tests__/redis.test.ts` | 127 | IamRedisAdapter |
-| **Subtotal** | **1669** | |
+| **Subtotal** | **1677** | |
 
 ---
 
@@ -422,7 +423,7 @@ drift the way the hand-maintained version did.
 | Area | Files | Tests |
 |---|---|---|
 | Core / compiled engine | 10 | 149 |
-| Adapters | 56 | 1669 |
+| Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
 | Core | 163 | 2752 |
 | Devtools | 9 | 201 |
@@ -432,4 +433,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **313** | **6204** |
+| **Total** | **314** | **6212** |
