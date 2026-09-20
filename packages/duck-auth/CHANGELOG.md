@@ -1,5 +1,3438 @@
 # Changelog
 
+## 5.13.0
+
+### Minor Changes
+
+- 7228f81: Expose `updatedAt` on the session, credential and api-key surfaces.
+
+  Every SQL dialect already carried an `updated_at` column, maintained by drizzle's `$onUpdate`, and every
+  dialect then projected it back out of the row before a caller could see it. `Identities.Me` exposed its
+  own; `Sessions.Me` and `Credential.Me` did not, so there was no way to ask when a session or a credential
+  was last written.
+
+  - `Sessions.Me.updatedAt` and `Credential.Me.updatedAt` are now part of the row, and so is
+    `Credential.Public`, which is `Me` minus the secret.
+  - `ApiKeys.ApiKey.updatedAt` comes through the projection over the backing credential row.
+  - The OpenAPI `Session` schema declares it, so generated clients type it.
+  - The memory and redis stores stamp it on every write, matching what `$onUpdate` does in SQL. A caller
+    cannot set it through a patch: it tracks the write, and is not backdatable.
+  - A redis session written before this release has no `updatedAt` field. It reads back as its `createdAt`
+    rather than being refused, so an upgrade does not sign existing sessions out.
+
+  The store-compliance suite now asserts, on all six backends, both that the field is present and typed and
+  that every write actually moves it — an exposed timestamp that never changes would be worse than no
+  timestamp at all.
+
+  Implementors of a custom `Sessions.Store` or `Credential.Store` must return `updatedAt` on the rows they
+  answer, and `Sessions.CreateInput` now carries it; the engine supplies it at create.
+
+  Stop sending the session's CSRF hash to the browser.
+
+  `GET /session` answered `JSON.stringify(resolved.session)`, and the row carries `csrfHash`. All seven HTTP
+  adapters did it, so the per-session hash reached every client that asked who it was, for a field no client
+  has a use for: the browser echoes the plaintext from its `__Host-` cookie, and the comparison is
+  server-side. `Identities.exportAll` had always stripped the field, so the package's own intent was clear
+  and the route was the one place contradicting it.
+
+  - The handlers strip it inline, so the wire now carries the row minus that one field.
+  - `Sessions.Public` names that shape, and `VanillaClient.SessionResult.session` plus `reviveSession` are
+    typed to it rather than to `Sessions.Me`. A caller reading `session.csrfHash` off a client result now
+    fails to compile, which is the point.
+  - Two guards, both mutation-checked: a static-analysis test that scans every `server/*/index.ts` from the
+    directory rather than a list, so a new adapter is covered the day it lands, and a live assertion on the
+    hono route's response body.
+
+  Answer the facts the API already held but did not hand back.
+
+  - The OpenAPI `Session` schema declared 12 of the row's fields. `ip`, `userAgent`, `fingerprint` and
+    `actingAs` are on the wire and non-secret, so a generated client was typed narrower than its own
+    responses. They are declared now; `csrfHash` stays out, deliberately.
+  - `ApiKeys.create` accepts a `tenantId` and `exchange` reports one, but `ApiKeys.ApiKey` dropped it, so a
+    key could be scoped to a tenant and never read back. It is now on the record, absent when unscoped.
+
+  Still deliberately hidden: `Credential.secret`, `Sessions.Me.csrfHash` outside the server, and mysql's
+  generated `passwordKey`/`emailNorm`/`usernameNorm`, which are index carriers rather than fields.
+
+  Mark auth responses uncacheable.
+
+  Nothing in the package set `Cache-Control` — not on a route, not in a shared helper, and not as advice in
+  the docs. `GET /session` is the sharp end: one URL for every caller, a body that differs by cookie, and no
+  `Vary`. A CDN or proxy caching it hands one caller another's identity and session. The same applied to the
+  magic-link and OAuth callback GETs, whose URLs carry a one-time token and an authorization code.
+
+  Every HTTP adapter now sets `cache-control: no-store` on the responses it builds, including error and
+  redirect paths. grpc is exempt: it is not HTTP. A static-analysis test enforces it per adapter, derived
+  from the directory rather than a list, and the hono session route asserts the header on a live response.
+
+  Close the timing oracle on the magic-link request.
+
+  `requestPasswordReset` is careful about this: both branches mint and hash a token and make the same store
+  calls in the same order, because "response time answers what the response body refuses to". `magicLink.begin`
+  implements the same contract and did the opposite — an unknown address returned before the token mint and
+  before the credential insert, so it was measurably the faster one, and the endpoint told a caller whether an
+  address had an account. Its comment claimed the branches matched; only the channel dispatch did.
+
+  - The unknown branch now mints and hashes a token like the known one, and answers the write with a read of
+    the same table under the same tenant scope. A decoy write is not possible: `auth_credentials.identity_id`
+    is a foreign key, which is the reason the reset flow reads there too.
+  - `autoCreateIdentity` and `autoCreateProfile` behave as before; only the early returns are gone.
+
+  The existing `magic-link-timing-defense.test.ts` passed throughout, both before and after. It compared
+  wall-clock across the two branches with a 50 ms tolerance, against the memory adapter, where the skipped
+  insert costs microseconds — it could only ever prove that neither branch blocks on the channel. It now also
+  counts the store round trips each branch makes and requires them to line up, which is the assertion that
+  fails on the old code: the unknown branch made none where the known one made two.
+
+  CSRF-guard the passkey routes, and bound `passkey.begin`.
+
+  `mountHono` mounts `passkey/begin` and `passkey/complete` as POSTs. Neither called `csrfGuard`, while
+  `/signin`, `/providers/:id/begin` and all five MFA routes in the same file do — and `passkey/complete` is
+  a sign-in, the same thing `/signin` is. There was no note anywhere saying the omission was meant. Both are
+  guarded now, and a new test walks the routes `mountHono` actually registers and requires every POST among
+  them to refuse a cross-site request, so a route mounted without the guard fails the day it lands rather
+  than whenever someone next reads the file.
+
+  `passkey.begin` also consumed no rate limit, where passwords, magic-link, api-key and saml each bound
+  their entry point and `flows.signIn` has no central limiter to fall back on. It is keyed on the canonical
+  address when one is supplied, and on the session id otherwise. `limiterKeyPrefix` joins the other passkey
+  options, defaulting to `passkey:begin:`.
+
+  Refuse a revoked passkey on the branch that mints the session.
+
+  `passkey.complete` read `cred.revokedAt` for its truthiness, where the offer path twelve lines above uses
+  `isRevoked` and carries a comment saying why: a `revokedAt` of `0` is falsy, so a store keeping timestamps
+  as epoch ints would answer a revoked row and this read it as live. The same bug was found and fixed for
+  TOTP and for `beginWebauthnMfaVerify`, both of which now note it in place; the accept path was missed, and
+  it is the more consequential of the two, since the offer path only lists a credential while this one
+  returns `startSession`. No adapter shipped here can produce it — `Credential.Me['revokedAt']` is
+  `Date | null` and `new Date(0)` is truthy — so this closes it for the pluggable store contract and for
+  consistency, not against a live exploit. A test drives the assertion through a store answering `0` and
+  asserts the mismatch; with the old check it resolved to `startSession`.
+
+  Make the OpenAPI spec describe the routes the adapters actually mount.
+
+  `buildOpenApiSpec` declared a route layout the framework adapters have never mounted. Six of its nine
+  paths did not exist: `/password/sign-in` against a mounted `/signin`, `/sign-out` against `/signout`,
+  `/passkey/verify` against `/passkey/complete`, and `/oauth/{provider}/start` plus `/magic-link/request`
+  against the single `/providers/{id}/begin` that drives every two-step provider. The five mounted MFA
+  routes were absent altogether. The spec's own `info.description` calls these "routes mounted by
+  `@gentleduck/auth` framework adapters", so a client generated from it 404s on sign-in and sign-out. The
+  existing test pinned the wrong paths, which is why it stayed quiet.
+
+  The path table now follows `mountHono` one for one, `GET /session` answers a `SessionResult` envelope
+  rather than a bare `Session` (both members are null when nothing resolves, and that is a 200), and the
+  gate names match the adapters' skip flags — so `OpenApi.Cfg['providers']` takes
+  `'magic-link' | 'oauth' | 'passkey' | 'totp'`. `'password'` is gone, because `/signin` is mounted
+  unconditionally and takes any registered provider by id. **Anyone generating a client from this spec
+  gets different paths, which is the point: the old ones did not resolve.**
+
+  A new `openapi-route-parity` test mounts the router against a recorder and diffs it against the spec,
+  at default config and once per skip group, so a route added, renamed or gated on one side fails there
+  instead of in someone's generated client.
+
+  The four routes also advertised an `Idempotency-Key` header. `auth.idempotency` is real and works, but
+  it is a facet a host wraps its _own_ routes in — no adapter reads the header, so the spec was promising
+  that a retry replays the cached response when every retry executes again, sending a second magic-link
+  mail or burning another rate-limit token. The parameter is dropped and a test now asserts the spec does
+  not mention it. Wiring the header into the adapters is a feature, not a fix, and is left alone.
+
+  Describe the sign-in response the routes actually send, and stop `SignInResult` describing one nothing does.
+
+  Correcting the paths left the schemas untouched, and they were wrong in the same direction. `SignInResult`
+  declared a 200 of either `{ session }` or `{ mfaRequired: true, methods }`. Neither is ever sent:
+  `mfaRequired` appears nowhere in the package outside this file, because a second factor is not a 200 with
+  a flag — `flows.signIn` throws `AUTH_STEP_UP_REQUIRED`, which the adapters map to a 401 carrying
+  `detail.challenge`. And a successful sign-in sends no body at all; the session rides in the `Set-Cookie`
+  the transport issues, which is why the client re-reads it with `GET /session`. The schema is gone, the
+  four sign-in completing routes declare an empty 200 with a documented `Set-Cookie` and a 401 that names
+  the step-up code.
+
+  This one is pinned to the wire rather than to another list: the new test drives a real password sign-in
+  through the mounted handler and asserts the status, the empty body and the cookie, then asserts the spec
+  declares no content for that 200. It failed on exactly that last assertion before the fix.
+
+  Say that the client `signUp` route is yours to mount.
+
+  `signUp` defaults to `POST /signup` and its docs named that path the way `signIn` names `/signin` — but
+  no adapter mounts a registration route, so the default 404s while the neighbouring default works. The
+  method is still worth having, since it carries the CSRF header, the same-origin credentials and the
+  envelope that a bare `fetch` would not; the docs now say the route is the host's and the default is a
+  placeholder. A test pins the three client defaults the library does back, and pins `/signup` as absent so
+  mounting one later cannot quietly contradict `SignUpOptions`.
+
+  Stop the client reporting a signout the server refused.
+
+  `client.signOut()` discarded the envelope `call` had just built and answered `{ ok: true }` whatever
+  happened — a 500, a CSRF refusal, an unreachable host. Clearing the local session regardless is right:
+  the caller asked to sign out, and a cached session outliving the request is worse than none. Reporting
+  success is not, because the session is still live on the server and the cookie is still in the browser,
+  which is the one thing signout exists to rule out. It now clears local state exactly as before and
+  returns what the server said, the way `signIn` already surfaces its failures. **Callers that assumed
+  `ok` is always true on this method will now see `false`, which is the point.** Two tests cover the
+  refused and the unreachable case; neither path had one, which is why this stood.
+
+  The `as` cast there was holding up a second untruth: the method declared
+  `Envelope<Record<string, never>, string>` while the route answers an empty body, so `data` is `null` at
+  runtime and has always been. `signOut` is typed `Envelope<unknown, string>` now, matching `signUp`, and
+  the cast is gone. The same declaration appeared in the react, vue, solid and svelte bindings, all four of
+  which delegate to the vanilla client and so carried the same lie; all four are corrected.
+
+  Cover the react client, which nothing did.
+
+  `./client/react` is a published entry point with no tests at all, while the vue, solid and svelte
+  bindings each have some. React hooks need a renderer and react-dom is not a dependency here, so the new
+  test pins what is checkable without one: that the module imports against the installed React and exports
+  its whole surface, so a dropped export or a broken barrel fails here rather than in someone's app.
+
+  Worth a decision, not changed here: `react` exposes `useSignUp` and `useBeginProvider`, and the `vue` and
+  `solid` bindings expose neither. Nothing is unreachable — every binding exposes the client itself, so
+  `client.signUp(...)` and `client.beginProvider(...)` are always in reach — but the hook-level surface is
+  uneven between siblings.
+
+  Repair a rename sweep that replaced `_` with `/` inside names that were never paths.
+
+  An earlier refactor rewrote import specifiers by replacing `duck-auth` with `auth/`, and the replace ran
+  over every string that shared the prefix. The import paths were cleaned up afterwards; the strings that
+  merely looked like them were not, and they are not the kind of thing a type-checker reads:
+
+  - `duck-auth init` scaffolded `process.env.DUCK_AUTH/BASE_URL`, which is not an environment variable
+    name — it parses as a division, so the generated `auth.ts` failed to compile with
+    `TS2304: Cannot find name 'BASE_URL'`. The same three names were wrong in the generated
+    `.env.duck-auth`, and in what `keys generate` and `keys rotate` tell you to paste where.
+  - `duck-auth migrate <dialect>` defaulted to `--prefix=AUTH/` and emitted
+    `CREATE TABLE IF NOT EXISTS AUTH/identities`, which no dialect will parse. The prefix is `auth_`
+    again, which is also what the drizzle schemas name their tables.
+  - `duck-auth doctor` looked for `src/AUTH/auth.ts`, and `init` writes `src/auth/auth.ts` by default, so
+    `init` followed by `doctor` could never find what `init` had just written.
+  - `AUTH_DEFAULT_EN_MESSAGES` keyed ten of its twelve error-code entries as `'AUTH/LOCKED'` and the like.
+    The resolver falls back to the id it was handed, so every one of those lookups missed silently and
+    rendered the raw code to an end user. The one key that survived is `AUTH_INVALID_CREDENTIALS` — the
+    formatter quotes only keys that are not legal identifiers, so the quoting itself marks the damage.
+  - `DEFAULT_MAGIC_LINK_CONFIG.callbackPath` was `/AUTH/magic-link/callback`, and the provider builds the
+    emailed URL from it, so every magic link sent at default config pointed at an upper-cased path.
+  - The vue, solid, react and vanilla clients named `@gentleduck/AUTH/client/*` in the errors they throw,
+    and vue's injection key was `Symbol.for('@gentleduck/AUTH/client/vue')`.
+
+  Seventy more occurrences were test titles and failure messages naming codes like `AUTH/STALE_WRITE`,
+  which means grepping for an error code did not find the test that covers it.
+
+  Fix the scaffold's imports, which named symbols that no longer exist.
+
+  Separately from the rename, both `init` flavors still named the pre-`a209418d` symbols — `AuthMemoryAdapter`,
+  `AuthCookieTransport`, `AuthScryptHasher`, `AuthJwtTransport`, `AuthArgon2idHasher` — after that commit
+  stripped the `Auth` prefixes. They also imported from `@gentleduck/auth/providers/password`, which the
+  `exports` map does not have (it is `passwords`), named `RedisSessionStore` and `RedisIdempotencyStore`,
+  which have never existed in any form, took `RedisLimiter` from `adapters/redis` rather than
+  `limiters/redis`, and passed `env: 'production'` to `new AuthEngine`, which takes no such option. Both
+  templates now type-check: `tsc` on the generated output reports nothing but the unresolved imports that
+  `--noResolve` guarantees.
+
+  `README.md`'s examples were pinned against the `exports` map in an earlier round; that guard now runs over
+  the `init` output too, which is the same kind of string and rotted the same way. The CLI's own tests had
+  asserted `toContain('AuthMemoryAdapter')` and `toContain('RedisSessionStore')` — an assertion that a
+  name is present can never notice that the name resolves to nothing.
+
+  Create the scaffolded env file owner-only.
+
+  `init` wrote `.env.duck-auth` at the umask default, typically `0644`, and the file exists to hold
+  `DUCK_AUTH_HS256_SECRET`. It is created `0600` now; `mode` is masked by the umask, so this can only
+  narrow. It also reported `scaffolded <path>` for an existing env file it had deliberately left alone,
+  and now says `kept existing`.
+
+  Worth a decision, not changed here: `DEFAULT_MAGIC_LINK_CONFIG.callbackPath` is `/auth/magic-link/callback`
+  once the case is repaired, but the only magic-link route any adapter mounts is `mountHono`'s
+  `/auth/magic-link/verify`. The default link lands on a route that exists nowhere. Changing a public
+  default is a behaviour change, so the case fix is all that is applied.
+
+  Read the GitHub account's verified address, so `link-if-verified` can fire for GitHub at all.
+
+  The GitHub provider requested the `user:email` scope and then never called `/user/emails`. It took the
+  address from `/user`, which carries only the _public_ profile email — unset by default, and carrying no
+  verification claim either way — and it never set `emailVerified`. `resolveFederationConflict` requires
+  `profile.emailVerified === true` to link, so a host that configured `onFederationConflict:
+'link-if-verified'` got a policy that rejected every GitHub sign-in it was ever asked to arbitrate. It
+  failed closed, which is why nothing caught it: a declared feature wired to nothing.
+
+  `fetchProfile` now reads `/user/emails` and takes the row that is both `primary` and `verified`, which is
+  the only thing that justifies setting `emailVerified: true`. Verification is read from GitHub, never
+  assumed. This is best effort by design: a token whose `scopes` were narrowed, a rate limit, or an account
+  with no verified address all fall back to the `/user` email carried _without_ a verification claim, which
+  is the posture the Microsoft provider already takes. Sign-in is never failed over it.
+
+  New on `OAuthClient`: `authedJson(url, accessToken, providerId)`, an authenticated JSON GET under the same
+  64KB body cap as `userinfo`, for any provider whose profile needs a second call. It refuses a non-http(s)
+  url before reaching `fetch`, because a host's own `fetchProfile` receives the client and can call it.
+
+  The provider had no test file at all — it was the lowest-covered module in the package at 16.66% of
+  statements. It now has nine, covering both endpoints, both fallbacks, and both federation outcomes.
+
+  Worth a decision, not changed here: Sign in with Apple cannot complete a flow, at three layers. Apple
+  requires `response_mode=form_post` whenever any scope is requested, and `begin()` emits `scope=name+email`
+  with no `response_mode`, so Apple answers `invalid_request`. The only oauth callback any adapter mounts is
+  a GET reading query params, so Apple's POST would 405. And the `__Host-duck-oauth` binding cookie is
+  `SameSite=Lax`, which a browser withholds on a cross-site POST, so the state binding check would fail with
+  the cookie absent. The last of those is the decision: Apple needs `SameSite=None` on that cookie, and
+  `Lax` is load-bearing CSRF defence for the other five providers. Full write-up in
+  `docs/superpowers/notes/2026-09-19-apple-cannot-complete-a-flow.md`.
+
+  Related and also unchanged: `OAuthClient.buildAuthorizeUrl` accepts `extraParams` and no caller anywhere
+  passes it — it is the hook Apple's `response_mode` needs. The `apple` provider requests the `name` scope,
+  which Apple only ever delivers in the form_post body it cannot currently receive. The `microsoft` provider
+  requests `User.Read` while reading only the OIDC userinfo endpoint that `openid`/`profile`/`email` cover;
+  that one needs checking against a live tenant before anything is removed, since it may be what forces the
+  access token's audience to Graph.
+
+  Declare the five optional integrations that are imported at runtime and were in no dependency field.
+
+  `@aws-sdk/client-ses`, `@opentelemetry/api`, `resend`, `twilio` and `web-push` are each loaded with
+  `await import('name' as string)`. The `as string` is deliberate — it stops the bundler resolving them, so
+  an app that never sends SMS never pays for `twilio`. It also stopped anything noticing they were declared
+  nowhere: no version range was expressed for any of them, and each one's own failure message told the user
+  to install a "peerDep" that did not exist. The sibling tell is exact: `@aws-sdk/client-kms` is loaded the
+  same way and _is_ declared `>=3 <4` optional; `@aws-sdk/client-ses` is loaded the same way and was not.
+
+  All five are now `peerDependencies` with `peerDependenciesMeta.optional`, matching the ten that were
+  already there. `@aws-sdk/client-ses` takes `>=3 <4` from its sibling and `@opentelemetry/api` takes
+  `>=1 <2`; the ranges for `resend`, `twilio` and `web-push` are lower bounds read off the single symbol
+  each call site uses, so narrow them if you mean to support a specific major. Nothing is forced on a
+  consumer: an optional peer that is absent still fails the same way, with the same message.
+
+  `src/__tests__/lazy-peer-deps.test.ts` now pins it from both ends — every dynamically imported bare
+  specifier must be a declared optional peer, and every package name an error message tells the user to
+  install must be a real key of `peerDependencies`. The two halves found the same five independently.
+
+  Stop `mountHono` documenting a CORS middleware it does not mount.
+
+  `mountHono`'s JSDoc read "`opts.cors` mounts a scoped CORS middleware". Nothing reads `opts.cors`, and
+  `MountHono.App` declares only `get` and `post`, so no middleware can be mounted through that type at all —
+  the option is not merely unimplemented, it is unimplementable as typed. A host setting
+  `cors: { origins: [...] }` got silence. It fails closed, so the consequence is a broken cross-origin
+  integration rather than an open one. Both comments now say it is inert; **the option itself should be
+  implemented or removed, which is a decision, so it is left in place.**
+
+  Related comments that named a dependency field the package does not have: `hono` and `@grpc/grpc-js` were
+  both described as peerDeps and are in no dependency field, because both adapters are structurally typed
+  and neither package is ever imported. The gRPC one also called it "lazily loaded"; there is no import.
+
+  Pin what `opts.skip` actually removes.
+
+  `mountHono`'s `skip` had no test. It is also not the clean partition its names suggest: `'totp'` gates
+  every MFA route, backup-code regeneration included, so a host that offers backup codes but not TOTP cannot
+  ask for that. Documented on `SkipGroup` and pinned in `hono-skip-groups.test.ts`, which asserts each group
+  removes exactly its own routes and that sign-in, sign-out, session and provider-begin survive every
+  combination. Worth a decision, not changed here: whether that grouping should split.
+
+  Also added: `src/server/__tests__/adapter-options-wired.test.ts`, which fails when a field is added to any
+  adapter's `*Options` type and read by nothing — the shape `cors` had.
+
+  Make `strict({ env: 'production' })` refuse a forgeable signing secret.
+
+  The production gate checked the limiter, the stores, the idempotency store, cookie `secure`, the baseUrl
+  scheme, that a provider exists and that someone listens for `lockout` — seven checks, none of which looked
+  at the secrets those sessions are signed with. A deployment with a one-character HS256 signing key and a
+  one-character oauth `stateSigningSecret` passed every one of them. `strict()` is the call a host makes to
+  be told what is wrong before it serves traffic, so fixing the six things it did report and shipping was
+  the documented path to a green gate on a deployment whose session tokens anyone could mint.
+
+  RFC 7518 section 3.2 requires an HMAC key at least as long as the hash it feeds, so 32 bytes is the floor
+  for HS256. `AuthJwtTransport` and the oauth provider each compute one boolean at construction —
+  `__weakSigningKey`, `__weakStateSecret` — and `strict()` reads them by brand, the same way it already
+  reads `__isNoopLimiter` and `__isMemoryStore`. The brands are booleans the holder derived; neither carries
+  the secret, and neither is on the public type. A transport or provider that publishes no brand is not
+  checked, there being no way to read a foreign implementation's key. Providers are read through
+  `engine.providers.list()` rather than `cfg.providers`, so one supplied as a factory is checked too.
+
+  Empty is separated from short, because they are different failures. An absent `stateSigningSecret` is not
+  an unsigned state — `createHmac` accepts an empty key and produces a perfectly valid MAC with it, so the
+  state is signed with a key every attacker also has. That is refused at construction, in every environment,
+  rather than recorded for a `strict()` call the host may never make. A short-but-present secret is a
+  production policy question, so it is reported by `strict()` and only in production, matching every other
+  check there.
+
+  The CLI's `--production` scaffold has claimed since it was written that this call "refuses to start on a
+  weak secret, an insecure cookie, or a missing limiter". Two of those three were true. The comment is now
+  accurate as written, and `.env.duck-auth` already tells operators to use 32 bytes.
+
+  Six tests in `src/core/__tests__/strict.test.ts` cover it, including that key length is silent outside
+  production. Each check was mutation-proven in its own run, the floor value included.
+
+  Refuse a batch unlink that would lock an account out, and emit the event that says one happened.
+
+  `identities.unlink` refuses to drop the last way into an account: the remaining provider links plus the
+  live credentials must not come to zero. `identities.unlinkMany` called the store directly and applied no
+  such check, so the batch path — the one a bulk admin action takes — could leave an identity with no
+  provider and no credential, reachable by nobody. `flows.unlinkProvider` refuses the same thing twice,
+  before and after the write, with a rollback; the facet is simply the weaker of the two implementations.
+
+  `identity.unlinked` was declared in the event catalogue as "the mirror of `identity.linked`", with a
+  SECURITY note calling it "the half an account takeover performs, dropping the real owner's login so only
+  the attacker's route is left". `flows.unlinkProvider` emitted it. The facet did not, on either method, so
+  a host subscribing to it for alerting saw nothing when the write came through `auth.identities`.
+
+  Both are fixed by delegation rather than by a second copy of the check: `unlinkMany` now calls `unlink`
+  per row and `linkMany` calls `link`, both through the `refusable()` wrapper that already turns a refusal
+  into a skipped row rather than an aborted batch. A duplicated guard is what let these drift in the first
+  place. `linkMany` inherits the duplicate-providerId refusal the same way. `allowedLockout` is always
+  `false` from this facet, which is accurate: the override is `flows.unlinkProvider`'s, and this path has
+  none — a host that means to strand an account still has that route.
+
+  **A batch unlink that previously stranded an account now skips that row and returns without it.** The
+  returned array is what it always was: the rows actually written.
+
+  Record who ran a batch erasure, and stop a bulk import swallowing driver failures.
+
+  `identities.erase` takes `{ reason, operatorId }` and binds the actor so the store stamps who performed
+  the erasure. `identities.eraseMany` took a bare array of ids and bound nothing, so the irreversible
+  operation was attributable on the single path and anonymous on the batch. It now takes the same envelope
+  and binds the actor once around the one adapter call; omitting `operatorId` still leaves an outer
+  request-scoped actor alone, because `withActor(undefined)` is a fence that clears the scope rather than a
+  no-op. **`eraseMany(ids)` is now `eraseMany(ids, { reason })` — a required argument, matching `erase`.**
+  The `Identities.Store` contract is unchanged: adapters carry attribution through the actor scope.
+
+  `bulkCreate` caught every error from a row and counted it as `failed`. This file has `refusable()` for
+  exactly this distinction, and its comment says why: Postgres leaves a transaction aborted once a statement
+  has failed, so swallowing one makes a later `COMMIT` a silent `ROLLBACK`. A bulk import that lost its
+  connection returned `{ created: 0, skipped: 0, failed: N }` and threw nothing. A refusal this layer decided
+  is still a failed row; a driver failure now propagates.
+
+  `bulkCreate` in `merge` mode also linked through the store rather than through `link`, so a provider folded
+  into an existing account emitted no `identity.linked`. It goes through `link` now, which is also where the
+  duplicate-providerId refusal lives, so the inline re-check is gone.
+
+  Worth a decision, not changed here: `bulkCreate` in `replace` mode erases the account it is replacing
+  through the store, with no `reason` and no `operatorId`, where `erase` and `eraseMany` both require one.
+  An ambient actor still flows through, so attribution is possible; it is never explicit.
+
+  **Spending an MFA backup code now reaches the event bus.** `recovery.mfa.escalated` was declared on
+  `Events.EventMap`, listed in `AUDITED_EVENTS` so the audit envelope would be stamped onto it, and allowed
+  through the webhook event filter — and nothing ever emitted it. `flows.completeStepUp` accepts
+  `method: 'backup-code'`, rotates the session to `aal: 2` and records `backup-code` on its factor list, and
+  that session row was the only trace: no webhook fired and no audit subscriber could see that an account's
+  second factor had been satisfied without the factor. `MfaImpl.verifyBackupCode` emits it now, after the
+  compare-and-set claim and the revoke, so a subscriber reading the row it names finds the code already
+  burnt and revoked, and a losing racer emits nothing.
+
+  Breaking, at the type level only: the payload's `ticketId` is now `credentialId`, carrying the backup-code
+  row that was spent. duck-auth has no ticket concept — `ticketId` appeared nowhere but its own declaration —
+  and `credentialId` is what `mfa.ts` already calls this identifier for webauthn enrolment and in the
+  `suspicious` payload. Nothing emitted or subscribed to the event, so any handler written against the old
+  name was unreachable code.
+
+  Worth a decision, not changed here: `BackupCodesFacet.verify`, the second backup-code implementation, still
+  emits nothing. It is wired by the host rather than mounted on `AuthEngine` and holds no event bus, so giving
+  it one changes a published constructor signature — a required parameter breaks direct constructors, an
+  optional one puts the silent gap back as a configuration footgun.
+
+  **The `client_credentials` grant is rate-limited, and reachable.** `M2MImpl.exchange` compares a
+  caller-supplied `client_secret` against stored material through the same `ApiKeysFacet.verify` that
+  `ApiKeyProvider.complete` uses. That provider guards the call twice — a type-and-length check so a
+  non-string cannot throw a `TypeError` past the quota, then `limiter.consume` — and `exchange` did neither,
+  leaving an unbounded online guessing oracle for service-account secrets.
+
+  `M2MImpl` now takes a `Limiter.Me` as its fourth constructor argument, ahead of the optional config, and
+  `m2m()` takes one in the same position. The quota is keyed on `clientId`, not on the presented secret: a
+  brute force sends a different secret every attempt, so keying on the secret hands every guess a fresh
+  budget and bounds nothing. `clientId` and `clientSecret` are now required to be strings of at most 512
+  characters, checked above the limiter so an unbounded id cannot become an unbounded limiter key. This is a
+  breaking constructor change for anyone constructing `M2MImpl` directly — which, until this release, was
+  nobody outside the package, because of the next paragraph.
+
+  `@gentleduck/auth/core` exported `type { M2m }` and no runtime symbol, so the grant could not be reached:
+  a host could name `M2m.ExchangeInput` and had no way to obtain anything that accepts one, while the class
+  docstring told them to mount a `/oauth/token` route calling `exchange()`. `M2MImpl`, `m2m` and
+  `DEFAULT_M2M_CONFIG` are now exported from `./core`. The root export surface is unchanged.
+
+  **An impersonation can name the authorization that allowed it.** `identity.impersonated` has always
+  declared an `iamDecisionId`, documented as "the one entry an audit log cannot afford to be missing", and
+  the field appeared exactly once in the package — in that declaration. No option carried it, the only
+  emitter never set it, nothing read it. `Flows.ImpersonateOptions` now takes `iamDecisionId`, validated to
+  1–256 characters like the `reason` beside it, and it reaches the event. An impersonation that names no
+  decision publishes no key at all rather than an explicit `undefined`.
+
+  Not changed here, and worth a decision: `flows.impersonate` still accepts an arbitrary `authorize`
+  callback, so the declared `AUTH_IMPERSONATE_REQUIRES_IAM` is thrown by nothing and an impersonation with no
+  IAM decision behind it remains possible. Requiring one is a breaking policy change.
+
+  Also reported, not changed: `OAuth.StatePayload.nonce` is documented "one-time use" and nothing enforces
+  it. The nonce is minted, signed, round-tripped and shape-checked, but never recorded or compared, and
+  `AUTH_OAUTH_NONCE_REPLAY` is declared for the violation and raised by nothing. `DPoPVerifier` already
+  enforces the same property through a nonce store, and both a memory and a Redis store ship, so the
+  machinery exists — but the oauth provider holds no store, and adding an optional one would put the silence
+  back as a configuration footgun.
+
+  **`FakeRedis` now expires keys of every type, not only strings.** The in-process redis used by every unit
+  test of the redis-backed stores — and exported publicly on the `./test` subpath — held its TTLs on string
+  entries, so `EXPIRE` on a set or a sorted set answered `0` and set nothing. `RedisSessionImpl` keeps its
+  per-identity session index in a set and bounds it with one `expire` call; against this fake that call did
+  nothing, so the index was unbounded in every test that has ever run. TTLs now live in one map keyed by the
+  key, a bare `SET` drops a prior TTL as real Redis does without `KEEPTTL`, `DEL` clears it, `INCRBY` keeps it
+  so a rate-limit window survives its own increments, `SCAN` walks sorted sets too, and every set and
+  sorted-set read consults expiry first.
+
+  **Passkey registration can request direct attestation, and `strict()` now checks that it does.**
+  `Passkey.Options` gains `attestationType` (`'none'` by default); the registration call hardcoded `'none'`,
+  so the `fips` compliance preset's `webauthnAttestationDirect` requirement was unreachable on that path
+  while `mfa`'s WebAuthn enrollment honoured the same option. `strict()` now reads the setting off the
+  registered passkey provider instead of taking the operator's word, and observed evidence takes precedence
+  over a supplied attestation — a deployment can no longer claim `limiterRequired` while holding the Noop
+  limiter.
+
+  **The sqlite adapter waits for `pragma foreign_keys = on` before answering.** It was issued fire-and-forget
+  in the constructor. A raw driver sets it synchronously through `exec` first, but the adapter also accepts a
+  drizzle handle you already have, and for an async one the first queries ran with foreign keys still off —
+  the state that leaves dangling provider links behind an erased identity. The pragma is now awaited at the
+  boundary every facet calls through, and a pragma that fails surfaces as an adapter error instead of an
+  unhandled rejection on an unenforced connection.
+
+  **`RedisEvents` reports a fan-out it could not perform.** A rejected `publish` was answered with `() => 0`,
+  so `emit` resolved as success while no other node in the fleet received the event and nothing recorded it.
+  The failure is now logged with the event name, and `emit` still resolves — local handlers have already run,
+  so a redis blip does not become a failed sign-in.
+
+  **The session stores with no schema now enforce the constraints the SQL ones do.** `assertSessionAllowed`
+  carried three of the seven `CHECK` constraints every dialect declares, so memory, redis and valkey accepted
+  a session id that was not a 64-character hash, a deadline preceding the row's own creation, a rotation
+  preceding it, and an absolute cap below the sliding expiry. The first of those let a caller use the bearer
+  token itself as the primary key; the last left the session with no absolute cap at all. The shared store
+  compliance suite defaulted session ids to a raw label that every SQL adapter overrode away, so it had been
+  asserting a different contract on either side of the divide it exists to erase — it now hashes by default.
+
+  **`strict({ env: 'production' })` now refuses the in-process limiter.** It rejected the in-process stores by
+  brand but checked only `AuthNoopLimiter` for the limiter, so a deployment supplying `AuthMemoryLimiter` — or
+  relying on the engine's fallback to it — passed the production gate holding a class whose own docstring reads
+  "Dev/test only". Across a fleet that grants every brute-force budget once per node, and a restart returns all
+  of them. It also reached the compliance evidence, which positively reported `limiterRequired` satisfied for
+  it and, since engine evidence takes precedence, overrode an operator attesting otherwise. **Breaking for any
+  production deployment currently passing `AuthMemoryLimiter` or omitting a limiter: `strict()` will now refuse
+  to boot. Wire `AuthRedisLimiter`, or your own.** The in-process events bus, passkey challenge store and DPoP
+  nonce store remain unchecked and are reported in the audit log rather than changed here.
+
+  **An expired session is refused even when the cleanup write fails.** `getBySid`, `touch` and `resolveBySid`
+  delete the dead row before throwing `AUTH_SESSION_REVOKED`, and that delete was awaited unguarded — so a store
+  that refused the write returned `AUTH_ADAPTER_FAILED` in the refusal's place. That code is not in `ABSENT`, so
+  the `resolveSession(...).orNull()` every server adapter calls rethrew it and a merely-expired session came back
+  as a 500 instead of a 401. The cleanup can no longer change an answer that was decided before it ran.
+
+  **A signup flow token now expires.** `beginSignUp` writes two deadlines — the credential's 24-hour absolute
+  cap and `flow.expiresAt`, the sliding thirty-minute window every `advanceSignUp` pushes forward — and only the
+  read path checked the first, while nothing anywhere compared the second against the clock. `advanceSignUp` and
+  `completeSignUp` therefore accepted a flow token at any age, and `completeSignUp` mints a session, marks the
+  address verified and merges the staged profile. Nothing swept the row either, the credential store contract
+  having no `gc`, so an abandoned signup's token stayed a valid account takeover indefinitely. The three entry
+  points now share one liveness check, and each still answers with its own error code.
+
+  **The in-process identity store now enforces the identity constraints every dialect declares.** Both logins
+  must be a non-empty string and fit their column (320 / 191), and neither half of a provider link may be
+  blank — the five `chk_auth_identities_*` and `chk_auth_identity_providers_*` constraints pg, mysql and sqlite
+  all carry, and which the memory store and the identities facet checked nowhere. A blank, missing, non-string
+  or over-long `username`/`email` was written in dev and refused on the first production write, and such a row
+  is not findable by the address it was meant to carry, since the uniqueness pass reads a blank login as
+  absent. **Breaking for a host whose `profileToIdentityProfile` can yield a blank address** — the shape most
+  of them are written in — which now fails at the store rather than silently in dev only.
+
+  **A session that timed out now says so.** `AUTH_SESSION_EXPIRED` — declared with an `{ expiredAt }` meta and
+  translated in `i18n` — was raised by nothing; every deadline threw `AUTH_SESSION_REVOKED`, which is also what
+  a store answers for a row that is absent, corrupt or another tenant's, and whose only detail is a free-text
+  `reason`. `getBySid`, `touch`, `resolveBySid` and the JWT transport's `exp` check now raise the expiry code
+  and name the instant, so a caller can tell "sign in again" from "this session was revoked". The code joins
+  the absent set in the same change, so `resolveSession(...).orNull()` still reads a timed-out session as
+  absence rather than an error. **Breaking for a caller matching on `AUTH_SESSION_REVOKED` to detect a timeout**
+  — match `AUTH_SESSION_EXPIRED`, or both. The store layer is unchanged. A further ten declared error codes are
+  raised by nothing at all; they are listed in the audit log rather than changed here.
+
+  **A stateless transport's verdict now survives the store fallthrough.** `resolveSession` verifies the token
+  with the transport and, where that does not vouch for it, falls back to looking the token up as a session id
+  — which is what lets one engine accept both a cookie sid and a bearer JWT. That fallback also ran for a token
+  the transport had authenticated and then refused, and since the store is keyed by sid hash it can hold no row
+  for a minted token, so its `no session for that sid` overwrote the real answer: an expired JWT reached the
+  caller as `AUTH_SESSION_REVOKED`, never as `AUTH_SESSION_EXPIRED`, through `resolveSession` and through
+  `CompositeTransport` alike. `AUTH_SESSION_EXPIRED` is the one refusal a transport reaches only about a token
+  whose signature verified — every "not a token of mine" rejection is `AUTH_SESSION_REVOKED` — so it is now
+  kept and answered, and every other refusal still falls through exactly as before. **Breaking for a caller
+  matching `AUTH_SESSION_REVOKED` to detect an expired bearer token**, which is the same move as the change
+  above and now reaches the path server adapters actually take.
+
+  **`strict()` now rejects the two dev-only implementations `NODE_ENV` was the only thing guarding.**
+  `MemoryIdempotency` and `AuthNullCaptchaVerifier` each refuse to construct under `NODE_ENV=production`, but
+  `strict({ env: 'production' })` is a separate declaration and most runtimes leave `NODE_ENV` unset, so on
+  those deployments nothing refused them. `strict()` covered only half of its own stated intent — it caught an
+  _omitted_ idempotency store, not the same class wired by name, which is what the README example does — and
+  never looked at the captcha verifier at all. Both are now rejected by brand, the way the memory adapter and
+  the in-process limiter already are, and `IdempotencyImpl` republishes its store's brand so the gate reads it
+  without reaching into private state. An always-pass captcha removes protection from every path it fronts; the
+  unconfigured verifier, which refuses every challenge, is still accepted, because failing closed is not a
+  footgun. **Breaking for a production deployment that was wiring either one** — which is the point: it was
+  unprotected and silent about it.
+
+  **`duck-auth doctor` now runs.** The command imports your `auth.ts` and calls `strict()` on its `auth`
+  export — with no arguments, though `strict(opts)` reads `opts.compliance` before anything else. Every
+  invocation died on a `TypeError` that the surrounding catch reported as
+  `strict() rejected: Cannot read properties of undefined (reading 'compliance')`, so a healthy config and a
+  broken one were equally "rejected" and no check ever ran. It now asks about `production`, the only env whose
+  checks exist; prints `meta.detail`, which is where the list of failed checks lives, rather than
+  `AuthError.message`, which is the bare code `AUTH_MISCONFIGURED`; and says `could not run strict()` for a
+  failure that is not a verdict, so a crash can never again read as a finding.
+
+  **`strict()` now checks every store you hand it, not three of them.** The production sweep for in-memory
+  stores was a hand-written list of `identities`, `sessions` and `credentials`, under a comment reading "over
+  every store". `Engine.Stores` has a fourth slot: `orgs`. The memory adapter's org store carries the same
+  `__isMemoryStore` brand the sweep looks for, so a deployment with real identity, session and credential
+  stores beside `adapter.orgs` passed the gate while its membership rows and role grants — an authorization
+  input — lived in one process, invisible to the rest of the fleet and emptied by a restart. The sweep now
+  reads the stores bag itself, so `orgs` is covered and a slot added later cannot be missed. `Org.Store` is a
+  read interface over your own tables, so a production host is expected to have one already; the memory store
+  is the dev stand-in. **Breaking for a production deployment wiring `adapter.orgs`** — wire your own org
+  store, or leave `orgs` unset if the app has no org concept.
+
+  **The memory device-fingerprint store now refuses a bound it cannot apply.**
+  `AuthMemoryDeviceFingerprintStore` caps how many device fingerprints it remembers per identity and expires
+  them after a TTL, and applied both as a bare `>` against the configured number. Every comparison against
+  `NaN` is false, so a non-finite `maxPerIdentity` or `ttlMs` -- `Number(process.env.FP_MAX)` on an unset
+  variable, say -- did not widen the bound, it removed it: one identity retained 500 fingerprints where the
+  default caps at 50, and no sighting ever expired. Zero and negative failed the other way, remembering
+  nothing, so every request read as a new device and stepped up at the detector's default score. Both are now
+  validated in the constructor and throw `AUTH_MISCONFIGURED`, matching `deviceFingerprintDetector` and
+  `authImpossibleTravelDetector`, which already validated their own numeric config. **Breaking only for a
+  config that was already not working**: the value that now throws was previously disabling the bound it was
+  meant to set.
+
+  **The SSRF guard now refuses internal host _names_, not only internal addresses.** `isBlockedHostname`
+  recognised four spellings of `localhost` and nothing else, so `metadata.google.internal` -- the name GCP's
+  metadata server answers on, and what an SSRF payload targeting GCP actually uses -- passed the guard that
+  already refuses the 169.254.169.254 behind it. Also now refused: `metadata.goog`, anything under the
+  ICANN-reserved `.internal`, and the `localhost4` / `localhost6` / `ip6-localhost` / `ip6-loopback` aliases
+  that ship in the /etc/hosts of Debian-family images. Applies to every outbound URL the library checks:
+  webhook endpoints, captcha verify endpoints and web-push subscription endpoints. **Breaking for a
+  deployment that points any of those at a `.internal` host** -- which was already the case for `.local` and
+  every RFC 1918 address, so this extends an existing posture rather than introducing one.
+
+  **Outbound oauth and captcha requests no longer follow redirects.** `OAuthClient`'s code exchange, refresh,
+  userinfo and `authedJson` calls, and the captcha siteverify POST, all left `fetch` on its default
+  redirect-following behaviour, so the request did not necessarily land on the endpoint the scheme and SSRF
+  guards had checked. A 307 or 308 from a token endpoint re-posts the body with `client_secret` in it to
+  whatever the `Location` names, and a redirect to `http://` puts that secret -- or the bearer token on the
+  userinfo call -- on the wire in plaintext. All five now pass `redirect: 'error'`, the posture the webhook
+  dispatcher already took. **Breaking for a provider whose token, userinfo or captcha endpoint answers with a
+  redirect**: point the config at the final URL instead.
+
+  **The Redis/Valkey event bus no longer goes deaf to the fleet when a handler is swapped.** `RedisEvents.on()`
+  recorded a channel teardown by deleting its `_subscriptions` entry synchronously and issuing the
+  `UNSUBSCRIBE` several awaits later. Because the shipped valkey adapter unsubscribes a _channel_ rather than a
+  callback, an `on()` for the same event in that window -- `unsub(); bus.on(event, next)`, the ordinary handler
+  swap -- opened a second subscription that the in-flight teardown then cancelled, and the map was left holding
+  a live-looking entry so no later `on()` resubscribed. The node kept delivering its own local emits and kept
+  reporting a listener to `strict()`, while receiving nothing from other nodes for `lockout`, `session.revoked`
+  or `suspicious`. The teardown now stays in the map while it runs and resubscribes if a handler arrived
+  meanwhile. Not breaking: same public surface, and a bus that never swaps handlers behaves as before.
+
+  **CSRF: bearer clients are no longer refused by the NestJS auth guard, which now also takes a `cfg`.**
+  `verifyCsrf` only applied its documented bearer exemption when a caller passed `isBearer`, and the helper
+  that detects one is module-private -- so `csrfGuard` was the only caller that ever set it. NestJS'
+  `makeGuard` calls `verifyCsrf` directly (to reuse the session Nest middleware already resolved) and passed
+  neither `isBearer` nor a `Csrf.Cfg`, so a client authenticating with `Authorization: Bearer <session token>`
+  was refused `AUTH_CSRF` on every mutating route, and a configured `allowedOrigins` / `headerName` was
+  ignored where the CSRF-only guard beside it honoured them. `verifyCsrf` now derives the flag from the
+  Authorization header when it is not told, and `makeGuard` accepts `cfg`. An explicit `isBearer` still wins.
+  The exemption itself is unchanged -- still only when no cookie rides along, still held to the origin checks
+  otherwise. **Behaviour change for a NestJS app using `makeGuard` with bearer clients**: those requests now
+  pass the CSRF check instead of being rejected, matching every other adapter.
+
+  **`WebhookDeliverer` now refuses a `maxAttempts` or `timeoutMs` that would stop delivery silently.**
+  `maxAttempts` was clamped rather than validated, and `Math.min(Math.max(1, NaN), 20)` is `NaN`, so a
+  non-finite value made the retry ladder's `while (attempt < maxAttempts)` false on the first pass: no request
+  was made for any event and the delivery was dead-lettered with `attempts: 0` and an empty `lastError`.
+  `timeoutMs` was not checked at all, and `setTimeout` floors a negative or non-finite delay to zero and
+  overflows past 2^31-1 to zero too, aborting every request before it left. Both now throw
+  `AUTH_MISCONFIGURED` at construction, as `backoffMs` beside them already did. The clamp on a _finite_
+  `maxAttempts` is unchanged. **Breaking for a deployment passing a non-finite `maxAttempts` (including
+  `Infinity`, which the clamp silently turned into 20) or a `timeoutMs` outside `[1, 2147483647]`** -- those
+  configurations were not delivering webhooks, and now say so at boot.
+
+  **Every store's `gc(now)` now refuses a cutoff that is not a finite timestamp.** The nine implementations
+  across memory, SQLite, Postgres, MySQL and Redis each compared rows against `now` directly and disagreed
+  about a number that is not one: `NaN` swept nothing and reported `deleted: 0` on memory, SQLite and Redis
+  while Postgres threw, and `Infinity` deleted **every** session on memory and Redis while SQLite swept
+  nothing. The silent half is the likely one -- `Number(process.env.GRACE_MS)` is `NaN` when the variable is
+  unset -- and for identities it meant the hard-delete that makes a soft delete a delete never ran, while
+  reporting success. All nine now throw `AUTH_INVALID_PARAMETERS`, and the store-compliance matrix asserts it
+  on all six dialects along with the fact that nothing was swept before the refusal. `auth.sessions.gc()` and
+  `auth.identities.gc()` are unaffected -- they take no argument and pass `Date.now()` themselves. **Breaking
+  only for a caller passing a non-finite cutoff straight to a store**, which was not collecting anything, or
+  was collecting everything.
+
+  **A TOTP enrollment can no longer be started over a confirmed one.** `mfa.beginTotpEnrollment` deleted every
+  `totp` credential for the identity before minting the pending one, so starting an enrollment removed the
+  second factor. The mounted `POST /auth/mfa/totp/begin` route asks only for a signed-in session, which made it
+  the unguarded way to do what `/auth/mfa/totp/remove` demands a step-up for -- and a better one, since it also
+  returned a secret the caller controls and `confirmTotpEnrollment` then regenerated the backup codes. It was
+  invisible as well: `removeTotp` is what emits `mfa.removed`, so the deletion reached no audit log. It now
+  throws `AUTH_MFA_REQUIRED` when a live confirmed enrollment exists; re-enrolling goes through `removeTotp`,
+  which is guarded. Replacing a _pending_ enrollment still works as before.
+
+  **Regenerating the MFA backup codes now requires a step-up.** `POST /auth/mfa/backup-codes/regenerate` took
+  any signed-in session and answered with ten fresh plaintext backup codes, each of which `completeStepUp`
+  accepts as a second factor -- so a caller holding only the password reached AAL2 in one round trip, and the
+  victim's codes were destroyed to mint them. The route now refuses with `AUTH_STEP_UP_REQUIRED` unless the
+  session is already AAL2, the same gate `/auth/mfa/totp/remove` uses.
+
+  **The last-factor lockout guard now agrees with itself.** `flows.unlinkProvider` and `identities.unlink` each
+  carried their own idea of what still authenticates an identity, and each allowed a lockout the other
+  refused: the first counted an _expired_ password or passkey as live, the second counted one-shot `recovery`
+  tokens and second factors such as `totp` as standing ways in. Both now use `isStandingFactor` -- live,
+  unexpired, and of a kind that can start a session on its own (`password`, `passkey`, `api-key`).
+
+  **SAML: the email/nameID agreement check now reads the assertion, not the SP config.** It fired whenever
+  `allowedNameIdFormats` merely _listed_ `emailAddress`, so an SP accepting `persistent` alongside it refused
+  every persistent login -- an opaque nameID never equals an email. It now keys on the format the assertion
+  states, falling back to the previous behaviour when the IdP omits one. An `emailAddress` assertion whose
+  email disagrees with its nameID is still refused.
+
+  **`anomalyFacet` now refuses a threshold or timeout that is not a usable number.** `threshold`, `stepUpAt`
+  and `denyAt` must be finite and within 0..1, and `detectorTimeoutMs` finite and between 1 and 2^31-1. All
+  four were taken on trust while both shipped detectors validated their own config, and every way they could
+  be wrong failed open: `score >= NaN` never denies and never steps up, and a delay `setTimeout` cannot use
+  abandons every detector before it answers, leaving `evaluate` reporting no signals at all.
+
+  **Channel sends silently stopped happening on a misconfigured retry ladder.** `ChannelGuard` — which every
+  shipped channel (`smtp`, `resend`, `ses`, `twilio`, `webpush`) constructs from its own public `Cfg` —
+  applied `retries` and `timeoutMs` without validating either. A non-finite or negative `retries` made
+  `tries <= this._retries` false on the first test, so the provider was never called and the guard threw
+  `undefined`; `Infinity` turned the doubling backoff into a tight loop, since `setTimeout` overflows past
+  2^31-1 and floors to ~1ms. A non-finite `timeoutMs` skipped the `<= 0` branch that disables the deadline
+  and reached `setTimeout` anyway, aborting every send before it left. Password resets, magic links, email
+  verification and account-deletion confirmations stopped being delivered, with nothing an error mapper could
+  render. Both are now refused at construction with `AUTH_MISCONFIGURED`: `retries` finite in 0..10,
+  `timeoutMs` finite in 0..2147483647. Both documented zeroes stay legal. This is the sibling of the webhook
+  deliverer ladder fixed earlier in this changeset — same shape, second implementation.
+
+  **Both rate limiters could be configured into not limiting at all.** `AuthMemoryLimiter` and `RedisLimiter`
+  validated the `weight` and `key` passed to `consume`, but applied `max` and `windowMs` from config
+  unchecked. Measured: `max: NaN` produced **zero refusals in fifty consumes on one key** in both limiters —
+  `count > NaN` is false forever — so the brute-force defence that `strict({ env: 'production' })` refuses to
+  boot without was silently not running. `windowMs: NaN` or `0` is the inverse: the bucket never elapses, so
+  the first budget spent is the last and `resetAt` reads `Invalid Date`. Both are now refused at construction
+  with `AUTH_MISCONFIGURED` — `max` finite in 1..`Number.MAX_SAFE_INTEGER`, `windowMs` finite in
+  1..8640000000000. **Breaking for anyone passing `Infinity`**: an unlimited limiter is a contradiction, and
+  `NoopLimiter` is the declared way to have none — unlike `Infinity`, `strict()` can see and refuse it.
+
+  **A DPoP proof from any point in time was accepted when the freshness window was misconfigured.** The RFC
+  9449 4.2 check is `Math.abs(now - iat) > clockSkewMs + freshnessMs`, and `>` against a non-numeric sum is
+  false, so the check never fired. Measured: with `clockSkewMs: NaN`, real ES256 proofs dated one year old,
+  ten years old, and one year in the future were all accepted — while a default verifier correctly refuses a
+  one-hour-old proof. Freshness is the primary limit on replaying a captured proof, and the default `jti`
+  store is per-process, so a fleet has no second line. `DPoPVerifier` now refuses `clockSkewMs` or
+  `freshnessMs` that is not a number between 0 and 3600000, with `AUTH_MISCONFIGURED`.
+
+  **A caller could switch off session-hijack and anomaly checks by omitting one header, on the Next.js and
+  gRPC adapters.** `requestSecurity` treated "the host supplied no `getCaller`" and "this request carried no
+  fingerprint" as the same early return, and every adapter collapsed the two at the call site with
+  `?? {}`. `nextCaller` and `grpcCaller` deliberately resolve no IP — a Web `Request` has no peer, and the
+  library will not read a forwarded header — so on those two adapters the User-Agent is the entire
+  fingerprint, and dropping it skipped the hijack evaluation, the `suspicious` audit record and the anomaly
+  snapshot alike. `Hijack.Cfg.onMissingSignal: 'strict'` exists for exactly that move and was unreachable,
+  because the return happened before the policy was consulted. Adapters now omit `caller` entirely when no
+  `getCaller` is configured, and `requestSecurity` only skips on that. Behaviour is unchanged on the default
+  `onMissingSignal: 'soften'` except that the drift is now recorded; hosts on `'strict'` get the reaction
+  they configured. A session that recorded no fingerprint is unaffected.
+
+  **The default password hasher reported a broken install as a wrong password, and threw on a corrupt hash.**
+  `Argon2idHasher.verify` returned `argon.verify(...)` without awaiting it, so its `catch` was unreachable: a
+  malformed PHC string rejected out of a method documented to answer `false`, which also let a corrupted
+  credential row distinguish itself from a wrong password despite the uniform-timing construction around it.
+  The same `catch`, once reachable, swallowed the `AUTH_MISCONFIGURED` that `loadArgon2` builds to carry the
+  `@node-rs/argon2` install command — and since `DEFAULT_PASSWORDS_CONFIG` selects Argon2id while that package
+  is an _optional_ peer dependency, a deployment that loses the native module told every user "invalid
+  credentials" and the operator nothing. The module load now sits outside the `catch` and the verify is
+  awaited inside it. A hash from another algorithm still answers `false` without loading anything.
+
+  **`strict()` no longer refuses every HIPAA and FIPS deployment.** The AAL-floor gate asked
+  `providers.list()` whether an mfa provider was registered. `list()` is the sign-in grid and keeps only
+  capabilities exposing `begin`/`complete`; `MfaImpl` exposes `enroll`/`verify`, so it was registered and
+  never listed. Both presets that raise the floor above AAL 1 therefore threw `AUTH_MISCONFIGURED` saying no
+  mfa provider was registered while one was, in every environment. It now asks `providers.has('mfa')`.
+
+  **The FIPS hasher requirement is now verified rather than attested.** `fips` declares
+  `fipsValidatedHasher`, meaning "Argon2id with FIPS params", and `ARGON2ID_COMPLIANCE` — those exact params,
+  exported by the package — was referenced by nothing: a fips deployment running scrypt booted `strict()` on
+  the operator typing `true`. `Argon2idHasher` and `ScryptHasher` now publish whether they meet that
+  parameter set, and `strict()` reads it off the registered password provider. A hasher that publishes no
+  answer is still attested for, since FIPS 140 approves no Argon2 and a host may hold a validated
+  implementation of its own. Also: `Passwords.Cfg.hasher` was documented as defaulting to scrypt; it defaults
+  to Argon2id.
+
+  **Backup codes and trusted-device tokens now refuse a length that is not a secret.** `mfa({ backupCodeLen:
+0 })` minted ten codes that were all the literal `-`, and `verifyBackupCode` accepted `-` for any identity;
+  a count that was not a positive whole number deleted an identity's codes and minted none. The same knob was
+  unchecked on `BackupCodesFacet` (`byteLength`, `count`) and `RememberMeFacet` (`byteLength`, `ttlMs`). All
+  three constructors now throw `AUTH_MISCONFIGURED` for a value outside the usable range, the way
+  `toApiKeysCfg` already did for `randomBytes`. **Breaking** for a deployment that configured a shorter code
+  than the new floors: `backupCodeCount`/`count` 1-64, `backupCodeLen` 8-64, `byteLength` 5-64, remember-me
+  `byteLength` 16-128.
+
+  **Both password hashers now bound their own parameters.** `scryptHasher({ keylen: 0 })` and
+  `({ saltLen: 0 })` each wrote a row that `parse` refuses, so sign-up succeeded and the correct password
+  never verified again; `({ N: 2 })`, `({ r: 0 })` and `argon2idHasher({ memoryCost: 8, timeCost: 1 })` were
+  accepted end to end, with `needsRehash` calling each result current. The constructors now throw
+  `AUTH_MISCONFIGURED` for a structurally invalid set — including an `N` too large for the `maxmem` both
+  calls pass, which previously threw inside Node on the first sign-up — and `strict()` refuses a hasher below
+  its own defaults in production only, so a test suite can still use a cheap KDF. A hasher of your own is not
+  judged. **Breaking** for a deployment configured below `keylen` 16, `saltLen` 8, `hashLength` 16 or
+  `saltLength` 8, or running production below `N` 2^14 / `r` 8 / `keylen` 32 / `memoryCost` 19456 /
+  `timeCost` 2.
+
+  An elapsed `expiresAt` now refuses a credential everywhere, not only on API keys. `ApiKeyImpl.verify`
+  already treated an expired row as a revoked one, and `isStandingFactor` — which both lockout guards use to
+  count the ways back into an account — already refused an expired `password`, `passkey` or `api-key`. Seven
+  gates read `revokedAt` alone: the password sign-in and rehash paths, the passkey `allowCredentials` offer
+  and the branch that mints the session, `remaining()` and `verify` on `BackupCodesFacet`, and
+  `MfaImpl.verifyBackupCode`. A password carrying a rotation deadline signed in for ever after it passed,
+  while the engine simultaneously refused to unlink that account's last provider on the grounds it would
+  become unreachable. `beginPasskeyRegistration`'s `excludeCredentials` is unchanged, so re-enrolling an
+  expired authenticator is still the way back. **Breaking** for any deployment that writes `expiresAt` on a
+  credential through the store contract and relies on it being ignored.
+
+  `CookieTransport`'s CSRF companion cookie now follows the session cookie's settings instead of four
+  hardcoded literals. `{ domain: '.example.com' }` — the option that exists for cross-subdomain deployments
+  — used to emit the session cookie for the whole domain and the companion as `__Host-duck-csrf` for the
+  issuing host alone, so a page on a sibling subdomain could not read the token, could not send
+  `x-csrf-token`, and had every state-changing request refused `AUTH_CSRF` with nothing said. `sameSite` and
+  `path` diverged the same way, and over plain http the `__Host-` prefix had the browser discard the cookie
+  entirely — previously documented as a `WARN` rather than fixed. The prefix is now kept exactly when its
+  three conditions hold, `revoke()` clears under the attributes it set, and a `csrfCookieName` getter
+  exposes the result for the client's existing option of that name. **Breaking**: the companion is named
+  `duck-csrf` when `domain` is set, `path` is not `/`, or `secure` is `false`; the default is unchanged.
+
+  `DPoPVerifier` now holds a proof's `jti` until that proof stops being acceptable, rather than for
+  `clockSkewMs + freshnessMs`. The freshness check is two-sided, so a proof is live for twice that span, and
+  the old TTL covered only the half after `iat` — measured at the defaults, the verifier asked for a 90s TTL
+  on a proof that stayed fresh for another 179s, and the identical proof replayed successfully once its
+  `jti` had aged out. The gap is how far ahead the client's clock runs, which is what `clockSkewMs` exists
+  to tolerate. `NonceStore` implementers should honour the `ttlMs` they are handed per key rather than
+  assuming one global window.
+
+  `WebhookDeliverer` now stamps each delivery attempt as it is sent. Every attempt on the retry ladder used
+  to carry the first one's timestamp, so a retry arrived bearing its position on the ladder as an age, and
+  `verifyWebhookSignature` refuses a stamp past its tolerance — 5 minutes by default — with a bare `false`,
+  the same answer as a wrong secret. The defaults stay inside the window, but `backoffMs: 60_000` puts
+  attempt 5 at 7.5 minutes and the documented `maxAttempts: 20` puts attempt 20 a day and a half out, and
+  both are validated as supported. The body keeps the event time so a delivery's attempts stay
+  byte-identical for idempotency on `deliveryId`; read freshness from the `X-Duck-Timestamp` header, which
+  is what the verifier takes.
+
+  Email addresses are now folded — trimmed, lowercased and NFC-normalised — when an identity is written,
+  rather than left for each dialect's unique index to fold on read. SQLite's `lower()` is ASCII-only, and
+  its `create` leans on that index alone, so an address carrying one uppercase non-ascii letter took a row
+  that nothing could find afterwards: measured, `find` by the exact address used to create the account
+  answered `AUTH_IDENTITY_NOT_FOUND` immediately after creating it, and a second account on the same address
+  was accepted. Sign-in by email, password reset and duplicate detection all missed the same way. Trimming
+  closes the same hole for a padded address on every dialect. **Breaking, mildly**: `profile.email` now
+  comes back trimmed and lowercased; existing rows are untouched and stay reachable, since lookups still try
+  the stored spelling alongside the canonical one.
+
+  `isSessionFresh` now bounds the freshness window at both ends, as `JwtTransport.verify` and `checkStepUp`
+  already did. A `rotatedAt` ahead of the clock gave a negative age, which is under any window, so a session
+  stamped a day out read as permanently fresh — and freshness is what gates a password change. Nothing
+  bounds that column from above and the stamp is written by whichever node rotated the session, so one
+  machine with a fast clock handed the rest of the fleet sessions that never went stale. Ordinary node skew
+  inside the window still reads fresh.
+
+  `IdempotencyImpl.handle` now releases the key when the executor throws. The claim was written with the
+  response TTL — a day by default — and nothing let go of it, so a client retrying under the same key after
+  an error read a miss, lost the claim, polled out and was answered `409 idempotency-conflict` for the next
+  24 hours, with the work never running again. That is the one case an Idempotency-Key exists for. A
+  response the executor did return is still cached and still not re-executed; a process that dies
+  mid-executor still falls back to the TTL.
+
+  `MfaImpl` now treats an elapsed `expiresAt` as revocation, as every other credential kind already did.
+  Six readers - both TOTP paths, both WebAuthn-MFA paths and the two `has*` probes - filtered on `revokedAt`
+  alone, so a deadline written on a `totp` or `webauthn-mfa` row was honoured by nothing: the second factor
+  kept verifying past it, the assertion challenge kept offering the credential, `hasTotp` kept reporting the
+  enrolment to `beginPasswordReset`, and the enrolment guard kept refusing to replace it. A credential whose
+  deadline has not passed, or that has none, behaves exactly as before.
+
+  `AuthEngine.strict()` now rejects `AuthConsoleChannel`, `AuthNoopChannel` and `AuthTestChannel` in
+  production, as it already rejects the memory adapter, the in-process idempotency store and the
+  always-pass captcha verifier. Each of the three refused itself on `NODE_ENV` and nothing else, and that
+  check does not fire where `NODE_ENV` is unset - so a deploy could log every magic link to stdout, or
+  report every password-reset email as delivered without sending one, and pass `strict()`. The three now
+  publish a brand `strict()` reads off the `channels` bag; a real channel is untouched, and all three stay
+  accepted under `env: 'development'` and `'test'`.
+
+  `IdentitiesImpl.exportAll` now narrows its session list to the tenant context it is given, as it already
+  narrowed the credential list one line above. The GDPR right-to-access blob read every session the identity
+  had anywhere, so in a multi-tenant deployment one tenant's export named the other tenant's sessions and
+  carried their `tenantId`, IP, user-agent, fingerprint, assurance level and factor list. Identities are
+  global while sessions are tenant-scoped, which is what makes the unfiltered read cross a boundary. A caller
+  that passes no tenant, which is every single-tenant deployment, gets exactly the same export as before.
+
+## 5.12.0
+
+### Minor Changes
+
+- Return signatures: the engine answers with the row or rejects, and a caller who wants
+  absence as a value asks for it.
+
+  ### The engine answers with the row or rejects
+
+  Every public facet method used to answer `null` for two different things — the row was
+  not there, and the store could not be reached. A caller could not tell them apart, which
+  is how a sign-up reads a timed-out lookup as a free email address.
+
+  Each of these now rejects with an absence code instead, and `.orNull()` restores the old
+  shape wherever the old shape was wanted:
+
+  - `identities`: `getById`, `getByEmail`, `getByProviderSub`, `softDelete`, `restore`,
+    `erase` → `AUTH_IDENTITY_NOT_FOUND`
+  - `sessions`: `getBySid`, `touch`, `revoke`, `revokeByHash` → `AUTH_SESSION_REVOKED`
+  - `orgs`: `get` → `AUTH_ORG_NOT_FOUND`; `resolveMembership`, `removeMember`, `setRoles`
+    → `AUTH_MEMBERSHIP_NOT_FOUND`
+  - `flows.getSignUpFlow`, `apiKeys.revoke`, the remember-me facet's `verify`
+  - `AuthEngine.resolveSession` → `AUTH_SESSION_REVOKED`, with the reason on `meta.reason`
+
+  Every one of these returns `Answer.Me<T>`, a promise carrying three readers: `orNull()`,
+  `orDefault(fallback)` and `wrap()`. `orNull` and `orDefault` swallow **only** the absence
+  codes in the exported `ABSENT` set; everything else still throws. `wrap()` never rejects
+  and hands back `{ data, error }`.
+
+  `resolveSession` also gained a code that is deliberately **outside** `ABSENT`:
+  `AUTH_SESSION_IDENTITY_ERASED`, for a live session whose identity no longer resolves. It
+  is a data-integrity violation rather than a sign-out, so `.orNull()` does not eat it — it
+  stays loud at every call site, including all sixteen framework adapters.
+
+  ### A refused argument is no longer a missing row
+
+  An empty, oversized or non-string `sid`, and the other malformed arguments a caller holds,
+  now reject `AUTH_INVALID_PARAMETERS` rather than reporting as absence. `orNull()`
+  deliberately does not swallow it: a bug in the calling code should not read as "no such
+  session". An untrusted inbound token is different — that is a verdict, and stays
+  `AUTH_SESSION_REVOKED`.
+
+  ### Writing an adapter no longer means producing `Answer`s
+
+  The adapter layer is internal and plain: throw, or return the value. Removed from
+  `@gentleduck/auth/adapters`: `Adapter.Wrapped`, `Adapter.Answer` and `Adapter.Result`.
+  `Adapter.Me` now holds the store contracts directly rather than wrapped copies of them.
+  `Failed<C>` is no longer exported from `@gentleduck/auth/core/errors`.
+
+  A store contract answers a row or throws. Absence is the store's own code — for instance
+  `Credential.Store.findById` rejects `AUTH_CREDENTIAL_NOT_FOUND` where it used to answer
+  `null` — and the facet in front of it is where absence becomes a value again. The list
+  forms are unchanged: zero rows is a list, not an absence.
+
+  ### Pluggable store contracts reject a miss
+
+  If you implement one of these yourself, it breaks at compile time. No adapter shipped in
+  this repo is affected; these are the host-supplied ones.
+
+  - `Idempotency.Store.get` → `Promise<CachedResponse>`, rejecting **`AUTH_IDEMPOTENCY_MISS`**
+    (new code) for a key never seen, an elapsed TTL, a row that no longer parses, **and a key
+    still holding the tombstone `claim()` wrote**. All four must reject, or the claim/poll
+    protocol serves a status-0 placeholder to a racing caller as if it were a real response.
+  - `Operations.Store.load` → `Promise<State>`, rejecting **`AUTH_OPERATION_NOT_FOUND`** (new
+    code) when nothing has been persisted yet. A store that is _down_ must reject its own code:
+    `hydrate()` runs at boot, and reading an unreachable store as "nothing is switched on"
+    brings a node back serving traffic through a maintenance freeze.
+  - `Passkey.ChallengeStore.take` → `Promise<string>`, rejecting `AUTH_CREDENTIAL_NOT_FOUND`
+    for a key never put, an elapsed TTL, and a challenge already consumed.
+
+  Both new codes join `ABSENT`, so `orNull()` reads them back as `null`.
+
+  ### Verifiers and the budget guard
+
+  `Transport.ITransport.verify` and `revoke` lost their `| null`. This is a compile-time
+  break only: a stateless verifier that cannot vouch for a token is stating a verdict, so it
+  throws rather than shrugging.
+
+  `ChannelGuard.spend` now returns `Answer.Me<void>` and rejects `AUTH_RATE_LIMITED` once the
+  send budget is spent, instead of answering a prose string. **This changes what the five
+  channels put in `SendResult.error`**: it is now the code `"AUTH_RATE_LIMITED"` rather than
+  `"smtp: send budget exhausted, next at <iso>"`. The reset time is not lost — it moves to
+  `meta.retryAfter` as whole seconds, floored at 1, which is the machine-readable form a retry
+  actually wants. `retryable: true`, which is what callers branch on, is unchanged.
+
+  ### Two capabilities became throwing getters
+
+  `AuthEngine.orgs` and the transaction facade's `orgs` were `OrgsImpl | null` properties. Both
+  are now getters that throw `AUTH_PROVIDER_NOT_REGISTERED` when no org store was configured,
+  matching how `passwords`, `mfa` and `apiKeys` already behaved. The message names `stores.orgs`
+  rather than a provider, because there is no `orgsProvider()` to add.
+
+  ### Single-use tokens can no longer be redeemed twice
+
+  `flows.signIn` with a `magic-link` token, `flows.completePasswordReset`, `flows.verifyEmail`,
+  `flows.completeAccountDeletion` and the OAuth refresh exchange all claimed their credential row with
+  a compare-and-set and revoked or deleted it in a second statement. The claim rotated the
+  secret to the value it already held, so between the two writes the row was still findable by the
+  token's hash and still unrevoked — only its version had moved. A second redemption landing in
+  that window read the live row at the next version, won its own compare-and-set, and went through.
+
+  For a magic link that is two sessions from one emailed link. For a password reset it is a second
+  reset: the loser's password was the one left on the account, set after the winner had already
+  revoked every session. Two people holding one reset link both got to use it, and the later one won.
+
+  It needed concurrent requests to hit, which a shared inbox, a mail scanner prefetching links, or a
+  double-click all produce.
+
+  For OAuth refresh the window was wider still — it spanned the whole outbound token exchange, and a
+  second presentation got a valid token set of its own instead of tripping the reuse detection that
+  RFC 6749 section 10.4 is built on.
+
+  Email verification and account deletion are the mild pair: the second run re-verifies a verified
+  address, or re-deletes a deleted account. Account deletion already came out with the right answer,
+  but by accident — the loser was stopped a line later by `softDelete` reporting an already-hidden row
+  as a miss, not by its own claim. It also minted and mailed a second cancellation link on the way.
+
+  `flows.completeSignUp` had the same outcome by a different route: it never took a compare-and-set at
+  all. It read the flow row, ran the whole tail — profile merge, email-verified flag, session issue —
+  and revoked the row at the end, unconditionally. The window was the entire flow, and two concurrent
+  completions each walked away with a session of their own.
+
+  All six now spend the token in a claiming write, rotating the secret off the presented hash so the
+  row stops matching it the instant the winner lands. A racer that read before the claim still loses on
+  the version; one that reads after no longer finds a usable row. The four recovery flows answer
+  `AUTH_RECOVERY_TOKEN_INVALID` and sign-up answers `AUTH_SIGNUP_TOKEN_INVALID`, as before.
+
+  OAuth rotates to a _derived_ hash rather than a random one, so the claimed row stays findable and a
+  replayed refresh token still revokes its whole family. Two notes for OAuth callers:
+
+  - A refresh whose provider exchange throws releases its claim, so the refresh token keeps working —
+    the same as before this change.
+  - After a successful refresh, the old refresh token's hash no longer resolves to a credential row at
+    all. Presenting the old token behaves exactly as it did: `AUTH_OAUTH_REUSE_DETECTED`, with the
+    family revoked.
+
+  `flows.cancelAccountDeletion` given a token was already exclusive — it deletes the undo row before it
+  restores, and that delete refuses a row another cancellation has taken — but the loser came back with
+  `AUTH_CREDENTIAL_NOT_FOUND`. That code means "no row" to `orNull` and `orDefault`, so a caller
+  reading absence saw a lost race as "there is no such token". It now answers
+  `AUTH_RECOVERY_TOKEN_INVALID`, the same as every other refusal on that path. No account was ever
+  wrongly restored or left deleted; only the reported code changes.
+
+  `mfa.backupCodes.verify` had the same defect and is fixed the same way. It listed an identity's
+  codes, matched one that was not revoked, and revoked it in a second, unconditional statement, so two
+  verifications arriving together both matched the same live row and both returned `true` — a
+  single-use recovery code was reusable. The match is made against the stored secret, so burning it in
+  the claiming write closes the window outright.
+
+  `mfa.verifyTotp` was reusable for the same reason, against a docstring promising single use within
+  the window per NIST SP 800-63B. It read the last accepted step off the credential's metadata,
+  compared, and recorded the new step in a second, unconditional write, so two verifications arriving
+  together both compared against the same stale step and both returned `true` — one code, two
+  step-ups. Burning the secret is not available here, because a TOTP secret is shared with the
+  authenticator app and has to survive, so the comparison and the record became a single conditional
+  write and the loser returns `false`. `mfa.confirmTotpEnrollment` is deliberately left unconditional:
+  two concurrent confirmations agreeing on the same outcome is the right answer.
+
+  **If you ship a custom credential store, this is the one thing to check.**
+  `Credential.Store.patchMetadata` takes an optional fourth argument, `expectedVersion`. Given one it
+  is a compare-and-set: a row whose version has already moved rejects `AUTH_STALE_WRITE` and nothing
+  is written. Omitting it behaves exactly as before, so existing stores keep compiling and every other
+  caller is unaffected — the hazard is a store that accepts the argument and ignores it, which loses
+  the guard without failing anything. `runCredentialStoreCompliance` from `@gentleduck/auth/test` now
+  covers it, so run it against your store. One detail it pins: a conditional `UPDATE` cannot tell a
+  missing row from a stale one, so when `expectedVersion` is given an unknown id also answers
+  `AUTH_STALE_WRITE`; without it, `AUTH_CREDENTIAL_NOT_FOUND`, as before. All four bundled adapters —
+  memory, SQLite, Postgres and MySQL — honour it.
+
+  One behaviour change worth knowing: because the token is now spent _before_ the work rather than
+  after it, a completion that throws part-way leaves the link used up. `flows.verifyEmail`,
+  `flows.completeAccountDeletion` and `flows.completeSignUp` could previously be retried with the same
+  link after a failed profile or identity write; now the user needs a fresh one. That is the trade
+  being made — the alternative is the double execution above — and magic-link and password reset
+  already behaved this way.
+
+  Nothing to do on upgrade unless you implement `Credential.Store` yourself, where `patchMetadata`'s
+  new optional argument is the one thing to honour.
+
+  ### WebAuthn clone detection now works on the MFA path, and survives concurrency on both
+
+  The signature counter is the whole of WebAuthn L2 section 6.1.3 clone detection: an authenticator
+  that has been copied shows up as an assertion whose count no longer exceeds the stored one.
+
+  `mfa.verifyWebauthnMfa` never stored it. It read the count, ran the comparison and returned without
+  writing, so the stored value stayed at whatever enrollment recorded — zero for a synced or platform
+  authenticator — for the life of the credential. Against a stored zero the comparison can never fire,
+  and against a hardware key registered at _N_ every count above _N_ passed forever. A cloned
+  authenticator was not detected on this path at all, with no timing needed. It is now recorded on
+  every accepted assertion, so the comparison measures against the last one rather than against
+  enrollment.
+
+  `passkey.complete` did store it, but in a second, unconditional write. Two assertions arriving
+  together both read the same stored count, both cleared it and both got in — the clone waved through
+  for arriving alongside the real authenticator instead of after it. The comparison and the record are
+  now a single conditional write on both paths; a lost race means another assertion has already moved
+  the count past this one, so it reports as the rollback it is. `passkey.complete` throws
+  `AUTH_PASSKEY_MISMATCH` with a `passkey-counter-rollback` signal, and `mfa.verifyWebauthnMfa` returns
+  `false` with `webauthn-mfa-counter-rollback`, exactly as each already did for a sequential rollback.
+
+  Authenticators that do not count are unaffected: a reported count of zero — which every iCloud
+  Keychain passkey sends on every login — still short-circuits before the write, so nothing is stored
+  and nothing is refused.
+
+  ### A SAML assertion with no ID no longer skips the replay store
+
+  `saml.complete` consumes the assertion id through the `replayStore` you supply, which is what stops a
+  captured response being posted twice. It only ran when the assertion carried an `ID`, and an assertion
+  without one fell through the check and signed in — so a deployment that had explicitly wired replay
+  protection had none for a body shaped to omit it, and nothing reported the guard had been skipped.
+  SAML 2.0 core requires `ID` on an assertion, so its absence means the assertion is malformed rather
+  than that there is nothing to check.
+
+  An assertion with no usable `ID` is now refused whenever a `replayStore` is configured, through the
+  same redacted refusal as any other bad assertion: the operator audit gets the reason, the caller gets
+  `AUTH_PROVIDER_FAILED`. Blank and whitespace ids are refused with it — used as a key, `''` would be
+  consumed once and then lock out every later assertion that also lacked one. Ids longer than 256
+  characters are refused before they reach your store.
+
+  If you do not configure a `replayStore`, nothing changes. If you do, and your IdP genuinely omits
+  assertion ids, sign-ins that previously succeeded will now be refused — that is the bug being fixed,
+  and the fix is an IdP that emits conformant assertions.
+
+  ### An unreadable impersonation window no longer reads as "not an impersonation"
+
+  `session.actingAs` is the envelope that makes a session an impersonation: the real operator, the
+  reason, and when the window closes. `null` means the session was never one, so `resolveSession` skips
+  the expiry check — correctly, since there is no window to close.
+
+  The drizzle adapters answered `null` for a second case: a column that was present but could not be
+  read. A session that _was_ an impersonation then loaded as an ordinary session belonging to the person
+  being impersonated — the operator's expiry cap gone, and the audit envelope that `events.audit.ts` and
+  `actor.request.ts` use to name the real operator gone with it, so the trail said the user did it.
+
+  All three dialects now refuse such a row with `AUTH_SESSION_REVOKED`, which is what the redis store
+  already did for the identical input. An absent column still reads as `null`, because that is what an
+  empty column means. `factors` still degrades to `[]` when unreadable — that can only lower the AAL a
+  session claims, where an unreadable window only removes a restriction.
+
+  The same applies when the column holds bytes that are not JSON at all. `fromJsonColumn` used to answer
+  `null` for an unparseable string, which made a corrupt column indistinguishable from an empty one
+  before either parser saw it; it now hands the string through, so the parsers decide. This mattered
+  most on sqlite, where every JSON column is raw `TEXT`.
+
+  You will see this only if an `acting_as` column has been corrupted or hand-written in a shape the
+  library does not produce. If you have such rows, they now fail the read rather than loading
+  under-restricted.
+
+  ### An unsafe redirect is now refused for the whole response, not just its own intent
+
+  `executeIntents` (the Web-Fetch executor in `server/generic`) checks every `redirect` intent with
+  `isSafeRedirectUrl` and answers `AUTH_MISCONFIGURED` when one fails. The check ran, and the unsafe
+  `Location` was never set — but the refusal only broke out of its `switch`, so the loop carried on and
+  the next intent reassigned the status and body. A following `json` intent turned the 500 into a `200`
+  success, and a following safe `redirect` turned it into a `302` that actually redirected. The express
+  executor returns at that point, so the two disagreed on the same intent list.
+
+  The refusal now ends the response in both, with any cookies already staged still sent, which is what
+  express did all along. If you write providers that emit a `redirect` intent followed by more intents
+  and rely on those later intents running after a rejected URL, they now stop — but a rejected URL
+  already meant the redirect config was wrong.
+
+  ### A bearer header no longer exempts a cookie-carrying request from CSRF
+
+  `csrfGuard` and `verifyCsrf` skipped every CSRF check for a request carrying `Authorization: Bearer`,
+  on the reasoning that a header credential is not ambient and so cannot be forged cross-site. Neither
+  checked whether the bearer was what authenticated the request. A cross-site request carrying the
+  victim's session cookie **and** any `Authorization: Bearer` value — the token never had to be valid —
+  took the exemption, authenticated by cookie, and skipped the check, including the `Origin` /
+  `Sec-Fetch-Site` gate that is the actual cross-site defence. Reaching it needs a CORS policy that
+  allows the `Authorization` header with credentials, which is a common one.
+
+  The exemption now applies only when the request carries no cookie, which is the condition its own
+  reasoning always assumed. A request with a cookie is held to the origin checks whatever header it adds,
+  and still skips the double-submit token when it is genuinely bearer-authed.
+
+  Nothing changes for an API client that sends no cookie, including a browser client on another origin
+  holding its token in memory. If you have a browser client that sends both a session cookie and a bearer
+  token cross-site, those requests are now refused with `AUTH_CSRF`; send the `x-csrf-token` header, or
+  stop sending the cookie.
+
+  ### Redaction no longer hands the secret through
+
+  Two functions on egress paths stripped secrets for some inputs and not others.
+
+  `redactSecrets` returned a whole unwalked subtree once it passed its depth cap, so a payload nested
+  more than eight levels deep carried its secrets out in full while the value read as redacted. It is the
+  default `redact` for `WebhookDeliverer`, so that subtree went out in an HTTP POST to the endpoint you
+  configured. Past the cap it now answers `'[depth-cap]'`, which is what `scrubMeta` next door already
+  did. A consequence: a self-referencing payload used to stay circular through redaction, fail
+  `JSON.stringify` and dead-letter; the cycle is now cut at the cap, so it delivers truncated instead.
+
+  `redactProviderError` matched `api_key=x` but not `"api_key":"x"` — the quote sits where it expected the
+  separator — so the JSON body an HTTP SDK throws went through unredacted, as did
+  `Authorization: Bearer <token>` and any credential a provider puts in the URL path (Telegram's bot
+  token, Twilio's account SID). It now handles quoted labels, auth schemes, and opaque path segments,
+  while keeping route names like `/v1/send` so a failure still says which call it was.
+
+  If you pass your own `redact` to `WebhookDeliverer`, nothing here changes it. If you relied on reading
+  a credential back out of a channel's `error` string, you no longer can.
+
+  ### Encryption at rest: a kid that silently destroyed data, and unchecked GCM parameters
+
+  `AuthAesGcmDataAtRest` writes `<alg>$<kid>$<iv>$<tag>$<ct>`, and took the operator's `kid` verbatim.
+  A `kid` containing `$` encrypted without complaint and then split into six parts on the way back, so
+  every read of everything written under it failed as malformed — the write path never said a word, and
+  the damage was only visible once the data was already unrecoverable. A `kid` is now refused at
+  construction if it is empty or contains `$`, for the current key and for every `previousKeys` entry,
+  which is where a rotation would otherwise smuggle one in. `AuthKmsEnvelopeDataAtRest` already
+  percent-encoded its key id for exactly this reason.
+
+  `AuthKmsEnvelopeDataAtRest` did not check its IV or auth-tag length before handing them to Node.
+  Node accepts an AES-GCM tag shorter than 128 bits — it only emits a deprecation warning — so a
+  forgery against a truncated tag was a 2^32 problem rather than a 2^128 one, on the column whose
+  entire job is to hold when an attacker can already write to the database. It now requires a 12-byte
+  IV and a 16-byte tag, as `AuthAesGcmDataAtRest` next door already did, and zeroes the unwrapped DEK
+  on those refusal paths too.
+
+  If you configured a `kid` containing `$`, your adapter now throws `AUTH_MISCONFIGURED` at startup
+  instead of at every read. Anything already written under such a kid was never readable.
+
+  ### Federated sign-in no longer invents an email verification nobody made
+
+  `onFederationConflict: 'link-if-verified'` hands an existing account to whoever signs in with its
+  address, on the strength of one flag. Two providers set that flag without a provider having said so.
+
+  **Microsoft** marked every address verified because one was present. Entra's `email` is mutable, set
+  per-tenant, and documented by Microsoft as unverified — their own guidance is never to use it for
+  authorization — and the provider's default `tenant: 'common'` accepts a sign-in from _any_ Entra
+  tenant, including one the attacker created. Under `'link-if-verified'` that was a cross-tenant account
+  takeover: set `email` on your own tenant's user to the victim's address and sign in. The email is now
+  carried but never asserted as verified, which is what every other provider here already did — they key
+  on an explicit claim, and Microsoft sends none.
+
+  **Apple** read an absent `email_verified` as `true`. Apple sends the claim whenever it sends an email,
+  in either the boolean or the string spelling, so this only ever covered the case where Apple said
+  nothing — and it resolved that case the dangerous way. Now only a claim of `true` counts.
+
+  If you use `'link-if-verified'` with Microsoft, linking by email stops. That is the fix, not a
+  regression: nothing had verified the address. Link from your own `onFederationConflict` callback if you
+  have proved domain ownership out of band.
+
+  ### Sign in with Apple could not begin a flow at all
+
+  `APPLE_ENDPOINTS` spelled "Apple has no userinfo endpoint" as `userinfoEndpoint: ''`. The client
+  validates every endpoint it is given as an http(s) URL, and an empty string is a string, so
+  `buildAuthorizeUrl` threw `AUTH_MISCONFIGURED` before a redirect was ever produced — every Apple
+  sign-in, every time. The key is now absent, which is the spelling the validator and
+  `OAuthClient.userinfo` both already treated as "not configured". The provider's only test covered
+  `decodeIdToken` in isolation, so nothing exercised the flow; there is now an end-to-end one.
+
+  ### Documentation that promised more than the code did
+
+  `OAuth.BeginInput.returnTo` said "library appends to the front-end after callback". It does not:
+  `complete` answers with `clearCookie` + `startSession`, and `authVerifyState` is not exported from any
+  entrypoint, so the value is signed into the state, length-capped and then read by nobody. The doc now
+  says so, and records that routing it to a `redirect` intent later has to go through
+  `isSafeCallbackPath` first — an attacker who calls `begin` themselves gets a validly signed state for
+  any target they like.
+
+  `authRefreshoauthToken` — OAuth refresh-token rotation with reuse detection — is imported by nothing
+  and exported from no entrypoint, so no consumer can reach it, while `complete` still writes the
+  `familyId` and `generation` metadata it reads and `AUTH_OAUTH_REUSE_DETECTED` sits in the public error
+  catalogue. It is flagged in the source; wiring it up needs a `./providers/oauth` entrypoint and is left
+  as a decision rather than taken here.
+
+  `IdempotencyImpl.handle` said it scoped by identity "so one caller's cached response is never replayed
+  to another". True only with an `identityId`. Without one every anonymous caller shares the `'_anon'`
+  bucket, which makes the Idempotency-Key the entire authorisation to read that response back. The
+  behaviour is unchanged and now has a test pinning it; the comment no longer claims otherwise.
+
+  ### A `requireMfa` intent is acted on rather than dropped
+
+  `Provider.Intent`'s contract says `FlowsImpl` "consumes and strips" the internal `startSession` and
+  `requireMfa` signals before an adapter sees them. It only stripped `requireMfa`. A provider answering
+  `startSession` alongside `requireMfa` therefore got a plain session at the AAL it asked for, and the
+  demand for a second factor left with the filter; one arriving alone produced an outcome with no
+  session, no sid and no intents, which tells a caller nothing. `signIn` now throws
+  `AUTH_STEP_UP_REQUIRED` carrying the requested methods.
+
+  None of the six shipped providers emits one, so nothing changes for them. The provider list is open,
+  and this is what a custom provider's `requireMfa` always meant.
+
+  ### A failed plugin install no longer leaves its providers behind
+
+  `PluginRegistry.install` promised "all of the plugin or none of it" and registered providers first,
+  before the event handlers, the facet and the `install` hook. `Providers` has no unregister, so a hook
+  that threw left that plugin's sign-in providers registered and reachable through `signIn` for the life
+  of the engine — belonging to a plugin that is not installed, whose `install` never ran, and whose facet
+  and event subscriptions had just been rolled back around them. The existing test for a throwing hook
+  asserted the facet and the events and said nothing about the providers.
+
+  Providers now register last, after the hook, because that is the one step that cannot be undone and
+  nothing that can throw may follow it. A colliding provider id is therefore reported after the hook has
+  run rather than before; a hook's side effects were never rollback-able either way, and the plugin id
+  stays free for the retry.
+
+  ### Session freshness was measured in one direction only
+
+  `fresh` is what privileged operations branch on, and both gates that compute it subtracted
+  `rotatedAt` from now without bounding the result below zero. A timestamp in the future yields a
+  negative age, which is under any window, forever — so `JwtTransport.verify` reported `fresh: true`
+  for the life of every token whose `frsh` was minted ahead of the verifier's clock, and
+  `flows.checkStepUp` never found such a session stale enough to re-challenge. `frsh` is written by
+  the issuing server and read by the verifying one, and nothing makes those the same clock: one
+  instance running ahead of its peers, or a single NTP step backwards, was enough to disable the
+  step-up freshness requirement silently and indefinitely.
+
+  Both now bound the age in both directions, the way `authVerifyState` already bounded its own `iat`.
+  Skew smaller than the freshness window still reads fresh, which is what a session issued a moment
+  ago needs.
+
+  ### DPoP: the `jkt` comparison is the caller's, and nothing said so
+
+  `DPoPVerifier.verify` proves the presenter holds the key carried _in the proof_ — a key the
+  presenter chose. It cannot know which key the access token was issued against, so the returned
+  `jkt` is the entire binding. A caller who reads `verify` not throwing as "DPoP checked" gets none
+  of it: whoever steals an access token can mint a proof with their own keypair, and the `ath`,
+  `htm`, `htu`, `iat`, `jti` and signature checks all pass, because every one of them is a statement
+  about the request they are making and the token they are holding.
+
+  No behaviour changed — the verifier is correct and this is the protocol working as designed. What
+  was missing is that nothing told the caller the returned value was load-bearing: `bindPayloadToDPoP`
+  writes `cnf.jkt` and is called nowhere, no doc in the package mentioned `jkt` or `cnf`, and the
+  tests asserted only that a thumbprint came back. `Verified.jkt` now carries the requirement, the
+  class docstring no longer claims the binding unconditionally, and two tests pin what "did not
+  throw" is worth on its own.
+
+  ### SAML: a client that verifies no signature is refused at construction
+
+  `samlProvider` takes a pre-built `@node-saml/node-saml` client, and that client is the only thing in
+  the flow that checks a signature — nothing else in the wrapper can tell a forged assertion from a
+  real one. A client configured with `wantAssertionsSigned: false` **and**
+  `wantAuthnResponseSigned: false` accepts any XML that parses, from anyone who can reach the ACS URL,
+  and the wrapper had no opinion about it. It now refuses that pairing at construction, through the
+  same `.options` probe the `callbackUrl` check already used. Only the pairing: signing the assertion
+  alone is the common case and still passes, as does a client that exposes no options.
+
+  `DEFAULT_SAML_CONFIG`'s comment claimed both flags were "on by default", which overstated what they
+  do — they are read only when generating SP metadata, a document handed to the IdP, and never reach
+  the verifier. The comment now says which is which.
+
+  ### `wantAuthnResponseSigned` did nothing at all
+
+  In the fallback metadata renderer it was resolved from config and then consumed by
+  `${wantAuthnResponseSigned ? '' : ''}` at the end of the document — empty in both branches, so
+  `true` and `false` produced byte-identical XML. The expression is gone. `SPSSODescriptor` has no
+  attribute for response signing, so there is nothing standard to emit in its place; the option is now
+  documented as inert rather than left looking wired, and is a candidate for removal in a major.
+
+  Also documented, not changed: an assertion carrying no `NameID` `Format` skips `allowedNameIdFormats`
+  entirely. SAML 2.0 §8.3 reads an absent one as `unspecified`, which the default allowlist does not
+  contain, so enforcing it would refuse every IdP that omits the attribute — and many do. The
+  signature still binds the assertion to the IdP, so this bounds IdP misconfiguration, not an attacker.
+
+  ### A TOTP secret that decodes to nothing verified anything
+
+  `verifyTotp` and `matchTotpStep` refused a secret that failed to decode, but not one that decoded to
+  zero bytes — `''`, or a string of only padding and spaces. Node builds a working HMAC from an empty
+  key, so such a row went on producing perfectly valid six-digit codes, derivable by anyone from the
+  clock alone, while `hasTotp` reported the account as protected and `eligibleAal` counted it toward
+  AAL 2. Anyone who could reach the step-up endpoint for that identity passed it.
+
+  Reaching it needs a row written with such a secret rather than one this library minted —
+  `beginTotpEnrollment` always generates 160 bits. The memory adapter refuses a secret that trims to
+  nothing, but that guard is the memory adapter's alone: the drizzle adapters have none, so on a SQL
+  deployment a plain empty string stores without complaint, and padding-only passes even the memory
+  guard. The check therefore belongs where every adapter and every host-written store passes through
+  it, which is the verifier, and that is where it now is.
+
+  Not enforced: RFC 4226 §4 requires at least 128 bits and this generates 160, but the floor is left
+  unchecked because a deployment may hold shorter secrets imported from an authenticator that mints 80.
+  Zero bytes is refused because no secret is legitimately that.
+
+  ### "Forget this device" deleted whichever credential you named
+
+  `RememberMeFacet.revoke` takes a credential id off a device-management request. It checked the row
+  belonged to the caller and then deleted it — with no check of what kind of credential it was. Pointed
+  at their own TOTP enrollment it removed their second factor; pointed at a passkey it removed that;
+  pointed at the password-reset token sitting in their inbox it cancelled that. All silently, and
+  without the events the real removal paths emit, so an account could lose its MFA through an endpoint
+  whose job was to forget a browser. Everything else that reads or deletes over the shared `recovery`
+  kind filters on `metadata.purpose`; this was the one that did not, and now does.
+
+  `list` and `revokeAll` also disagreed about what a trusted device is. `list` promised the live ones
+  and included any whose TTL had elapsed, so a user's device list showed entries that could no longer
+  skip MFA. `revokeAll` was built on `list`, which meant "wipe every trusted device" skipped exactly the
+  expired rows and left them in the store permanently. `list` now filters on expiry and `revokeAll`
+  sweeps the rows itself, expired ones included.
+
+  ### Backup codes: `byteLength` was a setting that did nothing
+
+  `BackupCodesFacet.Cfg.byteLength` was declared, defaulted and never read — the length was the literal
+  `8` at the call site. Its sibling `RememberMeFacet` wires the identically named option, which is what
+  made the difference visible. An operator raising it to harden their recovery codes got the same 40
+  bits as before, silently. It is now wired: the alphabet carries five bits a character, so the default
+  of 5 bytes is the same 8 characters it always was, and 10 bytes is 16.
+
+  Two things that had to move with it. `groupFour` split once at position four, so anything longer than
+  eight characters came out as one group of four and one of everything else; it now groups every four.
+  And `_normalize` claimed in its docstring to de-hyphenate and instead _added_ a hyphen, on a hardcoded
+  length of 8 — it now strips what the user typed and re-applies the canonical grouping, so where they
+  put the hyphens stops mattering. `verify` also gained an upper length bound; it had a floor but no
+  ceiling, so a multi-megabyte string was uppercased and sha-256'd on every attempt.
+
+  ### A cloned passkey announced itself and was let in
+
+  WebAuthn's signature counter is the only clone-detection signal a relying party gets, and Level 2
+  section 6.1.3 states the comparison over the _pair_: "if either `authData.signCount` or
+  `credentialRecord.signCount` is nonzero" and the new value is not greater, the authenticator may be
+  cloned. The check here read only the new value — `newCounter !== 0 && newCounter <= oldCounter` — which
+  excuses exactly one transition: an authenticator that had counted to five now reporting zero. That is a
+  count that went backwards, and it is the textbook clone signature. It is now the spec's condition, so
+  the case is refused and reported as `passkey-counter-rollback` like every other regression.
+
+  The zero that the old condition was protecting is a different authenticator: one that implements no
+  counter reports zero at registration and forever after — every passkey synced through iCloud Keychain —
+  so its stored counter is zero too, neither side is nonzero, and the comparison is skipped as it always
+  was. Nothing about synced passkeys changes.
+
+  Three unit tests asserted the old behaviour, under a comment about synced passkeys that describes the
+  case they did not test: they seeded a stored counter of five. A fourth, in `passkey.test.ts`, is
+  commented "presents a counter of 0 against a stored counter of 5" and passes `newCounter: 3`. The
+  bundled `@simplewebauthn/server` has always refused this input itself, so no deployment on the real
+  verifier was letting a rollback through — it was throwing a raw `Error` instead, which is the next item.
+
+  ### The WebAuthn verifier's own failures left as 500s
+
+  `verifyAuthenticationResponse` and `verifyRegistrationResponse` signal every check of their own — bad
+  origin, wrong rpID, counter rollback, unparseable attestation — by throwing a plain `Error`. Nothing
+  between the passkey provider and the consumer's handler caught one, so it escaped unmapped, and the
+  counter message carries the stored count: `Response counter value 0 was lower than expected 5`. Both
+  call sites now answer `AUTH_PASSKEY_MISMATCH`, which is what every other refusal on those paths already
+  answered.
+
+  One consequence worth stating: when the bundled verifier performs the counter check itself it throws
+  before the provider's branch runs, so the refusal is correct but the `passkey-counter-rollback` event
+  is emitted only when a verifier module returns rather than throws.
+
+  ### A passkey's user-handle binding could be switched off by the request
+
+  `response.userHandle` binds the assertion to the identity the credential is stored against. It was read
+  as `string` from an `unknown` request body and handed to `Buffer.from`, which throws on a number or an
+  object; the decoder answered `null` for the throw, and the caller treated `null` as "no handle was
+  sent" and skipped the comparison. Sending `userHandle: 1` therefore turned the check off. A handle that
+  is present and not a string is now refused. A handle that is absent is still absent, which the spec
+  allows for a non-discoverable credential.
+
+  ### The passkey verifier was handed the wrong credential id
+
+  `verifyAuthenticationResponse` was given `credential.id` as the storage row's uuid rather than the
+  WebAuthn credential id, which registration stores verbatim in `secret` and which `_resolveAllowList`
+  already reads from there. The library only echoes the value back today, so the right one and a uuid are
+  indistinguishable at runtime — which is how it survived. No behaviour changes; it stops being a latent
+  break if the library ever compares it to `response.id`.
+
+  ### A scrypt hash with its key field emptied verified every password
+
+  `ScryptHasher.verify` derives its candidate at _the stored key's length_. Node's `scrypt` answers an
+  empty buffer for a `keylen` of 0 rather than throwing, and `timingSafeEqual` calls two empty buffers
+  equal — so `scrypt$16384$8$1$<salt>$` accepted anything, including the empty string, in constant time
+  and with nothing logged. A column narrowed by a migration or a half-finished write is enough to produce
+  such a row, and `verify` reads exclusively from storage. `parse` now refuses an empty key or salt, which
+  `needsRehash` reads as "rehash this", so the row is replaced the moment its owner signs in properly.
+
+  `Argon2idHasher` is unaffected: it hands the encoded string to `@node-rs/argon2`, which parses it
+  itself. The bug is in the hand-rolled encoding, and it is the default hasher.
+
+  ### A password parameter upgrade never rolled out
+
+  `autoRehash` is on by default and had no test anywhere in the package. It could not have worked on a
+  real store. `verify` fires an opportunistic rotate at the row to stamp `lastUsedAt`, which bumps the
+  version; `rehash` then read the row, spent the whole argon2 or scrypt hash, and compare-and-set on the
+  version it had read. The touch lands inside that window every time, so the rotation failed with
+  `AUTH_STALE_WRITE` — which the caller swallows on purpose, being opportunistic. `rehash` now hashes
+  before it reads, so it is not holding a version across the hasher's cost.
+
+  The memory adapter applies a rotate synchronously, which is why no existing test could see this; the
+  new one wraps the store so its writes land a tick later, as a driver's do.
+
+  ### `maxLength` above 1024 locked people out of the password they had just set
+
+  `complete` capped the incoming password at a literal `1024` while `set` validated against the
+  configured `maxLength` — the comment above it even claimed the two matched. Raising the setting
+  therefore produced passwords that could be chosen and never used again. The entry point now reads the
+  setting. Lowering it was already consistent, `verify` having capped there all along.
+
+  ### Two rate-limit refusals answered a 500 instead of a 429
+
+  `refuseRateLimited` reads `resetAt` defensively, because `Limiter.Me` is the host's interface to
+  implement and one backed by redis — or by anything with a JSON hop that forgets to revive the Date —
+  hands back epoch milliseconds. Its docstring says every limiter guard goes through it. Two did not:
+  `AuthApiKeyImpl.complete` and `ChannelGuard.spend` each built the refusal by hand with a bare
+  `resetAt.getTime()`, which throws on a number. The guard whose only job is to answer
+  `AUTH_RATE_LIMITED` answered a `TypeError` instead, and the channel one carried a comment pointing at
+  the api-key line by number as the thing it was copying. Both now call the shared refusal, whose
+  `events` argument accepts `null` for a guard with no bus in reach — neither has a subject to name, the
+  token being unverified at that point and a send being bucketed by channel and tenant.
+
+  ### `randomBytes` below 16 is refused instead of minted
+
+  `randomToken(0)` answers `''` without complaint, so `apiKeyProvider({ randomBytes: 0 })` made every key
+  the facet ever minted the literal string `ak_live_` — the prefix, which is a documented constant. One
+  or two bytes is the same problem wearing a number, and nothing in the library throttles the guessing:
+  the sign-in limiter buckets by the hash of the token presented, so an attacker trying a different key
+  each time never meets the same bucket twice. `toApiKeysCfg` now refuses anything that is not a whole
+  number of bytes at 16 or above, at wiring time rather than quietly raising it, so the mistake is
+  answered where it was made. Keys already issued are unaffected — `verify` compares a hash and never
+  reads a length — and the compliance presets, all of which are 32 or 48, still ratchet above it.
+
+  ### The memory limiter kept every key it had ever seen
+
+  Its bucket map was never pruned. The key is whatever a request can name — an email for the password
+  guard, an identity id elsewhere — so a flood of distinct addresses grew the map for as long as the
+  process lived, and nothing stopped that reaching production: `strict()` refuses the noop limiter, not
+  this one, whose docstring is the only thing saying "dev/test only". Elapsed buckets are now dropped
+  when the map crosses a threshold, amortised rather than swept on every new key.
+
+  The live set stays unbounded on purpose: evicting a bucket that has not expired hands its owner their
+  budget back, which is the whole limit. A deployment facing that flood wants the Redis limiter, whose
+  buckets expire in the store. Both points are now in the class docstring.
+
+  ### A password reset in a multi-tenant deployment locked the account out
+
+  `completePasswordReset` resolved the tenant from its input and passed it to every store call it made
+  — the token lookup, the compare-and-set that burns it, the revoke — except the last one, the write
+  that actually swaps the password. `PasswordsImpl.set` defaults its tenant context to `{}`, so the
+  omission type-checked.
+
+  An undefined tenant is not "this tenant": `inTenant` emits no filter at all, and `create` stamps
+  `tenantId: null`. So the delete inside `set` reached that identity's password row in _every_ tenant,
+  and the replacement it wrote belonged to none of them — invisible to the tenant-scoped read that
+  sign-in does. Completing a reset locked the account out of the tenant that asked for it, took the
+  other tenants' passwords with it, and left another reset as the only move, which did the same thing
+  again.
+
+  Single-tenant deployments never saw this: with no tenant anywhere, the unscoped write is the only
+  write there is.
+
+  A reset still ends sessions in every tenant, not just its own. That is the safe direction and it is
+  left alone.
+
+  ### Orgs: what the tenant argument and the event bus actually do
+
+  Auditing the orgs facet for the same shape turned up three things worth stating plainly rather than
+  changing, since none of them is a bug in shipped code:
+
+  `Org.Store` requires a `TenantContext` on all six methods, `OrgsImpl` defaults it to `{}` and threads
+  it through faithfully — but the only shipped store is the in-memory one, which ignores it on every
+  method, and neither `Org.Me` nor `Org.Membership` has a tenant field to scope by. `Org.Store` is a
+  read interface over the host's own tables, so the scoping is the host's; what the library owes them
+  is that the context arrives unchanged. That is now pinned by a test, because dropping it silently is
+  exactly what went wrong in the password reset above. Four orgs test files had no tenant coverage at
+  all.
+
+  `OrgsImpl` is handed the event bus and never emits. There is no `org.*` event in the bus's map, so
+  membership and role changes — `setRoles` grants privileges — leave no audit trail, where every
+  comparable operation (`mfa.enrolled`, `identity.linked`, `authz.revoked`) does. Adding them is a
+  change to the public event map rather than an audit fix, so it is called out here and left to a
+  deliberate one; a host needing the trail wraps the three mutators.
+
+  `setRoles` on a membership already marked `leftAt` succeeds on the memory store. The write is
+  unreadable — `listMembers` and `resolveMembership` skip left rows and re-adding overwrites the roles
+  wholesale — so it is documented on the method rather than guarded, the liveness rule belonging to
+  whichever store owns the table.
+
+  ### A misconfigured device-fingerprint detector was silent, not loud
+
+  `deviceFingerprintDetector({ store })` — with neither `compose` nor `authSha256` — built fine,
+  registered fine, appeared in `list()`, and then returned `[]` for every request it ever saw. Its
+  composer had nothing to hash with, so it answered `null`, and the detector skipped on `null`.
+
+  A detector that is switched off and a detector that finds nothing wrong are the same observation to
+  whoever reads the decision. The rest of this file is written against exactly that: an address the
+  guard cannot parse gets a shared bucket, a request that sends no User-Agent gets a shared bucket —
+  "rather than going quiet", as one of the tests is named. A wiring mistake was the one case that did
+  go quiet. It is now refused at construction with `AUTH_MISCONFIGURED`, the way the sibling
+  impossible-travel detector already refuses its own bad config.
+
+  The test that covered this asserted the silence as correct.
+
+  ### `decide()` did not normalise the scores it was handed
+
+  `Signal.score` is documented as "0..1 ... clamped into that range on intake", and `evaluate` clamps
+  every score a detector returns. `decide()` is the other intake — the same ladder, standalone, for
+  re-deciding on signals a caller kept — and it clamped nothing, so the noisy-or arithmetic ran on
+  numbers it is not defined over.
+
+  Above 1, `1 - score` goes negative, and two negatives multiply back to a positive: the aggregate
+  _falls_ as evidence is added. Two signals that each denied on their own came out a step-up together.
+  Below 0 is the dangerous direction — a score of `-9` multiplies the remainder by ten, drives the
+  aggregate negative, and mutes every real signal beside it into an allow.
+
+  The clamp moved into the shared aggregate, so both entry points agree. `evaluate` was never exposed
+  to this, since it clamps on the way in from the detector; what this fixes is the public `decide()`
+  and the two paths disagreeing about what a score means.
+
+  ### The Redis event bus subscribed to every channel twice
+
+  `on()` subscribes to a channel once per event, guarded by `_subscriptions.has(event)` — but the map
+  was only written inside the subscribe promise's `.then()`. Two `on()` calls for one event in the same
+  tick both read an empty map and both subscribed, and registering several handlers for one event at
+  boot is the ordinary case, not an edge one.
+
+  The result: every remote message was dispatched twice to every local handler, and the second
+  subscribe's unsubscribe overwrote the first in the map, so one channel stayed open for the life of
+  the process with nothing able to close it. On the valkey adapter it was worse — it adds an ioredis
+  `'message'` listener per subscribe, and its own docstring states the invariant it relies on:
+  "`RedisEvents.on()` subscribes at most once per channel ... so it never needs concurrent listeners on
+  the same channel." That was the claim; this was the code. It is true now.
+
+  The subscription promise is recorded synchronously, so the guard reads what it is guarding, and
+  unsubscribing resolves it first — which also closes a channel that was unsubscribed before its
+  subscribe had landed.
+
+  ### `RedisEvents` and `InMemoryEvents` disagreed about what an emit is
+
+  `InMemoryEvents.emit` snapshots its handler set before dispatching, with a comment giving the reason:
+  a handler that subscribes or unsubscribes mid-emit must not reorder the dispatch or extend it.
+  `RedisEvents._dispatchLocal` iterated the live `Set`, and a `for...of` over a Set visits entries added
+  after the cursor.
+
+  So a handler that called `on()` for its own event ran inside the emit that triggered it, one that
+  re-subscribed itself never terminated, and one that unsubscribed a sibling cancelled a delivery that
+  had already been decided. Two implementations of one bus contract, differing in whichever one an app
+  happened to configure. `RedisEvents` now snapshots too.
+
+  ### Nothing bounded the step-up gate
+
+  `flows.completeStepUp` verified a TOTP or a backup code with no rate limit, no failure counter and no
+  `lockout` event. `MfaFacet` holds no limiter of its own, so every call site has to bring one, and this
+  one did not — a caller could ask forever and each refusal was indistinguishable from an ordinary bad
+  guess. A TOTP is six digits and `matchTotpStep` accepts a drift window, which is roughly three live
+  codes in a million: guessable in minutes at a modest request rate, by exactly the caller a second
+  factor exists for — one holding the password and not the phone.
+
+  `completePasswordReset`'s MFA branch has had this guard all along, keyed `recovery:password:mfa:*`;
+  the primary step-up path never got one. It now consumes `stepup:${identityId}` once the session
+  resolves, so the refusal names a subject and grinding one account spends only its own budget, and
+  routes through `refuseRateLimited` like the other guards — `AUTH_RATE_LIMITED` with a `retryAfter`,
+  and a `lockout` event an operator can act on.
+
+  ### A password alone could delete the second factor
+
+  `mountHono` registers `POST /auth/mfa/totp/remove`, and it took any authenticated session. A session
+  that had only ever proved a password could therefore delete the TOTP factor that exists for exactly
+  the case where that password is stolen — no code to guess, one request. It is the only mounted route
+  that destroys a credential, and it was the least guarded.
+
+  It now requires the factor be proved before it may be removed: `flows.checkStepUp(session, { aal: 2 })`,
+  refusing with `AUTH_STEP_UP_REQUIRED` and the challenge when the session has not stepped up. A
+  stepped-up session removes it as before.
+
+  `POST /auth/mfa/totp/verify` was unbounded on the same router and answers `{ ok: false }` with a 200
+  however often it is asked, which is a clean six-digit oracle. It now consumes the same
+  `stepup:${identityId}` bucket `completeStepUp` uses, so switching routes does not buy a second budget.
+
+  ### Backup codes could be minted with no entropy at all
+
+  `MfaImpl._randomBackupCode` was the only randomness in the package that did not come from
+  `node:crypto`. It allocated a zero-filled `Uint8Array`, then filled it _only_ if
+  `typeof globalThis.crypto?.getRandomValues === 'function'` — and when that guard was false it carried
+  on with the zeros. Every byte then indexed the alphabet at 0, so all ten of an account's backup codes
+  came out `aaaaa-aaaaa`: the entire MFA recovery set reduced to one guessable string, with nothing
+  thrown and nothing logged.
+
+  The guard was there for portability the package does not need — `~/core/crypto`, which `mfa.ts`
+  already imports, requires `node:crypto` outright, so there is no runtime where this package loads and
+  `randomBytes` does not. It now calls `randomBytes` directly and the branch is gone, so there is no
+  longer a path where the generator can return a constant.
+
+  ### A backup code was single-use only in the docstring
+
+  `MfaImpl.verifyBackupCode` matched a live row and then called `revoke` unconditionally. Two
+  verifications that both read before either wrote matched the same row and **both answered `true`**,
+  against a class docstring that calls these codes single-use. `flows.completeStepUp` with
+  `method: 'backup-code'` lands here, so one code bought two elevations.
+
+  This is the shape closed across eleven sites in the previous release —
+  `BackupCodesFacet.verify` was the seventh of them and carries the explanation. That sweep fixed the
+  facet and missed this second, independent copy of the same function, which is the one `auth.mfa`
+  calls. It now claims the row with a CAS burn before revoking it: the loser sees `AUTH_STALE_WRITE` and
+  answers `false`, like any other miss, and because the match is `timingSafeEqual(secret, hash)` the
+  burn also stops a reader arriving after the claim.
+
+  ### Known: `BackupCodesFacet` codes cannot satisfy a step-up
+
+  Not changed in this release, because fixing it means choosing a canonical encoding and that
+  invalidates one side's stored codes. Recording it so it is not rediscovered as a mystery.
+
+  There are two backup-code implementations, both public, both writing `kind: 'recovery'` rows with
+  `metadata.purpose: 'mfa-backup-code'` for the same identity — and they hash incompatibly.
+  `auth.mfa.regenerateBackupCodes` mints `9e9am-gkapm` and stores `sha256(code.toLowerCase())`;
+  `BackupCodesFacet.generate` mints `FJQ2-GR4B` and stores the hash of the uppercase, de-hyphenated,
+  re-grouped form. Each one's `verify` returns `false` for the other's codes.
+
+  `flows.completeStepUp({ method: 'backup-code' })` routes to `auth.mfa.verifyBackupCode`, and it is the
+  only path from a backup code to AAL 2. So a host that wires `BackupCodesFacet` — which is exported for
+  exactly that, and is the configurable one — gets codes no step-up will accept, and the user's valid
+  code is refused as though it were wrong. Until this is settled, use one producer with its own matching
+  `verify`, and do not mix them on one identity.
+
+  ### The otpauth QR code showed the escape instead of the issuer
+
+  `buildOtpAuthUri` ran `encodeURIComponent` over `issuer` and then passed the result to
+  `URLSearchParams`, which percent-encodes on its own. An issuer of `Acme Corp` therefore left as
+  `issuer=Acme%2520Corp`, and the authenticator app displayed the literal `Acme%20Corp` under every
+  enrolled account. The label in the path is built by hand and encoded once, correctly, so the two
+  disagreed — and the Key Uri Format requires the issuer parameter and the label prefix to be the same
+  string.
+
+  Invisible on the default `issuer: 'duck-auth'`, which has nothing to escape, so no existing test saw
+  it. The parameter is now passed raw and `URLSearchParams` does the single encoding; the label is
+  unchanged.
+
+  ### Maintenance and read-only mode were unreachable
+
+  `OperationsImpl` is the two ambient deploy switches: `maintenance(true)` refuses new sign-in, sign-up
+  and refresh with `AUTH_MAINTENANCE` and a `Retry-After` while live sessions keep resolving, and
+  `readOnly(true)` raises `AUTH_READONLY_MODE` on every mutating route for a cutover or a freeze window.
+  It has 155 lines, two error codes, four events, a `Store` contract and two test suites. Nothing could
+  reach any of it.
+
+  `operations()` and `OperationsImpl` were value-exported from no barrel and no `exports` subpath — only
+  the `Operations` _type_ shipped, so a host could name the state and never build one. The package did
+  not construct one either: `OperationsImpl` appeared nowhere outside its own `index.ts`. The suites pass
+  because they call `new OperationsImpl()` directly, which is the shape where a unit is proven to work
+  and nothing is proven to use it.
+
+  The factory and the class are now exported from `@gentleduck/auth/core`, as `AuthWebhookDeliverer`
+  already is — that is the sibling case, the other surface a host wires itself, and it was reachable.
+  The root barrel re-exports `./core` as types only, so its pinned key list is unchanged.
+
+  Two docstrings claimed `assertOperationsForRoute` is "run by every server adapter before dispatch" and
+  that both switches are "reached by server adapters" through it. No adapter calls it; `src/server/`
+  does not mention `operations` at all, across all nine. Both now say so. **The gate is still not wired
+  into any adapter** — a host that wants these switches enforced has to call
+  `assertOperationsForRoute(method, route)` in its own middleware. Wiring it here is left out on
+  purpose: it needs a per-route decision about which routes carry `{ maintenance: true }` (sign-out and
+  session resolution have to keep working during a window) across the fifty-eight handler factories the
+  nine adapters export, and that is a design call rather than an audit fix.
+
+  ### The README's import examples did not resolve
+
+  Twelve import specifiers across seven code blocks named a subpath the package does not export or a
+  symbol the module does not have, starting with the quickstart: `createAuth` was imported from
+  `@gentleduck/auth/core/config` and the password provider from `@gentleduck/auth/providers/password`,
+  neither of which is in the `exports` map, so the first example in the README failed at
+  module resolution. Its `providers` array also called `password({ findIdentityByEmail, passwords })`,
+  where the working shape is `passwords({ hasher: new Argon2idHasher() })`.
+
+  The rest: `@gentleduck/auth/core/transport/dpop` and the three `@gentleduck/auth/captcha/*` paths do
+  not exist (DPoP ships from `core/transport`, the verifiers from `core` as `authTurnstileVerifier`,
+  `authHCaptchaVerifier`, `authRecaptchaV3Verifier`); `adapters/redis` was shown exporting
+  `RedisSessionStore`, `RedisIdempotencyStore`, `RedisLimiter` and `FakeRedis`, of which the first two
+  exist nowhere and the last two live at `limiters/redis` and `test`; `server/hono` exports `mountHono`,
+  not `mount`; `server/grpc` exports `withGrpc`, not `authGrpcService`; and `createAuthClient` is
+  exported only by `client/vanilla`, while the React, Vue, Solid and Svelte barrels were all shown
+  importing it — each has its own API, and the React entry contradicted the comment on the line above it.
+
+  A markdown fence type-checks in no build, which is why every one of these survived. `readme-imports.test.ts`
+  now parses the README's imports and asserts each subpath is in the `exports` map and each symbol is
+  exported by the module behind it, so the examples fail with the code that renames an export.
+
+  ### gRPC had no way to switch the drift check on
+
+  Each of the seven HTTP adapters takes a `getCaller`, and passing one is what turns on `auth.hijack`
+  and the anomaly detectors for that request — without it the session's `ip` and `userAgent` are stamped
+  at sign-in and never looked at again. `withGrpc` took `{ required, headerName }` and nothing else. It
+  never built a fingerprint, never passed a `requestSnapshot` to `resolveSession`, and never gave
+  `withResolvedActor` an `onSession`, so a gRPC deployment ran with drift detection off and no hook to
+  enable it. `src/server/__tests__/request-security.test.ts` covers the wiring for all seven and names
+  grpc nowhere, which is why it stayed that way.
+
+  `withGrpc` now takes the same `getCaller` and `onHijack` as its siblings, and a `grpcCaller` reads the
+  user agent off the call metadata. Opt-in exactly as they are: `requestSecurity` answers `{}` when no
+  caller is supplied, so a deployment that does not ask keeps the behaviour it had — the first of the
+  new tests pins that.
+
+  One sharp edge, pinned by a test rather than hidden: gRPC `Metadata` carries no address, so
+  `grpcCaller` offers only a user agent. A session that recorded an `ip` during an HTTP sign-in reads as
+  `stripped` ip drift on every later gRPC call, which the default `onMissingSignal: 'soften'` reports as
+  `suspicious` and answers `rotate`. A host that can resolve the peer should pass its own `getCaller`;
+  that is why the hook takes the whole call.
+
+  ### Smaller corrections
+
+  - `CookieTransport.Cfg.maxAgeSec` said the cookie was capped by `absoluteExpiresAt`; it is capped
+    by `expiresAt`, the sliding deadline each rotation reissues against.
+  - `CookieTransport.Cfg.secure` now records that the companion `__Host-duck-csrf` cookie is `Secure`
+    regardless, because the prefix requires it — so over plain http the browser drops it, keeps the
+    session cookie, and the double-submit check fails closed on every write with nothing said.
+  - `CompositeTransport.extract` narrows its first token instead of asserting it.
+  - `limiters/__tests__/memory-limiter.test.ts` contained only `RedisLimiter` tests and is now named
+    `redis-limiter.test.ts`; the memory limiter's own cases live in `limiter-bounds.test.ts`.
+  - `RedisLimiter` now records that its `resetAt` is `now + windowMs` rather than the key's remaining
+    TTL, so `Retry-After` over-states the wait. Reading the real one needs a `pttl` on
+    `RedisLike.Client`, which is left as a deliberate change rather than made here.
+
+  ### Migration
+
+  | before                                                           | after                                                                     |
+  | ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
+  | `const s = await auth.resolveSession(req)` then `if (!s)`        | `const s = await auth.resolveSession(req).orNull()` then `if (!s)`        |
+  | `const u = await auth.identities.getById(id)` then `if (!u)`     | `const u = await auth.identities.getById(id).orNull()` then `if (!u)`     |
+  | `const gone = await auth.sessions.revoke(sid)` then `if (!gone)` | `const gone = await auth.sessions.revoke(sid).orNull()` then `if (!gone)` |
+
+  Appending `.orNull()` is the mechanical fix and preserves the old behaviour for absence
+  exactly, while a store outage now throws where it used to be indistinguishable from a miss.
+  `.orDefault(x)` and `.wrap()` are there when a fallback or a `{ data, error }` pair reads
+  better. TypeScript finds most call sites, but **not** `if (!x)` guards or `x?.y` chains over a
+  value that can no longer be null — those compile and silently stop firing, so grep for them.
+
+  ### Also in this release
+
+  - The public-surface test now sweeps every method on every facet of the engine **and** the
+    transaction facade, failing the build by name if one answers `null` again. Three
+    synchronous lookups are documented exceptions: `providers.resolve` and
+    `transport.extract` (and the facade's `providers.resolve`).
+  - `AUTH_SESSION_NOT_FOUND` and `AUTH_SESSION_EXPIRED` are declared but raised nowhere;
+    they are left in place for this release rather than removed silently.
+
+## 5.11.0
+
+### Minor Changes
+
+- 7228f81: Storage adapters: one class per backend, implementing the engine's store
+  contracts directly, plus a `.wrap()` escape hatch on every adapter call.
+
+  ### The bridge layer is gone
+
+  `@gentleduck/auth/adapters/sql` used to define a second, lower-level contract —
+  23 operations shaped around a `where`/`patch` pair — that each dialect
+  implemented and `sqlStores` then translated into the four stores the engine
+  actually binds. Two contracts for one job: every method was written twice, and
+  the translation layer was where the absent-row rule, the actor stamping and
+  the `patchMetadata` retry lived, invisible to the dialect that produced the row.
+
+  Each adapter now implements `Identities.Store`, `Credential.Store`,
+  `Sessions.Store` and `Events.Store` itself. What the translation layer held is
+  either inlined where it belongs or shared as a free helper on the new base.
+
+  Removed from `@gentleduck/auth/adapters/sql`: `SqlBridge`, `SqlStore`,
+  `SqlStores`, `sqlStores`, `SqlIdentityStore`, `SqlCredentialStore`,
+  `SqlSessionStore`, `SqlEventStore`, `asBridge`, `orNull`. The entry point keeps
+  `withSqlEventLog` and the JSON-column codecs, which were never part of it, and
+  is now `@gentleduck/auth/adapters/drizzle`: with the bridge gone there is no
+  dialect-agnostic SQL contract left for the old name to describe, and everything
+  behind it is shared only by the three drizzle dialects.
+
+  Renamed, with the two statics collapsed into one:
+
+  | before                                              | after                                            |
+  | --------------------------------------------------- | ------------------------------------------------ |
+  | `DrizzlePgBridge.bridge(db)` / `.storage(url)`      | `new DrizzlePgAdapter(db \| url \| pool)`        |
+  | `DrizzleMysqlBridge.bridge(db)` / `.storage(url)`   | `new DrizzleMysqlAdapter(db \| url \| pool)`     |
+  | `DrizzleSqliteBridge.bridge(db)` / `.storage(path)` | `new DrizzleSqliteAdapter(db \| path \| client)` |
+  | `createSqlStores(bridge)`                           | — (an adapter is already the stores)             |
+
+  There is no `open()` static: the constructor takes the connection string, the
+  driver pool or a drizzle handle and resolves it, so `new` is the only way in.
+
+  `MemoryIdentityStore`, `MemorySessionStore`, `MemoryCredentialStore` and
+  `MemoryOrgStore` are no longer exported separately: `MemoryAdapter` is one class
+  on the same base, with the same four facets. `memoryAdapter()` and
+  `MemoryAdapter#raw` are unchanged.
+
+  ### One base class, one contract
+
+  `@gentleduck/auth`'s adapter layer is now two declarations. `Adapter` is the
+  contract and nothing else: the four stores, the `Answer<T>` a call returns and
+  the `Result<T>` its `wrap()` hands back. `AdapterStore` is the class every
+  adapter extends: it takes its driver's error mapper and exposes `run`, the one
+  place a failure is typed and `wrap` is attached.
+
+  `asAdapter` is gone. It checked at runtime that an adapter had all four stores —
+  something `implements Adapter.Me` already proves at compile time — and used that
+  check to launder the profile type. `DrizzlePgBridge.storage<MyProfile>(db)` is now
+  `new DrizzlePgAdapter(db)`: an adapter answers the profile shape its table
+  actually declares, so an app whose profile is narrower than that is told so by
+  the compiler rather than trusted at runtime.
+
+  `answering(promise)` is now `AdapterStore.answer(promise)`. `stamped` and
+  `rowWithLinks` are gone: each had a one-line body behind a name, and both are now
+  written where they are used.
+
+  ### A store is plain CRUD
+
+  `Identities.Store` declared six optional set-based writes alongside the
+  single-row ones — `softDeleteMany`, `restoreMany`, `eraseMany`,
+  `updateProfileMany`, `linkMany`, `unlinkMany` — as a fast path a store could
+  implement instead of being looped over. No adapter ever did, in any dialect, so
+  every one of them was a branch that never ran and a compliance test that only
+  ever skipped. They are gone, and the contract is the single-row CRUD it always
+  was in practice.
+
+  `AuthIdentities#softDeleteMany` and its five siblings are unchanged: the facet
+  loops, reports one outcome per input row in input order, and names each refusal
+  the same way it did before.
+
+  ### Sessions keep theirs, and every store implements them
+
+  `Sessions.Store` kept three optional set-based forms —
+  `deleteAllForIdentities`, `deleteMany` and `listByIdentities` — and for a while
+  shared the identity side's problem: declared, consumed by the facet, implemented
+  by nobody, so `revokeAllForIdentities` over 500 people was about a thousand round
+  trips on Postgres where it should have been two statements. That is the one batch
+  path with a caller that matters — "sign this whole org out" — so the answer here
+  is the other one: every adapter implements all three.
+
+  pg and sqlite delete the set in one statement and read back the ids that matched;
+  mysql has no `RETURNING`, so the ids are selected under their own lock first, the
+  same read-then-delete `_erase` already does for credentials; memory makes one pass
+  over the map instead of one per identity; redis batches the record delete, the
+  expiry `zrem` and the per-identity `srem` into three round trips for the whole set
+  rather than three per identity.
+
+  `outcomesFromAffected` is shared from `core/batch` — the ids a statement affected
+  become one outcome per requested id, and an id that did not come back matched no
+  row, which is the only thing one statement can say about it.
+
+  `RedisLike.Client` gains an optional `mget`. `listByIdentity` backs the
+  active-devices screen and runs inside every `revokeAllForIdentity`, and it was
+  issuing one `GET` per session; it now reads them all in one round trip, falling
+  back to concurrent gets for a client without the command.
+
+  `Credential.IStore.deleteByIdentities` is gone. It had no implementation and,
+  unlike the session forms, no caller either — nothing in the package ever invoked
+  it, so it was a declaration and a compliance case and nothing else.
+
+  ### `.wrap()` — a failure as a value
+
+  Every adapter call now answers an `Adapter.Answer<T>`, a native promise with one
+  extra method:
+
+  ```typescript
+  const { data, error } = await storage.identities.find({ email }).wrap();
+  if (error) return reply(error.code);
+  ```
+
+  `error` is the discriminant and is always an `AuthError`, never `unknown`: a
+  non-`Error` a driver throws becomes the `cause` of a real one rather than being
+  handed back raw. `Answer<T>` extends `Promise<T>`, so awaiting it throws exactly
+  as before and every existing caller — `Promise.all` included — is untouched.
+
+  Scope: `wrap()` catches what the call rejects with. An argument that throws
+  before there is a promise still throws at the call site; a bug in the call is not
+  a failure of the work.
+
+  `error` also carries the codes that call can raise, not a flat `AuthError`:
+
+  ```typescript
+  const { error } = await storage.sessions.update(id, patch).wrap();
+  //    ^? AuthError<'AUTH_SESSION_REVOKED' | Adapter.Faults> | null
+  ```
+
+  `Adapter.Faults` is what any call can raise — the whole range of a driver's
+  error mapper, since any statement can meet a constraint, a dead socket or a
+  missing schema. `Adapter.Me` names what each method adds on top: `restore` can
+  answer `AUTH_GRACE_EXPIRED`, `patchMetadata` and `upsert`
+  `AUTH_CREDENTIAL_NOT_FOUND`, `update` `AUTH_SESSION_REVOKED`. The union is
+  closed, so a `switch` on `error.code` is exhaustive, and comparing a read's
+  error against a code it cannot raise no longer compiles.
+
+  `AdapterStore.answer(promise)` now types the failure on the await path too, as
+  `run` always did, and attaches `wrap` to a promise of its own rather than to the
+  caller's.
+
+  Each adapter declares its facets as their slot in `Adapter.Me` rather than
+  checking an inferred object against the contract with `satisfies`. A `satisfies`
+  only proves the body is assignable, so the type a caller saw came from the body —
+  `run`'s `Adapter.Faults` and nothing else — and the extra codes above were
+  declared where no call site could read them. `storage.identities.restore(id)`
+  now answers `AuthError<'AUTH_GRACE_EXPIRED' | Adapter.Faults>`, which is what
+  this section always said it did.
+
+  ### A missing row raises — `.orNull()` when absence is an answer
+
+  No adapter call returns `null` any more. A read or a write that matched no row
+  raises the code that names what was missing — `AUTH_IDENTITY_NOT_FOUND`,
+  `AUTH_CREDENTIAL_NOT_FOUND`, `AUTH_SESSION_REVOKED`, `AUTH_ORG_NOT_FOUND`,
+  `AUTH_MEMBERSHIP_NOT_FOUND` — instead of handing back a value the caller has to
+  remember to check.
+
+  The old contract typed some calls `T | null` and others `T`, so which ones could
+  miss was whatever each author had happened to think about. A caller that forgot
+  the check got `undefined` two frames later, with nothing naming the row that was
+  not there. Every store method is total now: `Identities.Store`,
+  `Credential.Store`, `Sessions.Store` and `Org.Store` all answer `T`.
+
+  `Org.Store` was the last holdout. `getOrg`, `removeMember` and `setRoles` each
+  answered `null` for a row that was not there, which is the exact shape the rest
+  of this section removed; `AUTH_ORG_NOT_FOUND` and `AUTH_MEMBERSHIP_NOT_FOUND`
+  are new so a membership miss cannot be reported as a missing org and send a
+  caller off to create one that already exists. `orgs.get()`, `orgs.removeMember()`
+  and `orgs.setRoles()` keep their nullable signatures — the conversion moved into
+  the facet, where the other facets already do it.
+
+  The mysql and sqlite adapter classes also carried a public `find()` that answered
+  `null`. It is the join pg keeps as `private _find`, used only from inside the
+  class, and it is now private in all three.
+
+  Absence is still an outcome for the callers it is an outcome for — "is this
+  address free", "is this login attached" — so `Answer` gains a third form
+  alongside `await` and `.wrap()`:
+
+  ```typescript
+  const identity = await storage.identities.find({ email }).orNull();
+  if (!identity) return reply("free");
+  ```
+
+  `.orNull()` converts exactly the five absence codes above and re-raises
+  everything else, so a dead socket or a constraint violation still throws rather
+  than reading as "not found". Where a facet's own public API is legitimately
+  nullable — `auth.identities.getById`, `auth.sessions.getBySid` — that is where
+  the conversion now happens, once, instead of at every call site behind it.
+
+  Removed: `rotateOrThrow` and `patchMetadataOrThrow`. They existed to turn a
+  `null` back into a throw, which is what the call does by itself now.
+
+  The memory adapter's `ErrorMap` also declares `AUTH_IDENTITY_NOT_FOUND`, which
+  it raises in nine places and never named. Undeclared, `wrap()` would have
+  re-labelled a plain 404 as `AUTH_ADAPTER_FAILED`.
+
+  **Breaking.** A hand-written `Org.Store` must raise where it returned `null`,
+  and declare both codes in its `ErrorMap` or `wrap()` re-labels them
+  `AUTH_ADAPTER_FAILED`. A caller that tested a store read for `null` now has a
+  branch that cannot be taken: narrowing `Promise<T | null>` to `Promise<T>` leaves an
+  existing `if (!row)` as dead code rather than a type error. Add `.orNull()` at
+  the call sites where the miss was the point, and delete the check everywhere
+  else — the raise carries the same fact with the row's name attached.
+
+  ### `version` moves on every write the row accepts
+
+  `auth_identities.version` and `auth_credentials.version` are what a conditional
+  `update` locks against, and only three writes were maintaining them:
+  `identities.update`, the credential `rotate`/`patchMetadata` pair and the family
+  `revoke`. `softDelete`, `restore`, `link` and `unlink` left the number where it
+  was on all four adapters, so a caller holding version N passed its
+  `expectedVersion` check on a row that had been hidden or re-linked underneath it
+  — the lost update the column exists to stop.
+
+  Every write that changes what a read answers now moves the version, including a
+  repeat `link` that inserts no second row: the version counts writes the row
+  accepted, not observable diffs, which keeps one rule across four adapters and
+  errs toward a spurious `AUTH_STALE_WRITE` rather than a missed one.
+
+  It costs nothing on Postgres and SQLite — the bump rides the `.set()` that was
+  already being sent, or replaces the trailing read via `RETURNING`/a writable
+  CTE, so `link` and `unlink` send the same number of statements they did before.
+  MySQL pays one statement on each, having neither.
+
+  `runIdentityStoreCompliance` pins it: every one of those writes must return a
+  higher version than the last, and the version read before them must then be
+  refused by `update`.
+
+  ### A batch answers the rows it touched
+
+  Every batch write now answers `Me<Profile>[]` — the same shape the single-row
+  form answers, once per row that landed:
+
+  ```typescript
+  const hidden = await auth.identities.softDeleteMany(ids);
+  const missed = ids.filter((id) => !hidden.some((row) => row.id === id));
+  ```
+
+  It used to answer a `Batch.Result<T>` — `{ outcomes, applied, failed }` — one
+  `{ id, ok, reason }` entry per input row, with `reason` drawn from its own
+  seven-value enum that a translation table mapped the thrown `AuthError` onto.
+  The whole structure is gone: `Batch.Result`, `Batch.Outcome`,
+  `Batch.FailureReason`, `batchResult`, `toSoftReason`, the `BATCH_NOT_FOUND`
+  sentinel, `outcomesFromAffected`, `outcomesFromRows` and the `core/batch`
+  module that held them.
+
+  Three things were wrong with it. The `reason` table was a second vocabulary for
+  refusals the engine already names, and it was a filter as well as a map: a code
+  it did not list was treated as a hard failure and killed the batch, so every new
+  per-row refusal silently became batch-fatal until somebody added a line. The
+  `applied`/`failed` counters were two derived numbers every producer had to
+  remember to compute, that nothing in the library read. And the wrapper meant a
+  batch was the one part of the API whose answer you could not use the way you use
+  every other answer.
+
+  What a caller gives up is the reason a particular row was refused — a closed
+  grace window and a missing row now both read as an absent row. Diff the input
+  against the answer to see which; call the single-row form on one to find out why.
+
+  The hard/soft split survives, because it is not about reporting: a refusal is
+  soft when it is an `AuthError` with no `cause`, and hard when it carries one. A
+  soft refusal leaves its row out of the answer; a hard one throws and takes the
+  batch with it, because a driver error leaves a Postgres transaction aborted and
+  swallowing one would make the caller's COMMIT a silent ROLLBACK after it had
+  been handed a list of rows that "landed". That rule is one seven-line function
+  in `core/identities`, applied by the four batch writes that loop.
+
+  ### A store method answers the rows it wrote
+
+  The set-based store methods are no longer optional, and they answer rows rather
+  than ids. `Identities.Store.softDeleteMany` and `eraseMany` answer
+  `Me<Profile>[]`, so a caller reads the new `deletedAt`, the bumped `version` and
+  the providers array off the write instead of asking again; `eraseMany` answers
+  each row as it stood immediately before it went, which is the last moment anyone
+  can see it. `Sessions.Store.deleteAllForIdentities` and `deleteMany` answer the
+  `{ id, identityId }` of every session they removed.
+
+  These five were declared `?:` and every shipped adapter — memory, all three
+  dialects, redis — implemented all of them anyway, so each facet carried a
+  one-statement fast path and a loop that nothing ever took. The per-row
+  bookkeeping that used to be repeated in nineteen adapter call sites is gone
+  outright rather than moved: the facet returns what the store answered. An
+  adapter no longer imports `core/batch`, because there is no `core/batch`.
+
+  Postgres and SQLite widen a `RETURNING` clause they were already sending —
+  Postgres joins the links back through the same writable CTE its single-row
+  `erase` uses, SQLite reads them alongside as its `erase` does. MySQL, which has
+  neither, widens the locked `SELECT` it already takes before the delete.
+
+  Answering the removed sessions also retires two reads. The facet emits one
+  `session.revoked` per row, so it had been reading the rows _before_ the delete
+  to learn their names: `revokeByHashes` ran an N-call `getByHash` map and
+  `revokeAllForIdentities` a whole `listByIdentities`. Both are gone — the delete
+  already knew. Redis names the rows off the identity index rather than the
+  records, so a record that no longer parses still counts as revoked.
+
+  `Sessions.Store.listByIdentities` is removed. Its only caller was that pre-read,
+  and leaving a required method nothing calls is a method every custom adapter
+  implements for nothing.
+
+  `runIdentityStoreCompliance` and `runSessionStoreCompliance` dropped the five
+  `ctx.skip()` guards that went with the optionality — they could no longer fire,
+  and a suite that reports a skip nobody can trigger reads as coverage.
+
+  **Breaking.** A batch method answers `T[]` where it answered `Batch.Result<T>`:
+  what was `result.outcomes.filter((o) => o.ok).map((o) => o.value)` is the answer
+  itself, `result.applied` is `answer.length`, and a refused row is absent rather
+  than present with `ok: false`. `Batch` is no longer exported. A custom adapter
+  must implement `softDeleteMany`, `eraseMany`, `deleteAllForIdentities` and
+  `deleteMany`, answering rows, and may drop `listByIdentities`.
+
+  ### `identities.find` takes one address, not a list of spellings
+
+  `Identities.Store.find` is one union of three shapes, and the email arm is a
+  `string`:
+
+  ```typescript
+  find(by: { id: string } | { email: string } | { providerId: string; providerSub: string }): Promise<Me<Profile>>
+  ```
+
+  It used to take `string | readonly string[]` there, because a row written before
+  addresses were normalised holds the bytes its client sent — so a lookup for the
+  canonical spelling alone would lock its owner out. Six call sites each expanded
+  the address themselves and passed the list down, with their own `?? fallback`
+  for a blank one. The expansion now happens once, inside the store, where the
+  comparison is: `toEmailList` takes one address and answers every spelling to try.
+
+  That also retires an invariant that had to be checked at runtime. An empty list
+  is no condition at all, so `find({ email: [] })` would have matched the first
+  live row; `toEmailList` used to throw `AUTH_INVALID_PARAMETERS` to stop it. One
+  address always expands to at least one spelling, so the case cannot arise, and a
+  blank address answers `['']`, which matches nothing because every dialect
+  refuses to store a blank one.
+
+  Every mutating write on the store answers `Me<Profile>` for the same reason
+  `find` does: `softDelete`, `restore`, `erase`, `link` and `unlink` hand back the
+  row they touched rather than `void`, so a caller needing the new
+  `deletedAt` or the providers array after a link does not read again to find out.
+
+  **Breaking.** `find({ email: [...] })` takes the address itself. `Identities.By`
+  is gone — the union is written out where it is used. `toEmailList` takes a
+  `string` and no longer throws.
+
+  ### Fixes this turned up
+
+  - `link` against an identity that no longer exists surfaced the raw foreign-key
+    violation; it now raises `AUTH_IDENTITY_NOT_FOUND`, as every other call that
+    matches no row does.
+  - A soft delete no longer takes `deletedAt`/`deletedBy` from the caller: the
+    window is a grace period in milliseconds and the actor is the ambient one, so
+    two dialects can no longer disagree about when a row becomes purgeable.
+  - An empty session patch is a no-op rather than a driver syntax error, and a
+    missing session answers `AUTH_SESSION_REVOKED` on every backend.
+  - `patchMetadata` on a row that is not there (or not this tenant's) answers
+    `AUTH_CREDENTIAL_NOT_FOUND` rather than telling the caller to retry.
+
+  ### One read per adapter, and no handle to pass
+
+  Each dialect had a private read taking the client to read through, so all ten of
+  its call sites passed `this._db` to say "the usual one". A read no caller runs
+  inside a transaction now just uses the adapter's own handle — the parameter is
+  gone from Postgres's `_find` and SQLite's `_linksFor`. The rest take it as an
+  argument defaulting to `this._db`, so a transaction passes its `tx` and no call
+  site can quietly read outside the transaction it is in.
+
+  MySQL reached those through `this.withClient(tx)`, which re-runs the adapter
+  constructor on every transactional read: a `createRequire` built and discarded
+  on Postgres, a `pragma foreign_keys` that SQLite ignores inside a transaction
+  anyway. It threads the handle like the other two now, so one mechanism answers
+  this rather than two, and `withClient` is left as what its contract says it is —
+  how a _caller_ rebinds the adapter onto a transaction of their own.
+
+  The handle aliases went with it. `Pg.Handle`, `Mysql.AnyMySql2Database` and
+  `Sqlite.AnySqliteDatabase` each named the type a statement runs on, and each had
+  one or two uses left, all inside its own adapter. They spell the drizzle type
+  directly now — SQLite's onto the `Db<>` already declared beside it — so no
+  dialect exports a handle-shaped type any more.
+
+  ### Types that named nothing
+
+  `Pg.AnyNodePgDatabase` had no uses at all. `OidcOP.Prompt` listed the four
+  values OIDC defines for `prompt` and nothing read it, because the OP does not
+  implement the parameter — `select_account` appears nowhere else in the package.
+  Removing the type does not remove a feature; it stops advertising one that was
+  never there.
+
+  `Mfa.TotpMetadata` and `Mfa.PasskeyMetadata` described the metadata shapes the
+  MFA facet reads. It reads them through the `credential-utils` predicates now —
+  `isProfileBooleanTrue(row.metadata, 'confirmed')`, `getProfileNumber(row.metadata,
+'lastTotpStep')` — with the field names pinned in the credential allow-lists,
+  which is the shape that actually holds at runtime. The passkey one also repeated
+  two fields `Passkey.CredentialMetadata` already declares.
+
+  `Mfa.WebauthnChallengeStore` was `Passkey.ChallengeStore` field for field, in a
+  file that already imports `Passkey` and whose doc comment already named the
+  passkey provider's store as the reference implementation. It is that type now.
+
+  The three email channels each declared their own `ITemplateResolver`, identical
+  across all three. One `Channel.IEmailTemplateResolver` replaces them. Twilio and
+  web-push keep their own, which answer `{ body }` and `{ payload, ttl? }` rather
+  than a subject and an HTML body.
+
+  MySQL had three row helpers where the others had one: a locked re-read, a links
+  read and an assembler over both. It now answers every lookup through the same
+  single join the other two dialects use, leaving one helper — the lock a write
+  takes before it re-reads.
+
+  On Postgres, `create` and `erase` are one statement each rather than a
+  transaction around two. The row, its logins and the read that answers them
+  travel as one CTE, with the links taking the id straight out of it; `erase`
+  reads the logins in the same `with` that deletes their owner, since every arm
+  of one sees the snapshot the statement opened on. Four round trips become one,
+  and the row an erase answers with now carries the logins the cascade took —
+  proven for every adapter, not just this one.
+
+  ### One `withClient`, on the adapter
+
+  A transaction was joined store by store: every store contract carried its own
+  optional `withClient`, each dialect implemented four one-line delegates back to
+  the adapter's own, and `withTransaction` called them one at a time. The facets
+  come off one adapter and share its connection, so that was four answers to one
+  question.
+
+  `withClient` belongs to the adapter now — `Adapter.Me` declares it, the three
+  drizzle adapters already had it, and `withTransaction` makes the one call. The
+  capability hook follows: `MfaFacet` and `ApiKeysFacet` are handed the bound
+  facets instead of a driver handle to rebind a store of their own from, so
+  `Capability.withClient(stores, events)` replaces `(client, events)` and neither
+  can answer `null` any more.
+
+  Hand the engine the adapter — `stores: adapter` — and transactions work. A bag
+  assembled facet by facet (redis sessions beside a drizzle identities store, say)
+  has no `withClient`, and `withTransaction` throws `AUTH_MISCONFIGURED` saying so
+  rather than leaving a write outside the caller's transaction. `createTest` takes
+  the same shape: one `stores` override in place of four per-facet ones.
+
+  ### Fewer statements per call
+
+  What a store call costs on a real database is mostly the number of statements it
+  sends: each one is a round trip the caller waits through. Four shapes sent more
+  than they had to, on every dialect that had them.
+
+  `link` read the identity to check it was there, inserted the login, then read the
+  identity again to answer. The first read is gone — the insert takes its row from
+  `auth_identities`, so an identity that is gone or hidden writes nothing and the
+  read that answers raises on its own. MySQL also held a locked read and a
+  second read for "does this identity already hold this provider", both inside a
+  transaction; the repeat is settled in the same `where` now. Three statements to
+  two on Postgres and SQLite, six to two on MySQL, and linking to a soft-deleted
+  identity no longer writes a row on MySQL that the answer then hides.
+
+  `patchMetadata` read the row, merged in JS, wrote against the version it had read
+  and retried once when a concurrent write took that version first. It is one
+  `update` now — `metadata || $patch::jsonb` on Postgres, `json_set` on SQLite and
+  MySQL — so the merge happens under the row's own lock and there is no window to
+  lose. Not `json_patch`/`json_merge_patch`: those are RFC 7396, where a null value
+  removes the key rather than storing it, which is not what the object spread the
+  memory adapter runs does.
+
+  MySQL took a `select … for update` before `update`, `softDelete`, `rotate`,
+  `revoke` and `patchMetadata` to learn whether the row was there at the version
+  expected. The write takes the same lock and `affectedRows` answers the same
+  question, so the probe is gone from all five, and `restore` no longer reads the
+  row twice. `erase` keeps its locked read: it has to answer with the row it
+  removed, so that read comes before the delete either way.
+
+  The memory adapter's `create` checked the address, the handle and each login in a
+  pass of its own; it is one scan now, which is also the one place the three unique
+  indexes every dialect carries are written down together.
+
+  One fix fell out of it: `patchMetadata` could raise `AUTH_STALE_WRITE` after
+  losing the version twice, a code its own fault union does not name and a retry
+  its caller could not act on. There is no version to lose now, so the only failure
+  left is the `AUTH_CREDENTIAL_NOT_FOUND` the contract declares.
+
+  `bun run bench:adapters` times all 26 store calls on all four adapters. The
+  before and after tables, per call, are in `src/adapters/README.md`.
+
+  An identity store answers one read. `findById`, `findByEmail` and
+  `findByProviderSub` are `find(by)`, named with `{ id }`, `{ email }` or
+  `{ providerId, providerSub }` — three names for one join, one live filter and
+  one order, where only the condition ever differed. `auth.identities.getById`
+  and its siblings are unchanged; it is stores that change shape, so
+  `stores.identities.findById(id)` is now `stores.identities.find({ id })`.
+
+  The `where` clauses that scope a read to a tenant were each a mutable array and
+  a pair of `if`s; they are one `and(...)` with a shared `inTenant` filter that
+  drops out when the caller named no tenant.
+
+  MySQL read an identity by address 50x slower than by any other key. The
+  `where` matched `lower(profile ->> '$.email')` while the unique index lives on
+  the `email_norm` column generated from that expression, and MySQL will not use
+  a generated-column index when the comparison carries the connection's
+  collation - so every lookup scanned the table. It matches the stored column
+  now: 24 ms to 0.28 ms over 50k rows. No test could see it, since every
+  assertion passed either way on a table of ten rows.
+
+  `bun run bench:adapters` is what found it: the same 50k identities and 100k
+  logins on all four adapters, timed at the adapter boundary. The numbers, the
+  plans behind them and the method are in `src/adapters/README.md`.
+
+  ### One way a driver failure is named
+
+  Each dialect had its own translator: the same five makers, the same socket-code
+  list and its own four-deep cause-chain walker, restated three times, with a
+  `Make` that took one argument in two of them and two in the third.
+
+  There is now one reader — `signalOf` — and one resolver, and each dialect is
+  only its own table of what its driver says: the text it names the refused index
+  in, the code or errno it gives, the family that code belongs to, read in that
+  order. 256 lines became 189, and nothing an adapter answers changed.
+
+  `AuthError` itself no longer declares each code's HTTP status twice — once as a
+  literal on the union member and once in the status table that is the only one
+  ever read — and the class is free of type assertions: the origin argument is
+  narrowed by a predicate, and `toJSON` scrubs through a function that returns a
+  record rather than one that is cast to it.
+
+  ### The three dialects now refuse the same row
+
+  A schema audit across `auth_identities`, `auth_identity_providers`,
+  `auth_credentials` and `auth_sessions` found the declarations in parity — 37
+  identically named indexes and checks, 18 of them checks, matched by the
+  generated e2e DDL — while what those declarations _meant_ diverged per dialect.
+
+  **MySQL compared opaque keys case- and accent-insensitively.** Nothing set a
+  collation, so `id`, `identity_id`, `tenant_id`, `secret`, `csrf_hash`,
+  `provider_id` and `provider_sub` inherited the server default —
+  `utf8mb4_0900_ai_ci` on MySQL 8. pg and sqlite compare all seven byte-for-byte,
+  so the same lookup answered differently per backend: `findByHashedSecret`
+  matched a secret whose case it was never given, two base64url passkey
+  credential ids differing only in case collided, and
+  `uq_auth_identity_providers_sub` refused a sub that merely case-differed from
+  one already stored. They are now `ascii_bin`, or `utf8mb4_bin` where the value
+  is the app's to choose rather than this library's.
+
+  **A passkey could register on two dialects and fail on the third.** `secret`
+  was sized 512 for Argon2id PHC strings, but the passkey provider writes
+  `credential.id` verbatim and WebAuthn allows that up to 1023 bytes — about 1364
+  base64url characters. pg and sqlite type the column `text`. It is now 1400
+  ASCII characters, which keeps `auth_credentials_kind_secret` inside InnoDB's
+  3072-byte key limit.
+
+  **A second password is a write error rather than a second way in.**
+  `setPassword` deletes the previous row before writing the next, so one row per
+  identity was an invariant held by hand and by nothing else. It is now a unique
+  index — partial on pg and sqlite, a generated-column carrier on MySQL, which
+  has no partial index — and tenant-scoped, because that delete is tenant-scoped
+  and two tenants may each hold one.
+
+  **Retention has an index and a profile has one width.** `deleted_at` was
+  unindexed on all three, so sweeping soft-deleted identities scanned the table;
+  it is now indexed, partially where the dialect allows. `email` and `username`
+  are capped at 320 and 191 on all three, the widths MySQL's generated norm
+  columns already imposed and the other two silently did not. And
+  `chk_auth_sessions_id_length` now reads `char_length` on MySQL, where `length`
+  counts bytes — the one check of the three that asked a different question.
+
+  Deliberately unchanged: `(kind, secret)` stays non-unique, because
+  `findByHashedSecret` is specified to answer the freshest live row and fall back
+  to a revoked one, which needs both to exist at once; and pg keeps `uuid` where
+  MySQL and sqlite take a string, which `ComplianceIds` already exists to absorb.
+
+  ### A credential row has a shape that is safe to hand out
+
+  `Credential.Me` carries `secret`, and every store read returns it —
+  `findById`, `listByIdentity`, `upsert`, `revoke`, `delete` and the rest. The
+  facets that ship today each hand-build a DTO, so nothing leaks, but that is a
+  convention held at every call site rather than anything the type enforces, and
+  the field is worse than its own docblock claimed: it read "never plaintext"
+  while `kind: 'totp'` stores the base32 seed exactly that way, so one
+  `res.json(row)` from a new facet or a plugin is a factor a caller can replay.
+
+  `Credential.Public` (`Omit<Me, 'secret'>`) and `toPublicCredential` give that
+  convention a name, and the docblock now says what the column actually holds.
+
+  `Identities.ExportBlob` already hand-wrote `Omit<Credential.Me, 'secret'>` and
+  `exportAll` already destructured the secret off row by row; both now say
+  `Credential.Public` and `toPublicCredential` instead.
+
+  ### `core/credentials` only holds credential helpers now
+
+  Six of its fourteen exports read no credential. `getProfileString`,
+  `getProfileNumber`, `isProfileBooleanTrue`, `isProfileBooleanFalse`,
+  `isFiniteNumber` and `isExpiredAt` take an `unknown`, which is why the
+  transport, idempotency and sessions modules were all importing a _credentials_
+  module to check a JWT key's `notAfter` or an idempotency entry's expiry. They
+  move to `core/predicates`. `isSoftDeleted` reads an identity row, and moves to
+  `core/identities` beside the type it tests.
+
+  `deleteCredentialsByPurpose` is gone. The store contract grew
+  `deleteByKindAndPurpose`, which does the same job in one round trip, but the
+  helper was never retired and usage went the wrong way: five call sites on the
+  helper's list-then-delete-each loop against one on the store method. All six now
+  call the store, so regenerating backup codes is one statement rather than a list
+  plus a delete per code.
+
+  None of these were exported from the package, so nothing downstream moves.
+
+  ### The purposes table is now the only spelling of a purpose
+
+  `RECOVERY_PURPOSES` existed but half the codebase went around it: eleven bare
+  `'signup-flow'` / `'password-reset'` / `'email-verification'` /
+  `'trusted-device'` literals sat in the signup, reset, verification and
+  remember-me paths, and `backup-codes.ts` kept a `BACKUP_CODE_PURPOSE` alias that
+  pointed at nothing else. A purpose is the discriminator that decides which of
+  seven token families a delete touches, so a typo in one of those literals writes
+  a row no read path can find. All eleven now read the constant and the alias is
+  inlined.
+
+  Both constants move to `credentials.constants.ts`, matching `identities` and
+  `sessions`. `core` also exported `AUTH_CREDENTIAL_KINDS` under `export type`,
+  which hid the runtime array from anyone importing it; it is a value export now,
+  and `RECOVERY_PURPOSES` is exported beside it.
+
+  ### oauth access tokens are no longer stored
+
+  `kind: 'oauth'` hashed the refresh token into `secret` and then wrote the access
+  token into `metadata.accessToken` in the clear. `metadata` is a
+  `Record<string, unknown>`, so `Omit<Me, 'secret'>` could not see it, and
+  `exportAll` reads every kind — meaning the GDPR Article 20 archive a user
+  downloads carried live third-party bearer tokens.
+
+  Nothing needed the stored copy. `authRefreshoauthToken` already returns the
+  fresh token to its caller in hand, and the only reader was
+  `projectAccessToken`, which had no production callers. So signin and both
+  rotation branches stop writing it, `parseFamilyMetadata` drops the field rather
+  than carrying it forward (a rotation purges a row written by an older version),
+  and `projectAccessToken` is gone.
+
+  Because a row that never rotates would otherwise keep leaking on export,
+  `toPublicCredential` also redacts `SECRET_METADATA_KEYS` from `metadata`. The
+  regression test asserts on the serialised export, which is where this surfaced
+  rather than anywhere the type system could reach.
+
+  ### The e2e tier was never actually running
+
+  Three separate faults kept 31 files and 693 tests from proving anything, each
+  of which hid the next.
+
+  The CI e2e job ran `--filter=@gentleduck/iam` only, so `@gentleduck/auth`'s
+  suites — real Postgres, MySQL and Valkey, the three backends with no in-process
+  substitute — ran in no job on any merge. That is the exact gap the job was
+  added to close, closed for one package and not the other. It now filters both,
+  pre-pulls `mysql:8.4`, and sets `DUCKAUTH_E2E_REQUIRE=1`.
+
+  Locally the tier skipped itself and exited 0. That was deliberate for a machine
+  without docker, but it also swallowed the case where docker answers and the
+  backends then fail to come up — a prerequisite that is present and broken, not
+  absent. `setup()` now only skips when docker is unavailable; a provisioning
+  failure throws.
+
+  What that was hiding: the MySQL schema no longer applied. `password_key` was a
+  `STORED` generated column reading `identity_id`, and MySQL refuses a cascading
+  foreign key on a column a stored column depends on (error 1215), so every run
+  died at the `ALTER` and skipped all 693 tests behind a green exit code. The
+  column is `VIRTUAL` now, which MySQL accepts, still indexes for the unique
+  constraint, and still cascades.
+
+  With the tier running, two Postgres failures surfaced. The credential ordering
+  test built three `password` rows for one identity, a state
+  `uq_auth_credentials_password` forbids and `PasswordsProvider.set` cannot
+  produce — it deletes before it upserts. It now uses `api-key`, one of the kinds
+  that may legitimately have several, which is the only case that ordering ever
+  decides. And the constraint-coverage test named four rules the schema declares
+  that nothing exercised: both password unique indexes and the two identity
+  length checks. Each has a violation case now, so each is proven to answer a
+  typed error rather than a raw driver fault.
+
+  ### `findByProviderSub` is gone from the credential store
+
+  `Credential.Store.findByProviderSub` was declared on the public contract and
+  implemented by all four adapters, and nothing called it. The identities store
+  has its own provider-sub lookup, which is what the oauth provider actually uses;
+  this was the credential-side twin, left behind.
+
+  It was not free. Postgres and SQLite each carried a partial expression index
+  over `metadata->>'provider'` and `metadata->>'sub'` to serve it, and MySQL —
+  which cannot index a JSON path — carried two `STORED` generated columns,
+  `oauth_provider` and `oauth_sub`, plus an index over them, plus the `select()`
+  exclusion those columns forced on every credential read. All of it existed for a
+  method with no callers. The method, the three indexes, the two generated columns
+  and the exclusion are removed together.
+
+  ### A read that answered in the wrong order
+
+  Sweeping the adapters one at a time turned up three more places where a store
+  answered differently from its peers, all of them in a read's order rather than
+  its contents, which is why every existing case passed.
+
+  `credentials.listByIdentity` is documented newest-first, `created_at` descending
+  with the id breaking a same-millisecond tie, and callers lean on it: `passwords`
+  rotates "the first live row" and `mfa.confirm` takes the first unconfirmed
+  enrollment. The memory store did no sorting at all and answered in insertion
+  order — exactly reversed. A user who abandons one TOTP QR and scans a second one
+  has two unconfirmed rows, and memory confirmed against the one they walked away
+  from. It sorts now, and mints `authUuidV7` ids like the dialects do, so the
+  tie-break orders by mint time rather than by a random token.
+
+  `updatedAt` moved on `link` and `unlink` in every dialect, through the column's
+  own `$onUpdate`, and stood still in memory. An identity whose logins had been
+  rewired still reported as untouched since signup.
+
+  On SQLite both timestamp defaults were `unixepoch() * 1000` — whole seconds
+  widened to milliseconds, not milliseconds. `findByHashedSecret` orders on
+  `created_at` and promises the freshest live row, so re-issuing a key inside the
+  same second made the choice between the old row and the new one a coin toss. The
+  default is `unixepoch('subsec')` now, which needs SQLite 3.42. The generated DDL
+  is regenerated to match.
+
+  All three are covered in the shared compliance matrix rather than in one
+  adapter's own tests, so every store answers to them.
+
+  Nothing was found in the Redis session store or in the MySQL adapter: both were
+  read end to end. Left as observations rather than changes — SQLite's `erase`
+  reads the links and deletes in two statements with no transaction around them,
+  its `pragma foreign_keys` is not awaited on an async driver, and MySQL's `create`
+  answers with providers in `added_at` order where the others answer in the order
+  they were given.
+
+  ### Three places the stores disagreed with each other
+
+  An audit of the four adapters against one another turned up behaviour the
+  compliance matrix never asked about, so each store was free to answer
+  differently. The matrix now covers all three, and every store answers the same.
+
+  `sessions.create` on an id that is already stored was an overwrite in memory and
+  a unique violation everywhere else. The id is the caller's token hash, so a
+  repeat is a collision: taking it as an update hands whoever still holds the first
+  token a session it never opened, at whatever AAL the second call asked for. The
+  memory store refuses it now. Redis and Valkey were already refusing it — `SET
+… NX` is there for exactly this — but reported it as `AUTH_SESSION_REVOKED`,
+  which tells a caller its session is gone rather than that the id is taken; they
+  raise `AUTH_ALREADY_EXISTS`, the code every dialect's unique violation maps to.
+
+  `identities.restore` on a row that was never hidden answered with the row on all
+  three dialects and raised `AUTH_GRACE_EXPIRED` in memory, which tells a caller
+  retrying a restore that the account is past saving when it is simply already
+  live. The memory store's test was `!deletedAtMs`, so an epoch `deletedAt` read as
+  live too. It now hands back the live row, as the dialects do.
+
+  `credentials.revokeFamily` stamped `updatedBy` on the dialects and left it alone
+  in memory. A family revocation is the breach response, so "who pulled the
+  trigger" is the audit question it exists to answer; memory stamps it now.
+
+  Still open, and deliberately not changed here: `revoke` on an already-revoked
+  credential is a no-op in memory but rewrites `revokedAt` and bumps the version on
+  all three dialects, because `_write` has no `isNull(revokedAt)` guard where
+  `revokeFamily` does. The dialects are the ones moving the revocation timestamp,
+  so the fix belongs on that side, not in memory. Relatedly, `rotate`,
+  `patchMetadata` and `revoke` leave `updatedBy` naming whoever created the row
+  rather than whoever performed the write — uniform across all four stores, so it
+  is a contract question rather than a divergence.
+
+  ### `credentials.upsert` is `credentials.create`
+
+  It never upserted. All four adapters issued a plain insert with no conflict
+  clause, and `CreateInput` carries no id or unique key to match an existing row
+  on, so every call appended a credential. The name promised the one behaviour
+  callers would reach for it to get: `passwords.setPassword` works around its
+  absence by deleting the previous row first, in a comment that says the contract
+  has no single-call replace.
+
+  `Credential.Store.upsert` is now `create`, matching `Identity.Store.create` and
+  `Session.Store.create`; `Credential.UpsertInput` is `CreateInput`, matching
+  `Identity.CreateInput` and `Session.CreateInput`; and the `toCredentialUpsert`
+  input builder is `toCredentialCreate`. Behaviour is unchanged — both tiers pass
+  at their existing counts.
+
+  The consent store's `upsert` in `@gentleduck/auth/oidc` keeps its name: it issues
+  `ON CONFLICT`/`ON DUPLICATE KEY` and genuinely is one.
+
+  ### Credential metadata exports by allow-list, not deny-list
+
+  `toPublicCredential` used to strip a named list of secret-bearing metadata keys.
+  That fails open: a key that turns out to hold a secret leaks from the GDPR export
+  until someone remembers to name it, which is exactly how the oauth access token
+  got out in the first place.
+
+  `PUBLIC_METADATA_KEYS` now declares, per kind, the metadata keys that may leave
+  the engine, and everything else is dropped. Adding a kind is a compile error
+  until it has an entry, and adding a key that is not listed simply does not
+  export. The trade is deliberate: operator-written metadata — the `opts.metadata`
+  merged into a trusted-device row, and the operator fields `parseFamilyMetadata`
+  preserves on an oauth row — no longer appears in the export, because the engine
+  cannot vouch for what an operator put there.
+
+  Verified by mutation: restoring the pass-through fails four tests, including the
+  export regression that asserts on the serialised archive.
+
+  ### Doc comments say what the code does
+
+  A sweep over every module in the package: `core`, `providers`, `adapters`,
+  `server`, `client`, `channels`, `cli`, `limiters`, `oidc`, `openapi`, `i18n`,
+  `telemetry` and `test`. Comments that restated the signature they sat above are
+  gone, multi-line blocks are compressed to the clause that is not derivable from
+  the code, and `SECURITY` / `WARN` / `NOTE` invariants that were buried
+  mid-paragraph now open their own line so they survive being skimmed.
+
+  Several comments named things that do not exist, which is the part a reader
+  cannot catch on their own:
+
+  - `SessionsFacet`, `AuthMemoryAdapter`, `AuthNoopLimiter` and `Limiter.IResult`
+    were all referenced by docs; the real names are `SessionsImpl`,
+    `MemoryAdapter`, `NoopLimiter` and `Limiter.Result`.
+  - Route and import examples were written `/AUTH/signin` and
+    `@gentleduck/AUTH/client/react`. The client's own default base URL is
+    `/auth` and the package is `@gentleduck/auth`, so an example copied out of a
+    doc comment did not resolve. Eighteen such lines are corrected.
+  - The delete-account confirmation path documented `/AUTH/delete-account`
+    against a real default of `/auth/delete-account`.
+  - Comments named error codes `AUTH/MISCONFIGURED`, `AUTH/MAINTENANCE`,
+    `AUTH/READONLY_MODE`, `AUTH/PROVIDER_FAILED` and `AUTH/oauth/REUSE_DETECTED`.
+    Every code in `errors.codes.ts` is spelled `AUTH_*`, so none of those matched
+    anything a reader could grep for.
+
+  Every `{@link}` in the package now resolves: a target's first segment is
+  lexically visible in the file it is written in, same-file members are qualified
+  with their owning namespace, and a target that was out of scope is a plain code
+  span rather than an import added only to satisfy a doc.
+
+  ### A hidden identity takes no write
+
+  `find` refused a soft-deleted row from the start, but the write paths did not,
+  and a caller reaching one only needs an id and a version it read before the
+  delete landed. `link`, `unlink` and `update` now gate on `isNull(deletedAt)` on
+  every dialect, the memory store included, which had been the loosest of the
+  four: its `link` and `unlink` read straight out of the map and never looked at
+  `deletedAt` at all.
+
+  `update` is the one that mattered most. `softDelete` clears `emailVerified`
+  precisely so that a restore cannot hand back a claim nobody re-proved, and an
+  `update` landing on a hidden row put it straight back.
+
+  ### `link` and `unlink` are one statement or none
+
+  Both wrote the link table first and only then ran the gated version bump, on
+  separate connections. A `softDelete` arriving between the two left the write
+  half-applied while the caller was told it had failed — for `link`, the provider
+  sub stayed claimed by a hidden row no other identity could take it from; for
+  `unlink`, the login was detached and the caller told it was not. Both now run
+  in one transaction on pg, mysql and sqlite.
+
+  ### A soft delete becomes a delete
+
+  `Identities.Store` gains `gc(now)`, alongside the `gc(now)` sessions already
+  had. Nothing purged an identity whose grace window had closed, so a deleted
+  account was hidden forever rather than deleted: unreachable, unrestorable, and
+  still holding its email, username and provider subs. The caller schedules it,
+  under a leader lock in a distributed deployment, and reaches it as
+  `identities.gc()`.
+
+  This adds a method to `Identities.Store`, so a custom adapter must implement it.
+
+  ### A whole-store cast, removed
+
+  `forProfile` took an identities store and returned it as a store of a narrower
+  `Profile` — a function whose entire body was `as`, wrapping every method mysql
+  and sqlite defined. Its own comment admitted the problem: it narrowed a whole
+  store without checking anything. Both dialects now declare the store the way pg
+  always did, and the narrowing happens where a row is built rather than over an
+  entire API.
+
+  The narrowing itself cannot go away: a drizzle table is a module singleton whose
+  `$type` is the base profile, so a row read back is always the supertype of the
+  `Profile` the adapter was given. It is now written at each of the eleven points a
+  row is constructed instead of behind one helper; three of those build an empty
+  link list, which TypeScript infers as `never[]` and so needs its element type
+  named as well.
+
+  `lockRow`, `_eraseIdentities` and `_hideIdentities` had one caller each and are
+  now written at the call site, so `eraseMany` and `softDeleteMany` read the way
+  `erase` and `softDelete` next to them already did.
+
+  ### `identities.merge` is gone
+
+  It re-pointed a duplicate's credentials, sessions and provider links onto a
+  survivor and erased the duplicate. Nothing in the engine ever called it: no flow
+  reached it, and it existed for an admin or import job to call by hand.
+
+  It only ever moved the auth tables. An app deduplicating two accounts has to
+  move its own rows — orders, posts, whatever is keyed by identity id — so it is
+  writing that transaction anyway, and `withClient(tx)` lets it do the auth half
+  inside the same one. A method every adapter had to implement, that erases a row,
+  that the library never called, and that did half the job is not worth its
+  contract slot.
+
+  `link` stays and is unaffected: it is the _before_ case, a signed-in account
+  adding a provider. What goes is the _after_ case.
+
+  **Breaking.** `Identities.Store.merge`, `identities.merge()` and the
+  `identity.merged` event are removed.
+
+  The unit tier is 3321 tests and the e2e tier 739: three new contract cases pin
+  the soft-delete gate, the two atomicity fixes and `gc` across all four stores
+  — memory and sqlite in the unit tier, pg and mysql in e2e — three more pin the
+  orgs store raising and surviving `wrap()`, three cover the sqlite adapter on an
+  async driver, two guard the pg and mysql fixtures against losing their second
+  connection, and the merge cases are gone with the method.
+
+  ### The sqlite adapter had never run on an async driver
+
+  `_atomic` branches on the driver. A sync one is bracketed by hand on its single
+  connection; an async one goes through the driver's own `transaction`. Every
+  sqlite suite built a sync driver — bun:sqlite under Bun, better-sqlite3 or
+  node:sqlite under Node — so the async branch ran nowhere, and libsql and Turso
+  go down it.
+
+  It was worse than an untested branch. A sync driver's `_atomic` calls
+  `run(this._db)`, so the `tx` a write is handed _is_ the adapter's own handle,
+  and a private read threaded with that handle cannot be told apart from one that
+  ignores it. Dropping the handle from `_links` and reading on `this._db` passed
+  all 3262 tests. The equivalent edit on a dialect whose transaction really is a
+  separate connection fails loudly — 5 e2e tests for Postgres's `_linkedTo`, 47
+  for MySQL's `_find` — which is how a real transaction behaves.
+
+  `async-driver.test.ts` builds the shape a remote driver has, where the
+  transaction holds its own connection: two connections over one WAL file, the
+  handle answering `async` so `_atomic` takes the driver's transaction, and that
+  transaction handed a handle on the second connection. A read on the adapter's
+  own handle then sees the snapshot from before the transaction opened. `link` and
+  `unlink` are pinned there, and the same dropped-handle edit now fails both —
+  `unlink` returning the two logins the row had before the write rather than the
+  one it has after. A third case asserts the fixture's two handles really are
+  separate connections, so the other two cannot go quietly toothless.
+
+  Postgres and MySQL never had the branch, being async throughout, and their
+  fixtures were already multi-connection: `new Pool(...)` for one, and for the
+  other `new DrizzleMysqlAdapter(url)` building its handle with `createPool`. But
+  nothing said so, and a `max: 1` or `connectionLimit: 1` would have cost both
+  suites the ability to tell a read that used its transaction handle from one that
+  ignored it, while still passing. Each now carries the same guard: inside a
+  transaction it compares what the transaction sees against what the adapter's own
+  handle sees, and fails if they agree. Set either pool to one connection and the
+  guard reports it in about five seconds, naming the cause, rather than blocking
+  until the suite times out.
+
+  There was no live instance of the bug: no adapter reads `this._db` inside a
+  transaction callback.
+
+  ### A write count only one MySQL driver answers
+
+  The OIDC OP stores gate single use on how many rows a write touched:
+  `codes.consume` deletes and `refreshTokens.consume` stamps `consumed_at`, and
+  each returns the row only when exactly one row moved. That is the whole of
+  one-time codes and refresh rotation on MySQL, which has no `RETURNING` to settle
+  it the way pg and sqlite do.
+
+  The count was read by a helper that understood one shape: `[ResultSetHeader]`,
+  which is what mysql2 answers. The same file's garbage collector carried a second,
+  private copy of the helper that also understood `{ rowsAffected }` — what the
+  serverless MySQL drivers answer — so the two helpers disagreed about what a write
+  had done, in one file, and the factory's parameter type admits both drivers. On
+  one of the drivers the store helper could not read, every `consume` would find
+  nothing written and return null: the row is deleted or marked, and the caller is
+  told the code was no good. An authorization code that is spent and refused at the
+  same time, and a refresh token that rotates into a dead end.
+
+  The two are now one helper, the GC's more capable one, reading either shape and
+  narrowing at runtime rather than asserting a type. `mysql-driver-shape.test.ts`
+  pins it by handing `codes.consume` a stub database that answers in each driver's
+  shape; put the old helper back and the serverless case fails on its own.
+
+  ### The rule each dialect keeps differently was the one nothing tested
+
+  An identity may hold one password globally and one per tenant. Postgres and
+  sqlite each spend two partial indexes on it. MySQL can do neither, so it keeps a
+  generated `password_key` — `case when kind = 'password' then concat(identity_id,
+':', coalesce(tenant_id, '')) end` — and one unique index over it, the `coalesce`
+  being what stops a global row keying NULL and slipping past an index that lets
+  NULLs repeat.
+
+  pg tested both of its indexes and sqlite tested both of its scopes. MySQL, the
+  only one whose enforcement is a hand-rolled expression, tested none of it. It now
+  answers the same four questions: a second global password is refused, a second
+  within one tenant is refused, the global scope and two tenants stay apart, and a
+  non-password kind is not constrained at all.
+
+  The OIDC garbage collectors had the same shape of gap. All three return how many
+  rows they pruned, sqlite's was the only one a test had ever called, and the
+  counts are exactly where the dialects differ — pg and sqlite count `RETURNING`
+  rows, MySQL reads the driver's envelope. pg and MySQL now run the prune case too,
+  all three off one fixture in the shared compliance module rather than sqlite's
+  private copy of it.
+
+  ### The contract was not reachable from outside the package
+
+  `Adapter.Me` is what an adapter must be, and `AdapterStore` is what makes one:
+  `Adapter.Wrapped<S>` maps every store method to an `Answer`, which carries
+  `wrap()` and `orNull()`, and `AdapterStore.answer` is the only thing that builds
+  one — including the re-labelling that keeps a code the mapper never declared from
+  being passed off as one it did. Both lived in `src/adapters/adapter.ts`, and no
+  entry in the exports map led there.
+
+  The effect was visible in the shipped types: `dist/adapters/drizzle/pg/index.d.ts`
+  says `DrizzlePgAdapter ... extends AdapterStore<SqlFault> implements
+Adapter.Me<Profile>`, with both names imported from an internal chunk that
+  consumers have no path to. A store written outside this package could therefore
+  not be declared as an adapter, and could not answer like one without rebuilding
+  `Answer` by hand, the security-relevant part included. This is the same failure
+  the root barrel already had and fixed — you could call a method but not write
+  down the type of what came back — except here it is what the engine _takes_
+  rather than what it returns.
+
+  There is now an `@gentleduck/auth/adapters` entry exporting exactly those two
+  names, beside the per-dialect entries that were already there. Nothing moved and
+  nothing else was added to it: the dialect adapters keep their own entries, so the
+  new one pulls in no driver. `adapter.test.ts` pins both halves — the type aliases
+  stop compiling if `Adapter` leaves the entry, and the runtime key check fails if
+  `AdapterStore` does.
+
+  ### Three tenant-scoped writes that no test held to it
+
+  Every method on the credential store takes a `TenantContext`, and the compliance
+  matrix already said why that matters: a context taken and ignored is worse than
+  one that is absent, because the caller believes it is scoped. It proved the point
+  for `findById`, `findByHashedSecret`, `listByIdentity`, `rotate`, `revoke`,
+  `delete` and `revokeFamily`.
+
+  It did not prove it for `patchMetadata`, `deleteByKind` or
+  `deleteByKindAndPurpose`. All four adapters do scope them — the SQL dialects
+  through `_write` and `inTenant`, memory through `_inTenant` — but nothing held
+  them there. Dropping the tenant from all three on the sqlite adapter left the
+  unit tier green at 3283 and `tsc` clean: a cross-tenant metadata rewrite, which
+  on an api-key row means its scope, and two cross-tenant bulk deletes, all
+  shipping unnoticed.
+
+  The three cases are in the shared matrix, so they run on every store rather than
+  the one that happened to be audited. Each is written so it cannot pass by doing
+  nothing: the sweeps assert the id they removed, which a sweep reaching across
+  tenants and a sweep reaching nothing both fail. The same mutation now fails
+  exactly those three.
+
+  Identity rows take no tenant context at all, and both session methods that do
+  were already covered, so this closes the set.
+
+  ### The widest delete in the module had no case for an empty list
+
+  Four store methods take a list of ids rather than one: `softDeleteMany` and
+  `eraseMany` on identities, `deleteAllForIdentities` and `deleteMany` on
+  sessions. On the SQL dialects each reaches its table through `inArray(col, ids)`
+  and nothing else — no tenant, no owner, no second predicate narrowing what the
+  statement can touch. The list _is_ the where clause.
+
+  drizzle renders `inArray(col, [])` as `false`, so an empty list matches no rows.
+  That is the right answer and it is the one shipping. But it is a detail of a
+  third-party implementation that the two widest deletes in the module depend on
+  entirely, and nothing here observed it. The spelling a reader adding a guard
+  would reach for first, `ids.length === 0 ? undefined : inArray(col, ids)`, is a
+  `where` with no condition at all — which is every row in the table. And a caller
+  holding no ids is ordinary: a sweep with nothing to sweep. The gap between
+  no-op and wipe is one refactor wide.
+
+  No guard was added. drizzle is already correct, and repeating the check at each
+  call site would only duplicate it less reliably. What was missing was a test,
+  and there was none: no case in the matrix had ever passed an empty list to any
+  of the four.
+
+  Two now do, one per store, and each asserts both halves — the bulk call answers
+  with an empty list, and a row created beforehand is still readable afterwards.
+  The `undefined` spelling above, applied to sqlite's identity erase and session
+  delete, fails exactly those two cases and nothing else.
+
+  With these, every method on all three store contracts — 11 on identities, 11 on
+  credentials, 9 on sessions — has at least one case in the shared matrix.
+
+  ### Three of the four adapters answered their table instead of their contract
+
+  `Credential.Me` and `Sessions.Me` declare no `updatedAt`. The tables carry one, and pg, MySQL and sqlite
+  all read those two tables with a bare `select()` — so every credential and every session came back with a
+  column the row type says is not there. MySQL's credential rows carried a second: `password_key`, the
+  generated column that stands in for the partial index pg and sqlite get.
+
+  The MySQL case is the one that shows it was never intended. Its projections open with _"the row contract:
+  each table minus its generated columns, which are index carriers and not fields"_, and the line under that
+  comment strips `email_norm` and `username_norm` from identities. The next line, for credentials, took every
+  column — including the generated one the comment is about.
+
+  Nothing here leaks a secret, and that is worth stating plainly because it is the first question this
+  invites. `secret` never reaches an application: `toPublicCredential` drops it and allowlists the metadata
+  by kind, the GDPR export is the only path that hands a credential out, no event payload carries one, and
+  the server adapters never touch the credential store at all. What escaped is a timestamp and an index
+  carrier whose two halves, `identity_id` and `tenant_id`, are already fields of the row.
+
+  The consequence is divergence rather than disclosure. The memory adapter returns exactly the contract, and
+  it is the adapter the whole unit tier runs against, so the shape was right everywhere it was ever looked at
+  and wrong on all three backends anyone deploys. It surfaces where keys are enumerated rather than read:
+  the redis event bus revives every key in `DATE_KEYS` as a `Date`, `updatedAt` among them, so a session
+  handed to a remote subscriber carries a field on pg, MySQL and sqlite that it never carries on memory.
+
+  Each dialect now projects explicitly, the way MySQL already did for identities, and the `*Row` types in
+  `pg.types.ts`, `mysql.types.ts` and `sqlite.types.ts` are `Omit`ed to match rather than describing the raw
+  table.
+
+  The reason no test saw it is that `expectFieldTypes` only ever iterates the fields its own spec names. It
+  is built to catch a declared field of the wrong shape — a `Date` that came back a string — and an
+  undeclared field is not something it can look at. The guard was one-directional.
+
+  `expectExactKeys` is the other direction, and `expectRow` runs both, so the 18 read paths in the compliance
+  matrix that already asserted field types now also assert the exact key set: no column that is not on the
+  contract, and none of the contract's missing. The key lists are `Object.keys` over a
+  `satisfies Record<keyof T, true>` literal, so a field added to a row type stops compiling until it is
+  listed there, and a name that is not on the type is rejected outright.
+
+  Both halves are mutation-checked. Putting sqlite's `getByHash` back to a bare `select()` fails one unit
+  test, `getByHash keys: expected 15 to deeply equal 14`. Putting MySQL's credential projection back to every
+  column fails one e2e test against real MySQL, `create keys: expected 13 to deeply equal 11` — the two
+  columns named above. Counts are unchanged at 3295 and 723 because these strengthened cases that already
+  existed rather than adding new ones.
+
+  **Left alone, deliberately.** `session.created` and `session.rotated` carry the whole `Sessions.Me`, so
+  `csrfHash` rides out to audit sinks and webhook endpoints, while `ExportBlob` strips that exact field from
+  its sessions. It is not forgeable — verification hashes the submitted token and compares, so a leaked
+  digest buys an attacker a sha-256 preimage and nothing else — but the two paths disagree about whether the
+  field may leave, and picking which one is right changes a published event payload.
+
+  ### A session patch could move the row out from under the cookie that opened it
+
+  `Sessions.Store.update(id, patch)` types its patch as `Partial<Me>`, and `Me` includes `id`. That id is not
+  a surrogate key: it is the hash of the token in the caller's cookie, which is why `create` refuses a second
+  write to one rather than treating it as an update.
+
+  The memory store pins it — _"`id` is pinned because the key is the sid hash the cookie carries"_ — and so
+  does the redis store, whose own line reads _"`id` is pinned to the key the row lives under, and `undefined`
+  means 'leave this alone', as in the memory and SQL stores"_. That last clause was the bug. pg, MySQL and
+  sqlite passed the patch into `set()` whole, so a patch naming `id` rewrote the primary key.
+
+  Same call, two behaviours, decided by which backend is configured. On memory, redis and valkey it is a
+  no-op. On the three SQL dialects the row moves to a hash nobody was ever issued: the cookie the caller
+  holds now reaches nothing, which reads as a silent sign-out, and the session answers to whatever hash the
+  patch supplied.
+
+  It was not reachable through the engine, which is worth stating: the only two internal callers pass fixed
+  literals, `{ aal, fresh }` on step-up and `{ expiresAt, fresh }` on refresh. What makes it worth fixing
+  anyway is that `Sessions.Store` is a published contract — an application holding the store directly, which
+  the `@gentleduck/auth/adapters` entry exists to support, gets whichever of the two behaviours its database
+  happens to give it.
+
+  All three dialects now drop `id` before building the `SET` clause. A patch naming it is ignored rather than
+  refused, because `update` is the refresh path and a caller spreading a row it just read must not start
+  failing. The compliance case asserts all of it — the answer keeps the original id, the rest of the patch
+  still applies, the original hash still resolves and the supplied one does not — so neither a move nor a
+  refusal passes. Reverting the pin fails it on sqlite in the unit tier and on real Postgres in e2e.
+
+  ### The one repoint that mattered was pinned only where it was hard
+
+  `update` may legitimately change `identityId`; that is how a session moves between accounts. The SQL stores
+  get the consequences for free, because everything downstream filters the column. Redis does not: it keeps a
+  set per identity and a scored expiry member carrying the identity, and it moves the session between them by
+  hand, under a note that a session left behind in the old owner's index is one "sign out everywhere" cannot
+  reach.
+
+  That work was pinned by redis's own tests and nowhere else, so the _contract_ never said a repointed
+  session follows its new owner — only one implementation's test suite did. It is in the shared matrix now:
+  after the repoint the session is listed under the new identity and not the old, and
+  `deleteAllForIdentity(new)` reaches it. Deleting redis's index move fails the case on redis and valkey, and
+  the four adapters that had it structurally keep it deliberately.
+
+  ### Two of the three schemas could say anything without a test noticing
+
+  The e2e suites do not create their tables from the drizzle schema. They apply a committed `.sql` that
+  `bun run e2e:schema` generates from it, and nothing regenerates that file: no CI step runs the script, and
+  no CI step checks the output is current. The only thing holding the schema and the database together is a
+  developer remembering a sentence in a comment.
+
+  sqlite had a guard, and its docblock states the problem exactly — _"a constraint could be deleted from the
+  schema and the whole matrix would go on passing against a file nobody regenerated"_. It also names the
+  sharper half: drizzle evaluates a table's extra-config block lazily, so without a test that forces it,
+  nothing runs the code declaring those checks, indexes and foreign keys at all.
+
+  Neither pg nor MySQL had one, which is the wrong two to leave out. sqlite's suites run in the unit tier
+  and give an answer in seconds; pg and MySQL run only behind docker, in the tier that gets run least.
+
+  It is demonstrable rather than theoretical. Adding `check(kind <> 'api-key')` to the MySQL schema — a
+  constraint that would reject every api-key row in the table — left all 731 e2e tests passing against a real
+  MySQL, because the constraint never reached the database and nothing compared the two. The identical edit
+  to the sqlite schema fails two tests immediately.
+
+  `schema-drift.ts` carries the shared half and there is now a schema test per dialect. They need no database,
+  so pg and MySQL drift is caught in the unit tier alongside sqlite's rather than never. Both directions are
+  mutation-checked: a constraint added to the MySQL schema without regenerating now fails with
+  ``chk_zz_demo_never_applied` is declared but never reached the generated DDL`, and a check deleted from the
+  pg schema while the DDL keeps it fails the opposite assertion.
+
+  The DDL is not stale today — regenerating all six files produced byte-identical output. What was missing was
+  anything that keeps it that way.
+
+  **Checked and clean, recorded so the next pass skips them.** The `version` counter moves identically on
+  every mutator across memory and the SQL dialects — create, rotate, patchMetadata, an empty patchMetadata,
+  link, a repeated link, unlink, an absent unlink, softDelete and restore all agree — with the single
+  exception of revoking an already-revoked credential, which is the divergence already open above. And
+  MySQL's `asciiKey`/`binKey` really are binary collations, `ascii_bin` and `utf8mb4_bin`, so the case- and
+  accent-folding hazard their own SECURITY note describes is genuinely closed: a secret or a session id
+  compares byte-for-byte there exactly as it does on pg and sqlite.
+
+  ### The store every unit test runs on enforced none of its table's rules
+
+  `auth_credentials` is the most constrained table in the schema: a kind from a fixed list, a secret that is
+  not blank, a tenant that is not the empty string, an expiry no earlier than the row it belongs to, and one
+  password per identity per tenant. The memory adapter has no schema, and it checked none of them.
+
+  Five writes were accepted by memory and refused by all three SQL dialects: a second password for one
+  identity, a blank secret, an empty-string tenant, an expiry preceding `createdAt`, and a kind the contract
+  does not name. Every unit test in the package runs on memory, so a write reaching a database for the first
+  time in production is where these were being found.
+
+  Two live instances were already in the repo's own tests. `ApiKeysFacet.create` accepts a past `expiresAt`
+  and `chk_auth_credentials_expires_after_created` refuses that write on every dialect, so
+  `{ expiresAt: Date.now() - 1 }` is a key that can be created in dev and cannot be created in production; a
+  totp fixture planted a non-string secret the same way. Both now plant past the write path with
+  `adapter.raw`, which is how a corrupt row actually arrives — no database produces one through `create`.
+
+  Memory now applies the same rules and raises the same codes, and the two new compliance cases bind all four
+  credential backends. That they pass unmodified against real Postgres and MySQL is the check that they
+  describe the databases rather than the double: `AUTH_ALREADY_EXISTS` for the second password,
+  `AUTH_INVALID_PARAMETERS` for the rest. Dropping either rule from memory fails its case; dropping both
+  password unique indexes from the sqlite DDL fails the same case there. The unknown-kind rule is enforced but
+  not pinned, because naming a kind outside `Credential.Kind` in a test needs a cast to get past the compiler
+  that already forbids it everywhere real.
+
+  **Not part of this.** A dropped `deleteByKind` in `PasswordsProvider.set` was already caught by its own
+  test, which asserts the identity holds one password row afterwards. The gap was the store contract, not
+  that path.
+
+  ### Redis took session writes it would never read back
+
+  `parseStoredSession` is deliberately strict, and says so: an unknown `kind` or an `aal` outside 1–3 rejects
+  the whole row rather than defaulting it, because _"dropping it hands back an `aal: 2` session with no
+  factors that step-up reads as authoritative"_. The write path applied neither check.
+
+  So `create` returned success, the key was written, and every later `getByHash` answered
+  `AUTH_SESSION_REVOKED` — the store disagreeing with itself about the same row. The caller is handed a sid
+  for a session that was never readable: a cookie that authenticates nothing, with no error on the write that
+  produced it. `update` had the same shape, and reached it from a patch rather than a create. Valkey wraps
+  `RedisSessionImpl`, so it carried the bug too.
+
+  This is the production half of the divergence the previous entry found on credentials. Memory accepted the
+  same writes and read them back, which is permissive but at least consistent; sqlite, pg and MySQL refuse
+  them at the write with `AUTH_INVALID_PARAMETERS`, which is correct. Redis was the only store that said yes
+  and then lost the row.
+
+  `assertSessionAllowed` now holds the rule once, in `sessions.constants.ts`, and both schemaless stores apply
+  it on create and on update, raising what the dialects raise. One compliance case binds all six stores and
+  asserts the refused patch left the row alone rather than half-writing it; it fails if the guard is dropped
+  from redis's create, from memory's create, or from redis's update alone. The credential kind rule left
+  unpinned by the previous entry is pinned too — the suite already casts to plant values a compiler forbids,
+  which is the only way to reach a guard that exists for JS callers and dynamically built patches.
+
+  **Measured and deliberately left.** Three more session CHECKs have no equivalent in the schemaless stores:
+  `expires_at >= created_at`, `absolute_expires_at >= expires_at` and `rotated_at >= created_at`. Applying
+  them breaks 18, 9 and 4 unit fixtures respectively, all of which plant a backwards row to stand in for time
+  passing. That is worth a decision rather than a quiet rewrite, because some of those tests describe states
+  a SQL-backed deployment cannot hold: _"refuses a session past its absoluteExpiresAt"_ needs
+  `absoluteExpiresAt` behind `expiresAt`, which is exactly what
+  `chk_auth_sessions_absolute_expires_after_expires` forbids. The gate that reads both deadlines is right to
+  check both; what is unclear is whether the row it is being tested against can exist.
+
+  ### Release surface
+
+  `FakeRedis` and `fakeRedis` were exported from `@gentleduck/auth/adapters/redis`, a production entry, and
+  shipped in its `.js` and `.d.ts`. They are a test double: nothing outside `__tests__` imported them. They
+  now come from `@gentleduck/auth/test` instead, and the `RedisLike` type stays on the adapter entry, since an
+  app implementing the interface needs it and an app reaching for the double is writing a test.
+
+  **Checked and clean.** All 62 export subpaths resolve to built files and the `bin` does too; no dialect
+  adapter imports `pg`, `mysql2`, `better-sqlite3` or `ioredis` directly, so those stay dev-only and the
+  caller's drizzle handle carries the driver; no adapter source carries a `console.*`, `debugger` or a TODO;
+  no production module imports from `src/test`; the published `./test` entry pulls in no vitest; and
+  `__isMemoryStore` is branded on all four memory stores, which is what `assertStrict` reads to refuse them
+  under `env: 'production'` — note that `strict()` is opt-in, called by the app at boot.
+
+  **Left for a decision.** `src/core/drivers/redis-like.ts` opens with _"THIS WHOLE FILE IS NOT REVIEWED
+  NEITHER TRUST BY ME ... it's generated by AI"_, and `src` is in `files`, so that sentence publishes to npm
+  on the module backing the redis adapter. It is no longer true of the file's coverage — it has its own
+  `redis-like.test.ts` and is exercised by 17 test files including the whole redis compliance matrix — but
+  whether the code is trusted is the author's call, not a thing to quietly delete.
+
+  `public-surface.test.ts` guards only the root barrel, not the other 61 subpaths. That is the gap the
+  `FakeRedis` export sat in.
+
+## 5.10.0
+
+### Minor Changes
+
+- Follow-ups to the adapter rewrite: factories for every drizzle dialect, provenance
+  on a provider link, and two audit fields the rewrite dropped without saying so.
+
+  **Factories for the drizzle adapters.** `5.9.0` left `new DrizzlePgAdapter(...)` as
+  the only way to build one while `memoryAdapter()` was still there, so functional-style
+  config worked for the dev adapter and for none of the ones that ship. Each dialect now
+  exports `drizzlePgAdapter` / `drizzleMysqlAdapter` / `drizzleSqliteAdapter`, which
+  mirror the class generics so `withClient` keeps its type.
+
+  There is no separate `*Storage` form. An adapter already satisfies `Engine.Stores`
+  structurally, so `stores: drizzlePgAdapter(db)` is the whole call. `memoryStorage()`
+  and the unused `Config.IStorage` duplicate of `Engine.Stores` are gone with it.
+
+  **`auth_identity_providers.added_by`.** A provider link is a new way to sign in as
+  that identity, so an admin attaching one and the account holder attaching their own
+  must not read alike - the same argument that put `actor_id` on `auth_events`.
+  Nullable, stamped from the ambient actor on both `create` and `link`, in all four
+  adapters, and readable as `ProviderLink.addedBy`. No `updated_at`/`updated_by`:
+  `provider_id` and `provider_sub` are the row's identity, so changing either is a
+  different link, which is why the column is `added_at` and not `created_at`. No soft
+  delete either - a hidden link would still hold `uq_auth_identity_providers_sub` and
+  block that login being attached anywhere else.
+
+  `Identities.ProviderLinkInput` omits `addedBy` and the facet's `create` now takes it
+  rather than `ProviderLink`, because a caller passing its own would be forging
+  provenance the ambient actor exists to record.
+
+  **`iamDecisionId` is back on `identity.impersonated`.** It was optional on the event
+  through `5.8.0` and went missing in the rewrite, which never mentioned it. An
+  impersonation that cannot be traced to the authorization that permitted it is the
+  one entry an audit log cannot afford to lose, and the consumer writing that row had
+  no other source for it.
+
+  **Migration.** New nullable column, so existing rows need nothing:
+
+  ```sql
+  ALTER TABLE auth_identity_providers ADD COLUMN added_by text;
+  ```
+
+  `duck-auth migrate` emits it.
+
+## 5.9.0
+
+### Minor Changes
+
+- 7228f81: Storage adapters: one class per backend, implementing the engine's store
+  contracts directly, plus a `.wrap()` escape hatch on every adapter call.
+
+  ### The bridge layer is gone
+
+  `@gentleduck/auth/adapters/sql` used to define a second, lower-level contract —
+  23 operations shaped around a `where`/`patch` pair — that each dialect
+  implemented and `sqlStores` then translated into the four stores the engine
+  actually binds. Two contracts for one job: every method was written twice, and
+  the translation layer was where the miss-is-`null` rule, the actor stamping and
+  the `patchMetadata` retry lived, invisible to the dialect that produced the row.
+
+  Each adapter now implements `Identities.Store`, `Credential.Store`,
+  `Sessions.Store` and `Events.Store` itself. What the translation layer held is
+  either inlined where it belongs or shared as a free helper on the new base.
+
+  Removed from `@gentleduck/auth/adapters/sql`: `SqlBridge`, `SqlStore`,
+  `SqlStores`, `sqlStores`, `SqlIdentityStore`, `SqlCredentialStore`,
+  `SqlSessionStore`, `SqlEventStore`, `asBridge`, `orNull`. The entry point keeps
+  `withSqlEventLog` and the JSON-column codecs, which were never part of it, and
+  is now `@gentleduck/auth/adapters/drizzle`: with the bridge gone there is no
+  dialect-agnostic SQL contract left for the old name to describe, and everything
+  behind it is shared only by the three drizzle dialects.
+
+  Renamed, with the two statics collapsed into one:
+
+  | before                                              | after                                            |
+  | --------------------------------------------------- | ------------------------------------------------ |
+  | `DrizzlePgBridge.bridge(db)` / `.storage(url)`      | `new DrizzlePgAdapter(db \| url \| pool)`        |
+  | `DrizzleMysqlBridge.bridge(db)` / `.storage(url)`   | `new DrizzleMysqlAdapter(db \| url \| pool)`     |
+  | `DrizzleSqliteBridge.bridge(db)` / `.storage(path)` | `new DrizzleSqliteAdapter(db \| path \| client)` |
+  | `createSqlStores(bridge)`                           | — (an adapter is already the stores)             |
+
+  There is no `open()` static: the constructor takes the connection string, the
+  driver pool or a drizzle handle and resolves it, so `new` is the only way in.
+
+  `MemoryIdentityStore`, `MemorySessionStore`, `MemoryCredentialStore` and
+  `MemoryOrgStore` are no longer exported separately: `MemoryAdapter` is one class
+  on the same base, with the same four facets. `memoryAdapter()`, `memoryStorage()`
+  and `MemoryAdapter#raw` are unchanged.
+
+  ### One base class, one contract
+
+  `@gentleduck/auth`'s adapter layer is now two declarations. `Adapter` is the
+  contract and nothing else: the four stores, the `Answer<T>` a call returns and
+  the `Result<T>` its `wrap()` hands back. `AdapterStore` is the class every
+  adapter extends: it takes its driver's error mapper and exposes `run`, the one
+  place a failure is typed and `wrap` is attached.
+
+  `asAdapter` is gone. It checked at runtime that an adapter had all four stores —
+  something `implements Adapter.Me` already proves at compile time — and used that
+  check to launder the profile type. `DrizzlePgBridge.storage<MyProfile>(db)` is now
+  `new DrizzlePgAdapter(db)`: an adapter answers the profile shape its table
+  actually declares, so an app whose profile is narrower than that is told so by
+  the compiler rather than trusted at runtime.
+
+  `answering(promise)` is now `AdapterStore.answer(promise)`, and `LOG_PAGE`,
+  `stamped` and `rowWithLinks` moved to `@gentleduck/auth/adapters/drizzle`, next to
+  the schemas that use them.
+
+  ### A store keeps two of its six set-based writes
+
+  `Identities.Store` declared six optional set-based writes alongside the
+  single-row ones — `softDeleteMany`, `restoreMany`, `eraseMany`,
+  `updateProfileMany`, `linkMany`, `unlinkMany` — as a fast path a store could
+  implement instead of being looped over. Four of them were real: every SQL
+  dialect implemented `softDeleteManyReturningIds`, `eraseManyReturningIds`,
+  `restoreManyReturning` and `updateProfileManyReturning`, and the sql bridge
+  wired them onto the contract. `linkMany` and `unlinkMany` are the two nobody
+  ever implemented.
+
+  `softDeleteMany` and `eraseMany` stay on the contract, and pg, mysql, sqlite and
+  memory all implement them. Both are one statement that reports which of the
+  named ids it touched, which is the whole of their per-row semantics — there is
+  nothing for a dialect to get wrong that `RETURNING` does not already answer. The
+  loop they replace costs two round trips per id for a soft delete, because a
+  `softDelete` answering `null` cannot be told from one that matched nothing
+  without a read in front of it.
+
+  `restoreMany` and `updateProfileMany` are gone from the contract and are facet
+  loops now. Their per-row refusals — a closed grace window, an address a live row
+  has taken since, a lost version race — were reimplemented once per dialect
+  behind the old bridge, and a statement that reports which ids it touched cannot
+  say which of those applied to the rest. The facet decides that once.
+
+  `AuthIdentities#softDeleteMany` and its five siblings are unchanged to a caller:
+  one outcome per input row, in input order, each refusal named the way it was
+  before.
+
+  ### Sessions keep theirs, and every store implements them
+
+  `Sessions.Store` kept three optional set-based forms —
+  `deleteAllForIdentities`, `deleteMany` and `listByIdentities` — and for a while
+  shared the identity side's problem: declared, consumed by the facet, implemented
+  by nobody, so `revokeAllForIdentities` over 500 people was about a thousand round
+  trips on Postgres where it should have been two statements. That is the one batch
+  path with a caller that matters — "sign this whole org out" — so the answer here
+  is the other one: every adapter implements all three.
+
+  pg and sqlite delete the set in one statement and read back the ids that matched;
+  mysql has no `RETURNING`, so the ids are selected under their own lock first, the
+  same read-then-delete `_erase` already does for credentials; memory makes one pass
+  over the map instead of one per identity; redis batches the record delete, the
+  expiry `zrem` and the per-identity `srem` into three round trips for the whole set
+  rather than three per identity.
+
+  `outcomesFromAffected` is shared from `core/batch` — the ids a statement affected
+  become one outcome per requested id, and an id that did not come back matched no
+  row, which is the only thing one statement can say about it.
+
+  `RedisLike.Client` gains an optional `mget`. `listByIdentity` backs the
+  active-devices screen and runs inside every `revokeAllForIdentity`, and it was
+  issuing one `GET` per session; it now reads them all in one round trip, falling
+  back to concurrent gets for a client without the command.
+
+  `Credential.IStore.deleteByIdentities` is gone. It had no implementation and,
+  unlike the session forms, no caller either — nothing in the package ever invoked
+  it, so it was a declaration and a compliance case and nothing else.
+
+  ### `.wrap()` — a failure as a value
+
+  Every adapter call now answers an `Adapter.Answer<T>`, a native promise with one
+  extra method:
+
+  ```typescript
+  const { data, error } = await storage.identities.find({ email }).wrap();
+  if (error) return reply(error.code);
+  ```
+
+  `error` is the discriminant and is always an `AuthError`, never `unknown`: a
+  non-`Error` a driver throws becomes the `cause` of a real one rather than being
+  handed back raw. `Answer<T>` extends `Promise<T>`, so awaiting it throws exactly
+  as before and every existing caller — `Promise.all` included — is untouched.
+
+  Scope: `wrap()` catches what the call rejects with. An argument that throws
+  before there is a promise still throws at the call site; a bug in the call is not
+  a failure of the work.
+
+  `error` also carries the codes that call can raise, not a flat `AuthError`:
+
+  ```typescript
+  const { error } = await storage.sessions.update(id, patch).wrap();
+  //    ^? AuthError<'AUTH_SESSION_REVOKED' | Adapter.Faults> | null
+  ```
+
+  `Adapter.Faults` is what any call can raise — the whole range of a driver's
+  error mapper, since any statement can meet a constraint, a dead socket or a
+  missing schema. `Adapter.Me` names what each method adds on top: `restore` can
+  answer `AUTH_GRACE_EXPIRED`, `patchMetadata` and `upsert`
+  `AUTH_CREDENTIAL_NOT_FOUND`, `update` `AUTH_SESSION_REVOKED`. The union is
+  closed, so a `switch` on `error.code` is exhaustive, and comparing a read's
+  error against a code it cannot raise no longer compiles.
+
+  `AdapterStore.answer(promise)` now types the failure on the await path too, as
+  `run` always did, and attaches `wrap` to a promise of its own rather than to the
+  caller's.
+
+  Each adapter declares its facets as their slot in `Adapter.Me` rather than
+  checking an inferred object against the contract with `satisfies`. A `satisfies`
+  only proves the body is assignable, so the type a caller saw came from the body —
+  `run`'s `Adapter.Faults` and nothing else — and the extra codes above were
+  declared where no call site could read them. `storage.identities.restore(id)`
+  now answers `AuthError<'AUTH_GRACE_EXPIRED' | Adapter.Faults>`, which is what
+  this section always said it did.
+
+  ### Fixes this turned up
+
+  - `merge` re-pointed the duplicate's credentials, sessions and logins and only
+    then discovered the survivor was gone, leaving the duplicate destroyed for
+    nothing. Both sides are confirmed before anything moves, on all three dialects.
+  - `link` against an identity that no longer exists surfaced the foreign-key
+    violation as `AUTH_IDENTITY_NOT_FOUND`; it now answers `null`, as every other
+    read of a missing row does.
+  - A soft delete no longer takes `deletedAt`/`deletedBy` from the caller: the
+    window is a grace period in milliseconds and the actor is the ambient one, so
+    two dialects can no longer disagree about when a row becomes purgeable.
+  - An empty session patch is a no-op rather than a driver syntax error, and a
+    missing session answers `AUTH_SESSION_REVOKED` on every backend.
+  - `patchMetadata` on a row that is not there (or not this tenant's) answers
+    `AUTH_CREDENTIAL_NOT_FOUND` rather than telling the caller to retry.
+
+  ### One read per adapter, and no handle to pass
+
+  Each dialect had a private read taking the client to read through, so all ten of
+  its call sites passed `this._db` to say "the usual one". The read now uses the
+  adapter's own handle, and a transaction binds an adapter to its `tx` —
+  `this.withClient(tx)` — so nothing is threaded anywhere and no call site can
+  quietly read outside the transaction it is in.
+
+  MySQL had three row helpers where the others had one: a locked re-read, a links
+  read and an assembler over both. It now answers every lookup through the same
+  single join the other two dialects use, leaving one helper — the lock a write
+  takes before it re-reads.
+
+  On Postgres, `create` and `erase` are one statement each rather than a
+  transaction around two. The row, its logins and the read that answers them
+  travel as one CTE, with the links taking the id straight out of it; `erase`
+  reads the logins in the same `with` that deletes their owner, since every arm
+  of one sees the snapshot the statement opened on. Four round trips become one,
+  and the row an erase answers with now carries the logins the cascade took —
+  proven for every adapter, not just this one.
+
+  ### One `withClient`, on the adapter
+
+  A transaction was joined store by store: every store contract carried its own
+  optional `withClient`, each dialect implemented four one-line delegates back to
+  the adapter's own, and `withTransaction` called them one at a time. The facets
+  come off one adapter and share its connection, so that was four answers to one
+  question.
+
+  `withClient` belongs to the adapter now — `Adapter.Me` declares it, the three
+  drizzle adapters already had it, and `withTransaction` makes the one call. The
+  capability hook follows: `MfaFacet` and `ApiKeysFacet` are handed the bound
+  facets instead of a driver handle to rebind a store of their own from, so
+  `Capability.withClient(stores, events)` replaces `(client, events)` and neither
+  can answer `null` any more.
+
+  Hand the engine the adapter — `stores: adapter` — and transactions work. A bag
+  assembled facet by facet (redis sessions beside a drizzle identities store, say)
+  has no `withClient`, and `withTransaction` throws `AUTH_MISCONFIGURED` saying so
+  rather than leaving a write outside the caller's transaction. `createTest` takes
+  the same shape: one `stores` override in place of four per-facet ones.
+
+  ### Fewer statements per call
+
+  What a store call costs on a real database is mostly the number of statements it
+  sends: each one is a round trip the caller waits through. Four shapes sent more
+  than they had to, on every dialect that had them.
+
+  `link` read the identity to check it was there, inserted the login, then read the
+  identity again to answer. The first read is gone — the insert takes its row from
+  `auth_identities`, so an identity that is gone or hidden writes nothing and the
+  read that answers returns `null` on its own. MySQL also held a locked read and a
+  second read for "does this identity already hold this provider", both inside a
+  transaction; the repeat is settled in the same `where` now. Three statements to
+  two on Postgres and SQLite, six to two on MySQL, and linking to a soft-deleted
+  identity no longer writes a row on MySQL that the answer then hides.
+
+  `patchMetadata` read the row, merged in JS, wrote against the version it had read
+  and retried once when a concurrent write took that version first. It is one
+  `update` now — `metadata || $patch::jsonb` on Postgres, `json_set` on SQLite and
+  MySQL — so the merge happens under the row's own lock and there is no window to
+  lose. Not `json_patch`/`json_merge_patch`: those are RFC 7396, where a null value
+  removes the key rather than storing it, which is not what the object spread the
+  memory adapter runs does.
+
+  `merge` read the survivor's credential kinds and provider ids to decide what the
+  duplicate could keep. Both reads are now conditions on the writes that used them,
+  and the logins that clash stay where they are for the cascade under the final
+  delete to take, rather than being cleared by a statement of their own.
+
+  MySQL took a `select … for update` before `update`, `softDelete`, `rotate`,
+  `revoke` and `patchMetadata` to learn whether the row was there at the version
+  expected. The write takes the same lock and `affectedRows` answers the same
+  question, so the probe is gone from all five, and `restore` no longer reads the
+  row twice. `erase` keeps its locked read: it has to answer with the row it
+  removed, so that read comes before the delete either way.
+
+  The memory adapter's `create` checked the address, the handle and each login in a
+  pass of its own; it is one scan now, which is also the one place the three unique
+  indexes every dialect carries are written down together.
+
+  One fix fell out of it: `patchMetadata` could raise `AUTH_STALE_WRITE` after
+  losing the version twice, a code its own fault union does not name and a retry
+  its caller could not act on. There is no version to lose now, so the only failure
+  left is the `AUTH_CREDENTIAL_NOT_FOUND` the contract declares.
+
+  `bun run bench:adapters` times all 26 store calls on all four adapters. The
+  before and after tables, per call, are in `src/adapters/README.md`.
+
+  An identity store answers one read. `findById`, `findByEmail` and
+  `findByProviderSub` are `find(by)`, named with `{ id }`, `{ email }` or
+  `{ providerId, providerSub }` — three names for one join, one live filter and
+  one order, where only the condition ever differed. `auth.identities.getById`
+  and its siblings are unchanged; it is stores that change shape, so
+  `stores.identities.findById(id)` is now `stores.identities.find({ id })`.
+
+  The `where` clauses that scope a read to a tenant were each a mutable array and
+  a pair of `if`s; they are one `and(...)` with a shared `inTenant` filter that
+  drops out when the caller named no tenant.
+
+  MySQL read an identity by address 50x slower than by any other key. The
+  `where` matched `lower(profile ->> '$.email')` while the unique index lives on
+  the `email_norm` column generated from that expression, and MySQL will not use
+  a generated-column index when the comparison carries the connection's
+  collation - so every lookup scanned the table. It matches the stored column
+  now: 24 ms to 0.28 ms over 50k rows. No test could see it, since every
+  assertion passed either way on a table of ten rows.
+
+  `bun run bench:adapters` is what found it: the same 50k identities and 100k
+  logins on all four adapters, timed at the adapter boundary. The numbers, the
+  plans behind them and the method are in `src/adapters/README.md`.
+
+  ### One way a driver failure is named
+
+  Each dialect had its own translator: the same five makers, the same socket-code
+  list and its own four-deep cause-chain walker, restated three times, with a
+  `Make` that took one argument in two of them and two in the third.
+
+  There is now one reader — `signalOf` — and one resolver, and each dialect is
+  only its own table of what its driver says: the text it names the refused index
+  in, the code or errno it gives, the family that code belongs to, read in that
+  order. 256 lines became 189, and nothing an adapter answers changed.
+
+  `AuthError` itself no longer declares each code's HTTP status twice — once as a
+  literal on the union member and once in the status table that is the only one
+  ever read — and the class is free of type assertions: the origin argument is
+  narrowed by a predicate, and `toJSON` scrubs through a function that returns a
+  record rather than one that is cast to it.
+
 ## 5.8.0
 
 ### Minor Changes
