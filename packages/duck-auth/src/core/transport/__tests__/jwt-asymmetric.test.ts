@@ -18,6 +18,7 @@ function fakeSession(): Sessions.Me {
     fingerprint: null,
     actingAs: null,
     createdAt: new Date(now),
+    updatedAt: new Date(now),
     rotatedAt: new Date(now),
     expiresAt: new Date(now + 60_000),
     absoluteExpiresAt: new Date(now + 60_000),
@@ -72,7 +73,7 @@ describe('AuthJwtTransport - ES256', () => {
       ],
       issuer: 'https://app.example.com',
     })
-    expect(await otherTransport.verify(jwt)).toBeNull()
+    await expect(otherTransport.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('jwks emits the public key with kid + alg + use', () => {
@@ -146,7 +147,7 @@ describe('AuthJwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => 
     // verifier ignores the sig because alg mismatch is caught first.
     const fakeSig = 'A'.repeat(32)
     const jwt = `${header}.${payload}.${fakeSig}`
-    expect(await t.verify(jwt)).toBeNull()
+    await expect(t.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('refuses unknown alg headers (none / RS512 / etc.)', async () => {
@@ -158,7 +159,7 @@ describe('AuthJwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => 
     const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT', kid: 'k1' })).toString('base64url')
     const payload = Buffer.from(JSON.stringify({ sub: 'x' })).toString('base64url')
     const jwt = `${header}.${payload}.`
-    expect(await t.verify(jwt)).toBeNull()
+    await expect(t.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })
 
@@ -206,7 +207,7 @@ describe('AuthJwtTransport - EdDSA (Ed25519)', () => {
       issuer: 'https://app.example.com',
     })
     const fakeJwt = findAccessToken(forge.issue('x', fakeSession(), { fresh: true, absolute: false }))
-    expect(await t.verify(fakeJwt)).toBeNull()
+    await expect(t.verify(fakeJwt)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('jwks emits the OKP public key with crv=Ed25519', () => {
@@ -244,8 +245,8 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
     const t2 = findAccessToken(t.issue('x', fakeSession(), { fresh: true, absolute: false }))
 
     // Both tokens verify during overlap.
-    expect((await t.verify(t1))?.identityId).toBe('user-1')
-    expect((await t.verify(t2))?.identityId).toBe('user-1')
+    expect((await t.verify(t1)).identityId).toBe('user-1')
+    expect((await t.verify(t2)).identityId).toBe('user-1')
 
     // New tokens carry the new kid.
     const headerB = JSON.parse(Buffer.from(t2.split('.')[0]!, 'base64url').toString('utf8'))
@@ -253,7 +254,7 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
 
     // After retiring 'a', the old token stops verifying.
     t.retireVerifyKey('a')
-    expect(await t.verify(t1)).toBeNull()
+    await expect(t.verify(t1)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('refuses to retire the active signing kid', () => {
@@ -276,7 +277,7 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
     })
     t.rotateSignKey({ signKey: { kid: 'k2', key: 'new-secret' } })
     const jwt = findAccessToken(t.issue('x', fakeSession(), { fresh: true, absolute: false }))
-    expect((await t.verify(jwt))?.identityId).toBe('user-1')
+    expect((await t.verify(jwt)).identityId).toBe('user-1')
   })
 
   it('refuses to rotate to an asymmetric kid with no matching public key in the ring', () => {
@@ -318,6 +319,6 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
     // needs no verifyKey argument.
     t.rotateSignKey({ signKey: { kid: 'b', alg: 'EdDSA', key: bPriv } })
     const jwt = findAccessToken(t.issue('x', fakeSession(), { fresh: true, absolute: false }))
-    expect((await t.verify(jwt))?.identityId).toBe('user-1')
+    expect((await t.verify(jwt)).identityId).toBe('user-1')
   })
 })

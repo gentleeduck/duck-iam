@@ -1,15 +1,4 @@
-/**
- * E2E: RedisDPoPNonceStore against a REAL Redis.
- *
- * Replay protection is the only thing this store does, and it is a claim about
- * two pods that never share memory. Its own docstring says so: "the property the
- * memory store cannot provide". Proving it needs a real server, because
- * `FakeRedis` gives every caller the same in-process `Map`, which makes a passing
- * test say nothing about the deployed behaviour.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
- */
+/** E2E: RedisDPoPNonceStore against a REAL Redis. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'

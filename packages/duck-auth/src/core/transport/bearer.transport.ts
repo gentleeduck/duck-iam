@@ -5,17 +5,15 @@ import type { Transport } from '../transport/transport.types'
 
 export namespace BearerTransport {
   export type Cfg = {
-    /** Header name. Default `Authorization`. */
+    /** Default `Authorization`. */
     header?: string
-    /** Scheme prefix; whitespace-separated from the token. Default `Bearer`. */
+    /** Whitespace-separated from the token. Default `Bearer`. */
     scheme?: string
   }
 }
 
-/**
- * Bearer transport - `Authorization: Bearer <opaque>` header. Native/mobile, API keys.
- * Issue returns a JSON intent carrying the token; client is responsible for persisting it.
- */
+/** An `Authorization: Bearer <opaque>` header, for native, mobile and API-key callers. Issue answers a
+ *  JSON intent carrying the token, and persisting it is the client's job. */
 export class BearerTransport implements Transport.ITransport {
   private readonly _header: string
   private readonly _scheme: string
@@ -38,6 +36,7 @@ export class BearerTransport implements Transport.ITransport {
     }
   }
 
+  /** The token out of the configured header, or `null` when the scheme does not match. */
   extract(req: { headers: Headers }): string | null {
     const raw = req.headers.get(this._header)
     if (!raw) return null
@@ -47,13 +46,14 @@ export class BearerTransport implements Transport.ITransport {
     if (head.toLowerCase() !== schemePrefix) return null
     const token = raw.slice(schemePrefix.length).trim()
     if (!token) return null
-    // 4KB cap covers large JWTs; refuses multi-MB DoS headers.
+    // 4KB covers a large JWT and refuses a multi-MB header.
     if (token.length > 4096) return null
     // Reject multi-header smuggling (Headers.get joins with `, `).
     if (token.includes(',')) return null
     return token
   }
 
+  /** Answers the token in the response body; persisting it is the client's job. */
   issue(sid: string, session: Sessions.Me): Provider.Intent[] {
     return [
       {
@@ -64,13 +64,14 @@ export class BearerTransport implements Transport.ITransport {
     ]
   }
 
+  /** Nothing to clear on the client beyond the token itself, so this only acknowledges. */
   revoke(): Provider.Intent[] {
-    // Bearer revoke is server-side (Session.IStore.delete); the client just drops the token.
+    // Revocation is server-side through `Session.IStore.delete`; the client only drops the token.
     return [{ type: 'json', status: 200, body: { revoked: true } }]
   }
 }
 
-/** Factory around {@link BearerTransport} for functional-style config. */
+/** Constructs a {@link BearerTransport}. */
 export function bearerTransport(cfg?: Partial<BearerTransport.Cfg>): BearerTransport {
   return new BearerTransport(cfg)
 }

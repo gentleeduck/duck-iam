@@ -1,9 +1,4 @@
-/**
- * ES256: ECDSA-P256-SHA256 sign + verify with DER<->JOSE conversion.
- *
- * Node's createSign/createVerify use DER; JOSE wire format is the raw
- * r||s pair (64 bytes for P-256). The two helpers handle the conversion.
- */
+/** ES256: ECDSA-P256-SHA256 sign + verify with DER<->JOSE conversion. */
 
 import { createSign, createVerify } from 'node:crypto'
 import { AuthError } from '~/core/errors'

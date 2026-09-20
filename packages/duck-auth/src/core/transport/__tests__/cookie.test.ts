@@ -107,9 +107,7 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
 
   it('rejects an oversize cookie value (decode-then-authSha256 DoS defense)', () => {
     // Real opaque SIDs are 64 chars; JWTs run a few hundred. 1024 cap
-    // is generous. Without it, an attacker who fits a large cookie
-    // under the HTTP-server header limit (typically 8-16k) can force
-    // a multi-KB decodeURIComponent + downstream sha256 per request.
+    // is generous.
     const huge = 'x'.repeat(1025)
     expect(t.extract(withCookie(`duck-sid=${huge}`))).toBeNull()
   })
