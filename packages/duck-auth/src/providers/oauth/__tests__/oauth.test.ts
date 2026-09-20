@@ -152,7 +152,7 @@ describe('oauth core - PKCE + state', () => {
   })
 })
 
-describe('AuthoauthClient - SEC: token response validation', () => {
+describe('OAuthClient - SEC: token response validation', () => {
   function clientWithResponse(body: unknown, status = 200): OAuthClient {
     return new OAuthClient({
       clientId: 'cid',
@@ -223,9 +223,32 @@ describe('AuthoauthClient - SEC: token response validation', () => {
     const client = clientWithResponse('a string body')
     await expect(client.userinfo('at')).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
+
+  it('authedJson refuses a non-http url before it reaches fetch', async () => {
+    // The url is an argument rather than a validated endpoint, and a host reaches this method through
+    // its own `fetchProfile`.
+    const fetch = vi.fn()
+    const client = new OAuthClient({
+      clientId: 'cid',
+      endpoints: { authorizationEndpoint: 'https://idp/a', tokenEndpoint: 'https://idp/t' },
+      fetch: fetch as unknown as typeof globalThis.fetch,
+      scopes: ['openid'],
+    })
+    await expect(client.authedJson('file:///etc/passwd', 'at')).rejects.toMatchObject({
+      code: 'AUTH_MISCONFIGURED',
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('authedJson reports a non-2xx as a provider failure', async () => {
+    const client = clientWithResponse({ message: 'Requires user:email' }, 403)
+    await expect(client.authedJson('https://api.github.com/user/emails', 'at')).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+    })
+  })
 })
 
-describe('AuthoauthClient.buildAuthorizeUrl', () => {
+describe('OAuthClient.buildAuthorizeUrl', () => {
   it('emits the RFC 6749 authorization URL with PKCE + state', async () => {
     const client = new OAuthClient({
       clientId: 'cid',
@@ -527,7 +550,7 @@ describe('oProvider - redirectUri construction guard', () => {
     },
   }
 
-  it('throws AUTH/MISCONFIGURED on a `javascript:` redirectUri', () => {
+  it('throws AUTH_MISCONFIGURED on a `javascript:` redirectUri', () => {
     expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'javascript:alert(1)' })).toThrow(/MISCONFIGURED/)
   })
 

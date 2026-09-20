@@ -1,7 +1,8 @@
-import { toCredentialUpsert } from '~/core/credentials/credentials'
+import { orNull } from '~/core/answer'
+import { toCredentialCreate } from '~/core/credentials/credentials'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
-import { emailSpellings, type Identities } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { parseCookie } from '~/core/transport'
 import type { OAuth } from './oauth.types'
@@ -11,20 +12,29 @@ import { authBuildState, authVerifyState, signState } from './state'
 /** Must not outlive the state's own max age, or the cookie expires mid-flow and the callback fails. */
 const STATE_COOKIE_MAX_AGE_SEC = 600
 
-/**
- * Generic oauth provider. Specific provider modules (authGoogle, authGithub,
- * ...) pre-fill endpoints + scopes + fetchProfile and re-export.
- */
+/** The generic oauth provider. Each provider module pre-fills endpoints, scopes and `fetchProfile`, then
+ *  re-exports this. */
 export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile>
 {
   readonly id: string
   readonly kind = 'oauth' as const
+  /** Read by `strict()`, which enforces the production floor. A boolean, never the secret. */
+  readonly __weakStateSecret: boolean
   private readonly _cookieName: string
   private readonly _cookieOptions: Provider.CookieOptions
 
   constructor(private readonly opts: OAuth.Options<Profile>) {
     this.id = `oauth:${opts.providerId}`
+    // SECURITY: `createHmac` accepts an empty key and produces a valid MAC with it, so an absent secret
+    // is not an unsigned state, it is a state anyone can sign. Refused here rather than at first use.
+    if (typeof opts.stateSigningSecret !== 'string' || opts.stateSigningSecret.length === 0) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `oauth.stateSigningSecret must be a non-empty string (provider ${opts.providerId})`,
+      })
+    }
+    // RFC 7518 section 3.2: an HMAC-SHA256 key must be at least as long as the hash it feeds.
+    this.__weakStateSecret = Buffer.byteLength(opts.stateSigningSecret, 'utf8') < 32
     const cookie = opts.stateCookie ?? {}
     this._cookieName = cookie.name ?? (cookie.domain === undefined ? '__Host-duck-oauth' : 'duck-oauth')
     const secure = cookie.secure ?? true
@@ -46,10 +56,8 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
           'oauth.stateCookie: the __Host- prefix forbids a domain and requires secure; name it something else for an http host',
       })
     }
-    // Refuse a malformed `redirectUri` at construction so a misconfigured
-    // value (e.g. `javascript:alert(1)`, an unparseable string, or one carrying
-    // CR/LF for header injection) cannot reach the IdP authorize URL or our
-    // session-issue path.
+    // Refused at construction so a `javascript:alert(1)`, an unparseable string, or one carrying CR/LF for
+    // header injection never reaches the IdP authorize URL or the session-issue path.
     if (!isValidoauthRedirectUri(opts.redirectUri)) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `oauth.redirectUri must be an http(s) URL with no CR/LF (got: ${typeof opts.redirectUri})`,
@@ -79,7 +87,7 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
   }
 
   async complete(ctx: Provider.Context<Profile>, input: OAuth.CompleteInput): Promise<Provider.InternalIntent[]> {
-    // 2KB cap on `code` prevents outbound-amplification to the IdP.
+    // Caps `code` at 2KB, so this cannot be used to amplify outbound traffic at the IdP.
     if (typeof input.code !== 'string' || input.code.length === 0 || input.code.length > 2048) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: this.id,
@@ -117,8 +125,8 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
     if (this.opts.onSignIn) {
       const r = await this.opts.onSignIn({
         profile,
-        findByProviderSub: (sub) => ctx.stores.identities.find({ providerId: this.id, providerSub: sub }),
-        findByEmail: (email) => ctx.stores.identities.find({ email: emailSpellings(email) ?? email }),
+        findByProviderSub: (sub) => orNull(ctx.stores.identities.find({ providerId: this.id, providerSub: sub })),
+        findByEmail: (email) => orNull(ctx.stores.identities.find({ email })),
         createIdentity: async (p) => {
           const created = await ctx.stores.identities.create({
             profile: p,
@@ -142,11 +150,11 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
       }
       identityId = r.identityId
     } else {
-      const bySub = await ctx.stores.identities.find({ providerId: this.id, providerSub: profile.sub })
+      const bySub = await orNull(ctx.stores.identities.find({ providerId: this.id, providerSub: profile.sub }))
       if (bySub) {
         identityId = bySub.id
       } else if (profile.email) {
-        const byEmail = await ctx.stores.identities.find({ email: emailSpellings(profile.email) ?? profile.email })
+        const byEmail = await orNull(ctx.stores.identities.find({ email: profile.email }))
         if (byEmail) {
           // Email matches but no sub link; silent auto-link is ATO bait.
           const policy = this.opts.onFederationConflict ?? 'reject'
@@ -188,8 +196,8 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
 
     if (tokens.refresh_token) {
       const familyId = `${this.id}:${profile.sub}:${sha256(input.code).slice(0, 16)}`
-      await ctx.stores.credentials.upsert(
-        toCredentialUpsert({
+      await ctx.stores.credentials.create(
+        toCredentialCreate({
           identityId,
           kind: 'oauth',
           secret: sha256(tokens.refresh_token),
@@ -198,8 +206,6 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
             sub: profile.sub,
             familyId,
             generation: 1,
-            accessToken: tokens.access_token,
-            accessTokenExpiresAt: tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined,
           } satisfies OAuth.CredentialMetadata,
         }),
         ctx.tenant,
@@ -220,19 +226,14 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
   }
 }
 
-/** Factory around {@link OProviderImpl} for functional-style config. */
 export function oProvider<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.Options<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
   return new OProviderImpl(opts)
 }
 
-/**
- * Resolve a federation-conflict policy to a `'link' | 'reject'`
- * verdict. Kept module-local so callers cannot bypass the
- * `'link-if-verified'` semantics (which require BOTH
- * `profile.emailVerified === true` AND an unambiguous email match).
- */
+/** Module-local so no caller can bypass `'link-if-verified'`, which needs both an `emailVerified` of true and
+ *  an unambiguous email match. */
 async function resolveFederationConflict(
   policy: OAuth.FederationPolicy,
   ctx: { existingIdentityId: string; profile: OAuth.Profile; providerId: string },
@@ -241,9 +242,8 @@ async function resolveFederationConflict(
   if (policy === 'link-if-verified') {
     return ctx.profile.emailVerified === true ? 'link' : 'reject'
   }
-  // Operator-supplied callback. Refuse anything other than the documented
-  // {'link' | 'reject'} discriminator so a buggy/typo'd return doesn't
-  // accidentally fall-through to 'link' (the dangerous default).
+  // Anything other than the documented `'link' | 'reject'` is refused, so a typo'd return cannot fall through
+  // to 'link', which is the dangerous one.
   const verdict = await policy(ctx)
   return verdict === 'link' ? 'link' : 'reject'
 }

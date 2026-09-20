@@ -1,8 +1,4 @@
-/**
- * LinkedIn oauth 2.0 / OIDC provider. Uses the v2 userinfo endpoint
- * (OpenID Connect on LinkedIn) so callers do not need the legacy v1
- * profile + email API calls.
- */
+/** Uses LinkedIn's v2 OIDC userinfo endpoint, so nothing here needs the legacy v1 profile and email calls. */
 
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
@@ -18,7 +14,7 @@ const LINKEDIN_ENDPOINTS: OAuth.Endpoints = {
   userinfoEndpoint: 'https://api.linkedin.com/v2/userinfo',
 }
 
-/** LinkedIn OIDC provider factory. */
+/** LinkedIn OAuth provider. */
 export function linkedin<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.LinkedinOptions<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
@@ -42,7 +38,6 @@ export function linkedin<Profile extends Identities.ProfileMetadataBase = Identi
     }),
     async fetchProfile(tokens, c) {
       const info = await c.userinfo(tokens.access_token)
-      // safe-extract LinkedIn claims.
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {

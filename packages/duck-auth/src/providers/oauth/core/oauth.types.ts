@@ -1,40 +1,24 @@
 import type { OAuthClient } from './client'
 
-/**
- * Every shared type the oauth stack exposes lives under this one namespace, so
- * consumers reach for `OAuth.Options`, `OAuth.Endpoints`, `OAuth.GoogleOptions`,
- * etc. from a single place. The runtime `OAuthClient` class lives in
- * `./client`; refresh/state/provider helpers keep their function names.
- */
 export namespace OAuth {
-  /**
-   * OIDC / oauth2 endpoints. Supplied directly (Google, GitHub, static
-   * well-known providers) or resolved at runtime via discovery for generic
-   * OIDC issuers.
-   */
+  /** OIDC/oauth2 endpoints, given directly for a known provider or resolved by discovery for a generic issuer. */
   export type Endpoints = {
     authorizationEndpoint: string
     tokenEndpoint: string
-    /** OIDC userinfo (optional - providers often expose a profile endpoint instead). */
+    /** OIDC userinfo. Optional: providers often expose a bespoke profile endpoint instead. */
     userinfoEndpoint?: string
     /** OIDC revocation (optional). */
     revocationEndpoint?: string
   }
 
-  /** Cfg knobs for the `OAuthClient`. */
   export type ClientOptions = {
     clientId: string
     clientSecret?: string
-    /**
-     * Per-request client_secret generator. When provided, called on
-     * every exchangeCode / refresh and used as `client_secret` in the
-     * form body. Designed for Sign in with Apple. Takes precedence
-     * over `clientSecret`.
-     */
+    /** Per-request `client_secret`, called on every exchange and refresh. For Sign in with Apple. Wins over
+     *  `clientSecret`. */
     dynamicClientSecret?: () => string | Promise<string>
-    /** Endpoints; can be promised when discovering at boot. */
+    /** Can be promised, for discovery at boot. */
     endpoints: Endpoints | (() => Promise<Endpoints>)
-    /** oauth2 scopes the provider should request. */
     scopes: string[]
     /** Override the fetch impl (test stubs). */
     fetch?: typeof globalThis.fetch
@@ -50,11 +34,7 @@ export namespace OAuth {
     scope?: string
   }
 
-  /**
-   * Canonical profile shape after a provider extracts it from
-   * userinfo / id_token / provider-specific endpoint. Providers
-   * (google, github, ...) map their idiosyncratic field names to this shape.
-   */
+  /** The one profile shape every provider maps its own userinfo, id_token or bespoke endpoint onto. */
   export interface Profile {
     /** Stable subject identifier at the provider (OIDC `sub`). */
     sub: string
@@ -64,10 +44,7 @@ export namespace OAuth {
     avatarUrl?: string
   }
 
-  /**
-   * Shared option surface every provider-specific oauth options interface
-   * (Google / GitHub / Apple / Discord / ...) extends.
-   */
+  /** Extended by every provider-specific options interface: Google, GitHub, Apple, Discord and the rest. */
   export interface OptionsBase<AppProfile = unknown> {
     /** oauth client id assigned by the IdP. */
     clientId: string
@@ -77,9 +54,9 @@ export namespace OAuth {
     redirectUri: string
     /** Per-AuthEngine signing secret for the oauth `state` parameter. */
     stateSigningSecret: string
-    /** Cookie that binds a callback to the browser that began the flow. See {@link StateCookie}. */
+    /** Binds a callback to the browser that began the flow. See {@link OAuth.StateCookie}. */
     stateCookie?: StateCookie
-    /** Override IdP scopes; falls back to provider default. */
+    /** Overrides the provider's default scopes. */
     scopes?: string[]
     /** Override fetch impl (test stubs). */
     fetch?: typeof globalThis.fetch
@@ -87,24 +64,13 @@ export namespace OAuth {
     onSignIn?: Options<AppProfile>['onSignIn']
     /** Project canonical Profile into the consumer's Profile shape. */
     profileToIdentityProfile?: Options<AppProfile>['profileToIdentityProfile']
-    /**
-     * What to do when the profile's email already belongs to an identity that
-     * has no link to this provider. See {@link Options.onFederationConflict};
-     * the default is still `'reject'`.
-     *
-     * `Options` has carried this since the policy was written, but `OptionsBase`
-     * did not, and `oProvider` is not exported from any entrypoint - so every
-     * shipped provider was hard-wired to `'reject'` and no consumer could reach
-     * `'link-if-verified'` or the callback at all. The default is the safe
-     * direction, which is why nothing broke and nobody noticed.
-     */
+    /** What to do when the profile's email already belongs to an identity with no link to this provider. See
+     *  {@link OAuth.Options.onFederationConflict}; the default is `'reject'`. */
     onFederationConflict?: Options<AppProfile>['onFederationConflict']
   }
 
-  /**
-   * The pre-auth cookie's own settings. `secure` defaults to true and the name to `__Host-duck-oauth`,
-   * which the browser only accepts over https - an http development host has to name both.
-   */
+  /** The pre-auth cookie's own settings. `secure` defaults to true and the name to `__Host-duck-oauth`, which
+   *  the browser only accepts over https, so an http development host has to name both. */
   export interface StateCookie {
     name?: string
     secure?: boolean
@@ -113,15 +79,14 @@ export namespace OAuth {
 
   /** Full options surface consumed by `oProvider`. */
   export interface Options<AppProfile = unknown> {
-    /** Stable id; library prefixes with `oauth:` for consistency. */
+    /** Stable id, which the library prefixes with `oauth:`. */
     providerId: string
     client: OAuthClient
     endpoints: Endpoints | (() => Promise<Endpoints>)
-    /** Redirect URI registered with the provider. */
     redirectUri: string
     /** Secret used to sign the oauth `state` parameter. */
     stateSigningSecret: string
-    /** Cookie that binds a callback to the browser that began the flow. See {@link StateCookie}. */
+    /** Binds a callback to the browser that began the flow. See {@link OAuth.StateCookie}. */
     stateCookie?: StateCookie
     /** Extract a canonical profile from the token response + userinfo. */
     fetchProfile: (tokens: { access_token: string; id_token?: string }, client: OAuthClient) => Promise<Profile>
@@ -136,18 +101,8 @@ export namespace OAuth {
       linkProvider: (identityId: string, providerSub: string) => Promise<void>
     }) => Promise<{ identityId: string } | null>
     /**
-     * Federation conflict policy. Fires when the oauth profile's email
-     * matches an existing identity but no matching provider-sub link exists
-     * yet. The default behaviour is `'reject'` - the safest pre-1.1 stance,
-     * because oauth providers that do NOT mark the email as verified would
-     * otherwise enable account-takeover via email squatting.
-     *
-     * - `'reject'`: throw `AUTH/PROVIDER_FAILED` with detail `federation-conflict`.
-     * - `'link-if-verified'`: link the new provider IFF the oauth profile's
-     *   `email_verified` claim is true; otherwise reject.
-     * - `(ctx) => Promise<'link' | 'reject'>`: caller-supplied hook for
-     *   "merge-after-confirmation" - the app prompts the user out-of-band and
-     *   resolves with the verdict.
+     * What to do when the profile's email matches an identity that has no link to this provider yet. Defaults to
+     * `'reject'`, because a provider that does not verify the address makes this account takeover by squatting.
      */
     onFederationConflict?: FederationPolicy
   }
@@ -158,23 +113,28 @@ export namespace OAuth {
     | 'link-if-verified'
     | ((ctx: { existingIdentityId: string; profile: Profile; providerId: string }) => Promise<'link' | 'reject'>)
 
-  /** Input to {@link oProvider}.begin. */
   export interface BeginInput {
-    /** Optional return-to path; library appends to the front-end after callback. */
+    /**
+     * Carried through the signed state and handed back to nothing: `complete` answers with
+     * `clearCookie` + `startSession`, so the post-login redirect is still the host's to perform.
+     *
+     * SECURITY: if this ever becomes a `redirect` intent it has to go through `isSafeCallbackPath`
+     * first. The value reaches the state from whatever the host passed to `begin`, which is normally
+     * a query parameter, and the signature proves only that this library minted it - an attacker who
+     * calls `begin` themselves gets a signed state for any target they like. `parseStatePayload`
+     * caps the length and nothing else.
+     */
     returnTo?: string
   }
 
-  /** Input to {@link oProvider}.complete. */
   export interface CompleteInput {
     /** Authorisation code returned by the provider. */
     code: string
     /** Opaque state value the library issued at begin. */
     state: string
-    /**
-     * The callback request's `Cookie` header, verbatim. Without it the signed state verifies from
-     * any browser, which is a login CSRF: an attacker completes their own flow in the victim's
-     * session and the victim is signed in as the attacker.
-     */
+    /** The callback request's `Cookie` header, verbatim.
+     *  SECURITY: without it the signed state verifies from any browser, so an attacker completes their own
+     *  flow, hands over the callback URL, and the victim signs in as the attacker. */
     cookieHeader?: string
   }
 
@@ -184,50 +144,36 @@ export namespace OAuth {
     sub: string
     familyId: string
     generation: number
-    accessToken?: string
-    /** Epoch ms when the access token expires. */
-    accessTokenExpiresAt?: number
   }
 
-  /**
-   * Signed `state` parameter payload. Carries the PKCE verifier and the digest of the cookie
-   * `begin` left in the browser, so an authorisation code cannot be stitched to another one.
-   *
-   * Encoding: `<payload-base64url>.<sig-base64url>`. HMAC-SHA256 over the
-   * payload with the per-AuthEngine signing secret.
-   */
+  /** Signed `state` payload, `<payload-base64url>.<sig-base64url>` under HMAC-SHA256 with the engine's signing
+   *  secret. Carries the PKCE verifier and the digest of the cookie `begin` left in the browser, so one
+   *  authorisation code cannot be stitched to another flow. */
   export interface StatePayload {
     /** Random nonce; one-time use. */
     nonce: string
-    /** PKCE verifier - secret. Never leaves the server. */
+    /** PKCE verifier. Secret; never leaves the server. */
     verifier: string
     /** Provider id; library refuses if it doesn't match the callback. */
     providerId: string
-    /**
-     * Digest of the value `begin` set as a cookie. The state is signed but not secret - it travels
-     * through the IdP in a URL - so the digest is what is carried and the cookie is what proves the
-     * callback reached the browser that started the flow.
-     */
+    /** Digest of the value `begin` set as a cookie. The state is signed but not secret, travelling through the
+     *  IdP in a URL, so the cookie is what proves the callback reached the browser that started the flow. */
     binding: string
-    /** Optional return-to path on the app. */
+    /** Optional return-to path on the app, as `begin` minted it. Round-tripped and length-capped, never
+     *  read after that - see `BeginInput.returnTo`. */
     returnTo?: string
     /** Issued-at; signer rejects after `maxAgeMs`. Default 10 minutes. */
     iat: number
   }
 
-  /**
-   * Refresh-token family metadata. Persisted under `kind: 'oauth'` credentials
-   * by the oauth provider at signin; rotated atomically by
-   * {@link authRefreshoauthToken}. Reuse of an old refresh token causes a
-   * `AUTH/oauth/REUSE_DETECTED` throw + revocation of the whole token family.
-   */
+  /** Refresh-token family metadata, kept on the `kind: 'oauth'` credential and rotated atomically by
+   *  `authRefreshoauthToken`. Reusing an old refresh token throws `AUTH_OAUTH_REUSE_DETECTED` and revokes
+   *  the whole family. */
   export interface FamilyMetadata {
     provider: string
     sub: string
     familyId: string
     generation: number
-    accessToken: string
-    accessTokenExpiresAt?: number
     /** When set, family revoked; every member rejects on lookup. */
     revokedAt?: number
     /** Index signature for Credential.metadata assignment. */
@@ -246,11 +192,8 @@ export namespace OAuth {
 
   /** Microsoft Entra ID-specific options. */
   export interface MicrosoftOptions<AppProfile = unknown> extends OptionsBase<AppProfile> {
-    /**
-     * Tenant: `common` (any AAD tenant + personal accounts),
-     * `organizations` (any AAD tenant), `consumers` (personal only),
-     * or a specific tenant GUID. Default `common`.
-     */
+    /** `common` (any AAD tenant plus personal accounts), `organizations`, `consumers`, or a tenant GUID.
+     *  Default `common`. */
     tenant?: string
     /** Default `['openid', 'profile', 'email', 'User.Read']`. */
     scopes?: string[]
@@ -266,19 +209,14 @@ export namespace OAuth {
     scopes?: string[]
   }
 
-  /**
-   * Apple-specific options. `clientSecret` from `OptionsBase` is ignored; the
-   * secret is generated per request from the team / key / private-key triple.
-   */
+  /** Apple-specific options. `clientSecret` from {@link OAuth.OptionsBase} is ignored: the secret is minted per
+   *  request from the team, key and private-key triple. */
   export interface AppleOptions<AppProfile = unknown> extends Omit<OptionsBase<AppProfile>, 'clientSecret'> {
     /** Apple Developer Team ID (10-char alphanumeric). */
     teamId: string
     /** Key ID associated with the AuthKey_*.p8 file. */
     keyId: string
-    /**
-     * The contents of the AuthKey_*.p8 file (ES256 private key, PEM).
-     * Treat as a secret; load from a secrets manager.
-     */
+    /** The contents of the AuthKey_*.p8 file, an ES256 private key in PEM. Load it from a secrets manager. */
     privateKey: string
     /** Default `['name', 'email']`. */
     scopes?: string[]
