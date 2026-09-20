@@ -257,12 +257,13 @@ drift the way the hand-maintained version did.
 | `core/resolve/__tests__/resolve-own-properties.test.ts` | 21 | resolve reads own properties only |
 | `core/resolve/__tests__/resolve.test.ts` | 43 | resolve() |
 | `core/schema/__tests__/policy.schema.test.ts` | 8 | POLICY_JSON_SCHEMA |
-| `core/schema/__tests__/schema-validator-agreement.test.ts` | 53 | the mini evaluator is able to fail |
+| `core/schema/__tests__/schema-validator-agreement.test.ts` | 52 | the mini evaluator is able to fail |
 | `core/types/__tests__/types.test.ts` | 4 | iamCreateEvalCaches() |
 | `core/validate/__tests__/condition-depth-agreement.test.ts` | 22 | condition nesting limit agrees between validator and evaluator |
 | `core/validate/__tests__/matches-pattern-agreement.test.ts` | 38 | a `matches` pattern the validator accepts compiles at evaluation time |
 | `core/validate/__tests__/operand-type-matrix.test.ts` | 196 | operator x operand type |
 | `core/validate/__tests__/policy-declared-vocabulary.test.ts` | 16 | a rule action outside the declared vocabulary |
+| `core/validate/__tests__/policy-optional-field-types.test.ts` | 23 | policy.description |
 | `core/validate/__tests__/policy-target-entry-types.test.ts` | 23 | a non-string target entry is what the engine cannot survive |
 | `core/validate/__tests__/policy-targets-types.test.ts` | 22 | every key of targets is type-checked, not just the first two |
 | `core/validate/__tests__/resolvable-path-parity.test.ts` | 12 | isResolvablePath agrees with resolve about what will not resolve |
@@ -279,7 +280,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2717** | |
+| **Subtotal** | **2739** | |
 
 ---
 
@@ -419,7 +420,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 160 | 2717 |
+| Core | 161 | 2739 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -427,4 +428,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **308** | **6093** |
+| **Total** | **309** | **6115** |

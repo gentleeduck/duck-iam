@@ -426,6 +426,25 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
     })
   }
 
+  // `IRule` types both; `explain()` renders `description` and admin surfaces spread `metadata`.
+  if (rule.description !== undefined && typeof rule.description !== 'string') {
+    issues.push({
+      type: 'error',
+      code: 'INVALID_TYPE',
+      message: 'Rule "description" must be a string if provided',
+      path: `${path}.description`,
+    })
+  }
+
+  if (rule.metadata !== undefined && !isPlainObjectLike(rule.metadata)) {
+    issues.push({
+      type: 'error',
+      code: 'INVALID_TYPE',
+      message: 'Rule "metadata" must be an object if provided',
+      path: `${path}.metadata`,
+    })
+  }
+
   if (!Array.isArray(rule.actions) || rule.actions.length === 0) {
     issues.push({
       type: 'error',

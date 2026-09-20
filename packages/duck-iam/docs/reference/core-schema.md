@@ -466,7 +466,7 @@ Errors block. Warnings do not.
 
 | Code | Level | Emitted by | Means | Fix |
 |---|---|---|---|---|
-| `INVALID_TYPE` | error | policy, rule, role | The value is the wrong JS type: non-object policy/role, non-number `version`, non-object `targets`, non-array `targets.*`, non-string entry in `targets.actions`/`.resources`/`.roles`, non-finite `priority`, non-string action/resource, control chars (in a rule's `actions`/`resources`, an entry of `targets.*`, a role `id`, or a permission's `action`/`resource` — §3.7 lists what is not covered), empty-string `scope`, non-array `inherits`, non-object `permissions[i]` | Fix the type. For `scope`, omit the field rather than passing `''` |
+| `INVALID_TYPE` | error | policy, rule, role | The value is the wrong JS type: non-object policy/role, non-string `description` (policy or rule), non-number `version`, non-object or `null` `targets`, non-array `targets.*`, non-object rule `metadata`, non-string entry in `targets.actions`/`.resources`/`.roles`, non-finite `priority`, non-string action/resource, control chars (in a rule's `actions`/`resources`, an entry of `targets.*`, a role `id`, or a permission's `action`/`resource` — §3.7 lists what is not covered), empty-string `scope`, non-array `inherits`, non-object `permissions[i]` | Fix the type. For `scope`, omit the field rather than passing `''` |
 | `MISSING_FIELD` | error | policy, rule, role | A required field is absent or empty: policy `id` and `name`, policy `rules`; rule `id`, `actions`, `resources`, `conditions`; role `id`, `permissions`, `permissions[i].action`/`.resource`; condition `field`. Note the `name` here is the **policy** name — `validateRole` does not check a role's `name` (§3.7) | Supply it. For `conditions`, `{ all: [] }` is the unconditional spelling |
 | `INVALID_ALGORITHM` | error | policy | `algorithm` is not one of the four | Use `deny-overrides`, `allow-overrides`, `first-match` or `highest-priority` |
 | `INVALID_EFFECT` | error | rule | `effect` is not `allow` or `deny` | — |
@@ -963,7 +963,13 @@ The contract is **one-directional and exact**: anything the schema rejects,
 `validatePolicy` rejects too — a policy the runtime accepts always validates
 here. `schema-validator-agreement.test.ts` pins it with a hand-written mini
 evaluator over a 17-case corpus (`:181`) plus 4 000 randomised policies from a
-fixed seed (`:508`).
+fixed seed. The randomised half builds a **valid** policy and perturbs one slot
+per pass, drawing from a pool for every optional field; ~1 400 of the 4 000 are
+accepted by the validator and so actually reach the comparison, and the test
+asserts that floor on the same generator. Randomising every slot independently
+is what the generator used to do, and it left only 147 passes carrying any
+information — the fields it held constant (`targets`, `description`,
+`metadata`, `priority`) were where four divergences survived.
 
 The converse does not hold. Exactly four checks are not expressible in JSON
 Schema, and the test asserts there are exactly four:
