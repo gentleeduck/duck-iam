@@ -14,12 +14,16 @@ import {
  * @param op - The operator to apply.
  * @param fieldValue - Left-hand side, already resolved from the request.
  * @param condValue - Right-hand side, already resolved.
+ * @throws When `op` is not one of `ops`' own keys, so a linter cannot report an inherited name as satisfied.
  */
 export function evaluateOperator(
   op: AccessControl.Operator,
   fieldValue: IamPrimitives.AttributeValue,
   condValue: IamPrimitives.AttributeValue,
 ): boolean {
+  if (!Object.hasOwn(ops, op)) {
+    throw new Error(`[@gentleduck/iam:conditions] unknown operator "${String(op)}"`)
+  }
   return ops[op](fieldValue, condValue)
 }
 

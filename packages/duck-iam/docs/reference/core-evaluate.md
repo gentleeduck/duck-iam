@@ -605,6 +605,19 @@ with the index.
 Nineteen operators, `ops` at `conditions.libs.ts:751`. `f` is the resolved
 field value, `v` the resolved operand.
 
+Dispatch is **own-property only**. `ops` is an object literal, so
+`ops['constructor']`, `ops['toString']`, `ops['valueOf']` and the rest of
+`Object.prototype` are all functions, and `typeof op !== 'function'` — the
+check that was supposed to catch an unknown operator — let them through.
+`constructor` then answered a boxed object and `toString` the string
+`"[object Undefined]"`, both truthy, so a rule whose condition never matched
+fired anyway: an allow rule granted, and a deny under a `none` guard was
+retired. `conditionMayThrow` (`evaluate.libs.ts:244`) had it right all along —
+it tests `Object.hasOwn(ops, operator)` and classified these as "will throw".
+`evalCondition` then did not throw. Both sides now use `Object.hasOwn`, as does
+`iamEvaluateOperator`, and the write-path validator already refused these names
+(`inherited-operator-names.test.ts`).
+
 Two column conventions below: **absent field** means `resolve` returned `null`
 (unknown path, missing key, explicit null, or a value outside
 `AttributeValue`); **wrong-typed field** means it resolved to something the
@@ -672,9 +685,9 @@ Notes per family:
 ### `evaluateOperator` is not the decision path
 
 `evaluateOperator` (`conditions.ts:31`, exported as `iamEvaluateOperator`) calls
-`ops[op]` directly. It carries **none** of `evalCondition`'s guards: no operand
-typing, no `$`-pattern refusal for `matches`, and the process-wide regex cache
-rather than a per-Engine one. Anything deciding or *reporting* access must call
+`ops[op]` directly. It carries **none** of `evalCondition`'s guards apart from
+the own-property check: no operand typing, no `$`-pattern refusal for
+`matches`, and the process-wide regex cache rather than a per-Engine one. Anything deciding or *reporting* access must call
 `evalCondition` — the explain trace used to call `evaluateOperator` and
 consequently showed a condition as satisfied that the engine had refused. It is
 kept exported for a policy linter or a condition preview.
@@ -1059,6 +1072,12 @@ cast `defaultEffect` — still applicable, still not skippable.
   allow rule and fail-open for a deny rule and for anything inside a `none`.
   This is why every unanswerable condition throws. If you add an operator, give
   it a fixed verdict only when that verdict is correct for both effects.
+- **Index a lookup table with `Object.hasOwn`, never a bare `[key]`.** `ops`,
+  `combiners` and any table keyed by a string off a stored row are object
+  literals, so every `Object.prototype` member is a function on them.
+  `typeof value === 'function'` does not separate a real entry from an
+  inherited one; only own-property narrowing does. `resolve` already applies
+  this per path segment, and `BLOCKED_SEGMENTS` names the same three keys.
 - **Adding an operator means four edits**: `AccessControl.Operator`, `ops`,
   `OPERAND_TYPES` (or `VALUELESS_OPERATORS`), and the `conditionMayThrow`
   classification if it can throw. Miss `OPERAND_TYPES` and the operator answers

@@ -104,8 +104,12 @@ export function evaluatePolicy(
     }
   }
 
-  const combiner = combiners[policy.algorithm]
-  const result = combiner(matched, defaultEffect)
+  // SECURITY: own properties only, and Indeterminate rather than a verdict, as the fast path already is. An
+  // inherited `constructor` is a function and answered a decision object with no `effect` at all.
+  if (!Object.hasOwn(combiners, policy.algorithm)) {
+    throw new Error(`[@gentleduck/iam:evaluate] Unknown combining algorithm "${String(policy.algorithm)}"`)
+  }
+  const result = combiners[policy.algorithm](matched, defaultEffect)
 
   return {
     allowed: result.effect === 'allow',

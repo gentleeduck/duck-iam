@@ -34,6 +34,8 @@ function evaluateDynamicCell(
       const matched = group.rules
         .filter((rule) => evalConditionGroup(req, rule.conditions, 0, caches))
         .map((rule) => ({ rule, effect: rule.effect }))
+      // NOTE: `isResidualPolicy` keeps an unknown or inherited algorithm out of the table, so this index is
+      // always an own property; `evaluatePolicyFast` is what refuses one.
       const decision = combiners[group.algorithm](matched, defaultEffect)
       perPolicy.push(decision.effect === 'allow')
       fromDefault.push(decision.rule === undefined)
