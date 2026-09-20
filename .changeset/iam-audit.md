@@ -615,3 +615,31 @@ request can name. The operator is told the grant moved; it is dead.
 Both ends are now guarded — the `from` as a lookup, so a legacy `'*'` row can
 still be moved off, the `to` as a grant — and two compliance clauses hold every
 adapter to it.
+
+### The subject entry outlived the role snapshot it was resolved against
+
+`IamLRUCache.set` takes a `notAfter` so a derived entry expires with its input,
+and three call sites use it: the RBAC policy expires with the role snapshot, the
+merged policies with the older of their two inputs, and the compiled table
+stamps itself with the read time of its oldest input rather than `Date.now()`.
+
+The subject entry is the fourth derived value and was not capped that way. It
+holds `resolveEffectiveRoles(assigned, snapshot)` and, for scoped grants, roles
+resolved through `inherits` against the same snapshot, so both halves are only
+as fresh as the role graph they were resolved against. The one cap it did take,
+the optional `getSubjectGrantBoundary`, describes the subject's *assignment*
+rows and says nothing about the role graph.
+
+Because each subject is written at its own moment, one resolved late in the
+snapshot's life bought a full fresh TTL past it. Measured at the default
+`cacheTTL: 60`, with the `staff -> admin` inherits edge removed at the store by
+another writer: a subject resolved at t=50s still held `delete:post` at t=61s,
+after the engine had re-read the role graph without that edge and was already
+answering deny for every subject resolved since; it converged only at t=110s.
+The exposure is up to one whole `cacheTTL` beyond the point the engine itself
+knows the role changed, and it needs no adapter feature to reach - any engine
+whose roles are written by something other than its own `admin` facet is in it.
+
+The entry is now capped at `min(grantBoundary, roleCache.expiresAt('all'))`,
+which costs nothing when the snapshot is fresh because the two are then the same
+instant.

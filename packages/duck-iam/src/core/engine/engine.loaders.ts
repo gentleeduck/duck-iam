@@ -100,7 +100,8 @@ export async function loadRoles<
 
 /**
  * One subject's effective roles, scoped roles and attributes, single-flighted per id.
- * Throws past `maxConcurrentSubjectLoads`, and caches only until the adapter's grant boundary when it reports one.
+ * Throws past `maxConcurrentSubjectLoads`, and caches only until the role snapshot expires or, when the adapter
+ * reports one, the subject's next grant boundary - whichever comes first.
  */
 export async function resolveSubject<
   TAction extends string,
@@ -164,7 +165,13 @@ export async function resolveSubject<
     },
     (subject) => {
       if (!cacheable) return
-      deps.subjectCache.set(subjectId, subject, boundary ?? undefined)
+      // `roles` and `scopedRoles` are resolved against the role snapshot, so the entry expires with it too.
+      // An absent entry (`Infinity`) was read live and imposes no cap, as it does for the merged policies.
+      deps.subjectCache.set(
+        subjectId,
+        subject,
+        Math.min(boundary ?? Number.POSITIVE_INFINITY, deps.roleCache.expiresAt('all') ?? Number.POSITIVE_INFINITY),
+      )
     },
   )
 }
