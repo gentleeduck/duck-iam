@@ -18,12 +18,7 @@ function isUsableId(id: unknown): id is string {
   return PROVIDER_ID_PATTERN.test(id)
 }
 
-/**
- * The key a capability is registered and looked up under, or null when the string cannot be one.
- *
- * Case-folded, so a provider id that reaches the registry from a request body resolves the same
- * capability whatever case it arrived in.
- */
+/** The key a capability is registered and looked up under, or null when the string cannot be one. */
 export function canonicalProviderId(id: unknown): string | null {
   return isUsableId(id) ? id.toLowerCase() : null
 }

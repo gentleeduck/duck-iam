@@ -5,28 +5,14 @@ import { CookieTransport } from '../transport/cookie.transport'
 import { assertKnownKeys, normaliseBaseUrl, resolveStrictEnv } from './config.constants'
 import type { AuthDefine } from './config.types'
 
-/**
- * Creates a fully-wired {@link AuthEngine} from a flat config. Primary entry
- * point for duck-auth: the ergonomic alternative to `new AuthEngine(config)`.
- *
- * Falsy entries in `providers` are silently skipped. `strict` runs `auth.strict()` at boot and
- * follows `NODE_ENV` unless it is named, so a production deploy is checked without being asked;
- * `strict: false` opts out.
- *
- * @example
- * ```ts
- * NOTE:
- * ```
- */
+/** The ergonomic entry point: a fully-wired {@link AuthEngine} from one flat config. */
 export function createAuth<
   const Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   const Tenant = string,
   const OrgMeta = unknown,
 >(config: AuthDefine.Cfg<Profile, Tenant, OrgMeta>): AuthEngine<Profile, Tenant, OrgMeta> {
-  // A key this factory cannot honour must not be accepted in silence. Installing
-  // a plugin is async and `createAuth` is not, and an oauth state secret has to
-  // reach each provider at construction, so both are refused with the call that
-  // does work.
+  // Installing a plugin is async and this is not, and an oauth state secret has to reach each provider
+  // at construction. Both are refused rather than accepted in silence.
   assertKnownKeys(config)
   if (config.plugins?.length) {
     throw new AuthError('AUTH_MISCONFIGURED', {
@@ -54,11 +40,9 @@ export function createAuth<
   const strictEnv = resolveStrictEnv(config.strict)
   const transport = config.transport ?? new CookieTransport({ name: 'duck-sid' })
 
-  // Spread rather than key by key, or a key added later is silently dropped: it type-checks on the
-  // way in, because `AuthDefine.Cfg` inherits it, and then goes nowhere.
-  //
-  // `plugins`, `oauth` and `strict` ride along and the engine never reads them: the first two are
-  // refused above, and `strict` is applied below.
+  // Spread rather than key by key, or a key added later type-checks on the way in, because
+  // `AuthDefine.Cfg` inherits it, and then goes nowhere. `plugins`, `oauth` and `strict` ride along
+  // unread: the first two are refused above, and `strict` is applied below.
   const rootCfg: Engine.Cfg<Profile, Tenant, OrgMeta> = {
     ...config,
     baseUrl,

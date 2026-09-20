@@ -1,13 +1,10 @@
+/** Regulatory presets and the closed set of clauses an adapter supplies evidence for. */
 export namespace Compliance {
   export type Preset = 'gdpr' | 'hipaa' | 'soc2' | 'fips'
 
-  /**
-   * Every check a preset may name.
-   *
-   * A closed union rather than `string`, because the assertion is driven off this list: a preset
-   * naming something nothing can supply evidence for now fails to build instead of resolving to a
-   * requirement that is silently never looked at.
-   */
+  /** A closed union rather than `string`, because the assertion is driven off this list: a preset naming
+   *  something nothing can supply evidence for fails to build, rather than resolving to a requirement
+   *  nothing ever looks at. */
   export type Check =
     | 'auditLogRetained7y'
     | 'baaCompliantChannel'
@@ -20,11 +17,8 @@ export namespace Compliance {
     | 'webauthnAttestationDirect'
 
   /**
-   * Evidence the deployment supplies for each check. Some of it the engine can see for itself; the
-   * rest is an operator attestation, because no code can tell whether a signed BAA exists.
-   *
-   * Anything a preset requires and this does not set to `true` is a failure. Absent and false read
-   * the same on purpose: "nobody said" is not evidence.
+   * Evidence the deployment supplies. Some the engine sees for itself; the rest is an operator
+   * attestation, because no code can tell whether a signed BAA exists.
    */
   export type Wired = Record<Check, boolean> & {
     /** Satisfies `requireChannelForReset`, which is a flag rather than a named check. */

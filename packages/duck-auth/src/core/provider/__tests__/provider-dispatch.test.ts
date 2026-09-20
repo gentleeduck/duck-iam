@@ -2,11 +2,6 @@
  * The registry is what turns a provider id from a request body into the code
  * that runs, and what `auth.passwords` / `auth.mfa` / `auth.apiKeys` resolve
  * through. Two things decide both: the id map and `resolve`'s instanceof scan.
- *
- * The existing suite covers duplicate ids and the instanceof lookup. These cover
- * what an id may be, what happens when two capabilities answer the same
- * instanceof question, and the disagreement between what `list()` advertises and
- * what `begin` will actually accept.
  */
 import { describe, expect, it } from 'vitest'
 import { Providers } from '../provider'

@@ -14,12 +14,10 @@ const DEFAULT_OVERRIDES: Compliance.Overrides = {
   requireChannelForReset: false,
 }
 
-/** Resolve overrides for one or more presets; multiple presets compose by taking the stricter field. */
+/** Multiple presets compose by taking the stricter field. */
 export function resolveCompliance(presets: Compliance.Preset | Compliance.Preset[] | undefined): Compliance.Overrides {
-  // A fresh copy every time. The no-preset branch handed back the module singleton by reference, so
-  // a caller adjusting what it believed was its own copy edited it for every later resolution in
-  // the process - and the two presets that spread it shared its nested objects, so the same edit
-  // rewrote them too.
+  // A fresh copy every time. Handing back the module singleton let a caller adjusting what it believed
+  // was its own copy edit every later resolution in the process, nested objects included.
   if (!presets) return copyOverrides(DEFAULT_OVERRIDES)
   const list = Array.isArray(presets) ? presets : [presets]
   let acc: Compliance.Overrides = { ...copyOverrides(DEFAULT_OVERRIDES), requiredStrictChecks: [] }
@@ -96,9 +94,9 @@ function mergeStricter(a: Compliance.Overrides, b: Compliance.Overrides): Compli
     },
     mfa: { backupCodeCount: Math.max(a.mfa.backupCodeCount, b.mfa.backupCodeCount) },
     apiKeys: { randomBytes: Math.max(a.apiKeys.randomBytes, b.apiKeys.randomBytes) },
-    // Sorted, because the set is built by concatenation and otherwise comes back in whichever order
-    // the presets were listed - so anything fingerprinting a resolved policy saw two values for one
-    // deployment while every numeric field was already order independent.
+    // Sorted, because the set is built by concatenation and would otherwise follow the order the presets
+    // were listed in, so a fingerprint of one deployment's policy had two values while every numeric field
+    // was already order independent.
     requiredStrictChecks: Array.from(new Set([...a.requiredStrictChecks, ...b.requiredStrictChecks])).sort(),
     minAal: maxAal(a.minAal, b.minAal),
     requireDataAtRest: a.requireDataAtRest || b.requireDataAtRest,
@@ -106,7 +104,7 @@ function mergeStricter(a: Compliance.Overrides, b: Compliance.Overrides): Compli
   }
 }
 
-/** Apply preset overrides to an AuthEngine config; never mutates input, stricter rule wins per field. */
+/** Never mutates its input; the stricter rule wins per field. */
 export function applyCompliancePreset<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   Tenant = string,
@@ -116,16 +114,8 @@ export function applyCompliancePreset<
   preset: Compliance.Preset | Compliance.Preset[],
 ): Engine.Cfg<Profile, Tenant, OrgMeta> {
   const overrides = resolveCompliance(preset)
-  // Attach the resolved overrides via `__compliancePreset` so
-  // `AuthEngine.strict` can apply `authAssertComplianceStrict` automatically.
-  // NOTE: password, mfa + api-key compliance are provider-level now — pass a
-  // preset to `passwords({ compliance })` / `mfaProvider({ compliance })`
-  // / `apiKeyProvider({ compliance })` and each ratchets its own field. Only
-  // engine-core capabilities (session) are ratcheted here.
-  // Layered, not replaced. Each call spread the config, which dropped the non-enumerable brand,
-  // then stamped its own - so calling the helper twice, the obvious way to add a preset to an
-  // existing one, kept only the last while the session windows stayed ratcheted from both, and the
-  // config and its brand ended up describing different policies.
+  // NOTE: engine-core capabilities only. Password, mfa and api-key compliance are provider-level: pass a
+  // preset to `passwords({ compliance })` and its siblings, and each ratchets its own.
   const existing = readCompliancePreset(base)
   const layered = dedupePresets([...(existing === null ? [] : [existing].flat()), ...[preset].flat()])
   const out = {
@@ -152,21 +142,15 @@ function dedupePresets(list: Compliance.Preset[]): Compliance.Preset[] {
   return [...new Set(list)]
 }
 
-/**
- * Resolve any compliance preset attached to a config via
- * `authApplyCompliancePreset`. Returns null when the config was not
- * processed by that helper. Used by `AuthEngine.strict()` to
- * auto-invoke `authAssertComplianceStrict` so operators do not have to
- * remember the second call.
- */
+/** The compliance preset `applyCompliancePreset` attached to a config, or null when it never ran. This is
+ *  what lets `AuthEngine.strict()` invoke `authAssertComplianceStrict` itself. */
 export function readCompliancePreset(cfg: unknown): Compliance.Preset | Compliance.Preset[] | null {
   if (typeof cfg !== 'object' || cfg === null) return null
   if (!('__compliancePreset' in cfg)) return null
   const value = cfg.__compliancePreset
   if (isPreset(value)) return value
-  // A brand that is present but not readable is a typo, and returning `null` for it reported the
-  // config as unbranded - so one misspelt entry in a two-preset list turned compliance off
-  // altogether instead of narrowing it.
+  // A brand present but unreadable is a typo. Reporting it as unbranded let one misspelt entry in a
+  // two-preset list turn compliance off altogether rather than narrow it.
   if (Array.isArray(value)) {
     const bad = value.filter((v) => !isPreset(v))
     if (bad.length > 0) {
@@ -187,11 +171,8 @@ function isPreset(v: unknown): v is Compliance.Preset {
   return typeof v === 'string' && PRESET_VALUES.has(v)
 }
 
-/**
- * Max of two AAL values without an `as 1 | 2 | 3` cast. `Math.max`
- * returns `number`; TS cannot narrow it back to the literal union, so
- * we dispatch explicitly. The cases are mutually exclusive in [1, 3].
- */
+/** Max of two AALs without a cast: `Math.max` answers `number` and TS cannot narrow that back to the literal
+ *  union, so the three mutually exclusive cases are dispatched by hand. */
 function maxAal(a: 1 | 2 | 3, b: 1 | 2 | 3): 1 | 2 | 3 {
   if (a === 3 || b === 3) return 3
   if (a === 2 || b === 2) return 2
@@ -211,16 +192,9 @@ const CHECK_DEMANDS: Record<Compliance.Check, string> = {
   webauthnAttestationDirect: 'webauthn registration must request direct attestation',
 }
 
-/**
- * Validate runtime wiring against a compliance preset; throws `AUTH/MISCONFIGURED` listing every gap.
- *
- * Driven off what the preset declares rather than a fixed list of four. Four of the nine names the
- * presets use were checked and the other five were strings nothing read, so `soc2` passed on one of
- * its three requirements and `gdpr` passed without either of the two things it names.
- *
- * `wired` is partial and an absent entry counts as unsatisfied: a check nobody supplied evidence
- * for is not a check that passed.
- */
+/** Throws `AUTH_MISCONFIGURED` with every gap listed, driven off what the preset declares rather than a
+ *  fixed list, so a requirement cannot be a string nothing reads.
+ *  SECURITY: `wired` is partial and an absent entry is unsatisfied; a check nobody evidenced did not pass. */
 export function assertComplianceStrict(opts: {
   preset: Compliance.Preset | Compliance.Preset[]
   wired: Partial<Compliance.Wired>
