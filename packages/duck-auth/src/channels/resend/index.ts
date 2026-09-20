@@ -16,7 +16,7 @@ import {
 
 export namespace AuthResendChannel {
   /**
-   * Subset of the `resend` package surface we depend on. Both the v3
+   * The subset of the `resend` package surface this uses. Both the v3
    * Resend client and any drop-in test double satisfies this.
    */
   export interface IClient {
@@ -36,12 +36,6 @@ export namespace AuthResendChannel {
    * Template resolver. The auth lib hands `(templateId, vars)` to this
    * hook; the app returns the rendered email body.
    */
-  export type ITemplateResolver = (
-    templateId: string,
-    vars: Record<string, unknown>,
-  ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
-
-  /** Cfg knobs for {@link AuthResendChannel}. */
   export interface Cfg extends ChannelGuard.Cfg {
     /** Resend API key. Required when `client` is not supplied. */
     apiKey?: string
@@ -50,7 +44,7 @@ export namespace AuthResendChannel {
     /** From: address. Must be on a verified Resend domain. */
     from: string
     /** Template resolver invoked per send. */
-    templates: ITemplateResolver
+    templates: Channel.IEmailTemplateResolver
     /** Identifier appearing in logs + diagnostics. Default `resend`. */
     id?: string
   }
@@ -72,7 +66,7 @@ async function loadResend(): Promise<{ Resend: new (key: string) => AuthResendCh
 }
 
 /**
- * Resend channel implementation of `Channel.IChannel`. Reads the
+ * Resend channel implementation of `Channel.Channel`. Reads the
  * recipient email from `input.identity.profile.email`; returns
  * ok:false (never throws) on any Resend error.
  */
@@ -80,7 +74,7 @@ export class AuthResendChannel implements Channel.Channel {
   readonly kind: Channel.Kind = 'email'
   readonly id: string
   private readonly _from: string
-  private readonly _resolve: AuthResendChannel.ITemplateResolver
+  private readonly _resolve: Channel.IEmailTemplateResolver
   private _clientPromise: Promise<AuthResendChannel.IClient> | null = null
   private readonly _guard: ChannelGuard
 
@@ -115,10 +109,10 @@ export class AuthResendChannel implements Channel.Channel {
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
     const recipient = resolveEmailRecipient(input.identity.profile, 'AuthResendChannel')
     if (!recipient.ok) return { error: recipient.error, ok: false, retryable: false }
-    const denied = await this._guard.spend(input)
-    if (denied) return { error: denied, ok: false, retryable: true }
+    const budget = await this._guard.spend(input).wrap()
+    if (budget.error) return { error: budget.error.code, ok: false, retryable: true }
     const to = recipient.to
-    let resolved: Awaited<ReturnType<AuthResendChannel.ITemplateResolver>>
+    let resolved: Awaited<ReturnType<Channel.IEmailTemplateResolver>>
     try {
       resolved = await this._resolve(input.templateId, input.vars)
     } catch (err) {
@@ -152,7 +146,7 @@ export class AuthResendChannel implements Channel.Channel {
   }
 }
 
-/** Factory around {@link AuthResendChannel}, for callers who prefer functions to `new`. */
+/** Email channel over the Resend API. */
 export function authResendChannel(...args: ConstructorParameters<typeof AuthResendChannel>): AuthResendChannel {
   return new AuthResendChannel(...args)
 }

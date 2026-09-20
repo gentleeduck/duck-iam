@@ -2,20 +2,9 @@
  * Every channel carries the same payload: a signed magic link, a one-time code,
  * a reset URL. So the interesting questions are the same for all of them, and
  * are asked here once against each implementation rather than per adapter.
- *
- * Who is the recipient and who decided that. How much can be sent in one call,
- * given SMS is billed per segment and push has a hard payload ceiling. What a
- * failure reports, given `send` returns a result rather than throwing. And what
- * ends up in a log line.
- *
- * The per-channel suites cover each adapter's own wiring. These cover the
- * contract they share, and where it is thinner than it looks.
- *
- * Sources: RFC 8030 and RFC 8291 on the 4096-byte web-push payload ceiling,
- * E.164 on what a dialable number is, RFC 5321 section 4.5.3.1 on address
- * length, and OWASP's guidance on SMS pumping and outbound-message abuse.
  */
 import { describe, expect, it, vi } from 'vitest'
+import { ChannelGuard } from '~/channels/channels.guard'
 import { AuthConsoleChannel, AuthNoopChannel } from '~/channels/console'
 import { AuthResendChannel } from '~/channels/resend'
 import { AuthSesChannel } from '~/channels/ses'
@@ -428,7 +417,8 @@ describe('how much can go out in one call', () => {
     for (let i = 0; i < 5; i++) results.push(await channel.send(sendInput()))
     expect(seen).toHaveLength(3)
     expect(results[4]).toMatchObject({ ok: false, retryable: true })
-    expect(results[4]?.error).toContain('budget exhausted')
+    // The code, not prose: `SendResult.error` is a string, and `AuthError` calls `super(code)`.
+    expect(results[4]?.error).toBe('AUTH_RATE_LIMITED')
   })
 
   it('takes a caller-supplied bucket, for an app that knows who is asking', async () => {
@@ -566,5 +556,58 @@ describe('web push, which has a payload ceiling the others do not', () => {
       expect(await channel.send(withSubscription({ endpoint }))).toMatchObject({ ok: false, retryable: false })
     }
     expect(seen).toHaveLength(0)
+  })
+})
+
+describe('the send budget refuses through the answer', () => {
+  it('resolves while there is budget and rejects once it is spent', async () => {
+    // One point, so the first send consumes it and the second is over budget.
+    const guard = new ChannelGuard('smtp', { limiter: new MemoryLimiter({ max: 1 }) })
+    await expect(guard.spend(sendInput())).resolves.toBeUndefined()
+    await expect(guard.spend(sendInput())).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
+  })
+
+  it('refuses through the code even when the limiter reports resetAt as epoch milliseconds', async () => {
+    // `Limiter.Me` is the host's to implement. The type says `Date`, and one backed by redis - or by
+    // anything with a JSON hop that forgets to revive it - hands back a number. `.getTime()` on that
+    // threw, so the guard whose whole job is to answer AUTH_RATE_LIMITED answered a TypeError.
+    const guard = new ChannelGuard('smtp', {
+      limiter: {
+        consume: async () => ({ ok: false, remaining: 0, resetAt: (Date.now() + 30_000) as unknown as Date }),
+        reset: async () => undefined,
+      },
+    })
+
+    const refused = await guard.spend(sendInput()).wrap()
+    expect(refused.error?.code).toBe('AUTH_RATE_LIMITED')
+    expect(refused.error?.meta.retryAfter).toBeGreaterThanOrEqual(1)
+  })
+
+  it('carries the wait as seconds, since `message` is the code rather than prose', async () => {
+    const guard = new ChannelGuard('smtp', { limiter: new MemoryLimiter({ max: 1 }) })
+    await guard.spend(sendInput())
+    const refused = await guard.spend(sendInput()).wrap()
+
+    expect(refused.error?.code).toBe('AUTH_RATE_LIMITED')
+    expect(refused.error?.message).toBe('AUTH_RATE_LIMITED')
+    expect(refused.error?.meta.retryAfter).toBeGreaterThan(0)
+  })
+
+  it('floors the wait at one second, so a client reading it does not retry straight back', async () => {
+    // A reset less than a second out must not report 0: a client reading 0 retries at once and is refused
+    // again, which is the busy-loop the budget exists to prevent.
+    const guard = new ChannelGuard('smtp', {
+      limiter: {
+        consume: async () => ({ ok: false, remaining: 0, resetAt: new Date(Date.now() + 200) }),
+        reset: async () => undefined,
+      },
+    })
+    const refused = await guard.spend(sendInput()).wrap()
+
+    expect(refused.error?.meta.retryAfter).toBe(1)
+  })
+
+  it('resolves when no limiter is configured at all', async () => {
+    await expect(new ChannelGuard('smtp', {}).spend(sendInput())).resolves.toBeUndefined()
   })
 })

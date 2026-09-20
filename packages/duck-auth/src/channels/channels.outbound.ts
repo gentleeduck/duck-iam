@@ -1,15 +1,7 @@
-/**
- * Validation for everything a delivery channel is about to hand a provider.
- *
- * This is the layer that knows a destination came out of a user-editable profile field and a subject
- * came out of a template fed with request data. A provider may well refuse a malformed address
- * itself, but by then the value has already left the process, and which of them splits a
- * comma-separated string into two recipients is the provider's decision rather than one this
- * library should be leaving open.
- */
+/** Validation for everything a delivery channel is about to hand a provider. */
 
-import { getProfileString } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
+import { getProfileString } from '~/core/predicates/predicates'
 
 /** RFC 5321: a forward-path is at most 256 octets including the angle brackets. */
 const EMAIL_MAX_LENGTH = 254
@@ -71,12 +63,7 @@ export function sanitizeSubject(subject: string): string {
   return subject.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, SUBJECT_MAX_LENGTH)
 }
 
-/**
- * What a template resolver returned, checked before it is sent rather than after.
- *
- * An undefined subject or a missing body used to reach the provider, so a template wired wrong
- * surfaced as a provider rejection one network round trip later instead of as the local fault it is.
- */
+/** What a template resolver returned, checked before it is sent rather than after. */
 export function checkRenderedEmail(resolved: { subject?: unknown; text?: unknown; html?: unknown }): string | null {
   if (typeof resolved.subject !== 'string') return 'template resolver returned no string subject'
   const hasText = typeof resolved.text === 'string' && resolved.text.length > 0
@@ -95,15 +82,28 @@ export function checkRenderedSms(resolved: { body?: unknown }): string | null {
 /**
  * What a provider said, with the parts of it that are not ours to repeat taken out.
  *
- * An SDK error routinely carries the request URL, the account identifier and occasionally the
- * credential that was rejected, and that string used to be returned to the caller verbatim.
+ * SECURITY: an SDK error routinely carries the request URL, the account identifier and occasionally
+ * the credential that was rejected, none of which belongs in an answer to the caller.
  */
 export function redactProviderError(text: string): string {
-  return text
-    .replace(/\b([\w.-]+:\/\/[^\s?#]+)(\?[^\s]*)?/g, (_m, origin: string, query?: string) =>
-      query ? `${origin}?[redacted]` : origin,
-    )
-    .replace(/\b([\w-]*(?:key|token|secret|password|signature|credential)[\w-]*)\s*[=:]\s*\S+/gi, '$1=[redacted]')
+  return (
+    text
+      .replace(/\b([\w.-]+:\/\/[^\s?#]+)(\?[^\s]*)?/g, (_m, origin: string, query?: string) =>
+        query ? `${origin}?[redacted]` : origin,
+      )
+      // A path segment that is one long opaque run is an account id or a credential, not a route name:
+      // twilio puts its account sid in the path and telegram puts the bot token there. Route names stay,
+      // so an operator still sees which call failed.
+      .replace(/(?<!\/)\/[\w.:~-]{24,}(?=[/?#]|$|\s)/g, '/[redacted]')
+      // The quotes are optional on both sides: an http SDK throws its response body, so the label
+      // arrives as `"api_key":"..."` far more often than as `api_key=...`, and only the second matched.
+      .replace(
+        /([\w-]*(?:key|token|secret|password|signature|credential)[\w-]*)["']?\s*[=:]\s*["']?[^\s"',}]+["']?/gi,
+        '$1=[redacted]',
+      )
+      // An auth scheme puts the credential one word past the label, where the pattern above stops.
+      .replace(/\b(bearer|basic|digest)\s+[\w.\-+/=]+/gi, '$1 [redacted]')
+  )
 }
 
 /**

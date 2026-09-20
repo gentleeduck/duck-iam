@@ -16,7 +16,7 @@ import {
 } from '../channels.outbound'
 
 export namespace AuthTwilioChannel {
-  /** Subset of the Twilio SDK we depend on. */
+  /** The subset of the Twilio SDK this uses. */
   export interface IClient {
     messages: {
       create(opts: {
@@ -34,7 +34,6 @@ export namespace AuthTwilioChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ body: string }> | { body: string }
 
-  /** Cfg knobs for {@link AuthTwilioChannel}. */
   export interface Cfg extends ChannelGuard.Cfg {
     /** Twilio Account SID. Required when `client` is not supplied. */
     accountSid?: string
@@ -118,8 +117,8 @@ export class AuthTwilioChannel implements Channel.Channel {
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
     const recipient = resolvePhoneRecipient(input.identity.profile, 'AuthTwilioChannel')
     if (!recipient.ok) return { error: recipient.error, ok: false, retryable: false }
-    const denied = await this._guard.spend(input)
-    if (denied) return { error: denied, ok: false, retryable: true }
+    const budget = await this._guard.spend(input).wrap()
+    if (budget.error) return { error: budget.error.code, ok: false, retryable: true }
     const to = recipient.to
     let resolved: Awaited<ReturnType<AuthTwilioChannel.ITemplateResolver>>
     try {
@@ -159,7 +158,7 @@ export class AuthTwilioChannel implements Channel.Channel {
   }
 }
 
-/** Factory around {@link AuthTwilioChannel}, for callers who prefer functions to `new`. */
+/** SMS channel over the Twilio API. */
 export function authTwilioChannel(...args: ConstructorParameters<typeof AuthTwilioChannel>): AuthTwilioChannel {
   return new AuthTwilioChannel(...args)
 }
