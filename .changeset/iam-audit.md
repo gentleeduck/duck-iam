@@ -669,6 +669,30 @@ the key exists is a fact about the request, and attributes are open-ended. Also
 not reported: a `$`-prefixed value operand, which `evalCondition` already
 reports and answers Indeterminate rather than false.
 
+### A rule its own policy's targets excluded could never fire, and the policy looked fine
+
+The mirror of the dead-target check above. Reporting only when *no* rule matches
+the targets left the harder case: the policy is reachable, one rule inside it is
+not. The policy fires, so nothing looks wrong — and the deny in the excluded
+rule is gone, better hidden than one in a policy that never applies.
+
+Measured with an allow and a deny in the same policy under
+`targets: {actions: ['delete']}`: the deny spelled `delete` denies, the deny
+spelled `delte` **allows**, and nothing was reported either way, because the
+allow rule kept the policy reachable. Same by resource.
+
+Each excluded rule is now reported on its own, once per policy, rule and
+dimension. A policy whose rules are all excluded is still reported once at the
+policy level rather than once per rule. A wildcard target admits everything, and
+a policy with no targets has nothing to judge its rules against, so both stay
+quiet.
+
+**The test that had to change.** The dead-target work had pinned "one live rule
+among dead ones keeps the policy reachable" with `reported: []`. That was the
+conservative choice at the time and this round measured it wrong: the policy is
+reachable, and the dead rule still needs naming. It now asserts the policy-level
+silence *and* the new per-rule report.
+
 ### A recreated role id handed its permissions to everyone who inherited the old one
 
 `deleteRole` removes the role and, on every adapter, the grants that named it —

@@ -97,7 +97,7 @@ describe('a policy whose action/resource targets no rule can match is reported',
     expect(reported[0]).toContain('targets.resources')
   })
 
-  it('one live rule among dead ones keeps the policy reachable', async () => {
+  it('one live rule among dead ones keeps the policy reachable, and names the dead one', async () => {
     const policy: AccessControl.IPolicy = {
       algorithm: 'deny-overrides',
       id: 'guard',
@@ -110,7 +110,11 @@ describe('a policy whose action/resource targets no rule can match is reported',
     }
     const { engine, reported } = build(policy)
     expect(await engine.can('u1', 'delete', POST)).toBe(false)
-    expect(reported).toEqual([])
+    // No policy-level report: the policy fires. `r1` cannot, though, and only this says so.
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toContain('rule "r1"')
+    expect(reported[0]).toMatch(/never admits/)
+    expect(reported[0]).toMatch(/dead on its own/)
   })
 
   it('reports both dimensions of one policy separately', async () => {

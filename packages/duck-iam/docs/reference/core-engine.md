@@ -484,6 +484,7 @@ configuration mistake throws.
 | A policy throws during evaluation | Indeterminate: deny if the **policy** carries any deny rule, else the `defaultEffect` vote | `onPolicyError` |
 | A policy's `targets.roles` names a role nothing defines | **not a deny** — the policy is NotApplicable for every request, which retires it | `onPolicyError` once per pair, else one `console.warn` |
 | A policy's `targets.actions` / `targets.resources` match no rule the policy holds | **not a deny** — the targets admit only requests no rule answers, which retires it | `onPolicyError` once per policy and dimension, else one `console.warn` |
+| A rule's `actions` / `resources` fall outside its own policy's targets | **not a deny** — the policy fires, but that rule never does | `onPolicyError` once per policy, rule and dimension, else one `console.warn` |
 | A rule's condition reads a path that can never resolve | **not a deny** — `resolve` answers `null` for every request, so the rule never matches | `onPolicyError` once per policy, rule and path, else one `console.warn` |
 | A subject holds a role nothing defines | **not a deny** — the id stays an effective role, but its `inherits` are unwalkable, so a deny targeting a role it conferred retires | `onPolicyError` once per role id, else one `console.warn` |
 | The compiled table cannot be built (malformed policy) | `false` for every request until fixed | `onPolicyError` for `IamPolicyCompileError`; one `console.error` otherwise |
@@ -1092,7 +1093,7 @@ The offending policy stays **applicable** and votes Indeterminate. It is not
 treated as NotApplicable: "skipping a policy that could have denied is what
 turns a throw into an allow under `combine: 'and'`."
 
-The hook carries four advisory reports as well, and they are the only ones
+The hook carries five advisory reports as well, and they are the only ones
 that are not about a throw. `targets.roles` is matched by equality against the request's
 effective roles and against nothing else — there is no catalogue lookup — so an
 entry naming a role no stored row defines matches no subject and the whole
@@ -1137,6 +1138,17 @@ It is de-duplicated per role id rather than per `(subject, role)` pair, since
 the absent definition is the thing to repair and every holder shares it, and
 that also keeps the set bounded by the catalogue rather than by traffic. With no
 `onPolicyError` installed it is one `console.warn`, and it changes no verdict.
+
+The target check has a mirror image. Reporting only when *no* rule matches the
+targets leaves the case where the policy is reachable and one rule inside it is
+not: the policy fires, so nothing looks wrong, while the rule it excludes can
+never fire for any request. A deny sitting in that rule is as gone as one in a
+policy that never applies, and it is better hidden, because the policy around it
+demonstrably works. So each excluded rule is reported on its own — but only when
+the policy is reachable, since a policy whose rules are *all* excluded is
+already reported once above and the per-rule lines would only repeat it. With no
+`targets` on the policy there is nothing to judge a rule against, and nothing is
+said.
 
 The fourth advisory moves the same question down a level, from the policy's
 targets to a rule's conditions. `resolve` answers `null` for a path whose root
