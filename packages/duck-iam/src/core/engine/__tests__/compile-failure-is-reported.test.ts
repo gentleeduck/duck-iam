@@ -91,7 +91,9 @@ describe('a role count past the compiled table capacity falls back and says so',
       })
       const decision = await engine.check('u1', 'read', { attributes: {}, type: 'post' })
       expect(decision.allowed).toBe(true)
-      expect(warn).toHaveBeenCalledOnce()
+      // Named, not counted: development mode warns about itself too, and a count would pin the wrong thing.
+      const fallback = warn.mock.calls.map((args) => args.map(String).join(' ')).filter((m) => m.includes('role'))
+      expect(fallback).toHaveLength(1)
     } finally {
       warn.mockRestore()
     }
