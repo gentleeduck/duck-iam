@@ -4,10 +4,6 @@
  * identity the token speaks for, which tenant it is scoped to, and which scopes
  * it carries. The existing suite covers the happy exchange and the scope caps.
  * These cover the inputs the caller controls that are not the secret.
- *
- * Sources: RFC 6749 sections 3.3 and 4.4 (scope handling and the
- * client_credentials grant), RFC 6750 on bearer token lifetime, and RFC 9700
- * section 2.4 on binding a token to the client that asked for it.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -16,6 +12,7 @@ import type { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
 import { JwtTransport } from '~/core/transport/jwt.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { NoopLimiter } from '~/limiters/mock'
 import { apiKeyProvider } from '~/providers/api-key'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
@@ -41,7 +38,12 @@ function build(cfg?: M2m.Cfg) {
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
     transport,
   })
-  return { adapter, auth, m2m: new M2MImpl(auth.apiKeys, auth.sessions, auth.transport, cfg), transport }
+  return {
+    adapter,
+    auth,
+    m2m: new M2MImpl(auth.apiKeys, auth.sessions, auth.transport, new NoopLimiter(), cfg),
+    transport,
+  }
 }
 
 /** Decode the JWT payload without verifying, to read what was minted. */
@@ -78,11 +80,6 @@ describe('m2m client_credentials', () => {
       // `verified.tenantId` undefined, the check was skipped, and the `tid` claim
       // was chosen by the request body - the one thing a client_credentials grant
       // must never let a client pick.
-      //
-      // It is closed at the store instead of the facet. Credential lookups are
-      // tenant-scoped, and a global row is not visible to a scoped caller on any
-      // dialect, so naming a tenant the key does not belong to no longer resolves
-      // the key at all.
       await expect(env.m2m.exchange({ clientId, clientSecret, tenantId: 'victim-tenant' })).rejects.toMatchObject({
         code: 'AUTH_APIKEY_INVALID',
       })
@@ -260,12 +257,10 @@ describe('m2m client_credentials', () => {
 
     it('a token minted before revocation keeps verifying afterwards, which is what stateless means', async () => {
       // Left as it is, and documented on the facet. Revoking a leaked key stops new exchanges and
-      // does nothing about tokens already issued, for up to the configured ttl. Closing it means
-      // a jti denylist or an introspection hop, which is the deployment's call and not a default
-      // this library can take on every verify.
+      // does nothing about tokens already issued, for up to the configured ttl.
       const result = await env.m2m.exchange({ clientId, clientSecret })
       await env.auth.apiKeys.revoke(clientId)
-      expect(await env.transport.verify(result.access_token)).not.toBeNull()
+      await expect(env.transport.verify(result.access_token)).resolves.toBeDefined()
     })
 
     it('refuses a secret longer than the hashing cap', async () => {
@@ -338,8 +333,7 @@ describe('m2m client_credentials', () => {
       // The clamp is a `Math.min` and stays one: the sessions facet's ttl (seven days by default) is
       // a ceiling the grant does not get to raise. What changed is that `expires_in` is read back
       // off the session rather than recomputed from the configured ttl, which overstated a lifetime
-      // already cut short. A silent transport is what exposes it - JwtTransport clamps its own
-      // `expires_in` to the same session expiry, so it never let the wrong number through.
+      // already cut short.
       const silent = {
         clear: () => [],
         issue: () => [{ body: { access_token: 'tok' }, type: 'json' as const }],
@@ -347,7 +341,7 @@ describe('m2m client_credentials', () => {
         verify: async () => null,
       }
       const fortnight = 14 * 24 * 60 * 60 * 1000
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, silent as never, {
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, silent as never, new NoopLimiter(), {
         scopeMode: 'intersect',
         ttlMs: fortnight,
       })
@@ -371,7 +365,7 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never)
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never, new NoopLimiter())
       await expect(facet.exchange({ clientId, clientSecret })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
@@ -384,7 +378,7 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, empty as never)
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, empty as never, new NoopLimiter())
       await expect(facet.exchange({ clientId, clientSecret })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
@@ -397,7 +391,7 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, nan as never)
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, nan as never, new NoopLimiter())
       await expect(facet.exchange({ clientId, clientSecret })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
@@ -412,7 +406,7 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, lying as never, {
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, lying as never, new NoopLimiter(), {
         scopeMode: 'intersect',
         ttlMs: 60_000,
       })
@@ -424,7 +418,7 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const short = new M2MImpl(env.auth.apiKeys, env.auth.sessions, brief as never, {
+      const short = new M2MImpl(env.auth.apiKeys, env.auth.sessions, brief as never, new NoopLimiter(), {
         scopeMode: 'intersect',
         ttlMs: 60_000,
       })
@@ -441,7 +435,7 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never)
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never, new NoopLimiter())
       await facet.exchange({ clientId, clientSecret }).catch(() => undefined)
       expect(await env.adapter.sessions.listByIdentity(identityId)).toHaveLength(0)
 
@@ -451,7 +445,7 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const second = new M2MImpl(env.auth.apiKeys, env.auth.sessions, bodyless as never)
+      const second = new M2MImpl(env.auth.apiKeys, env.auth.sessions, bodyless as never, new NoopLimiter())
       await second.exchange({ clientId, clientSecret }).catch(() => undefined)
       expect(await env.adapter.sessions.listByIdentity(identityId)).toHaveLength(0)
     })

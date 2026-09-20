@@ -1,7 +1,5 @@
 import { randomBytes } from 'node:crypto'
 
-/** Bounds and helpers for webhook delivery. */
-
 /** RFC 7230 token: what `fetch` will accept as a header name. */
 export const HEADER_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 
@@ -37,12 +35,7 @@ export function jitterSource(): number {
   return randomBytes(4).readUInt32BE(0) / 2 ** 32
 }
 
-/**
- * Exponential backoff, capped, with jitter over the lower half of the interval.
- *
- * Without the jitter every instance that saw the same failure retries in the same millisecond, so
- * a consumer coming back up is hit by the whole fleet at once and goes down again.
- */
+/** Exponential backoff, capped, with jitter over the lower half of the interval. */
 export function backoffFor(baseMs: number, attempt: number, random: () => number = jitterSource): number {
   const ceiling = Math.min(baseMs * 2 ** (attempt - 1), BACKOFF_MAX_MS)
   return Math.floor(ceiling / 2 + random() * (ceiling / 2))

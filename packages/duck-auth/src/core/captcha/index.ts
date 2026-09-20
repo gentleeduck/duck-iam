@@ -25,35 +25,35 @@ import {
   AuthUnconfiguredCaptchaVerifier,
 } from './captcha'
 
-/** Factory around {@link AuthTurnstileVerifier}, for callers who prefer functions to `new`. */
+/** Cloudflare Turnstile verifier. */
 export function authTurnstileVerifier(
   ...args: ConstructorParameters<typeof AuthTurnstileVerifier>
 ): AuthTurnstileVerifier {
   return new AuthTurnstileVerifier(...args)
 }
 
-/** Factory around {@link AuthHCaptchaVerifier}, for callers who prefer functions to `new`. */
+/** hCaptcha verifier. */
 export function authHCaptchaVerifier(
   ...args: ConstructorParameters<typeof AuthHCaptchaVerifier>
 ): AuthHCaptchaVerifier {
   return new AuthHCaptchaVerifier(...args)
 }
 
-/** Factory around {@link AuthRecaptchaV3Verifier}, for callers who prefer functions to `new`. */
+/** reCAPTCHA v3 verifier, passing only at or above the configured `minScore`. */
 export function authRecaptchaV3Verifier(
   ...args: ConstructorParameters<typeof AuthRecaptchaV3Verifier>
 ): AuthRecaptchaV3Verifier {
   return new AuthRecaptchaV3Verifier(...args)
 }
 
-/** Factory around {@link AuthNullCaptchaVerifier}, for callers who prefer functions to `new`. */
+/** Always-passing verifier for tests; refuses to construct in production. */
 export function authNullCaptchaVerifier(
   ...args: ConstructorParameters<typeof AuthNullCaptchaVerifier>
 ): AuthNullCaptchaVerifier {
   return new AuthNullCaptchaVerifier(...args)
 }
 
-/** Factory around {@link AuthUnconfiguredCaptchaVerifier}, for callers who prefer functions to `new`. */
+/** What `auth.captcha` is when none was configured: every call fails `captcha-not-configured`. */
 export function authUnconfiguredCaptchaVerifier(
   ...args: ConstructorParameters<typeof AuthUnconfiguredCaptchaVerifier>
 ): AuthUnconfiguredCaptchaVerifier {
