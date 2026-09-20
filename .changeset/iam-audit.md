@@ -564,6 +564,34 @@ corrupt attributes row already was, so the file still holds what an operator
 has to repair. `deleteRole` cannot sweep a row it refuses to read, and now
 reports each one it skipped rather than implying the role is gone.
 
+### The HTTP adapter answered a subject read with the half of the list that parsed
+
+The same defect as the file store above, at the adapter where the payload is
+remote and least trusted. `parseHttpSubjectRoles` skipped any element that was
+not a non-empty string and `parseHttpSubjectScopedRoles` skipped any element
+whose `role` or `scope` was not one, both silently, and both returned the rest.
+A test pinned that as correct on the premise that "roles are allow-only" — the
+premise the file-store finding had already disproved.
+
+Measured through the engine over a fake server, with a `deny delete:post`
+policy at `targets.roles: ['contractor']` and a subject holding `editor` +
+`contractor`: the well-formed list denies, and the same list with the
+`contractor` entry arriving as `{role: 'contractor', scope: 'org-1'}` — the one
+server mistake the endpoint contract explicitly warns about — **allows**, with
+nothing reported. Same for `null`, `42` and `''` in that position. A payload
+where *every* element is malformed already failed closed, because a subject with
+no roles has no allow either; only the partial list flipped the verdict, which
+is why it survived.
+
+`adapters-runtime.md` had documented the throwing behaviour as the contract for
+both methods for as long as the drop existed. The parsers now match it: the
+element that will not parse fails the read, naming its index and its type but
+never its value. A row carrying no `scope` on `/scoped-roles` throws too — the
+two endpoints are disjoint by contract, so that row is the server mixing them
+up rather than a global grant. A malformed *catalog* row from `GET /roles` is
+still dropped and reported, because a policy left targeting it is now reported
+in its own right; a dropped grant has no such witness.
+
 ### A recreated role id handed its permissions to everyone who inherited the old one
 
 `deleteRole` removes the role and, on every adapter, the grants that named it —

@@ -610,7 +610,7 @@ export class IamHttpAdapter<
   }
 
   /**
-   * Lists a subject's unscoped role IDs via `GET /subjects/{id}/roles`.
+   * Lists a subject's unscoped role IDs via `GET /subjects/{id}/roles`; a malformed entry fails the whole read.
    * SECURITY: the server must omit scoped roles (see {@link IamHttpAdapter.getSubjectScopedRoles}); mixing them in grants too much.
    */
   async getSubjectRoles(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
@@ -618,7 +618,7 @@ export class IamHttpAdapter<
     const raw: unknown = await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles`, undefined, opts)
     return parseHttpSubjectRoles<TRole>(raw, subjectId)
   }
-  /** Lists a subject's scoped `(role, scope)` assignments via `GET /subjects/{id}/scoped-roles`. */
+  /** Lists a subject's scoped `(role, scope)` assignments via `GET /subjects/{id}/scoped-roles`; a malformed entry throws. */
   async getSubjectScopedRoles(
     subjectId: string,
     opts?: IamAdapter.IReadOptions,
@@ -749,16 +749,31 @@ function parseHttpSubjectAttributes(value: unknown, subjectId: string): IamPrimi
   return attrs
 }
 
+/** Names the malformed element's type without echoing it, so a bad payload cannot be reflected into the error. */
+function describeEntry(entry: unknown): string {
+  if (entry === null) return 'null'
+  if (Array.isArray(entry)) return 'array'
+  if (typeof entry === 'string') return entry.length === 0 ? 'empty string' : 'string'
+  return typeof entry
+}
+
 function parseHttpSubjectRoles<TRole extends string>(value: unknown, subjectId: string): TRole[] {
   if (!Array.isArray(value)) {
     const got = value === null ? 'null' : typeof value
     throw new Error(`[@gentleduck/iam:http] getSubjectRoles for "${subjectId}" returned ${got} (expected JSON array)`)
   }
   const roles: TRole[] = []
-  for (const entry of value) {
-    if (typeof entry === 'string' && entry.length > 0) {
-      roles.push(iamAsRoleLiteral(entry))
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i]
+    // SECURITY: a dropped grant retires every policy whose `targets.roles` names it, turning a deny into an allow.
+    if (typeof entry !== 'string' || entry.length === 0) {
+      throw new Error(
+        `[@gentleduck/iam:http] getSubjectRoles for "${subjectId}" returned ${describeEntry(entry)} at [${i}] ` +
+          '(expected a non-empty string). A partial role list is not a smaller one: a role also carries the ' +
+          'denies that target it, so the missing entry reads as permission rather than as a failed read.',
+      )
     }
+    roles.push(iamAsRoleLiteral(entry))
   }
   return roles
 }
@@ -774,12 +789,24 @@ function parseHttpSubjectScopedRoles<TRole extends string, TScope extends string
     )
   }
   const out: IamRequest.IScopedRole<TRole, TScope>[] = []
-  for (const entry of value) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i]
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      throw new Error(
+        `[@gentleduck/iam:http] getSubjectScopedRoles for "${subjectId}" returned ${describeEntry(entry)} at [${i}] ` +
+          '(expected a {role, scope} object)',
+      )
+    }
     const role = Reflect.get(entry, 'role')
     const scope = Reflect.get(entry, 'scope')
-    if (typeof role !== 'string' || role.length === 0) continue
-    if (typeof scope !== 'string' || scope.length === 0) continue
+    // The endpoints are disjoint by contract, so an unscoped row here is the server mixing them, not a global grant.
+    if (typeof role !== 'string' || role.length === 0 || typeof scope !== 'string' || scope.length === 0) {
+      throw new Error(
+        `[@gentleduck/iam:http] getSubjectScopedRoles for "${subjectId}" returned an entry at [${i}] whose ` +
+          `role is ${describeEntry(role)} and scope is ${describeEntry(scope)} (both must be non-empty strings). ` +
+          'A dropped scoped grant silently retires the denies that target that role.',
+      )
+    }
     out.push({ role: iamAsRoleLiteral(role), scope: iamAsScopeLiteral(scope) })
   }
   return out

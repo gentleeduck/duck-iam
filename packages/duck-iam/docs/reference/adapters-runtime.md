@@ -135,7 +135,8 @@ string `"*"`.
 row that will not parse throws `iamUnreadablePolicy` and the engine denies — the
 dropped policy could be the one that denies. A malformed *role* row is dropped,
 reported through `onPolicyError`, and the rest of the catalog is returned: a
-role nobody can resolve grants nothing, and no policy targets a role *definition*.
+role nobody can resolve grants nothing, and a policy left targeting the dropped
+definition is reported in its own right (`core-engine.md` §8).
 
 A corrupt attribute bag throws rather than answering `{}`, for the same reason
 policies do: `{}` silently retires every deny rule that tests an attribute. A
@@ -532,12 +533,26 @@ segments. Every request carries `Content-Type: application/json` plus whatever
 | `getRole` | `GET /roles/{id}` | role row; 404 means `null` |
 | `saveRole` | `PUT /roles`, body = the full role JSON | any 2xx |
 | `deleteRole` | `DELETE /roles/{id}` | any 2xx — **and the server must cascade the grants** |
-| `getSubjectRoles` | `GET /subjects/{id}/roles` | JSON array of **unscoped** role id strings |
-| `getSubjectScopedRoles` | `GET /subjects/{id}/scoped-roles` | JSON array of `{ role, scope }` |
+| `getSubjectRoles` | `GET /subjects/{id}/roles` | JSON array of **unscoped** role id strings — every element, or the read throws |
+| `getSubjectScopedRoles` | `GET /subjects/{id}/scoped-roles` | JSON array of `{ role, scope }`, both non-empty strings — every element, or the read throws |
 | `assignRole` | `POST /subjects/{id}/roles`, body `{"roleId":"...","scope":"..."}` | 2xx — **and a 4xx when the role is not stored** |
 | `revokeRole` | `DELETE /subjects/{id}/roles/{roleId}` plus `?scope=<encoded>` when scoped | 2xx. No `scope` param means remove the role in every scope. |
 | `getSubjectAttributes` | `GET /subjects/{id}/attributes` | flat JSON object of scalar values |
 | `setSubjectAttributes` | `PATCH /subjects/{id}/attributes`, body = the partial bag | 2xx — the server **merges**, it does not replace |
+
+**A subject's grant list is read whole or not at all.** The three subject reads
+parse strictly: `getSubjectAttributes` requires a flat object of scalars, and
+`getSubjectRoles` / `getSubjectScopedRoles` reject the *element* that will not
+parse rather than returning the elements that did. Answering with the readable
+half is the failure mode the file store's `corruptAssignments` exists to
+prevent, and it is worse over HTTP because the payload is remote: a role is not
+allow-only, so the entry that went missing may be the one a `targets.roles` deny
+names, and the request is then allowed with nothing logged. The endpoints are
+disjoint, so a row carrying no `scope` on `/scoped-roles` is the server mixing
+them up, not a global grant, and it throws for the same reason. A *catalog* role
+row from `GET /roles` is still dropped and reported, because a policy left
+targeting it is separately reported by `reportUnreachableRoleTargets`
+(`core-engine.md` §8); a dropped grant has no such witness.
 
 `src/adapters/http/__tests__/http-compliance.test.ts` contains
 `makeReferenceServer()`, a complete implementation of the above that the full

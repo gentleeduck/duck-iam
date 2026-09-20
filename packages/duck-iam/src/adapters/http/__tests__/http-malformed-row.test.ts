@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamHttpAdapter } from '../index'
 
-// Pins that a bad role row from the untrusted API is dropped (roles are allow-only) while a bad policy row throws,
-// since the dropped policy may be the deny. See `iamUnreadablePolicy`.
+// Pins that a bad role row from the untrusted API is dropped while a bad policy row throws, since the dropped
+// policy may be the deny. See `iamUnreadablePolicy`. A role is not allow-only either, but a dropped catalogue
+// row leaves any policy targeting it unresolvable, which `reportUnreachableRoleTargets` reports; a dropped
+// *grant* has no such witness, so `getSubjectRoles` throws instead (`http-subject-partial-row.test.ts`).
 function makeJsonResponse(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
