@@ -291,6 +291,20 @@ vote) and the Indeterminate deny synthesized by `safeEval` (also rule-less). A
 padded request header was therefore enough to disable the first deny policy in
 the list.
 
+`first-applicable` is also the only combine whose verdict depends on the order
+of the policy list, and the engine controls one thing about that order: the
+synthetic `__rbac__` policy `rolesToPolicy` generates. `loadAllPolicies` used to
+hand it over first, so it pre-empted every policy the operator wrote. It is
+applicable to any action/resource pair *any* role grants, including one this
+subject does not hold, so it decided both ways it should not have: a role holder
+got the allow and never reached the ABAC deny beside it, and a non-holder got
+the RBAC policy's `defaultEffect` deny and never reached the ABAC allow.
+`firstApplicableOrder` (`evaluate.libs.ts:19`) moves it to the end, and both
+`evaluate` and `explain`'s `decideFinal` call it so the trace cannot name a
+different policy than the decision. The remaining order is the stored policies'
+own, which is the adapter's row order — the same guarantee rule order carries,
+and no adapter orders `listPolicies`.
+
 `evaluateFast` implements `'and'` and `'allow-overrides'` only; anything else
 falls through to the `'and'` branch. The engine constructor blocks
 `first-applicable` for production for that reason.
@@ -1099,6 +1113,11 @@ cast `defaultEffect` — still applicable, still not skippable.
 
 ## 12. Invariants and things that will bite
 
+- **Under `first-applicable`, whatever is first decides — including a policy
+  nobody wrote.** The generated `__rbac__` policy goes last
+  (`firstApplicableOrder`); anything that reorders the list, in `loadAllPolicies`
+  or in an adapter, changes verdicts. The other two combines fold commutatively,
+  so order moves only the reported `reason`/`policy` there.
 - **A silent policy still votes.** "Applicable but no rule fired" is
   `defaultEffect`, not abstention. Only NotApplicable is skipped. Under
   `combine: 'and'` with `defaultEffect: 'deny'`, an over-broad `*`/`*` deny rule

@@ -1,4 +1,5 @@
 import { iamIsReservedRefusal } from '../../shared/reserved'
+import { firstApplicableOrder } from '../evaluate/evaluate.libs'
 import type { AccessControl, IamRequest } from '../types'
 import { tracePolicy } from './explain.libs'
 import type { Explain } from './explain.types'
@@ -119,8 +120,8 @@ function decideFinal(
     }
   } else {
     // first-applicable: the first applicable trace wins, rule or not. Gating on `decidingRule` would skip a policy
-    // that voted its `defaultEffect`, which `evaluate` counts.
-    const first = applicable[0]
+    // that voted its `defaultEffect`, which `evaluate` counts. Same RBAC-last order `evaluate` uses.
+    const first = firstApplicableOrder(applicable, (pt) => pt.policyId)[0]
     if (first !== undefined) {
       return { effect: first.result, policy: first.policyId, reason: first.reason, rule: first.decidingRule }
     }

@@ -7,9 +7,21 @@ import {
   ops,
   VALUELESS_OPERATORS,
 } from '../conditions/conditions.libs'
+import { IAM_RBAC_POLICY_ID } from '../rbac/rbac'
 import { matchesAction, matchesResource } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import type { Evaluate } from './evaluate.types'
+/**
+ * `first-applicable` order: the operator's own policies, then the synthetic RBAC policy.
+ * SECURITY: first-applicable short-circuits, so whatever is first decides. Left in load order the auto-generated
+ * `__rbac__` policy pre-empts every policy the operator wrote, including an explicit deny.
+ */
+export function firstApplicableOrder<T>(items: readonly T[], idOf: (item: T) => string): readonly T[] {
+  const rbac = items.filter((item) => idOf(item) === IAM_RBAC_POLICY_ID)
+  if (rbac.length === 0) return items
+  return [...items.filter((item) => idOf(item) !== IAM_RBAC_POLICY_ID), ...rbac]
+}
+
 /**
  * Action+resource shape only, no conditions: separates "nothing to do with this request" from "shape matches,
  * condition decides", which the cross-policy combine needs to spot a genuinely silent policy.

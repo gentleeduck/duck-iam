@@ -349,3 +349,24 @@ directly when no rule matched, so the combining algorithm is never consulted
 where it has no arm, and the hand-copied policy target matcher is gone in
 favour of `policyApplies`. A non-object condition group is reported by name in
 the trace rather than as a bare `TypeError`.
+
+### A role grant retired an explicit deny under `first-applicable`
+
+`policyCombine: 'first-applicable'` stops at the first policy that is not
+NotApplicable, so whichever policy comes first is the decision. `loadAllPolicies`
+handed over the synthetic `__rbac__` policy first — a policy the operator never
+wrote, generated from the role definitions.
+
+It is applicable to any action/resource pair *any* role grants, so it decided
+both ways it should not have. A subject holding a role that grants
+`delete` on `post` got that allow and never reached the ABAC policy denying a
+locked post: granting a role widened access past an explicit deny. A subject
+holding no such role got the RBAC policy's `defaultEffect` deny and never
+reached an ABAC policy that would have allowed.
+
+The generated policy now goes last, in `evaluate` and in `explain`'s
+`decideFinal` through one shared helper, so the trace and the decision cannot
+name different policies. `'and'` and `'allow-overrides'` fold every applicable
+vote and are unchanged. The order of the stored policies themselves is still the
+adapter's row order, as it is for rule order, and no adapter orders
+`listPolicies`.
