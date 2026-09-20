@@ -693,6 +693,29 @@ conservative choice at the time and this round measured it wrong: the policy is
 reachable, and the dead rule still needs naming. It now asserts the policy-level
 silence *and* the new per-rule report.
 
+### An invalidation the engine cannot apply now drops the caches instead of being ignored
+
+Events arrive from a transport the operator writes, so the engine now
+shape-checks what it receives rather than trusting the handler parameter's type:
+`kind` must be one of the four, a `subject` event must carry a non-empty string
+`subjectId`, and a `roles` event may carry a non-empty string `roleId` or none.
+
+Anything that fails that check is applied as `{kind:'all'}` - every local cache
+and the compiled table dropped - and warned about once per distinct reason.
+Before, an unrecognised `kind` was silently ignored, so a newer peer's event
+during a rolling deploy left older instances serving the answer that peer had
+just said was stale; and an event that was not an object threw out of the
+handler, which on an EventEmitter transport is an uncaught exception. A value
+that cannot even be inspected, such as a throwing getter or a revoked proxy, is
+now a reason rather than a throw.
+
+Note the trade: a transport that delivers malformed messages repeatedly will now
+drop the caches repeatedly where before it did nothing. The warning names the
+reason. There is no fleet amplification - every applied branch is local only.
+
+The shipped redis invalidator already validated each decoded event and never
+reached this path.
+
 ### An invalidator whose `publish` fails can no longer take the process down
 
 `IInvalidator.publish` is operator-supplied code, is allowed to return a
