@@ -181,7 +181,7 @@ describe('IamFileAdapter', () => {
   })
 
   describe('malformed-row handling (P0)', () => {
-    // A corrupt role row is dropped and reported (permissions are allow-only); a corrupt policy row throws,
+    // A corrupt role row is dropped and reported (the grants left naming it are reported too); a policy row throws,
     // since dropping it would strip its denies. See `iamUnreadablePolicy`.
     it('refuses a policy entry that fails validation, rather than keeping the rest', async () => {
       const seeded = JSON.stringify({

@@ -206,6 +206,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/scope-config-guards.test.ts` | 14 | scopeMode and scopeCombine are checked at boot, like policyCombine |
 | `core/engine/__tests__/scope-covers-contract.test.ts` | 45 | scopeCovers agrees with matchesScope on the flat axis |
 | `core/engine/__tests__/subject-cache-vs-role-snapshot.test.ts` | 4 | a subject entry does not outlive the role snapshot it was resolved against |
+| `core/engine/__tests__/subject-holds-undefined-role.test.ts` | 8 | a subject holding a role nothing defines is reported, not silent |
 | `core/engine/__tests__/surface-parity.test.ts` | 4 | every way of asking for a verdict |
 | `core/engine/__tests__/transaction.pg.e2e.test.ts` | 17 |  |
 | `core/engine/__tests__/two-node-convergence.test.ts` | 4 | two nodes on one store |
@@ -285,7 +286,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2752** | |
+| **Subtotal** | **2760** | |
 
 ---
 
@@ -425,7 +426,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 163 | 2752 |
+| Core | 164 | 2760 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -433,4 +434,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **314** | **6212** |
+| **Total** | **315** | **6220** |

@@ -1,5 +1,5 @@
 /**
- * A corrupt role row is dropped and the rest kept, since role permissions are allow-only.
+ * A corrupt role row is dropped and the rest kept; the engine reports the grants and targets left naming it.
  * SECURITY: a corrupt policy row throws; any policy may deny (even allow-only under `policyCombine: 'and'`).
  */
 import { describe, expect, it, vi } from 'vitest'

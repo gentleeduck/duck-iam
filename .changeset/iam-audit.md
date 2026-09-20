@@ -592,6 +592,35 @@ up rather than a global grant. A malformed *catalog* row from `GET /roles` is
 still dropped and reported, because a policy left targeting it is now reported
 in its own right; a dropped grant has no such witness.
 
+### A subject's grant of a role nothing defines lost every role it inherited
+
+The grant-side half of the target check above, and the case that one could not
+see. `resolveEffectiveRoles` deliberately keeps a directly assigned role id that
+no stored role defines, so the id still matches an ABAC rule naming it and the
+grant looks intact. But there is no row to read `inherits` from, so every role
+that id conferred is silently absent — and a deny targeting one of *those*
+retires.
+
+Measured through the engine with a `deny delete:post` policy at
+`targets.roles: ['contractor']` and a subject holding `staff` + `editor`, where
+`staff inherits contractor`: with the `staff` row present the subject is denied;
+with the `staff` row missing from the catalogue the subject is **allowed**, and
+nothing is reported — the policy's own target, `contractor`, is stored and
+healthy, so the target check stays quiet. A subject holding `contractor`
+directly is still denied, and one holding only `editor` is still allowed, which
+is what makes the middle row a finding rather than an engine that denies.
+
+Four adapters drop a malformed role row rather than refusing it, on the reasoning
+that role permissions are allow-only and a role nobody can resolve grants
+nothing. The first half is true and the second does not follow: the drop is
+tolerable only because something reports the grants left pointing at nothing.
+Now something does, de-duplicated per role id — the absent definition is what
+needs repairing and every holder shares it. Both grant paths report, global and
+scoped. It changes no verdict.
+
+The premise had been written into five comments and a test-file header across
+the adapters; those now say what is actually true.
+
 ### A recreated role id handed its permissions to everyone who inherited the old one
 
 `deleteRole` removes the role and, on every adapter, the grants that named it —

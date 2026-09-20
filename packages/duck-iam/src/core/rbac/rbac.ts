@@ -131,9 +131,15 @@ export function rolesToPolicy(
  *
  * @param assignedRoles Role IDs directly assigned to the subject.
  * @param allRoles      Every role definition, used to resolve `inherits`.
+ * @param reportUndefinedAssigned Called with an assigned ID no role defines. Kept as an effective role, but its
+ *   `inherits` cannot be walked, so every role it would have conferred is absent with nothing else to show it.
  * @returns Closed set of effective role IDs (assigned + defined inherited).
  */
-export function resolveEffectiveRoles(assignedRoles: string[], allRoles: AccessControl.IRole[]): string[] {
+export function resolveEffectiveRoles(
+  assignedRoles: string[],
+  allRoles: AccessControl.IRole[],
+  reportUndefinedAssigned?: (roleId: string) => void,
+): string[] {
   const rolesMap = new Map(allRoles.map((r) => [r.id, r]))
   const effective = new Set<string>()
   // NOTE: shallowest depth per role (see `collectPermissions`). `effective` can't be the visited set: it would pin a
@@ -153,6 +159,9 @@ export function resolveEffectiveRoles(assignedRoles: string[], allRoles: AccessC
     for (const parent of role?.inherits ?? []) walk(parent, depth + 1)
   }
 
-  for (const r of assignedRoles) walk(r, 0)
+  for (const r of assignedRoles) {
+    if (reportUndefinedAssigned && !rolesMap.has(r)) reportUndefinedAssigned(r)
+    walk(r, 0)
+  }
   return [...effective]
 }
