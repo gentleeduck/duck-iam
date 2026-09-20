@@ -643,3 +643,33 @@ whose roles are written by something other than its own `admin` facet is in it.
 The entry is now capped at `min(grantBoundary, roleCache.expiresAt('all'))`,
 which costs nothing when the snapshot is fresh because the two are then the same
 instant.
+
+### A policy targeting a role nothing defines was skipped in silence
+
+`policyApplies` matches `targets.roles` by equality against the request's
+effective roles and against nothing else; there is no catalogue lookup. An entry
+naming a role no stored row defines therefore matches no subject, and the whole
+policy is skipped on every request. A typo is enough.
+
+For a deny policy that is a deny that never fires, which is the one outcome this
+engine otherwise refuses to be quiet about - a policy that cannot be read throws
+rather than being dropped, a condition that cannot be answered is Indeterminate
+rather than `false`, a policy that throws still votes deny. Measured with every
+diagnostic hook attached: a `deny delete:post` policy targeted at `contarctor`
+instead of `contractor` let the subject delete, in both modes, with
+`onPolicyError` and `onError` silent.
+
+The second way in is `deleteRole`. It sweeps the grants and the `inherits` edges
+that named the role, but it cannot sweep this carrier, and the asymmetry is not
+an oversight: `targets.roles: []` means *unconstrained*, so stripping the last
+entry would widen the policy from one role to every subject rather than narrow
+it to none. There is nothing safe to rewrite and nothing to decide at evaluation
+time, since the state is indistinguishable from a policy written before its
+role.
+
+So the engine reports it instead: one `onPolicyError` per `(policyId, roleId)`
+for the engine's lifetime, or one `console.warn` when no hook is installed. Both
+evaluator paths carry the check - the compiled-table build and the interpreter's
+`loadAllPolicies` - because either can be the only one that runs, and the
+de-duplication is what keeps development mode, where both run, from reporting
+twice. It costs no extra adapter read and changes no verdict.

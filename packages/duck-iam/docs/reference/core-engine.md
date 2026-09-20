@@ -482,6 +482,7 @@ configuration mistake throws.
 | `permissions()` subject or policy load fails | every key `false` | `onError` once |
 | `permissions()` one check throws | that key `false`, batch continues | `onError`, `onMetrics` |
 | A policy throws during evaluation | Indeterminate: deny if the **policy** carries any deny rule, else the `defaultEffect` vote | `onPolicyError` |
+| A policy's `targets.roles` names a role nothing defines | **not a deny** — the policy is NotApplicable for every request, which retires it | `onPolicyError` once per pair, else one `console.warn` |
 | The compiled table cannot be built (malformed policy) | `false` for every request until fixed | `onPolicyError` for `IamPolicyCompileError`; one `console.error` otherwise |
 | Development table/interpreter disagreement | `false` + `console.error` | `onError` |
 | Role count exceeds 32 | **not a deny** — falls back to the interpreter, one `console.warn`, reported on `healthCheck()` | none |
@@ -1038,7 +1039,7 @@ interface IHooks<TAction, TResource, TScope, TRole> {
 | `afterEvaluate` | after every verdict, both modes, evaluated or not | no |
 | `onDeny` | after `afterEvaluate`, only when denied, both modes | no |
 | `onError` | on the fail-closed error paths | no |
-| `onPolicyError` | when one policy throws, or a policy fails to compile | no |
+| `onPolicyError` | when one policy throws, a policy fails to compile, or a policy targets a role nothing defines | no |
 | `onMetrics` | once per verdict (per check in a batch, unless `telemetry: false`) | no |
 | `onMutation` | after every `engine.admin` write lands and caches are invalidated | no |
 
@@ -1087,6 +1088,22 @@ and compiles against all of them, a named function is not.
 The offending policy stays **applicable** and votes Indeterminate. It is not
 treated as NotApplicable: "skipping a policy that could have denied is what
 turns a throw into an allow under `combine: 'and'`."
+
+The hook carries one advisory report as well, and it is the only one that is not
+about a throw. `targets.roles` is matched by equality against the request's
+effective roles and against nothing else — there is no catalogue lookup — so an
+entry naming a role no stored row defines matches no subject and the whole
+policy is skipped on every request. A typo does it; so does deleting the role
+the policy was written for, since `deleteRole` sweeps the grants and the
+`inherits` edges but cannot sweep this carrier: emptying `targets.roles` would
+*widen* the policy to every subject rather than narrow it to none. For a deny
+policy the result is a deny that silently never fires, which is the one outcome
+this engine otherwise refuses to be quiet about, so the engine reports the pair
+instead. Both evaluator paths carry the check — the compiled-table build and
+`loadAllPolicies` — because either can be the only one that runs, and the report
+is de-duplicated per `(policyId, roleId)` for the engine's lifetime, which is
+what keeps development mode (where both paths run) from reporting twice. With no
+`onPolicyError` installed it is one `console.warn`. It changes no verdict.
 
 `onMutation` is the audit seam, and the only evidence a revocation happened —
 the assignment row is hard-deleted. It fires after the adapter write resolves and

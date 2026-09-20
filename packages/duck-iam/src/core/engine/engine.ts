@@ -26,6 +26,7 @@ import {
   createAdmin,
   enrichSubjectWithScopedRoles,
   ensureEnvNow,
+  reportUnreachableRoleTargets,
   VALID_MODES,
   VALID_SCOPE_COMBINES,
   VALID_SCOPE_MODES,
@@ -384,9 +385,28 @@ export class IamEngine<
       maxPolicies: this._maxPolicies,
       maxRoles: this._maxRoles,
       maxConcurrentSubjectLoads: this._maxConcurrentSubjectLoads,
+      reportUnreachableRoleTargets: (policies, roles) => this._reportUnreachableRoleTargets(policies, roles),
       scopeMode: this._scopeMode,
       withTimeout: (fn, label) => this._withTimeout(fn, label),
     }
+  }
+
+  /** Pairs already reported, so the warning is one line per bad target, not one per cache fill. */
+  private _reportedRoleTargets = new Set<string>()
+
+  /** @internal Both evaluator paths call this; either can be the only one that runs for a given config. */
+  private _reportUnreachableRoleTargets(
+    policies: readonly AccessControl.IPolicy[],
+    roles: readonly AccessControl.IRole[],
+  ): void {
+    const hook = this._hooks.onPolicyError
+    reportUnreachableRoleTargets(policies, roles, this._reportedRoleTargets, (err, policyId) => {
+      // Advisory: it decides nothing, so a throwing hook must not become the verdict.
+      try {
+        if (hook) hook(err, policyId)
+        else console.warn(err.message)
+      } catch {}
+    })
   }
 
   private _resolveSubject(subjectId: string): Promise<IamRequest.ISubject> {
@@ -580,6 +600,7 @@ export class IamEngine<
     const deps = this._loaderDeps()
     const build = (async () => {
       const [roles, policies] = await Promise.all([this._loadRoles(), loadPolicies(deps)])
+      this._reportUnreachableRoleTargets(policies, roles)
       const { compileTable } = await import('./compiled/compiled.compile')
       const table = this._compileOrReport(compileTable, roles, policies)
       // An invalidation that landed mid-build wins; do not store this table.
