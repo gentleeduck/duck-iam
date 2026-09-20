@@ -35,7 +35,7 @@ async function plantFlowRow(
   metadata: unknown,
 ): Promise<string> {
   const token = 'tampered-token'
-  await adapter.credentials.upsert(
+  await adapter.credentials.create(
     credentialInput({
       identityId,
       kind: 'recovery',

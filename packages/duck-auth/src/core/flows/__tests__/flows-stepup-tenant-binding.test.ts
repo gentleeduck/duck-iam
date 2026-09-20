@@ -1,16 +1,6 @@
 /**
  * The F28 shape, found by sweeping for it: a gate that resolves its scope from
  * one input and acts on another, with nothing binding the two.
- *
- * `completeStepUp` took an optional `tenantId` that scoped the MFA credential
- * read, while the session it was stepping up carried a tenant of its own -
- * and the default when it was omitted was `{}`, an unscoped read. So a factor
- * enrolled in tenant B satisfied a step-up for a session in tenant A: a tenant
- * that had never seen a factor for that identity and whose `hasTotp` therefore
- * never demanded one. Credentials are tenant-scoped; identities are not.
- *
- * The parameter is gone. The factor is read in the session's tenant, and there
- * is no second input left to disagree with it.
  */
 
 import { describe, expect, it } from 'vitest'
