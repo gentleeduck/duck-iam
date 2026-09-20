@@ -1,17 +1,9 @@
 import { AuthError } from '~/core/errors'
 import { isBlockedHostname, isBlockedIpv4, isBlockedIpv6, parseIpv4, parseIpv6 } from './url-validators.constants'
-/**
- * URL / path validators for outbound URL construction in recovery /
- * verification / deletion flows that produce links delivered to the
- * user via email or SMS.
- */
 
-/**
- * Type predicate for a safe same-origin path suitable for concatenation
- * onto `baseUrl`. Rejects values that would let an attacker swap the
- * resulting URL's authority: missing leading `/`, protocol-relative
- * forms (`//`, `/\`), CR/LF injection, or out-of-bounds length.
- */
+/** True for a same-origin path safe to concatenate onto `baseUrl`.
+ *  SECURITY: rejects anything that could swap the resulting URL's authority: a missing leading `/`, the
+ *  protocol-relative `//` and `/\`, CR/LF, or overlength. */
 export function isSafeCallbackPath(value: unknown): value is string {
   if (typeof value !== 'string') return false
   if (value.length === 0 || value.length > 256) return false
@@ -30,15 +22,7 @@ function hasControlChar(s: string): boolean {
   return false
 }
 
-/**
- * Refuse an outbound URL that points at loopback, a private range, link-local or cloud metadata.
- *
- * `label` names the setting in the error, because the only useful thing to say about a refused URL
- * is which piece of configuration carries it.
- *
- * This sees the spelling of a host and nothing else. A name that resolves inward is invisible to it
- * by construction; `assertResolvedHostIsPublic` is the half that needs a resolver.
- */
+/** Refuse an outbound URL that points at loopback, a private range, link-local or cloud metadata. */
 export function assertSafeOutboundUrl(rawUrl: string, opts: { label: string; allowInsecure?: boolean }): void {
   const { label } = opts
   const allowInsecure = opts.allowInsecure ?? false

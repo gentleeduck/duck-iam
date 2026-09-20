@@ -1,3 +1,4 @@
+/** Session-drift policy: what each request is compared against, and the reaction a verdict carries. */
 export namespace Hijack {
   export interface Cfg {
     /** Reaction on IP change. Default 'rotate'. */
@@ -25,6 +26,7 @@ export namespace Hijack {
     | {
         ok: false
         reaction: Hijack.Reaction
+        /** Which baseline drifted. */
         signal: 'ip-change' | 'user-agent-change'
         from: string
         to: string

@@ -4,10 +4,6 @@
  * detectors themselves (a plugin whose output steers the sum). The existing
  * suites cover the happy ladder and garbage signal shapes. These cover the
  * arithmetic and the exemptions, which is where a bypass hides.
- *
- * Sources: OWASP ASVS V7 (logging and monitoring must record the decision that
- * was taken), NIST SP 800-63B section 5.2.2 on risk-based reauthentication, and
- * the general rule that an evasion is whatever the scorer is told to skip.
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { Anomaly } from '~/core/anomaly/anomaly.types'
@@ -572,10 +568,14 @@ describe('device fingerprint: what counts as the same device', () => {
     expect(await seen(detector, { ip: '::ffff:198.51.100.9', userAgent: UA })).toHaveLength(1)
   })
 
-  it('emits nothing when no hashing helper was supplied and no composer overrides it', async () => {
+  it('is refused at construction when no hashing helper was supplied and no composer overrides it', () => {
+    // This asserted `[]` - the detector built, registered, listed, and stayed silent on every request.
+    // Its own neighbours here are named for the opposite rule ("rather than going quiet"): a request
+    // that will not identify itself gets a shared bucket instead of switching the detector off.
     const store = new AuthMemoryDeviceFingerprintStore()
-    const detector = deviceFingerprintDetector({ store })
-    expect(await seen(detector, { ip: '203.0.113.9', userAgent: UA })).toEqual([])
+    expect(() => deviceFingerprintDetector({ store })).toThrowError(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
   })
 
   it('keeps the raw ip and user agent out of the evidence, and so out of the event', async () => {
@@ -630,5 +630,46 @@ describe('device fingerprint: what counts as the same device', () => {
       Array.from({ length: 8 }, () => seen(detector, { ip: '203.0.113.9', userAgent: UA })),
     )
     expect(results.filter((r) => r.length > 0)).toHaveLength(1)
+  })
+})
+
+/**
+ * `Signal.score` is documented as "0..1 ... clamped into that range on intake", and `evaluate`
+ * clamps in `_runDetector`. `decide` is the other intake - documented as the same ladder, standalone,
+ * for re-deciding on signals a caller kept - and it clamped nothing, so the noisy-or arithmetic ran on
+ * numbers it is not defined over.
+ */
+describe('decide normalises the scores it is handed, like evaluate does', () => {
+  it('a second equally-severe signal cannot lower the decision', () => {
+    const facet = new AnomalyFacet(new InMemoryEvents())
+    const one = facet.decide([signalOf('new-device', 1.5)])
+    const two = facet.decide([signalOf('new-device', 1.5), signalOf('impossible-travel', 1.5)])
+
+    expect(one).toBe('deny')
+    expect(two).toBe('deny')
+  })
+
+  it('a score above 1 is worth exactly 1, not more', () => {
+    const facet = new AnomalyFacet(new InMemoryEvents())
+    // 0.5 with a clamped 1.0 saturates; unclamped, `1 - 4` made it 1 - (0.5 * -3) = 2.5, which still
+    // denies - the direction only inverts once two out-of-range signals meet.
+    expect(facet.decide([signalOf('new-device', 4), signalOf('impossible-travel', 0.5)])).toBe('deny')
+  })
+
+  it('a negative score is worth zero, not a discount on the others', () => {
+    const facet = new AnomalyFacet(new InMemoryEvents())
+    // Unclamped, `1 - (-9)` is 10: the remainder is multiplied by ten and the aggregate comes out at
+    // -1, so one signal carrying a negative score *mutes* every real one beside it and the ladder
+    // reports allow. That is the fail-open direction, and it needs one misbehaving detector.
+    expect(facet.decide([signalOf('new-device', 0.8), signalOf('impossible-travel', -9)])).toBe('step-up')
+  })
+
+  it('evaluate and decide agree on the same signals', async () => {
+    const facet = new AnomalyFacet(new InMemoryEvents())
+    facet.register(detectorOf('d', [signalOf('new-device', 1.5), signalOf('impossible-travel', 1.5)]))
+    const result = await facet.evaluate({ identity, req: { now: NOW }, session })
+
+    expect(facet.decide(result.signals)).toBe(result.decision)
+    expect(result.decision).toBe('deny')
   })
 })

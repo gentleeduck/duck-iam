@@ -3,27 +3,38 @@
 import { AuthError } from '~/core/errors'
 import type { Anomaly } from './anomaly.types'
 
-/** Reference in-memory device-fingerprint store; production wires Redis. */
+/** The reference in-memory store; production wires Redis. */
 export class AuthMemoryDeviceFingerprintStore implements AuthDeviceFingerprint.IStore {
   /** Insertion-ordered, so the oldest entry is the first the cap evicts. */
   private readonly _known = new Map<string, Map<string, number>>()
   private readonly _maxPerIdentity: number
   private readonly _ttlMs: number
 
-  /**
-   * One request per rotated user agent used to grow the set without bound, and this is the
-   * reference implementation the default wiring reaches for. Bounded both ways: entries expire, and
-   * the oldest is evicted once an identity holds `maxPerIdentity` of them.
-   */
+  /** Bounded both ways *per identity*, since one request per rotated user agent would otherwise grow
+   *  that set without bound: entries expire, and the oldest is evicted past `maxPerIdentity`.
+   *  NOTE: the outer map grows one entry per identity ever seen and is never swept. Its key is an
+   *  authenticated `identity.id`, not anything a request names, so it is bounded by the user base
+   *  rather than by traffic - the difference from `MemoryLimiter`, whose keys are request-supplied. */
   constructor(cfg: { maxPerIdentity?: number; ttlMs?: number } = {}) {
     this._maxPerIdentity = cfg.maxPerIdentity ?? MEMORY_MAX_PER_IDENTITY
     this._ttlMs = cfg.ttlMs ?? MEMORY_TTL_MS
+    // SECURITY: both bounds are applied as a bare `>`, and every comparison against NaN is false, so a
+    // non-finite value does not widen the bound, it removes it -- leaving the unbounded growth the doc
+    // above says is prevented. Zero and below fail the other way, remembering nothing, so every request
+    // is a first sighting.
+    if (!Number.isFinite(this._maxPerIdentity) || this._maxPerIdentity <= 0) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `AuthMemoryDeviceFingerprintStore: maxPerIdentity must be a finite positive number (got ${cfg.maxPerIdentity})`,
+      })
+    }
+    if (!Number.isFinite(this._ttlMs) || this._ttlMs <= 0) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `AuthMemoryDeviceFingerprintStore: ttlMs must be a finite positive number (got ${cfg.ttlMs})`,
+      })
+    }
   }
 
-  /**
-   * Atomic check-and-insert. Returns true when the fingerprint was
-   * already known; false on first sight.
-   */
+  /** Atomic check-and-insert: `true` when the fingerprint was already known, `false` on first sight. */
   async checkAndRemember(identityId: string, fingerprint: string): Promise<boolean> {
     const now = Date.now()
     let seen = this._known.get(identityId)
@@ -47,10 +58,7 @@ export class AuthMemoryDeviceFingerprintStore implements AuthDeviceFingerprint.I
     return false
   }
 
-  /**
-   * Wipe every fingerprint for an identity. Used by sign-out-of-all
-   * flows + after a forced credential reset.
-   */
+  /** For sign-out-of-all flows, and after a forced credential reset. */
   async forgetAll(identityId: string): Promise<void> {
     this._known.delete(identityId)
   }
@@ -69,21 +77,29 @@ const MEMORY_TTL_MS = 90 * 24 * 60 * 60 * 1000
 const UA_MAX_LENGTH = 1024
 const IP_MAX_LENGTH = 64
 
-/**
- * The bucket a request that declines to identify itself lands in.
- *
- * SECURITY: these used to make `defaultCompose` return null, which switched the detector off for
- * that request. Sending no User-Agent, or padding it past the cap, is entirely the caller's choice
- * and is the one thing no real browser does, so the evasion was both free and the exact opposite of
- * the signal it suppressed. One shared bucket instead: the first such request is a new device and
- * raises its signal, and the rest are the same device, which is what they look like.
- */
+/** The bucket a request that declines to identify itself lands in.
+ *  SECURITY: never `null` from `defaultCompose`, which would switch the detector off for exactly the
+ *  caller who chose to send no User-Agent. One shared bucket instead, so the first such request is a
+ *  new device and the rest are the same one. */
 const ABSENT = '\u0000absent'
 const UNPARSED = '\u0000unparsed'
 
 /** authSha256(`${ua}|${ipSubnet}`); /24 IPv4, /48 IPv6. Roaming-tolerant, ISP-sensitive. */
-function defaultCompose(req: Anomaly.RequestSnapshot, authSha256: (s: string) => string): string | null {
+function defaultCompose(req: Anomaly.RequestSnapshot, authSha256: (s: string) => string): string {
   return authSha256(`${uaKey(req.userAgent?.trim())}|${ipKey(req.ip?.trim())}`)
+}
+
+/** The default composer, bound to the hash it needs.
+ *  SECURITY: refused at construction, because a composer with nothing to hash with answered `null` for
+ *  every request and the detector skipped every one of them. Registered, listed, and silent - and a
+ *  detector that is switched off reads exactly like one that finds nothing wrong. */
+function defaultComposerFor(authSha256: ((s: string) => string) | undefined): (req: Anomaly.RequestSnapshot) => string {
+  if (!authSha256) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: 'deviceFingerprintDetector: pass authSha256 to use the default composer, or a compose of your own',
+    })
+  }
+  return (req) => defaultCompose(req, authSha256)
 }
 
 function uaKey(ua: string | undefined): string {
@@ -118,8 +134,8 @@ function ipSubnet(ip: string): string {
   }
   // IPv6 /48; expand `::` first or distinct prefixes collapse to one key.
   const expanded = expandIpv6(ip)
-  // SECURITY: junk used to be hashed as-is, so two different unparseable strings were two different
-  // devices - a way to mint a `new-device` signal on demand wherever the ip comes from a header.
+  // SECURITY: junk hashed as-is made two different unparseable strings two different devices, which is
+  // a way to mint a `new-device` signal on demand wherever the ip comes from a header.
   if (expanded === null) return UNPARSED
   return `${expanded.split(':').slice(0, 3).join(':')}::`
 }
@@ -144,11 +160,8 @@ function expandIpv6(addr: string): string | null {
   return parts.map((h) => h.padStart(4, '0').toLowerCase()).join(':')
 }
 
-/**
- * Build a `new-device` anomaly detector. On first sight of an
- * (identity, fingerprint) pair the detector emits a single signal
- * with the configured score; subsequent sightings emit nothing.
- */
+/** A `new-device` detector: one signal at the configured score on first sight of an
+ *  (identity, fingerprint) pair, nothing on later ones. */
 export function deviceFingerprintDetector(cfg: AuthDeviceFingerprint.Cfg): Anomaly.Detector {
   const score = cfg.score ?? 0.7
   if (!Number.isFinite(score) || score < 0 || score > 1) {
@@ -156,12 +169,7 @@ export function deviceFingerprintDetector(cfg: AuthDeviceFingerprint.Cfg): Anoma
       detail: `deviceFingerprintDetector: score must be a finite number in [0, 1] (got ${score})`,
     })
   }
-  const compose = cfg.compose
-    ? cfg.compose
-    : (req: Anomaly.RequestSnapshot): string | null => {
-        if (!cfg.authSha256) return null
-        return defaultCompose(req, cfg.authSha256)
-      }
+  const compose = cfg.compose ?? defaultComposerFor(cfg.authSha256)
 
   return {
     id: 'new-device',
@@ -178,55 +186,34 @@ export function deviceFingerprintDetector(cfg: AuthDeviceFingerprint.Cfg): Anoma
   }
 }
 
+/** Configuration for the device-fingerprint detector. */
 export namespace AuthDeviceFingerprint {
   export interface Cfg {
-    /**
-     * Persistence backing. Memory impl in tests; Redis impl in prod.
-     * Required.
-     */
+    /** The memory implementation in tests, the Redis one in production. */
     store: AuthDeviceFingerprint.IStore
-    /**
-     * Score emitted on first sight. Default 0.7 (high but below the
-     * default suspicious threshold of 0.8 so it does not auto-step-up
-     * - apps tune up when they want stricter behavior).
-     */
+    /** Emitted on first sight. Default 0.7: high, but under the 0.8 suspicious threshold, so it does not
+     *  auto-step-up until an app tunes it up. */
     score?: number
-    /**
-     * Fingerprint composer override. Default hashes `${ua}|${ipSubnet}`
-     * via the bound crypto helper. Custom composers can add accept-
-     * language, screen size (from a beacon), etc.
-     */
+    /** Fingerprint composer override; the default hashes `${ua}|${ipSubnet}`. A custom one can fold
+     *  in accept-language, screen size from a beacon, and so on. */
     compose?: (req: Anomaly.RequestSnapshot) => string | null
-    /** Hashing helper (authSha256). Required when relying on default compose. */
+    /** `authSha256`, required when relying on the default compose. */
     authSha256?: (s: string) => string
   }
 
   export interface IStore {
-    /**
-     * Has this identity been seen with `fingerprint` before? Returns
-     * true on a known device; false on a brand-new one. Implementations
-     * must check + insert atomically (concurrent first-sights from the
-     * same device should resolve to "known" for all but the first).
-     */
+    /** Whether this identity has been seen with `fingerprint` before. Must check and insert
+     *  atomically, so concurrent first sights of one device resolve to "known" for all but the first. */
     checkAndRemember(identityId: string, fingerprint: string): Promise<boolean>
-    /**
-     * Forget every device for an identity. Used by "sign out of all
-     * devices" flows + after a credential reset.
-     */
+    /** For "sign out of all devices" flows, and after a credential reset. */
     forgetAll(identityId: string): Promise<void>
-    /**
-     * Forget one sighting.
-     *
-     * `checkAndRemember` inserts on first sight whatever the caller decides afterwards, so a
-     * sign-in the application denied on a `new-device` signal had already whitelisted that
-     * fingerprint and the retry passed unremarked. An application that refuses the attempt calls
-     * this with the `fingerprint` from the signal's evidence, and the retry is a new device again.
-     */
+    /** Forget one sighting. `checkAndRemember` inserts on first sight whatever the caller decides
+     *  afterwards, so an application that denies the attempt calls this with the `fingerprint` from the
+     *  signal's evidence, or the retry passes unremarked. */
     forget(identityId: string, fingerprint: string): Promise<void>
   }
 }
 
-/** Factory around {@link AuthMemoryDeviceFingerprintStore}, for callers who prefer functions to `new`. */
 export function authMemoryDeviceFingerprintStore(): AuthMemoryDeviceFingerprintStore {
   return new AuthMemoryDeviceFingerprintStore()
 }

@@ -4,12 +4,6 @@
  * policy engine fails is by resolving the wrong way at a boundary: taking the
  * weaker of two signals, treating a stripped header as agreement, or downgrading
  * something the operator asked to be fatal.
- *
- * The comparison is deliberately three-state. Both sides absent is agreement,
- * both present and different is a mismatch, and exactly one present is
- * "asymmetric", which is softened one notch so a proxy that drops a header does
- * not force every guest through MFA. That softening is the part most worth
- * pinning: it is a deliberate weakening, and it should apply only where intended.
  */
 import { describe, expect, it } from 'vitest'
 import { InMemoryEvents } from '~/core/events'
@@ -29,6 +23,7 @@ function session(over: Partial<Sessions.Me> = {}): Sessions.Me {
     absoluteExpiresAt: new Date(now.getTime() + 86_400_000),
     actingAs: null,
     createdAt: now,
+    updatedAt: now,
     csrfHash: null,
     expiresAt: new Date(now.getTime() + 60_000),
     factors: [],

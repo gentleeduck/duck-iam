@@ -1,10 +1,7 @@
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 
-/**
- * Anomaly-detection contract + the AnomalyFacet's own scoring types —
- * the single `Anomaly` namespace for the anomaly subject.
- */
+/** Signal kinds, the detector contract, and the request snapshot they are scored against. */
 export namespace Anomaly {
   export type Kind = 'impossible-travel' | 'new-device' | 'high-velocity' | 'off-hours' | 'concurrent-geo'
 
@@ -30,7 +27,6 @@ export namespace Anomaly {
     evaluate(ctx: { session: Sessions.Me; identity: Identities.Me; req: Readonly<RequestSnapshot> }): Promise<Signal[]>
   }
 
-  /** Recommended response for the caller after evaluating signals. */
   export type Decision = 'allow' | 'step-up' | 'deny'
 
   export type Cfg = {
@@ -45,16 +41,10 @@ export namespace Anomaly {
      * the bare one, which is how an operator stops a plugin claiming an override written for a
      * different detector: `isValidSignal` accepts kinds outside the union so plugins can extend it,
      * and a free-string kind would otherwise choose which configured reaction applies to it.
-     *
-     * `deny` and `step-up` raise the outcome whatever the score is. `allow` mutes that signal: its
-     * score leaves the aggregate entirely, so a noisy detector can be held back without also
-     * holding back the detectors that ran beside it.
      */
     reactions?: Record<string, Decision>
-    /**
-     * How long one detector may take before it is abandoned and its signals dropped. Default 1000.
-     * A detector that hangs on a network call would otherwise hold the request open for ever.
-     */
+    /** How long one detector may take before it is abandoned and its signals dropped, 1000 by default.
+     *  A detector hanging on a network call would otherwise hold the request open for ever. */
     detectorTimeoutMs: number
   }
 
@@ -63,7 +53,7 @@ export namespace Anomaly {
     score: number
     /** Individual detector outputs that contributed to the score. */
     signals: Signal[]
-    /** Recommended response. Callers may override but should log when they do. */
+    /** Callers may override it, but should log when they do. */
     decision: Decision
   }
 }

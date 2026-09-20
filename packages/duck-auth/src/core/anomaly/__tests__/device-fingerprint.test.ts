@@ -190,3 +190,33 @@ describe('deviceFingerprintDetector', () => {
     })
   })
 })
+
+describe('a detector that cannot fingerprint anything', () => {
+  it('is refused at construction rather than registering and staying silent', () => {
+    // Neither `compose` nor `authSha256`: the composer has nothing to hash with, so every request
+    // answered `[]` - a detector that is switched off and a detector that sees nothing suspicious
+    // are the same observation to a caller, and this one registers, lists and never fires.
+    // `AuthError.message` is the bare code, so the prose is read off `meta.detail` - asserting a regex
+    // against the message here passed for the wrong reason before the fix and failed for the wrong
+    // reason after it.
+    expect(() => deviceFingerprintDetector({ store: new AuthMemoryDeviceFingerprintStore() })).toThrowError(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: expect.objectContaining({ detail: expect.stringMatching(/authSha256/) }),
+      }),
+    )
+  })
+
+  it('a custom compose needs no authSha256', async () => {
+    const detector = deviceFingerprintDetector({
+      compose: () => 'fixed-fingerprint',
+      store: new AuthMemoryDeviceFingerprintStore(),
+    })
+    expect(await detector.evaluate(ctx())).toHaveLength(1)
+  })
+
+  it('authSha256 alone is enough', async () => {
+    const detector = deviceFingerprintDetector({ authSha256: sha256, store: new AuthMemoryDeviceFingerprintStore() })
+    expect(await detector.evaluate(ctx())).toHaveLength(1)
+  })
+})

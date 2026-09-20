@@ -8,17 +8,13 @@ export const DEFAULT_ANOMALY_CONFIG: Anomaly.Cfg = {
   threshold: 0.7,
 }
 
+/** `setTimeout` overflows past this and silently uses 1ms instead, which abandons every detector. */
+export const DETECTOR_TIMEOUT_MAX_MS = 2_147_483_647
+
 /** Separates a detector id from a signal kind in a scoped `reactions` key. */
 export const REACTION_SCOPE = '#'
 
-/**
- * Combine independent signals, saturating at 1.
- *
- * A plain sum calibrates the ladder against how many detectors are registered rather than against
- * how severe they are: five mild 0.2 signals crossed a deny nothing asked for. Noisy-or keeps the
- * aggregate inside the 0..1 range a single signal is documented to use, so `denyAt: 0.95` means one
- * near-certain signal or several strong ones whatever the detector count is.
- */
+/** Combine independent signals, saturating at 1. */
 export function combineScores(scores: number[]): number {
   let remainder = 1
   for (const score of scores) remainder *= 1 - score
