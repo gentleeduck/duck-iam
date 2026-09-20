@@ -206,6 +206,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/role-limit-fallback-parity.test.ts` | 5 | the compiled table and the interpreter it falls back to |
 | `core/engine/__tests__/role-limit-latch.test.ts` | 6 | the role-limit latch clears when the role set changes |
 | `core/engine/__tests__/rule-excluded-by-its-own-policy.test.ts` | 10 | a rule its own policy’s targets never admit is reported |
+| `core/engine/__tests__/rule-unreachable-from-its-own-contents.test.ts` | 12 | a rule no request can reach, for reasons wholly inside the rule |
 | `core/engine/__tests__/scope-config-guards.test.ts` | 14 | scopeMode and scopeCombine are checked at boot, like policyCombine |
 | `core/engine/__tests__/scope-covers-contract.test.ts` | 45 | scopeCovers agrees with matchesScope on the flat axis |
 | `core/engine/__tests__/scope-deny-follows-no-hierarchy.test.ts` | 6 | a scope condition does not inherit the hierarchy a grant has |
@@ -290,7 +291,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2801** | |
+| **Subtotal** | **2813** | |
 
 ---
 
@@ -430,7 +431,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 168 | 2801 |
+| Core | 169 | 2813 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -438,4 +439,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **319** | **6261** |
+| **Total** | **320** | **6273** |

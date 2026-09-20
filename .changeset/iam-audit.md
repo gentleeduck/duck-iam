@@ -693,6 +693,34 @@ conservative choice at the time and this round measured it wrong: the policy is
 reachable, and the dead rule still needs naming. It now asserts the policy-level
 silence *and* the new per-rule report.
 
+### A rule that no request can reach is now reported
+
+A rule can be unreachable for reasons wholly inside itself, and until now
+nothing said so. An empty `actions` or `resources` list matches nothing. An
+empty `any` group is false for every request - while an empty `all`, an empty
+`none` and `{}` are all true, so the one spelling that reads like "no
+conditions" is the one that retires the rule. `in` against an empty list can
+hold for no value. And a `none` group holding an item true for every request is
+false for every request.
+
+In each case a deny written that way never fires and the policy around it looks
+healthy. The engine now reports each unreachable rule once through
+`hooks.onPolicyError`, or one `console.warn` when no hook is installed. No
+verdict changes.
+
+Only falsity that reaches the rule is reported: the walk descends `all` chains
+and stops under `any`, where a false item is a dead disjunct, and under `none`,
+where a false item helps the rule apply. `subset_of` and `superset_of` against
+an empty list are left alone because an empty array field satisfies them - a
+fact about the request, not the policy.
+
+`validatePolicy` already rejected the empty lists, but nothing on the load path
+calls it, so a seeded row or a migration carried them straight past; the two
+condition shapes were unguarded even at write time. Relatedly, a rule with an
+empty list inside a policy that has `targets` was previously reported as one
+the policy's targets exclude. That was a misdiagnosis - the rule is dead
+whatever the targets say - and it now reports the rule's own list instead.
+
 ### A deny written against `scope` does not follow the hierarchy its grant does
 
 Reported and documented, not changed — the behaviour is each operator doing
