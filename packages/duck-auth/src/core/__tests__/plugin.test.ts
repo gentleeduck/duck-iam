@@ -106,6 +106,25 @@ describe('Plugin system', () => {
     expect(handler).not.toHaveBeenCalled()
   })
 
+  it('a throwing install hook leaves none of its providers registered', async () => {
+    // The half the sibling test above does not reach. `Providers` has no unregister, so a provider that
+    // landed before the hook threw stayed reachable through `signIn` for the life of the engine - wired
+    // by a plugin that is not installed, whose `install` never ran, and whose facet and events are gone.
+    const auth = buildAuth()
+    await expect(
+      auth.use({
+        id: 'boom-providers',
+        install: () => {
+          throw new Error('install failed')
+        },
+        providers: [{ begin: async () => [], complete: async () => [], id: 'orphan', kind: 'test' }],
+      } as never),
+    ).rejects.toThrow('install failed')
+
+    expect(auth.plugins.installed.has('boom-providers')).toBe(false)
+    expect(auth.providers.has('orphan')).toBe(false)
+  })
+
   it('a plugin whose provider list collides registers none of it', async () => {
     // `Providers` has no unregister, so the two that landed before the collision would have stayed
     // for the life of the engine, under a plugin id that is free to be installed again.

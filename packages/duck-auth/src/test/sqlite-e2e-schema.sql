@@ -11,8 +11,8 @@ CREATE TABLE `auth_credentials` (
 	`version` integer DEFAULT 1 NOT NULL,
 	`created_by` text,
 	`updated_by` text,
-	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
+	`updated_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	`last_used_at` integer,
 	`expires_at` integer,
 	`revoked_at` integer,
@@ -27,9 +27,10 @@ CREATE TABLE `auth_credentials` (
 );
 
 CREATE INDEX `auth_credentials_identity_kind` ON `auth_credentials` (`identity_id`,`kind`);
-CREATE INDEX `auth_credentials_oauth` ON `auth_credentials` ((metadata ->> '$.provider'),(metadata ->> '$.sub')) WHERE kind = 'oauth';
 CREATE INDEX `auth_credentials_kind_secret` ON `auth_credentials` (`kind`,`secret`);
 CREATE INDEX `auth_credentials_tenant` ON `auth_credentials` (`tenant_id`);
+CREATE UNIQUE INDEX `uq_auth_credentials_password` ON `auth_credentials` (`identity_id`) WHERE kind = 'password' and tenant_id is null;
+CREATE UNIQUE INDEX `uq_auth_credentials_password_tenant` ON `auth_credentials` (`identity_id`,`tenant_id`) WHERE kind = 'password' and tenant_id is not null;
 CREATE INDEX `auth_credentials_expires_at` ON `auth_credentials` (`expires_at`) WHERE expires_at IS NOT NULL;
 CREATE TABLE `auth_identities` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -38,23 +39,27 @@ CREATE TABLE `auth_identities` (
 	`email_verified` integer DEFAULT false NOT NULL,
 	`created_by` text,
 	`updated_by` text,
-	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
+	`updated_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	`deleted_at` integer,
 	`deleted_by` text,
 	CONSTRAINT "chk_auth_identities_profile_shape" CHECK(coalesce(json_type(profile, '$.username'), '') = 'text' and coalesce(json_extract(profile, '$.username'), '') <> ''
         and coalesce(json_type(profile, '$.email'), '') = 'text' and coalesce(json_extract(profile, '$.email'), '') <> ''),
-	CONSTRAINT "chk_auth_identities_version" CHECK(version >= 1)
+	CONSTRAINT "chk_auth_identities_version" CHECK(version >= 1),
+	CONSTRAINT "chk_auth_identities_email_length" CHECK(length(profile ->> '$.email') <= 320),
+	CONSTRAINT "chk_auth_identities_username_length" CHECK(length(profile ->> '$.username') <= 191)
 );
 
 CREATE UNIQUE INDEX `uq_auth_identities_email` ON `auth_identities` ((lower(profile ->> '$.email')));
 CREATE UNIQUE INDEX `uq_auth_identities_username` ON `auth_identities` ((lower(profile ->> '$.username')));
+CREATE INDEX `auth_identities_deleted_at` ON `auth_identities` (`deleted_at`) WHERE deleted_at is not null;
 CREATE TABLE `auth_identity_providers` (
 	`id` text PRIMARY KEY NOT NULL,
 	`identity_id` text NOT NULL,
 	`provider_id` text NOT NULL,
 	`provider_sub` text NOT NULL,
-	`added_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	`added_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
+	`added_by` text,
 	FOREIGN KEY (`identity_id`) REFERENCES `auth_identities`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "chk_auth_identity_providers_provider_not_blank" CHECK(provider_id <> ''),
 	CONSTRAINT "chk_auth_identity_providers_sub_not_blank" CHECK(provider_sub <> '')
@@ -74,8 +79,8 @@ CREATE TABLE `auth_sessions` (
 	`ip` text,
 	`user_agent` text,
 	`fingerprint` text,
-	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
+	`updated_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	`rotated_at` integer NOT NULL,
 	`expires_at` integer NOT NULL,
 	`absolute_expires_at` integer NOT NULL,

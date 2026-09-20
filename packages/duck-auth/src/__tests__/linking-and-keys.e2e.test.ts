@@ -1,19 +1,4 @@
-/**
- * E2E: provider linking and API keys against REAL Postgres.
- *
- * Provider linking is where two of this audit's defects lived. `identities.link`
- * and `findByProviderSub` were both a SQL syntax error on Postgres, a stray
- * bracket before `::jsonb`, so every social-account link threw. The compliance
- * matrix caught them at the store; nothing exercised the flow that calls them, and
- * the flow is what an app actually reaches for. This suite closes that.
- *
- * API keys had no coverage at all. They are long-lived bearer secrets whose only
- * defence is that revocation reaches the row, which is exactly the sort of claim a
- * memory store answers from the object it is already holding.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset; `globalSetup` provisions a
- * container when docker is available.
- */
+/** E2E: provider linking and API keys against REAL Postgres. */
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
@@ -201,7 +186,9 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       })
       await stores.identities.softDelete(id, 60_000)
 
-      expect(await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).toBeNull()
+      await expect(stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
 
     it('keeps the provider sub while the holder is soft-deleted, so cancelling gets the login back', async () => {
@@ -250,7 +237,9 @@ suite('E2E provider linking and API keys on real Postgres', () => {
 
       await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
 
-      expect(await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub: g })).toBeNull()
+      await expect(stores.identities.find({ providerId: 'oauth:authGoogle', providerSub: g })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
       expect((await stores.identities.find({ providerId: 'oauth:authGithub', providerSub: gh }))?.id).toBe(id)
     })
 
@@ -308,7 +297,9 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       })
 
       await auth.flows.unlinkProvider({ allowLockout: true, identityId: id, providerId: 'oauth:authGoogle' })
-      expect(await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).toBeNull()
+      await expect(stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
 
     it('a password counts as another way in, so the last link can go', async () => {
@@ -323,7 +314,9 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.passwords.set(id, 'correct-horse-battery', stores.credentials)
 
       await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
-      expect(await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).toBeNull()
+      await expect(stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
     })
   })
 

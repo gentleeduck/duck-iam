@@ -56,7 +56,7 @@ describe('authAssertComplianceStrict', () => {
     ).not.toThrow()
   })
 
-  it('fails with AUTH/MISCONFIGURED listing every missing requirement', () => {
+  it('fails with AUTH_MISCONFIGURED listing every missing requirement', () => {
     try {
       assertComplianceStrict({
         preset: 'hipaa',

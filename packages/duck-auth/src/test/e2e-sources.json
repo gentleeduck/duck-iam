@@ -329,7 +329,7 @@
         "internal-audit",
         "hostile-input"
       ],
-      "proves": "What the stored-session parser does with rows it did not write. Seven cases marked FINDING pin audit items S1, S1b and S6, which plan 02 describes and nothing has implemented: a null inside factors throws instead of returning null, taking getByHash and listByIdentity with it; a string, number or empty object in factors is dropped silently, leaving an aal:2 session with no factors; the sixteen-factor cap is not enforced on read; and a partial actingAs envelope is dropped rather than refused, losing both the audit trail and the impersonation expiry."
+      "proves": "What the stored-session parser does with rows it did not write. Audit items S1, S1b and S6 are closed here by plan 02 (C1-sessions/02-sessions-redis-hardening.md); the blobs are unchanged and only the expectations moved. Seven cases pin the fail-closed reads: a null, a string, a number or an empty object inside factors now refuses the row with AUTH_SESSION_REVOKED instead of throwing out of getByHash and listByIdentity or silently leaving an aal:2 session with no factors; the sixteen-factor cap is enforced on read; and a partial actingAs envelope is refused rather than dropped, which used to cost both the audit trail and the impersonation expiry. Two companion cases prove the refusals do not cost a row sitting on the cap or a complete actingAs envelope."
     },
     {
       "file": "src/core/sessions/__tests__/sessions.redis.e2e.test.ts",

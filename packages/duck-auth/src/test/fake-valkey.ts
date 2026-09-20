@@ -1,19 +1,7 @@
 import { FakeRedis } from '~/core/drivers/redis-like'
 import type { ValkeyClient, ValkeySubscriberClient } from '~/core/drivers/valkey-like'
 
-/**
- * An ioredis/iovalkey-shaped client over {@link FakeRedis}, so the valkey stores run in-process.
- *
- * Every valkey module was reachable only through `*.e2e.test.ts`, so without docker they measured
- * 0% - `valkey-like.ts` included, which is the file whose whole job is that ioredis takes options
- * variadically and dropping them is silent.
- *
- * This parses the variadic forms rather than accepting and ignoring them, which is the only reason
- * the suites below can fail: a translation that dropped `EX`/`NX`/`LIMIT` would land here as a plain
- * write and the contract cases would catch it. The parsing is a second implementation of ioredis's
- * argument order and could itself drift - the e2e suites against a real server are what pin it, and
- * they still run whenever docker is up.
- */
+/** An ioredis/iovalkey-shaped client over {@link FakeRedis}, so the valkey stores run in-process. */
 export class FakeValkey implements ValkeyClient.Me {
   readonly redis: FakeRedis
 

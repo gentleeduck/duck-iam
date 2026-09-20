@@ -1,29 +1,27 @@
+/** The compliance matrices every shipped adapter runs against a fresh instance of itself, so the assertions that
+ *  guarantee parity between them live in one place. */
+
 import { describe, expect, it } from 'vitest'
 import type { Adapter } from '~/adapters/adapter'
 import { withActor } from '~/core/actor'
 import type { Credential } from '~/core/credentials/credentials.types'
-import { authUuidV7 } from '~/core/crypto'
+import { authUuidV7, sha256 } from '~/core/crypto'
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
 import {
   CREDENTIAL_FIELDS,
-  expectFieldTypes,
+  CREDENTIAL_KEYS,
+  expectRow,
   IDENTITY_FIELDS,
+  IDENTITY_KEYS,
   SESSION_FIELDS,
+  SESSION_KEYS,
 } from '~/test/type-fidelity'
 
-/**
- * Compliance test matrix for Identity stores. Every shipped adapter (memory,
- * redis, drizzle, prisma) imports this and runs it against a fresh instance;
- * the same assertions guarantee behaviour parity across adapters.
- */
-/**
- * An identity id that is guaranteed absent AND guaranteed acceptable to the
- * adapter's `id` column. A literal like `'no-such-id'` is neither: Postgres
- * stores identity ids as `uuid` and rejects it as malformed input long before
- * it can miss. Creating a row and erasing it borrows the store's own id shape.
- */
+/** An identity id guaranteed both absent and acceptable to the adapter's `id` column. A literal like
+ *  `'no-such-id'` is neither, Postgres typing the column `uuid` and rejecting it as malformed long before it
+ *  can miss, so creating a row and erasing it borrows the store's own id shape. */
 async function absentIdentityId<P extends Identities.ProfileMetadataBase>(
   store: Identities.Store<P>,
 ): Promise<string> {
@@ -34,17 +32,10 @@ async function absentIdentityId<P extends Identities.ProfileMetadataBase>(
   return doomed.id
 }
 
-/**
- * A profile literal for the suite's unbound `P`.
- *
- * The one assertion in this file, down from sixty-eight identical ones. Every
- * adapter instantiates this suite with `{ username, email }`, and the suite only
- * ever exercises those two keys - but inside a function generic over
- * `P extends ProfileMetadataBase`, `P` could be narrower than any literal, so
- * `identityInput<P>` refuses one. A caller that binds `P` to a concrete type
- * needs no cast at all; this exists solely because the suite cannot see which
- * type it was instantiated with.
- */
+/** A profile literal for the suite's unbound `P`, and the one assertion in this file. Every adapter instantiates
+ *  the suite with `{ username, email }` and nothing here touches another key, but inside a function generic over
+ *  `P extends ProfileMetadataBase` the parameter could be narrower than any literal, so `identityInput<P>`
+ *  refuses one. A caller binding `P` to a concrete type needs no assertion at all. */
 function profileOf<P>(email: string, username: string): P {
   return { email, username } as P
 }
@@ -52,16 +43,10 @@ function profileOf<P>(email: string, username: string): P {
 /** Same idea for session compliance, whose identity ids come from the caller. */
 const ABSENT = '00000000-0000-4000-8000-000000000000'
 
-/**
- * Optional store methods are checked with `ctx.skip()`, never a bare `return`.
- * A `return` reported a PASS for a test that executed nothing, so an adapter
- * that had quietly stopped implementing `withClient` looked identical in the
- * output to one that implemented it correctly. A skip says which is which.
- */
-/**
- * `withClient` is the adapter's, not a facet's: one rebind puts every store on the caller's transaction,
- * because they share the one connection. An adapter with no transactional driver omits it by design.
- */
+/** `withClient` is the adapter's, not a facet's: one rebind puts every store on the caller's transaction, since
+ *  they share the one connection. An adapter with no transactional driver omits it by design. WARN: an absent
+ *  optional method is `ctx.skip()`, never a bare `return`, which reports a PASS for a test that ran nothing,
+ *  so an adapter that quietly stopped implementing this reads exactly like one that still does. */
 export function runAdapterRebindCompliance<P extends Identities.ProfileMetadataBase>(
   factory: () => Adapter.Me<P>,
   /** A handle the adapter's `withClient` accepts. The suite cannot invent one, and a bridge that validates
@@ -88,15 +73,9 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
   factory: () => Identities.Store<P>,
 ): void {
   describe('Identity.IStore compliance', () => {
-    /**
-     * The row type says `Date`, `number`, `boolean`. A driver that hands back
-     * the serialised form satisfies `tsc` all the same, because nothing
-     * re-checks a value once it has crossed the driver boundary - it surfaces
-     * in a caller as `deletedAt.getTime is not a function`, or silently, as a
-     * comparison that does the wrong thing. Every read path is checked, not
-     * just `create`: `create` builds the row in memory and may never have gone
-     * near the database.
-     */
+    /** The row type says `Date`, `number`, `boolean`, and a driver handing back the serialised form satisfies
+     *  `tsc` all the same, because nothing re-checks a value once it crosses the driver boundary. Every read path
+     *  is checked, not just `create`, which builds the row in memory and may never touch the database. */
     it('every read path returns the field types the row type declares', async () => {
       const store = factory()
       const created = await store.create(
@@ -105,16 +84,16 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
           providers: [{ addedAt: new Date(), providerId: 'password', providerSub: 'sub-1' }],
         }),
       )
-      expectFieldTypes(created, IDENTITY_FIELDS, 'create')
-      expectFieldTypes(await store.find({ id: created.id }), IDENTITY_FIELDS, 'findById')
-      expectFieldTypes(
+      expectRow(created, IDENTITY_FIELDS, IDENTITY_KEYS, 'create')
+      expectRow(await store.find({ id: created.id }), IDENTITY_FIELDS, IDENTITY_KEYS, 'findById')
+      expectRow(
         await store.find({ providerId: 'password', providerSub: 'sub-1' }),
-        IDENTITY_FIELDS,
+        IDENTITY_FIELDS, IDENTITY_KEYS,
         'findByProviderSub',
       )
-      expectFieldTypes(
+      expectRow(
         await store.update(created.id, { emailVerified: true }, created.version),
-        IDENTITY_FIELDS,
+        IDENTITY_FIELDS, IDENTITY_KEYS,
         'update',
       )
       const linked = await store.link(created.id, {
@@ -122,13 +101,13 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
         providerId: 'authGoogle',
         providerSub: 'g-1',
       })
-      expectFieldTypes(linked, IDENTITY_FIELDS, 'link')
-      expectFieldTypes(await store.unlink(created.id, 'authGoogle'), IDENTITY_FIELDS, 'unlink')
+      expectRow(linked, IDENTITY_FIELDS, IDENTITY_KEYS, 'link')
+      expectRow(await store.unlink(created.id, 'authGoogle'), IDENTITY_FIELDS, IDENTITY_KEYS, 'unlink')
       // A soft-deleted row is the one case with every nullable date populated.
       const deleted = await store.softDelete(created.id, 60_000)
-      expectFieldTypes(deleted, IDENTITY_FIELDS, 'softDelete')
+      expectRow(deleted, IDENTITY_FIELDS, IDENTITY_KEYS, 'softDelete')
       expect(deleted?.deletedAt).toBeInstanceOf(Date)
-      expectFieldTypes(await store.restore(created.id), IDENTITY_FIELDS, 'restore')
+      expectRow(await store.restore(created.id), IDENTITY_FIELDS, IDENTITY_KEYS, 'restore')
     })
 
     it('create stamps id, version=1, createdAt, updatedAt; respects providers + tenantId', async () => {
@@ -145,28 +124,19 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       expect(i.createdAt).toBeInstanceOf(Date)
     })
 
-    /**
-     * One rule for all three lifecycle writes: `null` means the id matched
-     * nothing, and a throw means a row WAS matched and a named rule refused it.
-     * Typing one of the three as though it cannot miss tells a caller which
-     * outcome the author happened to remember, not which outcomes exist.
-     */
-    it('softDelete, restore and erase all answer null for an id that matched nothing', async () => {
+    /** One rule for all three lifecycle writes: an id that matched nothing raises `AUTH_IDENTITY_NOT_FOUND`,
+     *  while a row that WAS matched and then refused raises the rule that refused it. */
+    it('softDelete, restore and erase all raise for an id that matched nothing', async () => {
       const store = factory()
       const gone = await absentIdentityId(store)
 
-      expect(await store.softDelete(gone, 60_000)).toBeNull()
-      expect(await store.restore(gone)).toBeNull()
-      expect(await store.erase(gone)).toBeNull()
+      await expect(store.softDelete(gone, 60_000)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      await expect(store.restore(gone)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      await expect(store.erase(gone)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
-    /**
-     * `created_by` and `updated_by` have been columns on `auth_identities`
-     * since 5.x with nothing in the package able to write them, so every row
-     * carried NULL provenance no matter who did the write. These pin that an
-     * ambient actor now reaches the column, and - just as important - that
-     * `createdBy` is written once and never re-stamped by a later writer.
-     */
+    /** Pins that an ambient actor reaches the provenance columns at all, and that `createdBy` is written once
+     *  and never re-stamped by a later writer. */
     it('a write under an ambient actor stamps provenance, and an update moves only updatedBy', async () => {
       const store = factory()
       const created = await withActor('op-1', () =>
@@ -181,6 +151,39 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       // Who made the row is not who last touched it.
       expect(updated?.createdBy).toBe('op-1')
       expect(updated?.updatedBy).toBe('op-2')
+    })
+
+    it('a provider link records who attached it, on create and on link alike', async () => {
+      const store = factory()
+      const created = await withActor('op-link', () =>
+        store.create(
+          identityInput({
+            profile: profileOf<P>('addedby@x', 'addedby'),
+            providers: [{ providerId: 'oauth:authGoogle', providerSub: 'ab-1' }],
+          }),
+        ),
+      )
+      expect(created.providers[0]?.addedBy).toBe('op-link')
+
+      // An admin attaching a login and the account holder attaching their own must not read alike, so
+      // the second link carries its own actor rather than the one that made the row.
+      const linked = await withActor('op-other', () =>
+        store.link(created.id, { providerId: 'saml:acme', providerSub: 'ab-2' }),
+      )
+      const attached = linked?.providers.find((p) => p.providerId === 'saml:acme')
+      expect(attached?.addedBy).toBe('op-other')
+      expect(linked?.providers.find((p) => p.providerId === 'oauth:authGoogle')?.addedBy).toBe('op-link')
+    })
+
+    it('a provider link attached with no actor bound records null, not a placeholder', async () => {
+      const store = factory()
+      const created = await store.create(
+        identityInput({
+          profile: profileOf<P>('noactor-link@x', 'noactorlink'),
+          providers: [{ providerId: 'oauth:authGoogle', providerSub: 'na-1' }],
+        }),
+      )
+      expect(created.providers[0]?.addedBy).toBeNull()
     })
 
     it('a write with no actor bound records null, not a placeholder', async () => {
@@ -210,6 +213,33 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       expect(back?.deletedBy).toBeNull()
     })
 
+    it('every write that touches the row moves updatedAt, links included', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: profileOf<P>('touch@x', 'touch') }))
+      await new Promise((r) => setTimeout(r, 25))
+
+      // `$onUpdate` moves it on every dialect, so a store that only stamps it on `update` reports an
+      // identity as untouched since signup after its logins have been rewired.
+      const linked = await store.link(i.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-touch' })
+      expect(linked.updatedAt.getTime()).toBeGreaterThan(i.updatedAt.getTime())
+
+      await new Promise((r) => setTimeout(r, 25))
+      const unlinked = await store.unlink(i.id, 'google')
+      expect(unlinked.updatedAt.getTime()).toBeGreaterThan(linked.updatedAt.getTime())
+    })
+
+    it('restoring a row that was never hidden answers it, rather than raising', async () => {
+      const store = factory()
+      const live = await store.create(identityInput({ profile: profileOf<P>('live@x', 'live') }))
+
+      // Nothing to undo is not a closed window: `AUTH_GRACE_EXPIRED` here would tell a caller retrying a
+      // restore that the account is past saving, when it is simply already live.
+      const back = await store.restore(live.id)
+      expect(back?.id).toBe(live.id)
+      expect(back?.deletedAt).toBeNull()
+      expect(back?.version).toBe(live.version)
+    })
+
     it('a hidden row keeps its provider login, so restore has nothing to refuse', async () => {
       const store = factory()
       const a = await store.create(identityInput({ profile: profileOf<P>('pa@x', 'pa') }))
@@ -218,24 +248,24 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
 
       // Unreadable, but not unclaimed: `findByProviderSub` hides the row while
       // `uq_auth_identity_providers_sub`, which is not partial, still holds the login.
-      expect(await store.find({ providerId: 'google', providerSub: 'sub-shared' })).toBeNull()
+      await expect(store.find({ providerId: 'google', providerSub: 'sub-shared' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
       const b = await store.create(identityInput({ profile: profileOf<P>('pb@x', 'pb') }))
       await expect(
         store.link(b.id, { addedAt: new Date(), providerId: 'google', providerSub: 'sub-shared' }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
 
       // Letting B take it would end A's only way back, which is what the grace window promises not to do.
-      expect((await store.restore(a.id))?.id).toBe(a.id)
+      expect((await store.restore(a.id)).id).toBe(a.id)
       expect((await store.find({ providerId: 'google', providerSub: 'sub-shared' }))?.id).toBe(a.id)
     })
 
     it('findByEmail finds a created identity (identities are global)', async () => {
       const store = factory()
       await store.create(identityInput({ profile: profileOf<P>('shared@x', 'shared') }))
-      expect(await store.find({ email: 'shared@x' })).not.toBeNull()
+      await expect(store.find({ email: 'shared@x' })).resolves.toBeTruthy()
     })
 
-    it('update with expectedVersion mismatch surfaces AUTH/STALE_WRITE', async () => {
+    it('update with expectedVersion mismatch surfaces AUTH_STALE_WRITE', async () => {
       const store = factory()
       const i = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a') }))
       await store.update(i.id, { profile: profileOf<P>('b@x', 'b') }, i.version)
@@ -269,11 +299,11 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const store = factory()
       const i = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a') }))
       await store.softDelete(i.id, 60_000)
-      expect(await store.find({ id: i.id })).toBeNull()
+      await expect(store.find({ id: i.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
       const restored = await store.restore(i.id)
       expect(restored?.id).toBe(i.id)
       await store.erase(i.id)
-      expect(await store.find({ id: i.id })).toBeNull()
+      await expect(store.find({ id: i.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
     it('softDelete clears emailVerified, so a restore does not hand back a verified claim', async () => {
@@ -297,13 +327,13 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const i = await store.create(identityInput({ profile: profileOf<P>('a@x', 'a') }))
 
       // `deletedAt` holds the moment the window shuts, so a negative grace is a
-      // window that shut before it opened - the same state a row reaches by
+      // window that shut before it opened, the same state a row reaches by
       // simply sitting there, without the test having to wait for it.
       await store.softDelete(i.id, -1000)
 
       await expect(store.restore(i.id)).rejects.toMatchObject({ code: 'AUTH_GRACE_EXPIRED' })
       // Still gone: a refused restore must not half-apply.
-      expect(await store.find({ id: i.id })).toBeNull()
+      await expect(store.find({ id: i.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
     it('a hidden row keeps its address, so restore has nothing to refuse', async () => {
@@ -317,16 +347,13 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
         store.create(identityInput({ profile: profileOf<P>('a@x', 'a2') })),
       ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
 
-      expect((await store.restore(i.id))?.id).toBe(i.id)
+      expect((await store.restore(i.id)).id).toBe(i.id)
       expect((await store.find({ email: 'a@x' }))?.id).toBe(i.id)
     })
 
-    /**
-     * Every dialect declares unique indexes on email and username, neither of them partial on
-     * `deletedAt`. A store that admits a duplicate is holding state Postgres will not, and every test
-     * that runs on it is asserting behaviour the real adapters do not have - so the rule belongs to
-     * the contract, not to one adapter's implementation of it.
-     */
+    /** Every dialect declares unique indexes on email and username, neither partial on `deletedAt`. A store that
+     *  admits a duplicate holds state Postgres will not, so every test running on it asserts behaviour the real
+     *  adapters do not have, which is why the rule belongs to the contract. */
     it('create refuses a second live row with the same email', async () => {
       const store = factory()
       await store.create(identityInput({ profile: profileOf<P>('dup@x', 'one') }))
@@ -346,16 +373,17 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
     })
 
-    it('find matches any of the spellings it is given', async () => {
+    it('find matches a row under any spelling of its address, not only the stored one', async () => {
       const store = factory()
-      const created = await store.create(identityInput({ profile: profileOf<P>('many@x', 'many') }))
-      expect((await store.find({ email: ['nobody@x', 'many@x'] }))?.id).toBe(created.id)
+      // Stored composed, looked up decomposed: one address to a reader, two byte strings to `lower()`.
+      const created = await store.create(identityInput({ profile: profileOf<P>('caf\u00e9@x', 'spellings') }))
+      expect((await store.find({ email: 'cafe\u0301@x' }))?.id).toBe(created.id)
     })
 
-    it('find refuses an empty list of spellings rather than matching the first row', async () => {
+    it('find matches nothing for a blank address rather than the first live row', async () => {
       const store = factory()
       await store.create(identityInput({ profile: profileOf<P>('any@x', 'any') }))
-      await expect(store.find({ email: [] })).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+      await expect(store.find({ email: '   ' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
     it('create refuses a second live row with the same username', async () => {
@@ -417,7 +445,7 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const found = await store.find({ providerId: 'oauth:authGoogle', providerSub: 'sub-1' })
       expect(found?.id).toBe(i.id)
       await store.unlink(i.id, 'oauth:authGoogle')
-      expect(await store.find({ providerId: 'oauth:authGoogle', providerSub: 'sub-1' })).toBeNull()
+      await expect(store.find({ providerId: 'oauth:authGoogle', providerSub: 'sub-1' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
     it('a provider link comes back as a real Date, not the string a JSON column stores', async () => {
@@ -451,16 +479,10 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       expect(reread?.providers.filter((l) => l.providerSub === 'sub-rl')).toHaveLength(1)
     })
 
-    /**
-     * `providers` lives in a json/jsonb column, which stores a `Date` as a
-     * string and hands back a string. `Identities.ProviderLink.addedAt` is
-     * typed `Date`, so every read path has to revive it or the type is a lie
-     * and callers get `addedAt.getTime is not a function`.
-     *
-     * Pinned on every read that can carry a link, and on the write that creates
-     * one, because a reviver applied to three of four paths is the harder bug:
-     * it works until the one call site nobody tested.
-     */
+    /** `providers` lives in a json column, which stores a `Date` as a string and hands one back, while
+     *  `ProviderLink.addedAt` is typed `Date`, so every read path has to revive it or the type is a lie. Pinned
+     *  on every read that can carry a link and on the write that creates one, because a reviver applied to three
+     *  of four paths works until the one call site nobody tested. */
     it('a provider link comes back as a real Date from every read', async () => {
       const store = factory()
       const i = await store.create(identityInput({ profile: profileOf<P>('pl-d@x', 'pld') }))
@@ -497,11 +519,34 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       expect((await store.find({ providerId: 'oauth:authGoogle', providerSub: 'shared-sub' }))?.id).toBe(first.id)
     })
 
-    /**
-     * The guard above counts hidden holders too, matching the address rule. Freeing the sub the moment
-     * the row is hidden would let the next caller take the account and leave its owner no way back,
-     * which is the one thing the grace window promises. Erase is what releases it.
-     */
+    /** `version` is what `update` locks against, so every write the row accepts has to move it. A write that
+     *  leaves it alone lets a caller holding the old number pass the check on a row that changed underneath. */
+    it('every accepted write moves the version, so a stale conditional update cannot pass', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: profileOf<P>('ver@x', 'ver') }))
+      let seen = i.version
+
+      const moved = async (label: string, write: Promise<{ version: number }>) => {
+        const after = await write
+        expect.soft(after.version, label).toBeGreaterThan(seen)
+        seen = after.version
+      }
+
+      await moved('link', store.link(i.id, { addedAt: new Date(), providerId: 'oauth:authGoogle', providerSub: 'v1' }))
+      await moved('unlink', store.unlink(i.id, 'oauth:authGoogle'))
+      await moved('softDelete', store.softDelete(i.id, 60_000))
+      await moved('restore', store.restore(i.id))
+
+      // The lock itself: the number the caller read before those writes no longer reaches the row.
+      await expect(store.update(i.id, { emailVerified: true }, i.version)).rejects.toMatchObject({
+        code: 'AUTH_STALE_WRITE',
+      })
+      expect((await store.update(i.id, { emailVerified: true }, seen)).version).toBeGreaterThan(seen)
+    })
+
+    /** The guard above counts hidden holders too, matching the address rule: freeing the sub the moment a row is
+     *  hidden lets the next caller take the account and leaves its owner no way back, which is the one thing the
+     *  grace window promises. Erase is what releases it. */
     it('a soft-deleted holder keeps its provider sub until it is erased', async () => {
       const store = factory()
       const first = await store.create(identityInput({ profile: profileOf<P>('fh1@x', 'fh1') }))
@@ -510,7 +555,7 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       await store.softDelete(first.id, 60_000)
 
       // Unreadable and still claimed: the read side hides the row, the write side keeps refusing it.
-      expect(await store.find({ providerId: 'oauth:authGoogle', providerSub: 'freed-sub' })).toBeNull()
+      await expect(store.find({ providerId: 'oauth:authGoogle', providerSub: 'freed-sub' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
       await expect(
         store.link(second.id, { addedAt: new Date(), providerId: 'oauth:authGoogle', providerSub: 'freed-sub' }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
@@ -520,7 +565,7 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       expect((await store.find({ providerId: 'oauth:authGoogle', providerSub: 'freed-sub' }))?.id).toBe(second.id)
     })
 
-    it('softDelete on an already-hidden row answers null and leaves the deadline where it was', async () => {
+    it('softDelete on an already-hidden row raises and leaves the deadline where it was', async () => {
       const store = factory()
       const i = await store.create(identityInput({ profile: profileOf<P>('sd@x', 'sd') }))
       const first = await store.softDelete(i.id, 60_000)
@@ -529,19 +574,94 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       // Re-stamping would push the purge deadline forward every time it was
       // called, so a row queued for hard deletion could be kept alive
       // indefinitely by repeating a delete that changes nothing.
-      expect(await store.softDelete(i.id, 60_000)).toBeNull()
+      await expect(store.softDelete(i.id, 60_000)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
-    it('merging a row into itself is a no-op that returns the row, not a deletion', async () => {
+    it('softDeleteMany answers the rows it hid, and only those', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: profileOf<P>('ss@x', 'ss') }))
-      const merged = await store.merge(i.id, i.id)
-      expect(merged?.id).toBe(i.id)
-      // The reassignment loops run and then the "duplicate" is erased - which
-      // is the survivor. A dedupe job that hands in the same id twice must not
-      // delete the account it was asked to keep.
-      expect(await store.find({ id: i.id })).not.toBeNull()
+      const live = await store.create(identityInput({ profile: profileOf<P>('sdm@x', 'sdm') }))
+      const shut = await store.create(identityInput({ profile: profileOf<P>('sdm2@x', 'sdm2') }))
+      const absent = await absentIdentityId(store)
+      await store.softDelete(shut.id, -1000)
+
+      // Neither the absent id nor the already-hidden one comes back, which is how the facet tells a miss.
+      const hid = await store.softDeleteMany([live.id, absent, shut.id], 60_000)
+
+      expect(hid.map((row) => row.id)).toEqual([live.id])
+      // The row as the write left it, not as it was read: the caller gets the new window without asking again.
+      expect(hid[0]?.deletedAt?.getTime()).toBeGreaterThan(Date.now())
+      expect(hid[0]?.version).toBe(live.version + 1)
+      await expect(store.find({ id: live.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+
+      // The same rule the single-row form keeps: a row already hidden is left out and its purge
+      // deadline stays shut, or a sweep run twice keeps the queue alive forever.
+      await expect(store.restore(shut.id)).rejects.toMatchObject({ code: 'AUTH_GRACE_EXPIRED' })
     })
+
+    it('eraseMany answers the rows it erased, and only those', async () => {
+      const store = factory()
+      const live = await store.create(identityInput({ profile: profileOf<P>('em@x', 'em') }))
+      const hidden = await store.create(identityInput({ profile: profileOf<P>('em2@x', 'em2') }))
+      const absent = await absentIdentityId(store)
+      // A hard erase reaches a hidden row, where a soft delete does not; purge runs on exactly those.
+      await store.softDelete(hidden.id, 60_000)
+
+      const gone = await store.eraseMany([live.id, absent, hidden.id])
+
+      expect(gone.map((row) => row.id).sort()).toEqual([live.id, hidden.id].sort())
+      // The row as it stood just before it went, logins and all, which is the last chance to read it.
+      expect(gone.find((row) => row.id === live.id)).toEqual(live)
+      await expect(store.find({ id: live.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      // Gone, not hidden: the address is free again, which a soft delete would still be holding.
+      const reused = await store.create(identityInput({ profile: profileOf<P>('em@x', 'em') }))
+      expect(reused.id).not.toBe(live.id)
+    })
+
+    it('a bulk call with no ids touches nothing', async () => {
+      const store = factory()
+      const kept = await store.create(identityInput({ profile: profileOf<P>('bulk0@x', 'bulk0') }))
+
+      // Both reach the table through `inArray(col, [])`, which drizzle renders as `false`. Were it ever to
+      // render as a missing condition, these two would hide and then erase every identity there is.
+      expect(await store.softDeleteMany([], 60_000)).toEqual([])
+      expect(await store.eraseMany([])).toEqual([])
+      await expect(store.find({ id: kept.id })).resolves.toBeTruthy()
+    })
+
+    /** The other half of a soft delete: without this a row whose window closed stays hidden forever, which is
+     *  a row nobody can reach and nobody deleted. A row still inside its window is not `gc`'s business. */
+    it('gc erases the rows whose grace window has closed, and only those', async () => {
+      const store = factory()
+      const live = await store.create(identityInput({ profile: profileOf<P>('gcl@x', 'gcl') }))
+      const waiting = await store.create(identityInput({ profile: profileOf<P>('gcw@x', 'gcw') }))
+      const over = await store.create(identityInput({ profile: profileOf<P>('gco@x', 'gco') }))
+      await store.softDelete(waiting.id, 60_000)
+      await store.softDelete(over.id, -1000)
+
+      expect((await store.gc(Date.now())).deleted).toBe(1)
+
+      // Gone for real, not hidden: the address is free again, which a soft-deleted row would still hold.
+      const reused = await store.create(identityInput({ profile: profileOf<P>('gco@x', 'gco') }))
+      expect(reused.id).not.toBe(over.id)
+      // The one still inside its window is untouched, and still restorable.
+      expect((await store.restore(waiting.id)).id).toBe(waiting.id)
+      await expect(store.find({ id: live.id })).resolves.toBeTruthy()
+    })
+
+    /** Same cutoff, same disagreement: `deletedAt < Infinity` is true for every soft-deleted row, so the
+     *  erase took rows still inside their restore window, while `deletedAt < NaN` is false for all of them
+     *  and the purge that makes a soft delete a delete silently never ran. */
+    it('gc refuses a cutoff that is not a finite timestamp, and erases nothing when it does', async () => {
+      const store = factory()
+      const waiting = await store.create(identityInput({ profile: profileOf<P>('gcbad@x', 'gcbad') }))
+      await store.softDelete(waiting.id, 60_000)
+      for (const cutoff of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        await expect(store.gc(cutoff)).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+      }
+      // Still inside its window and still restorable: a refused sweep must not be a partial one.
+      expect((await store.restore(waiting.id)).id).toBe(waiting.id)
+    })
+
 
     it('update leaves a field alone when the patch carries an explicit undefined', async () => {
       const store = factory()
@@ -549,51 +669,40 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
         identityInput({ emailVerified: true, profile: profileOf<P>('eu@x', 'eu') }),
       )
       // `{ profile: maybeProfile }` with nothing to say means "leave it alone",
-      // never "clear the column" - which is what a bare spread would do.
+      // never "clear the column", which is what a bare spread would do.
       const next = await store.update(i.id, { profile: undefined }, i.version)
       expect(next.profile).toEqual(i.profile)
     })
 
-    it('merge moves providers from dup into survivor + deletes dup', async () => {
+    /** `find` hides the row; these are the write paths, still reachable by a caller holding an id and a version
+     *  from before the delete. `unlink` detached the login and then reported failure, and `update` handed back
+     *  the `emailVerified` that `softDelete` clears precisely so a restore cannot. */
+    it('a hidden identity takes no write', async () => {
       const store = factory()
-      const survivor = await store.create(
+      const i = await store.create(
         identityInput({
-          profile: profileOf<P>('s@x', 's'),
-          providers: [{ providerId: 'oauth:authGithub', providerSub: 'merge-sub', addedAt: new Date() }],
+          emailVerified: true,
+          profile: profileOf<P>('hw@x', 'hw'),
+          providers: [{ addedAt: new Date(), providerId: 'oauth:authGoogle', providerSub: 'hw-sub' }],
         }),
       )
-      const dup = await store.create(
-        identityInput({
-          profile: profileOf<P>('d@x', 'd'),
-          providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: new Date() }],
-        }),
-      )
-      const merged = await store.merge(survivor.id, dup.id)
-      // The survivor comes back from the write itself, already carrying the
-      // union - a caller that needs it should not have to re-read.
-      expect(merged?.id).toBe(survivor.id)
-      expect(merged?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
-      const fresh = await store.find({ id: survivor.id })
-      expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
-      expect(await store.find({ id: dup.id })).toBeNull()
-    })
+      const hidden = await store.softDelete(i.id, 60_000)
 
-    it('merge writes nothing when either side is missing', async () => {
-      const store = factory()
-      const dup = await store.create(identityInput({ profile: profileOf<P>('md@x', 'md') }))
-      const survivor = await store.create(identityInput({ profile: profileOf<P>('ms@x', 'ms') }))
-      const gone = (await store.create(identityInput({ profile: profileOf<P>('mg@x', 'mg') })))
-        .id
-      await store.erase(gone)
+      await expect(
+        store.link(i.id, { addedAt: new Date(), providerId: 'oauth:authGithub', providerSub: 'hw-2' }),
+      ).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      await expect(store.unlink(i.id, 'oauth:authGoogle')).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
+      // The version handed in is the one the delete left, so the gate is the only reason this can fail.
+      await expect(store.update(i.id, { emailVerified: true }, hidden.version)).rejects.toMatchObject({
+        code: 'AUTH_STALE_WRITE',
+      })
 
-      // A merge re-points the dup's credentials and sessions and then deletes
-      // it. With one side missing that is not a merge, it is data loss - so
-      // nothing is written and the caller is told plainly.
-      expect(await store.merge(gone, dup.id)).toBeNull()
-      expect(await store.find({ id: dup.id })).not.toBeNull()
-
-      expect(await store.merge(survivor.id, gone)).toBeNull()
-      expect(await store.find({ id: survivor.id })).not.toBeNull()
+      // Nothing partial landed: the restored row is the one the delete left behind.
+      const back = await store.restore(i.id)
+      expect(back?.emailVerified).toBe(false)
+      expect(back?.providers.map((link) => link.providerId)).toEqual(['oauth:authGoogle'])
     })
 
     it('every mutating write answers with the row it touched', async () => {
@@ -630,34 +739,29 @@ export function runIdentityStoreCompliance<P extends Identities.ProfileMetadataB
       const erased = await store.erase(i.id)
       expect(erased?.id).toBe(i.id)
       expect(erased?.providers.map((p) => p.providerSub)).toEqual(['ret-2'])
-      expect(await store.find({ id: i.id })).toBeNull()
+      await expect(store.find({ id: i.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
 
-    it('a write that matches no row answers null rather than reporting a change', async () => {
+    it('a write that matches no row raises rather than reporting a change', async () => {
       const store = factory()
-      // A real id whose row is gone - valid for every dialect's id column,
+      // A real id whose row is gone, valid for every dialect's id column,
       // which a made-up string would not be.
       const gone = (await store.create(identityInput({ profile: profileOf<P>('g@x', 'g') }))).id
       await store.erase(gone)
 
-      expect(await store.softDelete(gone, 60_000)).toBeNull()
-      expect(await store.erase(gone)).toBeNull()
-      expect(
-        await store.link(gone, { addedAt: new Date(), providerId: 'oauth:authGoogle', providerSub: 'gone-sub' }),
-      ).toBeNull()
-      expect(await store.unlink(gone, 'oauth:authGoogle')).toBeNull()
-      expect(await store.merge(gone, gone)).toBeNull()
+      await expect(store.softDelete(gone, 60_000)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      await expect(store.erase(gone)).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      await expect(
+        store.link(gone, { addedAt: new Date(), providerId: 'oauth:authGoogle', providerSub: 'gone-sub' }),
+      ).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+      await expect(store.unlink(gone, 'oauth:authGoogle')).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
     })
   })
 }
 
-/**
- * Row identifiers the session + credential matrices plant. The defaults are short
- * readable strings, which is all a permissive store needs. Adapters with a strict
- * schema override them: Postgres types `identity_id` as `uuid` behind a foreign
- * key, and constrains `auth_sessions.id` to exactly 64 chars, so the matrix has to
- * be handed ids that satisfy the real columns or it can never run there.
- */
+/** Row identifiers the session and credential matrices plant. The short readable defaults are all a permissive
+ *  store needs; an adapter with a strict schema overrides them, since Postgres types `identity_id` as a `uuid`
+ *  behind a foreign key and pins `auth_sessions.id` to exactly 64 chars. */
 export type ComplianceIds = {
   /** Owning identity. Must already exist when the adapter enforces the FK. */
   identityId?: string
@@ -670,7 +774,9 @@ export type ComplianceIds = {
 const DEFAULT_IDS: Required<ComplianceIds> = {
   identityId: 'u',
   otherIdentityId: 'v',
-  sessionId: (label) => label,
+  // A real hash, because that is what a session id is. The raw label ran the in-process stores against ids
+  // every SQL dialect refuses, so the same suite was asserting a different contract on either side.
+  sessionId: (label) => sha256(label),
 }
 
 /**
@@ -705,13 +811,39 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
         }),
       )
       // `create` returns void here, so every check below is a real read back
-      // out of the store - which is the only kind that proves anything.
+      // out of the store, which is the only kind that proves anything.
       const id = sid('fidelity-1')
-      expectFieldTypes(await store.getByHash(id), SESSION_FIELDS, 'getByHash')
+      expectRow(await store.getByHash(id), SESSION_FIELDS, SESSION_KEYS, 'getByHash')
       for (const row of await store.listByIdentity(OWNER)) {
-        expectFieldTypes(row, SESSION_FIELDS, 'listByIdentity')
+        expectRow(row, SESSION_FIELDS, SESSION_KEYS, 'listByIdentity')
       }
-      expectFieldTypes(await store.update(id, { fresh: false }), SESSION_FIELDS, 'update')
+      expectRow(await store.update(id, { fresh: false }), SESSION_FIELDS, SESSION_KEYS, 'update')
+    })
+
+    it('update moves updatedAt', async () => {
+      const store = factory()
+      const now = new Date()
+      await store.create(
+        sessionInput({
+          absoluteExpiresAt: new Date(now.getTime() + 600_000),
+          aal: 1,
+          createdAt: now,
+          expiresAt: new Date(now.getTime() + 60_000),
+          factors: [],
+          fresh: true,
+          id: sid('touch-1'),
+          identityId: OWNER,
+          kind: 'user',
+          rotatedAt: now,
+        }),
+      )
+      const before = await store.getByHash(sid('touch-1'))
+      await new Promise((r) => setTimeout(r, 25))
+
+      // Exposed but frozen would be worse than absent: a caller reading it to find the last write would
+      // be told every session was untouched since it was minted.
+      const after = await store.update(sid('touch-1'), { fresh: false })
+      expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime())
     })
 
     it('create + getByHash roundtrip uses the row id directly', async () => {
@@ -734,6 +866,121 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       // Nullable columns the store fills with `null` are extra keys on the
       // returned row, so assert the caller-provided fields are a subset.
       expect(await store.getByHash(sid('hash-1'))).toMatchObject(session)
+    })
+
+    it('a create on an id already stored is refused, not an overwrite', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      const first = sessionInput({
+        aal: 1,
+        absoluteExpiresAt: exp,
+        createdAt: now,
+        expiresAt: exp,
+        factors: [],
+        fresh: true,
+        id: sid('dup-1'),
+        identityId: OWNER,
+        kind: 'user',
+        rotatedAt: now,
+      })
+      await store.create(first)
+
+      // The id is the caller's token hash. Taking the second write as an update would hand whoever still
+      // holds the first token a session it never opened, at whatever AAL the second one asked for.
+      await expect(store.create({ ...first, aal: 2 })).rejects.toMatchObject({ code: 'AUTH_ALREADY_EXISTS' })
+      expect((await store.getByHash(sid('dup-1')))?.aal).toBe(1)
+    })
+
+    it('refuses a session it could not read back', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      const ok = sessionInput({
+        aal: 1,
+        absoluteExpiresAt: exp,
+        createdAt: now,
+        expiresAt: exp,
+        factors: [],
+        fresh: true,
+        id: sid('unreadable'),
+        identityId: OWNER,
+        kind: 'user',
+        rotatedAt: now,
+      })
+      const invalid = { code: 'AUTH_INVALID_PARAMETERS' }
+
+      // The redis reader rejects an unknown kind and an out-of-range aal outright, so a store that takes
+      // the write hands its caller a sid every later read answers AUTH_SESSION_REVOKED for: a cookie for a
+      // session that was never readable. The casts are the point — no compiler lets these through, and the
+      // guard is what a JS caller and a dynamic patch still meet.
+      await expect(store.create({ ...ok, kind: 'not-a-kind' as Sessions.Kind })).rejects.toMatchObject(invalid)
+      await expect(store.create({ ...ok, aal: 99 as Sessions.AAL })).rejects.toMatchObject(invalid)
+      await expect(store.create({ ...ok, tenantId: '' })).rejects.toMatchObject(invalid)
+
+      await store.create(ok)
+      await expect(store.update(sid('unreadable'), { aal: 99 as Sessions.AAL })).rejects.toMatchObject(invalid)
+      // The refused patch left the row alone rather than half-writing it.
+      expect((await store.getByHash(sid('unreadable'))).aal).toBe(1)
+    })
+
+    it('update cannot move a session onto another id', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      await store.create(
+        sessionInput({
+          aal: 1,
+          absoluteExpiresAt: exp,
+          createdAt: now,
+          expiresAt: exp,
+          factors: [],
+          fresh: true,
+          id: sid('pinned'),
+          identityId: OWNER,
+          kind: 'user',
+          rotatedAt: now,
+        }),
+      )
+
+      // `id` is the hash of the token in the caller's cookie, and `Partial<Me>` lets a patch name it. Moving
+      // the row leaves that cookie reaching nothing and the session answering to a hash it never issued, so
+      // the patch is ignored rather than refused: `update` is the refresh path and must stay a no-op here.
+      const patched = await store.update(sid('pinned'), { fresh: false, id: sid('moved') })
+
+      expect(patched.id).toBe(sid('pinned'))
+      expect(patched.fresh).toBe(false)
+      await expect(store.getByHash(sid('pinned'))).resolves.toBeTruthy()
+      await expect(store.getByHash(sid('moved'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    })
+
+    it('a session repointed at another identity follows its new owner', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      await store.create(
+        sessionInput({
+          aal: 1,
+          absoluteExpiresAt: exp,
+          createdAt: now,
+          expiresAt: exp,
+          factors: [],
+          fresh: true,
+          id: sid('repoint'),
+          identityId: OWNER,
+          kind: 'user',
+          rotatedAt: now,
+        }),
+      )
+      await store.update(sid('repoint'), { identityId: OTHER })
+
+      // The SQL stores filter a column and redis keeps a per-identity set, so nothing but the contract makes
+      // the two agree. A session left behind in the old owner's index is one "sign out everywhere" misses.
+      expect((await store.listByIdentity(OTHER)).map((r) => r.id)).toContain(sid('repoint'))
+      expect((await store.listByIdentity(OWNER)).map((r) => r.id)).not.toContain(sid('repoint'))
+
+      await store.deleteAllForIdentity(OTHER)
+      await expect(store.getByHash(sid('repoint'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('factors and actingAs come back as real Dates, not the strings a JSON column stores', async () => {
@@ -767,10 +1014,8 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       expect(back?.actingAs?.expiresAt.getTime()).toBe(exp.getTime())
     })
 
-    it('deleteAllForIdentities, when present, sweeps every named identity', async (ctx) => {
+    it('deleteAllForIdentities answers every session it swept', async () => {
       const store = factory()
-      // A store with no set-based form is complete without one; the facet loops.
-      if (!store.deleteAllForIdentities) return ctx.skip()
       const now = new Date()
       const exp = new Date(now.getTime() + 60_000)
       const mk = (id: string, identityId: string) =>
@@ -790,19 +1035,17 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       await store.create(mk('bulk-2', OWNER))
       await store.create(mk('bulk-3', OTHER))
 
-      const result = await store.deleteAllForIdentities([OWNER, OTHER, ABSENT])
+      // One entry per session removed, not per identity named: the facet emits an event from each.
+      const gone = await store.deleteAllForIdentities([OWNER, OTHER, ABSENT])
 
-      expect(result.outcomes.map((o) => o.id)).toEqual([OWNER, OTHER, ABSENT])
-      expect(result.applied).toBe(2)
-      expect(result.outcomes[2]).toMatchObject({ ok: false, reason: 'not-found' })
+      expect(gone.map((s) => s.id).sort()).toEqual([sid('bulk-1'), sid('bulk-2'), sid('bulk-3')].sort())
+      expect(gone.every((s) => s.identityId === OWNER || s.identityId === OTHER)).toBe(true)
       expect(await store.listByIdentity(OWNER)).toEqual([])
       expect(await store.listByIdentity(OTHER)).toEqual([])
     })
 
-    it('deleteMany, when present, reports one outcome per session in input order', async (ctx) => {
+    it('deleteMany answers only the sessions it removed', async () => {
       const store = factory()
-      // A store with no set-based form is complete without one; the facet loops.
-      if (!store.deleteMany) return ctx.skip()
       const now = new Date()
       const exp = new Date(now.getTime() + 60_000)
       const mk = (id: string) =>
@@ -821,26 +1064,24 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       await store.create(mk('many-1'))
       await store.create(mk('many-2'))
 
-      const result = await store.deleteMany([sid('many-1'), sid('many-absent'), sid('many-2')])
+      const gone = await store.deleteMany([sid('many-1'), sid('many-absent'), sid('many-2')])
 
-      expect(result.outcomes.map((o) => o.id)).toEqual([sid('many-1'), sid('many-absent'), sid('many-2')])
-      expect(result.applied).toBe(2)
-      expect(result.outcomes[1]).toMatchObject({ ok: false, reason: 'not-found' })
-      expect(await store.getByHash(sid('many-1'))).toBeNull()
-      expect(await store.getByHash(sid('many-2'))).toBeNull()
+      expect(gone.map((s) => s.id).sort()).toEqual([sid('many-1'), sid('many-2')].sort())
+      expect(gone.every((s) => s.identityId === OWNER)).toBe(true)
+      await expect(store.getByHash(sid('many-1'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(store.getByHash(sid('many-2'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
       // The identity index has to go with the rows, or a revoked session is still listed as a device.
       expect(await store.listByIdentity(OWNER)).toEqual([])
     })
 
-    it('listByIdentities, when present, returns the union of the named identities and nothing else', async (ctx) => {
+    it('a bulk call with no ids touches nothing', async () => {
       const store = factory()
-      if (!store.listByIdentities) return ctx.skip()
       const now = new Date()
       const exp = new Date(now.getTime() + 60_000)
-      const mk = (id: string, identityId: string) =>
+      await store.create(
         sessionInput({
-          id: sid(id),
-          identityId,
+          id: sid('bulk0'),
+          identityId: OWNER,
           kind: 'user',
           aal: 1,
           factors: [],
@@ -849,14 +1090,14 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
           expiresAt: exp,
           absoluteExpiresAt: exp,
           fresh: true,
-        })
-      await store.create(mk('union-1', OWNER))
-      // An unnamed identity, or the read cannot be told apart from one that returns the whole table.
-      await store.create(mk('union-2', OTHER))
+        }),
+      )
 
-      const rows = await store.listByIdentities([OWNER, ABSENT])
-
-      expect(rows.map((r) => r.id)).toEqual([sid('union-1')])
+      // These two are the widest destructive reach in the store, and an empty list is what a caller
+      // holding no ids passes. A sweep with nothing to sweep is a no-op, never a wipe.
+      expect(await store.deleteAllForIdentities([])).toEqual([])
+      expect(await store.deleteMany([])).toEqual([])
+      await expect(store.getByHash(sid('bulk0'))).resolves.toBeTruthy()
     })
 
     it('listByIdentity returns only sessions of the requested identity', async () => {
@@ -919,7 +1160,7 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       await store.create(sessionInput({ id: sid('t-g'), identityId: OWNER, tenantId: null, ...base }))
 
       // Identities are global, so all three hang off one id. Unscoped sees them
-      // all - that is every existing caller's behaviour and it does not change.
+      // all, which is every existing caller's behaviour and does not change.
       expect(await store.listByIdentity(OWNER)).toHaveLength(3)
       expect(await store.listByIdentity(OWNER, {})).toHaveLength(3)
 
@@ -954,8 +1195,8 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       // index the scoped delete dropped wholesale would leave them alive and
       // impossible to sign out.
       expect((await store.listByIdentity(OWNER)).map((r) => r.id).sort()).toEqual([sid('d-b'), sid('d-g')].sort())
-      expect(await store.getByHash(sid('d-b'))).not.toBeNull()
-      expect(await store.getByHash(sid('d-a'))).toBeNull()
+      await expect(store.getByHash(sid('d-b'))).resolves.toBeTruthy()
+      await expect(store.getByHash(sid('d-a'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
 
       await store.deleteAllForIdentity(OWNER)
       expect(await store.listByIdentity(OWNER)).toEqual([])
@@ -994,15 +1235,42 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       )
       const r = await store.gc(nowMs)
       expect(r.deleted).toBe(1)
-      expect(await store.getByHash(sid('expired'))).toBeNull()
-      expect(await store.getByHash(sid('live'))).not.toBeNull()
+      await expect(store.getByHash(sid('expired'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(store.getByHash(sid('live'))).resolves.toBeTruthy()
+    })
+
+    /** The cutoff comes from the caller, and the implementations disagreed about a number that is not one:
+     *  `x < Infinity` is true for every row, so memory and redis swept every session including the live
+     *  ones, while `x < NaN` is false for every row, so the same call on another dialect reported
+     *  `deleted: 0` and swept nothing. */
+    it('gc refuses a cutoff that is not a finite timestamp, and sweeps nothing when it does', async () => {
+      const store = factory()
+      const nowMs = Date.now()
+      await store.create(
+        sessionInput({
+          absoluteExpiresAt: new Date(nowMs + 60_000),
+          aal: 1,
+          createdAt: new Date(nowMs),
+          expiresAt: new Date(nowMs + 60_000),
+          factors: [],
+          fresh: true,
+          id: sid('gcbad'),
+          identityId: OWNER,
+          kind: 'user',
+          rotatedAt: new Date(nowMs),
+        }),
+      )
+      for (const cutoff of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        await expect(store.gc(cutoff)).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
+      }
+      await expect(store.getByHash(sid('gcbad'))).resolves.toBeTruthy()
     })
 
     // These two methods had NO cross-adapter coverage. Both confirmed
     // divergences (error code, implicit rotatedAt) lived here.
 
-    it('getByHash returns null for an unknown id', async () => {
-      expect(await factory().getByHash(sid('nope'))).toBeNull()
+    it('getByHash raises for an unknown id', async () => {
+      await expect(factory().getByHash(sid('nope'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('update merges the patch and persists it', async () => {
@@ -1105,23 +1373,20 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
         }),
       )
       await store.delete(sid('d-1'))
-      expect(await store.getByHash(sid('d-1'))).toBeNull()
+      await expect(store.getByHash(sid('d-1'))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
       await expect(store.delete(sid('nope'))).resolves.toBeUndefined()
     })
   })
 }
 
-/**
- * Compliance matrix for Credential stores. Covers upsert + findById +
- * findByHashedSecret semantics (revoked rows distinguished from missing),
- * rotate optimistic-lock, deleteByKind cleanup.
- */
+/** Compliance matrix for Credential stores: create, the `findById` and `findByHashedSecret` semantics that keep
+ *  a revoked row distinct from a missing one, `rotate`'s optimistic lock, and `deleteByKind` cleanup. */
 export function runCredentialStoreCompliance(factory: () => Credential.Store, ids: ComplianceIds = {}): void {
   const { identityId: OWNER } = { ...DEFAULT_IDS, ...ids }
   describe('Credential.IStore compliance', () => {
     it('every read path returns the field types the row type declares', async () => {
       const store = factory()
-      const created = await store.upsert(
+      const created = await store.create(
         credentialInput({
           expiresAt: new Date(Date.now() + 60_000),
           identityId: OWNER,
@@ -1131,31 +1396,51 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
         }),
         {},
       )
-      expectFieldTypes(created, CREDENTIAL_FIELDS, 'upsert')
-      expectFieldTypes(await store.findById(created.id, {}), CREDENTIAL_FIELDS, 'findById')
-      expectFieldTypes(
+      expectRow(created, CREDENTIAL_FIELDS, CREDENTIAL_KEYS, 'create')
+      expectRow(await store.findById(created.id, {}), CREDENTIAL_FIELDS, CREDENTIAL_KEYS, 'findById')
+      expectRow(
         await store.findByHashedSecret('hashed-pw', 'password', {}),
-        CREDENTIAL_FIELDS,
+        CREDENTIAL_FIELDS, CREDENTIAL_KEYS,
         'findByHashedSecret',
       )
       for (const row of await store.listByIdentity(OWNER, 'password', {})) {
-        expectFieldTypes(row, CREDENTIAL_FIELDS, 'listByIdentity')
+        expectRow(row, CREDENTIAL_FIELDS, CREDENTIAL_KEYS, 'listByIdentity')
       }
-      expectFieldTypes(
+      expectRow(
         await store.rotate(created.id, 'rotated-pw', created.version, {}),
-        CREDENTIAL_FIELDS,
+        CREDENTIAL_FIELDS, CREDENTIAL_KEYS,
         'rotate',
       )
-      expectFieldTypes(await store.patchMetadata(created.id, { seen: 1 }, {}), CREDENTIAL_FIELDS, 'patchMetadata')
+      expectRow(await store.patchMetadata(created.id, { seen: 1 }, {}), CREDENTIAL_FIELDS, CREDENTIAL_KEYS, 'patchMetadata')
       // `revokedAt` is the only date that is null until it is not.
       const revoked = await store.revoke(created.id, {})
-      expectFieldTypes(revoked, CREDENTIAL_FIELDS, 'revoke')
+      expectRow(revoked, CREDENTIAL_FIELDS, CREDENTIAL_KEYS, 'revoke')
       expect(revoked?.revokedAt).toBeInstanceOf(Date)
     })
 
-    it('upsert stamps id + version=1; findById retrieves it', async () => {
+    it('every write that touches the row moves updatedAt', async () => {
       const store = factory()
-      const c = await store.upsert(
+      const c = await store.create(
+        credentialInput({ identityId: OWNER, kind: 'password', metadata: {}, secret: 'touch-pw' }),
+        {},
+      )
+      await new Promise((r) => setTimeout(r, 25))
+
+      const rotated = await store.rotate(c.id, 'touch-pw-2', c.version, {})
+      expect(rotated.updatedAt.getTime()).toBeGreaterThan(c.updatedAt.getTime())
+
+      await new Promise((r) => setTimeout(r, 25))
+      const patched = await store.patchMetadata(c.id, { seen: 1 }, {})
+      expect(patched.updatedAt.getTime()).toBeGreaterThan(rotated.updatedAt.getTime())
+
+      await new Promise((r) => setTimeout(r, 25))
+      const gone = await store.revoke(c.id, {})
+      expect(gone.updatedAt.getTime()).toBeGreaterThan(patched.updatedAt.getTime())
+    })
+
+    it('create stamps id + version=1; findById retrieves it', async () => {
+      const store = factory()
+      const c = await store.create(
         credentialInput({ identityId: OWNER, kind: 'password', secret: 'hashed-pw', metadata: {} }),
         {},
       )
@@ -1165,10 +1450,48 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       expect(got?.secret).toBe('hashed-pw')
     })
 
+    it('create refuses a second password for one identity', async () => {
+      const store = factory()
+      await store.create(credentialInput({ identityId: OWNER, kind: 'password', secret: 'hashed-pw' }), {})
+
+      // `PasswordsImpl.set` deletes then creates, so this rule is the only thing between a delete that
+      // did not happen and two password rows that authenticate just as well as each other.
+      await expect(
+        store.create(credentialInput({ identityId: OWNER, kind: 'password', secret: 'second-pw' }), {}),
+      ).rejects.toMatchObject({ code: 'AUTH_ALREADY_EXISTS' })
+    })
+
+    it('create refuses the values its table constraints reject', async () => {
+      const store = factory()
+      const invalid = { code: 'AUTH_INVALID_PARAMETERS' }
+
+      await expect(
+        store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: '   ' }), {}),
+      ).rejects.toMatchObject(invalid)
+      await expect(
+        store.create(credentialInput({ identityId: OWNER, kind: 'not-a-kind' as Credential.Kind, secret: 'k' }), {}),
+      ).rejects.toMatchObject(invalid)
+      // An empty tenant is a scope of its own, matching no global row and no named one either.
+      await expect(
+        store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k', tenantId: '' }), {}),
+      ).rejects.toMatchObject(invalid)
+      await expect(
+        store.create(
+          credentialInput({
+            expiresAt: new Date(Date.now() - 60_000),
+            identityId: OWNER,
+            kind: 'api-key',
+            secret: 'k',
+          }),
+          {},
+        ),
+      ).rejects.toMatchObject(invalid)
+    })
+
     it('a credential row records who wrote it, from the ambient actor', async () => {
       const store = factory()
       const c = await withActor('op-4', () =>
-        store.upsert(credentialInput({ identityId: OWNER, kind: 'password', metadata: {}, secret: 'hashed-pw' }), {}),
+        store.create(credentialInput({ identityId: OWNER, kind: 'password', metadata: {}, secret: 'hashed-pw' }), {}),
       )
 
       // `auth_credentials` declares the same two columns as the other tables;
@@ -1179,7 +1502,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
     it('findByHashedSecret returns the freshest live row before falling back to revoked', async () => {
       const store = factory()
-      const c1 = await store.upsert(
+      const c1 = await store.create(
         credentialInput({
           identityId: OWNER,
           kind: 'magic-link',
@@ -1191,7 +1514,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       )
       await store.revoke(c1.id, {})
       // Same secret hash, but fresh row.
-      const c2 = await store.upsert(
+      const c2 = await store.create(
         credentialInput({
           identityId: OWNER,
           kind: 'magic-link',
@@ -1207,7 +1530,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
     it('findByHashedSecret falls back to the revoked row when no live rows exist', async () => {
       const store = factory()
-      const c = await store.upsert(
+      const c = await store.create(
         credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'hash-x', metadata: {} }),
         {},
       )
@@ -1216,39 +1539,10 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       expect(got?.revokedAt).toBeTruthy()
     })
 
-    it('findByProviderSub locates an oauth credential and ignores other kinds', async () => {
-      const store = factory()
-      const oauth = await store.upsert(
-        credentialInput({
-          identityId: OWNER,
-          kind: 'oauth',
-          metadata: { provider: 'authGoogle', sub: 'psub-1' },
-          secret: 'tok',
-        }),
-        {},
-      )
-      // A non-oauth row carrying the same marker metadata must not answer here:
-      // matching on metadata alone would let any credential kind impersonate a
-      // federated identity lookup.
-      await store.upsert(
-        credentialInput({
-          identityId: OWNER,
-          kind: 'api-key',
-          metadata: { provider: 'authGoogle', sub: 'psub-1' },
-          secret: 'key',
-        }),
-        {},
-      )
-      const found = await store.findByProviderSub('authGoogle', 'psub-1', {})
-      expect(found?.id).toBe(oauth.id)
-      expect(found?.kind).toBe('oauth')
-      expect(await store.findByProviderSub('authGoogle', 'no-such-sub', {})).toBeNull()
-    })
-
     it('listByIdentity filters by kind when one is named', async () => {
       const store = factory()
-      await store.upsert(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p' }), {})
-      await store.upsert(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k' }), {})
+      await store.create(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p' }), {})
+      await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k' }), {})
       const keys = await store.listByIdentity(OWNER, 'api-key', {})
       expect(keys.map((c) => c.kind)).toEqual(['api-key'])
       // A null kind is "every kind", not "no kind".
@@ -1257,7 +1551,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
     it('rotate stamps lastUsedAt, because a rotation is a use', async () => {
       const store = factory()
-      const c = await store.upsert(credentialInput({ identityId: OWNER, kind: 'password', secret: 'old' }), {})
+      const c = await store.create(credentialInput({ identityId: OWNER, kind: 'password', secret: 'old' }), {})
       expect(c.lastUsedAt).toBeNull()
       const rotated = await store.rotate(c.id, 'new', c.version, {})
       // An idle-credential reaper reads this to decide what to cull; leaving it
@@ -1267,15 +1561,19 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
     it('a tenant cannot read or write another tenant credential by id', async () => {
       const store = factory()
-      const mine = await store.upsert(
+      const mine = await store.create(
         credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'tenant-secret' }),
         { tenantId: 'tenant-a' },
       )
       // Every method takes a TenantContext. One that is taken and ignored is
       // worse than one that is absent: the caller believes it is scoped.
-      expect(await store.findById(mine.id, { tenantId: 'tenant-b' })).toBeNull()
-      expect(await store.revoke(mine.id, { tenantId: 'tenant-b' })).toBeNull()
-      expect(await store.delete(mine.id, { tenantId: 'tenant-b' })).toBeNull()
+      await expect(store.findById(mine.id, { tenantId: 'tenant-b' })).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
+      await expect(store.revoke(mine.id, { tenantId: 'tenant-b' })).rejects.toMatchObject({
+        code: 'AUTH_CREDENTIAL_NOT_FOUND',
+      })
+      await expect(store.delete(mine.id, { tenantId: 'tenant-b' })).rejects.toMatchObject({
+        code: 'AUTH_CREDENTIAL_NOT_FOUND',
+      })
       await expect(store.rotate(mine.id, 'stolen', mine.version, { tenantId: 'tenant-b' })).rejects.toMatchObject({
         code: 'AUTH_STALE_WRITE',
       })
@@ -1285,33 +1583,78 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
     it('a global credential is invisible to a tenant-scoped caller', async () => {
       const store = factory()
-      const global = await store.upsert(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'g-hash' }), {})
+      const global = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'g-hash' }), {})
       expect(global.tenantId).toBeNull()
 
-      // A row belonging to no tenant must not authenticate one. The memory
-      // adapter used to admit it and called that "SQL parity"; no dialect ever
-      // did, because `eq(tenant_id, $1)` never matches NULL. Pinned here so the
-      // two cannot answer differently again.
-      expect(await store.findById(global.id, { tenantId: 'tenant-a' })).toBeNull()
-      expect(await store.findByHashedSecret('g-hash', 'api-key', { tenantId: 'tenant-a' })).toBeNull()
+      // A row belonging to no tenant must not authenticate one. No dialect admits it, because
+      // `eq(tenant_id, $1)` never matches NULL, and memory has to agree; pinned here so the two
+      // cannot answer differently.
+      await expect(store.findById(global.id, { tenantId: 'tenant-a' })).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
+      await expect(store.findByHashedSecret('g-hash', 'api-key', { tenantId: 'tenant-a' })).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
       expect(await store.listByIdentity(OWNER, 'api-key', { tenantId: 'tenant-a' })).toEqual([])
       // Reachable unscoped, which is what makes it global rather than orphaned.
-      expect(await store.findById(global.id, {})).not.toBeNull()
+      await expect(store.findById(global.id, {})).resolves.toBeTruthy()
     })
 
     it('an unscoped caller and the owning tenant both see the row', async () => {
       const store = factory()
-      const c = await store.upsert(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 's' }), {
+      const c = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 's' }), {
         tenantId: 'tenant-a',
       })
       // Without this the isolation test above could pass by hiding every row.
-      expect(await store.findById(c.id, {})).not.toBeNull()
-      expect(await store.findById(c.id, { tenantId: 'tenant-a' })).not.toBeNull()
+      await expect(store.findById(c.id, {})).resolves.toBeTruthy()
+      await expect(store.findById(c.id, { tenantId: 'tenant-a' })).resolves.toBeTruthy()
     })
 
-    it('rotate on an unknown id surfaces AUTH/STALE_WRITE, not an auth error', async () => {
+    it('patchMetadata cannot rewrite another tenant row', async () => {
       const store = factory()
-      const c = await store.upsert(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p' }), {})
+      const mine = await store.create(
+        credentialInput({ identityId: OWNER, kind: 'api-key', metadata: { scope: 'read' }, secret: 'pm-secret' }),
+        { tenantId: 'tenant-a' },
+      )
+
+      // A patch is a write like any other: a tenant that cannot read the row must not be able to rewrite
+      // what it carries, an api-key's own scope included.
+      await expect(store.patchMetadata(mine.id, { scope: 'admin' }, { tenantId: 'tenant-b' })).rejects.toMatchObject({
+        code: 'AUTH_CREDENTIAL_NOT_FOUND',
+      })
+      expect((await store.findById(mine.id, { tenantId: 'tenant-a' }))?.metadata).toEqual({ scope: 'read' })
+    })
+
+    it('deleteByKind sweeps only inside the calling tenant', async () => {
+      const store = factory()
+      const a = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'dk-a' }), {
+        tenantId: 'tenant-a',
+      })
+      const b = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'dk-b' }), {
+        tenantId: 'tenant-b',
+      })
+
+      // Answering what it removed is what makes this checkable: a sweep that reached across tenants would
+      // hand back both rows, and one that reached nothing would hand back none.
+      expect((await store.deleteByKind(OWNER, 'api-key', { tenantId: 'tenant-b' })).map((c) => c.id)).toEqual([b.id])
+      await expect(store.findById(a.id, { tenantId: 'tenant-a' })).resolves.toBeTruthy()
+    })
+
+    it('deleteByKindAndPurpose sweeps only inside the calling tenant', async () => {
+      const store = factory()
+      const a = await store.create(
+        credentialInput({ identityId: OWNER, kind: 'recovery', metadata: { purpose: 'password-reset' }, secret: 'rp-a' }),
+        { tenantId: 'tenant-a' },
+      )
+      const b = await store.create(
+        credentialInput({ identityId: OWNER, kind: 'recovery', metadata: { purpose: 'password-reset' }, secret: 'rp-b' }),
+        { tenantId: 'tenant-b' },
+      )
+
+      const removed = await store.deleteByKindAndPurpose(OWNER, 'recovery', 'password-reset', { tenantId: 'tenant-b' })
+      expect(removed.map((c) => c.id)).toEqual([b.id])
+      await expect(store.findById(a.id, { tenantId: 'tenant-a' })).resolves.toBeTruthy()
+    })
+
+    it('rotate on an unknown id surfaces AUTH_STALE_WRITE, not an auth error', async () => {
+      const store = factory()
+      const c = await store.create(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p' }), {})
       await store.delete(c.id, {})
       // A conditional write that matched no row reads the same to a SQL bridge
       // whether the id is gone or the version moved, and a caller can only do
@@ -1319,9 +1662,9 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       await expect(store.rotate(c.id, 'x', 1, {})).rejects.toMatchObject({ code: 'AUTH_STALE_WRITE' })
     })
 
-    it('rotate with mismatched version surfaces AUTH/STALE_WRITE', async () => {
+    it('rotate with mismatched version surfaces AUTH_STALE_WRITE', async () => {
       const store = factory()
-      const c = await store.upsert(
+      const c = await store.create(
         credentialInput({ identityId: OWNER, kind: 'password', secret: 'h1', metadata: {} }),
         {},
       )
@@ -1331,8 +1674,8 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
     it('deleteByKind removes only credentials of that kind for an identity', async () => {
       const store = factory()
-      await store.upsert(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p', metadata: {} }), {})
-      await store.upsert(credentialInput({ identityId: OWNER, kind: 'totp', secret: 't', metadata: {} }), {})
+      await store.create(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p', metadata: {} }), {})
+      await store.create(credentialInput({ identityId: OWNER, kind: 'totp', secret: 't', metadata: {} }), {})
       const removed = await store.deleteByKind(OWNER, 'password', {})
       // The rows that went, so a caller can say how many factors it dropped
       // without a count query the delete already answered.
@@ -1345,19 +1688,19 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       // `recovery` carries a dozen meanings at once, so this is the difference between retiring an
       // account's old reset token and voiding its MFA backup codes in the same call.
       const store = factory()
-      await store.upsert(
+      await store.create(
         credentialInput({ identityId: OWNER, kind: 'recovery', secret: 'r1', metadata: { purpose: 'password-reset' } }),
         {},
       )
-      await store.upsert(
+      await store.create(
         credentialInput({ identityId: OWNER, kind: 'recovery', secret: 'r2', metadata: { purpose: 'password-reset' } }),
         {},
       )
-      await store.upsert(
+      await store.create(
         credentialInput({ identityId: OWNER, kind: 'recovery', secret: 'b1', metadata: { purpose: 'mfa-backup-code' } }),
         {},
       )
-      await store.upsert(credentialInput({ identityId: OWNER, kind: 'recovery', secret: 'n1', metadata: {} }), {})
+      await store.create(credentialInput({ identityId: OWNER, kind: 'recovery', secret: 'n1', metadata: {} }), {})
 
       const removed = await store.deleteByKindAndPurpose(OWNER, 'recovery', 'password-reset', {})
 
@@ -1370,8 +1713,8 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
     it('every credential removal answers with what it removed', async () => {
       const store = factory()
-      const a = await store.upsert(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k1' }), {})
-      const b = await store.upsert(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p1' }), {})
+      const a = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k1' }), {})
+      const b = await store.create(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p1' }), {})
 
       const revoked = await store.revoke(a.id, {})
       expect(revoked?.id).toBe(a.id)
@@ -1380,14 +1723,14 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       // The row as it was: once the delete lands there is nothing left to read.
       const deleted = await store.delete(b.id, {})
       expect(deleted?.id).toBe(b.id)
-      expect(await store.findById(b.id, {})).toBeNull()
+      await expect(store.findById(b.id, {})).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
     })
 
     it('revoke bumps the version, so a rotate already holding the old one loses', async () => {
       const store = factory()
-      const c = await store.upsert(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k-cas' }), {})
+      const c = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k-cas' }), {})
 
-      expect((await store.revoke(c.id, {}))?.version).toBe(c.version + 1)
+      expect((await store.revoke(c.id, {})).version).toBe(c.version + 1)
       await expect(store.rotate(c.id, 'stolen', c.version, {})).rejects.toMatchObject({ code: 'AUTH_STALE_WRITE' })
     })
 
@@ -1402,22 +1745,59 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
           secret,
         })
 
+    it('findByHashedSecret answers the freshest of several rows sharing a secret', async () => {
+      const store = factory()
+      const older = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'shared' }), {})
+      await new Promise((r) => setTimeout(r, 30))
+      const newer = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'shared' }), {})
+
+      // Re-issuing a key leaves both rows live for a moment. Whole-second `created_at` makes "freshest"
+      // a coin toss between them, and the loser is the key the caller was just handed.
+      const found = await store.findByHashedSecret('shared', 'api-key', {})
+      expect(found?.id).toBe(newer.id)
+      expect(found?.id).not.toBe(older.id)
+    })
+
+    it('lists newest first, so the first live row is the newest one', async () => {
+      const store = factory()
+      const made: string[] = []
+      for (const label of ['oldest', 'middle', 'newest']) {
+        made.push((await store.create(credentialInput({ identityId: OWNER, kind: 'totp', secret: label }), {})).id)
+        await new Promise((r) => setTimeout(r, 15))
+      }
+
+      // `passwords` rotates "the first live row" and `mfa.confirm` takes the first unconfirmed enrollment,
+      // so insertion order here hands a user who restarted TOTP setup the QR they already abandoned.
+      const listed = await store.listByIdentity(OWNER, 'totp', {})
+      expect(listed.map((c) => c.secret)).toEqual(['newest', 'middle', 'oldest'])
+      expect(listed[0]?.id).toBe(made[2])
+    })
+
       it('revokes every live row of the family and answers how many moved', async () => {
         const store = factory()
-        const first = await store.upsert(oauth('rt-1', 'fam-a', 1), {})
-        const second = await store.upsert(oauth('rt-2', 'fam-a', 2), {})
+        const first = await store.create(oauth('rt-1', 'fam-a', 1), {})
+        const second = await store.create(oauth('rt-2', 'fam-a', 2), {})
 
         expect(await store.revokeFamily('fam-a', {})).toBe(2)
         expect((await store.findById(first.id, {}))?.revokedAt).toBeInstanceOf(Date)
         expect((await store.findById(second.id, {}))?.revokedAt).toBeInstanceOf(Date)
       })
 
+      it('records who revoked the family', async () => {
+        const store = factory()
+        const row = await withActor('op-fam', () => store.create(oauth('rt-who', 'fam-who', 1), {}))
+
+        await withActor('op-revoker', () => store.revokeFamily('fam-who', {}))
+        // A family revocation is the breach response, so "who pulled the trigger" is the audit question.
+        expect((await store.findById(row.id, {}))?.updatedBy).toBe('op-revoker')
+      })
+
       it('spares another family and another kind', async () => {
         const store = factory()
-        const target = await store.upsert(oauth('rt-3', 'fam-a', 1), {})
-        const other = await store.upsert(oauth('rt-4', 'fam-b', 1), {})
+        const target = await store.create(oauth('rt-3', 'fam-a', 1), {})
+        const other = await store.create(oauth('rt-4', 'fam-b', 1), {})
         // The same familyId, so the kind is the only thing keeping it out.
-        const key = await store.upsert(
+        const key = await store.create(
           credentialInput({ identityId: OWNER, kind: 'api-key', metadata: { familyId: 'fam-a' }, secret: 'k-fam' }),
           {},
         )
@@ -1430,8 +1810,8 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
       it('a named tenant never reaches another tenant, nor a global row', async () => {
         const store = factory()
-        const scoped = await store.upsert({ ...oauth('rt-5', 'fam-a', 1), tenantId: 'tenant-a' }, {})
-        const global = await store.upsert(oauth('rt-6', 'fam-a', 1), {})
+        const scoped = await store.create({ ...oauth('rt-5', 'fam-a', 1), tenantId: 'tenant-a' }, {})
+        const global = await store.create(oauth('rt-6', 'fam-a', 1), {})
 
         expect(await store.revokeFamily('fam-a', { tenantId: 'tenant-b' })).toBe(0)
         expect((await store.findById(scoped.id, {}))?.revokedAt).toBeNull()
@@ -1440,7 +1820,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
       it('counts only what it moved, so a second call answers zero', async () => {
         const store = factory()
-        await store.upsert(oauth('rt-7', 'fam-c', 1), {})
+        await store.create(oauth('rt-7', 'fam-c', 1), {})
 
         expect(await store.revokeFamily('fam-c', {})).toBe(1)
         expect(await store.revokeFamily('fam-c', {})).toBe(0)
@@ -1448,7 +1828,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
       it('bumps the version, so the CAS a reuse race is about cannot still win', async () => {
         const store = factory()
-        const row = await store.upsert(oauth('rt-8', 'fam-d', 1), {})
+        const row = await store.create(oauth('rt-8', 'fam-d', 1), {})
 
         await store.revokeFamily('fam-d', {})
         await expect(store.rotate(row.id, 'stolen', row.version, {})).rejects.toMatchObject({
@@ -1457,19 +1837,19 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       })
     })
 
-    it('a credential removal that matches no row answers null or an empty list', async () => {
+    it('a credential removal that matches no row raises, and a kind sweep answers an empty list', async () => {
       const store = factory()
-      const gone = (await store.upsert(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k2' }), {})).id
+      const gone = (await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k2' }), {})).id
       await store.delete(gone, {})
 
-      expect(await store.revoke(gone, {})).toBeNull()
-      expect(await store.delete(gone, {})).toBeNull()
+      await expect(store.revoke(gone, {})).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
+      await expect(store.delete(gone, {})).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
       expect(await store.deleteByKind(OWNER, 'recovery', {})).toEqual([])
     })
 
     it('patchMetadata shallow-merges + bumps version atomically', async () => {
       const store = factory()
-      const c = await store.upsert(
+      const c = await store.create(
         credentialInput({ identityId: OWNER, kind: 'totp', secret: 's', metadata: { confirmed: false, counter: 0 } }),
         {},
       )
@@ -1483,7 +1863,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
      *  object on half the adapters. A patch that says nothing writes nothing. */
     it('patchMetadata leaves a null metadata null when the patch says nothing', async () => {
       const store = factory()
-      const c = await store.upsert(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k-empty' }), {})
+      const c = await store.create(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k-empty' }), {})
       expect(c.metadata).toBeNull()
 
       expect((await store.patchMetadata(c.id, {}, {})).metadata).toBeNull()
@@ -1492,7 +1872,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
 
     it('patchMetadata leaves what is already there alone when the patch says nothing', async () => {
       const store = factory()
-      const c = await store.upsert(
+      const c = await store.create(
         credentialInput({ identityId: OWNER, kind: 'api-key', metadata: { kept: 1 }, secret: 'k-keep' }),
         {},
       )
@@ -1500,10 +1880,40 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       expect((await store.patchMetadata(c.id, {}, {})).metadata).toEqual({ kept: 1 })
     })
 
+    /** The compare-and-set a caller uses to make "read a value, decide, record the new one" one step.
+     *  Unconditional it is two steps, and two callers that both read before either wrote both decide on
+     *  the same stale value - which is how one TOTP code bought two step-ups. */
+    it('patchMetadata with an expectedVersion refuses a row whose version has moved', async () => {
+      const store = factory()
+      const c = await store.create(
+        credentialInput({ identityId: OWNER, kind: 'totp', metadata: { step: 1 }, secret: 's-cas' }),
+        {},
+      )
+      const moved = await store.patchMetadata(c.id, { step: 2 }, {}, c.version)
+      expect(moved.metadata).toEqual({ step: 2 })
+      expect(moved.version).toBe(c.version + 1)
+
+      // The stale version is the one the first caller already spent.
+      await expect(store.patchMetadata(c.id, { step: 3 }, {}, c.version)).rejects.toMatchObject({
+        code: 'AUTH_STALE_WRITE',
+      })
+      // Refused means nothing was written, not written-then-reported.
+      expect((await store.findById(c.id, {})).metadata).toEqual({ step: 2 })
+    })
+
+    /** A conditional write matches no row whether it is gone or a version behind, so the dialects cannot
+     *  tell the two apart and all six answer the one code a caller can act on. */
+    it('patchMetadata with an expectedVersion throws AUTH_STALE_WRITE for an unknown id', async () => {
+      const store = factory()
+      await expect(store.patchMetadata(authUuidV7(), { x: 1 }, {}, 1)).rejects.toMatchObject({
+        code: 'AUTH_STALE_WRITE',
+      })
+    })
+
     // `patchMetadata` reads before it writes, in every adapter, so it can tell a row that is not there
-    // from one whose version moved - and only the second is worth a retry. A caller handed
+    // from one whose version moved, and only the second is worth a retry. A caller handed
     // `AUTH_STALE_WRITE` for a missing id retries until it gives up.
-    it('patchMetadata throws AUTH/CREDENTIAL_NOT_FOUND for an unknown id', async () => {
+    it('patchMetadata throws AUTH_CREDENTIAL_NOT_FOUND for an unknown id', async () => {
       const store = factory()
       await expect(store.patchMetadata(authUuidV7(), { x: 1 }, {})).rejects.toMatchObject({
         code: 'AUTH_CREDENTIAL_NOT_FOUND',

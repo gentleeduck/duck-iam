@@ -1,17 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import {
-  getCredentialPurpose,
-  getProfileString,
-  isCredentialExpired,
-  isExpiredAt,
-  isProfileBooleanTrue,
-  isRevoked,
-  isSoftDeleted,
-} from '../credentials/credentials'
+import { getCredentialPurpose, isCredentialExpired, isRevoked } from '../credentials/credentials'
+import { isSoftDeleted } from '../identities/identities'
+import { getProfileString, isExpiredAt, isProfileBooleanTrue } from '../predicates/predicates'
 
 describe('isRevoked', () => {
   it('false when revokedAt is the null/undefined live sentinel', () => {
-    // `null` is the canonical "not revoked" value: upsert/create default
+    // `null` is the canonical "not revoked" value: `create` defaults
     // `revokedAt` to `null`, so a null here means a live credential.
     expect(isRevoked({ revokedAt: null })).toBe(false)
   })

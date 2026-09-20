@@ -1,17 +1,9 @@
 import { expect } from 'vitest'
+import type { Credential } from '~/core/credentials/credentials.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 
-/**
- * What a row field is allowed to be when it comes back out of a store.
- *
- * The row types promise `Date`, `number`, `boolean` and `string`. A backend that
- * hands back the serialised form instead - `"2026-09-04T…"` for a `Date`, `"3"`
- * for a `version`, `1` for a boolean - still satisfies `tsc`, because nothing
- * re-checks a value that crossed a driver boundary. It surfaces later and
- * somewhere else, as `expiresAt.getTime is not a function` in a caller's code,
- * or worse as a comparison that silently does the wrong thing: `'2' > '10'` is
- * `true`, and `new Date(x) < now` against a string that failed to parse is
- * `false`, which reads as "not expired".
- */
+/** What a row field is allowed to be when it comes back out of a store. */
 type FieldKind = 'date' | 'date|null' | 'number' | 'number|null' | 'boolean' | 'string' | 'string|null'
 
 /** A dotted path into a row, with `[]` marking "every element of this array". */
@@ -67,14 +59,7 @@ function describe(value: unknown): string {
   return `${typeof value} ${JSON.stringify(value)}`
 }
 
-/**
- * Assert every field in `spec` came back as the type the row type declares.
- *
- * A field whose path resolves to nothing is skipped, not failed: `providers[]`
- * on an identity with no links, or `actingAs` on an ordinary session, are
- * legitimately absent. What this catches is a field that *is* there and is the
- * wrong shape.
- */
+/** Assert every field in `spec` came back as the type the row type declares. */
 export function expectFieldTypes(row: unknown, spec: FieldSpec, label: string): void {
   for (const [path, kind] of Object.entries(spec)) {
     const segments = path.split('.')
@@ -86,7 +71,41 @@ export function expectFieldTypes(row: unknown, spec: FieldSpec, label: string): 
   }
 }
 
-/** `Identities.Me` - every field the type declares with a concrete shape. */
+/**
+ * The other direction from {@link expectFieldTypes}, which only ever looks at the fields its spec names and so
+ * cannot see a key that should not be there at all. A store answering its table rather than its contract hands
+ * every caller a column the row type says does not exist.
+ */
+export function expectExactKeys(row: unknown, keys: readonly string[], label: string): void {
+  expect(typeof row, `${label} must be a row`).toBe('object')
+  expect(row, `${label} must be a row`).not.toBeNull()
+  expect(Object.keys(row as object).sort(), `${label} keys`).toEqual([...keys].sort())
+}
+
+/** Both directions at once: the exact key set a row may carry, and the declared shape of each field. */
+export function expectRow(row: unknown, spec: FieldSpec, keys: readonly string[], label: string): void {
+  expectExactKeys(row, keys, label)
+  expectFieldTypes(row, spec, label)
+}
+
+export const IDENTITY_KEYS = Object.keys({
+  createdAt: true, createdBy: true, deletedAt: true, deletedBy: true, emailVerified: true, id: true,
+  profile: true, providers: true, updatedAt: true, updatedBy: true, version: true,
+} satisfies Record<keyof Identities.Me, true>)
+
+export const SESSION_KEYS = Object.keys({
+  aal: true, absoluteExpiresAt: true, actingAs: true, createdAt: true, csrfHash: true, expiresAt: true,
+  factors: true, fingerprint: true, fresh: true, id: true, identityId: true, ip: true, kind: true,
+  rotatedAt: true, tenantId: true, updatedAt: true, userAgent: true,
+} satisfies Record<keyof Sessions.Me, true>)
+
+export const CREDENTIAL_KEYS = Object.keys({
+  createdAt: true, createdBy: true, expiresAt: true, id: true, identityId: true, kind: true,
+  lastUsedAt: true, metadata: true, revokedAt: true, secret: true, tenantId: true, updatedAt: true,
+  updatedBy: true, version: true,
+} satisfies Record<keyof Credential.Me, true>)
+
+/** `Identities.Me`: every field the type declares with a concrete shape. */
 export const IDENTITY_FIELDS: FieldSpec = {
   createdAt: 'date',
   createdBy: 'string|null',
@@ -122,11 +141,12 @@ export const SESSION_FIELDS: FieldSpec = {
   kind: 'string',
   rotatedAt: 'date',
   tenantId: 'string|null',
+  updatedAt: 'date',
   userAgent: 'string|null',
 }
 
 /**
- * The OIDC OP rows. Every instant here is an epoch `number`, not a `Date` - and
+ * The OIDC OP rows. Every instant here is an epoch `number`, not a `Date`, and
  * on Postgres they are `bigint` columns, which node-postgres hands back as
  * strings so that an id past 2^53 is not silently rounded. Whether drizzle's
  * `mode: 'number'` converts them is the whole question these answer.
@@ -191,6 +211,7 @@ export const CREDENTIAL_FIELDS: FieldSpec = {
   revokedAt: 'date|null',
   secret: 'string',
   tenantId: 'string|null',
+  updatedAt: 'date',
   updatedBy: 'string|null',
   version: 'number',
 }

@@ -1,11 +1,6 @@
 import type { Provider } from '../core/provider/provider.types'
 
-/**
- * The browser's half of an oauth `begin`: keep the pre-auth cookie, follow the redirect.
- *
- * A test that only reads the redirect proves the IdP hop and nothing about which browser comes
- * back, which is the difference the state binding exists for.
- */
+/** The browser's half of an oauth `begin`: keep the pre-auth cookie, follow the redirect. */
 export function afterOAuthBegin(intents: Provider.Intent[]): { state: string; cookieHeader: string } {
   const redirect = intents.find((i) => i.type === 'redirect')
   const cookie = intents.find((i) => i.type === 'setCookie')

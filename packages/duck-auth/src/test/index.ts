@@ -1,4 +1,8 @@
-/** Test helpers - `authCreateTest()` wires an in-memory AuthEngine for e2e-style tests. */
+/** `authCreateTest()` wires an in-memory AuthEngine for e2e-style tests. */
+
+/** The in-process redis double. It lives here rather than on `adapters/redis`, which is a production
+ *  entry: an app reaching for it is writing a test, and the contract type it implements stays there. */
+export { FakeRedis, fakeRedis } from '../core/drivers/redis-like'
 
 import { MemoryAdapter } from '../adapters/memory'
 import { AuthEngine, type Engine } from '../core/engine'
@@ -9,9 +13,10 @@ import { type ApiKeys, apiKeyProvider } from '../providers/api-key'
 import { type Mfa, mfaProvider } from '../providers/mfa'
 import { type Passwords, passwords, ScryptHasher } from '../providers/passwords'
 
+/** Overrides a test harness may supply when building an engine. */
 export namespace Test {
   export interface Overrides<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
-    /** Drop-in replacement for the bundled AuthMemoryAdapter. */
+        /** Drop-in replacement for the bundled {@link MemoryAdapter}. */
     adapter?: MemoryAdapter<Profile, OrgMeta>
     /** Replace the whole store bag, the way a real deployment hands the engine an adapter. */
     stores?: Engine.Cfg<Profile, Tenant, OrgMeta>['stores']

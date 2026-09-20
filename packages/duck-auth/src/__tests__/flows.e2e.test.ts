@@ -1,26 +1,11 @@
-/**
- * E2E: the token-carrying flows against REAL Postgres and REAL Redis.
- *
- * Password reset, email verification and account deletion all hand a secret to a
- * channel, then take it back later and act on it. That is the same shape as an
- * OIDC authorization code, and every bug this audit found sat in that shape: the
- * token has to work once, expire, belong to exactly one account, and leave the
- * right wreckage behind when it is spent.
- *
- * Two of those are only observable against a real store. Whether the reset marked
- * the token spent is a claim about a row a later request reads back, and whether
- * it revoked the other devices is a claim about rows nobody in this process is
- * holding.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL or DUCKAUTH_E2E_REDIS_URL is unset;
- * `globalSetup` provisions both when docker is available.
- */
+/** E2E: the token-carrying flows against REAL Postgres and REAL Redis. */
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { AuthTestChannel } from '~/channels/console'
+import { orNull } from '~/core/answer'
 import { getCredentialPurpose } from '~/core/credentials/credentials'
 import { AuthEngine } from '~/core/engine'
 import { redisIdempotency } from '~/core/idempotency'
@@ -68,7 +53,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
     return { email, id: identity.id }
   }
 
-  const findByEmail = async (email: string) => stores.identities.find({ email })
+  const findByEmail = async (email: string) => orNull(stores.identities.find({ email }))
 
   async function requestReset(email: string): Promise<{ channel: AuthTestChannel; token: string }> {
     const channel = new AuthTestChannel()
@@ -195,8 +180,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
       await auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })
 
-      expect(await auth.resolveSession(cookie(a.sid))).toBeNull()
-      expect(await auth.resolveSession(cookie(b.sid))).toBeNull()
+      await expect(auth.resolveSession(cookie(a.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(auth.resolveSession(cookie(b.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('leaves other accounts signed in', async () => {
@@ -207,7 +192,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
       await auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })
 
-      expect(await auth.resolveSession(cookie(theirs.sid))).not.toBeNull()
+      await expect(auth.resolveSession(cookie(theirs.sid))).resolves.toBeDefined()
     })
 
     it('says nothing about whether an address is registered', async () => {
@@ -303,10 +288,10 @@ suite('E2E token flows on real Postgres + Redis', () => {
       const token = tokenFrom(channel)
 
       await auth.flows.completeAccountDeletion({ token })
-      expect(await stores.identities.find({ id: user.id })).toBeNull()
+      await expect(stores.identities.find({ id: user.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
 
       await auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId: user.id })
-      expect(await stores.identities.find({ id: user.id })).not.toBeNull()
+      await expect(stores.identities.find({ id: user.id })).resolves.toBeTruthy()
     })
 
     it('refuses the deletion token a second time', async () => {
@@ -352,11 +337,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
   describe('signup, on the schema that used to reject it', () => {
     // F27. `beginSignUp` built `{ ...initialProfile, email }` and cast it past a
-    // type that requires `username`. Postgres is the only place that ever said
-    // so - the sqlite conformance DDL states in its own comment that it omits
-    // CHECK constraints, and memory and Redis have no schema - so the documented
-    // happy path produced an INSERT the library's own adapter refused, and every
-    // suite in the repo passed anyway.
+    // type that requires `username`.
     it('accepts an email-only begin, which the profile CHECK used to refuse', async () => {
       const email = `signup-${e2ePrefix()}@test.local`
       const { flow, flowToken } = await auth.flows.beginSignUp({ email })
@@ -408,7 +389,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
       // `deleteByKind(identityId, 'recovery')` used to take the signup row with it,
       // stranding the user mid-signup with a token that no longer resolves.
-      expect(await auth.flows.getSignUpFlow(flowToken)).not.toBeNull()
+      await expect(auth.flows.getSignUpFlow(flowToken)).resolves.toBeDefined()
     })
   })
 
@@ -433,8 +414,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
       expect(released.session?.identityId).toBe(admin.id)
       // The sid it answers with resolves against the real store, and the one it
       // replaced does not.
-      expect((await auth.resolveSession(cookie(released.sid)))?.session.identityId).toBe(admin.id)
-      expect(await auth.resolveSession(cookie(started.sid))).toBeNull()
+      expect((await auth.resolveSession(cookie(released.sid))).session.identityId).toBe(admin.id)
+      await expect(auth.resolveSession(cookie(started.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('a reset by a signed-in caller rotates them into a new session instead of stranding them', async () => {
@@ -445,7 +426,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
       const out = await auth.flows.completePasswordReset({ currentSid: sid, newPassword: NEW_PASSWORD, token })
       expect(out.intents.length).toBeGreaterThan(0)
       // The session they arrived on is gone with the rest.
-      expect(await auth.resolveSession(cookie(sid))).toBeNull()
+      await expect(auth.resolveSession(cookie(sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
       // And the new password is the one that works.
       expect((await auth.passwords.verify(user.id, NEW_PASSWORD, stores.credentials)).ok).toBe(true)
     })
@@ -469,7 +450,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
       expect(rows).toHaveLength(1)
       expect(rows[0]?.revokedAt).toBeNull()
       // The same token still reads the advanced state back out of Postgres.
-      expect((await auth.flows.getSignUpFlow(flowToken))?.completed).toContain('terms-accepted')
+      expect((await auth.flows.getSignUpFlow(flowToken)).completed).toContain('terms-accepted')
       const out = await auth.flows.completeSignUp({ flowToken })
       expect(out.session?.identityId).toBe(flow.identityId)
     })
