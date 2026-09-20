@@ -322,3 +322,30 @@ saw.
 
 The write path refuses these rows, so only a seed, a migration or a direct write
 can carry one.
+
+### `explain()` disagreed with the decision it was explaining
+
+`explain()` reaches its verdict through its own combiner switch and its own
+target matching, which makes it a third evaluator — and nothing compared it to
+a verdict. Adding that comparison to the 6000-catalog differential found five
+disagreements.
+
+Reported **allow** where `can()` denied: an unrecognised `rule.effect` (the
+combiner matches `'deny'` and `'allow'` positively, so a mistyped one voted for
+neither) and a non-finite `rule.priority` (never checked at all). An unknown
+combining algorithm fell off the end of the switch and raised
+`Cannot destructure property 'effect'` out of `explain()` itself, so the
+diagnostic crashed on exactly the input it exists to explain.
+
+Reported **deny** where `can()` allowed: a throwing condition on a rule that
+does not target the request poisoned the whole policy, though `ruleApplies`
+never evaluates such a rule's conditions; and a throwing permission inside the
+allow-only RBAC union was not allowed to abstain, though the decision path lets
+it.
+
+The policy-level refusals now come from one place and run behind the same
+rule-target test the two evaluators share. `explain()` answers `defaultEffect`
+directly when no rule matched, so the combining algorithm is never consulted
+where it has no arm, and the hand-copied policy target matcher is gone in
+favour of `policyApplies`. A non-object condition group is reported by name in
+the trace rather than as a bare `TypeError`.

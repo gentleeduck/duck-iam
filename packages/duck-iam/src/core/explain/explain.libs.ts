@@ -2,7 +2,15 @@
 
 import { evalConditionGroup, resolveConditionValue } from '../conditions/conditions'
 import { evalCondition, IamConditionGroupError } from '../conditions/conditions.libs'
-import { policyHasDenyRule, rulePriority } from '../evaluate/evaluate.libs'
+import {
+  combiners,
+  isRuleEffect,
+  policyApplies,
+  policyHasDenyRule,
+  ranksByPriority,
+  rulePriority,
+} from '../evaluate/evaluate.libs'
+import { IAM_RBAC_POLICY_ID } from '../rbac/rbac'
 import { matchesAction, matchesResource, resolve } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import type { Explain } from './explain.types'
@@ -48,6 +56,11 @@ function traceGroup(
     throw new IamConditionGroupError('depth', `condition nesting exceeds ${MAX_TRACE_DEPTH}`)
   }
 
+  // `in` raises a bare TypeError on a non-object, so hand that case to the function that names it.
+  if (group === null || typeof group !== 'object') {
+    return { type: 'group', logic: 'all', result: evalConditionGroup(req, group, depth), children: [] }
+  }
+
   if ('all' in group) {
     const children = group.all.map((item) => traceItem(req, item, depth + 1))
     return { type: 'group', logic: 'all', result: children.every((c) => c.result), children }
@@ -63,7 +76,7 @@ function traceGroup(
     return { type: 'group', logic: 'none', result: children.every((c) => !c.result), children }
   }
 
-  // No `all`/`any`/`none`: `{}` is unconditionally true while an unrecognised key is false. Delegated rather than
+  // No `all`/`any`/`none`: `{}` is unconditionally true and an unrecognised key is refused. Delegated rather than
   // reimplemented, since there are no children to trace and a hand-copy would drift from the decision path.
   return { type: 'group', logic: 'all', result: evalConditionGroup(req, group, depth), children: [] }
 }
@@ -156,17 +169,25 @@ function applyCombiner(
   }
 }
 
-/** Check whether a policy's target constraints match the request. */
-function policyTargetsMatch(policy: AccessControl.IPolicy, req: IamRequest.IAccessRequest): boolean {
-  if (!policy.targets) return true
-  const { actions, resources, roles } = policy.targets
-  if (actions?.length && !actions.some((a) => matchesAction(a, req.action))) return false
-  if (resources?.length && !resources.some((r) => matchesResource(r, req.resource.type))) return false
-  if (roles?.length) {
-    const subjectRoles = Array.isArray(req.subject.roles) ? req.subject.roles : []
-    if (!roles.some((role) => subjectRoles.includes(role))) return false
+/**
+ * The decision path's policy-level refusals, in the order `evaluate` applies them; `undefined` when it would answer.
+ * SECURITY: without these the trace reports an allow for a policy the engine refuses, which is what `explain()` is
+ * read to understand. Gated on the rule-target test both evaluators run first, so it refuses the same requests.
+ */
+function policyRefusal(
+  policy: AccessControl.IPolicy,
+  matched: readonly Explain.IRuleTrace[],
+  targeted: boolean,
+): string | undefined {
+  if (!targeted) return undefined
+  if (!Object.hasOwn(combiners, policy.algorithm)) {
+    return `unknown combining algorithm "${String(policy.algorithm)}"`
   }
-  return true
+  if (ranksByPriority(policy.algorithm) && policy.rules.some((rule) => !Number.isFinite(rule.priority))) {
+    return 'a rule priority is not a finite number'
+  }
+  const badEffect = matched.find((rule) => !isRuleEffect(rule.effect))
+  return badEffect === undefined ? undefined : `unknown effect on rule "${badEffect.ruleId}"`
 }
 
 /**
@@ -180,7 +201,7 @@ export function tracePolicy(
   req: IamRequest.IAccessRequest,
   defaultEffect: AccessControl.Effect,
 ): Explain.IPolicyTrace {
-  const targetMatch = policyTargetsMatch(policy, req)
+  const targetMatch = policyApplies(policy, req)
 
   if (!targetMatch) {
     return {
@@ -195,11 +216,27 @@ export function tracePolicy(
   }
 
   const ruleTraces = policy.rules.map((rule) => traceRule(rule, req))
+  const matched = ruleTraces.filter((r) => r.matched)
 
-  // SECURITY: a rule that threw is Indeterminate, not "did not match", so combining the survivors would report an
-  // allow the decision path never gives. Uses `evaluate`'s own `policyHasDenyRule` so the two cannot drift.
-  if (ruleTraces.some((r) => r.conditionError !== undefined)) {
+  // SECURITY: a rule that threw, or a policy the decision path refuses, is Indeterminate rather than "did not
+  // match"; combining the survivors would report an allow the decision path never gives. Uses `evaluate`'s own
+  // `policyHasDenyRule` so the two cannot drift.
+  // Only a rule whose targets match: `ruleApplies` never evaluates the conditions of one that does not, so an
+  // unrelated rule's throwing condition must not poison the policy here either. The allow-only RBAC union lets a
+  // throwing rule abstain, as `evaluatePolicy` does, since skipping one there can only lose access.
+  const abstainOnThrow = policy.id === IAM_RBAC_POLICY_ID && !policyHasDenyRule(policy)
+  const threw =
+    !abstainOnThrow && ruleTraces.some((r) => r.conditionError !== undefined && r.actionMatch && r.resourceMatch)
+  const cause = threw
+    ? undefined
+    : policyRefusal(
+        policy,
+        matched,
+        ruleTraces.some((r) => r.actionMatch && r.resourceMatch),
+      )
+  if (threw || cause !== undefined) {
     const hasDeny = policyHasDenyRule(policy)
+    const detail = cause === undefined ? '' : `: ${cause}`
     return {
       policyId: policy.id,
       policyName: policy.name,
@@ -208,12 +245,24 @@ export function tracePolicy(
       rules: ruleTraces,
       result: hasDeny ? 'deny' : defaultEffect,
       reason: hasDeny
-        ? 'Policy evaluation error - denied (indeterminate)'
-        : `Policy evaluation error - defaulted to ${defaultEffect} (indeterminate)`,
+        ? `Policy evaluation error${detail} - denied (indeterminate)`
+        : `Policy evaluation error${detail} - defaulted to ${defaultEffect} (indeterminate)`,
+    }
+  }
+  // Every combiner answers `defaultEffect` for an empty set, and a policy that matched no rule is NotApplicable to
+  // the cross-policy combine, so the algorithm is never consulted - an unvalidated one would have no arm here.
+  if (matched.length === 0) {
+    return {
+      policyId: policy.id,
+      policyName: policy.name,
+      algorithm: policy.algorithm,
+      targetMatch: true,
+      rules: ruleTraces,
+      result: defaultEffect,
+      reason: `No matching rules. Defaulted to ${defaultEffect}`,
     }
   }
 
-  const matched = ruleTraces.filter((r) => r.matched)
   const { effect, reason, decidingRuleId } = applyCombiner(policy.algorithm, matched, defaultEffect)
   const decidingRule = decidingRuleId ? policy.rules.find((r) => r.id === decidingRuleId) : undefined
 
