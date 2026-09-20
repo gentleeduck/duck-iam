@@ -124,9 +124,14 @@ function applyCombiner(
       if (matched.length === 0)
         return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
       let first = matched[0]!
+      let firstPriority = rulePriority(first)
       for (let i = 1; i < matched.length; i++) {
         const cur = matched[i]!
-        if (rulePriority(cur) > rulePriority(first)) first = cur
+        const priority = rulePriority(cur)
+        if (priority > firstPriority) {
+          first = cur
+          firstPriority = priority
+        }
       }
       return {
         effect: first.effect,

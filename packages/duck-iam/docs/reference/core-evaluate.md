@@ -230,7 +230,7 @@ Nothing outside the combining algorithms picks a winner. There is no implicit
 | `highest-priority` | identical ranking to `first-match`; only the reported `reason` differs |
 
 `first-match` and `highest-priority` are one algorithm with two labels — they
-share `topByPriority` (`evaluate.libs.ts:106`) rather than two copies that could
+share `topByPriority` (`evaluate.libs.ts:80`) rather than two copies that could
 drift, and `algorithm-alias-precompute.test.ts` agrees them across 3000
 generated rule sets in both engines. The names are kept because the `reason`
 string is what an operator reads in an audit log.
@@ -240,17 +240,33 @@ Ties fall to source order via a strict `>` in `topByPriority`. Source order is
 both engines agree on the answer for any given order, but the order itself is
 the adapter's to guarantee.
 
-`rulePriority` (`evaluate.libs.ts:264`) ranks a missing or `NaN` priority as
-`0`, not as `-Infinity`:
+`rulePriority` (`evaluate.libs.ts:241`) refuses a priority that is not a finite
+number instead of ranking it:
 
 ```ts
 export function rulePriority(rule: { readonly priority: number }): number {
-  return Number.isFinite(rule.priority) ? rule.priority : 0
+  if (!Number.isFinite(rule.priority)) {
+    throw new Error(`[@gentleduck/iam:evaluate] Rule priority must be a finite number, got ...`)
+  }
+  return rule.priority
 }
 ```
 
-Without it a row that bypassed validation lost every `>` comparison and vanished
-from ranking, making the verdict depend on source order alone.
+Ranking it as `0` was the first fix and it was wrong the same way abstaining was
+wrong for `rule.effect`: `0` is a real rank, the lowest meaningful one, so a
+`deny` carrying `NaN`, `null` or no priority at all lost to any allow with a
+positive priority and the deny disappeared. `-Infinity` loses the same way. The
+write path refuses the row (`INVALID_TYPE`), so anything reaching here was
+seeded, migrated or written straight to the store.
+
+Both evaluators refuse it at **policy** level, after the two NotApplicable tests
+they already share (`policyApplies`, then `policy.rules.some(ruleTargetsMatch)`),
+so they refuse exactly the same requests. Throwing at ranking time instead
+poisons a different set of requests in each, which the 6000-catalog differential
+reports as 44 disagreements. `isResidualPolicy` keeps such a policy out of the
+flat table, whose cells never read `priority` and would otherwise answer where
+the ranked algorithms refuse. `deny-overrides` and `allow-overrides` never call
+`rulePriority`, so a bad priority on one of those changes nothing.
 
 **Across policies** — `combine`, one of `'and'`, `'allow-overrides'`,
 `'first-applicable'` (`VALID_POLICY_COMBINES`, `evaluate.libs.ts:94`):
@@ -1087,6 +1103,11 @@ cast `defaultEffect` — still applicable, still not skippable.
   `defaultEffect`, not abstention. Only NotApplicable is skipped. Under
   `combine: 'and'` with `defaultEffect: 'deny'`, an over-broad `*`/`*` deny rule
   that does not fire denies everything.
+- **A non-finite `rule.priority` is Indeterminate under the two ranking
+  algorithms.** Ranking it as `0` is not a safe default — it is the lowest
+  meaningful rank, so a mistyped deny loses to any allow above `0` and the deny
+  is gone. Refuse it at policy level, after the NotApplicable tests, or the two
+  evaluators refuse different requests.
 - **An unrecognised `rule.effect` is Indeterminate, not an abstention.** A row
   spelled `'DENY'` is refused by the write path but not by the read path.
   Abstaining looks safe on a policy whose only rule carries it, and inverts the

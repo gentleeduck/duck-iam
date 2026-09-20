@@ -169,7 +169,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/engine-hook-timeout.test.ts` | 16 | a hook whose promise never settles does not hold the call open |
 | `core/engine/__tests__/engine-import-error-cap.test.ts` | 8 | engine.admin.import schemaVersion error interpolation cap |
 | `core/engine/__tests__/engine-permissions-key-collision.test.ts` | 1 | permissions() key collisions |
-| `core/engine/__tests__/engine-priority-nonfinite.test.ts` | 16 |  |
+| `core/engine/__tests__/engine-priority-nonfinite.test.ts` | 28 |  |
 | `core/engine/__tests__/engine-subject-load-shed.test.ts` | 7 | IamEngine constructor: maxConcurrentSubjectLoads validation |
 | `core/engine/__tests__/engine-subject-roles-type-confusion.test.ts` | 5 | Engine subject.roles type-confusion defense |
 | `core/engine/__tests__/engine-temporal-now.test.ts` | 4 | engine auto-injects environment.now for temporal policies |
@@ -214,7 +214,7 @@ drift the way the hand-maintained version did.
 | `core/evaluate/__tests__/evaluate-error-indeterminate.test.ts` | 15 | evaluate ('and') with a throwing deny policy |
 | `core/evaluate/__tests__/evaluate-fast-caches.test.ts` | 2 |  |
 | `core/evaluate/__tests__/evaluate-missing-conditions.test.ts` | 4 | indexPolicy with a rule missing `conditions` |
-| `core/evaluate/__tests__/evaluate-priority-nonfinite.test.ts` | 8 |  |
+| `core/evaluate/__tests__/evaluate-priority-nonfinite.test.ts` | 22 | CONTROL: a finite priority still ranks |
 | `core/evaluate/__tests__/evaluate-priority-tie-shuffle.test.ts` | 3 | equal-priority tie-break under shuffled rule order |
 | `core/evaluate/__tests__/evaluate-priority-tie-source-order.test.ts` | 9 | priority ties resolve by source order on both evaluation paths |
 | `core/evaluate/__tests__/evaluate.libs.test.ts` | 19 | ruleTargetsMatch() |
@@ -273,7 +273,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2573** | |
+| **Subtotal** | **2599** | |
 
 ---
 
@@ -413,7 +413,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 154 | 2573 |
+| Core | 154 | 2599 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -421,4 +421,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **302** | **5949** |
+| **Total** | **302** | **5975** |

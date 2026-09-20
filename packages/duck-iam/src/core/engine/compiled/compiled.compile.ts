@@ -1,7 +1,7 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
 
 import { matchesUnconditionally } from '../../conditions/conditions'
-import { combiners, isRuleEffect, policyTargetsActionResource } from '../../evaluate/evaluate.libs'
+import { combiners, isRuleEffect, policyTargetsActionResource, ranksByPriority } from '../../evaluate/evaluate.libs'
 import { MAX_INHERITANCE_DEPTH, rolesToPolicy } from '../../rbac'
 import type { AccessControl } from '../../types'
 import { IAM_MAX_COMPILED_ROLES as MAX_ROLES } from '../engine.libs'
@@ -55,6 +55,9 @@ function isResidualPolicy(policy: AccessControl.IPolicy): boolean {
   // SECURITY: the flat model reads `rule.effect` as allow-or-else, the combiners read it as two positive tests.
   // Rather than pick one for an unvalidated row, hand it to `evaluatePolicyFast`, which refuses it.
   if (policy.rules.some((rule) => !isRuleEffect(rule.effect))) return true
+  // SECURITY: the flat model never reads `rule.priority`, so a CONST_ALLOW cell answers where the ranked
+  // algorithms refuse a non-finite one.
+  if (ranksByPriority(policy.algorithm) && policy.rules.some((rule) => !Number.isFinite(rule.priority))) return true
   if (policy.targets?.actions?.some(isWildcard) || policy.targets?.resources?.some(isWildcard)) return true
   for (const rule of policy.rules) {
     for (const a of rule.actions) if (isWildcard(a)) return true
