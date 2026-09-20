@@ -342,8 +342,8 @@ drift the way the hand-maintained version did.
 | `server/__tests__/admin-actor-parity.test.ts` | 16 | the actor an admin router authenticated |
 | `server/__tests__/admin-cross-adapter.test.ts` | 84 |  |
 | `server/__tests__/admin-request-validation-parity.test.ts` | 15 | the four admin routers answer one bad request the same way |
-| `server/__tests__/cross-adapter.test.ts` | 108 | the path-deriving integrations build the same tuple |
-| `server/__tests__/e2e-http-servers.e2e.test.ts` | 172 | harness |
+| `server/__tests__/cross-adapter.test.ts` | 111 | the path-deriving integrations build the same tuple |
+| `server/__tests__/e2e-http-servers.e2e.test.ts` | 173 | harness |
 | `server/__tests__/guard-resource-attributes.test.ts` | 17 | a guard and the row it has not loaded |
 | `server/__tests__/guard-resource-id.test.ts` | 19 | a guard and the instance it names |
 | `server/__tests__/guard-scope.test.ts` | 23 | a guard and the scope it runs under |
@@ -366,7 +366,7 @@ drift the way the hand-maintained version did.
 | `server/next/__tests__/next-middleware-environment.test.ts` | 8 | createIamNextMiddleware environment |
 | `server/next/__tests__/next-middleware-rule-matching.test.ts` | 4 | next middleware: a string rule pattern matches as a prefix |
 | `server/next/__tests__/next.test.ts` | 31 | withIamAccess |
-| **Subtotal** | **862** | |
+| **Subtotal** | **866** | |
 
 ---
 
@@ -424,8 +424,8 @@ drift the way the hand-maintained version did.
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
-| Server | 28 | 862 |
+| Server | 28 | 866 |
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **309** | **6119** |
+| **Total** | **309** | **6123** |

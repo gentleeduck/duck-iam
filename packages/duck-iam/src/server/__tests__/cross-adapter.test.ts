@@ -299,6 +299,44 @@ describe('the authz try wraps the check, not the downstream handler', () => {
     expect(res?.status).toBe(500)
     expect(onError.mock.calls[0]?.[0]?.message).toBe('idp down')
   })
+
+  // `withIamAccess` calls the route handler itself, so both spellings have to behave the same: an unawaited
+  // `return handler(...)` inside the try caught only the synchronous one, making the answer depend on `async`.
+  const routeBlewUpSync = () => {
+    throw new Error('route blew up')
+  }
+  for (const [spelling, route] of [
+    ['async', routeBlewUp],
+    ['sync', routeBlewUpSync],
+  ] as const) {
+    it(`next withIamAccess lets a ${spelling} route error past onError`, async () => {
+      const onError = vi.fn((_err: Error) => new Response(null, { status: 500 }))
+      const wrapped = withIamAccess(new RecordingEngine(), 'read', 'posts', route, { getUserId: () => USER, onError })
+      await expect(wrapped(new Request('https://example.com/posts/42'), { params: {} })).rejects.toThrow(
+        'route blew up',
+      )
+      expect(onError).not.toHaveBeenCalled()
+    })
+  }
+
+  // Control: `onError` still fires for a failure inside the check, and the route is never reached.
+  it('next withIamAccess still routes an evaluation error to onError', async () => {
+    const onError = vi.fn((_err: Error) => new Response(null, { status: 500 }))
+    const route = vi.fn(routeBlewUp)
+    const wrapped = withIamAccess(new RecordingEngine(), 'read', 'posts', route, {
+      getUserId: () => {
+        throw new Error('idp down')
+      },
+      onError,
+    })
+    const res = await wrapped(new Request('https://example.com/posts/42'), { params: {} })
+    expect(res.status).toBe(500)
+    expect(onError.mock.calls[0]?.[0]?.message).toBe('idp down')
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  // Express is absent on purpose: its downstream is the framework's own `next`, and Express wraps each layer
+  // dispatch in its own try, so a route's throw is turned into `next(err)` before it could reach this one.
 })
 
 describe('express never offers `next` to an error hook', () => {

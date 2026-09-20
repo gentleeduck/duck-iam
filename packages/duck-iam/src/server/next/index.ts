@@ -227,11 +227,11 @@ export function withIamAccess<
       if (!allowed) {
         return Response.json({ error: 'Forbidden' }, { status: 403 })
       }
-
-      return handler(req, ctx)
     } catch (err) {
       return onError(err instanceof Error ? err : new Error(String(err)), req)
     }
+    // NOTE: outside the try, as in the hono guard, so a route's own error reaches Next and not this `onError`.
+    return handler(req, ctx)
   }
 }
 
