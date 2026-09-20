@@ -335,9 +335,28 @@ Both effect tests in every branch are positive (`=== 'deny'` **and**
 `=== 'allow'`), never an `!== 'deny'` else-branch. `IRule.effect` is typed
 `'allow' | 'deny'`, but a seeded or migrated row can carry any string, and an
 else-branch read every one of them as an allow — a policy whose only rule was
-`effect: 'DENY'` answered allow. An unrecognised effect now votes for neither
-side, matching `denyOverrides`/`allowOverrides`, which `find` their effect by
-name and fall through to `defaultEffect`.
+`effect: 'DENY'` answered allow.
+
+Voting for neither side was the first fix, and it was only half right. It is
+fail-closed for a policy whose *only* rule carries the bad effect, which is the
+shape that was tested: nothing matches, so `defaultEffect` answers. Give that
+deny a sibling allow in the same policy and it inverts — the allow is the only
+vote left, and `deny-overrides` returns it. Measured, one policy with an
+unconditional allow and a second rule spelled `'DENY'`: `can()` → **true**,
+against `false` for `'deny'`. The compiled table did the same, by a different
+route: the flat model reads a non-allow effect as a deny, so the cell became
+DYNAMIC, and the DYNAMIC cell asks the combiners, which read it as neither.
+
+This is the same rule as a condition that cannot be answered: `false` is not
+fail-closed, it is fail-closed for an allow and fail-open for a deny. An
+unrecognised effect is therefore **Indeterminate**, not an abstention. Three
+places implement that: `evaluatePolicy` throws
+`Unknown effect "…" on rule "…"` when such a rule matches; `indexPolicy` sets
+`mayThrow`, which is what sends the policy from the fast path to the
+interpreter to be refused; and `isResidualPolicy` keeps it out of the compiled
+table. `policyHasDenyRule` counts anything that is not `'allow'`, so the
+Indeterminate that results denies rather than casting `defaultEffect`
+(`unknown-effect-fail-closed.test.ts`).
 
 ---
 
@@ -1068,6 +1087,11 @@ cast `defaultEffect` — still applicable, still not skippable.
   `defaultEffect`, not abstention. Only NotApplicable is skipped. Under
   `combine: 'and'` with `defaultEffect: 'deny'`, an over-broad `*`/`*` deny rule
   that does not fire denies everything.
+- **An unrecognised `rule.effect` is Indeterminate, not an abstention.** A row
+  spelled `'DENY'` is refused by the write path but not by the read path.
+  Abstaining looks safe on a policy whose only rule carries it, and inverts the
+  moment that rule has a sibling allow. Same for the combining algorithm and the
+  condition operator: refuse, do not guess.
 - **`false` from a condition is not fail-closed.** It is fail-closed for an
   allow rule and fail-open for a deny rule and for anything inside a `none`.
   This is why every unanswerable condition throws. If you add an operator, give

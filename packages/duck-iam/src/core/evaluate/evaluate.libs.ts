@@ -206,12 +206,18 @@ function addToPairBucket(
   addToBucket(byResource, resource, entry)
 }
 
+/** Whether `value` is an `IRule.effect` the evaluators can act on; an unvalidated row may carry anything. */
+export function isRuleEffect(value: unknown): value is AccessControl.Effect {
+  return value === 'allow' || value === 'deny'
+}
+
 /**
  * Whether the policy carries a deny rule, so failing to evaluate it could hide a deny; used to fail closed.
  * A row with no `rules` array can hide nothing and stays skippable.
+ * SECURITY: anything that is not `'allow'` counts, so a mistyped deny still makes the policy fail closed.
  */
 export function policyHasDenyRule(policy: AccessControl.IPolicy): boolean {
-  return Array.isArray(policy.rules) && policy.rules.some((r) => r.effect === 'deny')
+  return Array.isArray(policy.rules) && policy.rules.some((r) => r.effect !== 'allow')
 }
 
 /** Priority for ranking; `NaN` or missing (an unvalidated row) ranks as 0 rather than losing every comparison. */
@@ -275,7 +281,8 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
 
   let mayThrow = false
   for (const [order, rule] of policy.rules.entries()) {
-    if (!mayThrow && conditionMayThrow(rule.conditions)) mayThrow = true
+    // An unrecognised effect throws in the interpreter, so the fast path must delegate rather than scan past it.
+    if (!mayThrow && (conditionMayThrow(rule.conditions) || !isRuleEffect(rule.effect))) mayThrow = true
     const actions = new Set<string>(rule.actions)
     const resources = new Set<string>(rule.resources)
     let hasWildcardAction = false

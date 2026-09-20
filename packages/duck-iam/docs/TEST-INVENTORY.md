@@ -230,7 +230,7 @@ drift the way the hand-maintained version did.
 | `core/evaluate/__tests__/resource-separator-parity.test.ts` | 50 | a resource pattern means the same thing everywhere |
 | `core/evaluate/__tests__/unconditional-agreement.test.ts` | 47 | matchesUnconditionally agrees with evalConditionGroup |
 | `core/evaluate/__tests__/unknown-algorithm.test.ts` | 6 | a policy with an unrecognised combining algorithm |
-| `core/evaluate/__tests__/unknown-effect-fail-closed.test.ts` | 5 | an unrecognised rule effect votes for neither side |
+| `core/evaluate/__tests__/unknown-effect-fail-closed.test.ts` | 12 | an unrecognised rule effect is Indeterminate, never an abstention |
 | `core/explain/__tests__/explain-evaluate-parity.test.ts` | 30 |  |
 | `core/explain/__tests__/explain-group-parity.test.ts` | 9 | a traced condition group agrees with the group the engine decided on |
 | `core/explain/__tests__/explain-indeterminate-parity.test.ts` | 28 | explain() absorbs a throwing rule exactly as the decision path does |
@@ -273,7 +273,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2566** | |
+| **Subtotal** | **2573** | |
 
 ---
 
@@ -413,7 +413,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 10 | 149 |
 | Adapters | 54 | 1601 |
 | Clients | 11 | 132 |
-| Core | 154 | 2566 |
+| Core | 154 | 2573 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -421,4 +421,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **302** | **5942** |
+| **Total** | **302** | **5949** |
