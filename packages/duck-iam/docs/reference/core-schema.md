@@ -404,7 +404,7 @@ Three rules are worth knowing here because they decide what your editor offers:
 
 ```ts
 // @gentleduck/iam/core/validate
-function validatePolicy(input: unknown): IamValidate.IResult
+function validatePolicy(input: unknown, declared?: IamValidate.IDeclaredSurface): IamValidate.IResult
 function validateRole(input: unknown): IamValidate.IResult
 function validateRoles(
   roles: readonly AccessControl.IRole[],
@@ -417,7 +417,7 @@ function parseRoleRow<TAction, TResource, TRole, TScope>(raw: unknown): AccessCo
 
 | Function | Accepts | Returns | Throws |
 |---|---|---|---|
-| `validatePolicy` | `unknown` — a store row, an admin form payload, parsed JSON | `IResult` | never; `validate-boundary-robustness.test.ts:16` pins that for malformed rule rows |
+| `validatePolicy` | `unknown` — a store row, an admin form payload, parsed JSON — plus an optional declared vocabulary | `IResult` | never; `validate-boundary-robustness.test.ts:16` pins that for malformed rule rows |
 | `validateRole` | `unknown` | `IResult` | never — every path returns an `IResult`, including the `!isPlainObject` early return at `validate.ts:393` |
 | `validateRoles` | `unknown` rows, plus an optional declared vocabulary | `IResult` | never — a row that is not an `IRole` is reported as an `INVALID_TYPE` issue (`validate.ts:43-67`), not thrown |
 | `parsePolicyRow` | `unknown` | the row itself (same reference) when `valid`, else `null` | never |
@@ -480,7 +480,7 @@ Errors block. Warnings do not.
 | `ERR_REGEX_CATASTROPHIC` | error | condition | A `matches` pattern that `detectCatastrophicRegex` screens out | Rewrite the pattern; see §3.6 |
 | `ERR_REGEX_INVALID` | error | condition | A `matches` pattern that will not compile | Fix the syntax. Uncompilable patterns do not raise at evaluation — `matches` returns `false`, retiring a deny-when-matches rule outright |
 | `ERR_REGEX_USER_SOURCED` | error | condition | A `matches` pattern read from the request (`value` starting with `$`) | Use a literal pattern. `evalCondition` refuses a caller-supplied pattern outright (a ReDoS vector), so the condition would be false for every request that ever arrives |
-| `UNREACHABLE_TARGET` | error | policy, roles | A `targets` pair no allow rule covers; or (via `createIam(...).validateRoles`) a grant naming an action/resource/scope the config never declared | Add a covering allow rule, narrow the target, or declare the vocabulary |
+| `UNREACHABLE_TARGET` | error | policy, roles | A `targets` pair no allow rule covers; or, via `createIam(...)`, a grant (`validateRoles`) or a rule / target entry (`validatePolicy`) naming an action, resource, scope or role the config never declared | Add a covering allow rule, narrow the target, or declare the vocabulary |
 | `UNREACHABLE_TARGET` | **warning** | policy | The target's `(action, resource)` cartesian exceeds `cartesianPerRule`, so the check was skipped | Narrow the target to get it validated |
 | `DUPLICATE_ROLE_ID` | error | roles | Two roles share an `id` | — |
 | `DANGLING_INHERIT` | error | roles | A role inherits from an id no role is stored under | Add the parent, or drop the reference |
@@ -654,6 +654,7 @@ flowchart TD
 | `engine.admin.import()` (`engine.libs.ts:735`) | `validatePolicy` on **every** policy and `validateRole` on every role, **before touching the adapter** | throws before any write. Interleaving used to leave the store half-applied — in `replace` mode the deletions had already landed, so deny policies could be gone with nothing written back |
 | `adapter.savePolicy()` / `adapter.saveRole()`, all six adapters | `iamAssertSavablePolicy` / `iamAssertSavableRole` (`shared/rows.ts`) | throws `[@gentleduck/iam:<adapter>] refusing to save invalid <kind> "<id>": <messages>` |
 | `createIam(...).validateRoles(roles)` | `validateRoles` **plus** the declared-vocabulary pass | returns `IResult` |
+| `createIam(...).validatePolicy(policy)` | `validatePolicy` **plus** the declared-vocabulary pass | returns `IResult` |
 | drizzle / prisma / redis / file / http **read** of a policy | `parsePolicyRow`, then `validatePolicy` for the messages | reports the row, then **throws** `iamUnreadablePolicy` — one bad policy row denies every request until it is repaired. Reported through `onPolicyError` on drizzle / redis / file / http; prisma's constructor takes no options object, so it reports through `console.warn` (`prisma/index.ts:262`) |
 | the same five, reading a role | `parseRoleRow`, then `validateRole` | reports the row the same way and **drops it** |
 | `engine.can()` / `authorize()` / `permissions()` / `explain()` | **nothing** | — |
@@ -740,7 +741,7 @@ access.defineRole('viewer').grant('raed', 'post')   // compile error
 
 | Option | Type | Required | Default | What it changes |
 |---|---|---|---|---|
-| `actions` | `readonly string[]`, `as const` | yes | — | The `TAction` union. Constrains `defineRole().grant()`, `defineRule().on()`, `engine.check`, `checks()`. Also the vocabulary `validateRoles` checks grants against |
+| `actions` | `readonly string[]`, `as const` | yes | — | The `TAction` union. Constrains `defineRole().grant()`, `defineRule().on()`, `engine.check`, `checks()`. Also the vocabulary `validateRoles` checks grants against, and `validatePolicy` checks rule patterns against |
 | `resources` | `readonly string[]`, `as const` | yes | — | The `TResource` union, same surfaces |
 | `roles` | `readonly string[]`, `as const` | no | `[]` | The `TRole` union. Constrains `defineRole(id)` and `targets.roles`. Empty means unconstrained |
 | `scopes` | `readonly string[]`, `as const` | no | `[]` | The `TScope` union. Constrains scoped grants and checks; empty means every scope is accepted |
@@ -785,6 +786,22 @@ are never reported (`validate.ts:152`):
 - an axis the config left empty — it constrains nothing;
 - a `'*'` grant — it is the wildcard, not a member;
 - an absent `scope` — an unscoped permission is global, not scoped to nowhere.
+
+`validatePolicy` on the config gets the same pass over `rule.actions`,
+`rule.resources`, `targets.actions`, `targets.resources` and `targets.roles`.
+The direction that matters is the deny: a rule spelled `actions: ['delet']`
+reads as a restriction and is one no request can reach, so the allow beside it
+is what answers. Measured on a policy that allows `'*'` on `post` and means to
+deny `delete`: `can('delete', 'post')` is `true` with the typo and `false`
+without it.
+
+Patterns are cleared on what they would actually match at runtime, through the
+engine's own `matchesAction` / `matchesResource` — so `'post:*'` is fine when
+some declared action starts with `post:`, and `'post.*'` is reported on the
+**action** axis, where `matchesAction` reads a dot form as a literal, and
+accepted on the resource axis, where `matchesResource` honours it. Roles are
+matched by equality: `policyApplies` tests `targets.roles.includes`, never a
+pattern.
 
 Note the parameter type: `readonly AccessControl.IRole[]`, the **unconstrained**
 `IRole`, not one narrowed to the declared unions. That is deliberate
@@ -868,8 +885,9 @@ the reserved-refusal reason, not a policy verdict.
 Practically: keep `'unknown'` out of your `actions` and `resources` arrays. If
 the word belongs in your vocabulary, spell it `unspecified` or `other`. If you
 inherited a catalogue that uses it, grep for it before deploy — a
-`UNREACHABLE_TARGET` from `createIam(...).validateRoles` will not find it,
-because the token is a *declared* value there, not an undeclared one.
+`UNREACHABLE_TARGET` from `createIam(...).validateRoles` or
+`createIam(...).validatePolicy` will not find it, because the token is a
+*declared* value there, not an undeclared one.
 
 ### 6.2 `'__rbac__'` — the synthetic policy id
 

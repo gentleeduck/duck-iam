@@ -69,6 +69,8 @@ export function createIam<
     validateRoles: (roles: readonly AccessControl.IRole[]) =>
       validateRoles(roles, { actions: input.actions, resources: input.resources, scopes: input.scopes }),
 
-    validatePolicy: (input: unknown) => validatePolicy(input),
+    // Same vocabulary pass `validateRoles` gets: a rule naming an undeclared action matches nothing.
+    validatePolicy: (policy: unknown) =>
+      validatePolicy(policy, { actions: input.actions, resources: input.resources, roles: input.roles ?? [] }),
   }
 }

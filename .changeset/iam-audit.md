@@ -370,3 +370,23 @@ name different policies. `'and'` and `'allow-overrides'` fold every applicable
 vote and are unchanged. The order of the stored policies themselves is still the
 adapter's row order, as it is for rule order, and no adapter orders
 `listPolicies`.
+
+### A mistyped action in a policy rule was reported for roles and not for policies
+
+`createIam` constrains `engine.check` to the declared action and resource
+unions, so anything a rule names outside them can never be requested.
+`createIam(...).validateRoles` has always reported that for a grant —
+`UNREACHABLE_TARGET`, an error. `createIam(...).validatePolicy` did not pass the
+vocabulary through at all, so the same typo in a policy rule returned
+`valid: true`.
+
+The direction that matters is the deny. A policy that allows `'*'` on `post`
+and means to deny `delete`, written `actions: ['delet']`, answers `can('delete',
+'post')` with `true`; spelled correctly it answers `false`. Nothing reported it.
+
+`validatePolicy` now takes the same optional declared surface and checks
+`rule.actions`, `rule.resources`, `targets.actions`, `targets.resources` and
+`targets.roles`. Patterns are cleared through the engine's own `matchesAction`
+and `matchesResource`, so a prefix is accepted on exactly the values it would
+match at runtime and the action axis's lack of a dot form is honoured. The bare
+`validatePolicy` export is unchanged, as the bare `validateRoles` is.
