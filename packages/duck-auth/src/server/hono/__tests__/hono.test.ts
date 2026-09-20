@@ -107,8 +107,13 @@ describe('Hono adapter - end-to-end', () => {
 
     const sessRes = await honoSession(auth)(makeCtx('GET', '/AUTH/session', { headers: { cookie: `duck-sid=${sid}` } }))
     expect(sessRes.status).toBe(200)
-    const body = (await sessRes.json()) as { identity: { id: string } | null }
+    const body = (await sessRes.json()) as { identity: { id: string } | null; session: Record<string, unknown> }
     expect(body.identity?.id).toBe(identity.id)
+    // One URL, a different body per cookie: a shared cache must not keep it.
+    expect(sessRes.headers.get('cache-control')).toBe('no-store')
+    // The row reaches the browser minus its CSRF hash: the plaintext is already in the cookie.
+    expect(body.session).not.toHaveProperty('csrfHash')
+    expect(body.session.id).toBeTypeOf('string')
   })
 
   it('honoSignOut revokes + clears cookie', async () => {
@@ -120,17 +125,18 @@ describe('Hono adapter - end-to-end', () => {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
       }),
     )
-    // signin now emits both __Host-duck-csrf and the SID; replay
-    // both on signout + attach the matching x-csrf-token header.
+    // `duck-csrf`, not `__Host-duck-csrf`: this transport is `{ secure: false }` for plain http, and
+    // the prefix requires Secure, so the companion drops it rather than being emitted as a cookie a
+    // browser would silently discard. Replay both on signout with the matching x-csrf-token header.
     const setCookieJoined = signinRes.headers.get('set-cookie') ?? ''
     const sid = decodeURIComponent(setCookieJoined.match(/duck-sid=([^;,]+)/)?.[1] ?? '')
-    const csrfToken = decodeURIComponent(setCookieJoined.match(/__Host-duck-csrf=([^;,]+)/)?.[1] ?? '')
+    const csrfToken = decodeURIComponent(setCookieJoined.match(/duck-csrf=([^;,]+)/)?.[1] ?? '')
     expect(csrfToken).not.toBe('')
     expect((await adapter.sessions.listByIdentity(identity.id)).length).toBe(1)
     const outRes = await honoSignOut(auth)(
       makeCtx('POST', '/AUTH/signout', {
         headers: {
-          cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
+          cookie: `duck-sid=${sid}; duck-csrf=${csrfToken}`,
           'x-csrf-token': csrfToken,
           'sec-fetch-site': 'same-origin',
         },
@@ -193,7 +199,7 @@ describe('the mounted oauth callback', () => {
     return { ...ctx, req: { ...ctx.req, param: () => 'oauth:stub', url: `https://x${ctx.req.url}` } }
   }
 
-  /** Mount against a recorder rather than a real Hono, which stays a peer dependency. */
+  /** Mount against a recorder rather than a real Hono, which this package does not depend on. */
   function mountAndTake(auth: ReturnType<typeof buildAuth>['auth'], path: string) {
     const registered: Record<string, (c: MountHono.HonoCtx) => Response | Promise<Response>> = {}
     const app: MountHono.App = {

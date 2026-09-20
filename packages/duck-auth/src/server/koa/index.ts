@@ -1,15 +1,5 @@
-/**
- * Koa adapter. Koa is Node-native and uses ctx.req / ctx.request, so
- * the adapter translates between Web-Fetch responses (from
- * executeIntents) and Koa's ctx response API.
- *
- * Mount each handler:
- *
- *   router.post('/AUTH/signin',  koaSignIn(auth))
- *   router.post('/AUTH/signout', koaSignOut(auth))
- *   router.get('/AUTH/session',  koaSession(auth))
- *   router.post('/AUTH/providers/:id/begin', koaProviderBegin(auth))
- */
+/** Koa adapter. Koa is Node-native and uses `ctx.req` / `ctx.request`, so this translates between
+ *  the Web Fetch responses `executeIntents` returns and Koa's ctx response API. */
 
 import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
@@ -38,11 +28,8 @@ function toCsrfRequest(ctx: KoaAdapter.Context): { method: string; headers: Head
   return { headers: toFetchHeaders(ctx.request.headers), method: ctx.request.method }
 }
 
-/**
- * Forward a Web Fetch `Response` (from executeIntents) onto a Koa
- * ctx. Set-Cookie multiplicity preserved by using `append()` when the
- * Koa version supports it; falls back to `set()` with a string-array.
- */
+/** Forward `executeIntents`' `Response` onto a Koa ctx, keeping Set-Cookie multiplicity through
+ *  `append()` where the Koa version has it and a string array otherwise. */
 async function forward(response: Response, ctx: KoaAdapter.Context): Promise<void> {
   ctx.status = response.status
   const cookies = extractSetCookies(response)
@@ -63,6 +50,7 @@ async function forward(response: Response, ctx: KoaAdapter.Context): Promise<voi
 function handleError(err: unknown, ctx: KoaAdapter.Context): void {
   const { status, body } = errorToHttp(err)
   ctx.status = status
+  ctx.set('cache-control', 'no-store')
   ctx.set('content-type', 'application/json; charset=utf-8')
   ctx.body = JSON.stringify(body)
 }
@@ -109,12 +97,13 @@ export function koaSignOut(auth: AuthEngine): KoaAdapter.Handler {
 export function koaSession(auth: AuthEngine): KoaAdapter.Handler {
   return async (ctx) => {
     try {
-      const resolved = await auth.resolveSession({ headers: toFetchHeaders(ctx.request.headers) })
+      const resolved = await auth.resolveSession({ headers: toFetchHeaders(ctx.request.headers) }).orNull()
+      // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
+      const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
       ctx.status = 200
+      ctx.set('cache-control', 'no-store')
       ctx.set('content-type', 'application/json; charset=utf-8')
-      ctx.body = JSON.stringify(
-        resolved ? { session: resolved.session, identity: resolved.identity } : { session: null, identity: null },
-      )
+      ctx.body = JSON.stringify(resolved ? { session, identity: resolved.identity } : { session: null, identity: null })
     } catch (err) {
       handleError(err, ctx)
     }
@@ -144,31 +133,15 @@ export function koaProviderBegin(auth: AuthEngine): KoaAdapter.Handler {
   }
 }
 
-/** CSRF guard for your own routes: `app.use(koaCsrf(auth))`. Skips `next` on failure. */
-/**
- * Bind the request's actor scope for everything downstream. Without it a write
- * a request drives records `created_by` / `updated_by` / `deleted_by` as `null`,
- * because nothing else in the package opens the scope the stores read.
- *
- * Install it above your own routes, alongside the CSRF guard. Anonymous
- * requests and unresolvable sessions run unbound, which is the honest `null`;
- * while impersonating, the operator behind `actingAs` is the actor, not the
- * account being acted on.
- */
 /** The fingerprint Koa resolved, the same pair {@link koaSignIn} stamps at sign-in. */
 export function koaCaller(ctx: KoaAdapter.Context): CallerFingerprint {
   return callerContext({ ip: ctx.request.ip, userAgent: ctx.request.headers['user-agent'] })
 }
 
-/**
- * Options for the actor-context wrapper.
- *
- * `getCaller` is the opt-in: omit it and the wrapper is what it has always been, an attribution
- * scope that refuses nothing. Supply it - {@link koaCaller} reads the same values the sign-in
- * route already stamps onto the session - and every request's fingerprint is compared with the
- * session's, running the anomaly detectors and the hijack policy. Switching that on in a live
- * deployment starts acting on IP and User-Agent drift for sessions already issued.
- */
+/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
+ *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
+ *  with the session's, running the anomaly detectors and the hijack policy.
+ *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
 export type KoaActorOptions = {
   /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
   getCaller?: (ctx: KoaAdapter.Context) => CallerFingerprint
@@ -176,17 +149,24 @@ export type KoaActorOptions = {
   onHijack?: RequestSecurityOptions['onHijack']
 }
 
+/** Bind the request's actor scope for everything downstream; install it above your own routes,
+ *  alongside the CSRF guard. Anonymous and unresolvable sessions run unbound, which is the honest
+ *  `null`; while impersonating the actor is the operator behind `actingAs`. */
 export function koaActorContext(auth: AuthEngine, opts: KoaActorOptions = {}): KoaAdapter.Middleware {
   return async (ctx, next) => {
     await withRequestActor(
       auth,
       { headers: toFetchHeaders(ctx.request.headers) },
       () => next(),
-      requestSecurity(auth, { ...(opts.onHijack && { onHijack: opts.onHijack }), caller: opts.getCaller?.(ctx) ?? {} }),
+      requestSecurity(auth, {
+        ...(opts.onHijack && { onHijack: opts.onHijack }),
+        ...(opts.getCaller && { caller: opts.getCaller(ctx) }),
+      }),
     )
   }
 }
 
+/** CSRF guard for your own routes: `app.use(koaCsrf(auth))`. Skips `next` on failure. */
 export function koaCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): KoaAdapter.Middleware {
   return async (ctx, next) => {
     try {

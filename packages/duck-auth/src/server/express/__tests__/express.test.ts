@@ -153,7 +153,7 @@ describe('mounted handlers - end-to-end', () => {
     expect(r.status).toBe(400)
   })
 
-  it('mountSignIn wrong password returns 401 with AUTH/INVALID_CREDENTIALS body', async () => {
+  it('mountSignIn wrong password returns 401 with AUTH_INVALID_CREDENTIALS body', async () => {
     const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
     await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
@@ -220,11 +220,11 @@ describe('mounted handlers - end-to-end', () => {
       r.res,
     )
     const sid = decodeURIComponent((r.headers['set-cookie']?.[0]?.match(/^duck-sid=([^;]+)/)?.[1] ?? '') as string)
-    // signin emits __Host-duck-csrf alongside the session cookie;
-    // replay both on signout + attach the matching x-csrf-token header
-    // to satisfy the double-submit check on the now-authenticated route.
-    const csrfCookieSetHeader = r.headers['set-cookie']?.find((h) => h.startsWith('__Host-duck-csrf='))
-    const csrfToken = decodeURIComponent(csrfCookieSetHeader?.match(/^__Host-duck-csrf=([^;]+)/)?.[1] ?? '')
+    // `duck-csrf`, not `__Host-duck-csrf`: this transport is `{ secure: false }` for plain http, and
+    // the prefix requires Secure, so the companion drops it rather than being emitted as a cookie a
+    // browser would silently discard. Replay both on signout with the matching x-csrf-token header.
+    const csrfCookieSetHeader = r.headers['set-cookie']?.find((h) => h.startsWith('duck-csrf='))
+    const csrfToken = decodeURIComponent(csrfCookieSetHeader?.match(/^duck-csrf=([^;]+)/)?.[1] ?? '')
     expect(csrfToken).not.toBe('')
     const sessionsBefore = await adapter.sessions.listByIdentity(identity.id)
     expect(sessionsBefore).toHaveLength(1)
@@ -235,7 +235,7 @@ describe('mounted handlers - end-to-end', () => {
         method: 'POST',
         url: '/AUTH/signout',
         headers: {
-          cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
+          cookie: `duck-sid=${sid}; duck-csrf=${csrfToken}`,
           'x-csrf-token': csrfToken,
           'sec-fetch-site': 'same-origin',
         },

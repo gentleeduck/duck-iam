@@ -1,3 +1,4 @@
+/** The Koa context surface the adapter touches. */
 export namespace KoaAdapter {
   export type Handler = (ctx: KoaAdapter.Context) => Promise<void>
 

@@ -1,15 +1,4 @@
-/**
- * The request fingerprint, end to end through the framework adapters.
- *
- * `hijack.evaluate` and `resolveSession`'s `requestSnapshot` both existed and both had a
- * configured policy behind them, but `grep -rn 'requestSnapshot\|hijack' src/server/` returned
- * nothing: no adapter read an ip or a User-Agent on the resolve path, so the session's recorded
- * pair was stamped at sign-in and never looked at again. The policy could be configured and had
- * no effect.
- *
- * These pin both halves of that: `getCaller` omitted is still the old pure attribution scope,
- * and `getCaller` supplied actually reaches the detectors and the policy.
- */
+/** The request fingerprint, end to end through the framework adapters. */
 
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -23,6 +12,7 @@ import { elysiaCaller, elysiaWithActor } from '~/server/elysia'
 import { expressActorContext, expressCaller } from '~/server/express'
 import { fastifyCaller, fastifyWithActor } from '~/server/fastify'
 import { callerContext, callerSnapshot } from '~/server/generic'
+import { GRPC_STATUS, grpcCaller, withGrpc } from '~/server/grpc'
 import { honoActorContext, honoCaller } from '~/server/hono'
 import { koaActorContext, koaCaller } from '~/server/koa'
 import { nestActorContext, nestCaller } from '~/server/nestjs'
@@ -95,7 +85,11 @@ describe('the fingerprint check is off until an adapter is given a getCaller', (
     expect(suspicious).not.toHaveBeenCalled()
   })
 
-  it('runs untouched with getCaller supplied but no fingerprint to read', async () => {
+  it('records a request that supplied nothing, and still runs it under the default policy', async () => {
+    // This once returned before the policy was consulted, on the reading that a caller who sends
+    // nothing has nothing to compare. Sending nothing is the caller's own choice, so it is compared:
+    // both baselines read as stripped, and `onMissingSignal: 'soften'` drops the reaction to
+    // `'rotate'`, which throws nothing. The request still runs; what it no longer does is go unrecorded.
     const auth = buildAuth()
     const sid = await signIn(auth)
     const suspicious = vi.fn()
@@ -103,7 +97,6 @@ describe('the fingerprint check is off until an adapter is given a getCaller', (
 
     let ran = false
     await expressActorContext(auth, { getCaller: expressCaller })(
-      // No `ip`, no `user-agent`: nothing to compare, so nothing is claimed.
       // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
       expressReq(sid, {}) as any,
       noRes,
@@ -112,7 +105,7 @@ describe('the fingerprint check is off until an adapter is given a getCaller', (
       },
     )
     expect(ran).toBe(true)
-    expect(suspicious).not.toHaveBeenCalled()
+    expect(suspicious.mock.calls.map(([p]) => p.signal)).toEqual(['ip-change', 'user-agent-change'])
   })
 })
 
@@ -350,7 +343,7 @@ describe('every adapter can read its own fingerprint', () => {
           identity: null,
           ip: SIGNED_IN.ip,
           method: 'POST',
-          session: resolved?.session ?? null,
+          session: resolved.session,
           // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
         } as any,
         {},
@@ -386,5 +379,105 @@ describe('a fingerprint is normalised to the same lengths the session row stores
   it('lifts a fingerprint into a snapshot without inventing fields', () => {
     expect(callerSnapshot({ userAgent: 'ua/1' }, 123)).toEqual({ now: 123, userAgent: 'ua/1' })
     expect(callerSnapshot({}, 123)).toEqual({ now: 123 })
+  })
+})
+
+/** `onMissingSignal: 'strict'` exists because "sending no header is entirely the caller's choice". Two
+ *  adapters resolve no IP at all -- a Web `Request` has no peer and a gRPC call's is on the runtime's
+ *  object -- so on those two the User-Agent is the entire fingerprint, and dropping it left
+ *  `requestSecurity` with nothing to compare and returning before the policy was ever consulted. */
+describe('a caller that supplies no fingerprint at all still meets the policy', () => {
+  const STRICT: Hijack.Cfg = { onMissingSignal: 'strict', onUserAgentChange: 'revoke' }
+
+  it('refuses a Next request that dropped the only signal Next reads', async () => {
+    const auth = buildAuth(STRICT)
+    const sid = await signIn(auth)
+
+    await expect(
+      nextWithActor(auth, async () => new Response('ok'), { getCaller: nextCaller })(
+        new Request('https://x/me', { headers: cookieHeader(sid) }),
+      ),
+    ).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+  })
+
+  it('refuses a gRPC call that dropped the only signal gRPC reads', async () => {
+    const auth = buildAuth(STRICT)
+    const sid = await signIn(auth)
+    const metadata = { get: (n: string) => (n === 'cookie' ? [`duck-sid=${sid}`] : []) }
+
+    await expect(
+      new Promise((resolve, reject) => {
+        // biome-ignore lint/suspicious/noExplicitAny: a GrpcAdapter.UnaryCall stub.
+        withGrpc(auth, (_c, cb) => cb(null, {}), { getCaller: grpcCaller })({ metadata } as any, (err: unknown) =>
+          err ? reject(err) : resolve(null),
+        )
+      }),
+      // The gRPC adapter maps the refusal to a status before the caller ever sees an `AuthError`.
+    ).rejects.toMatchObject({ code: GRPC_STATUS.UNAUTHENTICATED })
+  })
+
+  it('already refused the same request on an adapter that resolves an IP', async () => {
+    // The control, and the asymmetry: express reads a framework-resolved peer, so stripping the
+    // User-Agent left `ip` behind and the policy was consulted all along.
+    const auth = buildAuth(STRICT)
+    const sid = await signIn(auth)
+
+    await expect(
+      // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
+      expressActorContext(auth, { getCaller: expressCaller })(
+        expressReq(sid, { ip: SIGNED_IN.ip }) as any,
+        noRes,
+        () => {},
+      ),
+    ).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+  })
+
+  it('softens to an audit record under the default policy rather than refusing', async () => {
+    // The default is `onMissingSignal: 'soften'`, so a stripped signal drops to `'rotate'`, which
+    // throws nothing. What changes by default is that the drift is now recorded at all.
+    const auth = buildAuth()
+    const sid = await signIn(auth)
+    const suspicious = vi.fn()
+    auth.events.on('suspicious', suspicious)
+
+    const res = await nextWithActor(auth, async () => new Response('ok'), { getCaller: nextCaller })(
+      new Request('https://x/me', { headers: cookieHeader(sid) }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(suspicious).toHaveBeenCalledWith(expect.objectContaining({ signal: 'user-agent-change' }))
+  })
+
+  it('claims nothing about a session that recorded no fingerprint to begin with', async () => {
+    const auth = buildAuth(STRICT)
+    const identity = await auth.identities.create({
+      emailVerified: true,
+      profile: { email: 'no-baseline@x.com', username: 'a' },
+    })
+    const { sid } = await auth.sessions.create({ aal: 1, factors: [], identityId: identity.id, kind: 'user' })
+    const suspicious = vi.fn()
+    auth.events.on('suspicious', suspicious)
+
+    const res = await nextWithActor(auth, async () => new Response('ok'), { getCaller: nextCaller })(
+      new Request('https://x/me', { headers: cookieHeader(sid) }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(suspicious).not.toHaveBeenCalled()
+  })
+
+  it('stays off entirely when the host supplied no getCaller', async () => {
+    const auth = buildAuth(STRICT)
+    const sid = await signIn(auth)
+    const suspicious = vi.fn()
+    auth.events.on('suspicious', suspicious)
+
+    const res = await nextWithActor(
+      auth,
+      async () => new Response('ok'),
+    )(new Request('https://x/me', { headers: cookieHeader(sid) }))
+
+    expect(res.status).toBe(200)
+    expect(suspicious).not.toHaveBeenCalled()
   })
 })
