@@ -78,9 +78,14 @@ export function createIamVueAccess<
 >(vue: VueLike) {
   const { ref, inject, provide, defineComponent } = vue
 
-  /** Create reactive access control state with can/cannot helpers. */
+  /**
+   * Create reactive access control state with can/cannot helpers.
+   * NOTE: the map is copied in and frozen, as React's `AccessProvider` and `IamAccessClient` do. `Readonly`
+   * erases at runtime, so a shared reference would let `map[key] = true` grant without going through `update()`.
+   */
   function createAccessState(initialPermissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
-    const permissions = ref(initialPermissions)
+    const snapshot = (map: IamClient.PartialPermissionMap<TAction, TResource, TScope>) => Object.freeze({ ...map })
+    const permissions = ref(snapshot(initialPermissions))
 
     const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
       const key = iamBuildPermissionKey(action, resource, resourceId, scope)
@@ -92,7 +97,7 @@ export function createIamVueAccess<
     }
 
     const update = (newPerms: IamClient.PartialPermissionMap<TAction, TResource, TScope>) => {
-      permissions.value = newPerms
+      permissions.value = snapshot(newPerms)
     }
 
     return {
