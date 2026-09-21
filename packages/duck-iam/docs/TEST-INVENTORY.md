@@ -221,6 +221,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/unified-verdict-path.test.ts` | 11 | development keeps the rich decision while the table supplies the verdict |
 | `core/engine/__tests__/unvalidated-policy-operand.test.ts` | 12 | a policy that never passed the validator still cannot over-grant |
 | `core/engine/__tests__/verdict-differential.test.ts` | 2 | E2E verdict parity: compiled table vs interpreter over generated catalogs |
+| `core/engine/__tests__/write-that-lands-after-its-timeout.test.ts` | 12 | a write that lands after its own timeout |
 | `core/evaluate/__tests__/algorithm-alias-precompute.test.ts` | 9 | precompute covers every algorithm that can be precomputed |
 | `core/evaluate/__tests__/error-hook-isolation.test.ts` | 6 | a throwing onPolicyError does not unwind the evaluation |
 | `core/evaluate/__tests__/evaluate-error-indeterminate.test.ts` | 15 | evaluate ('and') with a throwing deny policy |
@@ -292,7 +293,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2813** | |
+| **Subtotal** | **2825** | |
 
 ---
 
@@ -432,7 +433,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 11 | 153 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 169 | 2813 |
+| Core | 170 | 2825 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -440,4 +441,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **321** | **6277** |
+| **Total** | **322** | **6289** |

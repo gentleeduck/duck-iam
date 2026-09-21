@@ -693,6 +693,26 @@ conservative choice at the time and this round measured it wrong: the policy is
 reachable, and the dead rule still needs naming. It now asserts the policy-level
 silence *and* the new per-rule report.
 
+### A write that timed out no longer leaves the old answer cached
+
+`adapterTimeoutMs` bounds how long the caller waits, not how long the store
+takes, and an admin write takes `IActorOptions`, which carries no abort signal.
+So a write that times out may well land a moment later. Until now the
+invalidation that follows the write was skipped in that case, and the engine
+kept serving the old answer for a full cache TTL: `revokeRole` could time out,
+the row could be deleted in the store, and `can()` would still return `true`.
+
+Every single-row admin write — `savePolicy`, `deletePolicy`, `saveRole`,
+`deleteRole`, `assignRole`, `revokeRole` and both paths of
+`updateAssignmentScope` — now invalidates whether the call resolves or throws.
+Dropping a cache entry for a write that did not land costs one re-read; keeping
+one for a write that did land is a revocation that never took effect. The batch
+methods already worked this way.
+
+`hooks.onMutation` is deliberately unchanged: it still fires only after a write
+resolves, because an audit seam that records writes which may not have happened
+is worse than one that misses a write whose outcome was never learned.
+
 ### A rule that no request can reach is now reported
 
 A rule can be unreachable for reasons wholly inside itself, and until now

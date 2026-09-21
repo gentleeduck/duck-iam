@@ -557,15 +557,30 @@ modes report the same flag for the same policy set.
 the API. The decision path fails closed: `can()` answers `false`. `engine.admin`
 rejects instead, with the call named — `admin.listPolicies timed out after
 5000ms` — because an admin operation has no safe default answer and an operator
-needs to know the write did not land.
+needs to know the call was not confirmed. Not that it did not land: see below.
 
-Two consequences follow from the adapter contract.
+Three consequences follow from the adapter contract.
 
 A **read** takes `IReadOptions.signal`, so the abort reaches an adapter that
 honours it and the query is cancelled. A **write** takes `IActorOptions`, which
 has no signal, so the timeout frees the caller while the write runs on: a
 rejection means "not confirmed", not "not applied". Every admin write is
 idempotent by id, so a retry converges.
+
+So a write's **cache invalidation runs whether the call resolves or throws.**
+A write that timed out may be in the store already, and a cache kept over an
+unknown outcome is the one failure that matters here: the store says the grant
+is gone and the engine keeps answering `true` until the TTL expires. Dropping a
+cache entry for a write that did not land costs one re-read; keeping one for a
+write that did land is a revocation that never took effect. The batch paths
+already worked this way — `settlePartialBatch` invalidates every requested row
+after a batch throws part-way — and the single-row methods now do too.
+
+The mutation event is deliberately **not** symmetric with this. `onMutation`
+still fires only after a write resolves, because an audit seam that records
+writes which may not have happened is worse than one that misses a write whose
+fate the engine never learned. Invalidation is safe to perform speculatively;
+claiming a fact is not.
 
 Inside a transaction the admin is unbounded on purpose. `createAdmin` takes
 `withTimeout` as an option and `engine.transaction` does not pass it: aborting a

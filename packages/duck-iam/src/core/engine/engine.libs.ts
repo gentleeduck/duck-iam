@@ -649,6 +649,18 @@ export function createAdmin<
     for (const subjectId of new Set(rows.map((r) => r.subjectId))) engine.cache.invalidateSubject(subjectId)
   }
   /**
+   * Runs one write and invalidates whether it resolves or throws.
+   * SECURITY: a call that timed out or lost its connection may still have landed; a cache kept over an unknown
+   * outcome is a revocation that never took effect. Same rule as `settlePartialBatch`, for a single row.
+   */
+  const writeThenInvalidate = async <T>(write: () => Promise<T>, invalidate: () => void): Promise<T> => {
+    try {
+      return await write()
+    } finally {
+      invalidate()
+    }
+  }
+  /**
    * After a batch throws part-way, invalidates every requested row but emits only rows known to have landed.
    * SECURITY: earlier rows are already stored, so skipping this leaves a revoked grant cached until the TTL expires.
    */
@@ -682,24 +694,24 @@ export function createAdmin<
     const update = adapter.updateAssignmentScope
     if (update) {
       // SECURITY: `false` means "no such grant"; falling through to revoke + assign would create one.
-      const moved = await run(
-        () => update.call(adapter, subjectId, roleId, fromScope, toScope, actor),
-        'admin.updateAssignmentScope',
+      const moved = await writeThenInvalidate(
+        () =>
+          run(() => update.call(adapter, subjectId, roleId, fromScope, toScope, actor), 'admin.updateAssignmentScope'),
+        () => engine.cache.invalidateSubject(subjectId),
       )
       if (!moved) return
     } else {
       // Emulate the update for a grant that exists, with the actor on both halves.
       if (!(await holdsGrant(subjectId, roleId, fromScope))) return
-      await run(() => adapter.revokeRole(subjectId, roleId, fromScope, { actor }), 'admin.revokeRole')
-      try {
-        await run(() => adapter.assignRole(subjectId, roleId, toScope, { actor }), 'admin.assignRole')
-      } catch (err) {
-        // SECURITY: the revoke landed, so drop the cached grant at `fromScope` before rethrowing.
-        engine.cache.invalidateSubject(subjectId)
-        throw err
-      }
+      await writeThenInvalidate(
+        () => run(() => adapter.revokeRole(subjectId, roleId, fromScope, { actor }), 'admin.revokeRole'),
+        () => engine.cache.invalidateSubject(subjectId),
+      )
+      await writeThenInvalidate(
+        () => run(() => adapter.assignRole(subjectId, roleId, toScope, { actor }), 'admin.assignRole'),
+        () => engine.cache.invalidateSubject(subjectId),
+      )
     }
-    engine.cache.invalidateSubject(subjectId)
     // One `role.scope-changed` on either path, reached only when a row moved.
     await emit?.({
       type: 'role.scope-changed',
@@ -723,14 +735,18 @@ export function createAdmin<
     async savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>, opts?: IamEngineTypes.IActorOptions) {
       const { validatePolicy } = await _getValidate()
       assertValidOrThrow('policy', validatePolicy(policy))
-      await run(() => adapter.savePolicy(policy, opts), 'admin.savePolicy')
-      engine.cache.invalidatePolicies()
+      await writeThenInvalidate(
+        () => run(() => adapter.savePolicy(policy, opts), 'admin.savePolicy'),
+        () => engine.cache.invalidatePolicies(),
+      )
       await emit?.({ type: 'policy.saved', at: Date.now(), policyId: policy.id, ...actorOf(opts) })
     },
     async deletePolicy(id: string, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('id', id)
-      await run(() => adapter.deletePolicy(id), 'admin.deletePolicy')
-      engine.cache.invalidatePolicies()
+      await writeThenInvalidate(
+        () => run(() => adapter.deletePolicy(id), 'admin.deletePolicy'),
+        () => engine.cache.invalidatePolicies(),
+      )
       await emit?.({ type: 'policy.deleted', at: Date.now(), policyId: id, ...actorOf(opts) })
     },
     async listRoles() {
@@ -743,22 +759,28 @@ export function createAdmin<
     async saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>, opts?: IamEngineTypes.IActorOptions) {
       const { validateRole } = await _getValidate()
       assertValidOrThrow('role', validateRole(role))
-      await run(() => adapter.saveRole(role, opts), 'admin.saveRole')
-      engine.cache.invalidateRoles(role.id)
+      await writeThenInvalidate(
+        () => run(() => adapter.saveRole(role, opts), 'admin.saveRole'),
+        () => engine.cache.invalidateRoles(role.id),
+      )
       await emit?.({ type: 'role.saved', at: Date.now(), roleId: role.id, ...actorOf(opts) })
     },
     async deleteRole(id: string, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('id', id)
-      await run(() => adapter.deleteRole(id), 'admin.deleteRole')
       // `TRole` is erased at runtime, so there is nothing to narrow; `iamAsRoleLiteral` keeps it greppable.
       const roleId = iamAsRoleLiteral<TRole>(id)
-      engine.cache.invalidateRoles(roleId)
+      await writeThenInvalidate(
+        () => run(() => adapter.deleteRole(id), 'admin.deleteRole'),
+        () => engine.cache.invalidateRoles(roleId),
+      )
       await emit?.({ type: 'role.deleted', at: Date.now(), roleId, ...actorOf(opts) })
     },
     async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions) {
       assertTriple(subjectId, roleId, scope)
-      await run(() => adapter.assignRole(subjectId, roleId, scope, opts), 'admin.assignRole')
-      engine.cache.invalidateSubject(subjectId)
+      await writeThenInvalidate(
+        () => run(() => adapter.assignRole(subjectId, roleId, scope, opts), 'admin.assignRole'),
+        () => engine.cache.invalidateSubject(subjectId),
+      )
       await emit?.({
         type: 'role.assigned',
         at: Date.now(),
@@ -771,8 +793,10 @@ export function createAdmin<
     async revokeRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IRevokeOptions) {
       // `'lookup'`: a revoke addresses an existing row, so legacy `'*'` rows stay deletable.
       assertTriple(subjectId, roleId, scope, 'lookup')
-      await run(() => adapter.revokeRole(subjectId, roleId, scope, opts), 'admin.revokeRole')
-      engine.cache.invalidateSubject(subjectId)
+      await writeThenInvalidate(
+        () => run(() => adapter.revokeRole(subjectId, roleId, scope, opts), 'admin.revokeRole'),
+        () => engine.cache.invalidateSubject(subjectId),
+      )
       await emit?.({
         type: 'role.revoked',
         at: Date.now(),
