@@ -336,15 +336,19 @@ export class IamEngine<
     }
   }
 
-  /** Apply a cross-instance invalidate event to local caches. */
-  private _applyInvalidateEvent(event: IamEngineTypes.IInvalidateEvent<TRole>): void {
-    applyInvalidateEvent(this._cacheBag(), event)
-    if (event.kind === 'all' || event.kind === 'policies' || event.kind === 'roles') {
+  /**
+   * Apply a cross-instance invalidate event to local caches.
+   * Keys off the kind actually applied, never the inbound value: the value came off an operator's transport and
+   * an event this engine cannot place is applied as a full drop.
+   */
+  private _applyInvalidateEvent(event: unknown): void {
+    const applied = applyInvalidateEvent(this._cacheBag(), event)
+    if (applied === 'all' || applied === 'policies' || applied === 'roles') {
       this._compiledTable = null
       this._compiledTableGen++
     }
     // Replicas drop the role-limit latch too, or only the instance that deleted roles would recover.
-    if (event.kind === 'all' || event.kind === 'roles') this._clearRoleLimitLatch()
+    if (applied === 'all' || applied === 'roles') this._clearRoleLimitLatch()
   }
 
   /**

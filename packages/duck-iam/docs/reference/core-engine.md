@@ -20,7 +20,7 @@ linked, not repeated.
 | `engine.types.ts` | 699 | `IamEngineTypes` — `IConfig`, `IHooks`, `IAdmin`, `IInvalidator`, `IMutationEvent`, `IHealth`. Type-only |
 | `engine.libs.ts` | 785 | `enrichSubjectWithScopedRoles`, `scopeCovers`/`scopeAncestors`, `ensureEnvNow`, single-flight helpers, `createAdmin` |
 | `engine.loaders.ts` | 305 | `loadPolicies`, `loadRoles`, `loadRbacPolicy`, `loadAllPolicies`, `resolveSubject` — cache-fronted adapter reads |
-| `engine.invalidation.ts` | 210 | `invalidateAll/Policies/Roles/Subject`, `applyInvalidateEvent`, the cache + in-flight bags |
+| `engine.invalidation.ts` | 287 | `invalidateAll/Policies/Roles/Subject`, `applyInvalidateEvent`, the cache + in-flight bags |
 | `engine.bound.ts` | 151 | `withTransaction`'s facade: fresh caches, buffered invalidation, buffered mutation events |
 | `engine.lifecycle.ts` | 86 | `preloadEngine`, `runHealthCheck`, `disposeInvalidator` |
 | `engine.hooks.ts` | 76 | `safeHookCall`, `emitMetrics` — both swallow user throws |
@@ -790,7 +790,8 @@ reload of subjects that were mid-flight at the moment of an invalidation.
 Every invalidate method republishes to the invalidator unless
 `opts.broadcast === false`. Two places pass it:
 
-- **`applyInvalidateEvent`** (`engine.invalidation.ts`) — every branch passes it.
+- **`applyInvalidateEvent`** (`engine.invalidation.ts`) — every branch passes it,
+  including the fail-closed one, so a peer sending nonsense cannot amplify it.
   "Republishing a received event would make each instance echo every other
   instance's evictions, and the traffic grows with the square of the fleet."
 - **The transaction-bound admin** (`engine.bound.ts`) — each write drops the
@@ -834,6 +835,32 @@ interface IInvalidator<TRole extends string = string> {
 
 Delivery semantics are the implementation's own; at-least-once is enough,
 because the invalidate methods are idempotent.
+
+**What arrives is checked, not trusted.** The handler's parameter is typed, but
+the value crossed a transport an operator wrote, so `applyInvalidateEvent`
+shape-checks it the same way the redis invalidator shape-checks what it decodes:
+`kind` must be one of the four, `subject` must carry a non-empty string
+`subjectId`, and `roles` may carry a non-empty string `roleId` or none.
+
+Anything that fails that check is **applied as `{kind:'all'}`** - every local
+cache and the compiled table dropped - and reported once per distinct reason.
+Fail closed: the sender is telling this engine that something it holds is stale,
+and an event it cannot place is not a reason to keep serving the old answer.
+That covers an unrecognised `kind` from a newer peer in a rolling deploy, an id
+the event cannot be applied with, a value that is not an object at all, and a
+value that cannot even be inspected - a throwing getter or a revoked proxy come
+back as a reason rather than as a throw into the transport's listener, which on
+an EventEmitter is an uncaught exception.
+
+The cost is worth naming: a transport that delivers garbage on every message now
+drops every cache on every message, where before it did nothing at all. That is
+the trade - loud and slow over quiet and stale - and the warning names the
+reason so the transport gets fixed. There is no fleet amplification, because
+every applied branch passes `broadcast: false`.
+
+The shipped redis invalidator never reaches that path: it validates each decoded
+event and drops what fails, with its own reporting. This check exists because
+every *other* invalidator is code the engine has never seen.
 
 `IConfig.invalidator` is constructor-only, but engines are commonly built at
 module import time — before any request-scoped or replica-specific Redis client
@@ -985,6 +1012,7 @@ a bug, and answering it with a slower correct path would hide it.
 | `cacheTTL` elapsed since `_derivedBuiltAt` | `Date.now() - builtAt >= cacheTTL` |
 | `cache.invalidate()` / `invalidatePolicies()` / `invalidateRoles()` | field nulled, `_compiledTableGen++` |
 | An inbound `{kind:'all'\|'policies'\|'roles'}` invalidator event | `_applyInvalidateEvent` does the same |
+| An inbound event the engine cannot apply | applied as `all`, so the table is dropped too |
 | Any `engine.admin` policy or role write | those go through the `cache` facet |
 
 `cache.invalidateSubject()` does **not** trigger one.

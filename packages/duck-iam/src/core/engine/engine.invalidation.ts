@@ -188,26 +188,100 @@ export function invalidateRoles<TRole extends string>(
   }
 }
 
+/** Per-kind shape check for an inbound event: `subjectId` required, `roleId` optional, neither empty. */
+function isApplicableEvent<TRole extends string>(ev: unknown): ev is IamEngineTypes.IInvalidateEvent<TRole> {
+  if (typeof ev !== 'object' || ev === null || Array.isArray(ev)) return false
+  const kind = Reflect.get(ev, 'kind')
+  if (kind === 'all' || kind === 'policies') return true
+  if (kind === 'roles') {
+    const roleId = Reflect.get(ev, 'roleId')
+    return roleId === undefined || (typeof roleId === 'string' && roleId.length > 0)
+  }
+  if (kind === 'subject') {
+    const subjectId = Reflect.get(ev, 'subjectId')
+    return typeof subjectId === 'string' && subjectId.length > 0
+  }
+  return false
+}
+
+/** An inbound value classified once: either an event this engine can apply, or the reason it cannot. */
+type IInboundEvent<TRole extends string> =
+  | { readonly ok: true; readonly event: IamEngineTypes.IInvalidateEvent<TRole> }
+  | { readonly ok: false; readonly reason: string }
+
 /**
- * Applies an invalidation received from another engine instance.
+ * Classifies an inbound value. Total by construction: the value crossed a transport an operator supplies, so a
+ * hostile getter or a revoked proxy has to come back as a reason rather than as a throw into that transport.
+ */
+function classifyInbound<TRole extends string>(ev: unknown): IInboundEvent<TRole> {
+  try {
+    if (isApplicableEvent<TRole>(ev)) return { event: ev, ok: true }
+    return { ok: false, reason: unapplicableReason(ev) }
+  } catch (err) {
+    return { ok: false, reason: `could not be read (${err instanceof Error ? err.message : String(err)})` }
+  }
+}
+
+/** Names why an event that failed {@link isApplicableEvent} failed it, for the warning. */
+function unapplicableReason(ev: unknown): string {
+  if (typeof ev !== 'object' || ev === null || Array.isArray(ev)) {
+    return `not an event object (${ev === null ? 'null' : Array.isArray(ev) ? 'array' : typeof ev})`
+  }
+  const kind = Reflect.get(ev, 'kind')
+  if (kind === 'roles' || kind === 'subject') return `kind ${JSON.stringify(kind)} with an unusable id`
+  return `unrecognised kind ${JSON.stringify(kind)}`
+}
+
+const reportedInboundReasons = new Set<string>()
+
+/**
+ * Fail closed: something changed that this engine cannot place, so it drops everything rather than guess.
+ * Local only, so a peer that sends nonsense cannot amplify it across the fleet.
+ */
+function reportUnapplicableEvent(reason: string): void {
+  if (reportedInboundReasons.has(reason)) return
+  reportedInboundReasons.add(reason)
+  try {
+    console.warn(
+      `[@gentleduck/iam:engine] invalidator delivered an event this engine cannot apply: ${reason}. ` +
+        'Every local cache was dropped rather than serve an answer the sender says is stale. ' +
+        'Reported once per distinct reason.',
+    )
+  } catch {}
+}
+
+/**
+ * Applies an invalidation received from another engine instance, and returns the kind it actually applied.
+ * The value crossed a transport an operator supplies, so it is checked here rather than trusted from its type.
  * NOTE: every branch passes `broadcast: false`; echoing peers' events would grow traffic with the fleet squared.
  */
 export function applyInvalidateEvent<TRole extends string>(
   bag: IEngineCacheBag<TRole>,
-  event: IamEngineTypes.IInvalidateEvent<TRole>,
-): void {
-  switch (event.kind) {
+  event: unknown,
+): IamEngineTypes.IInvalidateEvent<TRole>['kind'] {
+  const inbound = classifyInbound<TRole>(event)
+  if (!inbound.ok) {
+    reportUnapplicableEvent(inbound.reason)
+    invalidateAll(bag, { broadcast: false })
+    return 'all'
+  }
+  switch (inbound.event.kind) {
     case 'all':
       invalidateAll(bag, { broadcast: false })
-      return
+      return 'all'
     case 'policies':
       invalidatePolicies(bag, { broadcast: false })
-      return
+      return 'policies'
     case 'roles':
-      invalidateRoles(bag, event.roleId, { broadcast: false })
-      return
+      invalidateRoles(bag, inbound.event.roleId, { broadcast: false })
+      return 'roles'
     case 'subject':
-      invalidateSubject(bag, event.subjectId, { broadcast: false })
-      return
+      invalidateSubject(bag, inbound.event.subjectId, { broadcast: false })
+      return 'subject'
   }
+}
+
+/** @internal Test seam: the once-per-reason warning is process-wide. */
+export function _resetInboundEventReports(): void {
+  reportedInboundReasons.clear()
 }
