@@ -693,6 +693,21 @@ conservative choice at the time and this round measured it wrong: the policy is
 reachable, and the dead rule still needs naming. It now asserts the policy-level
 silence *and* the new per-rule report.
 
+### `mode: 'development'` now announces itself, like the other fail-open setting
+
+`defaultEffect: 'allow'` has always warned unconditionally at construction, so
+that a log search for fail-open configurations finds it. Development mode is the
+other one, and the sharper of the two: under fail-open a deny still answers
+`false`, but in development `check()` and `authorize()` answer an `IDecision`,
+and an object is truthy even when `allowed` is `false`. `if (await
+engine.check(...))` therefore allows every request, denies included. It warned
+nothing.
+
+The constructor now warns once per process, naming that consequence rather than
+just the mode, and pointing at `.allowed` and at `can()`, which stays a boolean
+in both modes. Worth knowing because `policyCombine: 'first-applicable'` is
+refused in production, so choosing that combine chooses this mode with it.
+
 ### `setInvalidator` no longer leaves an engine attached in one direction only
 
 The invalidator was stored before `subscribe` returned, so a `subscribe` that

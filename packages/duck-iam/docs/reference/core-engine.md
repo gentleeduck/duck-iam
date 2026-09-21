@@ -152,6 +152,19 @@ With `defaultEffect: 'allow'` accepted, the constructor also emits an
 unconditional `console.warn` naming the fail-open configuration, "so an
 operator grep'ing logs for fail-open configurations always finds it."
 
+`mode: 'development'` warns for the same reason, and it is the sharper of the
+two. Under `defaultEffect: 'allow'` a deny still answers `false`; in development
+`check()` and `authorize()` answer an `IDecision`, and **an object is truthy
+even when `allowed` is `false`**. So `if (await engine.check(...))` allows every
+request, including every deny. Read `.allowed`, or call `can()`, which is a
+boolean in both modes. `explain()` also becomes callable and returns policy
+internals.
+
+That warning is latched for the process rather than emitted per engine: it
+states a static configuration fact, and one findable line is what a log search
+needs. Note the shape of the trap - `policyCombine: 'first-applicable'` is
+refused in production, so choosing that combine chooses this mode with it.
+
 ### 2.3 `TMode` is a type argument, not a setting
 
 ```ts

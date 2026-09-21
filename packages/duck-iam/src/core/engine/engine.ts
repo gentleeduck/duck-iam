@@ -54,6 +54,14 @@ export function iamFlushSharedCaches(): void {
   clearPathCache()
 }
 
+/** Latched per process: a static configuration fact needs one findable log line, not one per engine built. */
+let developmentModeWarned = false
+
+/** @internal Test seam: the development-mode warning is latched for the process. */
+export function _resetDevelopmentModeWarning(): void {
+  developmentModeWarned = false
+}
+
 /** Shape check for {@link IamEngine.setInvalidator}, so a missing `subscribe` fails now, not as lost invalidations. */
 function isInvalidatorLike<TRole extends string>(value: unknown): value is IamEngineTypes.IInvalidator<TRole> {
   if (value === null || typeof value !== 'object') return false
@@ -218,6 +226,17 @@ export class IamEngine<
     if (!VALID_MODES.includes(this._mode)) {
       throw new Error(
         `[@gentleduck/iam:engine] unknown mode ${JSON.stringify(this._mode)}. Must be one of: ${VALID_MODES.join(', ')}.`,
+      )
+    }
+    // SECURITY: the other fail-open configuration, and the one a log search used to miss. `defaultEffect: 'allow'`
+    // still answers `false` for a deny; here a deny comes back as a truthy object.
+    if (this._mode === 'development' && !developmentModeWarned) {
+      developmentModeWarned = true
+      console.warn(
+        "[@gentleduck/iam:engine] engine configured with mode: 'development'. `check()` and `authorize()` answer a " +
+          'decision object that is truthy even for a deny, so `if (await engine.check(...))` allows every request; ' +
+          'read `.allowed`, or use `can()`, which is a boolean in both modes. `explain()` is also callable and ' +
+          'returns policy internals. Reported once per process.',
       )
     }
     // SECURITY: `scopeCombine` defaults to the *wider* branch, so `'overide'` hands a subject every ancestor
