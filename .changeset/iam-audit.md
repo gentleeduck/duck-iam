@@ -693,6 +693,22 @@ conservative choice at the time and this round measured it wrong: the policy is
 reachable, and the dead rule still needs naming. It now asserts the policy-level
 silence *and* the new per-rule report.
 
+### A `0` that switches off a timeout or a cap now says so
+
+`adapterTimeoutMs`, `hookTimeoutMs` and `maxConcurrentSubjectLoads` all read `0`
+as "off", and each one turned off is a fail-closed mechanism. With a timeout, an
+adapter that stops answering makes `can()` deny; with `0` the check hangs
+instead, and never returns. A hook whose promise never settles does the same to
+the evaluation. An unbounded subject loader never sheds a cache-miss burst.
+
+The non-finite guard beside them cannot catch this - `0` is legal and
+documented. What makes it worth reporting is that `Number('')` is `0`, so an
+environment variable that is set but empty lands on the off switch, while an
+unset one gives `NaN` and is refused outright.
+
+Each now warns once per process at construction, naming what stops happening.
+Nothing changes for the defaults or for any real value.
+
 ### The Express middleware no longer answers for errors that are not its own
 
 Hono and Next both call the downstream handler outside their `try`, each with a

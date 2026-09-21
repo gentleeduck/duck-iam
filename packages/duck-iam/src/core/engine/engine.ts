@@ -57,6 +57,28 @@ export function iamFlushSharedCaches(): void {
 /** Latched per process: a static configuration fact needs one findable log line, not one per engine built. */
 let developmentModeWarned = false
 
+/** Same, per option, for the guards `0` turns off. */
+const disabledGuardsWarned = new Set<string>()
+
+/** @internal Test seam: the disabled-guard warnings are latched for the process. */
+export function _resetDisabledGuardWarnings(): void {
+  disabledGuardsWarned.clear()
+}
+
+/**
+ * Announces a guard switched off by a legal `0`, the way the other permissive configurations announce themselves.
+ * SECURITY: each of these disables a fail-closed mechanism, and `Number('')` is 0, so an environment variable that
+ * is set but empty lands here rather than on the non-finite guard above it.
+ */
+function warnGuardDisabled(option: string, consequence: string): void {
+  if (disabledGuardsWarned.has(option)) return
+  disabledGuardsWarned.add(option)
+  console.warn(
+    `[@gentleduck/iam:engine] ${option}: 0 turns it off. ${consequence} ` +
+      "`Number('')` is 0, so an environment variable that is set but empty lands here. Reported once per process.",
+  )
+}
+
 /** @internal Test seam: the development-mode warning is latched for the process. */
 export function _resetDevelopmentModeWarning(): void {
   developmentModeWarned = false
@@ -297,13 +319,29 @@ export class IamEngine<
     if (!Number.isFinite(this._hookTimeoutMs) || this._hookTimeoutMs < 0) {
       throw new RangeError('[@gentleduck/iam:engine] hookTimeoutMs must be a finite number >= 0')
     }
-    // 0 means unbounded (same convention as adapterTimeoutMs); anything else must be a real cap.
+    // 0 means unbounded, the same convention `adapterTimeoutMs` and `hookTimeoutMs` use; anything else is a cap.
     if (
       !Number.isFinite(this._maxConcurrentSubjectLoads) ||
       (this._maxConcurrentSubjectLoads !== 0 && this._maxConcurrentSubjectLoads < 1)
     ) {
       throw new RangeError(
         '[@gentleduck/iam:engine] maxConcurrentSubjectLoads must be 0 (unbounded) or a finite number >= 1',
+      )
+    }
+
+    if (this._adapterTimeoutMs === 0) {
+      warnGuardDisabled(
+        'adapterTimeoutMs',
+        'An adapter that stops answering then hangs every check instead of denying it.',
+      )
+    }
+    if (this._hookTimeoutMs === 0) {
+      warnGuardDisabled('hookTimeoutMs', 'A hook whose promise never settles then hangs every evaluation.')
+    }
+    if (this._maxConcurrentSubjectLoads === 0) {
+      warnGuardDisabled(
+        'maxConcurrentSubjectLoads',
+        'Uncached subject loads are unbounded, so a cache-miss burst is never shed.',
       )
     }
 
