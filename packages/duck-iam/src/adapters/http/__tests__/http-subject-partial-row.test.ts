@@ -89,9 +89,7 @@ describe('a partial subject grant list does not silently retire the denies it ca
       [{ id: 'editor' }, 'object'],
     ] as const) {
       const adapter = buildAdapter(['editor', entry])
-      await expect(adapter.getSubjectRoles('u1')).rejects.toThrow(
-        new RegExp(`returned ${got.replace(' ', ' ')} at \\[1\\]`),
-      )
+      await expect(adapter.getSubjectRoles('u1')).rejects.toThrow(new RegExp(`returned ${got} at \\[1\\]`))
     }
   })
 
