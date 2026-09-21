@@ -195,6 +195,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/import-validates-before-write.test.ts` | 4 | admin.import validates the whole snapshot before writing |
 | `core/engine/__tests__/inbound-invalidation-that-cannot-be-applied.test.ts` | 7 | an inbound invalidation the engine cannot apply |
 | `core/engine/__tests__/invalidate-roles-inflight.test.ts` | 3 | invalidateRoles drops in-flight subject loads |
+| `core/engine/__tests__/invalidator-attached-in-one-direction.test.ts` | 8 | an invalidator attached in one direction only |
 | `core/engine/__tests__/invalidator-publish-cannot-fail-the-write.test.ts` | 6 | an invalidator whose publish fails |
 | `core/engine/__tests__/mode-config-guard.test.ts` | 17 | mode is checked at boot, like policyCombine |
 | `core/engine/__tests__/mode-type-argument-does-not-set-mode.test.ts` | 3 | the mode type argument does not set the mode |
@@ -295,7 +296,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2838** | |
+| **Subtotal** | **2846** | |
 
 ---
 
@@ -435,7 +436,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 11 | 153 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 172 | 2838 |
+| Core | 173 | 2846 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -443,4 +444,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 145 |
 | Other | 1 | 4 |
-| **Total** | **324** | **6302** |
+| **Total** | **325** | **6310** |

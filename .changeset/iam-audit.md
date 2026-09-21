@@ -693,6 +693,25 @@ conservative choice at the time and this round measured it wrong: the policy is
 reachable, and the dead rule still needs naming. It now asserts the policy-level
 silence *and* the new per-rule report.
 
+### `setInvalidator` no longer leaves an engine attached in one direction only
+
+The invalidator was stored before `subscribe` returned, so a `subscribe` that
+threw left an engine that publishes its own revocations and applies nobody
+else's: stale for the life of the process, fleet-wide, with `healthCheck()`
+reporting nothing about it. It is now stored only after `subscribe` returns, the
+engine is left fully detached, and the error reaches the caller.
+
+`dispose()` detaches the invalidator as well as releasing the subscription, for
+the same reason - an engine that has stopped receiving but still broadcasts is
+the worse half of the pair to keep.
+
+Two things `subscribe` can hand back are now reported instead of absorbed. A
+return value that is not a function means the subscription can never be
+released, so nothing callable is stored and a warning says so. A teardown that
+throws is still caught - it must not mask the reason for shutting down - but is
+warned about, because the subscription may still be delivering into an engine
+that was already released.
+
 ### An invalidation the engine cannot apply now drops the caches instead of being ignored
 
 Events arrive from a transport the operator writes, so the engine now
