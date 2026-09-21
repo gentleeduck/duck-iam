@@ -165,10 +165,17 @@ export function iamAccessMiddleware<
       }
 
       const allowed = await engine.can(userId, getAction(req), getResource(req), getEnvironment(req), getScope?.(req))
-      allowed ? next() : onDenied(req, res)
+      if (!allowed) {
+        onDenied(req, res)
+        return
+      }
     } catch (err) {
       onError(err instanceof Error ? err : new Error(String(err)), req, res)
+      return
     }
+    // NOTE: outside the try, as in the hono and next guards, so a route's own error reaches Express's error
+    // middleware rather than being answered here as an authorization failure.
+    next()
   }
 }
 
@@ -258,10 +265,16 @@ export function iamGuard<
         getEnvironment(req),
         scope,
       )
-      allowed ? next() : onDenied(req, res)
+      if (!allowed) {
+        onDenied(req, res)
+        return
+      }
     } catch (err) {
       onError(err instanceof Error ? err : new Error(String(err)), req, res)
+      return
     }
+    // NOTE: outside the try, for the same reason as the middleware above.
+    next()
   }
 }
 
