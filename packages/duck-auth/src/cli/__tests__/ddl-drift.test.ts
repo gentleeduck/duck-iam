@@ -1,0 +1,74 @@
+/**
+ * `duck-auth migrate` emits DDL by hand while the drizzle adapters declare the same tables in TypeScript, so the
+ * two drift silently - which is how four columns went missing and how the CLI came to emit an
+ * `auth_identities.tenant_id` no query in any dialect reads. Both directions are checked, because they fail
+ * differently: a column the schema declares and the CLI omits breaks writes outright, while one the CLI emits
+ * and no schema declares is created, never written, and reads as data forever after. MySQL is the reference,
+ * its schema being the widest.
+ */
+
+import { getTableConfig } from 'drizzle-orm/mysql-core'
+import { describe, expect, it } from 'vitest'
+import {
+  authCredentials,
+  authIdentities,
+  authIdentityProviders,
+  authSessions,
+} from '~/adapters/drizzle/mysql/mysql.schema'
+import { renderMigration } from '../index'
+
+/**
+ * Carriers for the MySQL unique indexes, not columns of the row contract. They
+ * exist because MySQL cannot index a JSON path directly; pg and sqlite express
+ * the same two indexes over the profile inline and declare nothing extra. The
+ * CLI targets the generic bridge, which stores the profile as text, so it has
+ * neither these nor the indexes - uniqueness is the bridge author's to enforce.
+ */
+const MYSQL_INDEX_CARRIERS = new Set(['email_norm', 'username_norm', 'oauth_provider', 'oauth_sub', 'password_key'])
+
+const TABLES = [
+  {
+    columns: () => getTableConfig(authIdentities).columns.filter((c) => !MYSQL_INDEX_CARRIERS.has(c.name)),
+    suffix: 'identities',
+  },
+  {
+    columns: () => getTableConfig(authCredentials).columns.filter((c) => !MYSQL_INDEX_CARRIERS.has(c.name)),
+    suffix: 'credentials',
+  },
+  { columns: () => getTableConfig(authIdentityProviders).columns, suffix: 'identity_providers' },
+  { columns: () => getTableConfig(authSessions).columns, suffix: 'sessions' },
+] as const
+
+/** Column names in one emitted `CREATE TABLE` body. */
+function emittedColumns(ddl: string, suffix: string): Set<string> {
+  const start = ddl.indexOf(`CREATE TABLE IF NOT EXISTS auth_${suffix} (`)
+  if (start === -1) throw new Error(`migrate emits no auth_${suffix} table`)
+  const body = ddl.slice(start)
+  return new Set(
+    body
+      .slice(body.indexOf('(') + 1, body.indexOf(');'))
+      .split(',')
+      .map((line) => line.trim().split(/\s+/)[0] ?? '')
+      .filter(Boolean),
+  )
+}
+
+describe('migrate DDL matches the declared schema', () => {
+  for (const dialect of ['pg', 'mysql', 'sqlite'] as const) {
+    for (const { columns, suffix } of TABLES) {
+      it(`${dialect}: auth_${suffix} emits every column the schema declares`, () => {
+        const emitted = emittedColumns(renderMigration(dialect, 'auth_'), suffix)
+        const missing = columns()
+          .map((c) => c.name)
+          .filter((name) => !emitted.has(name))
+        expect(missing).toEqual([])
+      })
+
+      it(`${dialect}: auth_${suffix} emits no column the schema does not declare`, () => {
+        const emitted = emittedColumns(renderMigration(dialect, 'auth_'), suffix)
+        const declared = new Set(columns().map((c) => c.name))
+        expect([...emitted].filter((name) => !declared.has(name))).toEqual([])
+      })
+    }
+  }
+})

@@ -1,20 +1,4 @@
-/**
- * E2E: multi-instance revocation fan-out.
- *
- * Validates the load-bearing assumption behind
- * `plans/C3-engine/01-jwt-instant-revocation.md`: that a revocation published on
- * one instance reaches every other instance over pub/sub, fast enough that an
- * in-memory registry is a safe substitute for a per-request Redis read.
- *
- * **This cannot be tested in a single process.** One instance both publishes and
- * subscribes, and `RedisEvents` dedupes its own messages by instance id, so the
- * fan-out path never runs. Real child processes are the only way.
- *
- * The registry itself is not built yet — these tests validate the *design* so
- * the plan is de-risked before implementation.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset.
- */
+/** E2E: multi-instance revocation fan-out. */
 import { type ChildProcess, spawn } from 'node:child_process'
 import { join } from 'node:path'
 import Redis from 'ioredis'

@@ -1,3 +1,4 @@
+/** The Elysia context surface the adapter touches. */
 export namespace ElysiaAdapter {
   export type Handler = (ctx: ElysiaAdapter.Context) => Promise<Response>
 

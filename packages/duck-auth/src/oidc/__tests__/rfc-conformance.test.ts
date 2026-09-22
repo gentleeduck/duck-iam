@@ -2,16 +2,6 @@
  * RFC 8414 (oauth 2.0 Authorization Server Metadata) +
  * OpenID Connect Discovery 1.0 §4 conformance tests for our
  * /.well-known/openid-configuration output.
- *
- * Tests assert the SHAPE that mainstream OIDC client libraries
- * (openid-client, oidc-client-js, jsoauth) verify before they'll
- * speak to our OP. Failing one of these usually means a real RP
- * silently rejects the discovery doc.
- *
- * Sources:
- *   - RFC 8414 §2 (Authorization Server Metadata)
- *   - OIDC Discovery 1.0 §4 (Required claims for OPs)
- *   - draft-ietf-oauth-jwsreq (token response shape)
  */
 
 import { describe, expect, it } from 'vitest'

@@ -1,11 +1,30 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
+import { iamIsValidationError } from '../../shared/errors'
 import {
-  IAM_METHOD_ACTION_MAP,
+  iamAsActionLiteral,
+  iamAsResourceLiteral,
+  iamAsRoleLiteral,
+  iamAsScopeLiteral,
+} from '../../shared/tenant-literals'
+import {
+  IAM_UNKNOWN_RESOURCE,
+  type IamAdminActor,
   type IamAdminAudit,
+  type IamAdminAuthzAnswer,
+  iamActionForMethod,
+  iamAdminActorOptions,
+  iamAuditIdOf,
   iamDefaultCsrfCheck,
+  iamDefaultResource,
   iamExtractEnvironment,
+  iamIsSubjectId,
   iamNoticeCsrfDefaultIfNeeded,
+  iamOptionalStringField,
+  iamPathIsAmbiguous,
+  iamRequirePathParam,
+  iamRequireStringField,
+  iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
 
@@ -13,6 +32,8 @@ import {
 declare namespace Reflect {
   function defineMetadata(key: string, value: unknown, target: object): void
   function getMetadata(key: string, target: object): unknown
+  // NOTE: the ES2015 built-in, not reflect-metadata; redeclared because this namespace shadows the global `Reflect`.
+  function get(target: object, key: string): unknown
 }
 
 // NestJS is a peer dep; these are the minimum shapes the guard touches.
@@ -34,7 +55,7 @@ export interface NestRequest {
 }
 
 /** Minimal NestJS execution context. */
-interface NestExecutionContext {
+export interface NestExecutionContext {
   switchToHttp(): { getRequest(): NestRequest }
   // NestJS returns Function; we use `object` as the compatible supertype.
   getHandler(): object
@@ -68,9 +89,7 @@ export namespace IamNest {
   }
 
   /**
-   * Describes options for {@link iamNestAccessGuard}.
-   *
-   * Each extractor has a sensible default.
+   * Options for {@link iamNestAccessGuard}; every extractor has a default.
    *
    * @template TScope - Constrains valid scope strings.
    */
@@ -83,51 +102,82 @@ export namespace IamNest {
     getResourceId?: (request: NestRequest) => string | undefined
     /** Determines the scope used for the access check. */
     getScope?: (request: NestRequest) => TScope | undefined
-    /** Extracts extra attributes to attach to `resource.attributes` for this check
-     *  (e.g. an owning user id, a computed flag) -- merged in before `engine.can()`.
-     *  Receives the resolved action/resource/scope, since the right attributes
-     *  depend on which resource and scope this check runs against (a `users` row
-     *  IS its own subject; an `iamAssignments` row's subject lives in a column).
-     *  Values must be `AttributeValue` -- use `null` for "absent", not `undefined`. */
+    /**
+     * Extra `resource.attributes` merged in before `engine.can()`; receives the resolved action, resource and scope.
+     * Values must be `AttributeValue`: use `null` for "absent", not `undefined`.
+     */
     getResourceAttributes?: (
       request: NestRequest,
-      ctx: { action: string; resource: string; scope: TScope | undefined },
+      ctx: { action: string; resource: string; resourceId: string | undefined; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles thrown errors during evaluation; return `true` to allow, `false` to deny. */
     onError?: (err: Error, request: NestRequest) => boolean
   }
 
-  /** Required guard callback for the admin controller methods. */
-  export type IAdminAuthorize = (request: NestRequest) => boolean | Promise<boolean>
+  /**
+   * Required admin gate: a falsy answer or a throw blocks the operation, a truthy one lets it proceed.
+   * Prefer returning the actor over `true`, so the audit event and the write itself record who acted; a string
+   * answer also reaches `engine.admin`. See {@link IamAdminAuthzAnswer} and `getMutationActor`.
+   */
+  export type IAdminAuthorize = (request: NestRequest) => IamAdminAuthzAnswer | Promise<IamAdminAuthzAnswer>
 
   /** Describes options for {@link createIamAdminOperations}. `authorize` is required. */
   export interface IAdminOptions extends IamAdminAudit.IOptions {
     /** Required. Runs before every admin operation. */
     authorize: IAdminAuthorize
-    /**
-     * Optional audit hook fired AFTER every mutation handler (savePolicy/
-     * saveRole/assignRole/revokeRole) completes - success or failure. The
-     * hook is fire-and-forget: a slow or throwing implementation never
-     * blocks the request and can never alter the response. `listPolicies` /
-     * `listRoles` (reads) do not fire it.
-     *
-     * See {@link IamAdminAudit.IOptions} for additional hardening knobs:
-     * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
-     */
+    /** Audit hook fired after every mutation (not the list reads), on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
+    /**
+     * Names the caller for `engine.admin`, which reaches the adapter's `created_by` / `updated_by`.
+     * A string `authorize` answer is forwarded without this; an object one names no one until this picks the field.
+     */
+    getMutationActor?: (actor: IamAdminActor) => string | undefined
+    /**
+     * Builds the error thrown when `authorize` refuses; defaults to a 401.
+     * INFO: Nest's base filter duck-types `statusCode`, not `status`: set it, or return an `HttpException`.
+     */
+    onUnauthorized?: (request: NestRequest) => Error
+    /** Builds the error thrown for a CSRF refusal. Defaults to a 403. */
+    onForbidden?: (request: NestRequest) => Error
+    /**
+     * Maps an internal failure (a throwing `authorize`, an engine fault) to the thrown error; defaults to a fixed 500.
+     * SECURITY: the default keeps the original only as `cause`; `includeErrorMessage` covers just the audit string.
+     */
+    onError?: (err: Error, request: NestRequest) => Error
   }
 }
 
-/** Handler function with attached authorize metadata. */
-interface HandlerWithMeta {
-  __accessMeta?: IamNest.IAuthorizeMeta
+/**
+ * A handler's authorize metadata, and whether it carries any at all.
+ * SECURITY: no decorator allows, but a decorator with unreadable metadata must not, so the two are kept apart.
+ */
+interface IHandlerMeta {
+  /** A `__accessMeta` property or reflect entry existed, whatever its shape. */
+  readonly present: boolean
+  /** The metadata, when it is actually usable. */
+  readonly meta: IamNest.IAuthorizeMeta | undefined
 }
 
 /**
- * Marks a controller method with access requirements.
- *
- * Stores metadata via `reflect-metadata` when available and also attaches
- * `__accessMeta` so the guard works without that package.
+ * Whether a raw metadata value is a readable {@link IamNest.IAuthorizeMeta}: extra keys pass, but no field the guard
+ * reads (`action`, `resource`, `scope`, `infer`) may have the wrong type, since each one steers the decision.
+ */
+function isAuthorizeMeta(value: unknown): value is IamNest.IAuthorizeMeta {
+  if (value === null || typeof value !== 'object') return false
+  const action = Reflect.get(value, 'action')
+  const resource = Reflect.get(value, 'resource')
+  const scope = Reflect.get(value, 'scope')
+  const infer = Reflect.get(value, 'infer')
+  if (action !== undefined && typeof action !== 'string') return false
+  if (resource !== undefined && typeof resource !== 'string') return false
+  if (scope !== undefined && typeof scope !== 'string') return false
+  if (infer !== undefined && typeof infer !== 'boolean') return false
+  return true
+}
+
+/**
+ * Marks a controller method with access requirements, via `reflect-metadata` when available and always as
+ * `__accessMeta`, so the guard works without that package.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -157,22 +207,26 @@ export function IamAuthorize<
   }
 }
 
-/** Extract authorize metadata from a handler. */
-function getHandlerMeta(handler: object): IamNest.IAuthorizeMeta | undefined {
-  if ('__accessMeta' in handler) {
-    return (handler as HandlerWithMeta).__accessMeta
-  }
-  if (Reflect?.getMetadata) {
-    return Reflect.getMetadata(IAM_ACCESS_METADATA_KEY, handler) as IamNest.IAuthorizeMeta | undefined
-  }
-  return undefined
+/** Reads a handler's authorize metadata, reporting presence separately from readability. */
+function getHandlerMeta(handler: object): IHandlerMeta {
+  const raw: unknown =
+    '__accessMeta' in handler
+      ? Reflect.get(handler, '__accessMeta')
+      : Reflect?.getMetadata
+        ? Reflect.getMetadata(IAM_ACCESS_METADATA_KEY, handler)
+        : undefined
+  // Only `undefined` (what an unset reflect key answers) means "no decorator"; `null`, `0`, `''` or an array means
+  // something was attached.
+  if (raw === undefined) return { meta: undefined, present: false }
+  return { meta: isAuthorizeMeta(raw) ? raw : undefined, present: true }
 }
 
 /**
- * Builds a NestJS `canActivate` function that reads {@link IamAuthorize} metadata
- * off the handler and runs `engine.can(...)`.
+ * Builds a NestJS `canActivate` that reads {@link IamAuthorize} metadata off the handler and runs `engine.can(...)`.
+ * Handlers without metadata are allowed.
  *
- * Handlers without metadata pass through (allow).
+ * SECURITY: a rule reading `resource.attributes.*` sees only what `getResourceAttributes` returns; without it the
+ * resource is the route's type and id alone, and such a rule cannot fire.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -208,25 +262,45 @@ export function iamNestAccessGuard<
     const request = context.switchToHttp().getRequest()
     const handler = context.getHandler()
 
-    const meta = getHandlerMeta(handler)
+    const { meta, present } = getHandlerMeta(handler)
 
-    if (!meta) return true // No @IamAuthorize decorator: allow.
-
-    const userId = getUserId(request)
-    if (!userId) return false
-
-    const action = meta.infer ? (IAM_METHOD_ACTION_MAP[request.method] ?? 'read') : (meta.action ?? 'read')
-
-    const resource = meta.infer ? inferResource(request) : (meta.resource ?? 'unknown')
-
-    const scope = (meta.scope as TScope | undefined) ?? getScope?.(request)
+    if (!present) return true // No @IamAuthorize decorator: allow.
+    if (meta === undefined) {
+      // SECURITY: decorated but unreadable is a check that cannot run. It goes to `onError` (deny by default), so the
+      // operator sees why instead of a silent 403.
+      return onError(
+        new Error(
+          '[@gentleduck/iam:nest] handler carries @IamAuthorize metadata that is not readable ' +
+            '(expected an object with optional string action/resource/scope and boolean infer); denying.',
+        ),
+        request,
+      )
+    }
 
     try {
-      const attributes = getResourceAttributes ? await getResourceAttributes(request, { action, resource, scope }) : {}
+      // Inside the try, like every other extractor, so a throwing `getUserId` reaches `onError`.
+      const userId = getUserId(request)
+      if (!iamIsSubjectId(userId)) return false
+
+      // `isAuthorizeMeta` proved these are strings, not members of the erased union, so they widen through the named
+      // helpers the other adapters use.
+      const action = iamAsActionLiteral<TAction>(
+        meta.infer ? iamActionForMethod(request.method) : (meta.action ?? 'read'),
+      )
+      const resource = iamAsResourceLiteral<TResource>(
+        meta.infer ? inferResource(request) : (meta.resource ?? 'unknown'),
+      )
+      const scope =
+        (meta.scope === undefined ? undefined : iamAsScopeLiteral<TScope>(meta.scope)) ?? getScope?.(request)
+
+      const resourceId = getResourceId(request)
+      const attributes = getResourceAttributes
+        ? await getResourceAttributes(request, { action, resource, resourceId, scope })
+        : {}
       return await engine.can(
         userId,
-        action as TAction,
-        { type: resource as TResource, id: getResourceId(request), attributes },
+        action,
+        { type: resource, id: resourceId, attributes },
         getEnvironment(request),
         scope,
       )
@@ -236,11 +310,23 @@ export function iamNestAccessGuard<
   }
 }
 
-/** Infer resource type from request route path. */
+/**
+ * Resource type from the route template's first literal segment, else {@link iamDefaultResource} on the raw path.
+ * SECURITY: a `%` or `*` template segment gives {@link IAM_UNKNOWN_RESOURCE}; `'*'` is the engine's wildcard pattern.
+ */
 function inferResource(request: NestRequest): string {
-  const path: string = request.route?.path ?? request.path ?? '/'
-  const segments = path.split('/').filter((s: string) => s && !s.startsWith(':'))
-  return segments[segments.length - 1] ?? 'root'
+  // SECURITY: before the template branch: a matched template does not make an ambiguous target safe
+  // (`/public/../admin` matches `/public/*`).
+  if (typeof request.path === 'string' && iamPathIsAmbiguous(request.path)) return IAM_UNKNOWN_RESOURCE
+  const template: string | undefined = request.route?.path
+  if (typeof template !== 'string') return iamDefaultResource(request.path).type
+
+  const first = template
+    .split('/')
+    .filter((segment: string) => segment.length > 0)
+    .find((segment: string) => !segment.startsWith(':'))
+  if (first === undefined) return 'root'
+  return first.includes('%') || first.includes('*') ? IAM_UNKNOWN_RESOURCE : first
 }
 
 /** DI token for the access Engine in NestJS. */
@@ -269,12 +355,16 @@ export function createIamEngineProvider<
 }
 
 /**
- * Builds framework-agnostic admin operations for use inside a NestJS controller.
- *
- * IamNest's decorator-driven routing means we do not ship a router factory;
- * instead this returns a record of admin handlers the user wires into their
- * `@Controller` methods. Enforces `authorize` at construction time so the
- * controller cannot be instantiated unguarded.
+ * Error carrying both `status` (for express-style consumers) and `statusCode`.
+ * INFO: Nest's base filter answers 500 for a non-`HttpException` unless it has `statusCode` and a message.
+ */
+function adminHttpError(message: string, statusCode: number): Error {
+  return Object.assign(new Error(message), { status: statusCode, statusCode })
+}
+
+/**
+ * Builds admin operations to wire into `@Controller` methods, since Nest routes by decorator, not router.
+ * Requires `authorize` at construction, so the controller cannot be built unguarded.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -296,8 +386,7 @@ export function createIamEngineProvider<
  * }
  * ```
  * @example
- * Rate limiting is out of scope; compose with IamNest's `@nestjs/throttler` or a
- * global guard. Pseudocode:
+ * Rate limiting is out of scope; compose with `@nestjs/throttler` or a global guard (pseudocode):
  * ```ts
  * @UseGuards(ThrottlerGuard)
  * @Throttle({ default: { limit: 30, ttl: 60_000 } })
@@ -311,66 +400,79 @@ export function createIamAdminOperations<
   TScope extends string = string,
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNest.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam] createIamAdminOperations requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam:nest] createIamAdminOperations requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
+    opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
+  const onUnauthorized = opts.onUnauthorized ?? (() => adminHttpError('Unauthorized', 401))
+  const onForbidden = opts.onForbidden ?? (() => adminHttpError('Forbidden (CSRF check failed)', 403))
+  // The original rides along as `cause`: kept for a logger that walks the chain, out of the response.
+  const onError =
+    opts.onError ?? ((err: Error) => Object.assign(adminHttpError('Internal server error', 500), { cause: err }))
+
   /**
-   * Gate that returns whatever {@link IamNest.IAdminAuthorize} returned so the value
-   * can be forwarded into the audit event as `actor`. Throws a 401-flavoured
-   * Error on denial so the calling controller surfaces a NestJS exception.
+   * A validation failure becomes a 400 carrying `issues`, which describe the caller's own document and are safe to
+   * return; anything else goes through `onError`.
    */
-  const gateWithActor = async (req: NestRequest): Promise<unknown> => {
-    // CSRF guard runs before authorize so a cookie-based authorize cannot
-    // be tricked by a cross-origin POST. No-op when csrfCheck is omitted.
-    if (effectiveCsrfCheck && !effectiveCsrfCheck(req)) {
-      const err = new Error('Forbidden (CSRF check failed)') as Error & { status?: number }
-      err.status = 403
-      throw err
+  const asThrowable = (err: unknown, req: NestRequest): Error => {
+    if (iamIsValidationError(err)) {
+      return Object.assign(adminHttpError(`Invalid ${err.kind}`, 400), { cause: err, issues: err.issues })
     }
-    const result = await authorize(req)
-    if (!result) {
-      const err = new Error('Unauthorized') as Error & { status?: number }
-      err.status = 401
-      throw err
-    }
-    return result
+    return onError(err instanceof Error ? err : new Error(String(err)), req)
   }
 
   /**
-   * Run a mutation, firing `onAdminMutation` in a finally block so the
-   * audit event lands even when the handler throws.
+   * The shared {@link iamRunAdminAuthz} gate, returning the nameable actor for the audit event.
+   * Throws `onForbidden` (CSRF), `onUnauthorized` (refused), or `onError` (a throwing `authorize`).
    */
+  const gateWithActor = async (req: NestRequest): Promise<IamAdminActor | undefined> => {
+    // SECURITY: CSRF runs before authorize, so a cookie-based authorize cannot be ridden by a cross-origin POST.
+    const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
+    if (authz.phase === 'forbidden') throw onForbidden(req)
+    if (authz.phase === 'unauthorized') throw onUnauthorized(req)
+    // A throwing `authorize` is a server fault, not the caller's: `onError` gives it a status, keeping it as `cause`.
+    if (authz.phase === 'error') throw onError(authz.error, req)
+    return authz.actor
+  }
+
+  /** Runs a mutation through the audit wrapper, so the event lands even when the handler throws. */
   const runMutation = async <T>(
     req: NestRequest,
     action: IamAdminAudit.Action,
     target: IamAdminAudit.Target,
     targetId: string | undefined,
-    handler: () => Promise<T>,
+    handler: (who: { actor?: string }) => Promise<T>,
   ): Promise<T> => {
-    // IamAuthorize denial or throw - do NOT emit audit (mutation never started).
+    // A gate refusal throws before the wrapper, so no audit event fires: the mutation never started.
     const actor = await gateWithActor(req)
     // Shared audit wrapper.
-    return iamWithAdminAudit(
-      {
-        actor,
-        action,
-        target,
-        targetId,
-        method: req.method,
-        path: req.route?.path ?? req.path ?? '',
-        onAdminMutation,
-        redactPath,
-        onAuditHookError,
-        includeErrorMessage,
-      },
-      handler,
-    )
+    try {
+      return await iamWithAdminAudit(
+        {
+          actor,
+          action,
+          target,
+          targetId,
+          method: req.method,
+          path: req.route?.path ?? req.path ?? '',
+          onAdminMutation,
+          redactPath,
+          onAuditHookError,
+          includeErrorMessage,
+        },
+        () => handler(iamAdminActorOptions(actor, getMutationActor)),
+      )
+    } catch (err) {
+      // The wrapper has already audited the failure; `asThrowable` only decides what the framework sees.
+      throw asThrowable(err, req)
+    }
   }
 
+  /** Read gate: the same CSRF and `authorize` phase as a mutation, with no audit event. */
   const gate = async (req: NestRequest): Promise<void> => {
     await gateWithActor(req)
   }
@@ -385,26 +487,42 @@ export function createIamAdminOperations<
       return engine.admin.listRoles()
     },
     async savePolicy(req: NestRequest, body: AccessControl.IPolicy<TAction, TResource, TRole>) {
-      return runMutation(req, 'replace', 'policy', (body as { id?: string } | undefined)?.id, async () => {
-        await engine.admin.savePolicy(body)
+      // `iamAuditIdOf`, not a cast: the declared type is only what the controller promises, not the JSON that arrived.
+      return runMutation(req, 'replace', 'policy', iamAuditIdOf(body), async (who) => {
+        await engine.admin.savePolicy(body, who)
         return { ok: true as const }
       })
     },
     async saveRole(req: NestRequest, body: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
-      return runMutation(req, 'replace', 'role', (body as { id?: string } | undefined)?.id, async () => {
-        await engine.admin.saveRole(body)
+      return runMutation(req, 'replace', 'role', iamAuditIdOf(body), async (who) => {
+        await engine.admin.saveRole(body, who)
         return { ok: true as const }
       })
     },
+    /**
+     * Validates the id and body at the edge, since `@Param`/`@Body` types are unchecked promises; inside `runMutation`,
+     * so a refusal is audited as a failure.
+     */
     async assignRole(req: NestRequest, subjectId: string, body: { roleId: TRole; scope?: TScope }) {
-      return runMutation(req, 'create', 'role-assignment', subjectId, async () => {
-        await engine.admin.assignRole(subjectId, body.roleId, body.scope)
+      return runMutation(req, 'create', 'role-assignment', subjectId, async (who) => {
+        const scope = iamOptionalStringField(body, 'scope')
+        await engine.admin.assignRole(
+          iamRequirePathParam(subjectId, 'id'),
+          iamAsRoleLiteral<TRole>(iamRequireStringField(body, 'roleId')),
+          scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+          who,
+        )
         return { ok: true as const }
       })
     },
     async revokeRole(req: NestRequest, subjectId: string, roleId: TRole) {
-      return runMutation(req, 'delete', 'role-assignment', subjectId, async () => {
-        await engine.admin.revokeRole(subjectId, roleId)
+      return runMutation(req, 'delete', 'role-assignment', subjectId, async (who) => {
+        await engine.admin.revokeRole(
+          iamRequirePathParam(subjectId, 'id'),
+          iamAsRoleLiteral<TRole>(iamRequirePathParam(roleId, 'roleId')),
+          undefined,
+          who,
+        )
         return { ok: true as const }
       })
     },

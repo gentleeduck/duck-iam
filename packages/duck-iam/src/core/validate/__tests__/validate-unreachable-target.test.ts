@@ -76,11 +76,7 @@ describe('validatePolicy() - unreachable targets', () => {
     expect(issues).toHaveLength(3)
   })
 
-  /**
-   * An error rather than a warning, so `PolicyBuilder.build()` throws where the policy is
-   * written. A warning was not enough: the symptom is a denial, which reads as the
-   * permission system working, and it cost five separate incidents to recognise.
-   */
+  // An error so `PolicyBuilder.build()` throws where the policy is written; a denial looks like the system working.
   it('fails validation, so build() refuses the policy', () => {
     const result = validatePolicy({
       id: 'p',
@@ -94,11 +90,7 @@ describe('validatePolicy() - unreachable targets', () => {
     expect(result.issues.find((i) => i.code === 'UNREACHABLE_TARGET')?.type).toBe('error')
   })
 
-  /**
-   * A dimension the target omits is one it does not constrain. Expanding it to a literal
-   * '*' demanded that every rule be a wildcard, so a target naming only an action was
-   * called unreachable whenever its allow rule named a specific resource.
-   */
+  // An omitted dimension is unconstrained, not a literal `'*'` that demands a wildcard rule.
   it('does not require a wildcard rule when the target names no resources', () => {
     expect(
       unreachable({
@@ -159,10 +151,6 @@ describe('validatePolicy() - unreachable targets', () => {
     ).toEqual([])
   })
 
-  /**
-   * Same worst-case-cartesian budget used for rules: an oversized target would otherwise
-   * push one issue per (action, resource) pair with no cap.
-   */
   it('skips the check and warns once a target exceeds the cartesian budget, instead of one error per pair', () => {
     const actions = Array.from({ length: 50 }, (_, i) => `action${i}`)
     const resources = Array.from({ length: 21 }, (_, i) => `resource${i}`)

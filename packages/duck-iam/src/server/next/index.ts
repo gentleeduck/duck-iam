@@ -1,35 +1,41 @@
 /**
- * IamNext.js App Router server-side integration.
- *
- * Covers:
- *   - API route wrappers (Route Handlers)
- *   - Server Component helpers
- *   - IamNext.js Middleware integration
- *   - Permission map generation for client hydration
+ * Next.js App Router integration: Route Handler wrappers, Server Component helpers, Middleware, and permission maps.
  */
 
 import type { IamEngine } from '../../core'
-import type { AccessControl, IamClient, IamRequest } from '../../core/types'
+import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
+import { iamIsValidationError } from '../../shared/errors'
+import { iamAsActionLiteral, iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
-  IAM_METHOD_ACTION_MAP,
+  type IamAdminActor,
   type IamAdminAudit,
+  type IamAdminAuthzAnswer,
+  iamActionForMethod,
+  iamAdminActorOptions,
+  iamAuditIdOf,
   iamDefaultCsrfCheck,
+  iamExtractEnvironment,
+  iamIsSubjectId,
+  iamNormalizePathname,
   iamNoticeCsrfDefaultIfNeeded,
+  iamOptionalStringField,
+  iamPathIsAmbiguous,
+  iamReadJsonBody,
+  iamRequirePathParam,
+  iamRequireStringField,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
 
-/** IamNext.js route handler context with params. */
-type RouteContext = { params: Promise<Record<string, string>> | Record<string, string> }
-/** IamNext.js App Router route handler signature. */
-type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response>
+/** Next.js route handler context with params. */
+export type RouteContext = { params: Promise<Record<string, string>> | Record<string, string> }
+/** Next.js App Router route handler signature. */
+export type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response>
 
-/** IamNext.js server integration types. Type-only namespace - zero bundle cost. */
+/** Next.js server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamNext {
   /**
-   * Describes options for {@link withIamAccess}.
-   *
-   * Every extractor has a sensible default.
+   * Options for {@link withIamAccess}. `getUserId` is required at runtime; the rest have defaults.
    *
    * @template TScope - Constrains valid scope strings.
    */
@@ -40,14 +46,27 @@ export namespace IamNext {
     getEnvironment?: (req: Request) => IamRequest.IEnvironment
     /** Applies a scope to the access check. */
     scope?: TScope
+    /**
+     * The scope this check runs under, when the route names it (`/orgs/[orgId]/...`). Consulted only when the static
+     * `scope` is absent; without either, a scoped grant does not apply and a rule reading `scope` cannot fire.
+     */
+    getScope?: (req: Request, params: Record<string, string> | undefined) => TScope | undefined
+    /**
+     * The instance this check is about. The default reads the `id` route param, which names the wrong row on a route
+     * whose own id sits under another name (`/orgs/[id]/posts/[postId]`).
+     */
+    getResourceId?: (req: Request, params: Record<string, string> | undefined) => string | undefined
+    /** The resource's own attributes for the check; receives the request and the resolved tuple. */
+    getResourceAttributes?: (
+      req: Request,
+      ctx: { action: string; resource: string; resourceId: string | undefined; scope: TScope | undefined },
+    ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
     onError?: (err: Error, req: Request) => Response
   }
 
   /**
-   * Describes options for {@link createIamNextMiddleware}.
-   *
-   * `rules` and `getUserId` are required.
+   * Options for {@link createIamNextMiddleware}. `rules` and `getUserId` are required.
    *
    * @template TAction - Constrains valid action strings.
    * @template TResource - Constrains valid resource strings.
@@ -71,17 +90,40 @@ export namespace IamNext {
     }>
     /** Extracts the current user ID from the request. */
     getUserId: (req: Request) => string | null | Promise<string | null>
+    /** Extracts environment context (IP, user-agent, etc.) from the request. */
+    getEnvironment?: (req: Request) => IamRequest.IEnvironment
+    /**
+     * The instance a matched rule is about. Middleware sees only the URL, so there is no default: without this the
+     * check names a type and no row, and a rule reading `resource.id` cannot fire.
+     */
+    getResourceId?: (
+      req: Request,
+      ctx: { action: TAction; resource: TResource; scope: TScope | undefined },
+    ) => string | undefined
+    /**
+     * The scope a matched rule runs under, when the URL names it (`/orgs/[orgId]/...`). Consulted only when the rule
+     * declares no `scope`; without either, a scoped grant does not apply and a rule reading `scope` cannot fire.
+     */
+    getScope?: (req: Request, ctx: { action: TAction; resource: TResource }) => TScope | undefined
+    /** The resource's own attributes for the check; receives the request and the resolved tuple. */
+    getResourceAttributes?: (
+      req: Request,
+      ctx: { action: TAction; resource: TResource; resourceId: string | undefined; scope: TScope | undefined },
+    ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
+    /** Handles a denied or ambiguous-path request (defaults to 403 JSON). */
+    onDenied?: (req: Request) => Response
+    /** Handles a request with no user (defaults to 401 JSON). */
+    onUnauthorized?: (req: Request) => Response
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
     onError?: (err: Error, req: Request) => Response
   }
 
   /**
-   * Required guard callback for admin Route Handlers.
-   *
-   * Same threat model as the IamExpress `adminRouter`: any handler that writes
-   * policies or roles must be gated.
+   * Required admin gate: a falsy answer or a throw blocks the request, a truthy one lets it proceed.
+   * Prefer returning the actor over `true`, so the audit event and the write itself record who acted; a string
+   * answer also reaches `engine.admin`. See {@link IamAdminAuthzAnswer} and `getMutationActor`.
    */
-  export type IAdminAuthorize = (req: Request) => boolean | Promise<boolean>
+  export type IAdminAuthorize = (req: Request) => IamAdminAuthzAnswer | Promise<IamAdminAuthzAnswer>
 
   /** Describes options for {@link createIamAdminHandlers}. `authorize` is required. */
   export interface IAdminOptions extends IamAdminAudit.IOptions {
@@ -91,24 +133,19 @@ export namespace IamNext {
     onUnauthorized?: (req: Request) => Response
     /** Overrides the 500 internal error response. */
     onError?: (err: Error, req: Request) => Response
-    /**
-     * Optional audit hook fired AFTER every mutation handler (PUT/POST/
-     * DELETE/PATCH) completes - success or failure. The hook is
-     * fire-and-forget: a slow or throwing implementation never blocks the
-     * request and can never alter the response. GET handlers do not fire it.
-     *
-     * See {@link IamAdminAudit.IOptions} for additional hardening knobs:
-     * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
-     */
+    /** Audit hook fired after every mutation, on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
+    /**
+     * Names the caller for `engine.admin`, which reaches the adapter's `created_by` / `updated_by`.
+     * A string `authorize` answer is forwarded without this; an object one names no one until this picks the field.
+     */
+    getMutationActor?: (actor: IamAdminActor) => string | undefined
   }
 }
 
 /**
- * Wraps a IamNext.js App Router route handler with an access check.
- *
- * Returns 401 when no user is present, 403 when denied, and otherwise invokes
- * the wrapped handler.
+ * Wraps an App Router route handler with an access check: 401 without a user, 403 on deny, else the handler.
+ * SECURITY: throws without `opts.getUserId`; identity never comes from request headers, which the caller controls.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -117,15 +154,22 @@ export namespace IamNext {
  * @param engine - Provides the access engine to consult.
  * @param action - Specifies the action being performed.
  * @param resourceType - Specifies the resource type required for the check.
- * @param handler - Provides the downstream route handler invoked on allow.
- * @param opts - Configures optional extractors and `scope` override.
+ * @param handler - The route handler invoked on allow; the resource id comes from `ctx.params.id` unless
+ *   `opts.getResourceId` names another source.
+ * @param opts - `getUserId` (required), plus optional environment extractor, `scope`, and `onError`.
  * @returns A wrapped route handler.
  * @example
  * ```ts
- * export const DELETE = withIamAccess(engine, 'delete', 'post', async (req, ctx) => {
- *   const { id } = await ctx.params
- *   return Response.json({ deleted: id })
- * })
+ * export const DELETE = withIamAccess(
+ *   engine,
+ *   'delete',
+ *   'post',
+ *   async (req, ctx) => {
+ *     const { id } = await ctx.params
+ *     return Response.json({ deleted: id })
+ *   },
+ *   { getUserId: async () => (await auth()).userId },
+ * )
  * ```
  */
 export function withIamAccess<
@@ -149,29 +193,33 @@ export function withIamAccess<
   }
   const {
     getUserId,
-    getEnvironment = (req) => ({
-      ip: req.headers.get('x-forwarded-for') ?? undefined,
-      userAgent: req.headers.get('user-agent') ?? undefined,
-      timestamp: Date.now(),
-    }),
-    scope,
+    getEnvironment = (req) => iamExtractEnvironment({ headers: req.headers, method: req.method, url: req.url }),
+    getScope,
+    scope: staticScope,
     onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
+    getResourceAttributes,
+    getResourceId = (_req: Request, params: Record<string, string> | undefined) => params?.id,
   } = opts
 
   return async (req, ctx) => {
-    const userId = await getUserId(req)
-    if (!userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     try {
-      const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
-      const resourceId = params?.id
+      // Inside the try, like every other extractor, so a throwing `getUserId` reaches `onError`.
+      const userId = await getUserId(req)
+      if (!iamIsSubjectId(userId)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 })
+      }
 
+      const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
+      const scope = staticScope ?? getScope?.(req, params)
+      const resourceId = getResourceId(req, params)
+
+      const attributes = getResourceAttributes
+        ? await getResourceAttributes(req, { action, resource: resourceType, resourceId, scope })
+        : {}
       const allowed = await engine.can(
         userId,
         action,
-        { type: resourceType, id: resourceId, attributes: {} },
+        { type: resourceType, id: resourceId, attributes },
         getEnvironment(req),
         scope,
       )
@@ -179,30 +227,24 @@ export function withIamAccess<
       if (!allowed) {
         return Response.json({ error: 'Forbidden' }, { status: 403 })
       }
-
-      return handler(req, ctx)
     } catch (err) {
       return onError(err instanceof Error ? err : new Error(String(err)), req)
     }
+    // NOTE: outside the try, as in the hono guard, so a route's own error reaches Next and not this `onError`.
+    return handler(req, ctx)
   }
 }
 
 /**
- * Returns whether `subjectId` can perform `(action, resourceType)`.
+ * Whether `subjectId` can perform `(action, resourceType)`, for Server Components and server actions.
  *
- * Designed for use inside Server Components or server actions.
+ * SECURITY: `environment` and `attributes` default to absent, so a rule reading `environment.*` or
+ * `resource.attributes.*` cannot fire unless this call passes them.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
- * @param engine - Provides the access engine to consult.
- * @param subjectId - Identifies the subject performing the action.
- * @param action - Specifies the action being performed.
- * @param resourceType - Specifies the resource type required for the check.
- * @param resourceId - Optional resource instance ID.
- * @param scope - Optional scope constraint.
- * @returns Resolves to `true` when allowed and `false` otherwise.
  */
 export async function checkIamAccess<
   TAction extends string = string,
@@ -216,6 +258,8 @@ export async function checkIamAccess<
   resourceType: TResource,
   resourceId?: string,
   scope?: TScope,
+  environment?: IamRequest.IEnvironment,
+  attributes?: Readonly<IamPrimitives.Attributes>,
 ): Promise<boolean> {
   return engine.can(
     subjectId,
@@ -223,25 +267,21 @@ export async function checkIamAccess<
     {
       type: resourceType,
       id: resourceId,
-      attributes: {},
+      attributes: attributes ?? {},
     },
-    undefined,
+    environment,
     scope,
   )
 }
 
 /**
- * Builds a {@link IamClient.PermissionMap} for a Server Component or layout.
- *
- * Pass the result to the React `AccessProvider` on the client side.
+ * Builds a permission map in a Server Component or layout, to pass to the React `AccessProvider`.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
- * @param engine - Provides the access engine to consult.
- * @param subjectId - Identifies the subject whose permissions are computed.
- * @param checks - Lists the permission tuples to evaluate.
+ * @template TMode - Inferred from `engine`: a typed {@link IamClient.PermissionMap} in development, plain otherwise.
  * @returns A permission map keyed by `(action, resource, scope)` tuple.
  */
 export async function getIamPermissions<
@@ -249,20 +289,22 @@ export async function getIamPermissions<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
+  TMode extends AccessControl.Mode = AccessControl.Mode,
 >(
-  engine: IamEngine<TAction, TResource, TRole, TScope>,
+  engine: IamEngine<TAction, TResource, TRole, TScope, TMode>,
   subjectId: string,
   checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
-): Promise<IamClient.PermissionMap<TAction, TResource, TScope>> {
-  return engine.permissions(subjectId, checks)
+  environment?: IamRequest.IEnvironment,
+): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
+  return engine.permissions(subjectId, checks, environment)
 }
 
 /**
- * Builds a IamNext.js Edge Middleware matcher that protects routes by a list of
- * pattern-keyed rules.
+ * Builds a Next.js Middleware check from pattern-keyed rules: `null` when the request passes or no rule matches,
+ * else a 401/403/500 `Response`.
  *
- * Returns `null` when the request passes or no rule matches; otherwise returns
- * a `Response` (401/403/500).
+ * SECURITY: a rule reading `resource.attributes.*` or `resource.id` sees only what `getResourceAttributes` and
+ * `getResourceId` return; without them the resource is the matched rule's type alone, and such a rule cannot fire.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -291,11 +333,34 @@ export function createIamNextMiddleware<
   TRole extends string = string,
   TScope extends string = string,
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNext.IMiddlewareOptions<TAction, TResource, TScope>) {
-  const { onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }) } = opts
+  // Same environment default as `withIamAccess`, so environment-conditioned rules behave alike.
+  const {
+    getEnvironment = (req: Request) =>
+      iamExtractEnvironment({ headers: req.headers, method: req.method, url: req.url }),
+    onDenied = () => Response.json({ error: 'Forbidden' }, { status: 403 }),
+    onUnauthorized = () => Response.json({ error: 'Unauthorized' }, { status: 401 }),
+    onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
+    getResourceAttributes,
+    getResourceId,
+    getScope,
+  } = opts
 
   return async (req: Request): Promise<Response | null> => {
     const url = new URL(req.url)
-    const path = url.pathname
+    // SECURITY: refused before canonicalising: `/admin/..%2fpublic` would match a `/public` rule while next
+    // serves `/admin`.
+    if (iamPathIsAmbiguous(url.pathname)) {
+      return onDenied(req)
+    }
+    // `//admin` and `/%61dmin` both survive `new URL()` and skip a `/admin`
+    // rule while still routing to `/admin`. Match on the canonical form.
+    const path = iamNormalizePathname(url.pathname)
+
+    // SECURITY: a `%` left after one decode may be decoded again downstream, picking the wrong rule or none (which
+    // passes unchecked), so refuse it as `iamDefaultResource` does.
+    if (path.includes('%')) {
+      return onDenied(req)
+    }
 
     const matchedRule = opts.rules.find((r) => {
       if (typeof r.pattern === 'string') {
@@ -306,27 +371,35 @@ export function createIamNextMiddleware<
 
     if (!matchedRule) return null
 
-    const userId = await opts.getUserId(req)
-    if (!userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     try {
-      const action = matchedRule.action ?? (IAM_METHOD_ACTION_MAP[req.method] as TAction) ?? ('read' as TAction)
+      // Inside the try, like every other extractor, so a throwing `getUserId` reaches `onError`.
+      const userId = await opts.getUserId(req)
+      if (!iamIsSubjectId(userId)) {
+        return onUnauthorized(req)
+      }
 
+      // The method-inferred fallback is a runtime string that cannot be narrowed to the erased `TAction`, so it
+      // widens through the named helper the other adapters use.
+      const action: TAction = matchedRule.action ?? iamAsActionLiteral<TAction>(iamActionForMethod(req.method))
+
+      const scope = matchedRule.scope ?? getScope?.(req, { action, resource: matchedRule.resource })
+      const ruleCtx = { action, resource: matchedRule.resource, scope }
+      const resourceId = getResourceId?.(req, ruleCtx)
+      const attributes = getResourceAttributes ? await getResourceAttributes(req, { ...ruleCtx, resourceId }) : {}
       const allowed = await engine.can(
         userId,
         action,
         {
+          attributes,
+          id: resourceId,
           type: matchedRule.resource,
-          attributes: {},
         },
-        undefined,
-        matchedRule.scope,
+        getEnvironment(req),
+        scope,
       )
 
       if (!allowed) {
-        return Response.json({ error: 'Forbidden' }, { status: 403 })
+        return onDenied(req)
       }
 
       return null
@@ -337,10 +410,7 @@ export function createIamNextMiddleware<
 }
 
 /**
- * Builds pre-bound admin Route Handlers for IamNext.js App Router.
- *
- * Every handler runs `authorize(req)` first; failure replies 401. Throws at
- * construction time when `opts.authorize` is missing.
+ * Builds pre-bound admin Route Handlers for the App Router; each runs the CSRF check and `authorize` first.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -361,8 +431,7 @@ export function createIamNextMiddleware<
  * export const PUT = h.savePolicy
  * ```
  * @example
- * Rate limiting is out of scope; compose at the framework layer with the
- * caller's middleware of choice. Pseudocode:
+ * Rate limiting is out of scope; compose it in middleware (pseudocode):
  * ```ts
  * // middleware.ts
  * export const middleware = async (req: Request) => {
@@ -380,38 +449,48 @@ export function createIamAdminHandlers<
   TScope extends string = string,
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNext.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam] createIamAdminHandlers requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam:next] createIamAdminHandlers requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
+    opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
-  /** Read gate: no audit emission. */
+  /**
+   * Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event.
+   * NOTE: CSRF runs on reads too, so an operator's `csrfCheck` is enforced alike on all four adapters.
+   */
   const gate =
     <P>(fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
+      const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
+      if (authz.phase === 'forbidden') {
+        return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
+      }
+      if (authz.phase === 'unauthorized') return onUnauthorized(req)
+      if (authz.phase === 'error') return onError(authz.error, req)
       try {
-        if (!(await authorize(req))) return onUnauthorized(req)
         return await fn(req, ctx)
       } catch (err) {
         return onError(err instanceof Error ? err : new Error(String(err)), req)
       }
     }
 
-  /**
-   * Mutation gate: identical to {@link gate} but emits an `onAdminMutation`
-   * event after the handler resolves or rejects. Uses try/finally so the
-   * hook fires even when the handler throws.
-   */
+  /** Mutation gate: the CSRF and `authorize` phase, then an `onAdminMutation` event on success or failure. */
   const mutate =
     <P>(
       action: IamAdminAudit.Action,
       target: IamAdminAudit.Target,
       getTargetId: ((req: Request, params: P) => string | undefined) | undefined,
-      fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>,
+      fn: (
+        req: Request,
+        ctx: { params: Promise<P> | P },
+        setTargetId: (id: string | undefined) => void,
+        who: { actor?: string },
+      ) => Promise<Response>,
     ) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
       // Shared CSRF + authorize phase.
@@ -431,23 +510,36 @@ export function createIamAdminHandlers<
       } catch {
         path = req.url
       }
+      // NOTE: mutable and read in `finally`, so a handler can set `targetId` once it has parsed the body
+      // (`savePolicy` and `saveRole` carry the id there, not in the path).
+      const auditCtx = {
+        actor: authz.actor,
+        action,
+        target,
+        targetId: resolvedParams !== undefined ? getTargetId?.(req, resolvedParams) : undefined,
+        method: req.method,
+        path,
+        onAdminMutation,
+        redactPath,
+        onAuditHookError,
+        includeErrorMessage,
+      }
       try {
-        return await iamWithAdminAudit(
-          {
-            actor: authz.actor,
-            action,
-            target,
-            targetId: resolvedParams !== undefined ? getTargetId?.(req, resolvedParams) : undefined,
-            method: req.method,
-            path,
-            onAdminMutation,
-            redactPath,
-            onAuditHookError,
-            includeErrorMessage,
-          },
-          () => fn(req, { params: resolvedParams as P }),
+        return await iamWithAdminAudit(auditCtx, () =>
+          fn(
+            req,
+            { params: resolvedParams as P },
+            (id) => {
+              auditCtx.targetId = id
+            },
+            iamAdminActorOptions(authz.actor, getMutationActor),
+          ),
         )
       } catch (err) {
+        // A body the validator rejected is the caller's mistake, not ours.
+        if (iamIsValidationError(err)) {
+          return Response.json({ error: `Invalid ${err.kind}`, issues: err.issues }, { status: 400 })
+        }
         return onError(err instanceof Error ? err : new Error(String(err)), req)
       }
     }
@@ -455,24 +547,33 @@ export function createIamAdminHandlers<
   return {
     listPolicies: gate(async () => Response.json(await engine.admin.listPolicies())),
     listRoles: gate(async () => Response.json(await engine.admin.listRoles())),
-    savePolicy: mutate<Record<string, string>>('replace', 'policy', undefined, async (req) => {
-      const body = (await req.json()) as AccessControl.IPolicy<TAction, TResource, TRole>
-      await engine.admin.savePolicy(body)
+    savePolicy: mutate<Record<string, string>>('replace', 'policy', undefined, async (req, _ctx, setTargetId, who) => {
+      const body = (await iamReadJsonBody(() => req.json())) as AccessControl.IPolicy<TAction, TResource, TRole>
+      setTargetId(iamAuditIdOf(body))
+      await engine.admin.savePolicy(body, who)
       return Response.json({ ok: true })
     }),
-    saveRole: mutate<Record<string, string>>('replace', 'role', undefined, async (req) => {
-      const body = (await req.json()) as AccessControl.IRole<TAction, TResource, TRole, TScope>
-      await engine.admin.saveRole(body)
+    saveRole: mutate<Record<string, string>>('replace', 'role', undefined, async (req, _ctx, setTargetId, who) => {
+      const body = (await iamReadJsonBody(() => req.json())) as AccessControl.IRole<TAction, TResource, TRole, TScope>
+      setTargetId(iamAuditIdOf(body))
+      await engine.admin.saveRole(body, who)
       return Response.json({ ok: true })
     }),
     assignRole: mutate<{ id: string }>(
       'create',
       'role-assignment',
       (_req, params) => params.id,
-      async (req, ctx) => {
+      async (req, ctx, _setTargetId, who) => {
+        // Validated at the edge, like the other adapters, so the refusal does not depend on the storage adapter.
         const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
-        const body = (await req.json()) as { roleId: TRole; scope?: TScope }
-        await engine.admin.assignRole((params as { id: string }).id, body.roleId, body.scope)
+        const body: unknown = await iamReadJsonBody(() => req.json())
+        const scope = iamOptionalStringField(body, 'scope')
+        await engine.admin.assignRole(
+          iamRequirePathParam(params?.id, 'id'),
+          iamAsRoleLiteral<TRole>(iamRequireStringField(body, 'roleId')),
+          scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+          who,
+        )
         return Response.json({ ok: true })
       },
     ),
@@ -480,10 +581,14 @@ export function createIamAdminHandlers<
       'delete',
       'role-assignment',
       (_req, params) => params.id,
-      async (_req, ctx) => {
+      async (_req, ctx, _setTargetId, who) => {
         const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
-        const { id, roleId } = params as { id: string; roleId: string }
-        await engine.admin.revokeRole(id, roleId as TRole)
+        await engine.admin.revokeRole(
+          iamRequirePathParam(params?.id, 'id'),
+          iamAsRoleLiteral<TRole>(iamRequirePathParam(params?.roleId, 'roleId')),
+          undefined,
+          who,
+        )
         return Response.json({ ok: true })
       },
     ),

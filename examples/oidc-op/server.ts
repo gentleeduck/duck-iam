@@ -24,7 +24,7 @@ interface Profile {
 const adapter = new MemoryAdapter<Profile>()
 const auth = new AuthRoot<Profile>({
   baseUrl: ISSUER,
-  stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
+  stores: adapter,
   transport: new CookieTransport({ name: 'duck-sid' }),
   passwords: { hasher: new ScryptHasher() },
 })

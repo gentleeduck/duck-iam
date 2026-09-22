@@ -1,44 +1,41 @@
+import { type Answer, answer } from '~/core/answer'
 import type { Events } from '~/core/events/events.types'
 import { AuthError } from '../errors'
 import type { TenantContext } from '../tenant/tenant.types'
 import type { Org } from './orgs.types'
 
-/**
- * Orgs + Membership facet. Locked to core in v4.2 (Q1 decision). Apps
- * without org concept leave the generic `OrgMeta = never` and the facet
- * tree-shakes to zero references.
- *
- * Iam pairing: each membership carries org-scoped roles distinct from
- * tenant-wide identity roles. Apps that pair iam project an identity x
- * org pair into a Subject whose `roles` come from `Membership.roles`.
- * The library exposes the contract; the projection lives in app code.
- */
+/** What both engines say when the orgs capability was never wired. It names `stores.orgs` rather than a
+ *  provider, because there is no `orgsProvider()` to add. */
+export const ORGS_NOT_CONFIGURED = 'this operation needs an org store; pass `stores.orgs` to createAuth()'
+
+/** Apps with no org concept leave `OrgMeta = never`, and the facet tree-shakes to zero references. */
 export class OrgsImpl<OrgMeta = unknown> {
   constructor(
     private readonly _store: Org.Store<OrgMeta>,
+    /** WARN: nothing here emits. There is no `org.*` event in the bus's map, so membership and role
+     *  changes - `setRoles` grants privileges - leave no audit trail, unlike every comparable
+     *  operation (`mfa.enrolled`, `identity.linked`, `authz.revoked`). A host needing one wraps these
+     *  methods for now; adding the events is a change to the public event map, not an audit fix. */
     readonly _events: Events.IBus,
   ) {}
 
-  /** Get an org by id. */
-  async get(id: string, ctx: TenantContext = {}): Promise<Org.Me<OrgMeta> | null> {
-    return this._store.getOrg(id, ctx)
+  /** The org with this id. */
+  get(id: string, ctx: TenantContext = {}): Answer.Me<Org.Me<OrgMeta>> {
+    return answer(this._store.getOrg(id, ctx))
   }
 
-  /** List the orgs an identity belongs to. */
+  /** Every org this identity is a member of. */
   async listForIdentity(identityId: string, ctx: TenantContext = {}): Promise<Org.Me<OrgMeta>[]> {
     return this._store.listOrgsForIdentity(identityId, ctx)
   }
 
-  /** List the memberships of an org. */
+  /** Every membership in this org. */
   async listMembers(orgId: string, ctx: TenantContext = {}): Promise<Org.Membership[]> {
     return this._store.listMembers(orgId, ctx)
   }
 
-  /**
-   * Add a member with starting roles. Idempotent in spirit - adding the same
-   * identity to the same org twice is allowed if the previous membership
-   * has been marked `leftAt`. Otherwise surfaces a generic provider error.
-   */
+  /** Re-adding an identity whose previous membership is marked `leftAt` is allowed; a live one is a
+   *  conflict on (org, identity). */
   async addMember(
     input: { orgId: string; identityId: string; roles?: string[] },
     ctx: TenantContext = {},
@@ -46,10 +43,7 @@ export class OrgsImpl<OrgMeta = unknown> {
     const existing = await this._store.listMembers(input.orgId, ctx)
     const live = existing.find((m) => m.identityId === input.identityId && !m.leftAt)
     if (live) {
-      throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: 'orgs',
-        detail: 'identity already a member of this org',
-      })
+      throw new AuthError('AUTH_ALREADY_EXISTS', { detail: 'identity already a member of this org' })
     }
     const m = await this._store.addMember(
       {
@@ -64,23 +58,31 @@ export class OrgsImpl<OrgMeta = unknown> {
     return m
   }
 
-  /** Remove (mark leftAt) a membership. Idempotent. */
-  async removeMember(orgId: string, identityId: string, ctx: TenantContext = {}): Promise<void> {
-    await this._store.removeMember(orgId, identityId, ctx)
+  /** Marks `leftAt`, answering the membership as it stands left. An identity that was not a member
+   *  rejects; `orNull()` is how an idempotent caller reads that as having done nothing. */
+  removeMember(orgId: string, identityId: string, ctx: TenantContext = {}): Answer.Me<Org.Membership> {
+    return answer(this._store.removeMember(orgId, identityId, ctx))
   }
 
-  /** Replace the role set for a member. */
-  async setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext = {}): Promise<void> {
-    await this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx)
+  /** Answers the membership carrying the sanitized set actually stored, not the one passed in.
+   *  NOTE: the store decides whether a membership marked `leftAt` can still be given roles. The
+   *  shipped memory store allows it, and the write is unreadable - `listMembers` and
+   *  `resolveMembership` skip left rows, and re-adding overwrites the roles wholesale. */
+  setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext = {}): Answer.Me<Org.Membership> {
+    return answer(this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx))
   }
 
-  /**
-   * Resolve the membership of (identity, org) for the in-tenant scope.
-   * Returns null when the identity is not a live member.
-   */
-  async resolveMembership(orgId: string, identityId: string, ctx: TenantContext = {}): Promise<Org.Membership | null> {
-    const members = await this._store.listMembers(orgId, ctx)
-    return members.find((m) => m.identityId === identityId && !m.leftAt) ?? null
+  /** Rejects `AUTH_MEMBERSHIP_NOT_FOUND` when the identity is not a live member. */
+  resolveMembership(orgId: string, identityId: string, ctx: TenantContext = {}): Answer.Me<Org.Membership> {
+    return answer(async () => {
+      const members = await this._store.listMembers(orgId, ctx)
+      const live = members.find((m) => m.identityId === identityId && !m.leftAt)
+      if (!live) {
+        throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
+      }
+
+      return live
+    })
   }
 }
 
@@ -90,17 +92,18 @@ function sanitizeRoles(raw: unknown): string[] {
   const ROLE_MAX_LENGTH = 128
 
   if (!Array.isArray(raw)) return []
-  const out: string[] = []
+  const out = new Set<string>()
   for (const r of raw) {
     if (typeof r !== 'string') continue
     if (r.length === 0 || r.length > ROLE_MAX_LENGTH) continue
-    out.push(r)
-    if (out.length >= ROLES_MAX_COUNT) break
+    // Deduplicated before the cap is counted, or sixty-four copies of one role fill the budget and
+    // silently drop the real grants behind them.
+    out.add(r)
+    if (out.size >= ROLES_MAX_COUNT) break
   }
-  return out
+  return [...out]
 }
 
-/** Factory for {@link OrgsImpl}. */
 export function orgs<OrgMeta>(store: Org.Store<OrgMeta>, events: Events.IBus): OrgsImpl<OrgMeta> {
   return new OrgsImpl(store, events)
 }

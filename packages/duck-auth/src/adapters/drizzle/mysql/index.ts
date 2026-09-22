@@ -1,13 +1,13 @@
-export { createDrizzleMysqlBridge, drizzleMysqlStorage } from './mysql'
+export { DrizzleMysqlAdapter, drizzleMysqlAdapter } from './mysql'
 export {
   authCredentials,
-  // Deprecated: use the auth-prefixed names above.
-  authCredentials as credentialsTable,
-  authEvents,
-  authEvents as eventsTable,
+  authCredentialsRelations,
   authIdentities,
-  authIdentities as identitiesTable,
+  authIdentitiesRelations,
+  authIdentityProviders,
+  authIdentityProvidersRelations,
+  authMysqlSchema,
   authSessions,
-  authSessions as sessionsTable,
+  authSessionsRelations,
 } from './mysql.schema'
 export type { Mysql } from './mysql.types'

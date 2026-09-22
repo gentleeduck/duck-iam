@@ -4,21 +4,24 @@ import { IamPrismaAdapter } from '../index'
 function makePrismaWithAttrs(data: unknown): {
   adapter: IamPrismaAdapter
   attrs: Map<string, { subjectId: string; data: unknown }>
+  /** The next attribute query rejects with `err`, the way a driver does when the connection drops. */
+  failNextRead: (err: Error) => void
 } {
   const attrs = new Map<string, { subjectId: string; data: unknown }>()
+  let nextReadError: Error | undefined
   if (data !== undefined) attrs.set('user-1', { subjectId: 'user-1', data })
   const prisma = {
     accessPolicy: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
       upsert: vi.fn(),
-      delete: vi.fn(),
+      deleteMany: vi.fn(),
     },
     accessRole: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
       upsert: vi.fn(),
-      delete: vi.fn(),
+      deleteMany: vi.fn(),
     },
     accessAssignment: {
       findMany: vi.fn(),
@@ -27,7 +30,12 @@ function makePrismaWithAttrs(data: unknown): {
       updateMany: vi.fn(),
     },
     accessSubjectAttr: {
-      findUnique: vi.fn(async ({ where }: { where: { subjectId: string } }) => attrs.get(where.subjectId) ?? null),
+      findUnique: vi.fn(async ({ where }: { where: { subjectId: string } }) => {
+        const err = nextReadError
+        nextReadError = undefined
+        if (err !== undefined) throw err
+        return attrs.get(where.subjectId) ?? null
+      }),
       upsert: vi.fn(
         async ({
           where,
@@ -47,7 +55,13 @@ function makePrismaWithAttrs(data: unknown): {
     },
   }
   const adapter = new IamPrismaAdapter(prisma)
-  return { adapter, attrs }
+  return {
+    adapter,
+    attrs,
+    failNextRead: (err) => {
+      nextReadError = err
+    },
+  }
 }
 
 describe('IamPrismaAdapter attribute corruption defense', () => {
@@ -108,5 +122,65 @@ describe('IamPrismaAdapter attribute corruption defense', () => {
       const stored = attrs.get('user-1')!.data as Record<string, unknown>
       expect(stored).toEqual({ tier: 'pro', verified: true })
     })
+
+    it('warns when it overwrites a corrupt bag', async () => {
+      const { adapter } = makePrismaWithAttrs('corrupt-string')
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      try {
+        await adapter.setSubjectAttributes('user-1', { tier: 'pro' })
+        expect(warn).toHaveBeenCalledTimes(1)
+        expect(String(warn.mock.calls[0]?.[0])).toContain('are corrupt')
+      } finally {
+        warn.mockRestore()
+      }
+    })
+
+    it('a read that failed for any other reason refuses the write and leaves the bag untouched', async () => {
+      const { adapter, attrs, failNextRead } = makePrismaWithAttrs({ tier: 'pro' })
+      failNextRead(new Error('connection terminated'))
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      try {
+        await expect(adapter.setSubjectAttributes('user-1', { verified: true })).rejects.toThrow(
+          /connection terminated/,
+        )
+        expect(attrs.get('user-1')?.data).toEqual({ tier: 'pro' })
+        expect(warn).not.toHaveBeenCalled()
+      } finally {
+        warn.mockRestore()
+      }
+    })
+
+    it('control: getSubjectAttributes surfaces a failed query as that failure', async () => {
+      const { adapter, failNextRead } = makePrismaWithAttrs({ tier: 'pro' })
+      failNextRead(new Error('connection terminated'))
+      const err = await adapter.getSubjectAttributes('user-1').then(
+        () => null,
+        (e: unknown) => e,
+      )
+      expect(err instanceof Error && err.message).toBe('connection terminated')
+      expect(await adapter.getSubjectAttributes('user-1')).toEqual({ tier: 'pro' })
+    })
+  })
+})
+
+// A non-object payload must throw like on every adapter, not spread into per-character keys.
+describe('IamPrismaAdapter rejects a non-object attribute payload', () => {
+  it.each([
+    ['a string', '"abc"'],
+    ['an array', '[1,2]'],
+    ['null', 'null'],
+    ['a number', '7'],
+  ])('rejects %s without writing', async (_label, json) => {
+    const { adapter, attrs } = makePrismaWithAttrs(undefined)
+    await expect(adapter.setSubjectAttributes('user-1', JSON.parse(json))).rejects.toThrow(/must be a plain object/)
+    expect(attrs.size).toBe(0)
+  })
+
+  // Control: an ordinary object still writes, so the rejections above are not
+  // the method having become inert.
+  it('control: writes a plain object', async () => {
+    const { adapter, attrs } = makePrismaWithAttrs(undefined)
+    await adapter.setSubjectAttributes('user-1', { tier: 'gold' })
+    expect(attrs.get('user-1')?.data).toEqual({ tier: 'gold' })
   })
 })

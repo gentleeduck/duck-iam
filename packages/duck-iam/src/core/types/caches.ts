@@ -6,11 +6,7 @@ export interface IamEvalCaches {
   path: Map<string, string[] | null>
 }
 
-/**
- * Construct a fresh pair of evaluation caches.
- *
- * @returns A new {@link IamEvalCaches} with empty maps.
- */
+/** Creates a fresh, empty {@link IamEvalCaches}. */
 export function iamCreateEvalCaches(): IamEvalCaches {
   return { regex: new Map(), path: new Map() }
 }

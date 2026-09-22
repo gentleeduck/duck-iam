@@ -1,16 +1,6 @@
 /**
  * Structural conformance tests for the fallback SAML SP metadata XML
  * (the path used when @node-saml/node-saml is not installed).
- *
- * We don't ship a full XSD validator (would need libxmljs2 / xmldsig as
- * a dev dep). Instead we assert the OASIS SAML 2.0 Metadata required
- * elements + attribute shapes that real IdPs (Okta, Azure AD, ADFS,
- * Auth0, Keycloak) check before they will accept an SP.
- *
- * Sources:
- *   - OASIS SAML 2.0 Metadata XSD: https://docs.oasis-open.org/security/saml/v2.0/saml-schema-metadata-2.0.xsd
- *   - SAML 2.0 Core - URI bindings (urn:oasis:names:tc:SAML:2.0:bindings:*)
- *   - Real-IdP heuristics: Okta + Entra ID importers
  */
 
 import { describe, expect, it } from 'vitest'

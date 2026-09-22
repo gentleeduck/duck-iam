@@ -1,3 +1,7 @@
+/**
+ * Results and issue shapes produced by the validators. Type-only.
+ * Validators report instead of throwing, so a caller such as an admin UI sees every problem at once.
+ */
 export namespace IamValidate {
   /**
    * Closed set of machine-readable codes the validator can emit. Switch on this
@@ -11,6 +15,8 @@ export namespace IamValidate {
     | 'DUPLICATE_RULE_ID'
     | 'EMPTY_ROLE'
     | 'ERR_REGEX_CATASTROPHIC'
+    | 'ERR_REGEX_INVALID'
+    | 'ERR_REGEX_USER_SOURCED'
     | 'INHERITANCE_TOO_DEEP'
     | 'INVALID_ALGORITHM'
     | 'INVALID_CONDITION'
@@ -20,15 +26,14 @@ export namespace IamValidate {
     | 'INVALID_TYPE'
     | 'LIMIT_EXCEEDED'
     | 'MISSING_FIELD'
+    | 'MISSING_VALUE'
+    | 'OPERAND_TYPE_MISMATCH'
     | 'UNREACHABLE_TARGET'
+    | 'UNKNOWN_FIELD'
     | 'UNRESOLVABLE_FIELD'
     | 'UNRESOLVABLE_VALUE'
 
-  /**
-   * A single issue produced by validation.
-   *
-   * Errors flip {@link IResult.valid} to `false`; warnings do not.
-   */
+  /** A single validation issue; errors flip {@link IResult.valid} to `false`, warnings do not. */
   export interface IIssue {
     /** `'error'` blocks usage, `'warning'` is informational. */
     readonly type: 'error' | 'warning'
@@ -43,11 +48,21 @@ export namespace IamValidate {
   }
 
   /**
-   * The result of a validation operation.
-   *
-   * `valid` is `true` when there are no error-level issues.
-   * Warning-level issues do not affect `valid`.
+   * The vocabulary `validateRoles` checks grants against and `validatePolicy` checks rule patterns against.
+   * An omitted or empty list leaves that axis unconstrained; it does not forbid everything.
    */
+  export interface IDeclaredSurface {
+    /** Declared actions. `'*'` in a grant is always allowed; a rule pattern is cleared if it matches any of these. */
+    readonly actions?: readonly string[]
+    /** Declared resources. `'*'` in a grant is always allowed; a rule pattern is cleared the same way. */
+    readonly resources?: readonly string[]
+    /** Declared scopes. `'*'` and an omitted scope are always allowed. Roles carry these; policies do not. */
+    readonly scopes?: readonly string[]
+    /** Declared role ids, checked against `policy.targets.roles`. Matched by equality, never by pattern. */
+    readonly roles?: readonly string[]
+  }
+
+  /** The result of a validation; `valid` is `true` when there are no error-level issues. */
   export interface IResult {
     /** Whether the validated input is free of errors. */
     readonly valid: boolean

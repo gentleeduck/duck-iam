@@ -1,7 +1,21 @@
-// ------------------------------------------------------------
-// duck-iam Prisma schema
-// Add these models to your existing schema.prisma
-// ------------------------------------------------------------
+// duck-iam Prisma models: add these to your existing schema.prisma.
+//
+// NOTE: Prisma cannot express CHECK constraints or partial indexes, so the drizzle schemas' blank-string and
+// date-ordering checks are absent, as are `starts_at`/`expires_at`/`attributes` (`assignRole` throws on those options).
+//
+// WARN: SQL unique indexes treat NULLs as distinct, so `@@unique([subjectId, roleId, scope])` allows duplicate
+// unscoped grants under concurrent writes. Replace the generated index in a migration with one of:
+//
+//   -- Postgres 15+
+//   DROP INDEX "iam_assignments_subject_id_role_id_scope_key";
+//   CREATE UNIQUE INDEX "iam_assignments_subject_id_role_id_scope_key"
+//     ON "iam_assignments" ("subject_id", "role_id", "scope") NULLS NOT DISTINCT;
+//
+//   -- MySQL / SQLite (no NULLS NOT DISTINCT): index the coalesced value
+//   CREATE UNIQUE INDEX "iam_assignments_subject_id_role_id_scope_key"
+//     ON "iam_assignments" ("subject_id", "role_id", (coalesce("scope", '')));
+//
+// `created_by` / `updated_by` come from the caller's actor and stay NULL when none is named.
 
 model AccessPolicy {
   id          String   @id
@@ -11,6 +25,8 @@ model AccessPolicy {
   algorithm   String   @default("deny-overrides")
   rules       Json
   targets     Json?
+  createdBy   String?  @map("created_by")
+  updatedBy   String?  @map("updated_by")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -25,29 +41,42 @@ model AccessRole {
   inherits    String[]           @default([])
   scope       String?
   metadata    Json?
+  createdBy   String?            @map("created_by")
+  updatedBy   String?            @map("updated_by")
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
   assignments AccessAssignment[]
 
+  @@index([scope])
   @@map("iam_roles")
 }
 
 model AccessAssignment {
-  id        String   @id @default(cuid())
-  subjectId String   @map("subject_id")
-  roleId    String   @map("role_id")
+  id        String     @id @default(cuid())
+  subjectId String     @map("subject_id")
+  roleId    String     @map("role_id")
   scope     String?
   role      AccessRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?    @map("created_by")
+  updatedBy String?    @map("updated_by")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
 
   @@unique([subjectId, roleId, scope])
   @@index([subjectId])
+  // The role index backs the cascade and `revokeRole`'s role-wide delete; the
+  // composite backs the scoped-subject lookup, which is the hot read.
+  @@index([roleId])
+  @@index([subjectId, scope])
   @@map("iam_assignments")
 }
 
 model AccessSubjectAttr {
   subjectId String   @id @map("subject_id")
   data      Json
+  createdBy String?  @map("created_by")
+  updatedBy String?  @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("iam_subject_attrs")

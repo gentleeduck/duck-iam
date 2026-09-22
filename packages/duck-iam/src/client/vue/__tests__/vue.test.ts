@@ -40,7 +40,7 @@ function makeFakeVue() {
 const map: IamClient.PermissionMap<A, R, S> = {
   'read:post': true,
   'create:post': false,
-  'org-1:delete:post': true,
+  '@org-1:delete:post': true,
 } as unknown as IamClient.PermissionMap<A, R, S>
 
 describe('createIamVueAccess - createAccessState', () => {

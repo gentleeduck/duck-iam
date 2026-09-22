@@ -4,6 +4,7 @@ import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
 import type { VanillaClient } from '../vanilla'
 
+/** Vue plugin options, composable results and the vanilla types a consumer needs. */
 export namespace VueClient {
   /** Minimal `Ref<T>` surface compatible with Vue 3 `vue.ref`. */
   export type Ref<T> = {
@@ -34,12 +35,14 @@ export namespace VueClient {
   export type Injected<Profile extends Identities.ProfileMetadataBase> = {
     client: VanillaClient.Client<Profile>
     state: VueClient.Ref<VanillaClient.SessionResult<Profile>>
+    /** `loading` until the first resolve settles, then `authed` or `guest`. */
     status: VueClient.Ref<'loading' | 'authed' | 'guest'>
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }
 
   export type UseSessionResult<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     data: VueClient.Ref<VanillaClient.SessionResult<Profile>>
+    /** `loading` until the first resolve settles, then `authed` or `guest`. */
     status: VueClient.Ref<'loading' | 'authed' | 'guest'>
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }

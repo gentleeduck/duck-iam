@@ -40,10 +40,12 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
       tenantId: 'tenant-A',
     })
     const headers = new Headers({ cookie: `duck-sid=${sid}` })
-    expect(await auth.resolveSession({ headers }, { expectedTenantId: 'tenant-B' })).toBeNull()
+    await expect(auth.resolveSession({ headers }, { expectedTenantId: 'tenant-B' })).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+    })
     // Sanity: the session IS resolvable when the right tenant is asked for.
     const okay = await auth.resolveSession({ headers }, { expectedTenantId: 'tenant-A' })
-    expect(okay?.session.tenantId).toBe('tenant-A')
+    expect(okay.session.tenantId).toBe('tenant-A')
   })
 
   it('rejects when session.tenantId is undefined but expectedTenantId is set (guest-session leak defense)', async () => {
@@ -60,7 +62,9 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
       // tenantId intentionally omitted
     })
     const headers = new Headers({ cookie: `duck-sid=${sid}` })
-    expect(await auth.resolveSession({ headers }, { expectedTenantId: 'tenant-A' })).toBeNull()
+    await expect(auth.resolveSession({ headers }, { expectedTenantId: 'tenant-A' })).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+    })
   })
 
   it('accepts a session without tenantId when the caller does not request one', async () => {
@@ -79,7 +83,7 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
     })
     const headers = new Headers({ cookie: `duck-sid=${sid}` })
     const resolved = await auth.resolveSession({ headers })
-    expect(resolved?.identity?.profile?.email).toBe('c@x.com')
+    expect(resolved.identity?.profile?.email).toBe('c@x.com')
   })
 
   it('persists the session row in the store (regression check that buildAuth wiring works)', async () => {
@@ -97,6 +101,6 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
       factors: [],
       tenantId: 't1',
     })
-    expect(await adapter.sessions.getByHash(sha256(sid))).not.toBeNull()
+    await expect(adapter.sessions.getByHash(sha256(sid))).resolves.toBeTruthy()
   })
 })

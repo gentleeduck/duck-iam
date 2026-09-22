@@ -5,7 +5,7 @@
 
 import { useSignIn } from '@gentleduck/auth/client/react'
 import type { VanillaClient } from '@gentleduck/auth/client/vanilla'
-import type { Envelope, Identity } from '@gentleduck/auth/core'
+import type { Envelope, Identities } from '@gentleduck/auth/core'
 import { cn } from '@gentleduck/libs/cn'
 import { Alert, AlertDescription, AlertTitle } from '@gentleduck/registry-ui/alert'
 import { Button } from '@gentleduck/registry-ui/button'
@@ -22,7 +22,7 @@ import { type FormEvent, useState } from 'react'
  *
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function SignInForm<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function SignInForm<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   props: SignInForm.IProps<Profile>,
 ): React.JSX.Element {
   const { className, onSuccess, providerId = 'password', title = 'Sign in', description } = props
@@ -105,7 +105,7 @@ function describeError(err: unknown): string {
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace SignInForm {
-  export interface IProps<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
+  export interface IProps<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
     className?: string
     title?: string
     description?: string

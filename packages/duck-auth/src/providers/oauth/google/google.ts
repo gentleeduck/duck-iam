@@ -31,10 +31,11 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
+    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
     ...(opts.profileToIdentityProfile !== undefined && { profileToIdentityProfile: opts.profileToIdentityProfile }),
     async fetchProfile(tokens, c) {
       const info = await c.userinfo(tokens.access_token)
-      // Safe-extract claims; cast would let non-string `sub` reach findByProviderSub.
+      // Checked, not asserted: a non-string `sub` would otherwise reach the provider-sub lookup.
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -45,8 +46,7 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
       const out: { sub: string; email?: string; emailVerified?: boolean; name?: string; avatarUrl?: string } = { sub }
       const email = getUserinfoString(info, 'email')
       if (email !== undefined) out.email = email
-      // email_verified must be strictly === true (defends against
-      // truthy-but-non-boolean confusion such as `"true"` or `1`).
+      // Strictly `true`, so a `"true"` or a `1` does not read as verified.
       if (getUserinfoBooleanTrue(info, 'email_verified')) out.emailVerified = true
       const name = getUserinfoString(info, 'name')
       if (name !== undefined) out.name = name

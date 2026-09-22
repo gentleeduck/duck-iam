@@ -4,24 +4,22 @@ export type { Limiter } from '../limiters.types'
 
 import type { Limiter } from '../limiters.types'
 
-/**
- * No-op limiter used when no Limiter adapter is configured. Always allows.
- * `strict({ env: 'production' })` rejects this - production must supply a real
- * Limiter (redis/upstash) for brute-force protection.
- */
+/** Allows everything, for when no limiter is configured. `strict({ env: 'production' })` rejects it:
+ *  production needs a real limiter for brute-force protection. */
 export class NoopLimiter implements Limiter.Me {
-  /** Brand consumed by `AuthEngine.strict({ env: 'production' })` to
-   * detect "explicit AuthNoopLimiter" - class-identity comparison breaks
-   * across bundler rewrites (treeshaken duplicates / nested workspaces)
-   * so we tag every instance and check the tag instead. */
+  /** Read by `AuthEngine.strict({ env: 'production' })` to recognise this class. A tag, not a
+   *  class-identity compare, which breaks across bundler rewrites: treeshaken duplicates and
+   *  nested workspaces each produce their own copy of the class. */
   readonly __isNoopLimiter = true as const
+  /** Always allows, with an unbounded remainder. */
   async consume(_key: string, _weight = 1): Promise<Limiter.Result> {
     return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: new Date(Date.now() + 60_000) }
   }
+  /** Does nothing; there is no budget to clear. */
   async reset(_key: string): Promise<void> {}
 }
 
-/** Factory around {@link NoopLimiter} for functional-style config. */
+/** Limiter that never refuses. For tests. */
 export function noopLimiter(): NoopLimiter {
   return new NoopLimiter()
 }

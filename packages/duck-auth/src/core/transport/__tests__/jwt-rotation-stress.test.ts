@@ -19,6 +19,7 @@ function fakeSession(): Sessions.Me {
     aal: 2,
     absoluteExpiresAt: new Date(now + 60_000),
     createdAt: new Date(now),
+    updatedAt: new Date(now),
     expiresAt: new Date(now + 60_000),
     factors: [{ completedAt: new Date(now), method: 'password' }],
     fresh: true,
@@ -77,7 +78,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
 
     // All 50 must verify - the verify ring holds a, b, c.
     for (const tok of minted) {
-      expect((await t.verify(tok))?.identityId).toBe('user-1')
+      expect((await t.verify(tok)).identityId).toBe('user-1')
     }
     // Tokens carry the right kid in the order minted.
     const headerOf = (jwt: string): string => {
@@ -124,9 +125,9 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
       signKey: { alg: 'EdDSA', key: b.priv, kid: 'b' },
       verifyKey: { alg: 'EdDSA', key: b.pub, kid: 'b' },
     })
-    expect((await t.verify(oldTok))?.identityId).toBe('user-1')
+    expect((await t.verify(oldTok)).identityId).toBe('user-1')
     t.retireVerifyKey('a')
-    expect(await t.verify(oldTok)).toBeNull()
+    await expect(t.verify(oldTok)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('notAfter cutoff retires tokens at verify time', async () => {
@@ -137,7 +138,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a', notAfter: Date.now() - 1 }],
     })
     const tok = findAccessToken(t.issue('x', fakeSession(), { absolute: false, fresh: true }))
-    expect(await t.verify(tok)).toBeNull()
+    await expect(t.verify(tok)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('verify ring holds HS256 + ES256 + RS256 + EdDSA simultaneously', async () => {
@@ -171,7 +172,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
     tokens.push(findAccessToken(t.issue('x', fakeSession(), { absolute: false, fresh: true })))
 
     for (const tok of tokens) {
-      expect((await t.verify(tok))?.identityId).toBe('user-1')
+      expect((await t.verify(tok)).identityId).toBe('user-1')
     }
 
     // JWKS doc excludes the HS256 entry
@@ -190,7 +191,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
     const tok = findAccessToken(t.issue('x', fakeSession(), { absolute: false, fresh: true }))
     const [h, p, s] = tok.split('.')
     const truncated = `${h}.${p}.${s!.slice(0, -4)}AAAA`
-    expect(await t.verify(truncated)).toBeNull()
+    await expect(t.verify(truncated)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('EdDSA verify rejects garbage public key on rotation', () => {

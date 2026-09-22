@@ -1,19 +1,9 @@
-/**
- * Postgres Drizzle stores for the OIDC OP.
- *
- * Provides the five table schemas + a `authCreateDrizzlePgOidcOpStores(db)`
- * factory that returns one row store per OP concern. Plug the result
- * into `authCreateOidcOP({ stores: ... })`.
- */
+/** Postgres Drizzle stores for the OIDC OP. */
 
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import { bigint, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
 import type { OidcOP } from '../types'
-
-// ---------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------
 
 export const authOidcClientsTable = pgTable('oidc_clients', {
   clientId: text('client_id').primaryKey(),
@@ -89,10 +79,6 @@ export const authOidcConsentsTable = pgTable(
   // `find` to return whichever one it happened to reach first.
   (t) => [uniqueIndex('oidc_consents_id_client').on(t.identityId, t.clientId)],
 )
-
-// ---------------------------------------------------------------------
-// Encoding helpers
-// ---------------------------------------------------------------------
 
 function encodeArray(a: string[]): string {
   return JSON.stringify(a)
@@ -190,10 +176,6 @@ function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): OidcOP.Co
     grantedAt: row.grantedAt,
   }
 }
-
-// ---------------------------------------------------------------------
-// Store factories
-// ---------------------------------------------------------------------
 
 type AnyPgDatabase = PgDatabase<PgQueryResultHKT, any>
 

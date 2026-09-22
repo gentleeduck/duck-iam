@@ -3,16 +3,9 @@
  * can present more than one credential, and where one token can be judged by
  * more than one verifier. Both are resolved by position in an array: first
  * non-empty extraction wins, first successful verification wins.
- *
- * That makes the array order a security decision, and this file is the first
- * test coverage the class has. The cases ask what happens when the transports
- * disagree, which is the situation composing them creates.
- *
- * Sources: RFC 6750 section 2 on presenting a bearer token by exactly one
- * method, RFC 9449 on what a DPoP-bound token is worth if an unbound path
- * remains, and OWASP ASVS V3 on session-token handling.
  */
 import { describe, expect, it, vi } from 'vitest'
+import { AuthError } from '~/core/errors'
 import type { Provider } from '~/core/provider/provider.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { makeSession } from '~/test/store-inputs'
@@ -28,8 +21,8 @@ const OPTS: Transport.IssueOpts = { absolute: false, fresh: true }
 function stub(name: string, over: Partial<Transport.ITransport> = {}): Transport.ITransport {
   return {
     extract: () => null,
-    issue: () => [{ body: { from: name }, status: 200, type: 'json' }],
-    revoke: () => [{ body: { revoked: name }, status: 200, type: 'json' }],
+    issue: () => [{ name: `sid-${name}`, options: {}, type: 'setCookie', value: name }],
+    revoke: () => [{ name: `sid-${name}`, options: {}, type: 'clearCookie' }],
     ...over,
   }
 }
@@ -38,32 +31,25 @@ const req = (headers: Record<string, string>) => ({ headers: new Headers(headers
 
 describe('construction', () => {
   it('refuses an empty transport list', () => {
-    expect(() => new CompositeTransport([])).toThrow(/at least one transport/)
+    expect(() => new CompositeTransport([])).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: '@gentleduck/auth AuthCompositeTransport: at least one transport required' },
+      }),
+    )
   })
 
   it('the factory builds the same thing', () => {
     expect(compositeTransport([stub('a')])).toBeInstanceOf(CompositeTransport)
   })
 
-  it('FINDING: it throws a bare Error rather than the library’s misconfiguration code', () => {
-    // Every other wiring mistake in this library raises AUTH_MISCONFIGURED with a
-    // detail and a status. A server adapter's error handler recognises that and
-    // not this, so an empty list surfaces as an unhandled five hundred.
-    const err = (() => {
-      try {
-        new CompositeTransport([])
-      } catch (e) {
-        return e as { code?: string }
-      }
-    })()
-    expect(err?.code).toBeUndefined()
-  })
-
-  it('FINDING: the same transport can be listed twice, and everything it emits is doubled', () => {
-    // Nothing deduplicates. A config assembled from two partial lists issues two
-    // identical cookies and two identical bodies.
+  it('lists one transport once however many times it was passed', () => {
+    // A config assembled from two partial lists issued two identical cookies and two identical
+    // bodies for the same transport.
     const one = stub('a')
-    expect(new CompositeTransport([one, one]).issue('sid', SESSION, OPTS)).toHaveLength(2)
+    expect(new CompositeTransport([one, one]).issue('sid', SESSION, OPTS)).toHaveLength(1)
+    // Two distinct instances stay two: they are the documented cookie-plus-bearer case.
+    expect(new CompositeTransport([stub('a'), stub('b')]).issue('sid', SESSION, OPTS)).toHaveLength(2)
   })
 })
 
@@ -85,41 +71,68 @@ describe('extract resolves a request carrying two credentials by array order', (
     expect(new CompositeTransport([cookie, bearer]).extract(req({}))).toBeNull()
   })
 
-  it('FINDING: a request presenting two different credentials is silently resolved, not refused', () => {
-    // RFC 6750 section 2 says a client must not send a token by more than one
-    // method, and that a request doing so must be rejected. Here the array order
-    // picks a winner and the other credential is discarded without a word. An
-    // attacker who can plant a cookie, which a sibling subdomain can do, chooses
-    // which identity the request runs as whenever cookie is listed first.
-    const cookieFirst = new CompositeTransport([cookie, bearer])
-    const bearerFirst = new CompositeTransport([bearer, cookie])
+  it('refuses a request presenting two different credentials rather than picking one', () => {
+    // RFC 6750 section 2 says a client must not send a token by more than one method and that a
+    // request doing so must be rejected. Array order used to pick a winner and discard the other
+    // without a word, so anyone who can plant a cookie - a sibling subdomain can - chose which
+    // identity the request ran as whenever cookie was listed first.
     const both = req({ authorization: 'Bearer honest-token', cookie: 'duck-sid=planted-token' })
-
-    expect(cookieFirst.extract(both)).toBe('planted-token')
-    expect(bearerFirst.extract(both)).toBe('honest-token')
+    for (const order of [
+      [cookie, bearer],
+      [bearer, cookie],
+    ]) {
+      expect(() => new CompositeTransport(order).extract(both)).toThrow(
+        expect.objectContaining({ code: 'AUTH_INVALID_CREDENTIALS' }),
+      )
+    }
   })
 
-  it('FINDING: reordering the array changes which credential authenticates the request', () => {
-    // The order is the whole policy, and nothing in the type or the constructor
-    // signals that. Two deployments with the same transports in different orders
-    // resolve the same request to different sessions.
+  it('the same token arriving by two methods is one credential, not two', () => {
+    const same = req({ authorization: 'Bearer tok', cookie: 'duck-sid=tok' })
+    expect(new CompositeTransport([cookie, bearer]).extract(same)).toBe('tok')
+  })
+
+  it('a deployment mid-migration can opt back into first-wins', () => {
+    // Refusing is the default because it is what the RFC says; this exists because a deployment
+    // moving from cookie to bearer legitimately sends both for a while.
+    const both = req({ authorization: 'Bearer honest-token', cookie: 'duck-sid=planted-token' })
+    const lenient = new CompositeTransport([cookie, bearer], { onMultipleCredentials: 'first' })
+    expect(lenient.extract(both)).toBe('planted-token')
+  })
+
+  it('order no longer decides which of two credentials wins, because two are refused', () => {
+    // Order remains the tiebreak for `verify`, where a token may satisfy more than one transport.
+    // It is no longer the tiebreak for which credential a request is judged by.
     const a = stub('a', { extract: () => 'from-a' })
     const b = stub('b', { extract: () => 'from-b' })
-    expect(new CompositeTransport([a, b]).extract(req({}))).toBe('from-a')
-    expect(new CompositeTransport([b, a]).extract(req({}))).toBe('from-b')
+    expect(() => new CompositeTransport([a, b]).extract(req({}))).toThrow(
+      expect.objectContaining({ code: 'AUTH_INVALID_CREDENTIALS' }),
+    )
+    expect(() => new CompositeTransport([b, a]).extract(req({}))).toThrow(
+      expect.objectContaining({ code: 'AUTH_INVALID_CREDENTIALS' }),
+    )
   })
 
-  it('FINDING: a transport that throws on extract takes the whole chain with it', () => {
-    // The loop has no guard, so one adapter raising on a malformed header stops
-    // the later transports from ever being asked, and the request fails rather
-    // than falling back to the credential it also carried.
+  it('keeps asking the later transports when one throws on a header it cannot parse', () => {
     const boom = stub('boom', {
       extract: () => {
         throw new Error('malformed cookie header')
       },
     })
     const healthy = stub('healthy', { extract: () => 'usable-token' })
-    expect(() => new CompositeTransport([boom, healthy]).extract(req({}))).toThrow('malformed cookie header')
+    expect(new CompositeTransport([boom, healthy]).extract(req({}))).toBe('usable-token')
+  })
+
+  it('raises the parse failure when nothing else produced a credential', () => {
+    // Swallowing it into a bare `null` would turn a malformed header into a plain "not signed in",
+    // which is the one answer that hides the reason.
+    const boom = stub('boom', {
+      extract: () => {
+        throw new Error('malformed cookie header')
+      },
+    })
+    const empty = stub('empty', { extract: () => null })
+    expect(() => new CompositeTransport([boom, empty]).extract(req({}))).toThrow('malformed cookie header')
   })
 
   it('treats an empty string from a transport as no match and keeps looking', () => {
@@ -131,15 +144,23 @@ describe('extract resolves a request carrying two credentials by array order', (
 
 describe('verify accepts a token any one transport will vouch for', () => {
   const verifying = (name: string, answer: Sessions.Me | null): Transport.ITransport =>
-    stub(name, { verify: async () => answer })
+    stub(name, {
+      verify: async () => {
+        if (!answer) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `${name} does not vouch` })
+
+        return answer
+      },
+    })
 
   it('returns the first successful verification', async () => {
     const composite = new CompositeTransport([verifying('a', null), verifying('b', SESSION)])
     expect(await composite.verify('token')).toBe(SESSION)
   })
 
-  it('returns null when nothing verifies', async () => {
-    expect(await new CompositeTransport([verifying('a', null)]).verify('token')).toBeNull()
+  it('rejects when nothing verifies', async () => {
+    await expect(new CompositeTransport([verifying('a', null)]).verify('token')).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+    })
   })
 
   it('skips a transport that has no verify at all', async () => {
@@ -152,7 +173,7 @@ describe('verify accepts a token any one transport will vouch for', () => {
     const composite = new CompositeTransport([stub('a', { verify: asked })])
 
     for (const token of ['', 'x'.repeat(4097), 42 as never, null as never]) {
-      expect(await composite.verify(token)).toBeNull()
+      await expect(composite.verify(token)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     }
     expect(asked).not.toHaveBeenCalled()
   })
@@ -162,32 +183,63 @@ describe('verify accepts a token any one transport will vouch for', () => {
     expect(await composite.verify('x'.repeat(4096))).toBe(SESSION)
   })
 
-  it('FINDING: composing a strict transport with a lenient one yields the lenient one', () => {
-    // This is the important one. Verification is a disjunction: a token only has
-    // to satisfy one member of the array. Adding a proof-of-possession transport
-    // such as DPoP alongside a plain bearer or JWT transport therefore adds no
-    // security at all, because the unbound path is still there and answers
-    // first-come. The strict transport's refusal is not a veto, it is a pass.
-    const strict = stub('dpop', { verify: async () => null }) // no proof supplied
+  it('a strict transport can veto rather than be fallen through past', async () => {
+    // The important one. Verification is a disjunction - a token only has to satisfy one member -
+    // so a proof-of-possession transport such as DPoP next to a plain bearer added no security at
+    // all: the unbound path was still there and answered for the tokens the bound one rejected.
+    const declines = { reason: 'no proof supplied' }
+    const strict = stub('dpop', {
+      authoritative: true,
+      verify: () => Promise.reject(new AuthError('AUTH_SESSION_REVOKED', declines)),
+    })
     const lenient = stub('jwt', { verify: async () => SESSION })
+    await expect(new CompositeTransport([strict, lenient]).verify('unbound-token')).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+    })
 
-    return expect(new CompositeTransport([strict, lenient]).verify('unbound-token')).resolves.toBe(SESSION)
+    // Without it the disjunction stands, which is what composing two equally-trusted transports is.
+    const optional = stub('dpop', { verify: () => Promise.reject(new AuthError('AUTH_SESSION_REVOKED', declines)) })
+    expect(await new CompositeTransport([optional, lenient]).verify('unbound-token')).toBe(SESSION)
   })
 
-  it('FINDING: a transport that throws during verify blocks the ones after it', async () => {
-    // A JWKS fetch failure or a decode crash in one transport prevents the rest
-    // from being tried, so a recoverable fault in the optional transport takes
-    // down the primary one.
+  it('an authoritative transport that does vouch still answers', async () => {
+    const strict = stub('dpop', { authoritative: true, verify: async () => SESSION })
+    expect(await new CompositeTransport([strict, stub('jwt')]).verify('bound-token')).toBe(SESSION)
+  })
+
+  it('keeps asking the later transports when one throws during verify', async () => {
+    // A JWKS fetch failure or a decode crash in one transport stopped the rest being tried, so a
+    // recoverable fault in an optional transport took down the primary one.
     const broken = stub('broken', {
       verify: async () => {
         throw new Error('jwks unreachable')
       },
     })
     const working = stub('working', { verify: async () => SESSION })
-    await expect(new CompositeTransport([broken, working]).verify('token')).rejects.toThrow('jwks unreachable')
+    expect(await new CompositeTransport([broken, working]).verify('token')).toBe(SESSION)
   })
 
-  it('FINDING: verification is sequential, so its latency is the sum of every miss', async () => {
+  it('raises the verify failure when nothing else vouched for the token', async () => {
+    // Same reasoning as extract: swallowing it into `null` turns an unreachable JWKS into a plain
+    // "not signed in", which is the one answer that hides the reason.
+    const broken = stub('broken', {
+      verify: async () => {
+        throw new Error('jwks unreachable')
+      },
+    })
+    await expect(
+      new CompositeTransport([
+        broken,
+        stub('quiet', {
+          verify: () => Promise.reject(new AuthError('AUTH_SESSION_REVOKED', { reason: 'quiet declines' })),
+        }),
+      ]).verify('t'),
+    ).rejects.toThrow('jwks unreachable')
+  })
+
+  it('verifies sequentially, which is what makes order the tiebreak', async () => {
+    // Left as it is. Asking every transport at once would decide a token two of them would vouch
+    // for by whichever resolved first, and the cost is bounded by the number of transports.
     const order: string[] = []
     const slow = (name: string, answer: Sessions.Me | null) =>
       stub(name, {
@@ -195,6 +247,8 @@ describe('verify accepts a token any one transport will vouch for', () => {
           order.push(`start-${name}`)
           await new Promise((r) => setTimeout(r, 5))
           order.push(`end-${name}`)
+          if (!answer) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `${name} does not vouch` })
+
           return answer
         },
       })
@@ -202,13 +256,20 @@ describe('verify accepts a token any one transport will vouch for', () => {
     expect(order).toEqual(['start-a', 'end-a', 'start-b', 'end-b', 'start-c', 'end-c'])
   })
 
-  it('FINDING: the shared cap is hard-coded rather than asked of the transports', () => {
-    // The comment says 4096 "is the largest any shipped transport accepts". It is
-    // a constant in the composite, so a custom transport with a larger ceiling
-    // silently cannot be reached through a composite, and a shipped one whose
-    // ceiling is later raised is silently clamped here.
-    const composite = new CompositeTransport([stub('a', { verify: async () => SESSION })])
-    return expect(composite.verify('x'.repeat(5000))).resolves.toBeNull()
+  it('takes its cap from the transports rather than carrying its own constant', async () => {
+    // 4096 was hard-coded with a comment saying it was "the largest any shipped transport accepts",
+    // so a custom transport with a wider ceiling could not be reached through a composite at all,
+    // and a shipped one whose ceiling was later raised was silently clamped back.
+    const narrow = new CompositeTransport([stub('a', { verify: async () => SESSION })])
+    await expect(narrow.verify('x'.repeat(5000))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+
+    const wide = new CompositeTransport([stub('a', { maxTokenLength: 16_384, verify: async () => SESSION })])
+    expect(await wide.verify('x'.repeat(5000))).toBe(SESSION)
+    await expect(wide.verify('x'.repeat(16_385))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+
+    // The widest member sets it, since a token only has to reach the transport that will vouch.
+    const mixed = new CompositeTransport([stub('a'), stub('b', { maxTokenLength: 8192, verify: async () => SESSION })])
+    expect(mixed.maxTokenLength).toBe(8192)
   })
 })
 
@@ -216,8 +277,8 @@ describe('issue and revoke fan out to every transport', () => {
   it('emits the intents of all of them, in order', () => {
     const composite = new CompositeTransport([stub('a'), stub('b')])
     expect(composite.issue('sid', SESSION, OPTS)).toEqual([
-      { body: { from: 'a' }, status: 200, type: 'json' },
-      { body: { from: 'b' }, status: 200, type: 'json' },
+      { name: 'sid-a', options: {}, type: 'setCookie', value: 'a' },
+      { name: 'sid-b', options: {}, type: 'setCookie', value: 'b' },
     ])
   })
 
@@ -236,19 +297,17 @@ describe('issue and revoke fan out to every transport', () => {
     expect(seen[0]?.opts.csrfToken).toBe('csrf')
   })
 
-  it('FINDING: composing two body-emitting transports produces two json intents for one response', () => {
-    // A response has one body. Bearer and JWT both answer `issue` with a json
-    // intent, so composing them hands the server adapter two, and which one the
-    // client receives is decided by whatever the adapter does with a list it was
-    // never told could contain duplicates. One of the two tokens is lost.
+  it('refuses to compose two body-emitting transports, rather than losing one of the tokens', () => {
+    // A response has one body. Bearer and JWT both answer `issue` with a json intent, so composing
+    // them handed the server adapter two and which one the client received was decided by whatever
+    // the adapter did with a list it was never told could hold duplicates.
     const composite = new CompositeTransport([new BearerTransport(), new BearerTransport({ header: 'x-token' })])
-    const intents = composite.issue('sid', SESSION, OPTS)
-    expect(intents.filter((i) => i.type === 'json')).toHaveLength(2)
+    expect(() => composite.issue('sid', SESSION, OPTS)).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
-  it('FINDING: revoke has the same shape, so a sign-out emits several conflicting bodies', () => {
-    const composite = new CompositeTransport([new BearerTransport(), new BearerTransport()])
-    expect(composite.revoke().filter((i) => i.type === 'json')).toHaveLength(2)
+  it('revoke has the same shape and the same refusal', () => {
+    const composite = new CompositeTransport([new BearerTransport(), new BearerTransport({ header: 'x-token' })])
+    expect(() => composite.revoke()).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('a cookie and a bearer compose cleanly, which is the documented case', () => {
@@ -261,10 +320,10 @@ describe('issue and revoke fan out to every transport', () => {
     expect(intents.filter((i) => i.type === 'json')).toHaveLength(1)
   })
 
-  it('FINDING: issue is not transactional, so a throwing transport loses the intents already built', () => {
-    // `flatMap` has no guard. If the third transport raises, the cookie the first
-    // one produced never reaches the response, and the session row it was issued
-    // for has already been written by the caller.
+  it('emits nothing at all when one transport throws mid-issue', () => {
+    // Left as it is, and deliberate: half a sign-in on the wire is worse than none. The caller has
+    // already written the session row by this point, so it is the caller's job to undo it - which
+    // it can only do if the throw reaches it, which is why nothing is swallowed here.
     const boom = stub('boom', {
       issue: () => {
         throw new Error('cannot sign')
@@ -274,10 +333,10 @@ describe('issue and revoke fan out to every transport', () => {
     expect(() => composite.issue('sid', SESSION, OPTS)).toThrow('cannot sign')
   })
 
-  it('FINDING: revoke drops a transport whose revocation is server-side without saying so', () => {
-    // Bearer's own revoke is a note that the client should forget the token; the
-    // real revocation is the store delete the caller must perform. Composing it
-    // in makes the response look like a complete sign-out.
+  it('bearer revoke is a note to the client, not the revocation itself', () => {
+    // Pinned rather than changed: bearer has nothing server-side to revoke, so its intent asks the
+    // client to forget the token and the real revocation is the store delete the caller performs.
+    // A composite cannot make that any more complete than the transport it is composing.
     const composite = new CompositeTransport([new BearerTransport()])
     expect(composite.revoke()).toEqual([{ body: { revoked: true }, status: 200, type: 'json' }])
   })
@@ -301,15 +360,12 @@ describe('the bearer transport it is usually composed with', () => {
     expect(bearer.extract(req({ authorization: 'Bearer a, Bearer b' }))).toBeNull()
   })
 
-  it('FINDING: an empty scheme silently disables the transport instead of being refused', () => {
-    // The prefix becomes a single space, and `Headers` strips leading whitespace
-    // from a value, so nothing can ever match it. Nothing validates the scheme at
-    // construction, so a config that blanks it produces a transport that extracts
-    // nothing, forever, with no error. In a composite that reads as "this
-    // credential was not presented".
-    const loose = new BearerTransport({ scheme: '' })
-    expect(loose.extract(req({ authorization: 'anything-at-all' }))).toBeNull()
-    expect(loose.extract(req({ authorization: ' leading-space' }))).toBeNull()
+  it('refuses a scheme that could never match instead of extracting nothing forever', () => {
+    for (const scheme of ['', '   ', ' Bearer', 'Bearer ']) {
+      expect(() => new BearerTransport({ scheme })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    }
+    expect(() => new BearerTransport({ header: '  ' })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    expect(() => new BearerTransport({ scheme: 'DPoP Bearer' })).not.toThrow()
   })
 
   it('handles a multi-word scheme, since the prefix is matched whole', () => {
@@ -318,10 +374,10 @@ describe('the bearer transport it is usually composed with', () => {
     expect(spaced.extract(req({ authorization: 'Bearer tok' }))).toBeNull()
   })
 
-  it('FINDING: the issued body carries the plaintext session id, so any body logger records it', () => {
-    // Documented, and unavoidable for a bearer flow, but worth pinning next to
-    // the composite: this is the value that authenticates the client, and it is
-    // in a response body rather than a cookie the browser hides.
+  it('the issued body carries the plaintext session id, which is what a bearer flow is', () => {
+    // Pinned rather than changed: the client has to receive the value that authenticates it, and a
+    // bearer flow has no cookie to hide it in. Worth stating next to the composite because it is in
+    // a response body, so anything logging bodies records a live credential.
     expect(bearer.issue('plaintext-sid', SESSION)).toEqual([
       { body: { expiresAt: SESSION.expiresAt, token: 'plaintext-sid' }, status: 200, type: 'json' },
     ])
@@ -329,5 +385,53 @@ describe('the bearer transport it is usually composed with', () => {
 
   it('has no verify, so a composite always falls through past it', () => {
     expect((bearer as Transport.ITransport).verify).toBeUndefined()
+  })
+})
+
+describe('verify tells a negative verdict from a broken transport', () => {
+  it('asks the next transport when one is broken, and surfaces the fault when none vouch', async () => {
+    const boom = stub('boom', { verify: () => Promise.reject(new Error('jwks unreachable')) })
+    const vouches = stub('ok', { verify: async () => SESSION })
+    // A JWKS failure in one transport must not take down the transports after it.
+    await expect(new CompositeTransport([boom, vouches]).verify('tok')).resolves.toMatchObject({
+      id: SESSION.id,
+    })
+    // With nobody left to vouch, the fault surfaces rather than a bare "no session".
+    await expect(new CompositeTransport([boom]).verify('tok')).rejects.toThrow('jwks unreachable')
+  })
+
+  it('rejects AUTH_SESSION_REVOKED when every transport simply declines', async () => {
+    const declines = stub('declines', {
+      verify: () => Promise.reject(new AuthError('AUTH_SESSION_REVOKED', { reason: 'not mine' })),
+    })
+    const composite = new CompositeTransport([declines, declines])
+
+    await expect(composite.verify('tok')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(composite.verify('tok').orNull()).resolves.toBeNull()
+  })
+
+  it('lets an authoritative refusal veto the transports behind it', async () => {
+    // SECURITY: without the veto, putting a bound transport in front of a plain bearer adds nothing -
+    // the unbound one answers for every token the bound one rejected.
+    const strict = stub('strict', {
+      authoritative: true,
+      verify: () => Promise.reject(new AuthError('AUTH_SESSION_REVOKED', { reason: 'unbound token' })),
+    })
+    const permissive = stub('permissive', { verify: async () => SESSION })
+
+    await expect(new CompositeTransport([strict, permissive]).verify('tok')).rejects.toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+    })
+    // Order is what makes it a veto: behind the permissive transport it never gets asked.
+    await expect(new CompositeTransport([permissive, strict]).verify('tok')).resolves.toMatchObject({
+      id: SESSION.id,
+    })
+  })
+
+  it('surfaces a transport that threw a falsy value rather than calling it "nobody vouched"', async () => {
+    // `if (failure)` instead of `if (failure !== undefined)` reports this as a clean negative verdict.
+    const falsy = stub('falsy', { verify: () => Promise.reject('') })
+
+    await expect(new CompositeTransport([falsy]).verify('tok')).rejects.toBe('')
   })
 })

@@ -27,7 +27,9 @@ function makeClient(overrides: Partial<Saml.Client> = {}): Saml.Client {
   return {
     getAuthorizeUrlAsync: vi.fn(async () => 'https://idp.example/sso?SAMLRequest=AAA'),
     validatePostResponseAsync: vi.fn(async () => ({
-      profile: { nameID: 'sso-user-1', email: 'user@x.com' } as Saml.Profile,
+      // The default nameIDFormat is emailAddress, so an email that disagrees with the nameID is a
+      // refusal, not a fixture.
+      profile: { nameID: 'user@x.com', email: 'user@x.com' } as Saml.Profile,
       loggedOut: false,
     })),
     ...overrides,
@@ -65,6 +67,7 @@ describe('samlProvider - begin', () => {
   it('returns redirect intent with IdP URL', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowUnsolicited: true,
       client: makeClient(),
       callbackUrl: 'https://app/acs',
       onSignIn: async () => ({ identityId: 'x' }),
@@ -79,15 +82,16 @@ describe('samlProvider - begin', () => {
     expect(intents[0]!.url).toContain('SAMLRequest')
   })
 
-  it('begin missing relayState rejects MISCONFIGURED', async () => {
+  it('begin missing relayState rejects INVALID_PARAMETERS', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowUnsolicited: true,
       client: makeClient(),
       callbackUrl: 'https://app/acs',
       onSignIn: async () => ({ identityId: 'x' }),
     })
     await expect(provider.begin(ctxFor(adapter), { relayState: '', host: 'https://app' })).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
     })
   })
 })
@@ -97,7 +101,16 @@ describe('samlProvider - complete', () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const onSignIn = vi.fn(async () => ({ identityId: 'ident-7' }))
     const provider = saml<MyProfile>({
-      client: makeClient(),
+      allowUnsolicited: true,
+      client: makeClient({
+        validatePostResponseAsync: async () => ({
+          loggedOut: false,
+          profile: {
+            authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken',
+            nameID: 'user@x.com',
+          } as Saml.Profile,
+        }),
+      }),
       callbackUrl: 'https://app/acs',
       onSignIn,
     })
@@ -110,12 +123,26 @@ describe('samlProvider - complete', () => {
     if (intents[0]!.type !== 'startSession') return
     expect(intents[0]!.identityId).toBe('ident-7')
     expect(intents[0]!.aal).toBe(2)
-    expect(intents[0]!.factors[0]!.method).toBe('oauth')
+    expect(intents[0]!.factors[0]!.method).toBe('saml')
+  })
+
+  it('mints aal 1 when the IdP asserts only a password', async () => {
+    const adapter = new MemoryAdapter<MyProfile>()
+    const provider = saml<MyProfile>({
+      allowUnsolicited: true,
+      client: makeClient(),
+      callbackUrl: 'https://app/acs',
+      onSignIn: async () => ({ identityId: 'ident-7' }),
+    })
+    const intents = await provider.complete(ctxFor(adapter), { SAMLResponse: 'BASE64ENCODEDXML' })
+    if (intents[0]!.type !== 'startSession') throw new Error('expected a session')
+    expect(intents[0]!.aal).toBe(1)
   })
 
   it('rejects empty SAMLResponse with PROVIDER_FAILED', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowUnsolicited: true,
       client: makeClient(),
       callbackUrl: 'https://app/acs',
       onSignIn: async () => ({ identityId: 'x' }),
@@ -128,6 +155,7 @@ describe('samlProvider - complete', () => {
   it('rejects when IdP returns loggedOut response', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowUnsolicited: true,
       client: makeClient({
         validatePostResponseAsync: async () => ({ profile: null, loggedOut: true }),
       }),
@@ -142,6 +170,7 @@ describe('samlProvider - complete', () => {
   it('client throw surfaces as PROVIDER_FAILED + detail', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowUnsolicited: true,
       client: makeClient({
         validatePostResponseAsync: async () => {
           throw new Error('signature-invalid')

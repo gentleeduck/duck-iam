@@ -54,8 +54,8 @@ describe('condition ops Scalar narrowing', () => {
       expect(ops.contains(42, 'gold')).toBe(false)
     })
 
-    it('falls through to string substring when both sides are strings', () => {
-      expect(ops.contains('gold-medal', 'gold')).toBe(true)
+    it('does not substring-match when both sides are strings', () => {
+      expect(ops.contains('gold-medal', 'gold')).toBe(false)
     })
   })
 
@@ -68,8 +68,16 @@ describe('condition ops Scalar narrowing', () => {
       expect(ops.not_contains(['gold', 'silver'], 'gold')).toBe(false)
     })
 
-    it('returns true for the no-array no-string case', () => {
-      expect(ops.not_contains(42, 'gold')).toBe(true)
+    // SECURITY: a present non-array field fails the guard, or the `contains` type confusion bypasses this in reverse.
+    it('returns false for a present non-array field', () => {
+      expect(ops.not_contains(42, 'gold')).toBe(false)
+      expect(ops.not_contains('gold-medal', 'gold')).toBe(false)
+    })
+
+    // `resolve()` maps a missing attribute to `null`; `undefined` is outside
+    // `AttributeValue`, so the operator's `undefined` arm is belt-and-braces.
+    it('returns true for an absent field', () => {
+      expect(ops.not_contains(null, 'gold')).toBe(true)
     })
   })
 })

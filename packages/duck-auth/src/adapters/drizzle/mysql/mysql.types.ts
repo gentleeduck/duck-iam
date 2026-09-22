@@ -1,18 +1,15 @@
-import type { MySql2Database } from 'drizzle-orm/mysql2'
-import type { authCredentials, authEvents, authIdentities, authSessions } from './mysql.schema'
+import type { authCredentials, authIdentities, authSessions } from './mysql.schema'
 
-/** Types for the drizzle mysql / MariaDB adapter. */
+/** Row types inferred from the MySQL schema, and the adapter's own options. */
 export namespace Mysql {
-  export type IdentityRow = typeof authIdentities.$inferSelect
-  export type CredentialRow = typeof authCredentials.$inferSelect
+  /** What a store answers: the table minus the columns the projections in the adapter drop. */
+  export type IdentityRow = Omit<typeof authIdentities.$inferSelect, 'emailNorm' | 'usernameNorm'>
+  export type CredentialRow = Omit<typeof authCredentials.$inferSelect, 'passwordKey'>
   export type SessionRow = typeof authSessions.$inferSelect
-  export type EventRow = typeof authEvents.$inferSelect
 
   /** Structural shape of a mysql2 pool, enough to detect it at runtime. */
   export type MySql2PoolLike = {
     getConnection: (...args: unknown[]) => unknown
     query: (...args: unknown[]) => unknown
   }
-
-  export type AnyMySql2Database = MySql2Database<Record<string, unknown>>
 }

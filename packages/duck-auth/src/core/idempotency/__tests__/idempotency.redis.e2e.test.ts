@@ -1,14 +1,4 @@
-/**
- * E2E: RedisIdempotency against a REAL Redis.
- *
- * `claim` is the whole contract: exactly one caller may win a key, or a retried
- * payment runs twice. It rests on `SET NX EX` being atomic in the server, which
- * `FakeRedis` cannot demonstrate: its `set` is a `Map` write inside one JS thread,
- * so a race there is unobservable by construction.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
- */
+/** E2E: RedisIdempotency against a REAL Redis. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
@@ -88,9 +78,9 @@ suite('E2E RedisIdempotency (real Redis)', () => {
     expect(await store.claim(k, 60_000, {})).toBe(true)
   })
 
-  it('get returns null for a key that was only claimed, never stored', async () => {
+  it('get refuses a key that was only claimed, never stored', async () => {
     const k = key('claimed-only')
     await store.claim(k, 60_000, {})
-    expect(await store.get(k, {})).toBeNull()
+    await expect(store.get(k, {})).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
   })
 })

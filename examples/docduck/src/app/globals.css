@@ -3,6 +3,20 @@
 
 @source "../components/ui/";
 
+/* The IAM devtools v2 panel and the duck-ui components it is built from keep
+   their classes in other packages, and a class Tailwind never sees is a class
+   this stylesheet never emits. From src/app, 4 ups is the repo root.
+
+   The registry-ui line is the load-bearing one: it lives in node_modules,
+   which automatic source detection skips. duck-iam is in this repo, so its
+   `src` is picked up anyway - it is named here because that is what a consumer
+   outside the monorepo has to write, and `dist` alongside it because that is
+   what they would actually resolve and what `.gitignore` hides from the
+   automatic scan. */
+@source "../../../../packages/duck-iam/src/dt/v2";
+@source "../../../../packages/duck-iam/dist/dt/v2";
+@source "../../../../node_modules/@gentleduck/registry-ui/src";
+
 @theme {
   --font-sans: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
   --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;

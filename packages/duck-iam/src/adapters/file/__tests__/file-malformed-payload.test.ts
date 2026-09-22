@@ -45,7 +45,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     expect(errors.some((e) => e.includes('expected object'))).toBe(true)
   })
 
-  it('drops an individual assignment row whose value is a string', async () => {
+  it('refuses to read an individual assignment row whose value is a string', async () => {
     const { adapter, errors } = await makeAdapter({
       assignments: {
         'user-good': [{ role: 'editor' }],
@@ -53,29 +53,49 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
       },
     })
     expect(await adapter.getSubjectRoles('user-good')).toEqual(['editor'])
-    expect(await adapter.getSubjectRoles('user-bad')).toEqual([])
+    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
-  it('drops an entire row when any inner entry is malformed', async () => {
+  // These three used to assert the opposite, on the premise that keeping the readable grants "never grants more
+  // than the file asks". It does: a policy with `targets.roles` stops applying when the grant it names goes
+  // missing, so its deny stops firing. `file-corrupt-assignments.test.ts` drives that through a real engine.
+  it("refuses the row rather than keeping the subject's readable grants", async () => {
     const { adapter, errors } = await makeAdapter({
       assignments: {
         'user-bad': [{ role: 'editor' }, null, { role: 'viewer' }],
       },
     })
-    // One bad entry -> drop the whole row (fail-closed; partial
-    // assignments could grant unintended access).
-    expect(await adapter.getSubjectRoles('user-bad')).toEqual([])
+    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
-  it('drops entries with non-string role', async () => {
+  it('reports each malformed entry with its index', async () => {
+    const { adapter, errors } = await makeAdapter({
+      assignments: {
+        'user-bad': [{ role: 'editor' }, null, { role: 42 }],
+      },
+    })
+    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
+    expect(errors.some((e) => e.includes('[1]'))).toBe(true)
+    expect(errors.some((e) => e.includes('[2]'))).toBe(true)
+  })
+
+  // The loader refuses an empty scope, so the write path must not persist one.
+  it('refuses to write an empty scope, so the store stays loadable', async () => {
+    const { adapter } = await makeAdapter({ assignments: {} })
+    // The generic refuses `''`; this runtime guard is for data that bypassed a typed call site.
+    const emptyScope: Scope = JSON.parse('""')
+    await expect(adapter.assignRole('u1', 'editor', emptyScope)).rejects.toThrow(/empty string/)
+  })
+
+  it('refuses a row whose entry has a non-string role', async () => {
     const { adapter, errors } = await makeAdapter({
       assignments: {
         'user-bad': [{ role: 42 }],
       },
     })
-    expect(await adapter.getSubjectRoles('user-bad')).toEqual([])
+    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
     expect(errors.some((e) => e.includes('missing/non-string role'))).toBe(true)
   })
 
@@ -85,8 +105,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
         u1: [{ role: 'editor' }, { role: 'viewer', scope: 'org-1' }],
       },
     })
-    // getSubjectRoles is unscoped-only; scoped assignments surface
-    // via getScopedAssignments.
+    // getSubjectRoles is unscoped-only; scoped assignments surface via getSubjectScopedRoles.
     expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'viewer', scope: 'org-1' }])
     expect(errors).toHaveLength(0)
@@ -107,8 +126,15 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
       },
     })
     expect(await adapter.getSubjectAttributes('user-good')).toEqual({ tier: 'pro' })
-    expect(await adapter.getSubjectAttributes('user-bad')).toEqual({})
+    // Corruption != empty: `{}` would silently strip ABAC. Matches redis/http.
+    await expect(adapter.getSubjectAttributes('user-bad')).rejects.toThrow(/corrupted attributes for "user-bad"/)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
+  })
+
+  it('an admin write to a corrupt attributes row recovers it', async () => {
+    const { adapter } = await makeAdapter({ attributes: { 'user-bad': 'evil' } })
+    await adapter.setSubjectAttributes('user-bad', { tier: 'pro' })
+    expect(await adapter.getSubjectAttributes('user-bad')).toEqual({ tier: 'pro' })
   })
 
   it('accepts well-formed attributes rows', async () => {
@@ -133,8 +159,26 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
         'user-bad': ['tier', 'pro'],
       },
     })
-    expect(await adapter.getSubjectAttributes('user-bad')).toEqual({})
+    await expect(adapter.getSubjectAttributes('user-bad')).rejects.toThrow(/corrupted attributes for "user-bad"/)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
+  })
+
+  // A corrupt root field is refused, not read as an empty set: loading zero
+  // policies would drop every deny the store holds.
+  it('refuses a wrong-typed policies root instead of loading it as empty', async () => {
+    const { adapter } = await makeAdapter({ policies: [] })
+    await expect(adapter.listPolicies()).rejects.toThrow(/"policies" must be an object, got array/)
+  })
+
+  it('refuses a wrong-typed roles root instead of loading it as empty', async () => {
+    const { adapter } = await makeAdapter({ roles: 'oops' })
+    await expect(adapter.listRoles()).rejects.toThrow(/"roles" must be an object, got string/)
+  })
+
+  it('refuses to load a store whose root is not an object', async () => {
+    const { adapter, errors } = await makeAdapter([])
+    await expect(adapter.listPolicies()).rejects.toThrow(/refusing to load/)
+    expect(errors).toHaveLength(1)
   })
 
   it('missing fields default to {} (forward-compat-friendly)', async () => {
@@ -171,9 +215,11 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     })
 
     it('returns null policy for id="__proto__"', async () => {
+      // A complete row on purpose: an unparseable one is refused, so the prototype-key lookup would never run.
       const { adapter } = await makeAdapter({
-        policies: { 'p-real': { id: 'p-real', rules: [] } },
+        policies: { 'p-real': { algorithm: 'deny-overrides', id: 'p-real', name: 'Real', rules: [] } },
       })
+      expect((await adapter.listPolicies()).map((x) => x.id)).toEqual(['p-real'])
       expect(await adapter.getPolicy('__proto__')).toBeNull()
       expect(await adapter.getPolicy('constructor')).toBeNull()
     })

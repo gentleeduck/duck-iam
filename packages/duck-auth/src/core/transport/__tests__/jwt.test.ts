@@ -35,6 +35,7 @@ function fakeSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
     fingerprint: null,
     actingAs: null,
     createdAt: new Date(now),
+    updatedAt: new Date(now),
     rotatedAt: new Date(now),
     expiresAt: new Date(now + 60_000),
     absoluteExpiresAt: new Date(now + 60_000),
@@ -120,8 +121,8 @@ describe('AuthJwtTransport', () => {
   describe('verify failure paths', () => {
     it('returns null for a malformed JWT', async () => {
       const t = new JwtTransport(baseCfg)
-      expect(await t.verify('not.a.jwt')).toBeNull()
-      expect(await t.verify('only-one-part')).toBeNull()
+      await expect(t.verify('not.a.jwt')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(t.verify('only-one-part')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for a tampered signature', async () => {
@@ -129,7 +130,7 @@ describe('AuthJwtTransport', () => {
       const intents = t.issue('sid', fakeSession(), { fresh: true, absolute: false })
       const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
       const tampered = `${token.slice(0, -3)}xxx`
-      expect(await t.verify(tampered)).toBeNull()
+      await expect(t.verify(tampered)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for an unknown kid', async () => {
@@ -139,7 +140,7 @@ describe('AuthJwtTransport', () => {
       const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
       const [, payload, sig] = token.split('.')
       const fakeHeader = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: 'unknown' })).toString('base64url')
-      expect(await t.verify(`${fakeHeader}.${payload}.${sig}`)).toBeNull()
+      await expect(t.verify(`${fakeHeader}.${payload}.${sig}`)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for an expired JWT', async () => {
@@ -149,7 +150,7 @@ describe('AuthJwtTransport', () => {
         absolute: false,
       })
       const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
-      expect(await t.verify(token)).toBeNull()
+      await expect(t.verify(token)).rejects.toMatchObject({ code: 'AUTH_SESSION_EXPIRED' })
     })
 
     it('returns null when alg is wrong', async () => {
@@ -158,7 +159,7 @@ describe('AuthJwtTransport', () => {
       const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
       const [, payload, sig] = token.split('.')
       const wrongHeader = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT', kid: 'k1' })).toString('base64url')
-      expect(await t.verify(`${wrongHeader}.${payload}.${sig}`)).toBeNull()
+      await expect(t.verify(`${wrongHeader}.${payload}.${sig}`)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null when issuer does not match', async () => {
@@ -169,7 +170,7 @@ describe('AuthJwtTransport', () => {
           body: { access_token: string }
         }
       ).body.access_token
-      expect(await t2.verify(token)).toBeNull()
+      await expect(t2.verify(token)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
   })
 
@@ -190,49 +191,67 @@ describe('AuthJwtTransport', () => {
       const t = new JwtTransport(baseCfg)
       const { exp, ...payloadNoExp } = validPayload
       void exp
-      expect(await t.verify(mintHs256(header, payloadNoExp, secret))).toBeNull()
+      await expect(t.verify(mintHs256(header, payloadNoExp, secret))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
 
     it('rejects a token whose exp is a string', async () => {
       const t = new JwtTransport(baseCfg)
-      expect(await t.verify(mintHs256(header, { ...validPayload, exp: '9999999999' }, secret))).toBeNull()
+      await expect(t.verify(mintHs256(header, { ...validPayload, exp: '9999999999' }, secret))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
 
     it('rejects a token whose iat is missing', async () => {
       const t = new JwtTransport(baseCfg)
       const { iat, ...payloadNoIat } = validPayload
       void iat
-      expect(await t.verify(mintHs256(header, payloadNoIat, secret))).toBeNull()
+      await expect(t.verify(mintHs256(header, payloadNoIat, secret))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
 
     it('rejects a token whose factors is not an array (would crash with TypeError .map)', async () => {
       const t = new JwtTransport(baseCfg)
-      expect(await t.verify(mintHs256(header, { ...validPayload, factors: 'password' }, secret))).toBeNull()
+      await expect(t.verify(mintHs256(header, { ...validPayload, factors: 'password' }, secret))).rejects.toMatchObject(
+        { code: 'AUTH_SESSION_REVOKED' },
+      )
     })
 
     it('rejects a token whose factors contains an unknown method (would slip past as-cast)', async () => {
       const t = new JwtTransport(baseCfg)
-      expect(await t.verify(mintHs256(header, { ...validPayload, factors: ['evil-method'] }, secret))).toBeNull()
+      await expect(
+        t.verify(mintHs256(header, { ...validPayload, factors: ['evil-method'] }, secret)),
+      ).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('rejects a token whose aal is not 1/2/3 (would skew AAL gating)', async () => {
       const t = new JwtTransport(baseCfg)
-      expect(await t.verify(mintHs256(header, { ...validPayload, aal: 99 }, secret))).toBeNull()
+      await expect(t.verify(mintHs256(header, { ...validPayload, aal: 99 }, secret))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
 
     it('rejects a token whose payload is a JSON array (not an object)', async () => {
       const t = new JwtTransport(baseCfg)
-      expect(await t.verify(mintHs256(header, ['not', 'an', 'object'], secret))).toBeNull()
+      await expect(t.verify(mintHs256(header, ['not', 'an', 'object'], secret))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
 
     it('rejects a token whose header is a JSON array (not an object)', async () => {
       const t = new JwtTransport(baseCfg)
-      expect(await t.verify(mintHs256(['not', 'an', 'object'], validPayload, secret))).toBeNull()
+      await expect(t.verify(mintHs256(['not', 'an', 'object'], validPayload, secret))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
 
     it('rejects a token whose acting_as is a non-object (would land malformed envelope on session)', async () => {
       const t = new JwtTransport(baseCfg)
-      expect(await t.verify(mintHs256(header, { ...validPayload, acting_as: 'not-an-object' }, secret))).toBeNull()
+      await expect(
+        t.verify(mintHs256(header, { ...validPayload, acting_as: 'not-an-object' }, secret)),
+      ).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
   })
 
@@ -255,7 +274,7 @@ describe('AuthJwtTransport', () => {
         ],
         issuer: 'https://app',
       })
-      expect(await t2.verify(token)).not.toBeNull()
+      await expect(t2.verify(token)).resolves.toBeDefined()
     })
 
     it('rejects a token signed with a verify-key whose notAfter has passed', async () => {
@@ -266,7 +285,7 @@ describe('AuthJwtTransport', () => {
       })
       const intents = t.issue('sid', fakeSession(), { fresh: true, absolute: false })
       const token = (intents.find((i) => i.type === 'json') as { body: { access_token: string } }).body.access_token
-      expect(await t.verify(token)).toBeNull()
+      await expect(t.verify(token)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
   })
 
@@ -286,7 +305,7 @@ describe('AuthJwtTransport', () => {
   })
 
   describe('constructor validation', () => {
-    it('throws AUTH/MISCONFIGURED on duplicate kid in verifyKeys', () => {
+    it('throws AUTH_MISCONFIGURED on duplicate kid in verifyKeys', () => {
       try {
         new JwtTransport({
           signKey: { kid: 'k1', key: 'a-secret' },
@@ -303,7 +322,7 @@ describe('AuthJwtTransport', () => {
       }
     })
 
-    it('throws AUTH/MISCONFIGURED when signKey HS256 mismatches a verifyKey under the same kid', () => {
+    it('throws AUTH_MISCONFIGURED when signKey HS256 mismatches a verifyKey under the same kid', () => {
       try {
         new JwtTransport({
           signKey: { kid: 'k1', key: 'sign-secret' },
@@ -317,7 +336,7 @@ describe('AuthJwtTransport', () => {
       }
     })
 
-    it('throws AUTH/MISCONFIGURED when signKey alg mismatches a verifyKey under the same kid', () => {
+    it('throws AUTH_MISCONFIGURED when signKey alg mismatches a verifyKey under the same kid', () => {
       try {
         new JwtTransport({
           signKey: { kid: 'k1', alg: 'HS256', key: 'same-secret' },
@@ -370,6 +389,21 @@ describe('AuthJwtTransport', () => {
       const back = await t.verify(token)
       // Within 1s of the original rotatedAt (we floor to seconds on the wire).
       expect(Math.abs((back?.rotatedAt?.getTime() ?? 0) - rotatedAtMs)).toBeLessThan(1_000)
+    })
+  })
+  describe('verify answers a verdict', () => {
+    it('rejects a token it does not vouch for, and orNull reads that back as null', async () => {
+      const t = new JwtTransport(baseCfg)
+      for (const bad of ['not.a.jwt', 'a.b', 'a.b.c.d', '']) {
+        await expect(t.verify(bad)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+        await expect(t.verify(bad).orNull()).resolves.toBeNull()
+      }
+    })
+
+    it('rejects a token signed by a key it does not hold', async () => {
+      const t = new JwtTransport(baseCfg)
+      const forged = mintHs256({ alg: 'HS256', kid: 'k1' }, { sub: 'user-1' }, 'not-the-signing-key')
+      await expect(t.verify(forged)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
   })
 })

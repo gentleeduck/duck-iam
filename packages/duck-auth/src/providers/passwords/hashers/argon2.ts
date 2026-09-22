@@ -1,16 +1,16 @@
-/** Argon2id-backed password hasher (compliance presets); needs `@node-rs/argon2` peerDep. */
+/** For the compliance presets; needs the `@node-rs/argon2` peerDep. */
 
 import { AuthError } from '~/core/errors'
 import type { Hasher } from './hashers.types'
 
-/** Namespace merge - AuthArgon2idHasher.IParams alongside the class. */
+/** The namespace merge that puts `Argon2idHasher.Params` alongside the class. */
 export namespace Argon2idHasher {
   export type Params = {
-    /** Memory cost in KiB. Default 19_456 (19 MiB). FIPS preset uses 65_536. */
+    /** Memory cost in KiB. Default 19_456, 19 MiB; the FIPS preset uses 65_536. */
     memoryCost: number
-    /** Time cost (iterations). Default 2. FIPS preset uses 3. */
+    /** Iterations. Default 2; the FIPS preset uses 3. */
     timeCost: number
-    /** Parallelism. Default 1. FIPS preset uses 4. */
+    /** Default 1; the FIPS preset uses 4. */
     parallelism: number
     /** Hash length in bytes. Default 32. */
     hashLength: number
@@ -28,7 +28,8 @@ export const ARGON2ID_DEFAULTS: Argon2idHasher.Params = {
   saltLength: 16,
 }
 
-/** Tuned for compliance preset (HIPAA / SOC2 / FIPS). */
+/** What the `fips` preset means by "Argon2id with FIPS params". Pass it explicitly -- no preset applies
+ *  it for you -- and `AuthEngine.strict()` reads the result off {@link Argon2idHasher.__fipsParams}. */
 export const ARGON2ID_COMPLIANCE: Argon2idHasher.Params = {
   memoryCost: 65_536,
   timeCost: 3,
@@ -69,16 +70,52 @@ async function loadArgon2(): Promise<NodeRsArgon2Module> {
   }
 }
 
-/** Argon2id hasher; lazy-imports `@node-rs/argon2` and encodes the PHC string `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`. */
+/** Lazy-imports `@node-rs/argon2` and encodes the PHC string
+ *  `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`. */
 export class Argon2idHasher implements Hasher.Me {
   readonly id = 'argon2id'
   private readonly _params: Argon2idHasher.Params
 
+  /** Whether every parameter meets or exceeds `ARGON2ID_COMPLIANCE`, which is the `fipsValidatedHasher`
+   *  compliance check. Read through `Reflect` by the passwords provider, so a foreign hasher that
+   *  publishes nothing leaves that check to the operator's attestation rather than failing it. */
+  readonly __fipsParams: boolean
+  /** Below the floor `ARGON2ID_DEFAULTS` sets. Refused by `AuthEngine.strict()` in production only, since
+   *  a cheap KDF is what a test suite wants and what a production deployment cannot have. */
+  readonly __weakHasherParams: boolean
+
   constructor(params: Partial<Argon2idHasher.Params> = {}) {
     this._params = { ...ARGON2ID_DEFAULTS, ...params }
+    // SECURITY: the work factor is the whole of a stored password's strength and arrived unchecked.
+    // Measured: `{ memoryCost: 8, timeCost: 1 }` hashed and verified happily at 8 KiB and one pass, and
+    // `needsRehash` - which compares a row against these very numbers - called the result current, so the
+    // rehash-on-sign-in upgrade can never fire on a deployment that got them wrong. A non-integer threw
+    // inside the native module on the first sign-up instead of here.
+    for (const [name, value] of Object.entries(this._params)) {
+      if (!Number.isInteger(value) || value < 1) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `argon2id: ${name} must be a whole number of at least 1, got ${String(value)}`,
+        })
+      }
+    }
+    if (this._params.hashLength < 16 || this._params.saltLength < 8) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `argon2id: hashLength must be at least 16 bytes and saltLength at least 8, got ${this._params.hashLength}/${this._params.saltLength}`,
+      })
+    }
+    this.__weakHasherParams =
+      this._params.memoryCost < ARGON2ID_DEFAULTS.memoryCost ||
+      this._params.timeCost < ARGON2ID_DEFAULTS.timeCost ||
+      this._params.hashLength < ARGON2ID_DEFAULTS.hashLength
+    this.__fipsParams =
+      this._params.memoryCost >= ARGON2ID_COMPLIANCE.memoryCost &&
+      this._params.timeCost >= ARGON2ID_COMPLIANCE.timeCost &&
+      this._params.parallelism >= ARGON2ID_COMPLIANCE.parallelism &&
+      this._params.hashLength >= ARGON2ID_COMPLIANCE.hashLength &&
+      this._params.saltLength >= ARGON2ID_COMPLIANCE.saltLength
   }
 
-  /** Hash plaintext. Async; lazy-loads @node-rs/argon2 on first call. */
+  /** Lazy-loads `@node-rs/argon2` on the first call. */
   async hash(plaintext: string): Promise<string> {
     const argon = await loadArgon2()
     return argon.hash(plaintext, {
@@ -91,22 +128,26 @@ export class Argon2idHasher implements Hasher.Me {
     })
   }
 
-  /** Verify in constant time. Returns false on malformed input rather than throwing. */
+  /** Constant time, and `false` rather than a throw on malformed input. */
   async verify(plaintext: string, encoded: string): Promise<boolean> {
     if (!encoded.startsWith('$argon2id$')) return false
+    // SECURITY: the load sits outside the catch and the verify is awaited inside it, and both halves
+    // were wrong. `return argon.verify(...)` settles after the try block has exited, so the catch never
+    // saw a rejection: a malformed PHC string threw out of a method documented to answer `false`, which
+    // also made a corrupted row tell itself apart from a wrong password - the one difference the uniform
+    // sign-in answer exists to hide. And `loadArgon2` builds the single error carrying the install
+    // command; catching it reported "wrong password" to every user and nothing to the operator, on the
+    // hasher `DEFAULT_PASSWORDS_CONFIG` selects behind an optional peer dependency.
+    const argon = await loadArgon2()
     try {
-      const argon = await loadArgon2()
-      return argon.verify(encoded, plaintext)
+      return await argon.verify(encoded, plaintext)
     } catch {
       return false
     }
   }
 
-  /**
-   * True when the stored hash was produced with weaker params than the
-   * current set. Parses the PHC string's `m=..,t=..,p=..` field and
-   * compares each field independently; weaker on ANY dimension triggers.
-   */
+  /** True when the stored hash used weaker params than the current set. The PHC string's `m=..,t=..,p=..`
+   *  fields are compared independently, and weaker on any one of them is enough. */
   needsRehash(encoded: string): boolean {
     if (!encoded.startsWith('$argon2id$')) return true
     const match = encoded.match(/\$m=(\d+),t=(\d+),p=(\d+)\$/)
@@ -119,7 +160,7 @@ export class Argon2idHasher implements Hasher.Me {
   }
 }
 
-/** Factory around {@link Argon2idHasher}, for callers who prefer functions to `new`. */
+/** Constructs an {@link Argon2idHasher}. */
 export function argon2idHasher(...args: ConstructorParameters<typeof Argon2idHasher>): Argon2idHasher {
   return new Argon2idHasher(...args)
 }

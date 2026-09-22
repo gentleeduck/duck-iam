@@ -68,28 +68,28 @@ describe('OrgsFacet roles sanitization', () => {
     it('passes through a well-formed replacement', async () => {
       await facet.setRoles('org-1', 'u', ['new-admin', 'new-editor'])
       const m = await facet.resolveMembership('org-1', 'u')
-      expect(m?.roles).toEqual(['new-admin', 'new-editor'])
+      expect(m.roles).toEqual(['new-admin', 'new-editor'])
     })
 
     it('drops mixed-type entries on replacement', async () => {
       const roles = ['admin', null, 42, 'editor'] as unknown as string[]
       await facet.setRoles('org-1', 'u', roles)
       const m = await facet.resolveMembership('org-1', 'u')
-      expect(m?.roles).toEqual(['admin', 'editor'])
+      expect(m.roles).toEqual(['admin', 'editor'])
     })
 
     it('caps replacement at 64 entries', async () => {
       const huge = Array.from({ length: 100 }, (_, i) => `r${i}`)
       await facet.setRoles('org-1', 'u', huge)
       const m = await facet.resolveMembership('org-1', 'u')
-      expect(m?.roles).toHaveLength(64)
+      expect(m.roles).toHaveLength(64)
     })
 
     it('drops oversize per-role strings on replacement', async () => {
       const big = 'B'.repeat(500)
       await facet.setRoles('org-1', 'u', ['ok', big, 'also-ok'])
       const m = await facet.resolveMembership('org-1', 'u')
-      expect(m?.roles).toEqual(['ok', 'also-ok'])
+      expect(m.roles).toEqual(['ok', 'also-ok'])
     })
   })
 })

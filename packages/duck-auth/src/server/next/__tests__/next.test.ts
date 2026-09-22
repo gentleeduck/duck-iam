@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { orNull } from '~/core/answer'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -30,7 +31,7 @@ function buildAuth() {
 
   auth.providers.register(
     passkey({
-      findIdentityByEmail: adapter.identities.findByEmail,
+      findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
       rpID: '',
       rpName: '',
       expectedOrigins: '',
@@ -84,16 +85,18 @@ describe('Next.js adapter - handler primitives', () => {
         body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
       }),
     )
-    // signin issues both SID + CSRF cookies; replay both on signout.
+    // `duck-csrf`, not `__Host-duck-csrf`: this transport is `{ secure: false }` for plain http, and
+    // the prefix requires Secure, so the companion drops it rather than being emitted as a cookie a
+    // browser would silently discard. Replay both on signout with the matching x-csrf-token header.
     const setCookieJoined = signin.headers.get('set-cookie') ?? ''
     const sid = decodeURIComponent(setCookieJoined.match(/duck-sid=([^;,]+)/)?.[1] ?? '')
-    const csrfToken = decodeURIComponent(setCookieJoined.match(/__Host-duck-csrf=([^;,]+)/)?.[1] ?? '')
+    const csrfToken = decodeURIComponent(setCookieJoined.match(/duck-csrf=([^;,]+)/)?.[1] ?? '')
     expect(csrfToken).not.toBe('')
     const out = await nextSignOut(auth)(
       new Request('https://x/api/AUTH/signout', {
         method: 'POST',
         headers: {
-          cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
+          cookie: `duck-sid=${sid}; duck-csrf=${csrfToken}`,
           'x-csrf-token': csrfToken,
           'sec-fetch-site': 'same-origin',
         },
@@ -129,7 +132,7 @@ describe('mountNext - catch-all router', () => {
     expect(body.identity).toBeNull()
   })
 
-  it('unknown route returns 404 AUTH/PROVIDER_FAILED', async () => {
+  it('unknown route returns 404 AUTH_PROVIDER_FAILED', async () => {
     const { auth } = buildAuth()
     const { POST } = mountNext(auth)
     const res = await POST(new Request('https://x/api/AUTH_UNKNOWN', { method: 'POST' }))

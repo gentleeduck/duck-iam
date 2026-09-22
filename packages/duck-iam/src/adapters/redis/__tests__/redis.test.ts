@@ -2,12 +2,37 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { IamEngine } from '../../../core'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { type IamRedis, IamRedisAdapter } from '../index'
+import { runEngineCapabilityCompliance } from '../../__compliance__/engine-capability'
+import { OPTIONAL_SUPPORT } from '../../__compliance__/optional-support'
+import { type IamRedis, IamRedisAdapter, iamRedisAdapter } from '../index'
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'
 type Ro = 'viewer' | 'editor'
 type S = 'org-1' | 'org-2'
+
+/** Redis's `KEYS` glob as a RegExp: `*`, `?`, `[...]` (`!`/`^` negate) and `\` escapes; anything else is literal. */
+function redisGlob(pattern: string): RegExp {
+  let out = '^'
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === '\\') {
+      i += 1
+      out += pattern[i] === undefined ? '\\\\' : pattern[i]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    } else if (ch === '*') out += '.*'
+    else if (ch === '?') out += '.'
+    else if (ch === '[') {
+      const close = pattern.indexOf(']', i + 1)
+      if (close === -1) out += '\\['
+      else {
+        const body = pattern.slice(i + 1, close)
+        out += `[${body.startsWith('!') ? `^${body.slice(1)}` : body}]`
+        i = close
+      }
+    } else out += ch!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`${out}$`)
+}
 
 class AuthFakeRedis implements IamRedis.ILike {
   private strings = new Map<string, string>()
@@ -80,6 +105,14 @@ class AuthFakeRedis implements IamRedis.ILike {
   async smembers(key: string): Promise<string[]> {
     return Array.from(this.sets.get(key) ?? [])
   }
+  /**
+   * `KEYS`, so `deleteRole` takes the path real clients take.
+   * NOTE: matches Redis globs, not `startsWith`, or an unescaped glob character in a key prefix would pass here.
+   */
+  async keys(pattern: string): Promise<string[]> {
+    const all = [...this.strings.keys(), ...this.hashes.keys(), ...this.sets.keys()]
+    return all.filter((k) => redisGlob(pattern).test(k))
+  }
 
   // helpers for assertions
   rawHash(key: string): Map<string, string> | undefined {
@@ -91,7 +124,12 @@ class AuthFakeRedis implements IamRedis.ILike {
 }
 
 // IamAdapter compliance - fresh AuthFakeRedis per call.
-runAdapterCompliance('IamRedisAdapter', () => new IamRedisAdapter({ client: new AuthFakeRedis() }) as never)
+runAdapterCompliance('IamRedisAdapter', () => new IamRedisAdapter({ client: new AuthFakeRedis() }), {
+  supports: OPTIONAL_SUPPORT.IamRedisAdapter,
+})
+
+// No in-place update here, so every scope move runs the engine's fallback.
+runEngineCapabilityCompliance('IamRedisAdapter', () => new IamRedisAdapter({ client: new AuthFakeRedis() }))
 
 describe('IamRedisAdapter', () => {
   let redis: AuthFakeRedis
@@ -201,6 +239,12 @@ describe('IamRedisAdapter', () => {
   })
 
   describe('IamAdapter.ISubjectStore', () => {
+    // `assignRole` refuses an unstored role, so store the ones granted below.
+    beforeEach(async () => {
+      await adapter.saveRole({ id: 'editor' as Ro, name: 'Editor', permissions: [] })
+      await adapter.saveRole({ id: 'viewer' as Ro, name: 'Viewer', permissions: [] })
+    })
+
     it('getSubjectRoles empty when none assigned', async () => {
       expect(await adapter.getSubjectRoles('user-1')).toEqual([])
     })
@@ -274,8 +318,6 @@ describe('IamRedisAdapter', () => {
     })
 
     it('getSubjectRoles returns ONLY unscoped roles, not scoped', async () => {
-      // Aligns redis with file/memory contract: scoped roles go through
-      // getSubjectScopedRoles only.
       await adapter.assignRole('user-1', 'viewer' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
@@ -288,12 +330,9 @@ describe('IamRedisAdapter', () => {
     })
 
     it('setSubjectAttributes recovers from corrupt existing blob', async () => {
-      // Admin overwrite is the only recovery path: the read throws on
-      // corruption, which would otherwise lock the operator out forever.
-      // Setter catches the throw, logs, and uses `{}` as the merge base.
+      // Overwriting is the only way to repair a corrupt blob, so the setter reports it and merges into `{}`.
       await redis.set('attrs:user-1', 'not-json{')
       await adapter.setSubjectAttributes('user-1', { team: 'A' })
-      // Read now returns the freshly-written value (no longer corrupt).
       expect(await adapter.getSubjectAttributes('user-1')).toEqual({ team: 'A' })
     })
 
@@ -355,12 +394,10 @@ describe('IamRedisAdapter', () => {
     })
   })
 
-  describe('malformed-row drop (P0)', () => {
-    // Round-trip guard: corrupt rows must NOT reach the engine. IamAdapter drops
-    // them and routes the failure through onPolicyError. Without this, a
-    // tampered IamRedis hash entry would parse as garbage and silently strip
-    // deny rules from the decision pipeline.
-    it('listPolicies drops a row whose JSON cannot be parsed', async () => {
+  describe('malformed-row handling (P0)', () => {
+    // A bad role row is dropped, since roles only grant; a bad policy row is reported and thrown, since it may be
+    // the deny. See `iamUnreadablePolicy`.
+    it('listPolicies refuses a row whose JSON cannot be parsed', async () => {
       const errors: Array<{ msg: string; ctx: { adapter: string; rowId: string } }> = []
       const adapter = new IamRedisAdapter<A, R, Ro, S>({
         client: redis,
@@ -379,13 +416,13 @@ describe('IamRedisAdapter', () => {
       )
       await redis.hset('policies', 'bad', '{not valid json')
 
-      const list = await adapter.listPolicies()
-      expect(list.map((p) => p.id)).toEqual(['good'])
+      // Not `['good']`: returning the readable half could drop a deny without a trace.
+      await expect(adapter.listPolicies()).rejects.toThrow(/policy "bad" cannot be read and will not be skipped/)
       expect(errors).toHaveLength(1)
       expect(errors[0]?.ctx.rowId).toBe('bad')
     })
 
-    it('listPolicies drops a row that parses but fails shape validation', async () => {
+    it('listPolicies refuses a row that parses but fails shape validation', async () => {
       const errors: Array<{ rowId: string }> = []
       const adapter = new IamRedisAdapter<A, R, Ro, S>({
         client: redis,
@@ -394,20 +431,19 @@ describe('IamRedisAdapter', () => {
       // Missing required fields (no `rules`, no `algorithm`).
       await redis.hset('policies', 'shape-bad', JSON.stringify({ id: 'shape-bad', name: 'x' }))
 
-      const list = await adapter.listPolicies()
-      expect(list).toEqual([])
+      await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
       expect(errors[0]?.rowId).toBe('shape-bad')
     })
 
-    it('getPolicy returns null and calls onPolicyError on malformed row', async () => {
+    it('getPolicy throws, and calls onPolicyError, on a malformed row', async () => {
       const errors: Array<{ rowId: string }> = []
       const adapter = new IamRedisAdapter<A, R, Ro, S>({
         client: redis,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
       await redis.hset('policies', 'bad', 'definitely not json')
-      const got = await adapter.getPolicy('bad')
-      expect(got).toBeNull()
+      // `null` means "no such policy", so a corrupt row must not return it.
+      await expect(adapter.getPolicy('bad')).rejects.toThrow(/cannot be read/)
       expect(errors[0]?.rowId).toBe('bad')
     })
 
@@ -431,8 +467,8 @@ describe('IamRedisAdapter', () => {
       const orig = console.warn
       console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(' '))
       try {
-        const list = await adapter.listPolicies()
-        expect(list).toEqual([])
+        // Refusing the read is not a reason to stop naming the row to repair.
+        await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
       } finally {
         console.warn = orig
       }
@@ -441,9 +477,7 @@ describe('IamRedisAdapter', () => {
   })
 
   describe('NUL byte guard on role/scope', () => {
-    // The encoded set member uses `\0` as separator. A caller smuggling a NUL
-    // through `as TRole` would corrupt the assignment silently - the guard
-    // throws instead.
+    // `\0` separates role from scope, so a NUL passed in through `as TRole` must throw.
     it('assignRole rejects roleId containing NUL', async () => {
       const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: new AuthFakeRedis() })
       await expect(adapter.assignRole('user-1', 'view\0er' as Ro)).rejects.toThrow(/NUL/)
@@ -456,31 +490,26 @@ describe('IamRedisAdapter', () => {
   })
 
   describe('assignment separator is NUL, not space', () => {
-    // Repro of the original bug: encoded member used a literal space (0x20)
-    // as the role/scope separator despite the comment claiming NUL. Any
-    // role or scope containing whitespace would silently collide on decode.
-    // Fix uses a real NUL byte; tests pin down both encode and decode.
+    // Role and scope ids may contain spaces, so only a NUL separator decodes unambiguously.
     it('encodes role+scope with a NUL separator byte (not space)', async () => {
       const r = new AuthFakeRedis()
       const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r })
+      await adapter.saveRole({ id: 'editor' as Ro, name: 'Editor', permissions: [] })
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
       const set = r.rawSet('assignments:user-1')
       expect(set).toBeDefined()
       const [member] = Array.from(set!)
       expect(member).toBeDefined()
-      // Must contain a literal NUL byte, not the previous space separator.
+      // A literal NUL byte, not a space.
       expect(member!.includes('\0')).toBe(true)
-      // No raw space-separator fallback for fresh writes.
       expect(member).toBe(`editor\0org-1`)
     })
 
     it('round-trips a role and scope that both contain spaces', async () => {
-      // Before the fix this case silently collapsed:
-      //   `role with space` + `scope:with:colons` -> set member `role with space scope:with:colons`
-      //   -> decoded as { role: 'role', scope: 'with space scope:with:colons' }
-      // After the fix the NUL separator keeps the boundary unambiguous.
+      // With a space separator this would decode as role `role`, scope `with space scope:with:colons`.
       const r = new AuthFakeRedis()
       const adapter = new IamRedisAdapter<string, string, string, string>({ client: r })
+      await adapter.saveRole({ id: 'role with space', name: 'Spaced', permissions: [] })
       await adapter.assignRole('user-1', 'role with space', 'scope:with:colons')
       const scoped = await adapter.getSubjectScopedRoles('user-1')
       expect(scoped).toEqual([{ role: 'role with space', scope: 'scope:with:colons' }])
@@ -489,6 +518,7 @@ describe('IamRedisAdapter', () => {
     it('a value containing only a space round-trips correctly', async () => {
       const r = new AuthFakeRedis()
       const adapter = new IamRedisAdapter<string, string, string, string>({ client: r })
+      await adapter.saveRole({ id: 'admin user', name: 'Admin', permissions: [] })
       await adapter.assignRole('user-1', 'admin user')
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['admin user'])
     })
@@ -499,17 +529,16 @@ describe('IamRedisAdapter', () => {
     })
 
     it('migrates legacy space-separated entries on first read', async () => {
-      // Seed an entry written by the old (buggy) encoder: literal space.
+      // A member in the legacy space-separated form.
       const r = new AuthFakeRedis()
       await r.sadd('assignments:user-1', 'editor org-1')
-      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r })
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r, migrateLegacyAssignments: true })
 
-      // Reading scoped roles must decode the legacy entry correctly...
+      // The read decodes it...
       const scoped = await adapter.getSubjectScopedRoles('user-1')
       expect(scoped).toEqual([{ role: 'editor', scope: 'org-1' }])
 
-      // ...and the migration must have re-encoded it under the NUL form,
-      // removing the legacy entry from the set.
+      // ...and the migration replaces it with the NUL form.
       const members = Array.from(r.rawSet('assignments:user-1') ?? [])
       expect(members).toContain('editor\0org-1')
       expect(members).not.toContain('editor org-1')
@@ -518,8 +547,7 @@ describe('IamRedisAdapter', () => {
 
   describe('migrate-vs-revoke serialisation', () => {
     it('uses Lua EVAL when client supports it (DEBT-10)', async () => {
-      // Cross-process atomic migration via EVAL: confirm the adapter
-      // dispatches to the Lua path when client.eval exists.
+      // With `client.eval` present, the migration must take the Lua path.
       const r = new AuthFakeRedis()
       await r.sadd('assignments:user-1', 'editor org-1')
       const evalCalls: Array<[string, number, string[]]> = []
@@ -548,7 +576,10 @@ describe('IamRedisAdapter', () => {
           return 'OK'
         },
       }
-      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: clientWithEval })
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({
+        client: clientWithEval,
+        migrateLegacyAssignments: true,
+      })
       await adapter.getSubjectScopedRoles('user-1')
       expect(evalCalls).toHaveLength(1)
       expect(evalCalls[0]?.[1]).toBe(1)
@@ -559,12 +590,9 @@ describe('IamRedisAdapter', () => {
       // Seed a legacy entry that migration would re-encode.
       const r = new AuthFakeRedis()
       await r.sadd('assignments:user-1', 'editor org-1')
-      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r })
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r, migrateLegacyAssignments: true })
 
-      // Kick off a read that triggers migration, race-fired with a revoke.
-      // Without per-key serialisation the migrator's SADD could land after
-      // the revoker's SREM, resurrecting `editor\0org-1`. Serialised, the
-      // operations are ordered and the set ends empty.
+      // Fired together: without per-key serialisation the migration's SADD could land after the revoke's SREM.
       const migration = adapter.getSubjectScopedRoles('user-1')
       const revoke = adapter.revokeRole('user-1', 'editor' as Ro, 'org-1')
       await Promise.all([migration, revoke])
@@ -575,8 +603,7 @@ describe('IamRedisAdapter', () => {
     })
 
     it('revoke with scope clears both encodings in one call', async () => {
-      // Pre-existing partial state: one entry in each encoding for the same
-      // role+scope pair. revoke({scope:...}) must drain both, not just one.
+      // One member in each encoding for the same grant; a scoped revoke must remove both.
       const r = new AuthFakeRedis()
       await r.sadd('assignments:user-1', 'editor org-1', 'editor\0org-1')
       const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r })
@@ -586,5 +613,96 @@ describe('IamRedisAdapter', () => {
       const members = Array.from(r.rawSet('assignments:user-1') ?? [])
       expect(members).toHaveLength(0)
     })
+  })
+})
+
+describe('deleteRole reaches the grants', () => {
+  it('sweeps every subject, scoped grants included', async () => {
+    const r = new AuthFakeRedis()
+    const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r, keyPrefix: 'iam:' })
+    await adapter.saveRole({ id: 'editor', name: 'E', permissions: [] })
+    await adapter.saveRole({ id: 'viewer', name: 'V', permissions: [] })
+    await adapter.assignRole('user-1', 'editor' as Ro)
+    await adapter.assignRole('user-1', 'viewer' as Ro)
+    await adapter.assignRole('user-2', 'editor' as Ro, 'org-1' as S)
+
+    await adapter.deleteRole('editor')
+
+    expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
+    expect(await adapter.getSubjectScopedRoles('user-2')).toEqual([])
+  })
+
+  it('stays inside its own keyPrefix', async () => {
+    const r = new AuthFakeRedis()
+    const mine = new IamRedisAdapter<A, R, Ro, S>({ client: r, keyPrefix: 'mine:' })
+    const theirs = new IamRedisAdapter<A, R, Ro, S>({ client: r, keyPrefix: 'theirs:' })
+    for (const a of [mine, theirs]) {
+      await a.saveRole({ id: 'editor', name: 'E', permissions: [] })
+      await a.assignRole('user-1', 'editor' as Ro)
+    }
+
+    await mine.deleteRole('editor')
+
+    expect(await mine.getSubjectRoles('user-1')).toEqual([])
+    expect(await theirs.getSubjectRoles('user-1')).toEqual(['editor'])
+  })
+
+  // Unescaped, `app[1]:` is a glob class that misses its own keys and matches `app1:`. Both halves are asserted.
+  it('treats a key prefix containing glob metacharacters as literal text', async () => {
+    const r = new AuthFakeRedis()
+    const bracketed = new IamRedisAdapter<A, R, Ro, S>({ client: r, keyPrefix: 'app[1]:' })
+    const neighbour = new IamRedisAdapter<A, R, Ro, S>({ client: r, keyPrefix: 'app1:' })
+    for (const a of [bracketed, neighbour]) {
+      await a.saveRole({ id: 'editor', name: 'E', permissions: [] })
+      await a.assignRole('user-1', 'editor' as Ro)
+    }
+
+    await bracketed.deleteRole('editor')
+
+    expect(await bracketed.getSubjectRoles('user-1')).toEqual([])
+    expect(await neighbour.getSubjectRoles('user-1')).toEqual(['editor'])
+  })
+
+  it('reports the grants it could not reach when the client has no `keys`', async () => {
+    const r = new AuthFakeRedis()
+    // The minimal `ILike` with no `keys`: the role still goes, and the unreachable grants are reported.
+    const blind = {
+      get: r.get.bind(r),
+      set: r.set.bind(r),
+      del: r.del.bind(r),
+      hset: r.hset.bind(r),
+      hget: r.hget.bind(r),
+      hdel: r.hdel.bind(r),
+      hkeys: r.hkeys.bind(r),
+      hvals: r.hvals.bind(r),
+      hgetall: r.hgetall.bind(r),
+      sadd: r.sadd.bind(r),
+      srem: r.srem.bind(r),
+      smembers: r.smembers.bind(r),
+    }
+    const seen: Array<{ rowId: string; message: string }> = []
+    const adapter = new IamRedisAdapter<A, R, Ro, S>({
+      client: blind,
+      onPolicyError: (err, ctx) => seen.push({ message: err.message, rowId: ctx.rowId }),
+    })
+    await adapter.saveRole({ id: 'editor', name: 'E', permissions: [] })
+    await adapter.assignRole('user-1', 'editor' as Ro)
+
+    await adapter.deleteRole('editor')
+
+    expect(await adapter.getRole('editor')).toBeNull()
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.rowId).toBe('roles:editor')
+    expect(seen[0]?.message).toMatch(/grants were not/)
+  })
+})
+
+describe('iamRedisAdapter factory', () => {
+  it('returns a working IamRedisAdapter over the supplied client', async () => {
+    const adapter = iamRedisAdapter({ client: new AuthFakeRedis(), keyPrefix: 'iam:' })
+    expect(adapter).toBeInstanceOf(IamRedisAdapter)
+    await adapter.saveRole({ id: 'viewer', name: 'Viewer', permissions: [] })
+    await adapter.assignRole('user-1', 'viewer')
+    expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
   })
 })

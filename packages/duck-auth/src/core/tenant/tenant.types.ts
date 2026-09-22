@@ -1,7 +1,4 @@
-/**
- * Per-request tenant scope. Framework adapters inject this via AsyncLocalStorage;
- * stores receive it on every call. Apps without multi-tenancy leave tenantId undefined.
- */
+/** Adapters inject this per request; every store call takes one. A single-tenant app leaves it undefined. */
 export interface TenantContext {
   tenantId?: string
 }

@@ -1,18 +1,4 @@
-/**
- * E2E: RedisEvents against a REAL Redis.
- *
- * The bus exists so a `session.revoked` on one instance reaches listeners on the
- * others. That is a claim about pub/sub delivery between separate connections,
- * which no in-process double can test: a fake either delivers everything locally
- * (hiding a broken publish) or nothing (hiding a broken subscribe).
- *
- * `revocation.multiprocess.e2e` proves the same path across real OS processes.
- * This suite covers the bus contract itself: fan-out, loopback dedup, channel
- * isolation, and unsubscribe.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
- */
+/** E2E: RedisEvents against a REAL Redis. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ValkeyClient, ValkeySubscriberClient } from '~/adapters/valkey'

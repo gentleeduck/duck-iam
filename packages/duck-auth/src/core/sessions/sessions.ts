@@ -1,19 +1,15 @@
+import { type Answer, answer, orNull } from '~/core/answer'
 import type { Events } from '~/core/events/events.types'
-import { isExpiredAt, isFiniteNumber } from '../credentials/credentials'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Identities } from '../identities/identities.types'
-import { DEFAULT_SESSION_CONFIG } from './sessions.constants'
+import { isExpiredAt, isFiniteNumber } from '../predicates/predicates'
+import type { TenantContext } from '../tenant/tenant.types'
+import { DEFAULT_SESSION_CONFIG, SESSION_COLUMN_CAPS } from './sessions.constants'
 import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from './sessions.types'
 
-/**
- * Sessions facet - the only path that creates / rotates / revokes sessions.
- * Every privilege-changing transition routes through {@link rotateOrCreate}
- * so the session-fixation discipline lives in exactly one place.
- *
- * Resolution is on `AuthEngine.resolveSession()` rather than here because the
- * Transport contract drives extraction; this facet owns lifecycle only.
- */
+/** Every privilege-changing transition routes through {@link SessionsImpl.rotateOrCreate}, so the
+ *  fixation discipline lives in one place. */
 export class SessionsImpl {
   private readonly _cfg: Sessions.Cfg
 
@@ -29,25 +25,17 @@ export class SessionsImpl {
     }
   }
 
-  /**
-   * Build a fresh session record + persist it.
-   *
-   * Returns `{ session, sid }` where `session.id` is the **hashed** row key
-   * (used internally + as the audit-log identifier) and `sid` is the
-   * **plaintext** session identifier - the value the caller passes to
-   * `Transport.issue()` to put on the wire. The plaintext sid never appears
-   * on the persisted row; only its sha-256 hash does.
-   */
+  /** `session.id` is the hashed row key, `sid` the plaintext for `Transport.issue()`; only the sha-256
+   *  of it is ever stored, and the same holds for `csrfToken`. */
   async create(input: Sessions.MintInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
-    // Cap factors length so a buggy caller can't bloat the session row's
-    // JSON column. Real flows mint sessions with 1-3 factors.
+    // Real flows mint 1 to 3; the cap is so a buggy caller cannot bloat the JSON column.
     if (!Array.isArray(input.factors) || input.factors.length > 16) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'sessions.create: factors must be an array <=16',
       })
     }
-    // Contents too, not just the array shape: the Redis reader drops unlisted methods and
-    // non-Date `completedAt`, so this would persist a row that can't be read back intact.
+    // Contents, not just the shape: the Redis reader drops an unlisted method or a non-Date
+    // `completedAt`, so an unchecked row would not read back intact.
     for (const f of input.factors) {
       if (
         typeof f !== 'object' ||
@@ -60,8 +48,17 @@ export class SessionsImpl {
         })
       }
     }
+    // Refused here, where it can be named, rather than by every later read of it.
+    if (input.actingAs) {
+      const startedAt = input.actingAs.startedAt?.getTime() ?? Number.NaN
+      const expiresAt = input.actingAs.expiresAt?.getTime() ?? Number.NaN
+      if (!(expiresAt > Date.now()) || !(expiresAt > startedAt)) {
+        throw new AuthError('AUTH_INVALID_PARAMETERS', {
+          detail: 'sessions.create: actingAs must open before it closes, and close in the future',
+        })
+      }
+    }
     const sid = randomToken(32)
-    // Mint plaintext for the cookie, store only the hash on the row.
     const csrfToken = randomToken(32)
     const now = Date.now()
     const nowDate = new Date(now)
@@ -72,19 +69,26 @@ export class SessionsImpl {
       aal: input.aal,
       factors: input.factors,
       tenantId: input.tenantId ?? null,
-      // Persist truncated ip/UA so a hostile header cannot bloat the session row.
-      ip: typeof input.ip === 'string' && input.ip.length > 0 ? input.ip.slice(0, 64) : null,
+      // Truncated, so a hostile header cannot bloat the row.
+      ip: typeof input.ip === 'string' && input.ip.length > 0 ? input.ip.slice(0, SESSION_COLUMN_CAPS.ip) : null,
       userAgent:
-        typeof input.userAgent === 'string' && input.userAgent.length > 0 ? input.userAgent.slice(0, 512) : null,
-      // Header-derived like ip/UA, so capped the same way. 256 matches the library's
-      // other opaque-identifier caps.
+        typeof input.userAgent === 'string' && input.userAgent.length > 0
+          ? input.userAgent.slice(0, SESSION_COLUMN_CAPS.userAgent)
+          : null,
       fingerprint:
-        typeof input.fingerprint === 'string' && input.fingerprint.length > 0 ? input.fingerprint.slice(0, 256) : null,
+        typeof input.fingerprint === 'string' && input.fingerprint.length > 0
+          ? input.fingerprint.slice(0, SESSION_COLUMN_CAPS.fingerprint)
+          : null,
       actingAs: input.actingAs ?? null,
       csrfHash: sha256(csrfToken),
       createdAt: nowDate,
+      updatedAt: nowDate,
       rotatedAt: nowDate,
-      expiresAt: new Date(now + this._cfg.ttlMs),
+      expiresAt: new Date(
+        input.maxExpiresAt === undefined
+          ? now + this._cfg.ttlMs
+          : Math.min(now + this._cfg.ttlMs, input.maxExpiresAt.getTime()),
+      ),
       absoluteExpiresAt: new Date(now + this._cfg.absoluteTtlMs),
       fresh: true,
     }
@@ -94,12 +98,8 @@ export class SessionsImpl {
     return { session, sid, csrfToken }
   }
 
-  /**
-   * DESIGN section 37 rotation matrix. Single code path for every transition that
-   * changes a session's identity, AAL, or privilege. The library asserts that
-   * flow handlers always route through this method so fixation is structurally
-   * impossible to forget.
-   */
+  /** One code path for every transition that changes a session's identity, AAL or privilege, so
+   *  fixation is structurally impossible to forget. */
   async rotateOrCreate(input: Sessions.RotateInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
     if (input.purpose === 'credential-change') {
       if (input.identityId) {
@@ -108,7 +108,7 @@ export class SessionsImpl {
         await this._store.deleteAllForIdentity(identityId)
         await Promise.all(doomed.map((s) => this._events.emit('session.revoked', { sessionId: s.id, identityId })))
       }
-      // A guest credential-change has no identity to sweep; it still mints + rotates.
+      // A guest has no identity to sweep; it still mints and rotates.
       const fresh = await this.create(input)
       await this._events.emit('session.rotated', {
         session: fresh.session,
@@ -129,6 +129,7 @@ export class SessionsImpl {
         case 'signin':
         case 're-auth':
         case 'guest-promotion':
+        case 'sign-up':
         case 'step-down':
         case 'impersonate-release':
           await this._store.delete(prevHash)
@@ -138,20 +139,19 @@ export class SessionsImpl {
           })
           break
         case 'step-up': {
-          // Old SID is downgraded, not deleted, so long-lived tabs keep working, but at
-          // the prior AAL with fresh=false. Re-step-up is required for privileged ops.
-          const prev = await this._store.getByHash(prevHash)
+          // Downgraded, not deleted, so long-lived tabs keep working at the prior AAL with
+          // `fresh: false`. A privileged op has to step up again.
+          const prev = await orNull(this._store.getByHash(prevHash))
           if (prev) {
             await this._store.update(prev.id, { aal: prev.aal, fresh: false })
           }
           break
         }
         case 'impersonate-start':
-          // Real session is preserved alongside the new actingAs session; no revoke.
+          // The real session runs alongside the impersonating one.
           break
         default: {
-          // Compile-time exhaustiveness: adding a purpose without deciding its revocation
-          // semantics is a build error, not a silent no-op.
+          // A new purpose without a revocation decision is a build error, not a silent no-op.
           const _exhaustive: never = input.purpose
           throw new AuthError('AUTH_MISCONFIGURED', {
             detail: `sessions.rotateOrCreate: unhandled purpose '${String(_exhaustive)}'`,
@@ -168,91 +168,96 @@ export class SessionsImpl {
     return fresh
   }
 
-  /** Revoke a single session by plaintext SID. */
-  async revoke(sid: string): Promise<void> {
-    if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return
-    const hash = sha256(sid)
-    const s = await this._store.getByHash(hash)
-    if (!s) return
-    await this._store.delete(s.id)
-    await this._events.emit('session.revoked', {
-      sessionId: s.id,
-      identityId: s.identityId,
+  /** Answers the row that went, so a caller can name the device. A session already gone throws, so
+   *  `orNull()` is how a caller asks for a repeat revoke to read as the no-op it is. */
+  revoke(sid: string): Answer.Me<Sessions.Me> {
+    return answer(() => {
+      assertSid(sid)
+
+      return this._revoke(sha256(sid))
     })
   }
 
-  /** Revoke by session id (the stored hash). Use when you have ISession.id but not the plaintext SID. */
-  async revokeByHash(sessionId: string): Promise<void> {
-    const s = await this._store.getByHash(sessionId)
-    if (!s) return
+  /** {@link SessionsImpl.revoke} for a caller holding the stored hash rather than the plaintext SID. */
+  revokeByHash(sessionId: string): Answer.Me<Sessions.Me> {
+    return answer(this._revoke(sessionId))
+  }
+
+  private async _revoke(hash: string): Promise<Sessions.Me> {
+    const s = await this._store.getByHash(hash)
     await this._store.delete(s.id)
     await this._events.emit('session.revoked', { sessionId: s.id, identityId: s.identityId })
+
+    return s
   }
 
-  /** Revoke every session belonging to an identity (used by credential-change paths). */
-  async revokeAllForIdentity(identityId: string): Promise<void> {
-    const all = await this._store.listByIdentity(identityId)
-    await this._store.deleteAllForIdentity(identityId)
+  /** Answers the rows, so "signed out of 4 devices" needs no second query. */
+  async revokeAllForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
+    const all = await this._store.listByIdentity(identityId, ctx)
+    await this._store.deleteAllForIdentity(identityId, ctx)
     await Promise.all(all.map((s) => this._events.emit('session.revoked', { sessionId: s.id, identityId })))
+    return all
   }
 
-  /** Resolve a plaintext SID to its session row (no identity join). */
-  async getBySid(sid: string): Promise<Sessions.Me | null> {
-    // Defensive typeof + length cap; authSha256(non-string) throws + multi-MB
-    // input bloats hashing.
-    if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return null
-    return this._store.getByHash(sha256(sid))
+  /**
+   * SECURITY: the deadline gate is here rather than in the store, which only knows "the row under this key". Two
+   * callers hand the answer straight to `rotateOrCreate`, so without it an expired sid is resurrected.
+   * `fresh` is recomputed from `rotatedAt` for the same reason.
+   */
+  getBySid(sid: string): Answer.Me<Sessions.Me> {
+    return answer(async () => {
+      assertSid(sid)
+      const session = await this._store.getByHash(sha256(sid))
+      const now = Date.now()
+      if (isSessionExpired(session, now)) {
+        // A row nobody can use should not wait for `gc` to come round to it, as in `resolveBySid`.
+        // Cleanup, not the gate: the refusal below is already decided and `gc` sweeps the row either way.
+        // Awaited bare, a failed delete threw AUTH_ADAPTER_FAILED in its place — and that code is not in
+        // `ABSENT`, so `resolveSession().orNull()` rethrew it and an expired session read as a 500.
+        await this._store.delete(session.id).catch(() => {})
+        throw new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: expiredAtMs(session, now) })
+      }
+
+      return { ...session, fresh: isSessionFresh(session, now, this._cfg.freshnessMs) }
+    })
   }
 
-  /** Refresh expiresAt by ttlMs without rotating the SID. Stops fresh-window slip. */
-  async touch(sid: string): Promise<Sessions.Me | null> {
-    if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return null
-    const hash = sha256(sid)
-    const s = await this._store.getByHash(hash)
-    if (!s) return null
-    const now = Date.now()
-    const absoluteExpiresAtMs =
-      s.absoluteExpiresAt instanceof Date
-        ? s.absoluteExpiresAt.getTime()
-        : isFiniteNumber(s.absoluteExpiresAt)
-          ? (s.absoluteExpiresAt as number)
-          : Number.NaN
-    // fail closed if absoluteExpiresAt is non-finite (adapter bug).
-    // `NaN < now === false` would otherwise extend a should-be-dead
-    // session past its absolute cap.
-    if (!Number.isFinite(absoluteExpiresAtMs) || absoluteExpiresAtMs < now) {
-      await this._store.delete(s.id)
-      return null
-    }
-    const expiresAtMs =
-      s.expiresAt instanceof Date
-        ? s.expiresAt.getTime()
-        : isFiniteNumber(s.expiresAt)
-          ? (s.expiresAt as number)
-          : Number.NaN
-    // Fail closed on a non-finite or already-passed sliding expiry. Without this, touch()
-    // revives a session that resolveBySid would have rejected.
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs < now) {
-      await this._store.delete(s.id)
-      return null
-    }
-    const rotatedAtMs = s.rotatedAt instanceof Date ? s.rotatedAt.getTime() : (s.rotatedAt as number)
-    const newExpiresAt = new Date(Math.min(absoluteExpiresAtMs, now + this._cfg.ttlMs))
-    const fresh = now - rotatedAtMs < this._cfg.freshnessMs
-    return this._store.update(s.id, { expiresAt: newExpiresAt, fresh })
+  /** Extends `expiresAt` without rotating the SID; `fresh` still decays from `rotatedAt`. */
+  touch(sid: string): Answer.Me<Sessions.Me> {
+    return answer(async () => {
+      assertSid(sid)
+      const s = await this._store.getByHash(sha256(sid))
+      const now = Date.now()
+      // Fail closed on either deadline, so `touch` cannot revive what `resolveBySid` would reject.
+      if (isSessionExpired(s, now)) {
+        // Cleanup, not the gate, as in `getBySid`.
+        await this._store.delete(s.id).catch(() => {})
+        throw new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: expiredAtMs(s, now) })
+      }
+      // The guard above rejected everything else, so the cap below is a real number and never `NaN`.
+      const absoluteExpiresAtMs = deadlineMs(s.absoluteExpiresAt)
+      const newExpiresAt = new Date(Math.min(absoluteExpiresAtMs, now + this._cfg.ttlMs))
+
+      return this._store.update(s.id, {
+        expiresAt: newExpiresAt,
+        fresh: isSessionFresh(s, now, this._cfg.freshnessMs),
+      })
+    })
   }
 
-  /** List all live sessions for an identity. Used by UI's "active devices view. */
-  async listForIdentity(identityId: string): Promise<Sessions.Me[]> {
-    return this._store.listByIdentity(identityId)
+  /** Every live session for an identity, for an "active devices" view.
+   *  WARN: pass a `ctx` in a multi-tenant deployment. Identities are global, so an unscoped call shows
+   *  tenant A the same person's tenant B sessions, IP and user-agent included. */
+  async listForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
+    return this._store.listByIdentity(identityId, ctx)
   }
 
-  /** Periodic GC. Caller schedules under leader-lock for distributed deployments. */
+  /** The caller schedules it, under a leader lock in a distributed deployment. */
   async gc(): Promise<{ deleted: number }> {
     return this._store.gc(Date.now())
   }
 
-  /** Create a guest session - no identity, AAL=1, kind='guest'. Promotable on signin. */
+  /** Mints a session carrying no identity, for a caller who has not signed in yet. */
   async createGuest(
     opts: { tenantId?: string; ip?: string; userAgent?: string } = {},
   ): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
@@ -267,7 +272,7 @@ export class SessionsImpl {
     })
   }
 
-  /** Promote a guest session to an authed session. SID rotates; carts/drafts move by identity. */
+  /** The SID rotates, so anything the guest owned has to move by identity. */
   async promoteGuest(input: {
     guestSid: string
     identityId: string
@@ -276,9 +281,9 @@ export class SessionsImpl {
     tenantId?: string
     ip?: string
     userAgent?: string
-    /** Optional {@link Sessions.MintInput.identity} passthrough for callers that already hold the row. */
+    /** Passthrough for a caller that already holds the row. */
     identity?: Identities.Me | null
-    /** Forwarded to {@link Sessions.MintInput}; guest device-binding survives promotion. */
+    /** Carried over, so guest device-binding survives promotion. */
     fingerprint?: string | null
     actingAs?: Sessions.ActingAs | null
   }): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
@@ -297,64 +302,129 @@ export class SessionsImpl {
       actingAs: input.actingAs ?? null,
     })
   }
+
+  /** One statement for the set. An identity that had none is simply absent from the answer. */
+  async revokeAllForIdentities(identityIds: string[]): Promise<Sessions.Revoked[]> {
+    if (identityIds.length === 0) return []
+    const gone = await this._store.deleteAllForIdentities(identityIds)
+
+    for (const s of gone) await this._events.emit('session.revoked', { identityId: s.identityId, sessionId: s.id })
+
+    return gone
+  }
+
+  /** {@link SessionsImpl.revokeAllForIdentities} keyed by session id rather than identity. */
+  async revokeByHashes(ids: string[]): Promise<Sessions.Revoked[]> {
+    if (ids.length === 0) return []
+    const gone = await this._store.deleteMany(ids)
+
+    for (const s of gone) await this._events.emit('session.revoked', { identityId: s.identityId, sessionId: s.id })
+
+    return gone
+  }
+}
+
+/** Epoch ms, or `NaN` when the value is not a readable date. */
+/** `sha256` throws on a non-string, and a multi-MB one would bloat the hash. */
+function assertSid(sid: string): void {
+  if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) {
+    throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'sid is empty or longer than 4096 characters' })
+  }
+}
+
+function deadlineMs(v: unknown): number {
+  if (v instanceof Date) return v.getTime()
+  return isFiniteNumber(v) ? v : Number.NaN
+}
+
+/** Past, or unreadable at all.
+ *  WARN: not `isExpiredAt`, which reads a missing value as "never expires": right for an optional
+ *  impersonation window, backwards here, and `NaN < now` is false. */
+function isDeadlinePast(v: unknown, now: number): boolean {
+  const ms = deadlineMs(v)
+  return !Number.isFinite(ms) || ms < now
+}
+
+/** Either deadline: the sliding idle timeout, or the hard absolute cap. */
+export function isSessionExpired(session: Pick<Sessions.Me, 'expiresAt' | 'absoluteExpiresAt'>, now: number): boolean {
+  return isDeadlinePast(session.expiresAt, now) || isDeadlinePast(session.absoluteExpiresAt, now)
+}
+
+/** The deadline the session fell past, for `AUTH_SESSION_EXPIRED` to name. `now` is the floor, so a
+ *  deadline nothing can read — which {@link isSessionExpired} counts as past — still answers an instant. */
+function expiredAtMs(session: Pick<Sessions.Me, 'expiresAt' | 'absoluteExpiresAt'>, now: number): number {
+  return Math.min(...[session.expiresAt, session.absoluteExpiresAt].map(deadlineMs).filter(Number.isFinite), now)
 }
 
 /**
- * Resolve a plaintext SID to (session, identity), used by `AuthEngine.resolveSession`.
+ * Fresh is the clock AND the column, never either alone: the clock decays, and a stored `false` revokes
+ * early, since `rotateOrCreate({ purpose: 'step-up' })` demotes a session whose `rotatedAt` is seconds
+ * old. Storage can revoke freshness but never grant it.
  *
- * Returns `null` for every ordinary miss: unknown SID, expired `expiresAt`, expired
- * `absoluteExpiresAt`, expired impersonation window. Expired rows are deleted as a
- * side effect.
+ * SECURITY: fails closed on a `rotatedAt` nothing can read, and on one dated ahead of the clock, because
+ * this gates password changes. `now - ms` alone is negative for a future stamp and so under any window,
+ * which made a session dated a day out permanently fresh - measured, a century out read fresh too. Nothing
+ * bounds the column from above: `chk_auth_sessions_rotated_after_created` is a floor, and the stamp is
+ * written by whichever node rotated the session, so one machine with a skewed clock hands the whole fleet
+ * sessions that never go stale. `JwtTransport.verify` and `checkStepUp` already weigh the same distance
+ * with `Math.abs`; this is the predicate they were meant to agree with.
+ */
+export function isSessionFresh(
+  session: Pick<Sessions.Me, 'rotatedAt' | 'fresh'>,
+  now: number,
+  freshnessMs: number,
+): boolean {
+  if (session.fresh !== true) return false
+  const ms = deadlineMs(session.rotatedAt)
+  return Number.isFinite(ms) && Math.abs(now - ms) < freshnessMs
+}
+
+/**
+ * Resolve a plaintext SID to (session, identity) for `AuthEngine.resolveSession`. An unknown SID, a foreign
+ * tenant and an elapsed impersonation window reject `AUTH_SESSION_REVOKED`, each with its own `reason`;
+ * either deadline rejects `AUTH_SESSION_EXPIRED`, which names the instant instead. Both codes are in the
+ * absent set, so the facet's `orNull()` reads every one of them back as null. An expired row is deleted on
+ * the way past.
  *
- * @throws {AuthError} `AUTH_SESSION_REVOKED` with `reason: 'identity-erased'` when the
- * session row is live but its `identityId` no longer resolves. This is a data-integrity
- * violation, not an ordinary expiry, and is deliberately NOT collapsed into `null`:
- * callers must surface it rather than treat it as a plain sign-out.
+ * @throws {AuthError} `AUTH_SESSION_IDENTITY_ERASED` when the row is live but its `identityId` no longer
+ * resolves. SECURITY: that code is deliberately outside the absent set, so a caller reading this through
+ * `orNull()` still sees a data-integrity violation rather than a plain sign-out.
  */
 export async function resolveBySid<Profile extends Identities.ProfileMetadataBase>(
   sid: string,
   sessions: Sessions.Store,
   identities: Identities.Store<Profile>,
-  opts: { expectedTenantId?: string } = {},
-): Promise<{ session: Sessions.Me; identity: Identities.Me<Profile> | null } | null> {
+  opts: { expectedTenantId?: string; freshnessMs?: number } = {},
+): Promise<{ session: Sessions.Me; identity: Identities.Me<Profile> | null }> {
   const hash = sha256(sid)
-  const session = await sessions.getByHash(hash)
-  if (!session) return null
-  // A foreign tenant's token must look absent, not fail. Here rather than in the caller
-  // because the erased-identity throw below never hands them the session.
-  if (opts.expectedTenantId !== undefined && session.tenantId !== opts.expectedTenantId) return null
+  const session = await orNull(sessions.getByHash(hash))
+  if (!session) throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'no session for that sid' })
+  // A foreign tenant's token must look absent, not fail, and the throw below never hands it over.
+  if (opts.expectedTenantId !== undefined && session.tenantId !== opts.expectedTenantId) {
+    throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the session belongs to another tenant' })
+  }
   const now = Date.now()
-  const expiresAtMs =
-    session.expiresAt instanceof Date
-      ? session.expiresAt.getTime()
-      : isFiniteNumber(session.expiresAt)
-        ? (session.expiresAt as number)
-        : Number.NaN
-  const absExpiresAtMs =
-    session.absoluteExpiresAt instanceof Date
-      ? session.absoluteExpiresAt.getTime()
-      : isFiniteNumber(session.absoluteExpiresAt)
-        ? (session.absoluteExpiresAt as number)
-        : Number.NaN
-  // Fail closed on non-finite expiry (adapter bug) since `NaN < now` is false.
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs < now || !Number.isFinite(absExpiresAtMs) || absExpiresAtMs < now) {
-    await sessions.delete(session.id)
-    return null
+  if (isSessionExpired(session, now)) {
+    // Cleanup, not the gate, as in `getBySid`.
+    await sessions.delete(session.id).catch(() => {})
+    throw new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: expiredAtMs(session, now) })
   }
-  // Impersonation TTL cap.
   if (session.actingAs?.expiresAt !== undefined && isExpiredAt(session.actingAs.expiresAt, now)) {
-    await sessions.delete(session.id)
-    return null
+    // Cleanup, not the gate, as in `getBySid`.
+    await sessions.delete(session.id).catch(() => {})
+    throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the impersonation window has closed' })
   }
-  const identity = session.identityId ? await identities.findById(session.identityId) : null
+  const identity = session.identityId ? await orNull(identities.find({ id: session.identityId })) : null
   if (session.identityId && !identity) {
-    // Identity erased while session was live; surface as missing" rather than misleading "expired".
-    throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'identity-erased' })
+    // Erased while the session was live: surface it as missing rather than as a misleading "expired".
+    throw new AuthError('AUTH_SESSION_IDENTITY_ERASED')
   }
-  return { session, identity }
+  // SECURITY: recomputed, never read off the row, as in `getBySid`. Callers gate re-auth on this, so a
+  // stale `true` is a hole and a stale `false` a spurious prompt.
+  const freshnessMs = isFiniteNumber(opts.freshnessMs) ? opts.freshnessMs : DEFAULT_SESSION_CONFIG.freshnessMs
+  return { identity, session: { ...session, fresh: isSessionFresh(session, now, freshnessMs) } }
 }
 
-/** Factory around {@link SessionsImpl} for functional-style config. */
 export function sessions(store: Sessions.Store, events: Events.IBus, cfg?: Partial<Sessions.Cfg>): SessionsImpl {
   return new SessionsImpl(store, events, cfg)
 }

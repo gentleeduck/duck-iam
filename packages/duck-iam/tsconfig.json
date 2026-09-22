@@ -10,7 +10,7 @@
     "jsx": "react-jsx",
     "types": ["@types/node"]
   },
-  "exclude": ["node_modules", "dist", "examples.ts"],
+  "exclude": ["node_modules", "dist"],
   "extends": "@gentleduck/typescript-config/internal-package.json",
   "include": ["src/**/*"]
 }

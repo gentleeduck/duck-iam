@@ -39,7 +39,8 @@ describe('Integration: config -> engine -> evaluate', () => {
       },
     })
 
-    const engine = access.createEngine({ adapter, cacheTTL: 0 })
+    // `mode` defaults to 'production'; this flow asserts on `check()`/`explain()` output, which needs development.
+    const engine = access.createEngine({ adapter, cacheTTL: 0, mode: 'development' })
 
     // viewer can read, cannot create
     expect(await engine.can('alice', 'read', { type: 'post', attributes: {} })).toBe(true)
@@ -59,13 +60,11 @@ describe('Integration: config -> engine -> evaluate', () => {
     expect(await engine.can('charlie', 'delete', { type: 'post', attributes: {} })).toBe(true)
     expect(await engine.can('charlie', 'delete', { type: 'comment', attributes: {} })).toBe(true)
 
-    // check returns full decision
     const decision = await engine.check('alice', 'read', { type: 'post', attributes: {} })
     expect(decision.allowed).toBe(true)
     expect(decision.effect).toBe('allow')
     expect(decision.duration).toBeGreaterThanOrEqual(0)
 
-    // explain returns trace
     const trace = await engine.explain('alice', 'read', { type: 'post', attributes: {} })
     expect(trace.decision.allowed).toBe(true)
     expect(trace.summary).toContain('ALLOWED')
@@ -77,7 +76,7 @@ describe('Integration: config -> engine -> evaluate', () => {
       roles: [viewer, editor],
       assignments: { bob: ['editor'] },
     })
-    const engine = access.createEngine({ adapter, cacheTTL: 0 })
+    const engine = access.createEngine({ adapter, cacheTTL: 0, mode: 'development' })
 
     const map = await engine.permissions(
       'bob',
@@ -94,8 +93,7 @@ describe('Integration: config -> engine -> evaluate', () => {
   })
 
   it('ABAC deny policy blocks RBAC allow for matching conditions', async () => {
-    // A deny-overrides policy that only targets delete+post and has both
-    // a conditional deny and a fallback allow
+    // deny-overrides policy on delete+post with a conditional deny and a fallback allow
     const denyDraftPolicy = access
       .definePolicy('deny-draft-delete')
       .name('No deleting drafts')
@@ -116,7 +114,7 @@ describe('Integration: config -> engine -> evaluate', () => {
       assignments: { charlie: ['admin'] },
       policies: [denyDraftPolicy],
     })
-    const engine = access.createEngine({ adapter, cacheTTL: 0 })
+    const engine = access.createEngine({ adapter, cacheTTL: 0, mode: 'development' })
 
     // Admin can delete published posts (deny condition doesn't match, allow wins)
     expect(

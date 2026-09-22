@@ -42,6 +42,9 @@ function makeDeps(overrides: Partial<IIamLoaderDeps<A, R, Ro, S>> = {}): IIamLoa
     rbacPolicyCache: new IamLRUCache<AccessControl.IPolicy>(100, 60_000),
     mergedPolicyCache: new IamLRUCache<AccessControl.IPolicy[]>(100, 60_000),
     subjectCache: new IamLRUCache<IamRequest.ISubject>(100, 60_000),
+    reportUndefinedAssignedRole: () => {},
+    reportPolicyTargetProblems: () => {},
+    scopeMode: 'flat',
     inFlight: {
       policies: { value: null },
       roles: { value: null },
@@ -271,8 +274,7 @@ describe('resolveSubject', () => {
   it('preserves the assignment row scope for the directly assigned role, even when that role declares a different default scope', async () => {
     const deps = makeDeps()
     deps.adapter.listRoles = async () => [
-      // Declares 'marketplace' as its default scope, but is being assigned at a concrete
-      // scope instance ('store-42') - exactly what IScopedRole.scope exists for.
+      // Declares 'marketplace' as its default but is assigned at a concrete scope ('store-42').
       { id: 'store:manager', name: 'store manager', permissions: [], scope: 'marketplace' },
     ]
     deps.adapter.getSubjectScopedRoles = async () => [{ role: 'store:manager', scope: 'store-42' }]

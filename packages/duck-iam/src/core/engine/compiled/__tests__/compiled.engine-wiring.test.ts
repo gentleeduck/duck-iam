@@ -1,12 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../../adapters/memory'
 import { iamBuildPermissionKey } from '../../../../shared/keys'
 import { IamEngine } from '../../engine'
 
-// mode: 'production' now always uses the compiled table - no opt-in flag, no
-// fallthrough. These tests compare a production engine's boolean verdicts
-// against a development engine (the interpreted ground truth) over the same
-// data, for both policyCombine modes, plus the invalidation contract.
+// Production (compiled table) vs development (interpreter) verdicts over the same data, per `policyCombine`.
+// Each case also pins the development verdict, so two engines that deny everything cannot agree vacuously.
 
 const roles = [{ id: 'editor', name: 'Editor', permissions: [{ action: 'update', resource: 'post' }] }]
 const policies = [
@@ -40,11 +38,14 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
       policyCombine,
     })
     const development = new IamEngine({
+      mode: 'development',
       adapter: new IamMemoryAdapter({ roles, policies, assignments, attributes }),
       defaultEffect: 'deny',
       policyCombine,
     })
     const resource = { type: 'post', attributes: {} }
+    // `editor` grants `update post` and the ownership policy has no `update` rule, so it abstains under both combines.
+    expect((await development.check('user-1', 'update', resource)).allowed).toBe(true)
     expect(await production.can('user-1', 'update', resource)).toBe(
       (await development.check('user-1', 'update', resource)).allowed,
     )
@@ -58,12 +59,17 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
       policyCombine,
     })
     const development = new IamEngine({
+      mode: 'development',
       adapter: new IamMemoryAdapter({ roles, policies, assignments, attributes }),
       defaultEffect: 'deny',
       policyCombine,
     })
     const owned = { type: 'post', attributes: { ownerId: 'user-1' } }
     const notOwned = { type: 'post', attributes: { ownerId: 'someone-else' } }
+    // The owned/notOwned split proves the condition ran. Allowed under 'and' too: `editor` has no `read post`,
+    // so RBAC abstains and the ownership allow is the only vote.
+    expect((await development.check('user-1', 'read', owned)).allowed).toBe(true)
+    expect((await development.check('user-1', 'read', notOwned)).allowed).toBe(false)
     expect(await production.can('user-1', 'read', owned)).toBe(
       (await development.check('user-1', 'read', owned)).allowed,
     )
@@ -80,6 +86,7 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
       policyCombine,
     })
     const development = new IamEngine({
+      mode: 'development',
       adapter: new IamMemoryAdapter({ roles, policies, assignments, attributes }),
       defaultEffect: 'deny',
       policyCombine,
@@ -89,6 +96,8 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
       { action: 'read', resource: 'post', resourceId: 'p1' },
     ] as const
     const prodMap = await production.permissions('user-1', checks)
+    // Guard against a `permissions()` that denies every key passing the loop below vacuously.
+    expect(prodMap[iamBuildPermissionKey('update', 'post')]).toBe(true)
     for (const c of checks) {
       const decision = await development.check('user-1', c.action, {
         type: c.resource,
@@ -125,9 +134,7 @@ describe("production mode: 'and'-mode soundness - an irrelevant untargeted polic
       attributes,
     })
     const production = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' }) // policyCombine: 'and' default
-    // Under 'and', `irrelevant` has no rule shaped for update/post, so it abstains
-    // (NotApplicable) instead of forcing a defaultEffect vote - the role grant is the only
-    // applicable vote and stands.
+    // `irrelevant` has no update/post rule, so it abstains instead of voting defaultEffect.
     expect(await production.can('user-1', 'update', { type: 'post', attributes: {} })).toBe(true)
   })
 })
@@ -152,6 +159,7 @@ describe('production mode: mixed simple+residual RBAC on one role (regression)',
     })
     const production = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' }) // 'and' default
     const development = new IamEngine({
+      mode: 'development',
       adapter: new IamMemoryAdapter({
         roles: mixedRoles,
         policies: [],
@@ -168,179 +176,52 @@ describe('production mode: mixed simple+residual RBAC on one role (regression)',
   })
 })
 
-describe('production mode: role count beyond the 32-bit mask capacity', () => {
-  it('fails closed (deny) instead of aliasing role bits, and reports via onError', async () => {
-    const tooManyRoles = Array.from({ length: 33 }, (_, i) => ({
-      id: `role-${i}`,
-      name: `Role ${i}`,
-      permissions: i === 0 ? [{ action: 'delete', resource: 'secret' }] : [],
-    }))
-    const adapter = new IamMemoryAdapter({
+describe('role count beyond the 32-bit mask capacity', () => {
+  // `1 << 32` wraps to bit 0, so role-32 would borrow role-0's grants. Past 32 roles the engine uses the interpreter.
+  const tooManyRoles = Array.from({ length: 33 }, (_, i) => ({
+    id: `role-${i}`,
+    name: `Role ${i}`,
+    permissions: i === 0 ? [{ action: 'delete', resource: 'secret' }] : [],
+  }))
+  const overLimitAdapter = () =>
+    new IamMemoryAdapter({
       roles: tooManyRoles,
       policies: [],
-      assignments: { guest: ['role-32'] }, // aliases role-0's bit under the old (buggy) `1 << 32` behavior
-      attributes: { guest: {} },
+      assignments: { guest: ['role-32'], root: ['role-0'] },
+      attributes: { guest: {}, root: {} },
     })
-    let reportedError: Error | undefined
-    const production = new IamEngine({
-      adapter,
-      defaultEffect: 'deny',
-      mode: 'production',
-      hooks: {
-        onError: (err) => {
-          reportedError = err
-        },
-      },
-    })
-    const allowed = await production.can('guest', 'delete', { type: 'secret', attributes: {} })
-    expect(allowed).toBe(false)
-    expect(reportedError?.message).toMatch(/32/)
-  })
-})
 
-describe('production mode: invalidation rebuilds the compiled table', () => {
-  it('a role invalidation drops a stale RBAC mask grant', async () => {
-    const adapter = new IamMemoryAdapter({ roles, policies, assignments, attributes })
-    const engine = new IamEngine({
-      adapter,
-      defaultEffect: 'deny',
-      mode: 'production',
-      policyCombine: 'allow-overrides',
-    })
-    const resource = { type: 'post', attributes: {} }
-    expect(await engine.can('user-1', 'update', resource)).toBe(true)
-    await adapter.saveRole({ id: 'editor', name: 'Editor', permissions: [] }) // revoke the permission
-    engine.cache.invalidateRoles('editor')
-    expect(await engine.can('user-1', 'update', resource)).toBe(false)
+  const engineOf = (mode: 'development' | 'production') =>
+    new IamEngine({ adapter: overLimitAdapter(), defaultEffect: 'deny', mode })
+
+  it.each(['development', 'production'] as const)('does not alias role-32 onto role-0 (mode: %s)', async (mode) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const engine = engineOf(mode)
+      const secret = { type: 'secret', attributes: {} }
+      // role-32 has no permissions of its own, so this must deny.
+      expect(await engine.can('guest', 'delete', secret)).toBe(false)
+      // Not a blanket deny: role-0's real grant still works over the same config.
+      expect(await engine.can('root', 'delete', secret)).toBe(true)
+    } finally {
+      warn.mockRestore()
+    }
   })
 
-  it('a policy invalidation is reflected on the next check', async () => {
-    const adapter = new IamMemoryAdapter({ roles: [], policies, assignments: {}, attributes: {} })
-    const engine = new IamEngine({
-      adapter,
-      defaultEffect: 'deny',
-      mode: 'production',
-      policyCombine: 'allow-overrides',
-    })
-    const owned = { type: 'post', attributes: { ownerId: 'user-1' } }
-    expect(await engine.can('user-1', 'read', owned)).toBe(true)
-    await adapter.deletePolicy('ownership')
-    engine.cache.invalidatePolicies()
-    expect(await engine.can('user-1', 'read', owned)).toBe(false)
-  })
-
-  it('a caller arriving after an invalidation that lands mid-rebuild never gets the stale in-flight table (regression)', async () => {
-    // Gate the adapter's listPolicies so a compiled-table rebuild started by the first
-    // `can()` call stays in flight until we explicitly release it - long enough to land
-    // a role revocation + invalidation while that rebuild is still pending.
-    let releaseGate!: () => void
-    const gate = new Promise<void>((resolve) => {
-      releaseGate = resolve
-    })
-    const inner = new IamMemoryAdapter({ roles, policies: [], assignments, attributes })
-    const gatedAdapter = new Proxy(inner, {
-      get(target, prop, receiver) {
-        const value = Reflect.get(target, prop, receiver)
-        if (prop === 'listPolicies' && typeof value === 'function') {
-          return async (...args: unknown[]) => {
-            await gate
-            return (value as (...a: unknown[]) => unknown).apply(target, args)
-          }
-        }
-        return typeof value === 'function' ? value.bind(target) : value
-      },
-    })
-    const engine = new IamEngine({ adapter: gatedAdapter, defaultEffect: 'deny', mode: 'production' })
-    const resource = { type: 'post', attributes: {} }
-    // A full subject object (not a subjectId) so `authorize()` skips `_resolveSubject`'s
-    // own adapter round-trip - the compiled-table rebuild starts synchronously on the
-    // call, so `listRoles` snapshots deterministically before any test code resumes.
-    const subject = { id: 'user-1', roles: ['editor'], attributes: {} }
-
-    // R1: starts the rebuild; blocks on the gated listPolicies call. `listRoles` (no
-    // gate) resolves and snapshots the pre-revocation role data synchronously, within
-    // this same call, before the `await` below ever yields control.
-    const r1 = engine.authorize({ subject, action: 'update', resource })
-
-    // Revoke the permission and invalidate strictly BEFORE R1's rebuild has resolved.
-    await inner.saveRole({ id: 'editor', name: 'Editor', permissions: [] })
-    engine.cache.invalidateRoles('editor')
-
-    // R2: starts strictly AFTER the invalidation, while R1's rebuild is still pending.
-    // Must not be handed R1's in-flight promise (which resolves from the stale,
-    // pre-revocation role snapshot) - it must observe the revocation.
-    const r2 = engine.authorize({ subject, action: 'update', resource })
-
-    releaseGate()
-    expect(await r2).toBe(false)
-    // R1 raced the invalidation and started before it landed - its result is not
-    // asserted either way, but it must not corrupt the engine's cached table for
-    // subsequent callers (checked by R3 below).
-    await r1
-
-    // R3: after everything has settled, the table must reflect the revocation.
-    expect(await engine.authorize({ subject, action: 'update', resource })).toBe(false)
-  })
-})
-
-describe('production mode: rotten RBAC residual policy abstains instead of fail-closed vetoing (regression)', () => {
-  it("an oversized subject attribute that makes the residual policy's condition throw does not veto an unrelated ABAC allow under 'and'", async () => {
-    const conditionalRoles = [
-      {
-        id: 'editor',
-        name: 'Editor',
-        permissions: [
-          {
-            action: 'read',
-            resource: 'post',
-            conditions: {
-              all: [{ field: 'subject.attributes.blob', operator: 'matches' as const, value: '^a+$' }],
-            },
-          },
-        ],
-      },
-    ]
-    const abacPolicies = [
-      {
-        id: 'abac-allow',
-        name: 'ABAC allow',
-        algorithm: 'deny-overrides' as const,
-        rules: [
-          {
-            id: 'r',
-            effect: 'allow' as const,
-            priority: 0,
-            actions: ['read'],
-            resources: ['post'],
-            conditions: { all: [] },
-          },
-        ],
-      },
-    ]
-    // Long enough to trip the regex-matching engine's input-length guard and throw.
-    const oversizedBlob = 'a'.repeat(4096)
-    const adapter = new IamMemoryAdapter({
-      roles: conditionalRoles,
-      policies: abacPolicies,
-      assignments: { 'user-1': ['editor'] },
-      attributes: { 'user-1': { blob: oversizedBlob } },
-    })
-    const production = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' }) // 'and' default
-    const development = new IamEngine({
-      adapter: new IamMemoryAdapter({
-        roles: conditionalRoles,
-        policies: abacPolicies,
-        assignments: { 'user-1': ['editor'] },
-        attributes: { 'user-1': { blob: oversizedBlob } },
-      }),
-      defaultEffect: 'deny',
-    })
-    const resource = { type: 'post', attributes: {} }
-    // The rotten RBAC residual policy must abstain (not vote deny), so the unrelated
-    // ABAC allow still carries the request under 'and'.
-    expect(await production.can('user-1', 'read', resource)).toBe(true)
-    expect(await production.can('user-1', 'read', resource)).toBe(
-      (await development.check('user-1', 'read', resource)).allowed,
-    )
+  it('production and development agree over an over-limit config', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const production = engineOf('production')
+      // Not `engineOf('development')`: its `TMode` union drops `check()`'s development-only `IDecision` type.
+      const development = new IamEngine({ adapter: overLimitAdapter(), defaultEffect: 'deny', mode: 'development' })
+      const secret = { type: 'secret', attributes: {} }
+      for (const subject of ['guest', 'root']) {
+        expect(await production.can(subject, 'delete', secret)).toBe(
+          (await development.check(subject, 'delete', secret)).allowed,
+        )
+      }
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

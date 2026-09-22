@@ -13,6 +13,13 @@ import type { IamEngineTypes } from '../engine.types'
 
 type Role = 'admin' | 'viewer'
 
+const role = (id: string, inherits: string[] = []): AccessControl.IRole => ({
+  id,
+  inherits,
+  name: id,
+  permissions: [],
+})
+
 function makeBag(invalidator?: IamEngineTypes.IInvalidator<Role>): IEngineCacheBag<Role> {
   return {
     policyCache: new IamLRUCache<AccessControl.IPolicy[]>(100, 60_000),
@@ -110,6 +117,7 @@ describe('invalidateRoles', () => {
 
   it('with roleId: clears only subjects holding that role', () => {
     const bag = makeBag()
+    bag.roleCache.set('all', [role('admin'), role('viewer')])
     bag.subjectCache.set('a', { id: 'a', roles: ['admin'], attributes: {} })
     bag.subjectCache.set('b', { id: 'b', roles: ['viewer'], attributes: {} })
     invalidateRoles(bag, 'admin', {})
@@ -119,6 +127,7 @@ describe('invalidateRoles', () => {
 
   it('clears subjects whose scopedRoles include the role', () => {
     const bag = makeBag()
+    bag.roleCache.set('all', [role('admin'), role('viewer')])
     bag.subjectCache.set('a', {
       id: 'a',
       roles: [],
@@ -129,6 +138,35 @@ describe('invalidateRoles', () => {
     invalidateRoles(bag, 'admin', {})
     expect(bag.subjectCache.get('a')).toBeUndefined()
     expect(bag.subjectCache.get('b')).toBeDefined()
+  })
+
+  it('clears subjects holding a role that inherits the saved one, however deep', () => {
+    const bag = makeBag()
+    bag.roleCache.set('all', [role('admin', ['viewer']), role('viewer', ['base'])])
+    bag.subjectCache.set('a', { id: 'a', roles: ['admin'], attributes: {} })
+    bag.subjectCache.set('b', { id: 'b', roles: [], attributes: {}, scopedRoles: [{ scope: 'org-1', role: 'viewer' }] })
+    bag.subjectCache.set('c', { id: 'c', roles: ['unrelated'], attributes: {} })
+    invalidateRoles(bag, 'base' as Role, {})
+    expect(bag.subjectCache.get('a')).toBeUndefined()
+    expect(bag.subjectCache.get('b')).toBeUndefined()
+    expect(bag.subjectCache.get('c')).toBeDefined()
+  })
+
+  it('an inheritance cycle in the cached graph still terminates', () => {
+    const bag = makeBag()
+    bag.roleCache.set('all', [role('admin', ['viewer']), role('viewer', ['admin'])])
+    bag.subjectCache.set('a', { id: 'a', roles: ['admin'], attributes: {} })
+    invalidateRoles(bag, 'viewer', {})
+    expect(bag.subjectCache.get('a')).toBeUndefined()
+  })
+
+  it('with no cached role graph the sweep cannot narrow, so every subject goes', () => {
+    const bag = makeBag()
+    bag.subjectCache.set('a', { id: 'a', roles: ['admin'], attributes: {} })
+    bag.subjectCache.set('b', { id: 'b', roles: ['viewer'], attributes: {} })
+    invalidateRoles(bag, 'admin', {})
+    expect(bag.subjectCache.get('a')).toBeUndefined()
+    expect(bag.subjectCache.get('b')).toBeUndefined()
   })
 
   it('invalid roleId (non-string / empty / oversize) falls back to clear-all', () => {

@@ -1,17 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import {
-  getCredentialPurpose,
-  getProfileString,
-  isCredentialExpired,
-  isExpiredAt,
-  isProfileBooleanTrue,
-  isRevoked,
-  isSoftDeleted,
-} from '../credentials/credentials'
+import { getCredentialPurpose, isCredentialExpired, isRevoked } from '../credentials/credentials'
+import { isSoftDeleted } from '../identities/identities'
+import { getProfileString, isExpiredAt, isProfileBooleanTrue } from '../predicates/predicates'
 
 describe('isRevoked', () => {
   it('false when revokedAt is the null/undefined live sentinel', () => {
-    // `null` is the canonical "not revoked" value: upsert/create default
+    // `null` is the canonical "not revoked" value: `create` defaults
     // `revokedAt` to `null`, so a null here means a live credential.
     expect(isRevoked({ revokedAt: null })).toBe(false)
   })
@@ -142,7 +136,10 @@ describe('isExpiredAt (low-level primitive)', () => {
 })
 
 describe('getCredentialPurpose', () => {
-  it('undefined when metadata is undefined', () => {})
+  it('undefined when metadata is null', () => {
+    // The column is `Record<string, unknown> | null`, so null is the only absent form a row can carry.
+    expect(getCredentialPurpose({ metadata: null })).toBeUndefined()
+  })
 
   it('undefined when metadata.purpose is missing', () => {
     expect(getCredentialPurpose({ metadata: {} })).toBeUndefined()
@@ -196,8 +193,4 @@ describe('isProfileBooleanTrue', () => {
     expect(isProfileBooleanTrue(42, 'emailVerified')).toBe(false)
     expect(isProfileBooleanTrue([{ emailVerified: true }], 'emailVerified')).toBe(false)
   })
-})
-
-describe('memory findByEmail - profile-shape robustness', () => {
-  it.todo('integration test lives at src/adapters/memory/__tests__ - covered transitively')
 })

@@ -1,0 +1,216 @@
+/** The predicates are all fail-closed, which is the part worth testing. */
+import { describe, expect, it } from 'vitest'
+import {
+  getProfileNumber,
+  getProfileString,
+  isExpiredAt,
+  isFiniteNumber,
+  isProfileBooleanFalse,
+  isProfileBooleanTrue,
+} from '../predicates'
+
+const NOW = 1_700_000_000_000
+
+describe('isExpiredAt', () => {
+  describe('the live sentinel', () => {
+    it('treats null as no expiry configured', () => {
+      expect(isExpiredAt(null, NOW)).toBe(false)
+    })
+
+    it('treats undefined as no expiry configured', () => {
+      expect(isExpiredAt(undefined, NOW)).toBe(false)
+    })
+  })
+
+  describe('ordinary values', () => {
+    it('is false for a future timestamp', () => {
+      expect(isExpiredAt(NOW + 1000, NOW)).toBe(false)
+    })
+
+    it('is true for a past timestamp', () => {
+      expect(isExpiredAt(NOW - 1, NOW)).toBe(true)
+    })
+
+    it('is false at exactly now, so the boundary is inclusive of the last instant', () => {
+      expect(isExpiredAt(NOW, NOW)).toBe(false)
+    })
+
+    it('handles a future Date', () => {
+      expect(isExpiredAt(new Date(NOW + 1000), NOW)).toBe(false)
+    })
+
+    it('handles a past Date', () => {
+      expect(isExpiredAt(new Date(NOW - 1000), NOW)).toBe(true)
+    })
+  })
+
+  describe('fails closed on anything it cannot read', () => {
+    // Each of these would be "not expired" under a naive `value < now`, because
+    // every comparison with NaN is false. That is the bug this function exists to
+    // avoid, so each case is worth its own line.
+    for (const [label, value] of [
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['negative Infinity', Number.NEGATIVE_INFINITY],
+      ['a numeric string', '1700000000000'],
+      ['a non-numeric string', 'never'],
+      ['an empty string', ''],
+      ['true', true],
+      ['false', false],
+      ['an array', [NOW + 1000]],
+      ['an object', { time: NOW + 1000 }],
+      ['a function', () => NOW + 1000],
+      ['a symbol', Symbol('later')],
+      ['a bigint', 10n],
+    ] as const) {
+      it(`treats ${label} as expired`, () => {
+        expect(isExpiredAt(value, NOW)).toBe(true)
+      })
+    }
+
+    it('treats an invalid Date as expired', () => {
+      expect(isExpiredAt(new Date(Number.NaN), NOW)).toBe(true)
+    })
+
+    it('treats a Date built from a non-finite number as expired', () => {
+      expect(isExpiredAt(new Date(Number.POSITIVE_INFINITY), NOW)).toBe(true)
+    })
+  })
+
+  it('defaults `now` to the current clock', () => {
+    expect(isExpiredAt(Date.now() + 60_000)).toBe(false)
+    expect(isExpiredAt(Date.now() - 60_000)).toBe(true)
+  })
+})
+
+describe('isFiniteNumber', () => {
+  it('accepts ordinary numbers including zero and negatives', () => {
+    for (const n of [0, -0, 1, -1, 1.5, Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER]) {
+      expect(isFiniteNumber(n)).toBe(true)
+    }
+  })
+
+  it('rejects the non-finite numbers', () => {
+    for (const n of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(isFiniteNumber(n)).toBe(false)
+    }
+  })
+
+  it('rejects things that merely look numeric', () => {
+    for (const v of ['1', '', null, undefined, true, false, [], [1], {}, 1n, new Number(1)]) {
+      expect(isFiniteNumber(v)).toBe(false)
+    }
+  })
+})
+
+describe('getProfileString', () => {
+  it('reads a non-empty string field', () => {
+    expect(getProfileString({ email: 'a@x.com' }, 'email')).toBe('a@x.com')
+  })
+
+  it('returns undefined for an empty string, which is not a usable value', () => {
+    expect(getProfileString({ email: '' }, 'email')).toBeUndefined()
+  })
+
+  it('returns undefined when the field is any non-string', () => {
+    for (const value of [42, true, null, undefined, [], {}, () => 'x']) {
+      expect(getProfileString({ email: value }, 'email')).toBeUndefined()
+    }
+  })
+
+  it('returns undefined when the profile is not a plain object', () => {
+    for (const profile of [null, undefined, 'string', 42, true, ['a@x.com']]) {
+      expect(getProfileString(profile, 'email')).toBeUndefined()
+    }
+  })
+
+  it('returns undefined for a key that is absent', () => {
+    expect(getProfileString({ email: 'a@x.com' }, 'username')).toBeUndefined()
+  })
+
+  it('does not read up the prototype chain', () => {
+    // A key inherited from Object.prototype is not profile data.
+    expect(getProfileString({}, 'toString')).toBeUndefined()
+    expect(getProfileString({}, 'constructor')).toBeUndefined()
+  })
+
+  it('reads a key that shadows a prototype member when it is genuinely present', () => {
+    expect(getProfileString({ toString: 'shadowed' }, 'toString')).toBe('shadowed')
+  })
+})
+
+describe('getProfileNumber', () => {
+  it('reads a finite number', () => {
+    expect(getProfileNumber({ lastTotpStep: 42 }, 'lastTotpStep')).toBe(42)
+    expect(getProfileNumber({ lastTotpStep: 0 }, 'lastTotpStep')).toBe(0)
+    expect(getProfileNumber({ lastTotpStep: -1 }, 'lastTotpStep')).toBe(-1)
+  })
+
+  it('refuses NaN and Infinity rather than handing back a number that loses every comparison', () => {
+    // The reason this helper exists. A caller guarding with `typeof x ===
+    // 'number'` accepts NaN, and `step <= NaN` is `false`, so a TOTP replay
+    // check written the obvious way waves the replay through.
+    expect(getProfileNumber({ lastTotpStep: Number.NaN }, 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber({ lastTotpStep: Number.POSITIVE_INFINITY }, 'lastTotpStep')).toBeUndefined()
+  })
+
+  it('refuses a numeric string, an absent key, and a non-object', () => {
+    expect(getProfileNumber({ lastTotpStep: '42' }, 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber({}, 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber(null, 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber([1, 2], 'lastTotpStep')).toBeUndefined()
+    expect(getProfileNumber('nope', 'lastTotpStep')).toBeUndefined()
+  })
+})
+
+describe('isProfileBooleanTrue', () => {
+  it('is true only for the boolean true', () => {
+    expect(isProfileBooleanTrue({ emailVerified: true }, 'emailVerified')).toBe(true)
+  })
+
+  it('is false for every truthy impostor', () => {
+    // `"true"`, `1` and `"yes"` all pass a loose check and all mean nothing. A
+    // verified-email gate reading one of these would admit an unverified account.
+    for (const value of ['true', 'TRUE', 1, -1, 'yes', [], {}, 'false', new Boolean(true)]) {
+      expect(isProfileBooleanTrue({ emailVerified: value }, 'emailVerified')).toBe(false)
+    }
+  })
+
+  it('is false for the falsy values', () => {
+    for (const value of [false, 0, '', null, undefined, Number.NaN]) {
+      expect(isProfileBooleanTrue({ emailVerified: value }, 'emailVerified')).toBe(false)
+    }
+  })
+
+  it('is false when the profile is not a plain object', () => {
+    for (const profile of [null, undefined, 'true', 1, true, [true]]) {
+      expect(isProfileBooleanTrue(profile, 'emailVerified')).toBe(false)
+    }
+  })
+
+  it('is false for an absent key', () => {
+    expect(isProfileBooleanTrue({}, 'emailVerified')).toBe(false)
+  })
+})
+
+describe('isProfileBooleanFalse', () => {
+  it('is true only for a literal false', () => {
+    expect(isProfileBooleanFalse({ confirmed: false }, 'confirmed')).toBe(true)
+    expect(isProfileBooleanFalse({ confirmed: true }, 'confirmed')).toBe(false)
+  })
+
+  it('is not the negation of isProfileBooleanTrue - an absent key is neither', () => {
+    // What tells "explicitly not yet confirmed" apart from "never had the
+    // field". A pending TOTP enrollment is found by the first; a row that
+    // never carried the key must not be.
+    expect(isProfileBooleanFalse({}, 'confirmed')).toBe(false)
+    expect(isProfileBooleanTrue({}, 'confirmed')).toBe(false)
+  })
+
+  it('refuses the string "false" and other falsy values', () => {
+    expect(isProfileBooleanFalse({ confirmed: 'false' }, 'confirmed')).toBe(false)
+    expect(isProfileBooleanFalse({ confirmed: 0 }, 'confirmed')).toBe(false)
+    expect(isProfileBooleanFalse({ confirmed: null }, 'confirmed')).toBe(false)
+    expect(isProfileBooleanFalse(null, 'confirmed')).toBe(false)
+  })
+})

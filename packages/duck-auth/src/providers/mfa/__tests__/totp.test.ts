@@ -4,6 +4,7 @@ import {
   base32Encode,
   buildOtpAuthUri,
   generateSecret,
+  matchTotpStep,
   TOTP_DEFAULTS,
   totpAt,
   verifyTotp,
@@ -26,7 +27,16 @@ describe('base32', () => {
   })
 
   it('decode rejects characters outside the alphabet', () => {
-    expect(() => base32Decode('!@#$')).toThrow(/invalid base32/)
+    expect(() => base32Decode('!@#$')).toThrow(
+      expect.objectContaining({ code: 'AUTH_INVALID_PARAMETERS', meta: { detail: 'invalid base32 character' } }),
+    )
+  })
+
+  // The offending character is a character of the shared secret, so it never reaches a message or a log.
+  it('does not name the character it refused', () => {
+    expect(() => base32Decode('AAAA!BBBB')).toThrow(
+      expect.objectContaining({ code: 'AUTH_INVALID_PARAMETERS', meta: { detail: 'invalid base32 character' } }),
+    )
   })
 })
 
@@ -92,5 +102,28 @@ describe('authVerifyTotp', () => {
   it('rejects with the wrong secret', () => {
     const code = totpAt(secret, stepIndex)
     expect(verifyTotp(generateSecret(), code, { nowMs: fixedNow })).toBe(false)
+  })
+})
+
+// A secret is read from storage, not from the caller, so an undecodable one means the row is corrupt. Answering
+// no keeps that from throwing a raw Error out of whatever HTTP handler asked, which is untyped and names the row.
+describe('a secret that does not decode', () => {
+  const code = '123456'
+
+  it('verifies as false rather than throwing', () => {
+    expect(() => verifyTotp('not base32 !!', code)).not.toThrow()
+    expect(verifyTotp('not base32 !!', code)).toBe(false)
+  })
+
+  it('matches no step rather than throwing', () => {
+    expect(() => matchTotpStep('not base32 !!', code)).not.toThrow()
+    expect(matchTotpStep('not base32 !!', code)).toBeNull()
+  })
+
+  it('still verifies a good secret, so the guard refuses only what it should', () => {
+    const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+    const step = Math.floor(Date.now() / 1000 / TOTP_DEFAULTS.periodSec)
+    expect(verifyTotp(secret, totpAt(secret, step))).toBe(true)
+    expect(matchTotpStep(secret, totpAt(secret, step))).toBe(step)
   })
 })

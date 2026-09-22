@@ -1,6 +1,6 @@
 import { type AppAction, type AppResource, CHECKS } from '@blogduck/shared'
 import type { IamEngine } from '@gentleduck/iam'
-import { generatePermissionMap } from '@gentleduck/iam/server/generic'
+import { generateIamPermissionMap } from '@gentleduck/iam/server/generic'
 import { IAM_ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
 import { Controller, Get, Inject, Req, UnauthorizedException } from '@nestjs/common'
 import type { Request } from 'express'
@@ -14,6 +14,6 @@ export class PermissionsController {
     const userId = req.headers['x-user-id']
     if (typeof userId !== 'string') throw new UnauthorizedException()
 
-    return generatePermissionMap(this.engine, userId, CHECKS)
+    return generateIamPermissionMap(this.engine, userId, CHECKS)
   }
 }

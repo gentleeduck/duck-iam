@@ -4,9 +4,13 @@ import { ChevronDown, ChevronRight, CornerUpRight, Refresh } from '../components
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
+import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
+/** Read-only browser for roles, their permissions and inheritance; the RBAC counterpart to {@link IamPoliciesPanel}. */
 export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
+  useIamDevtoolsStyles()
   const [roles, setRoles] = React.useState<AccessControl.IRole[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -24,6 +28,9 @@ export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
+  if (!isDevtoolsAllowed(engine)) return null
 
   const filtered = roles.filter(
     (r) =>

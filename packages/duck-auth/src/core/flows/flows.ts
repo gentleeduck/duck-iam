@@ -1,11 +1,15 @@
 import type { Events } from '~/core/events'
+import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Providers } from '~/core/provider'
 import type { MfaFacet } from '~/providers/mfa'
 import type { PasswordsImpl } from '~/providers/passwords'
+import { type Answer, answer } from '../answer'
 import { AuthError } from '../errors'
 import type { Identities, IdentitiesImpl } from '../identities'
 import type { Provider } from '../provider'
+import { canonicalProviderId, echoableProviderId } from '../provider/provider.constants'
 import type { Sessions, SessionsImpl } from '../sessions'
+import type { TenantContext } from '../tenant/tenant.types'
 import type { Transport } from '../transport'
 import {
   cancelAccountDeletion as cancelAccountDeletionImpl,
@@ -53,23 +57,33 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return this._deps
   }
 
-  /**
-   * Dispatch a sign-in via the named provider. Provider returns Intents;
-   * the `startSession` intent is interpreted here (rotateOrCreate +
-   * Transport.issue); other intents flow through to the caller.
-   */
+  /** The `startSession` intent is interpreted here; the rest flow through to the caller. */
   async signIn(opts: Flows.SignInOptions): Promise<Flows.SignInOutcome> {
     const { sessions, identities, providers, transport, events, ctxFactory, cfg } = this._deps
 
-    if (!isProviderIdSafe(opts.providerId) || !providers.has(opts.providerId)) {
+    const providerId = canonicalProviderId(opts.providerId)
+    if (providerId === null || !providers.has(providerId)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: isProviderIdSafe(opts.providerId) ? opts.providerId : 'invalid',
+        providerId: echoableProviderId(opts.providerId),
         detail: 'unknown provider id',
       })
     }
 
     const ctx = ctxFactory(opts.tenantId)
-    const rawIntents = await providers.complete(opts.providerId, ctx, opts.input)
+    const rawIntents = await providers.complete(providerId, ctx, opts.input)
+
+    // SECURITY: acted on, not merely stripped. `Provider.Intent`'s contract says this signal is
+    // "consumed and stripped" here, and only the stripping happened - so a provider answering
+    // `startSession` alongside `requireMfa` got a plain session at the AAL it asked for and its demand
+    // for a second factor left with the filter. Nothing shipped emits one, but the provider list is open.
+    const mfaIntent = rawIntents.find(
+      (i): i is Extract<Provider.InternalIntent, { type: 'requireMfa' }> => i.type === 'requireMfa',
+    )
+    if (mfaIntent) {
+      throw new AuthError('AUTH_STEP_UP_REQUIRED', {
+        challenge: { methods: mfaIntent.methods, reason: 'provider-required-mfa' },
+      })
+    }
 
     const startIntent = rawIntents.find(
       (i): i is Extract<Provider.InternalIntent, { type: 'startSession' }> => i.type === 'startSession',
@@ -81,7 +95,7 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
       return { session: null, sid: '', intents: adapterIntents }
     }
 
-    const identity = await identities.getById(startIntent.identityId)
+    const identity = await identities.getById(startIntent.identityId).orNull()
     if (!identity) {
       throw new AuthError('AUTH_UNAUTHENTICATED')
     }
@@ -112,51 +126,45 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     }
   }
 
-  /**
-   * Dispatch the `begin` phase of a provider. Wraps the same context
-   * construction as `signIn` so callers (framework adapters, tests) don't
-   * have to build it themselves.
-   */
+  /** Builds the same context `signIn` does. */
   async beginProvider(
     providerId: string,
     input: unknown,
     opts: { tenantId?: string } = {},
   ): Promise<Provider.Intent[]> {
     const { providers, ctxFactory } = this._deps
-    if (!isProviderIdSafe(providerId) || !providers.has(providerId)) {
+    const canonical = canonicalProviderId(providerId)
+    if (canonical === null || !providers.has(canonical)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: isProviderIdSafe(providerId) ? providerId : 'invalid',
+        providerId: echoableProviderId(providerId),
         detail: 'unknown provider id',
       })
     }
-    return providers.begin(providerId, ctxFactory(opts.tenantId), input)
+    return providers.begin(canonical, ctxFactory(opts.tenantId), input)
   }
 
   /** Revoke the current session and emit Transport.revoke intents. */
   async signOut(sid: string): Promise<{ intents: Provider.Intent[] }> {
     const { sessions, transport } = this._deps
-    // sessions.revoke() also typeof-guards, but defending here means a non-string
-    // sid never reaches the bus + transport (revoke remains a no-op).
+    // `sessions.revoke` refuses a malformed sid rather than ignoring it, and a sign-out is not the place to
+    // raise that: this keeps a non-string sid off the bus and out of the transport, where revoke would be a
+    // no-op anyway.
     if (typeof sid === 'string' && sid.length > 0 && sid.length <= 4096) {
-      await sessions.revoke(sid)
+      await sessions.revoke(sid).orNull()
     }
     return { intents: transport.revoke() }
   }
 
-  // --- Step-up flow -----------------------------------------
-
-  /**
-   * Check whether the current session satisfies a step-up requirement.
-   * Returns `{satisfied: true}` (no-op) when the session already meets it;
-   * otherwise returns a challenge enumerating the satisfying methods.
-   */
+  /** Whether the session already satisfies a step-up requirement; otherwise a challenge naming the
+   *  methods that would. */
   async checkStepUp(session: Sessions.Me, requirement: Flows.StepUpRequirement): Promise<Flows.StepUpOutcome> {
     const requiredAal: Sessions.AAL = requirement.aal ?? 2
     const methods = requirement.methods ?? ['totp']
     const freshness = requirement.freshness
 
     if (session.aal >= requiredAal && session.fresh) {
-      // Fail-closed: non-finite rotatedAt would slip the freshness gate.
+      // Fail-closed: a non-finite rotatedAt would slip the freshness gate, and so would a future one -
+      // `now - rotatedAt` goes negative and no window is ever exceeded. Bounded both ways.
       if (freshness !== undefined) {
         const rotatedAtMs =
           session.rotatedAt instanceof Date
@@ -164,7 +172,7 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
             : typeof session.rotatedAt === 'number' && Number.isFinite(session.rotatedAt)
               ? session.rotatedAt
               : Number.NaN
-        if (!Number.isFinite(rotatedAtMs) || Date.now() - rotatedAtMs > freshness) {
+        if (!Number.isFinite(rotatedAtMs) || Math.abs(Date.now() - rotatedAtMs) > freshness) {
           return { satisfied: false, reason: 'fresh-required', methods }
         }
       }
@@ -174,14 +182,16 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
   }
 
   /**
-   * Complete a step-up by verifying the supplied factor and rotating the
-   * session to the higher AAL with the new factor recorded.
+   * Verifies the factor and rotates the session to the higher AAL with it recorded.
+   *
+   * SECURITY: the factor is looked up in the session's own tenant and no parameter can name another.
+   * Credentials are tenant-scoped and identities are not, so a second input would let a factor enrolled in
+   * tenant B satisfy a step-up in tenant A.
    */
   async completeStepUp(opts: {
     currentSid: string
     method: 'totp' | 'backup-code'
     code: string
-    tenantId?: string
   }): Promise<{ session: Sessions.Me; sid: string; intents: Provider.Intent[] }> {
     if (opts.method !== 'totp' && opts.method !== 'backup-code') {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
@@ -189,24 +199,26 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     if (typeof opts.code !== 'string' || opts.code.length === 0 || opts.code.length > 64) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
-    const { sessions, requireMfa, transport } = this._deps
+    const { sessions, requireMfa, transport, ctxFactory } = this._deps
     const mfa = requireMfa()
-    const resolved = await sessions.getBySid(opts.currentSid)
+    const resolved = await sessions.getBySid(opts.currentSid).orNull()
     if (!resolved?.identityId) {
       throw new AuthError('AUTH_UNAUTHENTICATED')
     }
+    // The session's tenant, not the caller's claim about it. A global session (`tenantId: null`) reads
+    // unscoped, the rule `Credential.Store` applies everywhere else.
+    const tenant: TenantContext = resolved.tenantId !== null ? { tenantId: resolved.tenantId } : {}
+    // SECURITY: bounded here, because nothing else bounds this gate - `MfaFacet` holds no limiter, so
+    // every call site has to bring its own and this one did not. A TOTP is six digits and
+    // `matchTotpStep` accepts a drift window, which is guessable online in minutes by exactly the
+    // caller a second factor is for: one holding the password and not the phone.
+    const ctx = ctxFactory(resolved.tenantId ?? undefined)
+    const limited = await ctx.limiter.consume(`stepup:${resolved.identityId}`)
+    if (!limited.ok) await refuseRateLimited(ctx.events, limited, resolved.identityId)
     const ok =
       opts.method === 'totp'
-        ? await mfa.verifyTotp(
-            resolved.identityId,
-            opts.code,
-            opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {},
-          )
-        : await mfa.verifyBackupCode(
-            resolved.identityId,
-            opts.code,
-            opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {},
-          )
+        ? await mfa.verifyTotp(resolved.identityId, opts.code, tenant)
+        : await mfa.verifyBackupCode(resolved.identityId, opts.code, tenant)
     if (!ok) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
@@ -220,24 +232,18 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
         ...resolved.factors,
         { method: opts.method === 'totp' ? 'totp' : 'backup-code', completedAt: new Date() },
       ],
-      ...(resolved.tenantId !== undefined && { tenantId: resolved.tenantId }),
+      // Unconditional: `Sessions.Me.tenantId` is `string | null` and never `undefined`, so the guard this
+      // replaces always fired while reading as though it sometimes did not. The rotated session stays in
+      // the tenant it was in.
+      tenantId: resolved.tenantId,
     })
     const intents = transport.issue(sid, session, { fresh: true, absolute: false, csrfToken })
     return { session, sid, intents }
   }
 
-  // --- Password reset ------------------------------------
-
-  /**
-   * Request a password reset. Always responds successfully (no enumeration);
-   * if the identity exists, a single-use token is minted, hashed at rest,
-   * and dispatched via the configured channel as a reset link.
-   *
-   * `channels` and `findIdentityByEmail` are passed in because the recovery
-   * flow doesn't know which app-side wiring drives email lookup or message
-   * delivery - depending on a magic-link provider would couple this facet to
-   * one provider's options.
-   */
+  /** Request a password reset. Always answers successfully, so it enumerates nothing; a single-use
+   *  token is minted, hashed at rest and dispatched when the identity exists. `channels` and
+   *  `findIdentityByEmail` are supplied by the host, which owns that wiring. */
   async requestPasswordReset(opts: {
     input: Flows.PasswordResetRequestInput
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
@@ -248,82 +254,69 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
   }
 
   /**
-   * Complete a password reset by verifying the single-use token, setting
-   * the new password, and revoking every other session for the identity.
-   * If MFA is enrolled, callers must satisfy a step-up *before* hitting this
-   * endpoint - the library refuses to swap passwords for accounts with MFA
-   * unless a fresh AAL=2 session is passed via `currentSid`.
+   * Verifies the single-use token, ends every session the old password could still hold open, then sets the
+   * new one, in that order: a failed revoke must not leave old sessions live under the new password.
+   *
+   * SECURITY: an account with MFA enrolled needs a fresh AAL=2 session of that identity in `currentSid`, and
+   * repeated refusals are rate limited and eventually consume the token. `intents` is empty for the ordinary
+   * email-link reset; when `currentSid` names a live session it is rotated rather than swept, and its
+   * replacement rides there.
    */
   async completePasswordReset(
     input: Flows.PasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
-  ): Promise<{ ok: true }> {
+  ): Promise<{ ok: true; intents: Provider.Intent[] }> {
     return completePasswordResetImpl(this._deps, input)
   }
 
-  // --- Email verification ---------------------------------------------------
-
-  /**
-   * Mint + dispatch an email-verification token. Idempotent under the
-   * rate-limit window: callers can re-trigger from a "didn't get the
-   * email" button without flooding the channel.
-   *
-   * Behavior:
-   *   - Generates a 256-bit random token; persists sha-256 under
-   *     Credential.kind='recovery' with metadata.purpose='email-verification'
-   *   - Per-identity rate limit at `verify:email:{identityId}` so
-   *     resend pressure is bounded
-   *   - No-op (returns { ok:true }) when the identity is already
-   *     verified - avoids leaking "verified" status to the caller
-   *   - Sends via the supplied channel with templateId='email-verification'
-   */
+  /** Mint and dispatch an email-verification token, rate limited per identity so a "didn't get the
+   *  email" button cannot flood the channel. An already-verified identity is a no-op that answers the
+   *  same way, so the caller learns nothing about its status. */
   async requestEmailVerification(opts: Flows.EmailVerificationRequestInput): Promise<{ ok: true }> {
     return requestEmailVerificationImpl(this._deps, opts)
   }
 
-  /**
-   * Verify the supplied token, mark `identity.profile.emailVerified=true`,
-   * consume the token. Returns `{ identityId }` on success.
-   */
-  async completeEmailVerification(input: Flows.EmailVerificationCompleteInput): Promise<{ identityId: string }> {
+  /** Spends the verification token and marks the address verified. */
+  async completeEmailVerification(
+    input: Flows.EmailVerificationCompleteInput,
+  ): Promise<{ identity: Identities.Me<Profile>; identityId: string }> {
     return completeEmailVerificationImpl(this._deps, input)
   }
 
-  // --- Account deletion -----------------------------------------------------
-
-  /**
-   * Request account deletion. Mints a confirmation token, dispatches
-   * via the configured channel, does NOT touch the identity. Caller
-   * confirms via {@link Flows.completeAccountDeletion}.
-   *
-   * The token is single-use + TTL'd (default 30 min). Multiple
-   * outstanding deletion requests for the same identity get the prior
-   * token wiped so only the latest verifies.
-   */
+  /** Mint and dispatch a confirmation token, leaving the identity untouched until
+   *  {@link FlowsImpl.completeAccountDeletion}. Single-use, TTL'd (default 30 min), and a fresh
+   *  request wipes the prior token so only the latest verifies. */
   async requestAccountDeletion(opts: Flows.AccountDeletionRequestInput): Promise<{ ok: true }> {
     return requestAccountDeletionImpl(this._deps, opts)
   }
 
-  async completeAccountDeletion(
-    input: Flows.AccountDeletionCompleteInput,
-  ): Promise<{ identityId: string; restorableUntil: number }> {
+  /** Soft-deletes the identity, revokes its sessions, and mints the single-use undo token
+   *  `cancelAccountDeletion` accepts, handed back as plaintext once and mailed for you given `channels`. */
+  async completeAccountDeletion(input: Flows.AccountDeletionCompleteInput): Promise<{
+    identity: Identities.Me<Profile>
+    identityId: string
+    restorableUntil: number
+    cancellationToken: string
+  }> {
     return completeAccountDeletionImpl(this._deps, input)
   }
 
-  async cancelAccountDeletion(input: Flows.AccountDeletionCancelInput): Promise<{ identityId: string }> {
+  /** Undo inside the grace window, through either the undo token (the user's route) or an `authorize`
+   *  callback (the operator's). One or the other: both or neither is `AUTH_MISCONFIGURED`. */
+  async cancelAccountDeletion(
+    input: Flows.AccountDeletionCancelInput,
+  ): Promise<{ identity: Identities.Me<Profile>; identityId: string }> {
     return cancelAccountDeletionImpl(this._deps, input)
   }
 
-  // --- Signup state machine -----------------------------
-
   /**
-   * Begin a multi-step signup. Creates the identity with
-   * `profile.emailVerified=false` and returns a flow handle the caller
-   * persists (cookie); each subsequent stage advances the handle until
-   * `complete()` issues the session.
+   * Begin a multi-step signup: create the identity with `emailVerified=false` and answer with a handle the
+   * caller persists and each stage advances, until `complete()` issues the session. `username` comes from the
+   * email local part when `initialProfile` carries none, because the type and the Postgres CHECK both demand
+   * one. State lives in the credentials store under `kind: 'recovery'` with `metadata.purpose: 'signup-flow'`,
+   * which is what tells four token kinds apart inside the one kind.
    *
-   * Flows persist their state in the credentials store under
-   * `kind: 'recovery'` + `metadata.kind: 'signup-flow'` so the existing
-   * findByHashedSecret / expiresAt machinery applies for free.
+   * WARN: rate-limited on the canonical address, but the identity row is written before anything proves
+   * the caller owns it. See `docs/superpowers/DECISIONS.md` D1.
    */
   async beginSignUp(opts: {
     email: string
@@ -334,10 +327,14 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return beginSignUpImpl(this._deps, opts)
   }
 
-  async getSignUpFlow(flowToken: string, tenantId?: string): Promise<Flows.SignUpFlowState<Profile> | null> {
-    return getSignUpFlowImpl(this._deps, flowToken, tenantId)
+  /** The sign-up flow behind `flowToken`. Rejects `AUTH_CREDENTIAL_NOT_FOUND` when there is no live flow -
+   *  a miss, a revoked row, an elapsed TTL and unreadable metadata are one answer, and `orNull()` reads
+   *  them back as null. */
+  getSignUpFlow(flowToken: string, tenantId?: string): Answer.Me<Flows.SignUpFlowState<Profile>> {
+    return answer(getSignUpFlowImpl(this._deps, flowToken, tenantId))
   }
 
+  /** Carries a partial sign-up to its next stage, answering a fresh flow token. */
   async advanceSignUp(opts: {
     flowToken: string
     stage: Flows.SignUpStage
@@ -347,6 +344,7 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return advanceSignUpImpl(this._deps, opts)
   }
 
+  /** Closes a staged sign-up: creates the identity and issues the session. */
   async completeSignUp(opts: {
     flowToken: string
     aal?: Sessions.AAL
@@ -359,15 +357,9 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return completeSignUpImpl(this._deps, opts)
   }
 
-  // --- Impersonation ------------------------------------
-
-  /**
-   * Start an impersonation. Library refuses to issue an actingAs session
-   * without first checking the caller's authorisation via the supplied
-   * `authorize` callback. iam consumers wire engine.authorize() here; non-
-   * iam apps supply their own predicate. NEVER pass `() => true` - that
-   * defeats audit and DESIGN section 38's invariant.
-   */
+  /** Refuses to issue an `actingAs` session until the supplied `authorize` callback approves it; iam
+   *  consumers wire `engine.authorize()` here.
+   *  SECURITY: never pass `() => true`, which defeats the invariant this exists to keep. */
   async impersonate(
     opts: Flows.ImpersonateOptions & {
       authorize: (realSession: Sessions.Me, targetIdentityId: string) => Promise<boolean>
@@ -376,24 +368,30 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return impersonateImpl(this._deps, opts)
   }
 
-  async linkProvider(opts: Flows.LinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+  /** Attach a provider identity to an existing account. `providerSub` is unverifiable from here, so
+   *  the mandatory `authorize` callback is where the host vouches for it. */
+  async linkProvider(
+    opts: Flows.LinkProviderInput<Profile>,
+  ): Promise<{ identity: Identities.Me<Profile>; identityId: string; providerId: string }> {
     return linkProviderImpl(this._deps, opts)
   }
 
-  async unlinkProvider(opts: Flows.UnlinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+  /** Drops one provider link, refusing the one that would leave the identity unable to sign in. */
+  async unlinkProvider(
+    opts: Flows.UnlinkProviderInput,
+  ): Promise<{ identity: Identities.Me<Profile>; identityId: string; providerId: string }> {
     return unlinkProviderImpl(this._deps, opts)
   }
 
-  async releaseImpersonation(impersonationSid: string): Promise<{ intents: Provider.Intent[] }> {
+  /** Ends the impersonation and mints the operator a session of their own. `session` and `sid` are null
+   *  and empty only when the operator's identity is gone, and the bearer is cleared instead. */
+  async releaseImpersonation(
+    impersonationSid: string,
+  ): Promise<{ session: Sessions.Me | null; sid: string; intents: Provider.Intent[] }> {
     return releaseImpersonationImpl(this._deps, impersonationSid)
   }
 }
 
-function isProviderIdSafe(providerId: unknown): providerId is string {
-  return typeof providerId === 'string' && providerId.length > 0 && providerId.length <= 128
-}
-
-/** Factory around {@link Flows} for functional-style config. */
 export function flows<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   sessions: SessionsImpl,
   identities: IdentitiesImpl<Profile>,

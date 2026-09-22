@@ -1,7 +1,7 @@
 // Re-exported so a consumer can type the limiter they supply, same as `limiters/redis`.
 export type { Limiter } from '../limiters.types'
 
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey/valkey-like'
+import { type ValkeyClient, valkeyAdapter } from '~/core/drivers/valkey-like'
 import { RedisLimiter } from '../redis'
 
 /** {@link RedisLimiter}, driven by an ioredis/iovalkey client via {@link valkeyAdapter}. */

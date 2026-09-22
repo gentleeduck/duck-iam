@@ -1,3 +1,4 @@
+/** The devtools' icons, inlined as SVG so consumers get no icon-package dependency. */
 import type { CSSProperties } from 'react'
 
 interface IconProps {
@@ -6,14 +7,18 @@ interface IconProps {
   style?: CSSProperties
 }
 
+/** Shared stroke attributes. Every icon is decorative, so all are hidden from assistive tech and unfocusable. */
 const base = {
+  'aria-hidden': true,
   fill: 'none',
+  focusable: 'false' as const,
   stroke: 'currentColor',
-  strokeWidth: 1.5,
   strokeLinecap: 'round' as const,
   strokeLinejoin: 'round' as const,
+  strokeWidth: 1.5,
 }
 
+/** Disclosure caret, expanded state. */
 export function ChevronDown({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -22,6 +27,7 @@ export function ChevronDown({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Disclosure caret, collapsed state. */
 export function ChevronRight({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -30,6 +36,7 @@ export function ChevronRight({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Dismiss affordance - the panel's own close control. */
 export function Close({ size = 14, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -38,6 +45,7 @@ export function Close({ size = 14, className, style }: IconProps) {
   )
 }
 
+/** Re-read affordance on panels that load from the engine on demand. */
 export function Refresh({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -46,6 +54,7 @@ export function Refresh({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Magnifier, rendered inside {@link FilterBar}'s input rather than beside it. */
 export function Search({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -55,6 +64,7 @@ export function Search({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Forward/step marker in the decision trace. */
 export function ArrowRight({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -63,6 +73,7 @@ export function ArrowRight({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** Inheritance marker in the Roles panel: the arrow before a role's `inherits` list. */
 export function CornerUpRight({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
@@ -71,14 +82,16 @@ export function CornerUpRight({ size = 12, className, style }: IconProps) {
   )
 }
 
+/** A filled circle, so it skips the shared `base` stroke attributes; defaults to 4px. */
 export function Dot({ size = 4, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 4 4" className={className} style={style}>
+    <svg aria-hidden focusable="false" width={size} height={size} viewBox="0 0 4 4" className={className} style={style}>
       <circle cx="2" cy="2" r="2" fill="currentColor" />
     </svg>
   )
 }
 
+/** The one animated icon; spins via the `.iam-dt-spin` class in `lib/styles.ts`, not an inline animation. */
 export function Spinner({ size = 12, className, style }: IconProps) {
   return (
     <svg
@@ -86,25 +99,9 @@ export function Spinner({ size = 12, className, style }: IconProps) {
       height={size}
       viewBox="0 0 16 16"
       {...base}
-      className={className}
-      style={{ ...style, animation: 'iam-dt-spin 0.9s linear infinite' }}>
+      className={className ? `iam-dt-spin ${className}` : 'iam-dt-spin'}
+      style={style}>
       <path d="M8 1.5a6.5 6.5 0 1 1-6.5 6.5" />
-    </svg>
-  )
-}
-
-export function Check({ size = 12, className, style }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
-      <path d="M3 8.5l3.5 3.5L13 5" />
-    </svg>
-  )
-}
-
-export function Minus({ size = 12, className, style }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
-      <path d="M3 8h10" />
     </svg>
   )
 }

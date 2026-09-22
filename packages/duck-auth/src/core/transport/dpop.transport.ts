@@ -1,26 +1,19 @@
-/**
- * DPoP (Demonstration of Proof-of-Possession) per RFC 9449. Verifies
- * the `DPoP` header on each authenticated request, binding a bearer
- * access token to a client-held private key.
- *
- * Threat addressed: a stolen bearer token alone is insufficient - the
- * attacker also needs the matching private key to mint a fresh DPoP
- * proof for each request.
- *
- * This module ships only the verifier surface; minting DPoP proofs is
- * a client-side concern that lives in `client/vanilla`.
- */
+/** DPoP per RFC 9449: verifies the `DPoP` header on each request so a stolen bearer token is not enough
+ *  on its own - provided the caller compares the returned `jkt` against the token's `cnf.jkt`, which
+ *  see. The verifier surface only; minting proofs lives in `client/vanilla`. */
 
 import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type KeyObject } from 'node:crypto'
 import { timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { MemoryDPoPNonceStore } from './dpop-nonce.memory'
 
+/** Each half of the window. Past an hour a proof is not "recently created" in any sense RFC 9449 means.
+ *  A proof is accepted from `iat - (clockSkew + freshness)` to `iat + (clockSkew + freshness)`, so the
+ *  window is twice this and the replay TTL is measured against its far edge, not against the sum. */
+const WINDOW_MAX_MS = 3_600_000
+
 export namespace DPoPVerifier {
-  /**
-   * RFC 7517 JSON Web Key shape. Re-declared because Node's
-   * @types/node does not export `JsonWebKey` from `node:crypto`.
-   */
+  /** RFC 7517, re-declared because @types/node does not export `JsonWebKey` from `node:crypto`. */
   export type JsonWebKey = {
     kty: 'EC' | 'OKP' | 'RSA'
     crv?: string
@@ -28,84 +21,65 @@ export namespace DPoPVerifier {
     y?: string
     n?: string
     e?: string
-    /** Private-key component; RFC 9449 forbids in proofs. */
+    /** A private-key component, which RFC 9449 forbids in a proof. */
     d?: string
     [key: string]: unknown
   }
 
-  /**
-   * Replay-protection store for DPoP `jti` claims. Each accepted proof
-   * writes its `jti` for the freshness window so a captured proof
-   * cannot be replayed.
-   */
+  /** Replay protection for DPoP `jti` claims: each accepted proof writes its `jti` for the freshness
+   *  window, so a captured proof cannot be replayed. */
   export interface NonceStore {
-    /**
-     * Mark `jti` as seen. Returns true on first sight, false when the
-     * jti was already recorded within the freshness window. Must be
-     * atomic across concurrent callers.
-     */
+    /** Mark `jti` as seen: true on first sight, false while the prior record is still alive. The
+     *  verifier asks for exactly as long as the proof stays acceptable, so honour `ttlMs` per key
+     *  rather than assuming one global window. Must be atomic across concurrent callers. */
     recordSeen(jti: string, ttlMs: number): Promise<boolean>
   }
 
-  /** Cfg knobs for {@link DPoPVerifier}. */
   export interface Cfg {
-    /** Tolerated clock skew between client + server, ms. Default 30s. */
+    /** Tolerated clock skew between client and server, ms. Default 30s. */
     clockSkewMs?: number
-    /**
-     * Freshness window applied to `iat` (ms). Proofs older than this
-     * (after subtracting clockSkew) are rejected. Default 60s.
-     */
+    /** Applied to `iat` in ms, after `clockSkewMs` is subtracted. Default 60s. */
     freshnessMs?: number
-    /**
-     * Replay-protection store. Defaults to the in-memory implementation;
-     * production wires a Redis-backed store.
-     */
+    /** In-memory by default; production wires the Redis-backed store. */
     nonceStore?: NonceStore
-    /**
-     * Allowed signing algorithms. Defaults to `['ES256', 'EdDSA']` -
-     * symmetric algorithms are forbidden by RFC 9449 section 4.2.
-     */
+    /** `['ES256', 'EdDSA']` by default, RFC 9449 section 4.2 forbidding symmetric algorithms. */
     acceptedAlgs?: Array<'ES256' | 'EdDSA' | 'RS256' | 'PS256'>
-    /**
-     * Server-supplied nonce challenge (RFC 9449 section 8/9). When set, the
-     * proof's `nonce` claim MUST match. Pass a string for a static
-     * nonce or a thunk that returns the current nonce (e.g. rotated
-     * every minute). Useful for multi-pod deployments where jti store
-     * latency makes the local replay window porous.
-     */
+    /** RFC 9449 §8-9: when set, the proof's `nonce` must match. A string for a static one, a thunk for a
+     *  rotating one, which helps where jti-store latency leaves a local replay window porous. */
     expectedNonce?: string | (() => Promise<string> | string)
   }
 
-  /** Decoded DPoP proof claims. */
   export interface Claims {
-    /** Unique per-proof identifier; used for replay protection. */
+    /** Unique per proof, and what replay protection is keyed on. */
     jti: string
     /** HTTP method, uppercased. */
     htm: string
-    /** Absolute URL of the request, without query / fragment. */
+    /** Absolute URL of the request, with no query or fragment. */
     htu: string
     /** Issued-at, seconds since epoch. */
     iat: number
-    /** Optional access-token hash (sha-256 base64url) bound to this proof. */
+    /** Access-token hash, sha-256 base64url, bound to this proof. */
     ath?: string
     /** Optional server-supplied nonce echoed back for additional replay protection. */
     nonce?: string
   }
 
-  /** Result of a successful verify call. */
   export interface Verified {
-    /** RFC 7638 JWK thumbprint of the client's public key. */
+    /** RFC 7638 JWK thumbprint of the key that signed this proof.
+     *
+     *  SECURITY: compare it against the access token's `cnf.jkt` - the one written by
+     *  {@link bindPayloadToDPoP} - before honouring the request. A proof carries the key it was signed
+     *  with, so the presenter always holds the key in the proof; whether it is the key the token was
+     *  issued against is the question, and this value is the whole answer. Skip the comparison and a
+     *  `verify` that does not throw means only that someone signed a well-formed proof over this token
+     *  for this URL, which whoever stole the token can do with a keypair of their own. */
     jkt: string
-    /** The verified claims. */
     claims: Claims
   }
 }
 
-/**
- * Per-request DPoP verifier. Stateless apart from the configured nonce
- * store. Throws `AUTH/DPOP_INVALID` on any failure so the framework
- * adapter can wrap calls in a single try/catch.
- */
+/** Per-request DPoP verifier, stateless apart from the nonce store. Throws `AUTH_DPOP_INVALID` on
+ *  any failure, so an adapter wraps it in one try/catch. */
 export class DPoPVerifier {
   private readonly _clockSkewMs: number
   private readonly _freshnessMs: number
@@ -119,12 +93,24 @@ export class DPoPVerifier {
     this._nonceStore = cfg.nonceStore ?? new MemoryDPoPNonceStore()
     this._expectedNonce = cfg.expectedNonce
     this._acceptedAlgs = new Set(cfg.acceptedAlgs ?? ['ES256', 'EdDSA'])
+    // SECURITY: the freshness window is `Math.abs(now - iat) > clockSkew + freshness`, and `>` against a
+    // sum that is not a number is false, so the check never fires. Measured: a `clockSkewMs` of NaN
+    // accepted proofs dated a year old, ten years old, and a year in the future. The parser refuses a
+    // non-finite `iat` and says so above that comparison - the claim an attacker controls was bounded,
+    // the two numbers it is weighed against were not.
+    if (!Number.isFinite(this._clockSkewMs) || this._clockSkewMs < 0 || this._clockSkewMs > WINDOW_MAX_MS) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `DPoPVerifier: clockSkewMs must be a number between 0 and ${WINDOW_MAX_MS} (got ${this._clockSkewMs})`,
+      })
+    }
+    if (!Number.isFinite(this._freshnessMs) || this._freshnessMs < 0 || this._freshnessMs > WINDOW_MAX_MS) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `DPoPVerifier: freshnessMs must be a number between 0 and ${WINDOW_MAX_MS} (got ${this._freshnessMs})`,
+      })
+    }
   }
 
-  /**
-   * Verify the `DPoP` header against the request. Returns
-   * `{ jkt, claims }` on success; throws `AUTH/DPOP_INVALID` otherwise.
-   */
+  /** Verifies the proof against this method and URL; comparing its `jkt` is the caller's job. */
   async verify(
     dpopHeader: string,
     request: { method: string; url: string },
@@ -173,7 +159,8 @@ export class DPoPVerifier {
     // RFC 9449 4.2 freshness window; parser already rejects non-finite iat.
     const nowMs = Date.now()
     const iatMs = claims.iat * 1000
-    if (Math.abs(nowMs - iatMs) > this._clockSkewMs + this._freshnessMs) {
+    const window = this._clockSkewMs + this._freshnessMs
+    if (Math.abs(nowMs - iatMs) > window) {
       throw new AuthError('AUTH_DPOP_INVALID', { reason: 'proof outside freshness window' })
     }
 
@@ -187,7 +174,7 @@ export class DPoPVerifier {
         throw new AuthError('AUTH_DPOP_INVALID', { reason: 'ath required when access token present' })
       }
       const expected = sha256base64url(accessToken)
-      // timingSafeEqual defense-in-depth (signature still gates).
+      // timingSafeEqual as defence in depth; the signature still gates.
       if (!timingSafeEqual(claims.ath, expected)) {
         throw new AuthError('AUTH_DPOP_INVALID', { reason: 'ath mismatch' })
       }
@@ -195,7 +182,7 @@ export class DPoPVerifier {
       throw new AuthError('AUTH_DPOP_INVALID', { reason: 'ath unexpected (no access token in request)' })
     }
 
-    // Server nonce challenge (RFC 9449 8/9); tightens replay across partitioned deploys.
+    // RFC 9449 8/9, which tightens replay across partitioned deploys.
     if (this._expectedNonce !== undefined) {
       const expectedNonce =
         typeof this._expectedNonce === 'function' ? await this._expectedNonce() : this._expectedNonce
@@ -205,7 +192,14 @@ export class DPoPVerifier {
       }
     }
 
-    const fresh = await this._nonceStore.recordSeen(claims.jti, this._freshnessMs + this._clockSkewMs)
+    // SECURITY: held until this proof stops being acceptable, which is `iat + window` and not `window`
+    // from now. The check above is two-sided, so a proof dated into the future - which is what
+    // `clockSkewMs` exists to tolerate, and every client whose clock runs fast mints one - is accepted
+    // before its `iat` and stays acceptable well after the jti was forgotten. Measured at the defaults:
+    // the verifier asked for a 90s TTL on a proof that stayed fresh for another 179s, and the identical
+    // proof, replayed once its jti had expired, was accepted a second time. The gap is how far ahead the
+    // client's clock runs, up to the full 90s.
+    const fresh = await this._nonceStore.recordSeen(claims.jti, iatMs + window - nowMs)
     if (!fresh) {
       throw new AuthError('AUTH_DPOP_INVALID', { reason: 'jti replay detected' })
     }
@@ -214,10 +208,7 @@ export class DPoPVerifier {
   }
 }
 
-/**
- * Compute the RFC 7638 JWK thumbprint of a public key. Used to bind a
- * DPoP proof's JWK to the `cnf.jkt` claim on the access token.
- */
+/** RFC 7638, which is what binds a proof's JWK to the access token's `cnf.jkt` claim. */
 export function computeJwkThumbprint(jwk: DPoPVerifier.JsonWebKey): string {
   let canonical: string
   switch (jwk.kty) {
@@ -236,10 +227,7 @@ export function computeJwkThumbprint(jwk: DPoPVerifier.JsonWebKey): string {
   return createHash('sha256').update(canonical).digest('base64url')
 }
 
-/**
- * Internal parser result. Discriminated so callers narrow without casts.
- * `reason` is surfaced as the `AuthError` meta on failure.
- */
+/** Discriminated, so callers narrow without casts. `reason` becomes the `AuthError` meta on failure. */
 type ParseResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 
 interface DpopHeaderShape {
@@ -257,7 +245,6 @@ function isJsonWebKey(v: unknown): v is DPoPVerifier.JsonWebKey {
   return v.kty === 'EC' || v.kty === 'OKP' || v.kty === 'RSA'
 }
 
-/** Validate the decoded DPoP header. */
 function parseDpopHeader(raw: unknown, acceptedAlgs: ReadonlySet<string>): ParseResult<DpopHeaderShape> {
   if (!isPlainObject(raw)) {
     return { ok: false, reason: 'bad typ; expected dpop+jwt' }
@@ -278,15 +265,9 @@ function parseDpopHeader(raw: unknown, acceptedAlgs: ReadonlySet<string>): Parse
   return { ok: true, value: { alg, typ, jwk } }
 }
 
-/**
- * validate the decoded DPoP claims without `as` casts. Each field
- * is narrowed by `typeof` before use so a malformed proof cannot
- * (a) bypass freshness via `NaN > N === false` on a non-numeric `iat`,
- * (b) crash the verifier via `.toUpperCase()` on a non-string `htm`,
- * (c) crash via `new URL(obj)` on a non-string `htu`, or
- * (d) sneak through `ath`/`nonce` value-equality checks with object
- *     identity.
- */
+/** Validate the decoded DPoP claims, narrowing each field by `typeof` first: a non-numeric `iat`
+ *  would bypass freshness through `NaN > N === false`, and a non-string `htm`/`htu` would crash the
+ *  verifier outright. */
 function parseDpopClaims(raw: unknown): ParseResult<DPoPVerifier.Claims> {
   if (!isPlainObject(raw)) {
     return { ok: false, reason: 'malformed payload' }
@@ -316,10 +297,7 @@ function parseDpopClaims(raw: unknown): ParseResult<DPoPVerifier.Claims> {
   return { ok: true, value: claims }
 }
 
-/**
- * Inject a `cnf.jkt` confirmation claim into an existing access-token
- * payload object.
- */
+/** Injects a `cnf.jkt` confirmation claim into an existing access-token payload. */
 export function bindPayloadToDPoP<P extends Record<string, unknown>>(
   payload: P,
   jkt: string,
@@ -408,7 +386,7 @@ function encodeInteger(buf: Buffer): Buffer {
   return Buffer.concat([Buffer.from([0x02, body.length]), body])
 }
 
-/** Factory around {@link DPoPVerifier}, for callers who prefer functions to `new`. */
+/** Constructs a {@link DPoPVerifier}. */
 export function dPoPVerifier(...args: ConstructorParameters<typeof DPoPVerifier>): DPoPVerifier {
   return new DPoPVerifier(...args)
 }

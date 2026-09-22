@@ -1,13 +1,4 @@
-/**
- * E2E: `valkeyDPoPNonceStore` against a REAL server.
- *
- * `dpop-nonce.redis.e2e.test.ts` covers `RedisDPoPNonceStore` itself; this proves
- * `valkeyDPoPNonceStore` wires a raw ioredis client into a working store, on the
- * one property that only a real server can show: cross-connection replay rejection.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
- */
+/** E2E: `valkeyDPoPNonceStore` against a REAL server. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { valkeyDPoPNonceStore } from '~/core/transport/dpop-nonce.valkey'

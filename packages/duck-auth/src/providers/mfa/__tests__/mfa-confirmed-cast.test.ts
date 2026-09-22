@@ -15,15 +15,18 @@ describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
   })
 
   async function plant(metadata: unknown, secret = 'JBSWY3DPEHPK3PXP'): Promise<void> {
-    await adapter.credentials.upsert(
+    const row = await adapter.credentials.create(
       credentialInput({
         identityId,
         kind: 'totp',
-        secret,
+        secret: 'JBSWY3DPEHPK3PXP',
         metadata: metadata as Record<string, unknown>,
       }),
       {},
     )
+    // A non-string secret is a corrupt row, not a write: every dialect's column refuses it and so does
+    // memory, so it is planted past the write path rather than through it.
+    adapter.raw.credentials.set(row.id, { ...row, secret })
   }
 
   it('hasTotp returns false for a row with confirmed: "yes" (string, not boolean)', async () => {

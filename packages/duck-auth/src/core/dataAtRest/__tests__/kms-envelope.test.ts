@@ -47,14 +47,16 @@ describe('AuthKmsEnvelopeDataAtRest', () => {
     const kms = makeFakeKms()
     const a = new AuthKmsEnvelopeDataAtRest({ kms })
     const ct = await a.encrypt('hi', { field: 'ssn', identityId: 'u1' })
-    await expect(a.decrypt(ct, { field: 'ssn', identityId: 'other' })).rejects.toThrow()
+    // KMS is what refuses, not the adapter: the context travels with the unwrap, so pinning the message
+    // is what proves it was passed rather than dropped.
+    await expect(a.decrypt(ct, { field: 'ssn', identityId: 'other' })).rejects.toThrow(/encryption context mismatch/)
   })
 
   it('rejects malformed ciphertext', async () => {
     const kms = makeFakeKms()
     const a = new AuthKmsEnvelopeDataAtRest({ kms })
     await expect(a.decrypt('not-a-ciphertext', { field: 'f', identityId: 'i' })).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
     })
   })
 

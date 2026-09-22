@@ -5,11 +5,18 @@
  */
 
 import type { Channel } from '~/channels/channels.types'
-import { getProfileString } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
+import { ChannelGuard } from '../channels.guard'
+import {
+  checkRenderedSms,
+  describeSendError,
+  redactProviderError,
+  resolvePhoneRecipient,
+  SMS_BODY_MAX_LENGTH,
+} from '../channels.outbound'
 
 export namespace AuthTwilioChannel {
-  /** Subset of the Twilio SDK we depend on. */
+  /** The subset of the Twilio SDK this uses. */
   export interface IClient {
     messages: {
       create(opts: {
@@ -27,8 +34,7 @@ export namespace AuthTwilioChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ body: string }> | { body: string }
 
-  /** Cfg knobs for {@link AuthTwilioChannel}. */
-  export interface Cfg {
+  export interface Cfg extends ChannelGuard.Cfg {
     /** Twilio Account SID. Required when `client` is not supplied. */
     accountSid?: string
     /** Twilio Auth Token. Required when `client` is not supplied. */
@@ -74,6 +80,7 @@ export class AuthTwilioChannel implements Channel.Channel {
   private readonly _msgServiceSid: string | undefined
   private readonly _resolve: AuthTwilioChannel.ITemplateResolver
   private _clientPromise: Promise<AuthTwilioChannel.IClient> | null = null
+  private readonly _guard: ChannelGuard
 
   constructor(cfg: AuthTwilioChannel.Cfg) {
     if (!cfg.from && !cfg.messagingServiceSid) {
@@ -95,6 +102,7 @@ export class AuthTwilioChannel implements Channel.Channel {
     this._msgServiceSid = cfg.messagingServiceSid
     this._resolve = cfg.templates
     this.id = cfg.id ?? 'twilio'
+    this._guard = new ChannelGuard(this.id, cfg)
 
     if (cfg.client) {
       this._clientPromise = Promise.resolve(cfg.client)
@@ -107,41 +115,50 @@ export class AuthTwilioChannel implements Channel.Channel {
 
   /** Render template, send via Twilio. Returns ok:false on any error. */
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
-    const to = getProfileString(input.identity.profile, 'phone')
-    if (!to) {
-      return { ok: false, error: 'identity has no phone; AuthTwilioChannel cannot deliver' }
-    }
+    const recipient = resolvePhoneRecipient(input.identity.profile, 'AuthTwilioChannel')
+    if (!recipient.ok) return { error: recipient.error, ok: false, retryable: false }
+    const budget = await this._guard.spend(input).wrap()
+    if (budget.error) return { error: budget.error.code, ok: false, retryable: true }
+    const to = recipient.to
     let resolved: Awaited<ReturnType<AuthTwilioChannel.ITemplateResolver>>
     try {
       resolved = await this._resolve(input.templateId, input.vars)
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      return { error: describeSendError(err), ok: false, retryable: false }
     }
+    const malformed = checkRenderedSms(resolved)
+    if (malformed) return { error: `AuthTwilioChannel: ${malformed}`, ok: false, retryable: false }
     if (!this._clientPromise) {
-      return { ok: false, error: 'AuthTwilioChannel has no client (misconfigured)' }
+      return { error: 'AuthTwilioChannel has no client (misconfigured)', ok: false, retryable: false }
     }
     try {
       const client = await this._clientPromise
       const opts: Parameters<AuthTwilioChannel.IClient['messages']['create']>[0] = {
         to,
-        body: resolved.body,
+        // Capped, not forwarded: a resolver interpolating an attacker-influenced variable into an
+        // SMS turns one send into thousands of billed segments.
+        body: resolved.body.slice(0, SMS_BODY_MAX_LENGTH),
       }
       if (this._from) opts.from = this._from
       if (this._msgServiceSid) opts.messagingServiceSid = this._msgServiceSid
-      const response = await client.messages.create(opts)
+      const response = await this._guard.attempt(() => client.messages.create(opts))
       if (response.errorCode) {
-        return { ok: false, error: response.errorMessage ?? `twilio error ${response.errorCode}` }
+        return {
+          error: redactProviderError(response.errorMessage ?? `twilio error ${response.errorCode}`),
+          ok: false,
+          retryable: true,
+        }
       }
       const out: Channel.SendResult = { ok: true }
       if (response.sid !== undefined) out.providerMessageId = response.sid
       return out
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      return { error: describeSendError(err), ok: false, retryable: true }
     }
   }
 }
 
-/** Factory around {@link AuthTwilioChannel}, for callers who prefer functions to `new`. */
+/** SMS channel over the Twilio API. */
 export function authTwilioChannel(...args: ConstructorParameters<typeof AuthTwilioChannel>): AuthTwilioChannel {
   return new AuthTwilioChannel(...args)
 }

@@ -288,6 +288,42 @@ describe('createIamAdminOperations onAdminMutation', () => {
     expect(savedPolicy).toBe(false)
   })
 
+  // SECURITY: pins the default gate itself; the case above only shows a supplied `csrfCheck` is honoured.
+  it('the default csrfCheck blocks a cross-site mutation with no csrfCheck supplied', async () => {
+    const engine = makeEngine()
+    let authorizeCalled = false
+    let savedPolicy = false
+    const origSave = engine.admin.savePolicy.bind(engine.admin)
+    engine.admin.savePolicy = async (p) => {
+      savedPolicy = true
+      return origSave(p)
+    }
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+      authorize: (() => {
+        authorizeCalled = true
+        return { id: 'admin-1' }
+      }) as never,
+    })
+    const req = { method: 'PUT', path: '/admin/policies', headers: { 'sec-fetch-site': 'cross-site' } } as never
+    await expect(
+      h.savePolicy(req, { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] } as never),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(authorizeCalled).toBe(false)
+    expect(savedPolicy).toBe(false)
+  })
+
+  it('a same-origin mutation still gets through the default check', async () => {
+    // Positive control: a default that refused everything would pass the test above.
+    const engine = makeEngine()
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+      authorize: (() => ({ id: 'admin-1' })) as never,
+    })
+    const req = { method: 'PUT', path: '/admin/policies', headers: { 'sec-fetch-site': 'same-origin' } } as never
+    await expect(
+      h.savePolicy(req, { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] } as never),
+    ).resolves.not.toThrow()
+  })
+
   it('savePolicy fires with action:replace, target:policy, success:true', async () => {
     const engine = makeEngine()
     const events: unknown[] = []
@@ -334,9 +370,16 @@ describe('createIamAdminOperations onAdminMutation', () => {
         events.push(e)
       },
     })
-    await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
-    ).rejects.toThrow('save-failed')
+    // The adapter's own 500 escapes, like the other adapters' fixed `Internal server error`; the original is `cause`.
+    const thrown = await h
+      .savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+      .then(
+        () => null,
+        (err: unknown) => err,
+      )
+    expect(String(thrown)).not.toContain('save-failed')
+    expect((thrown as { statusCode?: number }).statusCode).toBe(500)
+    expect((thrown as { cause?: Error }).cause?.message).toBe('save-failed')
     await flushMicrotasks()
     engine.admin.savePolicy = original
     expect(events).toHaveLength(1)
@@ -449,9 +492,16 @@ describe('createIamAdminOperations onAdminMutation', () => {
         events.push(e)
       },
     })
-    await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
-    ).rejects.toBeInstanceOf(PolicyValidationError)
+    // SECURITY: the message is a SQL fragment naming a password column; neither the event nor the framework gets it.
+    const thrown = await h
+      .savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+      .then(
+        () => null,
+        (err: unknown) => err,
+      )
+    expect(thrown).not.toBeInstanceOf(PolicyValidationError)
+    expect(String(thrown)).not.toContain('password')
+    expect((thrown as { cause?: Error }).cause).toBeInstanceOf(PolicyValidationError)
     await flushMicrotasks()
     engine.admin.savePolicy = original
     expect(events).toHaveLength(1)
@@ -473,9 +523,14 @@ describe('createIamAdminOperations onAdminMutation', () => {
         events.push(e)
       },
     })
-    await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
-    ).rejects.toThrow('full-detailed-message')
+    const thrown = await h
+      .savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+      .then(
+        () => null,
+        (err: unknown) => err,
+      )
+    // `includeErrorMessage` governs the audit string, not the response, on every adapter.
+    expect(String(thrown)).not.toContain('full-detailed-message')
     await flushMicrotasks()
     engine.admin.savePolicy = original
     expect(events[0]!.error).toBe('full-detailed-message')

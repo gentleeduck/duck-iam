@@ -1,13 +1,20 @@
 /**
- * Backup-codes facet. Issues a set of single-use recovery codes that
- * substitute for the user's MFA factor when their TOTP / passkey
- * device is unavailable. Codes are stored hashed (sha-256) against
- * `Credential.kind = 'recovery'`; plaintext is returned to the caller
- * exactly once at generation time.
+ * Single-use recovery codes standing in for the user's MFA factor when their device is unavailable.
+ * Stored as sha-256 against `Credential.kind = 'recovery'`; the plaintext is answered exactly once.
+ *
+ * WARN: `recovery` is shared by six token families ({@link RECOVERY_PURPOSES}), so every read and
+ * delete here filters on `metadata.purpose`. Unfiltered, minting codes wipes a pending password reset
+ * and offers verification tokens to `verify` as second factors.
  */
 
 import { randomBytes } from 'node:crypto'
-import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
+import {
+  getCredentialPurpose,
+  isCredentialExpired,
+  isRevoked,
+  toCredentialCreate,
+} from '~/core/credentials/credentials'
+import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
@@ -17,29 +24,34 @@ export namespace BackupCodesFacet {
   export type Cfg = {
     /** Number of codes minted per call to `generate`. Default 10. */
     count: number
-    /** Code length in bytes (4 -> 8 hex chars; 5 -> 10; etc). Default 5. */
+    /** Entropy per code, in bytes. The alphabet carries 5 bits a character, so 5 bytes is 8 characters
+     *  and 10 is 16. Default 5. */
     byteLength: number
-    /**
-     * Format applied to the plaintext (groups of 4 separated by `-`).
-     * Default true; UI-friendly. The stored hash is computed AFTER
-     * formatting so verify must apply the same normalization.
-     */
+    /** Group the plaintext in fours separated by `-`. Default true. The hash is computed after
+     *  formatting, so `verify` must normalise the same way. */
     groupFour: boolean
   }
 }
 
-/**
- * Crockford-style 32-char alphabet - skips 0/O/I/1 + ambiguous chars.
- * Used by `generateBackupCode` below.
- */
+/** Crockford-style 32 characters, skipping the ambiguous 0, O, I and 1. */
 const BACKUP_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
+/** The alphabet is 32 characters, so each one carries exactly 5 bits. */
+function codeLengthFor(byteLength: number): number {
+  return Math.ceil((byteLength * 8) / 5)
+}
+
+/** Every four characters, so a 16-character code reads as four groups rather than one of four and one
+ *  of twelve. */
+function groupInFours(s: string): string {
+  return (s.match(/.{1,4}/g) ?? [s]).join('-')
+}
+
 /** CSPRNG-rejection-sampling backup code (no modulo bias) over a 32-char readable alphabet. */
-function generateBackupCode(_crypto: { authRandomToken(b: number): string }, length: number): string {
-  void _crypto
+function generateBackupCode(length: number): string {
   let out = ''
   while (out.length < length) {
-    // Over-sample so we rarely loop more than once even with rejection.
+    // Over-sampled, so rejection rarely costs a second pass.
     const buf = randomBytes(length * 2)
     for (const b of buf) {
       if (out.length === length) break
@@ -50,18 +62,15 @@ function generateBackupCode(_crypto: { authRandomToken(b: number): string }, len
   return out
 }
 
+/** Defaults applied when backup-code config omits a field. */
 export const DEFAULT_BACKUP_CODES_CONFIG: BackupCodesFacet.Cfg = {
   count: 10,
   byteLength: 5,
   groupFour: true,
 }
 
-/**
- * Backup-codes facet. Talks to `Credential.IStore` for persistence and
- * the supplied crypto helpers for token gen + hashing. Caller wires it
- * directly; not auto-mounted on `AuthEngine` because the lib does not
- * assume the application surfaces this MFA fallback.
- */
+/** Wired directly by the caller rather than auto-mounted on `AuthEngine`, since not every
+ *  application surfaces this MFA fallback. */
 export class BackupCodesFacet {
   constructor(
     private readonly _credentials: Credential.Store,
@@ -70,27 +79,38 @@ export class BackupCodesFacet {
       authSha256(s: string): string
     },
     private readonly _cfg: BackupCodesFacet.Cfg = DEFAULT_BACKUP_CODES_CONFIG,
-  ) {}
+  ) {
+    // SECURITY: the same two knobs `MfaImpl` guards, on the second implementation of this contract.
+    // `generateBackupCode` loops `while (out.length < length)`, so a `byteLength` of 0, NaN or a negative
+    // number exits before the first draw and mints ten empty strings without a word - measured. Five
+    // bytes is eight characters over a 32-character alphabet, which is this facet's own default.
+    if (!Number.isInteger(this._cfg.count) || this._cfg.count < 1 || this._cfg.count > 64) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `backupCodes: count must be a whole number between 1 and 64, got ${String(this._cfg.count)}`,
+      })
+    }
+    if (!Number.isInteger(this._cfg.byteLength) || this._cfg.byteLength < 5 || this._cfg.byteLength > 64) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `backupCodes: byteLength must be a whole number between 5 and 64, got ${String(this._cfg.byteLength)}`,
+      })
+    }
+  }
 
-  /**
-   * Generate + persist `count` fresh backup codes for `identityId`.
-   * Returns the plaintext array exactly once. Calling generate again
-   * REPLACES any prior set - the existing codes are wiped via
-   * `deleteByKind`.
-   */
+  /** Generate and persist `count` fresh codes, answering with the plaintext exactly once. Replaces any
+   *  prior set, and only that set, never the identity's reset, verification or signup tokens. */
   async generate(identityId: string, ctx: TenantContext = {}): Promise<{ codes: string[] }> {
-    await this._credentials.deleteByKind(identityId, 'recovery', ctx)
+    await this._credentials.deleteByKindAndPurpose(identityId, 'recovery', RECOVERY_PURPOSES.mfaBackupCode, ctx)
     const codes: string[] = []
     for (let i = 0; i < this._cfg.count; i++) {
-      const mapped = generateBackupCode(this._crypto, 8)
-      const formatted = this._cfg.groupFour ? `${mapped.slice(0, 4)}-${mapped.slice(4)}` : mapped
+      const mapped = generateBackupCode(codeLengthFor(this._cfg.byteLength))
+      const formatted = this._cfg.groupFour ? groupInFours(mapped) : mapped
       codes.push(formatted)
-      await this._credentials.upsert(
-        toCredentialUpsert({
+      await this._credentials.create(
+        toCredentialCreate({
           identityId,
           kind: 'recovery',
           secret: this._crypto.authSha256(formatted),
-          metadata: { issuedAt: Date.now() },
+          metadata: { purpose: RECOVERY_PURPOSES.mfaBackupCode, issuedAt: Date.now() },
         }),
         ctx,
       )
@@ -98,64 +118,70 @@ export class BackupCodesFacet {
     return { codes }
   }
 
-  /**
-   * Count of unused codes remaining for `identityId`. Useful for UI
-   * "you have N backup codes left" prompts.
-   */
+  /** For a "you have N backup codes left" prompt. */
   async remaining(identityId: string, ctx: TenantContext = {}): Promise<number> {
     const rows = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
-    return rows.filter((r) => !isRevoked(r)).length
+    return rows.filter(
+      (r) => getCredentialPurpose(r) === RECOVERY_PURPOSES.mfaBackupCode && !isRevoked(r) && !isCredentialExpired(r),
+    ).length
   }
 
-  /**
-   * Verify + consume a backup code. Returns true when the supplied
-   * code matches an unused row + deletes that row atomically. Returns
-   * false on miss; throws AUTH/RECOVERY_TOKEN_INVALID when the input
-   * shape is obviously malformed (empty, too short).
-   *
-   * The code argument is normalized (uppercased, hyphens stripped if
-   * the storage path stored hyphenated) before hashing so the user's
-   * input format is forgiving.
-   */
+  /** Verify and consume a backup code, claiming the matched row so one code buys one success. `false`
+   *  on a miss or a lost race; `AUTH_RECOVERY_TOKEN_INVALID` when the input is obviously malformed. The
+   *  code is uppercased and de-hyphenated before hashing, so the user's formatting is forgiven. */
   async verify(identityId: string, code: string, ctx: TenantContext = {}): Promise<boolean> {
-    if (!code || code.length < 4) {
+    // Capped as well as floored: without it a multi-megabyte string is uppercased and sha-256'd on
+    // every attempt. A 16-character code with its hyphens is 19.
+    if (!code || code.length < 4 || code.length > 128) {
       throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
     }
     const normalized = this._normalize(code)
     const hash = this._crypto.authSha256(normalized)
     const matches = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
-    // Loop to completion + constant-time compare each hash; early `return true`
-    // would leak which row matched (and if any did) via timing.
-    let matchedId: string | null = null
+    // Every row is compared, in constant time: an early `return true` leaks which one matched, and
+    // whether any did, through timing.
+    let matched: Credential.Me | null = null
     for (const cred of matches) {
-      const hit = !isRevoked(cred) && timingSafeEqual(cred.secret, hash)
-      if (hit && matchedId === null) matchedId = cred.id
+      const hit =
+        getCredentialPurpose(cred) === RECOVERY_PURPOSES.mfaBackupCode &&
+        !isRevoked(cred) &&
+        // Expiry as well, so `remaining()` above and this gate agree on which codes are still spendable.
+        !isCredentialExpired(cred) &&
+        timingSafeEqual(cred.secret, hash)
+      if (hit && matched === null) matched = cred
     }
-    if (matchedId === null) return false
-    // Soft-revoke so reuse attempts surface as known-consumed rows.
-    await this._credentials.revoke(matchedId, ctx)
+    if (matched === null) return false
+    // The CAS claim is what makes a backup code single-use. `revoke` below is unconditional, so on its
+    // own it lets two verifications that both read before either wrote match the same live row and both
+    // answer true. Burning the secret in the claiming write also stops one that reads after it lands.
+    const burnt = this._crypto.authSha256(this._crypto.authRandomToken(32))
+    try {
+      await this._credentials.rotate(matched.id, burnt, matched.version, ctx)
+    } catch (err) {
+      // Losing the race is a code someone else already spent, which is a miss like any other.
+      if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') return false
+      throw err
+    }
+    // Soft-revoked, so a reuse attempt surfaces as a known-consumed row.
+    await this._credentials.revoke(matched.id, ctx)
     return true
   }
 
-  /**
-   * Wipe every backup code for an identity. Caller invokes during MFA
-   * reset / account wipe.
-   */
+  /** Wipes every backup code for an identity, for an MFA reset or an account wipe. Backup codes only:
+   *  an MFA reset is no reason to cancel the reset token in the user's inbox. */
   async revokeAll(identityId: string, ctx: TenantContext = {}): Promise<void> {
-    await this._credentials.deleteByKind(identityId, 'recovery', ctx)
+    await this._credentials.deleteByKindAndPurpose(identityId, 'recovery', RECOVERY_PURPOSES.mfaBackupCode, ctx)
   }
 
-  /** Match the format generate() emits so verify() finds the hash. */
+  /** Matches what `generate()` emits, so `verify()` finds the hash. Strips the user's hyphens and
+   *  re-applies the canonical grouping, so where they put them does not matter. */
   private _normalize(code: string): string {
-    const upper = code.trim().toUpperCase()
-    if (this._cfg.groupFour && upper.length === 8 && !upper.includes('-')) {
-      return `${upper.slice(0, 4)}-${upper.slice(4)}`
-    }
-    return upper
+    const bare = code.trim().toUpperCase().replace(/-/g, '')
+    return this._cfg.groupFour ? groupInFours(bare) : bare
   }
 }
 
-/** Factory around {@link BackupCodesFacet}, for callers who prefer functions to `new`. */
+/** Constructs a {@link BackupCodesFacet}. */
 export function backupCodesFacet(...args: ConstructorParameters<typeof BackupCodesFacet>): BackupCodesFacet {
   return new BackupCodesFacet(...args)
 }
