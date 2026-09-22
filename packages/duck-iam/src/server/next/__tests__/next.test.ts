@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine'
 import type { AccessControl } from '../../../core/types'
+import { iamExtractEnvironment } from '../../generic'
 import {
   checkIamAccess,
   createIamAdminHandlers,
@@ -103,13 +104,27 @@ describe('withIamAccess', () => {
     can.mockRestore()
   })
 
-  it('default getEnvironment reads x-forwarded-for + ua', async () => {
+  it('default getEnvironment reads the ua but never guesses the ip', async () => {
+    // SECURITY: the wrapper cannot tell a proxy-written x-forwarded-for from a client's, so the app supplies the ip
+    // via `getEnvironment`.
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const handler = vi.fn(async () => Response.json({ ok: true }))
     const wrapped = withIamAccess(engine, 'read', 'post', handler, { getUserId: () => 'u' })
     await wrapped(makeRequest({ headers: { 'x-forwarded-for': '1.1.1.1', 'user-agent': 'curl' } }), { params: {} })
-    expect(can.mock.calls[0]?.[3]?.ip).toBe('1.1.1.1')
+    expect(can.mock.calls[0]?.[3]?.ip).toBeUndefined()
     expect(can.mock.calls[0]?.[3]?.userAgent).toBe('curl')
+    can.mockRestore()
+  })
+
+  it('an app that trusts its proxy supplies the ip through getEnvironment', async () => {
+    const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
+    const handler = vi.fn(async () => Response.json({ ok: true }))
+    const wrapped = withIamAccess(engine, 'read', 'post', handler, {
+      getEnvironment: (req) => iamExtractEnvironment({ headers: req.headers }, { trustProxy: true }),
+      getUserId: () => 'u',
+    })
+    await wrapped(makeRequest({ headers: { 'x-forwarded-for': ' 1.1.1.1 , 10.0.0.1' } }), { params: {} })
+    expect(can.mock.calls[0]?.[3]?.ip).toBe('1.1.1.1')
     can.mockRestore()
   })
 
@@ -289,6 +304,45 @@ describe('createIamAdminHandlers onAdminMutation', () => {
     expect(res.status).toBe(403)
     expect(authorizeCalled).toBe(false)
     expect(savedPolicy).toBe(false)
+  })
+
+  // SECURITY: pins the default gate itself; the case above only shows a supplied `csrfCheck` is honoured.
+  it('the default csrfCheck blocks a cross-site mutation with no csrfCheck supplied', async () => {
+    const engine = makeEngine()
+    let authorizeCalled = false
+    let savedPolicy = false
+    const origSave = engine.admin.savePolicy.bind(engine.admin)
+    engine.admin.savePolicy = async (p) => {
+      savedPolicy = true
+      return origSave(p)
+    }
+    const h = createIamAdminHandlers(engine, {
+      authorize: (() => {
+        authorizeCalled = true
+        return { id: 'admin-1' }
+      }) as never,
+    })
+    const req = new Request('https://example.com/api/admin/policies', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+      body: JSON.stringify({ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }),
+    })
+    const res = await h.savePolicy(req, { params: {} })
+    expect(res.status).toBe(403)
+    expect(authorizeCalled).toBe(false)
+    expect(savedPolicy).toBe(false)
+  })
+
+  it('a same-origin mutation still gets through the default check', async () => {
+    // Positive control: a default that refused everything would pass the test above.
+    const engine = makeEngine()
+    const h = createIamAdminHandlers(engine, { authorize: (() => ({ id: 'admin-1' })) as never })
+    const req = new Request('https://example.com/api/admin/policies', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }),
+    })
+    expect((await h.savePolicy(req, { params: {} })).status).toBe(200)
   })
 
   it('savePolicy fires with action:replace, target:policy, success:true', async () => {

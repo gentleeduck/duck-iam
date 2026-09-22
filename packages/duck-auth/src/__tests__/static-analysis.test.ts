@@ -1,17 +1,6 @@
 /**
  * Static-analysis assertions that enforce security invariants by
  * grepping the source tree at test time.
- *
- * These tests guard against the class of bugs that can't be caught
- * by unit tests of a single function: someone adds Math.random() to a
- * secret-generation path during a refactor, or replaces timingSafeEqual
- * with === in a token compare, and the resulting code still compiles
- * and the existing happy-path tests still pass. The bug is invisible
- * until somebody reads the diff carefully.
- *
- * If one of these tests fails, do NOT add an allowlist entry without
- * understanding what the rule was protecting against. The comment on
- * each test explains the threat.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -212,5 +201,39 @@ describe('JWT alg pinning prevents alg-confusion (RFC 8725 §3.1)', () => {
     // way (either via an alg-pin comment or an `alg !== ` rejection).
     const hasAlgPin = /alg\s*!==|alg-confusion|alg pinned|RFC 8725/.test(jwtFile.contents)
     expect(hasAlgPin).toBe(true)
+  })
+})
+
+describe('The session route answers a row without its CSRF hash', () => {
+  // Every adapter serialised `resolved.session` whole, so the per-session CSRF hash reached the
+  // browser in the JSON body. Derived from the directory, not a list, so a new adapter is covered.
+  const handlers = filesMatching((f) => /^server\/[^/]+\/index\.ts$/.test(f.path))
+
+  it('scans every server adapter', () => {
+    expect(handlers.map((f) => f.path).sort()).toContain('server/hono/index.ts')
+    expect(handlers.length).toBeGreaterThanOrEqual(8)
+  })
+
+  it('no adapter puts the resolved session into a response body', () => {
+    for (const f of handlers) {
+      const hits = linesContaining(f, /session:\s*resolved\??\.session/)
+      expect(hits, `${f.path} serialises the session row whole, csrfHash included`).toEqual([])
+    }
+  })
+})
+
+describe('Auth responses are not cacheable', () => {
+  // The session route answers a different body per cookie on one URL, and nothing marked it
+  // uncacheable, so a shared cache in front of the app could hand one caller another's identity.
+  // Derived from the directory so a new adapter is covered the day it lands.
+  const handlers = filesMatching((f) => /^server\/[^/]+\/index\.ts$/.test(f.path))
+
+  it('every HTTP adapter sets cache-control: no-store', () => {
+    // grpc is not HTTP and has no response headers to set.
+    const http = handlers.filter((f) => !f.path.startsWith('server/grpc/'))
+    expect(http.length).toBeGreaterThanOrEqual(8)
+    for (const f of http) {
+      expect(linesContaining(f, /no-store/).length, `${f.path} never sets cache-control: no-store`).toBeGreaterThan(0)
+    }
   })
 })

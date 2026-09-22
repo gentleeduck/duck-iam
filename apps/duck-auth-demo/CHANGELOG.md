@@ -1,5 +1,109 @@
 # @gentleduck/duck-auth-demo
 
+## 0.0.28
+
+### Patch Changes
+
+- Updated dependencies [7228f81]
+  - @gentleduck/auth@5.13.0
+
+## 0.0.27
+
+### Patch Changes
+
+- Updated dependencies
+  - @gentleduck/auth@5.12.0
+
+## 0.0.26
+
+### Patch Changes
+
+- Updated dependencies [7228f81]
+  - @gentleduck/auth@5.11.0
+
+## 0.0.25
+
+### Patch Changes
+
+- Updated dependencies
+  - @gentleduck/auth@5.10.0
+
+## 0.0.24
+
+### Patch Changes
+
+- Updated dependencies [7228f81]
+  - @gentleduck/auth@5.9.0
+
+## 0.0.23
+
+### Patch Changes
+
+- Updated dependencies
+  - @gentleduck/auth@5.8.0
+
+## 0.0.22
+
+### Patch Changes
+
+- Updated dependencies
+  - @gentleduck/auth@5.7.1
+
+## 0.0.21
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @gentleduck/auth@5.7.0
+
+## 0.0.20
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @gentleduck/auth@5.6.0
+
+## 0.0.19
+
+### Patch Changes
+
+- Updated dependencies
+  - @gentleduck/auth@5.5.1
+
+## 0.0.18
+
+### Patch Changes
+
+- Updated dependencies
+  - @gentleduck/auth@5.4.0
+
+## 0.0.17
+
+### Patch Changes
+
+- Updated dependencies [80c809a]
+- Updated dependencies [45e1ff6]
+- Updated dependencies
+  - @gentleduck/auth@5.3.6
+
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies [80c809a]
+- Updated dependencies [45e1ff6]
+  - @gentleduck/auth@5.3.6
+
+## 0.0.15
+
+### Patch Changes
+
+- Updated dependencies [7a1ce88]
+  - @gentleduck/auth@5.3.5
+
 ## 0.0.14
 
 ### Patch Changes

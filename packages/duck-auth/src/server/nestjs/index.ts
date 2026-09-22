@@ -1,12 +1,17 @@
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext } from '@nestjs/common'
 import { Catch, createParamDecorator } from '@nestjs/common'
+import { withResolvedActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard, verifyCsrf } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
+import type { Flows } from '~/core/flows'
 import type { Identities } from '~/core/identities/identities.types'
+import type { Provider } from '~/core/provider'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import {
+  type CallerFingerprint,
+  callerContext,
   errorToHttp,
   executeIntents,
   extractSetCookies,
@@ -14,6 +19,8 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 import type { NestAdapter } from './nestjs.types'
@@ -39,6 +46,7 @@ async function forward(response: Response, reply: NestAdapter.Response): Promise
 function handleError(err: unknown, reply: NestAdapter.Response): never {
   const { status, body } = errorToHttp(err)
   reply.status(status)
+  if (reply.setHeader) reply.setHeader('cache-control', 'no-store')
   if (reply.setHeader) reply.setHeader('content-type', 'application/json; charset=utf-8')
   reply.send(JSON.stringify(body))
   // rethrow so NestJS exception filter can log to Loki; filter's res.headersSent
@@ -46,8 +54,54 @@ function handleError(err: unknown, reply: NestAdapter.Response): never {
   throw err
 }
 
-/** POST sign-in. CSRF-guarded. */
-export function nestSignIn(auth: AuthEngine): NestAdapter.Handler {
+/** A refusal from {@link NestSignInOptions.onAuthenticated}. `detail`, not `message`: it is forwarded
+ *  verbatim as the body's `error.detail`, the field every other duck-auth error uses. */
+export type NestSignInDenial = {
+  /** Machine-readable code such as `'AUTH_NOT_PERMITTED_ON_HOST'`. Free-form: your vocabulary, not the engine's. */
+  code: string
+  /** HTTP status. Must be 4xx or 5xx; anything else is coerced to 403 (see {@link denialIntent}). */
+  status: number
+  detail?: string
+}
+
+/** Options for the Nest sign-in handler. */
+export type NestSignInOptions = {
+  /**
+   * Runs once the credentials verify and the session row exists, before any intent reaches the
+   * response: a denial revokes that session and replaces its intents, so the client never sees the
+   * SID. `outcome.session` is null when the provider stopped short of one, typically an MFA
+   * challenge; the hook still runs, with nothing to revoke.
+   *
+   * SECURITY: gated here rather than in front of `signIn`, so a caller proves the password before it
+   * learns anything and the denial is not an enumeration oracle.
+   */
+  onAuthenticated?: (
+    outcome: Flows.SignInOutcome,
+    req: NestAdapter.Request,
+  ) => Promise<NestSignInDenial | undefined> | NestSignInDenial | undefined
+}
+
+/** Normalise a hook's denial into an error intent, failing closed: a `status: 200`, a `NaN` or a
+ *  blank code would otherwise render a refusal as a success, so an unreadable denial is still one, at 403. */
+function denialIntent(denial: NestSignInDenial): Provider.Intent {
+  const code = typeof denial.code === 'string' && denial.code.trim().length > 0 ? denial.code : 'AUTH_DENIED'
+  const status = Number.isInteger(denial.status) && denial.status >= 400 && denial.status <= 599 ? denial.status : 403
+  return { code, status, type: 'error', ...(typeof denial.detail === 'string' && { detail: denial.detail }) }
+}
+
+/**
+ * Drop the session `signIn` just issued. Empty when the provider issued none (MFA challenge),
+ * in which case `sid` is empty and there is nothing to revoke.
+ */
+async function revokeIssuedSession(auth: AuthEngine, outcome: Flows.SignInOutcome): Promise<Provider.Intent[]> {
+  if (!outcome.sid) return []
+  const { intents } = await auth.flows.signOut(outcome.sid)
+  return intents
+}
+
+/** POST sign-in, CSRF-guarded. Pass `onAuthenticated` to gate it on something the engine cannot
+ *  know, such as an allow-list, a suspended tenant or a per-identity block. */
+export function nestSignIn(auth: AuthEngine, opts: NestSignInOptions = {}): NestAdapter.Handler {
   return async (req, reply) => {
     try {
       await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method })
@@ -57,23 +111,28 @@ export function nestSignIn(auth: AuthEngine): NestAdapter.Handler {
       }
       // The flow, the store and the columns all take these and the adapter was dropping
       // them, so every session row recorded a device it could not name.
-      const result = await auth.flows.signIn({ ...parsed, ...callerOf(req) })
-      return forward(executeIntents(result.intents), reply)
+      const outcome = await auth.flows.signIn({ ...parsed, ...nestCaller(req) })
+      if (!opts.onAuthenticated) return forward(executeIntents(outcome.intents), reply)
+
+      let denial: NestSignInDenial | undefined
+      try {
+        denial = await opts.onAuthenticated(outcome, req)
+      } catch (hookErr) {
+        // The row is already live at this point. Drop it before the error propagates, or a
+        // hook that throws leaves behind exactly the session a denial would have revoked.
+        await revokeIssuedSession(auth, outcome)
+        throw hookErr
+      }
+      if (!denial) return forward(executeIntents(outcome.intents), reply)
+
+      // Revoke inside the library: it owns the sid, and a consumer would forget, which
+      // leaves a live session behind a 403, a silent auth bypass. The revoke intents come
+      // first so the Set-Cookie is cleared rather than left pointing at a dead session.
+      const revoked = await revokeIssuedSession(auth, outcome)
+      return forward(executeIntents([...revoked, denialIntent(denial)]), reply)
     } catch (err) {
       return handleError(err, reply)
     }
-  }
-}
-
-/**
- * `req.ip` and nothing else: the host resolves it against its own proxy trust, and reading a
- * forwarded header here would take the value the caller wrote.
- */
-function callerOf(req: NestAdapter.Request): { ip?: string; userAgent?: string } {
-  const ua = req.headers?.['user-agent']
-  return {
-    ...(req.ip !== undefined && { ip: req.ip }),
-    ...(typeof ua === 'string' && { userAgent: ua }),
   }
 }
 
@@ -92,16 +151,18 @@ export function nestSignOut(auth: AuthEngine): NestAdapter.Handler {
   }
 }
 
+/** Nest handler answering the current session. */
 export function nestSession(auth: AuthEngine): NestAdapter.Handler {
   return async (req, reply) => {
     try {
-      const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
+      const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) }).orNull()
+      // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
+      const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
       reply.status(200)
+      if (reply.setHeader) reply.setHeader('cache-control', 'no-store')
       if (reply.setHeader) reply.setHeader('content-type', 'application/json; charset=utf-8')
       return reply.send(
-        JSON.stringify(
-          resolved ? { session: resolved.session, identity: resolved.identity } : { session: null, identity: null },
-        ),
+        JSON.stringify(resolved ? { session, identity: resolved.identity } : { session: null, identity: null }),
       )
     } catch (err) {
       return handleError(err, reply)
@@ -130,24 +191,29 @@ export function nestProviderBegin(auth: AuthEngine): NestAdapter.Handler {
   }
 }
 
-/**
- * Auth guard for your own routes. CSRF is checked by default because a
- * cookie-session app mounting only this guard would otherwise have no CSRF
- * defence at all. Pass `csrf: false` only if something upstream already did it.
- */
-export function makeGuard(auth: AuthEngine, opts: { required?: boolean; csrf?: boolean } = {}): NestAdapter.Guard {
+/** Auth guard for your own routes. CSRF is checked by default, since an app mounting only this guard
+ *  would otherwise have no CSRF defence; pass `csrf: false` only if something upstream did it. */
+export function makeGuard(
+  auth: AuthEngine,
+  opts: { required?: boolean; csrf?: boolean; cfg?: Csrf.Cfg } = {},
+): NestAdapter.Guard {
   const required = opts.required ?? true
   const csrf = opts.csrf ?? true
   return {
     async canActivate(ctx) {
       const req = ctx.switchToHttp().getRequest<NestAdapter.Request>()
-      const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
+      // What `nestActorContext` already resolved, when it ran first. Nest runs middleware before
+      // guards, so resolving again is the session store read twice for one request.
+      const resolved = req.session
+        ? { identity: req.identity ?? null, session: req.session }
+        : await auth.resolveSession({ headers: toFetchHeaders(req.headers) }).orNull()
       if (csrf) {
-        // Reuse the session we just resolved rather than paying a second
+        // Reuse the session just resolved rather than paying a second
         // resolveSession inside csrfGuard.
         verifyCsrf({
           headers: toFetchHeaders(req.headers),
           method: req.method,
+          ...(opts.cfg !== undefined && { cfg: opts.cfg }),
           ...(resolved?.session.csrfHash != null && { sessionCsrfHash: resolved.session.csrfHash }),
         })
       }
@@ -165,6 +231,69 @@ export function makeGuard(auth: AuthEngine, opts: { required?: boolean; csrf?: b
   }
 }
 
+/** The fingerprint Nest resolved, the same pair the sign-in handler stamps onto the session.
+ *  SECURITY: `req.ip` and nothing else, the host resolving that against its own proxy trust, while a
+ *  forwarded header here would take the value the caller wrote. */
+export function nestCaller(req: NestAdapter.Request): CallerFingerprint {
+  return callerContext({ ip: req.ip, userAgent: req.headers?.['user-agent'] })
+}
+
+/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
+ *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
+ *  with the session's, running the anomaly detectors and the hijack policy.
+ *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
+export type NestActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (req: NestAdapter.Request) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+/** Bind the request's actor scope for everything downstream:
+ *  `consumer.apply(nestActorContext(auth)).forRoutes('*')`. Middleware rather than a guard or an
+ *  interceptor, since it is the one Nest hook that wraps handler execution. Reuses the session
+ *  `makeGuard` already resolved, so the pair costs one `resolveSession`. */
+export function nestActorContext(
+  auth: AuthEngine,
+  opts: NestActorOptions = {},
+): {
+  use(req: NestAdapter.Request, res: unknown, next: () => void): Promise<void>
+} {
+  return {
+    async use(req, _res, next) {
+      const bound = async (): Promise<void> => {
+        next()
+      }
+      const security = requestSecurity(auth, {
+        ...(opts.onHijack && { onHijack: opts.onHijack }),
+        ...(opts.getCaller && { caller: opts.getCaller(req) }),
+      })
+      // Resolved here rather than by `withRequestActor`, which keeps the session and drops the
+      // identity: both are stashed on the request so `makeGuard` reuses them instead of paying a
+      // second resolveSession. A session that will not resolve leaves the request unattributed,
+      // which is what the wrapper did too.
+      if (!req.session) {
+        const resolved = await auth
+          .resolveSession(
+            { headers: toFetchHeaders(req.headers) },
+            security.requestSnapshot ? { requestSnapshot: security.requestSnapshot } : undefined,
+          )
+          // `.orNull()`, not `.catch(() => null)`: that swallowed a store outage too, and recorded the
+          // request as anonymous rather than letting it fail.
+          .orNull()
+        if (resolved) {
+          req.session = resolved.session
+          req.identity = resolved.identity as NestAdapter.Request['identity']
+        }
+      }
+      // `next()` is synchronous, so the downstream chain starts inside the
+      // scope and every async continuation of it inherits the binding.
+      if (req.session) await withResolvedActor(req.session, bound, security)
+      else await bound()
+    },
+  }
+}
+
 /** CSRF-only guard, for routes that need the check without the auth gate. */
 export function makeCsrfGuard(auth: AuthEngine, opts: Csrf.GuardOptions = {}): NestAdapter.Guard {
   return {
@@ -176,21 +305,26 @@ export function makeCsrfGuard(auth: AuthEngine, opts: Csrf.GuardOptions = {}): N
   }
 }
 
+/** Injection token the Nest module binds the engine under. */
 export const DUCK_AUTH_TOKEN = 'DUCK_AUTH'
 
+/** Turns an `AuthError` into the Nest response its status and code describe. */
 @Catch(AuthError)
 export class NestExceptionFilter implements ExceptionFilter {
+  /** Writes the error's status and JSON body onto the Nest response. */
   catch(err: AuthError, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<{ status(code: number): { json(body: unknown): void } }>()
     res.status(err.status).json(err.toJSON())
   }
 }
 
+/** Parameter decorator supplying the resolved session. */
 export const CurrentSession = createParamDecorator(
   (_: unknown, ctx: ExecutionContext): Sessions.Me | undefined =>
     ctx.switchToHttp().getRequest<{ session?: Sessions.Me }>().session,
 )
 
+/** Parameter decorator supplying the resolved identity. */
 export const CurrentIdentity = createParamDecorator(
   (_: unknown, ctx: ExecutionContext): Identities.Me | null | undefined =>
     ctx.switchToHttp().getRequest<{ identity?: Identities.Me | null }>().identity,
@@ -198,7 +332,7 @@ export const CurrentIdentity = createParamDecorator(
 
 export type { NestAdapter } from './nestjs.types'
 
-/** Factory around {@link NestExceptionFilter}, for callers who prefer functions to `new`. */
+/** Constructs a {@link NestExceptionFilter}. */
 export function nestExceptionFilter(...args: ConstructorParameters<typeof NestExceptionFilter>): NestExceptionFilter {
   return new NestExceptionFilter(...args)
 }

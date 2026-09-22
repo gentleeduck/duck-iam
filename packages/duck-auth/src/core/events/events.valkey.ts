@@ -1,4 +1,4 @@
-import { type ValkeyClient, type ValkeySubscriberClient, valkeyAdapter } from '~/adapters/valkey/valkey-like'
+import { type ValkeyClient, type ValkeySubscriberClient, valkeyAdapter } from '~/core/drivers/valkey-like'
 import { RedisEvents } from './events.redis'
 
 /**

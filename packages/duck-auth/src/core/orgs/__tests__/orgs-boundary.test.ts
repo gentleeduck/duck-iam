@@ -2,11 +2,6 @@
  * Org membership is an authorization boundary: `resolveMembership` is what an
  * application asks before deciding whether someone may act inside an
  * organisation, and the roles it returns are what the answer is built from.
- *
- * The existing tests cover role sanitisation and the add-member race. These cover
- * the boundary itself, which is where privilege escalation would live: granting
- * roles to someone who is not a member, a removed member still resolving, one
- * org's membership answering for another, and the ways a role list can be padded.
  */
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -25,7 +20,7 @@ describe('membership answers only for the org that was asked about', () => {
   it('resolves a live member', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['member'] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['member'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['member'])
   })
 
   it('does not answer for a different org', async () => {
@@ -33,17 +28,21 @@ describe('membership answers only for the org that was asked about', () => {
     // check made about another.
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner'] })
-    expect(await orgs.resolveMembership(OTHER_ORG, 'u1')).toBeNull()
+    await expect(orgs.resolveMembership(OTHER_ORG, 'u1')).rejects.toMatchObject({
+      code: 'AUTH_MEMBERSHIP_NOT_FOUND',
+    })
   })
 
   it('does not answer for a different identity', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner'] })
-    expect(await orgs.resolveMembership(ORG, 'u2')).toBeNull()
+    await expect(orgs.resolveMembership(ORG, 'u2')).rejects.toMatchObject({ code: 'AUTH_MEMBERSHIP_NOT_FOUND' })
   })
 
-  it('returns null for an org nobody has joined', async () => {
-    expect(await makeOrgs().resolveMembership('never-created', 'u1')).toBeNull()
+  it('rejects for an org nobody has joined', async () => {
+    await expect(makeOrgs().resolveMembership('never-created', 'u1')).rejects.toMatchObject({
+      code: 'AUTH_MEMBERSHIP_NOT_FOUND',
+    })
   })
 
   it('keeps two orgs’ role sets apart for the same person', async () => {
@@ -51,8 +50,8 @@ describe('membership answers only for the org that was asked about', () => {
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner'] })
     await orgs.addMember({ identityId: 'u1', orgId: OTHER_ORG, roles: ['viewer'] })
 
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['owner'])
-    expect((await orgs.resolveMembership(OTHER_ORG, 'u1'))?.roles).toEqual(['viewer'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['owner'])
+    expect((await orgs.resolveMembership(OTHER_ORG, 'u1')).roles).toEqual(['viewer'])
   })
 
   it('lists only the members of the org asked about', async () => {
@@ -70,8 +69,11 @@ describe('granting roles cannot create a membership', () => {
     // If this upserted, "grant a role" would double as "add to the org", and any
     // caller able to set roles could add themselves.
     const orgs = makeOrgs()
-    await orgs.setRoles(ORG, 'never-a-member', ['owner'])
-    expect(await orgs.resolveMembership(ORG, 'never-a-member')).toBeNull()
+    // Through `orNull`, because the claim is what it did to the membership, not that it refused.
+    await orgs.setRoles(ORG, 'never-a-member', ['owner']).orNull()
+    await expect(orgs.resolveMembership(ORG, 'never-a-member')).rejects.toMatchObject({
+      code: 'AUTH_MEMBERSHIP_NOT_FOUND',
+    })
   })
 
   it('setRoles on a removed member does not bring them back', async () => {
@@ -80,32 +82,30 @@ describe('granting roles cannot create a membership', () => {
     await orgs.removeMember(ORG, 'u1')
 
     await orgs.setRoles(ORG, 'u1', ['owner'])
-    expect(await orgs.resolveMembership(ORG, 'u1')).toBeNull()
+    await expect(orgs.resolveMembership(ORG, 'u1')).rejects.toMatchObject({ code: 'AUTH_MEMBERSHIP_NOT_FOUND' })
   })
 
   it('setRoles on a member of another org does not reach across', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: OTHER_ORG, roles: ['viewer'] })
 
-    await orgs.setRoles(ORG, 'u1', ['owner'])
-    expect(await orgs.resolveMembership(ORG, 'u1')).toBeNull()
-    expect((await orgs.resolveMembership(OTHER_ORG, 'u1'))?.roles).toEqual(['viewer'])
+    await orgs.setRoles(ORG, 'u1', ['owner']).orNull()
+    await expect(orgs.resolveMembership(ORG, 'u1')).rejects.toMatchObject({ code: 'AUTH_MEMBERSHIP_NOT_FOUND' })
+    expect((await orgs.resolveMembership(OTHER_ORG, 'u1')).roles).toEqual(['viewer'])
   })
 
   it('setRoles replaces the set rather than adding to it', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner', 'billing'] })
     await orgs.setRoles(ORG, 'u1', ['viewer'])
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['viewer'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['viewer'])
   })
 
   it('setRoles can strip every role without removing the membership', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner'] })
     await orgs.setRoles(ORG, 'u1', [])
-    const membership = await orgs.resolveMembership(ORG, 'u1')
-    expect(membership).not.toBeNull()
-    expect(membership?.roles).toEqual([])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual([])
   })
 })
 
@@ -114,18 +114,41 @@ describe('leaving and rejoining', () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner'] })
     await orgs.removeMember(ORG, 'u1')
-    expect(await orgs.resolveMembership(ORG, 'u1')).toBeNull()
+    await expect(orgs.resolveMembership(ORG, 'u1')).rejects.toMatchObject({ code: 'AUTH_MEMBERSHIP_NOT_FOUND' })
   })
 
-  it('removing twice is harmless', async () => {
+  it('removing twice is harmless, and both calls say what they left', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: [] })
-    await orgs.removeMember(ORG, 'u1')
-    await expect(orgs.removeMember(ORG, 'u1')).resolves.toBeUndefined()
+
+    const first = await orgs.removeMember(ORG, 'u1')
+    const second = await orgs.removeMember(ORG, 'u1')
+
+    // The row is still there once left, so the second call answers with it too
+    // - idempotent, and honest about which membership it names.
+    expect(first.leftAt).toBeInstanceOf(Date)
+    expect(second.identityId).toBe('u1')
   })
 
-  it('removing someone who was never a member is harmless', async () => {
-    await expect(makeOrgs().removeMember(ORG, 'stranger')).resolves.toBeUndefined()
+  it('removing someone who was never a member rejects, and orNull reads that as nothing to remove', async () => {
+    // Not a silent success. The rejection is what an idempotent caller opts out of with `orNull`,
+    // rather than every caller having to tell "removed nothing" from "removed a row" by eye.
+    await expect(makeOrgs().removeMember(ORG, 'stranger')).rejects.toMatchObject({
+      code: 'AUTH_MEMBERSHIP_NOT_FOUND',
+    })
+    await expect(makeOrgs().removeMember(ORG, 'stranger').orNull()).resolves.toBeNull()
+  })
+
+  it('setRoles answers with the roles it actually stored, not the ones passed in', async () => {
+    const orgs = makeOrgs()
+    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: [] })
+
+    // The list is sanitized on the way in; the answer is the stored set, so a
+    // caller sees what was dropped without re-reading the membership.
+    const updated = await orgs.setRoles(ORG, 'u1', ['owner', '', 'member'])
+
+    expect(updated.roles).toEqual(['owner', 'member'])
+    await expect(orgs.setRoles(ORG, 'stranger', ['owner']).orNull()).resolves.toBeNull()
   })
 
   it('rejoining is allowed once the previous membership ended', async () => {
@@ -133,7 +156,7 @@ describe('leaving and rejoining', () => {
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner'] })
     await orgs.removeMember(ORG, 'u1')
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['member'] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['member'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['member'])
   })
 
   it('rejoining does not inherit the roles held before leaving', async () => {
@@ -143,14 +166,14 @@ describe('leaving and rejoining', () => {
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner', 'billing'] })
     await orgs.removeMember(ORG, 'u1')
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['viewer'] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['viewer'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['viewer'])
   })
 
   it('refuses to add someone who is already a live member', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['member'] })
     await expect(orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner'] })).rejects.toMatchObject({
-      code: 'AUTH_PROVIDER_FAILED',
+      code: 'AUTH_ALREADY_EXISTS',
     })
   })
 
@@ -159,7 +182,7 @@ describe('leaving and rejoining', () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['viewer'] })
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['owner'] }).catch(() => undefined)
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['viewer'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['viewer'])
   })
 })
 
@@ -167,20 +190,20 @@ describe('the role list is bounded, and what that does not include', () => {
   it('drops non-string entries', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['ok', 42, null, {}, []] as never })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['ok'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['ok'])
   })
 
   it('drops empty and oversize entries', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['', 'x'.repeat(129), 'kept'] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['kept'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['kept'])
   })
 
   it('keeps an entry exactly at the length limit', async () => {
     const orgs = makeOrgs()
     const role = 'x'.repeat(128)
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: [role] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual([role])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual([role])
   })
 
   it('caps the list at sixty-four entries', async () => {
@@ -190,35 +213,41 @@ describe('the role list is bounded, and what that does not include', () => {
       orgId: ORG,
       roles: Array.from({ length: 200 }, (_, i) => `role-${i}`),
     })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toHaveLength(64)
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toHaveLength(64)
   })
 
   it('treats a non-array roles value as no roles', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: 'owner' as never })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual([])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual([])
   })
 
-  it('FINDING: duplicates are kept, and count against the sixty-four cap', async () => {
-    // `sanitizeRoles` filters by type and length but does not deduplicate, so a
-    // caller can pad a list with one role repeated. Harmless for an `includes`
-    // check, but sixty-four copies of `viewer` fill the budget and silently push
-    // out the roles that follow, so a padded list can drop a real grant.
+  it('deduplicates before counting the cap, so padding cannot push out a real grant', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['admin', 'admin', 'admin'] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['admin', 'admin', 'admin'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['admin'])
 
+    // Sixty-four copies of one role used to fill the budget on their own and drop everything
+    // behind them, which is a padded list silently deleting a grant.
     const padded = [...Array.from({ length: 64 }, () => 'viewer'), 'owner']
     await orgs.addMember({ identityId: 'u2', orgId: ORG, roles: padded })
-    const roles = (await orgs.resolveMembership(ORG, 'u2'))?.roles ?? []
+    expect((await orgs.resolveMembership(ORG, 'u2')).roles).toEqual(['viewer', 'owner'])
+  })
+
+  it('keeps first-seen order and still stops at sixty-four distinct roles', async () => {
+    const orgs = makeOrgs()
+    const many = Array.from({ length: 70 }, (_, i) => `r${i}`)
+    await orgs.addMember({ identityId: 'u3', orgId: ORG, roles: many })
+    const { roles } = await orgs.resolveMembership(ORG, 'u3')
     expect(roles).toHaveLength(64)
-    expect(roles).not.toContain('owner')
+    expect(roles[0]).toBe('r0')
+    expect(roles.at(-1)).toBe('r63')
   })
 
   it('keeps roles as opaque strings, without folding case or trimming', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['Owner', ' owner ', 'owner'] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual(['Owner', ' owner ', 'owner'])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual(['Owner', ' owner ', 'owner'])
   })
 
   it('treats a role differing only by case as a different role', async () => {
@@ -226,14 +255,14 @@ describe('the role list is bounded, and what that does not include', () => {
     // match a stored `Owner`.
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['Owner'] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).not.toContain('owner')
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).not.toContain('owner')
   })
 
   it('stores an injection payload as an ordinary role string', async () => {
     const orgs = makeOrgs()
     const role = `'; DROP TABLE auth_orgs; --`
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: [role] })
-    expect((await orgs.resolveMembership(ORG, 'u1'))?.roles).toEqual([role])
+    expect((await orgs.resolveMembership(ORG, 'u1')).roles).toEqual([role])
   })
 })
 

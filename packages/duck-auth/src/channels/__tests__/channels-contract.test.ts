@@ -2,26 +2,17 @@
  * Every channel carries the same payload: a signed magic link, a one-time code,
  * a reset URL. So the interesting questions are the same for all of them, and
  * are asked here once against each implementation rather than per adapter.
- *
- * Who is the recipient and who decided that. How much can be sent in one call,
- * given SMS is billed per segment and push has a hard payload ceiling. What a
- * failure reports, given `send` returns a result rather than throwing. And what
- * ends up in a log line.
- *
- * The per-channel suites cover each adapter's own wiring. These cover the
- * contract they share, and where it is thinner than it looks.
- *
- * Sources: RFC 8030 and RFC 8291 on the 4096-byte web-push payload ceiling,
- * E.164 on what a dialable number is, RFC 5321 section 4.5.3.1 on address
- * length, and OWASP's guidance on SMS pumping and outbound-message abuse.
  */
 import { describe, expect, it, vi } from 'vitest'
+import { ChannelGuard } from '~/channels/channels.guard'
 import { AuthConsoleChannel, AuthNoopChannel } from '~/channels/console'
 import { AuthResendChannel } from '~/channels/resend'
 import { AuthSesChannel } from '~/channels/ses'
 import { AuthSmtpChannel } from '~/channels/smtp'
 import { AuthTwilioChannel } from '~/channels/twilio'
 import { AuthWebPushChannel } from '~/channels/webpush'
+import { AuthError } from '~/core/errors'
+import { MemoryLimiter } from '~/limiters/memory'
 import type { Channel } from '../channels.types'
 
 type Profile = Record<string, unknown>
@@ -122,30 +113,33 @@ describe('the shared contract every channel implements', () => {
   it('a successful send reports ok', async () => {
     const { channels } = buildAll()
     for (const [name, channel] of Object.entries(channels)) {
-      if (name === 'ses') continue // see the peer-dependency finding below
       expect((await channel.send(sendInput())).ok, name).toBe(true)
     }
   })
 
-  it('FINDING: the ses channel needs its sdk installed even when a client is injected', async () => {
-    // Every other adapter lets a caller supply a pre-built client and skip the
-    // peer dependency, which is what makes them testable and what the `client`
-    // option is for. SES also reaches for `SendEmailCommand` from the sdk to
-    // build the request, so an injected client is not enough and the send fails
-    // at delivery time rather than at construction.
-    const { channels } = buildAll()
-    expect(await channels.ses.send(sendInput())).toMatchObject({ ok: false })
+  it('lets an injected client stand in for the sdk, which is what the option is for', async () => {
+    // SES also reached for `SendEmailCommand`, so a caller who supplied a client still needed the
+    // peer dependency and found out at delivery time.
+    const { channels, sent } = buildAll()
+    expect(await channels.ses.send(sendInput())).toMatchObject({ ok: true })
+    expect(sent.ses).toHaveLength(1)
   })
 
-  it('FINDING: an AuthError caught on the send path is flattened to its code, losing the detail', async () => {
-    // `err.message` on an AuthError is the code, and everything an operator
-    // needs, here the name of the package to install, lives in `meta.detail`.
-    // The catch keeps the message, so the result says AUTH_MISCONFIGURED and
-    // nothing about what is misconfigured.
-    const { channels } = buildAll()
-    const result = await channels.ses.send(sendInput())
-    expect(result.error).toBe('AUTH_MISCONFIGURED')
-    expect(result.error).not.toContain('@aws-sdk/client-ses')
+  it('reports what is misconfigured, not just that something is', async () => {
+    // `err.message` on an AuthError is the code; everything an operator needs, here the name of
+    // the package to install, lives in `meta.detail`.
+    const channel = new AuthSesChannel({
+      client: { send: async () => ({ MessageId: 'x' }) },
+      from: 'noreply@app.test',
+      sendEmailCommand: class {
+        constructor() {
+          throw new AuthError('AUTH_MISCONFIGURED', { detail: 'AuthSesChannel needs @aws-sdk/client-ses' })
+        }
+      } as never,
+      templates: emailTemplate,
+    })
+    const result = await channel.send(sendInput())
+    expect(result.error).toContain('@aws-sdk/client-ses')
   })
 
   it('a missing recipient is a soft failure naming the channel', async () => {
@@ -158,13 +152,10 @@ describe('the shared contract every channel implements', () => {
     }
   })
 
-  it('FINDING: send never throws, so a delivery failure is only visible if the caller reads the result', async () => {
-    // Every adapter catches its own transport error and returns `ok: false`. A
-    // flow that awaits the send without inspecting it, which is what an
-    // `await channel.send(...)` statement looks like, proceeds as though the
-    // code or link reached the user.
+  it('reports a transport failure as retryable, so a caller can tell it from a wiring fault', async () => {
     const channel = new AuthSmtpChannel({
       from: 'noreply@app.test',
+      retries: 0,
       templates: emailTemplate,
       transporter: {
         sendMail: async () => {
@@ -172,13 +163,16 @@ describe('the shared contract every channel implements', () => {
         },
       },
     })
-    await expect(channel.send(sendInput())).resolves.toMatchObject({ error: 'connection refused', ok: false })
+    await expect(channel.send(sendInput())).resolves.toMatchObject({
+      error: 'connection refused',
+      ok: false,
+      retryable: true,
+    })
   })
 
-  it('FINDING: the provider’s own error text is returned verbatim to the caller', async () => {
-    // Whatever the SDK put in the message is what the result carries, and SDK
-    // errors routinely include the request URL, the account identifier, and
-    // occasionally the credential that was rejected.
+  it('keeps the credential out of the provider text it passes on', async () => {
+    // SDK errors routinely include the request URL, the account identifier, and occasionally the
+    // credential that was rejected.
     const leaky = 'Request to https://api.example/v1/send?apiKey=re_live_SECRET failed'
     const channel = new AuthResendChannel({
       client: {
@@ -189,13 +183,14 @@ describe('the shared contract every channel implements', () => {
       from: 'noreply@app.test',
       templates: emailTemplate,
     })
-    expect((await channel.send(sendInput())).error).toBe(leaky)
+    const error = (await channel.send(sendInput())).error
+    expect(error).not.toContain('re_live_SECRET')
+    expect(error).toContain('https://api.example/v1/send')
   })
 
-  it('FINDING: a template resolver that throws is reported as a delivery failure, not a bug', async () => {
-    // A broken template is a programming error on the app's side, and it lands
-    // in the same `ok: false` shape as a network outage, so retry logic keyed on
-    // the result retries something that will never succeed.
+  it('marks a template resolver that throws as not retryable', async () => {
+    // A broken template is a programming error on the app's side. It used to land in the same
+    // shape as a network outage, so retry logic keyed on the result retried what can never work.
     const channel = new AuthSmtpChannel({
       from: 'noreply@app.test',
       templates: () => {
@@ -203,29 +198,53 @@ describe('the shared contract every channel implements', () => {
       },
       transporter: { sendMail: async () => ({ messageId: 'x' }) },
     })
-    expect(await channel.send(sendInput())).toMatchObject({ error: 'unknown templateId', ok: false })
+    expect(await channel.send(sendInput())).toMatchObject({
+      error: 'unknown templateId',
+      ok: false,
+      retryable: false,
+    })
   })
 
-  it('FINDING: no channel applies a timeout to the transport it calls', async () => {
-    // A provider that accepts the connection and never answers parks the send.
-    // These sit inside password reset and MFA delivery, so the request holding
-    // them open is a user waiting on a login.
+  it('gives the transport a deadline, so a provider that never answers cannot park a login', async () => {
+    // These sit inside password reset and MFA delivery, so the request holding one open is a user
+    // waiting on a sign-in.
     const channel = new AuthSmtpChannel({
       from: 'noreply@app.test',
+      retries: 0,
       templates: emailTemplate,
+      timeoutMs: 20,
       transporter: { sendMail: () => new Promise(() => undefined) },
     })
     const raced = await Promise.race([
-      channel.send(sendInput()).then(() => 'answered'),
-      new Promise((r) => setTimeout(() => r('still waiting'), 50)),
+      channel.send(sendInput()),
+      new Promise((r) => setTimeout(() => r('still waiting'), 500)),
     ])
-    expect(raced).toBe('still waiting')
+    expect(raced).toMatchObject({ ok: false, retryable: true })
+    expect((raced as Channel.SendResult).error).toContain('did not answer')
   })
 
-  it('FINDING: no channel retries, so one transient failure drops the message', async () => {
+  it('retries a transient failure rather than dropping the only copy of a link', async () => {
     let attempts = 0
     const channel = new AuthSmtpChannel({
       from: 'noreply@app.test',
+      templates: emailTemplate,
+      transporter: {
+        sendMail: async () => {
+          attempts++
+          if (attempts < 3) throw new Error('temporary')
+          return { messageId: 'x' }
+        },
+      },
+    })
+    expect((await channel.send(sendInput())).ok).toBe(true)
+    expect(attempts).toBe(3)
+  })
+
+  it('sends exactly once when the caller says so', async () => {
+    let attempts = 0
+    const channel = new AuthSmtpChannel({
+      from: 'noreply@app.test',
+      retries: 0,
       templates: emailTemplate,
       transporter: {
         sendMail: async () => {
@@ -249,43 +268,53 @@ describe('who the recipient is', () => {
     expect(sent.twilio?.[0]).toMatchObject({ to: '+15550100' })
   })
 
-  it('FINDING: the recipient is any non-empty string, with no address or number validation', async () => {
-    // `getProfileString` checks the type and that it is not empty. Nothing
-    // checks that an email looks like an address or that a phone is E.164, so
-    // whatever the profile holds is handed to the provider as the destination.
+  it('refuses a recipient that is not an address or an E.164 number', async () => {
     const { channels, sent } = buildAll()
-    await channels.smtp.send(sendInput({ identity: identity({ email: 'not an address' }) }))
-    await channels.twilio.send(sendInput({ identity: identity({ phone: 'call me maybe' }) }))
-
-    expect(sent.smtp?.[0]).toMatchObject({ to: 'not an address' })
-    expect(sent.twilio?.[0]).toMatchObject({ to: 'call me maybe' })
+    expect((await channels.smtp.send(sendInput({ identity: identity({ email: 'not an address' }) }))).ok).toBe(false)
+    expect((await channels.twilio.send(sendInput({ identity: identity({ phone: 'call me maybe' }) }))).ok).toBe(false)
+    expect(sent.smtp).toBeUndefined()
+    expect(sent.twilio).toBeUndefined()
   })
 
-  it('FINDING: a recipient carrying CR LF reaches the transport unfiltered', async () => {
-    // The SMTP transporter is handed `to` as a header value. Nodemailer rejects
-    // this itself, but the channel is the layer that knows the value came from a
-    // user-editable profile field, and it passes it straight through.
+  it('refuses a recipient carrying CR LF before it can become a second header', async () => {
     const { channels, sent } = buildAll()
-    await channels.smtp.send(sendInput({ identity: identity({ email: 'a@b.test\r\nBcc: victim@corp.example' }) }))
-    expect(sent.smtp?.[0]).toMatchObject({ to: 'a@b.test\r\nBcc: victim@corp.example' })
+    // A single @ and no separator character, so the only rule that can refuse this is the one that
+    // rejects the CR LF itself.
+    const result = await channels.smtp.send(sendInput({ identity: identity({ email: 'a@b.test\r\nBcc' }) }))
+    expect(result.ok).toBe(false)
+    expect(sent.smtp).toBeUndefined()
   })
 
-  it('FINDING: there is no length cap on the recipient', async () => {
-    // SMTP caps a path at 256 octets and a domain at 255. A profile field ten
-    // thousand characters long is sent as the destination address.
+  it('refuses a recipient past the length SMTP allows', async () => {
+    // RFC 5321 caps a forward-path at 256 octets and a domain at 255.
     const { channels, sent } = buildAll()
-    const huge = `${'a'.repeat(10_000)}@app.test`
-    await channels.smtp.send(sendInput({ identity: identity({ email: huge }) }))
-    expect((sent.smtp?.[0] as { to: string }).to).toHaveLength(huge.length)
+    await channels.smtp.send(sendInput({ identity: identity({ email: `${'a'.repeat(10_000)}@app.test` }) }))
+    expect(sent.smtp).toBeUndefined()
+    // A local part inside the total cap but over the 64 allowed is refused too.
+    await channels.smtp.send(sendInput({ identity: identity({ email: `${'a'.repeat(100)}@app.test` }) }))
+    expect(sent.smtp).toBeUndefined()
   })
 
-  it('FINDING: a comma-separated list in one profile field is one recipient string to the channel', async () => {
-    // Resend's own client accepts `to` as an array, and the channel passes a
-    // string. Which of those a given provider splits on is the provider's
-    // decision, not something this layer settles.
+  it('refuses a comma-separated list rather than letting the provider decide to split it', async () => {
     const { channels, sent } = buildAll()
-    await channels.resend.send(sendInput({ identity: identity({ email: 'a@b.test, victim@corp.example' }) }))
-    expect(sent.resend?.[0]).toMatchObject({ to: 'a@b.test, victim@corp.example' })
+    // One @ and no space, so every other rule passes this and only the separator rule can refuse it.
+    // With a second @ or a space after the comma it is refused either way and proves nothing.
+    expect((await channels.resend.send(sendInput({ identity: identity({ email: 'a@b.test,victim' }) }))).ok).toBe(false)
+    // The quoting and routing characters go the same way, for the same reason.
+    for (const email of ['a@b<c.test', 'a@b;c.test', 'a@b"c.test', 'a@b(c.test', 'a@b[c].test', 'a@b\\c.test']) {
+      expect((await channels.resend.send(sendInput({ identity: identity({ email }) }))).ok).toBe(false)
+    }
+    expect(sent.resend).toBeUndefined()
+  })
+
+  it('still delivers to an ordinary address, including a non-ascii one', async () => {
+    const { channels, sent } = buildAll()
+    expect((await channels.smtp.send(sendInput({ identity: identity({ email: 'user@app.test' }) }))).ok).toBe(true)
+    // Left alone rather than refused, so an SMTPUTF8 deployment keeps working.
+    expect((await channels.smtp.send(sendInput({ identity: identity({ email: 'usuario@ejemplo.test' }) }))).ok).toBe(
+      true,
+    )
+    expect(sent.smtp).toHaveLength(2)
   })
 
   it('a non-string recipient is treated as absent rather than coerced', async () => {
@@ -297,27 +326,25 @@ describe('who the recipient is', () => {
 })
 
 describe('how much can go out in one call', () => {
-  it('FINDING: nothing caps the rendered body, and sms is billed per segment', async () => {
-    // A resolver that interpolates an attacker-influenced variable into an SMS
-    // turns one send into thousands of billed segments. The channel forwards
-    // whatever it is given.
-    const body = 'x'.repeat(500_000)
+  it('caps the sms body, which is billed per segment', async () => {
+    // A resolver interpolating an attacker-influenced variable used to turn one send into thousands
+    // of billed segments.
     const channel = new AuthTwilioChannel({
       client: {
         messages: {
           create: async (opts) => {
-            expect(opts.body).toHaveLength(500_000)
+            expect(opts.body).toHaveLength(1600)
             return { sid: 'x' }
           },
         },
       },
       from: '+15550199',
-      templates: () => ({ body }),
+      templates: () => ({ body: 'x'.repeat(500_000) }),
     })
     expect((await channel.send(sendInput())).ok).toBe(true)
   })
 
-  it('FINDING: nothing caps an email subject either, so it reaches the header unfolded', async () => {
+  it('caps an email subject at the length a header line allows', async () => {
     const { sent } = buildAll()
     const channel = new AuthSmtpChannel({
       from: 'noreply@app.test',
@@ -330,12 +357,10 @@ describe('how much can go out in one call', () => {
       },
     })
     await channel.send(sendInput())
-    expect((sent.smtp?.[0] as { subject: string }).subject).toHaveLength(50_000)
+    expect((sent.smtp?.[0] as { subject: string }).subject).toHaveLength(998)
   })
 
-  it('FINDING: a subject containing CR LF is passed to the transport as-is', async () => {
-    // Header injection is the transport's to refuse, but the channel is what
-    // knows the string came out of a template fed with request data.
+  it('folds CR LF out of a subject before it can carry a second header', async () => {
     let seen: { subject: string } | undefined
     const channel = new AuthSmtpChannel({
       from: 'noreply@app.test',
@@ -348,50 +373,86 @@ describe('how much can go out in one call', () => {
       },
     })
     await channel.send(sendInput())
-    expect(seen?.subject).toContain('\r\nBcc:')
+    expect(seen?.subject).not.toContain('\r')
+    expect(seen?.subject).not.toContain('\n')
+    // Folded rather than dropped: a subject is cosmetic and the mail still has to go.
+    expect(seen?.subject).toBe('Sign in  Bcc: victim@corp.example')
   })
 
-  it('FINDING: a resolver returning the wrong shape is forwarded rather than refused', async () => {
-    // Nothing validates that `subject` is a string or that a body is present.
-    // An undefined subject reaches the provider, which is where the failure
-    // surfaces, one network round trip later.
+  it('refuses a resolver whose output is the wrong shape, before the network round trip', async () => {
     let seen: Record<string, unknown> | undefined
-    const channel = new AuthSmtpChannel({
-      from: 'noreply@app.test',
-      templates: () => ({}) as never,
-      transporter: {
-        sendMail: async (opts) => {
-          seen = opts as never
-          return { messageId: 'x' }
+    const transporter = {
+      sendMail: async (opts: Record<string, unknown>) => {
+        seen = opts
+        return { messageId: 'x' }
+      },
+    }
+    const make = (templates: () => never) =>
+      new AuthSmtpChannel({ from: 'noreply@app.test', templates, transporter: transporter as never })
+
+    // No subject at all, and a subject with no body: both are wiring faults that used to surface as
+    // a provider rejection one round trip later.
+    expect((await make((() => ({})) as never).send(sendInput())).ok).toBe(false)
+    expect((await make((() => ({ subject: 'x' })) as never).send(sendInput())).ok).toBe(false)
+    expect((await make((() => ({ subject: 42, text: 'hi' })) as never).send(sendInput())).ok).toBe(false)
+    expect(seen).toBeUndefined()
+  })
+
+  it('spends a budget per send, because toll fraud against an SMS route is a loop over this call', async () => {
+    const seen: unknown[] = []
+    const channel = new AuthTwilioChannel({
+      client: {
+        messages: {
+          create: async (opts) => {
+            seen.push(opts)
+            return { sid: 'x' }
+          },
         },
       },
+      from: '+15550199',
+      limiter: new MemoryLimiter({ max: 3 }),
+      templates: () => ({ body: 'your code is 123456' }),
     })
-    expect((await channel.send(sendInput())).ok).toBe(true)
-    expect(seen?.subject).toBeUndefined()
+    const results = []
+    for (let i = 0; i < 5; i++) results.push(await channel.send(sendInput()))
+    expect(seen).toHaveLength(3)
+    expect(results[4]).toMatchObject({ ok: false, retryable: true })
+    // The code, not prose: `SendResult.error` is a string, and `AuthError` calls `super(code)`.
+    expect(results[4]?.error).toBe('AUTH_RATE_LIMITED')
   })
 
-  it('FINDING: no channel rate limits, so a send loop is bounded only by the provider', async () => {
-    // The library throttles sign-in attempts and not the messages a flow emits.
-    // Toll fraud against an SMS route is a loop over this call.
-    const { channels, sent } = buildAll()
-    for (let i = 0; i < 50; i++) await channels.twilio.send(sendInput())
-    expect(sent.twilio).toHaveLength(50)
+  it('takes a caller-supplied bucket, for an app that knows who is asking', async () => {
+    const keys: string[] = []
+    const channel = new AuthTwilioChannel({
+      client: { messages: { create: async () => ({ sid: 'x' }) } },
+      from: '+15550199',
+      limiter: {
+        consume: async (key) => {
+          keys.push(key)
+          return { ok: true, remaining: 1, resetAt: new Date() }
+        },
+        reset: async () => undefined,
+      },
+      limiterKey: (input) => `sms:${input.identity.id}`,
+      templates: () => ({ body: 'your code is 123456' }),
+    })
+    await channel.send(sendInput())
+    expect(keys).toEqual(['sms:ident-1'])
   })
 })
 
 describe('the development channels', () => {
-  it('FINDING: the console channel writes the full vars, which is where the secret lives', async () => {
-    // Its doc says "PII is redacted before logging: the identity's profile is
-    // stringified to `<identityId>` only". That is true of the profile and not
-    // of the payload: `vars` carries the signed magic link or the one-time code,
-    // and the whole object is serialised into the log line. Anyone reading
-    // stdout, or the aggregator it ships to, can sign in as that user.
+  it('keeps the credential out of the line, which is where the magic link lives', async () => {
+    // `vars` carries the signed link or the one-time code, and the whole object went into the log
+    // line, so anyone reading stdout could sign in as that user.
     const lines: string[] = []
     const channel = new AuthConsoleChannel({ sink: (line) => lines.push(line) })
-    await channel.send(sendInput({ vars: { code: '482913', url: 'https://app.test/magic?token=SECRET-TOKEN' } }))
+    await channel.send(sendInput({ vars: { code: '482913', token: 'SECRET-TOKEN', url: 'https://app.test/magic' } }))
 
-    expect(lines[0]).toContain('SECRET-TOKEN')
-    expect(lines[0]).toContain('482913')
+    expect(lines[0]).not.toContain('SECRET-TOKEN')
+    expect(lines[0]).toContain('[redacted]')
+    // What is not a credential still reaches the line, or the channel is useless for development.
+    expect(lines[0]).toContain('https://app.test/magic')
   })
 
   it('the console channel keeps the profile out of the line, as documented', async () => {
@@ -403,22 +464,26 @@ describe('the development channels', () => {
     expect(lines[0]).not.toContain('pii@corp.example')
   })
 
-  it('FINDING: nothing stops either development channel being wired in production', async () => {
-    // Same shape as the null captcha verifier: both are exported from the
-    // package, both satisfy the channel interface, and neither consults the
-    // environment. The noop one reports every send as delivered.
-    const noop = new AuthNoopChannel()
-    expect(await noop.send(sendInput())).toMatchObject({ ok: true })
-
-    const console = new AuthConsoleChannel({ sink: () => undefined })
-    expect(await console.send(sendInput())).toMatchObject({ ok: true })
+  it('refuses to be constructed under NODE_ENV=production, as the null captcha verifier does', () => {
+    const before = process.env.NODE_ENV
+    process.env.NODE_ENV = 'production'
+    try {
+      expect(() => new AuthNoopChannel()).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+      expect(() => new AuthConsoleChannel({ sink: () => undefined })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+      // The escape hatch is explicit, so a deployment that means it can still say so.
+      expect(() => new AuthNoopChannel({ development: true })).not.toThrow()
+    } finally {
+      process.env.NODE_ENV = before
+    }
   })
 
-  it('FINDING: the noop channel reports a message id for a message that was never sent', async () => {
-    // A caller storing the id for support diagnostics records a delivery that
-    // did not happen.
+  it('the noop channel reports no message id for a message that was never sent', async () => {
+    // A caller storing the id for support diagnostics was recording a delivery that did not happen.
     const result = await new AuthNoopChannel().send(sendInput())
     expect(result.ok).toBe(true)
+    expect(result.providerMessageId).toBeUndefined()
   })
 
   it('both take their kind from config, so an email channel can claim to be sms', () => {
@@ -459,15 +524,14 @@ describe('web push, which has a payload ceiling the others do not', () => {
     expect(seen[0]?.payload).toContain('Sign in')
   })
 
-  it('FINDING: nothing checks the payload against the four kilobyte ceiling', async () => {
-    // RFC 8291 caps an encrypted push payload at 4096 octets, and push services
-    // reject anything larger. The channel builds the JSON and hands it over, so
-    // an over-long template fails at the push service rather than here.
-    let size = 0
+  it('refuses a payload over the four kilobyte ceiling before the push service does', async () => {
+    // RFC 8291 caps an encrypted push payload at 4096 octets; an over-long template used to fail
+    // at the push service rather than here.
+    let called = false
     const channel = new AuthWebPushChannel({
       module: {
-        sendNotification: async (_sub: unknown, payload: string) => {
-          size = Buffer.byteLength(payload)
+        sendNotification: async () => {
+          called = true
           return {}
         },
         setVapidDetails: vi.fn(),
@@ -477,21 +541,73 @@ describe('web push, which has a payload ceiling the others do not', () => {
       subject: 'mailto:ops@app.test',
       templates: () => ({ payload: JSON.stringify({ body: 'x'.repeat(20_000), title: 'Sign in' }) }),
     })
-    await channel.send(withSubscription())
-    expect(size).toBeGreaterThan(4096)
+    expect(await channel.send(withSubscription())).toMatchObject({ ok: false, retryable: false })
+    expect(called).toBe(false)
   })
 
-  it('FINDING: the subscription endpoint is taken from the profile and never checked', async () => {
-    // The endpoint is a URL the library will POST to, stored on a user-editable
-    // profile field. There is no https requirement and no host check, which is
-    // the same shape the webhook deliverer guards against for its own outbound
-    // calls.
+  it('checks the subscription endpoint, which is a URL off a user-editable profile field', async () => {
+    // The same shape the webhook deliverer guards against for its own outbound calls.
     const seen: unknown[] = []
     const channel = build(async (sub) => {
       seen.push(sub)
       return {}
     })
-    await channel.send(withSubscription({ endpoint: 'http://127.0.0.1:8080/internal' }))
-    expect(seen[0]).toMatchObject({ endpoint: 'http://127.0.0.1:8080/internal' })
+    for (const endpoint of ['http://127.0.0.1:8080/internal', 'https://169.254.169.254/latest/meta-data']) {
+      expect(await channel.send(withSubscription({ endpoint }))).toMatchObject({ ok: false, retryable: false })
+    }
+    expect(seen).toHaveLength(0)
+  })
+})
+
+describe('the send budget refuses through the answer', () => {
+  it('resolves while there is budget and rejects once it is spent', async () => {
+    // One point, so the first send consumes it and the second is over budget.
+    const guard = new ChannelGuard('smtp', { limiter: new MemoryLimiter({ max: 1 }) })
+    await expect(guard.spend(sendInput())).resolves.toBeUndefined()
+    await expect(guard.spend(sendInput())).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
+  })
+
+  it('refuses through the code even when the limiter reports resetAt as epoch milliseconds', async () => {
+    // `Limiter.Me` is the host's to implement. The type says `Date`, and one backed by redis - or by
+    // anything with a JSON hop that forgets to revive it - hands back a number. `.getTime()` on that
+    // threw, so the guard whose whole job is to answer AUTH_RATE_LIMITED answered a TypeError.
+    const guard = new ChannelGuard('smtp', {
+      limiter: {
+        consume: async () => ({ ok: false, remaining: 0, resetAt: (Date.now() + 30_000) as unknown as Date }),
+        reset: async () => undefined,
+      },
+    })
+
+    const refused = await guard.spend(sendInput()).wrap()
+    expect(refused.error?.code).toBe('AUTH_RATE_LIMITED')
+    expect(refused.error?.meta.retryAfter).toBeGreaterThanOrEqual(1)
+  })
+
+  it('carries the wait as seconds, since `message` is the code rather than prose', async () => {
+    const guard = new ChannelGuard('smtp', { limiter: new MemoryLimiter({ max: 1 }) })
+    await guard.spend(sendInput())
+    const refused = await guard.spend(sendInput()).wrap()
+
+    expect(refused.error?.code).toBe('AUTH_RATE_LIMITED')
+    expect(refused.error?.message).toBe('AUTH_RATE_LIMITED')
+    expect(refused.error?.meta.retryAfter).toBeGreaterThan(0)
+  })
+
+  it('floors the wait at one second, so a client reading it does not retry straight back', async () => {
+    // A reset less than a second out must not report 0: a client reading 0 retries at once and is refused
+    // again, which is the busy-loop the budget exists to prevent.
+    const guard = new ChannelGuard('smtp', {
+      limiter: {
+        consume: async () => ({ ok: false, remaining: 0, resetAt: new Date(Date.now() + 200) }),
+        reset: async () => undefined,
+      },
+    })
+    const refused = await guard.spend(sendInput()).wrap()
+
+    expect(refused.error?.meta.retryAfter).toBe(1)
+  })
+
+  it('resolves when no limiter is configured at all', async () => {
+    await expect(new ChannelGuard('smtp', {}).spend(sendInput())).resolves.toBeUndefined()
   })
 })

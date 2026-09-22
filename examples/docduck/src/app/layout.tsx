@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inria_Serif, JetBrains_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
+import { IamDevtools } from '@/components/devtools/iam-devtools'
 import './globals.css'
 
 const jetbrainsMono = JetBrains_Mono({
@@ -37,6 +38,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={jetbrainsMono.className}>
         {children}
         <Toaster position="top-center" closeButton />
+        {/* Written against `process.env.NODE_ENV` literally rather than
+            through the `IAM_DEVTOOLS_ENABLED` constant the routes share:
+            the bundler inlines this one and drops the panel from the
+            production build, where an imported flag would keep it. The
+            `/api/iam` routes refuse in production either way, and that is
+            the check that actually protects anything. */}
+        {process.env.NODE_ENV !== 'production' && <IamDevtools />}
       </body>
     </html>
   )

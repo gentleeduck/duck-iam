@@ -29,7 +29,7 @@ describe('FlowsImpl provider id reflection-DoS defense', () => {
     const huge = 'x'.repeat(129)
     try {
       await auth.flows.signIn({ providerId: huge, input: {} })
-      throw new Error('expected AUTH/PROVIDER_FAILED')
+      throw new Error('expected AUTH_PROVIDER_FAILED')
     } catch (err) {
       const e = err as { code?: string; meta?: { providerId?: string } }
       expect(e.code).toBe('AUTH_PROVIDER_FAILED')
@@ -41,7 +41,7 @@ describe('FlowsImpl provider id reflection-DoS defense', () => {
     const auth = buildAuth()
     try {
       await auth.flows.signIn({ providerId: 'nope', input: {} })
-      throw new Error('expected AUTH/PROVIDER_FAILED')
+      throw new Error('expected AUTH_PROVIDER_FAILED')
     } catch (err) {
       const e = err as { code?: string; meta?: { providerId?: string } }
       expect(e.code).toBe('AUTH_PROVIDER_FAILED')
@@ -54,7 +54,7 @@ describe('FlowsImpl provider id reflection-DoS defense', () => {
     const huge = 'y'.repeat(200)
     try {
       await auth.flows.beginProvider(huge, {})
-      throw new Error('expected AUTH/PROVIDER_FAILED')
+      throw new Error('expected AUTH_PROVIDER_FAILED')
     } catch (err) {
       const e = err as { code?: string; meta?: { providerId?: string } }
       expect(e.code).toBe('AUTH_PROVIDER_FAILED')
@@ -66,7 +66,7 @@ describe('FlowsImpl provider id reflection-DoS defense', () => {
     const auth = buildAuth()
     try {
       await auth.flows.beginProvider(42 as unknown as string, {})
-      throw new Error('expected AUTH/PROVIDER_FAILED')
+      throw new Error('expected AUTH_PROVIDER_FAILED')
     } catch (err) {
       const e = err as { code?: string; meta?: { providerId?: string } }
       expect(e.code).toBe('AUTH_PROVIDER_FAILED')

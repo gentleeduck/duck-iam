@@ -1,13 +1,15 @@
+import type { IamPrimitives } from './primitives'
+
+/** Types derived from the caller's declared actions, resources and scopes. Type-only. */
 export namespace IamClient {
   /**
-   * Compound string key uniquely identifying a permission check result. Used
-   * as keys in {@link PermissionMap}; formats:
+   * Key of one permission check in a {@link PermissionMap}; formats:
    *  - `action:resource`
    *  - `action:resource:resourceId`
-   *  - `scope:action:resource`
-   *  - `scope:action:resource:resourceId`
+   *  - `@scope:action:resource`
+   *  - `@scope:action:resource:resourceId`
    *
-   * Segments containing `:` are escaped (`:` -> `\:`); see `iamBuildPermissionKey`.
+   * `@` marks a scope so three segments are never ambiguous; segments are escaped by `iamBuildPermissionKey`.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
@@ -20,12 +22,11 @@ export namespace IamClient {
   > =
     | `${TAction}:${TResource}`
     | `${TAction}:${TResource}:${string}`
-    | `${TScope}:${TAction}:${TResource}`
-    | `${TScope}:${TAction}:${TResource}:${string}`
+    | `@${TScope}:${TAction}:${TResource}`
+    | `@${TScope}:${TAction}:${TResource}:${string}`
 
   /**
-   * Map from {@link PermissionKey} strings to boolean results. Returned by
-   * `engine.permissions()` after batch-checking permissions for one subject.
+   * Map from {@link PermissionKey} to result, with every combination present. See {@link PartialPermissionMap}.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
@@ -38,10 +39,8 @@ export namespace IamClient {
   > = Record<PermissionKey<TAction, TResource, TScope>, boolean>
 
   /**
-   * What `engine.permissions()` actually returns: only the keys that were in the
-   * batch. {@link PermissionMap} requires every combination, which no caller ever
-   * has, so anything consuming a resolved map takes this instead. Lookups already
-   * default a missing key to `false`, so the two behave identically at runtime.
+   * What `engine.permissions()` returns: only the keys that were checked.
+   * Lookups default a missing key to `false`, so it behaves like {@link PermissionMap} at runtime.
    */
   export type PartialPermissionMap<
     TAction extends string = string,
@@ -50,8 +49,7 @@ export namespace IamClient {
   > = Partial<PermissionMap<TAction, TResource, TScope>>
 
   /**
-   * Permission check descriptor for batch evaluation. Pass an array of these to
-   * `engine.permissions()` or `access.checks()`.
+   * One check for batch evaluation via `engine.permissions()` or `access.checks()`.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
@@ -70,5 +68,11 @@ export namespace IamClient {
     readonly resourceId?: string
     /** Optional scope for multi-tenant checks. */
     readonly scope?: TScope
+    /**
+     * The instance's own attributes, as `can()` would receive them.
+     * SECURITY: omitting them evaluates the check against a resource that has none, so a rule conditioned on
+     * `resource.attributes.*` cannot fire and the map may be more permissive than `can()`.
+     */
+    readonly attributes?: IamPrimitives.Attributes
   }
 }

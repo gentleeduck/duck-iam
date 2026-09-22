@@ -1,7 +1,7 @@
-import { cn } from '@gentleduck/libs/cn'
 import React from 'react'
 import { ChevronDown, ChevronRight } from './icons'
 
+/** Props for {@link JsonTree}. `level` is set by its own recursion; callers pass `data` and an optional `label`. */
 export interface IJsonTreeProps {
   data: unknown
   label?: string
@@ -27,25 +27,30 @@ function previewLen(v: unknown): string {
 
 function Primitive({ value }: { value: unknown }) {
   const t = typeOf(value)
-  if (t === 'string') return <span className="text-lime-400">"{String(value)}"</span>
-  if (t === 'number') return <span className="text-amber-400">{String(value)}</span>
-  if (t === 'boolean') return <span className="font-semibold text-sky-400">{String(value)}</span>
-  if (t === 'null') return <span className="text-muted-foreground italic">null</span>
-  if (t === 'undefined') return <span className="text-muted-foreground italic">undefined</span>
-  if (t === 'function') return <span className="text-muted-foreground italic">ƒ()</span>
+  if (t === 'string') return <span className="iam-dt-json-string">"{String(value)}"</span>
+  if (t === 'number') return <span className="iam-dt-json-number">{String(value)}</span>
+  if (t === 'boolean') return <span className="iam-dt-json-bool">{String(value)}</span>
+  if (t === 'null') return <span className="iam-dt-json-nullish">null</span>
+  if (t === 'undefined') return <span className="iam-dt-json-nullish">undefined</span>
+  if (t === 'function') return <span className="iam-dt-json-nullish">ƒ()</span>
   return <span>{String(value)}</span>
 }
 
+/**
+ * Collapsible viewer for JSON-ish values; only the root starts open unless `defaultOpen` is set.
+ * Renders `undefined` and functions instead of dropping them, since seeing them is the point of a debugger.
+ */
 export function JsonTree({ data, label, defaultOpen = false, level = 0 }: IJsonTreeProps) {
   const t = typeOf(data)
   const isContainer = t === 'object' || t === 'array'
   const [open, setOpen] = React.useState(defaultOpen || level === 0)
+  const bodyId = React.useId()
 
   if (!isContainer) {
     return (
-      <div className="font-mono text-[11px] leading-relaxed">
-        <div className="flex items-baseline gap-1.5 pl-4">
-          {label != null && <span className="text-sky-400">{label}:</span>}
+      <div className="iam-dt-json">
+        <div className="iam-dt-json__leaf">
+          {label != null && <span className="iam-dt-json__key">{label}:</span>}
           <Primitive value={data} />
         </div>
       </div>
@@ -58,25 +63,27 @@ export function JsonTree({ data, label, defaultOpen = false, level = 0 }: IJsonT
   const summary = previewLen(data)
 
   return (
-    <div className="font-mono text-[11px] leading-relaxed">
+    <div className="iam-dt-json">
       <button
-        type="button"
+        aria-controls={bodyId}
+        aria-expanded={open}
+        className="iam-dt-json__btn"
         onClick={() => setOpen((o) => !o)}
-        className={cn('flex w-full items-baseline gap-1 rounded px-1 py-0.5 text-left hover:bg-muted/60')}>
-        <span className="inline-flex w-3 shrink-0 text-muted-foreground">
+        type="button">
+        <span aria-hidden className="iam-dt-json__chev">
           {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
         </span>
-        {label != null && <span className="text-sky-400">{label}:</span>}
-        <span className="text-muted-foreground">{t === 'array' ? '[' : '{'}</span>
-        {!open && <span className="text-muted-foreground">...{t === 'array' ? ']' : '}'}</span>}
-        <span className="ml-1.5 text-[9px] text-muted-foreground/60 italic">{summary}</span>
+        {label != null && <span className="iam-dt-json__key">{label}:</span>}
+        <span className="iam-dt-json__punct">{t === 'array' ? '[' : '{'}</span>
+        {!open && <span className="iam-dt-json__punct">...{t === 'array' ? ']' : '}'}</span>}
+        <span className="iam-dt-json__summary">{summary}</span>
       </button>
       {open && (
-        <div className="ml-3 border-border/60 border-l pl-2">
+        <div className="iam-dt-json__children" id={bodyId}>
           {entries.map(([k, v]) => (
             <JsonTree data={v} key={k} label={k} level={level + 1} />
           ))}
-          <div className="pl-1 text-muted-foreground">{t === 'array' ? ']' : '}'}</div>
+          <div className="iam-dt-json__close">{t === 'array' ? ']' : '}'}</div>
         </div>
       )}
     </div>

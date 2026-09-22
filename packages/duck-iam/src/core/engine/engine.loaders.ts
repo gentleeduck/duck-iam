@@ -1,8 +1,4 @@
-/**
- * Cache-fronted loaders pulled out of the Engine class. Each takes a
- * minimal dependency bag so the single-flight + adapter-timeout +
- * max-rows guard logic is testable in isolation.
- */
+// Cache-fronted loaders, kept out of the engine class so single-flight, timeouts and row caps test in isolation.
 
 import type { IamLRUCache } from '../../shared/cache'
 import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
@@ -10,6 +6,7 @@ import type { AccessControl, IamAdapter, IamRequest } from '../types'
 import type { IEngineInFlightBag } from './engine.invalidation'
 import { deepFreezePolicy, runSingleFlight, runSingleFlightKeyed } from './engine.libs'
 
+/** Everything a loader needs. The engine builds one bag per instance and shares it across every loader. */
 export interface IIamLoaderDeps<
   TAction extends string,
   TResource extends string,
@@ -26,18 +23,34 @@ export interface IIamLoaderDeps<
   maxPolicies: number
   maxRoles: number
   /**
-   * Hard ceiling on concurrent distinct-subject adapter loads. `0` (default)
-   * is unbounded. Guards a cold-flat thundering herd: without a cap, a burst
-   * of never-before-seen subjects issues one adapter call each with no
-   * back-pressure, growing `inFlight.subjects` (and the promise closures it
-   * holds) without limit. Only new loads are gated - a call that hits the
-   * subject cache or joins an already-in-flight load for the same key never
-   * counts against the cap.
+   * Cap on concurrent new subject loads; `0` is unbounded. Cache hits and joins onto an in-flight load do not count.
+   * NOTE: stops a cold-cache burst of new subjects from issuing one adapter call each with no back-pressure.
    */
   maxConcurrentSubjectLoads: number
+  /** `IConfig.scopeMode`; decides how `rolesToPolicy` gates a role-declared scope. */
+  scopeMode: 'flat' | 'hierarchical'
+  /**
+   * Reports a role a subject holds that no stored role defines. The id stays an effective role, but its
+   * `inherits` edges are gone, so a deny targeting a role it conferred stops applying with nothing to show it.
+   */
+  reportUndefinedAssignedRole: (subjectId: string, roleId: string) => void
+
+  /**
+   * Reports a policy whose targets make it unreachable - a `targets.roles` naming no stored role, or an
+   * action/resource target no rule can match. Called from here and from the compiled-table build, since either
+   * path can be the only one that runs.
+   */
+  reportPolicyTargetProblems: (
+    policies: readonly AccessControl.IPolicy[],
+    roles: readonly AccessControl.IRole[],
+  ) => void
   withTimeout: <T>(fn: (opts: { signal: AbortSignal }) => Promise<T>, label: string) => Promise<T>
 }
 
+/**
+ * Every explicit policy, cached under one key and loaded once per cold cache however many callers ask.
+ * NOTE: throws above `maxPolicies` instead of caching, so a lost tenant filter is not pinned in memory for a TTL.
+ */
 export async function loadPolicies<
   TAction extends string,
   TResource extends string,
@@ -67,6 +80,10 @@ export async function loadPolicies<
   )
 }
 
+/**
+ * Every role definition, loaded like {@link loadPolicies} and capped by `maxRoles`.
+ * Loaded whole, not per subject, because expanding `inherits` needs the full graph.
+ */
 export async function loadRoles<
   TAction extends string,
   TResource extends string,
@@ -96,6 +113,11 @@ export async function loadRoles<
   )
 }
 
+/**
+ * One subject's effective roles, scoped roles and attributes, single-flighted per id.
+ * Throws past `maxConcurrentSubjectLoads`, and caches only until the role snapshot expires or, when the adapter
+ * reports one, the subject's next grant boundary - whichever comes first.
+ */
 export async function resolveSubject<
   TAction extends string,
   TResource extends string,
@@ -111,42 +133,71 @@ export async function resolveSubject<
       `[@gentleduck/iam:engine] subject load shed: ${deps.inFlight.subjects.size} concurrent subject loads already in flight (cap ${deps.maxConcurrentSubjectLoads}); rejecting new load for "${subjectId}"`,
     )
   }
+  let boundary: number | null = null
+  // SECURITY: a failed boundary read is not `null` (which buys a full TTL); it means do not cache at all.
+  let cacheable = true
   return runSingleFlightKeyed(
     deps.inFlight.subjects,
     subjectId,
     async () => {
-      const [assignedRoles, attributes, allRoles] = await Promise.all([
+      // PERF: the boundary joins the same `Promise.all` as the reads it describes, adding no round trip.
+      const boundaryFn = deps.adapter.getSubjectGrantBoundary
+      const [assignedRoles, attributes, allRoles, grantBoundary] = await Promise.all([
         deps.withTimeout((opts) => deps.adapter.getSubjectRoles(subjectId, opts), 'getSubjectRoles'),
         deps.withTimeout((opts) => deps.adapter.getSubjectAttributes(subjectId, opts), 'getSubjectAttributes'),
         loadRoles(deps),
+        boundaryFn
+          ? deps
+              .withTimeout((opts) => boundaryFn.call(deps.adapter, subjectId, opts), 'getSubjectGrantBoundary')
+              .catch((err: unknown) => {
+                // Advisory: the failure decides nothing, but the answer must not outlive a bound nobody can name.
+                cacheable = false
+                console.warn(
+                  `[@gentleduck/iam:engine] getSubjectGrantBoundary failed for "${subjectId}"; ` +
+                    `not caching this subject: ${err instanceof Error ? err.message : String(err)}`,
+                )
+                return null
+              })
+          : Promise.resolve(null),
       ])
-      const roles = resolveEffectiveRoles(assignedRoles, allRoles)
+      const roles = resolveEffectiveRoles(assignedRoles, allRoles, (roleId) =>
+        deps.reportUndefinedAssignedRole(subjectId, roleId),
+      )
       const scopedRolesFn = deps.adapter.getSubjectScopedRoles
       const assignedScopedRoles = scopedRolesFn
         ? await deps.withTimeout((opts) => scopedRolesFn.call(deps.adapter, subjectId, opts), 'getSubjectScopedRoles')
         : undefined
-      // A scoped assignment is an assignment: it has to be closed over `inherits` too, so a
-      // check at the inherited-into scope can see it. `resolveEffectiveRoles` is scope-blind
-      // and its result includes the directly assigned role itself, so only roles OTHER THAN
-      // the direct assignment get retagged with their own `IRole.scope` (matching how
-      // `rolesToPolicy` gates each role's rules) - falling back to the row's scope when the
-      // role declares none of its own. The direct assignment's `sr.scope` is never overridden;
-      // that's the scope it was actually assigned at.
+      // Scoped assignments close over `inherits` too. Inherited roles take their own `IRole.scope` (as
+      // `rolesToPolicy` gates them), else the row's; the directly assigned role keeps `sr.scope`.
       const rolesById = new Map(allRoles.map((r) => [r.id, r]))
       const scopedRoles = assignedScopedRoles?.flatMap((sr) =>
-        resolveEffectiveRoles([sr.role], allRoles).map((role) =>
-          role === sr.role ? { ...sr, role } : { ...sr, role, scope: rolesById.get(role)?.scope ?? sr.scope },
+        resolveEffectiveRoles([sr.role], allRoles, (roleId) => deps.reportUndefinedAssignedRole(subjectId, roleId)).map(
+          (role) =>
+            role === sr.role ? { ...sr, role } : { ...sr, role, scope: rolesById.get(role)?.scope ?? sr.scope },
         ),
       )
+      // Passed to the cache write below, not returned, so waiters still get a plain `Promise<ISubject>`.
+      boundary = grantBoundary
       const subject: IamRequest.ISubject = { id: subjectId, roles, scopedRoles, attributes }
       return subject
     },
     (subject) => {
-      deps.subjectCache.set(subjectId, subject)
+      if (!cacheable) return
+      // `roles` and `scopedRoles` are resolved against the role snapshot, so the entry expires with it too.
+      // An absent entry (`Infinity`) was read live and imposes no cap, as it does for the merged policies.
+      deps.subjectCache.set(
+        subjectId,
+        subject,
+        Math.min(boundary ?? Number.POSITIVE_INFINITY, deps.roleCache.expiresAt('all') ?? Number.POSITIVE_INFINITY),
+      )
     },
   )
 }
 
+/**
+ * The synthetic policy role definitions compile to, so RBAC and ABAC share one evaluation path.
+ * SECURITY: deep-frozen before caching; every evaluation shares it, so an in-place mutation would rewrite the model.
+ */
 export async function loadRbacPolicy<
   TAction extends string,
   TResource extends string,
@@ -163,14 +214,19 @@ export async function loadRbacPolicy<
     },
     async () => {
       const roles = await loadRoles(deps)
-      return deepFreezePolicy(rolesToPolicy(roles))
+      return deepFreezePolicy(rolesToPolicy(roles, deps.scopeMode))
     },
     (built) => {
-      deps.rbacPolicyCache.set('rbac', built)
+      // Expire with the role snapshot it was built from; a fresh TTL would outlive its input.
+      deps.rbacPolicyCache.set('rbac', built, deps.roleCache.expiresAt('all'))
     },
   )
 }
 
+/**
+ * Explicit policies plus the RBAC policy, memoized so the merge is not redone per check.
+ * PERF: RBAC is prepended only when it has rules, so a deployment without roles skips an empty policy.
+ */
 export async function loadAllPolicies<
   TAction extends string,
   TResource extends string,
@@ -186,11 +242,25 @@ export async function loadAllPolicies<
       deps.inFlight.merged.value = p
     },
     async () => {
-      const [policies, rbacPolicy] = await Promise.all([loadPolicies(deps), loadRbacPolicy(deps)])
+      // `loadRoles` is a cache hit behind `loadRbacPolicy`, so the target check costs no extra read.
+      const [policies, rbacPolicy, roles] = await Promise.all([
+        loadPolicies(deps),
+        loadRbacPolicy(deps),
+        loadRoles(deps),
+      ])
+      deps.reportPolicyTargetProblems(policies, roles)
       return rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
     },
     (merged) => {
-      deps.mergedPolicyCache.set('merged', merged)
+      // Expire with the older input. An absent entry (`Infinity`) was read live and imposes no cap.
+      deps.mergedPolicyCache.set(
+        'merged',
+        merged,
+        Math.min(
+          deps.policyCache.expiresAt('all') ?? Number.POSITIVE_INFINITY,
+          deps.rbacPolicyCache.expiresAt('rbac') ?? Number.POSITIVE_INFINITY,
+        ),
+      )
     },
   )
 }

@@ -4,6 +4,8 @@ import { AuthSmtpChannel } from '../index'
 
 function makeIdentity(email: string | undefined): Identities.Me {
   return {
+    createdBy: null,
+    updatedBy: null,
     id: 'ident-1',
     // Empty email string models the "no deliverable address" case; the channel
     // reads it via getProfileString, which treats '' as absent (returns ok:false).
@@ -14,6 +16,7 @@ function makeIdentity(email: string | undefined): Identities.Me {
     createdAt: new Date(0),
     updatedAt: new Date(0),
     deletedAt: null,
+    deletedBy: null,
   }
 }
 
@@ -55,7 +58,7 @@ describe('AuthSmtpChannel', () => {
         new AuthSmtpChannel({
           transporter: makeTransporter(),
           from: '',
-          templates: () => ({ subject: 'x' }),
+          templates: () => ({ subject: 'x', text: 'body' }),
         }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
@@ -64,7 +67,7 @@ describe('AuthSmtpChannel', () => {
     const channel = new AuthSmtpChannel({
       transporter: makeTransporter(),
       from: 'noreply@app.test',
-      templates: () => ({ subject: 'x' }),
+      templates: () => ({ subject: 'x', text: 'body' }),
     })
     const result = await channel.send({
       identity: makeIdentity(undefined),
@@ -100,7 +103,7 @@ describe('AuthSmtpChannel', () => {
         throw new Error('smtp-timeout')
       }),
       from: 'noreply@app.test',
-      templates: () => ({ subject: 'x' }),
+      templates: () => ({ subject: 'x', text: 'body' }),
     })
     const result = await channel.send({
       identity: makeIdentity('user@x.com'),

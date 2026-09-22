@@ -9,6 +9,8 @@ const SUB: AuthWebPushChannel.ISubscription = {
 
 function makeIdentity(subscription: AuthWebPushChannel.ISubscription | undefined): Identities.Me {
   return {
+    createdBy: null,
+    updatedBy: null,
     id: 'ident-1',
     // Subscription omitted models the "no push endpoint" case (channel returns ok:false).
     profile: subscription
@@ -20,6 +22,7 @@ function makeIdentity(subscription: AuthWebPushChannel.ISubscription | undefined
     createdAt: new Date(0),
     updatedAt: new Date(0),
     deletedAt: null,
+    deletedBy: null,
   }
 }
 

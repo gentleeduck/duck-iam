@@ -109,3 +109,40 @@ describe('AuthMemoryLimiter - input bounds', () => {
     })
   })
 })
+
+describe('expired buckets do not stay resident', () => {
+  // The bucket key is caller-shaped - an email for the password guard, an identity id elsewhere - so the
+  // set of keys is whatever a request can name. Nothing ever removed one, so a flood of distinct
+  // addresses grew this map for as long as the process lived, and `strict()` accepts this limiter in
+  // production: it only refuses the noop one.
+  const bucketCount = (limiter: AuthMemoryLimiter): number =>
+    (limiter as unknown as { _buckets: Map<string, unknown> })._buckets.size
+
+  it('drops them once the map has grown, rather than holding every key ever seen', async () => {
+    const limiter = new AuthMemoryLimiter({ max: 5, windowMs: 10 })
+    for (let i = 0; i < 2000; i++) await limiter.consume(`attacker-${i}@x.com`)
+    expect(bucketCount(limiter)).toBeGreaterThan(0)
+
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    await limiter.consume('someone-else@x.com')
+
+    expect(bucketCount(limiter)).toBeLessThan(2000)
+  })
+
+  it('keeps a live bucket through the sweep, so nobody gets their budget back early', async () => {
+    const limiter = new AuthMemoryLimiter({ max: 2, windowMs: 60_000 })
+    await limiter.consume('victim@x.com')
+    await limiter.consume('victim@x.com')
+    // Enough distinct keys to cross the sweep threshold while the victim's window is still open.
+    for (let i = 0; i < 2000; i++) await limiter.consume(`filler-${i}@x.com`)
+
+    expect(await limiter.consume('victim@x.com')).toMatchObject({ ok: false })
+  })
+
+  it('still refuses over budget within one window', async () => {
+    const limiter = new AuthMemoryLimiter({ max: 2, windowMs: 60_000 })
+    expect(await limiter.consume('a')).toMatchObject({ ok: true })
+    expect(await limiter.consume('a')).toMatchObject({ ok: true })
+    expect(await limiter.consume('a')).toMatchObject({ ok: false })
+  })
+})

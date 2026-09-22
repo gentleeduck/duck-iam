@@ -1,14 +1,6 @@
-/**
- * Shared setup for end-to-end tests that run against REAL infrastructure.
- *
- * Everything the audit proved so far was in-process against `FakeRedis` and
- * in-memory sqlite. Those are necessary and not sufficient: `FakeRedis` has
- * known bugs and its own header disclaims review, and no in-process test can
- * verify pub/sub fan-out between instances at all.
- *
- * Config comes from `.env.test` (see `.env.example`). When a URL is unset the
- * matching suite skips, so `bun run test` stays green with no containers.
- */
+/** Shared setup for the end-to-end tests, which run against real infrastructure: `FakeRedis` and in-memory
+ *  sqlite are necessary and not sufficient, and no in-process test can verify pub/sub fan-out between instances
+ *  at all. Config comes from `.env.test`; an unset URL skips the matching suite. */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomToken } from '~/core/crypto'
@@ -56,11 +48,8 @@ export function instanceCount(): number {
   return Number.isFinite(n) && n > 0 ? n : 2
 }
 
-/**
- * Unique key namespace per test run. Every e2e Redis key sits under this and is
- * dropped in teardown, so pointing at a shared dev Redis cannot collide with
- * another run or leave debris behind.
- */
+/** A key namespace per run, dropped in teardown, so pointing at a shared dev Redis collides with nothing and
+ *  leaves no debris. */
 export function e2ePrefix(): string {
   return `e2e:${Date.now().toString(36)}:${randomToken(4)}`
 }
@@ -74,12 +63,8 @@ export async function dropPrefix(
   if (keys.length > 0) await redis.del(...keys)
 }
 
-/**
- * Create the shipped Postgres schema in the e2e database, so the suite provisions
- * its own tables instead of depending on one cloned by hand from another repo.
- * The DDL is generated from `adapters/drizzle/pg/pg.schema.ts`; regenerate it with
- * `bun run e2e:schema` when that schema changes.
- */
+/** Create the shipped Postgres schema, so the suite provisions its own tables. The DDL is generated from
+ *  `adapters/drizzle/pg/pg.schema.ts`; regenerate with `bun run e2e:schema` when that changes. */
 export async function applyPgSchema(pool: { query(sql: string): Promise<{ rows: unknown[] }> }): Promise<void> {
   const probe = await pool.query(`SELECT to_regclass('public.auth_identities') AS present`)
   const row = probe.rows[0] as { present: string | null } | undefined
@@ -87,14 +72,8 @@ export async function applyPgSchema(pool: { query(sql: string): Promise<{ rows: 
   await pool.query(readFileSync(join(import.meta.dirname, 'pg-e2e-schema.sql'), 'utf8'))
 }
 
-/**
- * Create a dedicated database and return its URL.
- *
- * Suites that wipe tables between cases cannot share the default e2e database:
- * vitest runs files in parallel workers, so one suite's TRUNCATE lands in the
- * middle of another's fixtures. An owned database makes the isolation real
- * rather than a scheduling accident.
- */
+/** Create a dedicated database and answer its URL. A suite that wipes tables between cases cannot share the
+ *  default one, vitest running files in parallel workers, so one TRUNCATE lands mid-fixture in another. */
 export async function isolatedDatabaseUrl(name: string): Promise<string | undefined> {
   const base = databaseUrl()
   if (!base) return undefined

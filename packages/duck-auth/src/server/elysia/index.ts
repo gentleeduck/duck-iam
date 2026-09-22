@@ -2,25 +2,22 @@
  * Elysia adapter. Elysia is Web-Fetch native; the adapter is a thin
  * wrapper around `server/generic.executeIntents` that pulls
  * `Headers` straight from `context.request`.
- *
- * Mount on an Elysia instance:
- *
- *   app.post('/AUTH/signin',  elysiaSignIn(auth))
- *   app.post('/AUTH/signout', elysiaSignOut(auth))
- *   app.get('/AUTH/session',  elysiaSession(auth))
- *   app.post('/AUTH/providers/:id/begin', elysiaProviderBegin(auth))
  */
 
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
   isValidProviderId,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 import type { ElysiaAdapter } from './elysia.types'
@@ -29,7 +26,7 @@ function handleError(err: unknown): Response {
   const { status, body } = errorToHttp(err)
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
   })
 }
 
@@ -44,7 +41,7 @@ export function elysiaSignIn(auth: AuthEngine): ElysiaAdapter.Handler {
       }
       const result = await auth.flows.signIn({
         ...parsed,
-        ...callerContext({ ip: ctx.ip, userAgent: ctx.request.headers.get('user-agent') ?? undefined }),
+        ...elysiaCaller(ctx),
       })
       return executeIntents(result.intents)
     } catch (err) {
@@ -72,13 +69,13 @@ export function elysiaSignOut(auth: AuthEngine): ElysiaAdapter.Handler {
 export function elysiaSession(auth: AuthEngine): ElysiaAdapter.Handler {
   return async (ctx) => {
     try {
-      const resolved = await auth.resolveSession({ headers: ctx.request.headers })
-      const body = resolved
-        ? { session: resolved.session, identity: resolved.identity }
-        : { session: null, identity: null }
+      const resolved = await auth.resolveSession({ headers: ctx.request.headers }).orNull()
+      // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
+      const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
+      const body = resolved ? { session, identity: resolved.identity } : { session: null, identity: null }
       return new Response(JSON.stringify(body), {
         status: 200,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
+        headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
       })
     } catch (err) {
       return handleError(err)
@@ -105,6 +102,42 @@ export function elysiaProviderBegin(auth: AuthEngine): ElysiaAdapter.Handler {
       return handleError(err)
     }
   }
+}
+
+/** The fingerprint Elysia resolved, the same pair {@link elysiaSignIn} stamps at sign-in. */
+export function elysiaCaller(ctx: ElysiaAdapter.Context): CallerFingerprint {
+  return callerContext({ ip: ctx.ip, userAgent: ctx.request.headers.get('user-agent') ?? undefined })
+}
+
+/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
+ *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
+ *  with the session's, running the anomaly detectors and the hijack policy.
+ *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
+export type ElysiaActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (ctx: ElysiaAdapter.Context) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+/** Wrap one handler so its writes carry the request's actor. Per-handler rather than middleware,
+ *  since Elysia composes no `next`. Anonymous and unresolvable sessions run unbound, which is the
+ *  honest `null`; while impersonating the actor is the operator behind `actingAs`. */
+export function elysiaWithActor(
+  auth: AuthEngine,
+  handler: ElysiaAdapter.Handler,
+  opts: ElysiaActorOptions = {},
+): ElysiaAdapter.Handler {
+  return (ctx) =>
+    withRequestActor(
+      auth,
+      { headers: ctx.request.headers },
+      () => handler(ctx),
+      requestSecurity(auth, {
+        ...(opts.onHijack && { onHijack: opts.onHijack }),
+        ...(opts.getCaller && { caller: opts.getCaller(ctx) }),
+      }),
+    )
 }
 
 /** CSRF guard for your own routes: `app.onBeforeHandle(elysiaCsrf(auth))`. */

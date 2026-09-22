@@ -1,32 +1,40 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
-import { evalConditionGroup } from '../conditions'
-import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
+import { evalConditionGroup, matchesUnconditionally } from '../conditions/conditions'
+import {
+  MAX_CONDITION_DEPTH,
+  OPERAND_TYPES,
+  operandHasType,
+  ops,
+  VALUELESS_OPERATORS,
+} from '../conditions/conditions.libs'
+import { IAM_RBAC_POLICY_ID } from '../rbac/rbac'
+import { matchesAction, matchesResource } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import type { Evaluate } from './evaluate.types'
 /**
- * Action+resource shape only, no conditions. Distinguishes "this rule has
- * nothing to do with the request" (false) from "shape matches, condition
- * decides" (true) - the top-level combine needs that distinction to tell a
- * genuinely silent policy apart from one that considered this request and
- * said no.
+ * `first-applicable` order: the operator's own policies, then the synthetic RBAC policy.
+ * SECURITY: first-applicable short-circuits, so whatever is first decides. Left in load order the auto-generated
+ * `__rbac__` policy pre-empts every policy the operator wrote, including an explicit deny.
+ */
+export function firstApplicableOrder<T>(items: readonly T[], idOf: (item: T) => string): readonly T[] {
+  const rbac = items.filter((item) => idOf(item) === IAM_RBAC_POLICY_ID)
+  if (rbac.length === 0) return items
+  return [...items.filter((item) => idOf(item) !== IAM_RBAC_POLICY_ID), ...rbac]
+}
+
+/**
+ * Action+resource shape only, no conditions: separates "nothing to do with this request" from "shape matches,
+ * condition decides", which the cross-policy combine needs to spot a genuinely silent policy.
  */
 export function ruleTargetsMatch(rule: AccessControl.IRule, req: IamRequest.IAccessRequest): boolean {
   const actionMatch = rule.actions.some((a) => matchesAction(a, req.action))
   if (!actionMatch) return false
 
-  // Hoist the dot check - compute once before the .some() loop
-  const resourceHasDot = req.resource.type.includes('.')
-
-  return rule.resources.some((r) => {
-    // Use dot-based matching if either pattern or resource type contains a dot
-    if (resourceHasDot || r.includes('.')) {
-      return matchesResourceHierarchical(r, req.resource.type)
-    }
-    return matchesResource(r, req.resource.type)
-  })
+  // The separator comes from the pattern, as `policy.targets` does: `a:*` is a colon prefix, `a.*` a dot subtree.
+  return rule.resources.some((r) => matchesResource(r, req.resource.type))
 }
 
-/** `ruleTargetsMatch` plus its conditions - `true` only if the rule shape-matches AND all conditions evaluate to true. */
+/** `ruleTargetsMatch` plus conditions: `true` only when the shape matches AND every condition holds. */
 export function ruleApplies(
   rule: AccessControl.IRule,
   req: IamRequest.IAccessRequest,
@@ -37,11 +45,8 @@ export function ruleApplies(
 }
 
 /**
- * `targets.actions`/`targets.resources` only, no roles. Unlike the role dimension, these two
- * don't depend on who's asking - only on the (action, resource) pair - so `compileTable` can
- * call this at compile time with two literal strings (no `req` yet) to decide which cells a
- * target-restricted policy's rules belong in. `policyApplies` below is this plus the
- * (request-only) role check.
+ * `targets.actions` / `targets.resources` only. Both depend on the (action, resource) pair rather than on who is
+ * asking, so `compileTable` can call this with two literals; {@link policyApplies} adds the role check.
  */
 export function policyTargetsActionResource(policy: AccessControl.IPolicy, action: string, resource: string): boolean {
   const targets = policy.targets
@@ -52,15 +57,8 @@ export function policyTargetsActionResource(policy: AccessControl.IPolicy, actio
 }
 
 /**
- * Checks whether a policy's target constraints match the given access request.
- *
- * If the policy has no targets defined, it applies to all requests.
- * Otherwise, each target dimension (actions, resources, roles) is checked
- * independently - all specified dimensions must match.
- *
- * @param policy - The policy whose targets to check
- * @param req    - The incoming access request
- * @returns `true` if the policy should be evaluated for this request
+ * Whether a policy's targets match the request, so it should be evaluated at all.
+ * A policy with no targets applies to every request; otherwise every specified dimension must match.
  */
 export function policyApplies(policy: AccessControl.IPolicy, req: IamRequest.IAccessRequest): boolean {
   if (!policyTargetsActionResource(policy, req.action, req.resource.type)) return false
@@ -77,12 +75,48 @@ export function policyApplies(policy: AccessControl.IPolicy, req: IamRequest.IAc
 }
 
 /**
+ * The cross-policy combine strategies both engines implement.
+ * SECURITY: refuse anything else at construction - `evaluate` falls through to `first-applicable` and
+ * `evaluateFast` to `'and'`, and TypeScript cannot stop a config-driven or plain-JS caller.
+ */
+export const VALID_POLICY_COMBINES: readonly AccessControl.PolicyCombine[] = [
+  'and',
+  'allow-overrides',
+  'first-applicable',
+]
+
+/**
+ * Highest priority wins; the strict `>` keeps a tie on the earliest match, which is source order.
+ * `first-match` and `highest-priority` differ only in their `reason`, so they rank through this one function.
+ */
+function topByPriority<T extends { rule: { readonly priority: number } }>(matched: readonly T[]): T | undefined {
+  let best = matched[0]
+  if (best === undefined) return undefined
+  // Reading the first rule's priority up front also validates it; the fast path ranks every candidate, so leaving
+  // a lone rule unchecked here made the two disagree.
+  let bestPriority = rulePriority(best.rule)
+  for (let i = 1; i < matched.length; i++) {
+    const cur = matched[i]
+    if (cur === undefined) continue
+    const priority = rulePriority(cur.rule)
+    if (priority > bestPriority) {
+      best = cur
+      bestPriority = priority
+    }
+  }
+  return best
+}
+
+/**
  * Combining-algorithm implementations. Each picks one matched rule's effect:
  *
  * - `deny-overrides`   - any deny wins; otherwise first allow wins.
  * - `allow-overrides`  - any allow wins; otherwise first deny wins.
  * - `first-match`      - highest-priority match wins; ties resolved by source order.
- * - `highest-priority` - highest-priority match wins (alias of `first-match` once ties tie-break by priority alone).
+ * - `highest-priority` - identical to `first-match`: same ranking, same source-order tie-break.
+ *
+ * NOTE: source order is `policy.rules` order, which for a stored policy is the adapter's row order, and two
+ * equal-priority rules of opposing effect make the verdict depend on it.
  */
 export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combiner> = {
   'deny-overrides': (matched, defaultEffect) => {
@@ -126,15 +160,8 @@ export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combin
   },
 
   'first-match': (matched, defaultEffect) => {
-    if (matched.length === 0) {
-      return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
-    }
-    // Highest priority first; stable on ties preserves source order
-    let first = matched[0]!
-    for (let i = 1; i < matched.length; i++) {
-      const cur = matched[i]!
-      if (cur.rule.priority > first.rule.priority) first = cur
-    }
+    const first = topByPriority(matched)
+    if (!first) return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
     return {
       rule: first.rule,
       effect: first.effect,
@@ -143,31 +170,32 @@ export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combin
   },
 
   'highest-priority': (matched, defaultEffect) => {
-    if (matched.length > 0) {
-      const top = matched.reduce((best, cur) => (cur.rule.priority > best.rule.priority ? cur : best))
-      return {
-        rule: top.rule,
-        effect: top.effect,
-        reason: `Highest priority: rule "${top.rule.id}" (p=${top.rule.priority})`,
-      }
+    const top = topByPriority(matched)
+    if (!top) return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
+    return {
+      rule: top.rule,
+      effect: top.effect,
+      reason: `Highest priority: rule "${top.rule.id}" (p=${top.rule.priority})`,
     }
-    return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
   },
 }
 
 /**
- * True when a pattern matches more than its own literal value (`'*'`, `'foo:*'`,
- * `'foo.*'`). Such patterns can't be served by the literal-keyed `byActionResource`
- * map - they go into whichever wildcard bucket still has a literal side to key on
- * (`byActionWildcardResource` / `byResourceWildcardAction`), or `wildcardBoth` if
- * neither side is literal.
+ * Whether a pattern matches more than its own literal value (`'*'`, `'foo:*'`, `'foo.*'`).
+ * Such a pattern cannot use the literal-keyed `byActionResource` map and goes to a wildcard bucket instead.
  */
 function isExpansivePattern(p: string): boolean {
   return p.includes('*')
 }
 
-/** WeakMap so indexes are GC'd when the policy is no longer referenced. */
-const indexCache = new WeakMap<AccessControl.IPolicy, Evaluate.IPolicyRuleIndex>()
+/**
+ * Cached rule indexes, keyed on the `rules` array so a replaced array cannot serve a stale index, and weak so an
+ * index dies with its rules. `length` and `algorithm` are stored alongside, so an append invalidates too.
+ */
+const indexCache = new WeakMap<
+  readonly AccessControl.IRule[],
+  { algorithm: AccessControl.CombiningAlgorithm; index: Evaluate.IPolicyRuleIndex; length: number }
+>()
 
 /** Push `entry` onto `map.get(key)`, creating the bucket on first use. */
 function addToBucket(map: Map<string, Evaluate.IIndexedRule[]>, key: string, entry: Evaluate.IIndexedRule): void {
@@ -180,23 +208,121 @@ function addToBucket(map: Map<string, Evaluate.IIndexedRule[]>, key: string, ent
 }
 
 /**
- * Build (or retrieve from cache) a rule index for a policy.
- *
- * @param policy - The policy whose rules should be indexed.
- * @returns The cached or freshly built {@link Evaluate.IPolicyRuleIndex}.
+ * Pushes `entry` into the two-level action -> resource bucket map.
+ * SECURITY: nested maps, not a joined `` `${a}\0${r}` `` key - literal buckets skip the shape check, so a
+ * non-injective key lets a rule fire for an unrelated request.
  */
-export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRuleIndex {
-  const cached = indexCache.get(policy)
-  if (cached) return cached
+function addToPairBucket(
+  map: Map<string, Map<string, Evaluate.IIndexedRule[]>>,
+  action: string,
+  resource: string,
+  entry: Evaluate.IIndexedRule,
+): void {
+  let byResource = map.get(action)
+  if (!byResource) {
+    byResource = new Map()
+    map.set(action, byResource)
+  }
+  addToBucket(byResource, resource, entry)
+}
 
-  const byActionResource = new Map<string, Evaluate.IIndexedRule[]>()
+/** The two algorithms that rank by `rule.priority`; the other two never read it, so a bad one cannot reach them. */
+export function ranksByPriority(algorithm: AccessControl.CombiningAlgorithm): boolean {
+  return algorithm === 'first-match' || algorithm === 'highest-priority'
+}
+
+/** Whether `value` is an `IRule.effect` the evaluators can act on; an unvalidated row may carry anything. */
+export function isRuleEffect(value: unknown): value is AccessControl.Effect {
+  return value === 'allow' || value === 'deny'
+}
+
+/**
+ * Whether the policy carries a deny rule, so failing to evaluate it could hide a deny; used to fail closed.
+ * A row with no `rules` array can hide nothing and stays skippable.
+ * SECURITY: anything that is not `'allow'` counts, so a mistyped deny still makes the policy fail closed.
+ */
+export function policyHasDenyRule(policy: AccessControl.IPolicy): boolean {
+  return Array.isArray(policy.rules) && policy.rules.some((r) => r.effect !== 'allow')
+}
+
+/**
+ * Priority for ranking under `first-match` / `highest-priority`; the other two algorithms never call it.
+ * SECURITY: a non-finite priority on an unvalidated row is Indeterminate. Ranking it as `0` made a deny lose to
+ * any allow with a positive priority, which is the same outcome as dropping the deny.
+ */
+export function rulePriority(rule: { readonly priority: number }): number {
+  if (!Number.isFinite(rule.priority)) {
+    throw new Error(
+      `[@gentleduck/iam:evaluate] Rule priority must be a finite number, got ${JSON.stringify(rule.priority)}`,
+    )
+  }
+  return rule.priority
+}
+
+/**
+ * Whether the conditions must go through `evalConditionGroup` rather than read as an unconditional match.
+ * SECURITY: a group that can never match, and an absent or non-object one, belong here too; skipping either
+ * would make the fast path honour a rule the interpreter refuses.
+ */
+function needsConditionEval(c: AccessControl.IConditionGroup | undefined): boolean {
+  return !matchesUnconditionally(c)
+}
+
+/**
+ * Whether any condition under `item` can throw at evaluation, so the policy is handed to the interpreter.
+ * SECURITY: covers every throw site in `evalCondition` / `assertItems` - unknown operator, `matches`, absent
+ * `value`, operand-type mismatch, `$`-reference, non-array group body, depth, unknown keys - and errs toward `true`.
+ */
+function conditionMayThrow(item: unknown, depth = 0): boolean {
+  // `>=`, matching `evalConditionGroup`: under-approximating would answer a group the interpreter throws on,
+  // over-approximating only costs a delegation.
+  if (depth >= MAX_CONDITION_DEPTH) return true
+  // SECURITY: `evalConditionGroup` throws on a non-object, so this is a throw site, not a leaf that cannot throw.
+  if (item === null || typeof item !== 'object') return true
+  if (Array.isArray(item)) return item.some((child) => conditionMayThrow(child, depth + 1))
+  if ('operator' in item) {
+    const { operator } = item
+    if (typeof operator !== 'string' || !Object.hasOwn(ops, operator)) return true
+    // `matches` can throw on an oversized input or a refused pattern whatever its operand looks like.
+    if (operator === 'matches') return true
+    if (VALUELESS_OPERATORS.has(operator)) return false
+    const value = Reflect.get(item, 'value')
+    if (value === undefined) return true
+    const expected = OPERAND_TYPES.get(operator)
+    if (expected === undefined) return false
+    if (typeof value === 'string' && value.startsWith('$')) return true
+    return !operandHasType(expected, value)
+  }
+  for (const key of ['all', 'any', 'none']) {
+    if (!(key in item)) continue
+    const body = Reflect.get(item, key)
+    if (!Array.isArray(body)) return true
+    return conditionMayThrow(body, depth + 1)
+  }
+  // No recognised key: `{}` is unconditionally true, anything else is Indeterminate and must be handed over.
+  return Object.keys(item).length !== 0
+}
+
+/** Builds, or retrieves from cache, the {@link Evaluate.IPolicyRuleIndex} for a policy. */
+export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRuleIndex {
+  const rules = policy.rules
+  const cached = indexCache.get(rules)
+  if (cached && cached.length === rules.length && cached.algorithm === policy.algorithm) return cached.index
+
+  const byActionResource = new Map<string, Map<string, Evaluate.IIndexedRule[]>>()
   const byActionWildcardResource = new Map<string, Evaluate.IIndexedRule[]>()
   const byResourceWildcardAction = new Map<string, Evaluate.IIndexedRule[]>()
   const wildcardBoth: Evaluate.IIndexedRule[] = []
 
-  for (const rule of policy.rules) {
-    const actions = new Set(rule.actions as string[])
-    const resources = new Set(rule.resources as string[])
+  let mayThrow = false
+  for (const [order, rule] of policy.rules.entries()) {
+    // An unrecognised effect throws in the interpreter, so the fast path must delegate rather than scan past it.
+    // NOTE: a non-finite priority needs no flag here; `evaluatePolicyFast` refuses one before it builds the index.
+    if (!mayThrow && (conditionMayThrow(rule.conditions) || !isRuleEffect(rule.effect))) {
+      mayThrow = true
+    }
+    const actions = new Set<string>(rule.actions)
+    const resources = new Set<string>(rule.resources)
     let hasWildcardAction = false
     for (const a of actions) {
       if (isExpansivePattern(a)) {
@@ -212,58 +338,57 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
       }
     }
     const c = rule.conditions
-    const hasConditions = !!c && ('all' in c || 'any' in c || 'none' in c)
+    const hasConditions = needsConditionEval(c)
     const entry: Evaluate.IIndexedRule = {
       rule,
       actions,
       resources,
-      hasWildcardAction,
-      hasWildcardResource,
       hasConditions,
+      order,
     }
 
     if (hasWildcardAction && hasWildcardResource) {
       // Neither side is literal - nothing to key on, stays a linear scan.
       wildcardBoth.push(entry)
     } else if (hasWildcardResource) {
-      // Action is guaranteed all-literal (hasWildcardAction is false) - key on every
-      // literal action so a request only finds this entry via its own exact action.
+      // Action is all-literal here, so key on every literal action; a request finds this entry by its exact action.
       for (const a of actions) addToBucket(byActionWildcardResource, a, entry)
     } else if (hasWildcardAction) {
       // Mirror of the above: resource is guaranteed all-literal here.
       for (const r of resources) addToBucket(byResourceWildcardAction, r, entry)
     } else {
       for (const a of actions) {
-        for (const r of resources) addToBucket(byActionResource, `${a}\0${r}`, entry)
+        for (const r of resources) addToPairBucket(byActionResource, a, r, entry)
       }
     }
   }
 
-  // Pre-compute results for unconditional exact-match rules (CASL-like O(1)).
-  // Only when no wildcard rules exist (they could override the result).
+  // PERF: pre-compute unconditional exact-match rules, but only when no wildcard rule could override the result.
   const precomputed = new Map<string, Map<string, boolean>>()
   const algo = policy.algorithm
   const hasNoWildcards =
     wildcardBoth.length === 0 && byActionWildcardResource.size === 0 && byResourceWildcardAction.size === 0
 
-  if (hasNoWildcards && (algo === 'deny-overrides' || algo === 'allow-overrides' || algo === 'first-match')) {
+  // `highest-priority` ranks identically to `first-match`, so it precomputes too.
+  const precomputable =
+    algo === 'deny-overrides' || algo === 'allow-overrides' || algo === 'first-match' || algo === 'highest-priority'
+
+  if (hasNoWildcards && precomputable) {
     for (const rule of policy.rules) {
       const c = rule.conditions
-      if ('all' in c || 'any' in c || 'none' in c) continue
+      if (needsConditionEval(c)) continue
       if (rule.actions.some(isExpansivePattern) || rule.resources.some(isExpansivePattern)) continue
 
       for (const a of rule.actions) {
         for (const r of rule.resources) {
-          const arKey = `${a}\0${r}`
-          const entries = byActionResource.get(arKey)
+          const entries = byActionResource.get(a)?.get(r)
           if (!entries) continue
 
-          // Only precompute when every entry in this bucket is unconditional  -
-          // otherwise the result depends on the request and can't be cached.
+          // Only when every entry in the bucket is unconditional; otherwise the result depends on the request.
           let allUnconditional = true
           for (const e of entries) {
             const ec = e.rule.conditions
-            if ('all' in ec || 'any' in ec || 'none' in ec) {
+            if (needsConditionEval(ec)) {
               allUnconditional = false
               break
             }
@@ -292,13 +417,10 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
               if (e.rule.effect === 'deny') hasDeny = true
             }
             if (result === undefined && hasDeny) result = false
-          } else if (algo === 'first-match' && entries.length > 0) {
-            let best = entries[0]!
-            for (let i = 1; i < entries.length; i++) {
-              const cur = entries[i]!
-              if (cur.rule.priority > best.rule.priority) best = cur
-            }
-            result = best.rule.effect === 'allow'
+          } else {
+            // Entries are appended in `policy.rules` order, so ties break as the interpreter's linear scan does.
+            const best = topByPriority(entries)
+            if (best) result = best.rule.effect === 'allow'
           }
 
           if (result !== undefined) {
@@ -320,7 +442,45 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
     byResourceWildcardAction,
     wildcardBoth,
     precomputed,
+    mayThrow,
   }
-  indexCache.set(policy, idx)
+  indexCache.set(rules, { algorithm: policy.algorithm, index: idx, length: rules.length })
   return idx
+}
+
+/**
+ * Hooks already reported as throwing, latched per hook so one engine cannot silence another's.
+ * SECURITY: the report is reachable per policy per request on an attacker-controlled path, so repeating it is a
+ * log flood; a WeakSet, since the key is the operator's own function and must not keep their engine alive.
+ */
+const _ERROR_HOOK_THREW = new WeakSet<object>()
+
+/**
+ * Runs an error-reporting hook so a throw inside it cannot escape; the hook itself keys the warn-once latch.
+ * SECURITY: callers sit inside the Indeterminate catch, so a throwing hook would unwind the vote it reports.
+ * @param hook - The operator's reporter, or `undefined` when none is wired.
+ * @param err - Whatever was thrown; normalised to an `Error` for the hook.
+ * @param policy - The policy the throw came from.
+ */
+export function safeErrorReport(
+  hook: ((err: Error, policy: AccessControl.IPolicy) => void) | undefined,
+  err: unknown,
+  policy: AccessControl.IPolicy,
+): void {
+  if (!hook) return
+  try {
+    hook(err instanceof Error ? err : new Error(String(err)), policy)
+  } catch (hookErr) {
+    if (_ERROR_HOOK_THREW.has(hook)) return
+    _ERROR_HOOK_THREW.add(hook)
+    try {
+      console.error(
+        '[@gentleduck/iam:evaluate] an error-reporting hook threw - swallowed to preserve the decision. ' +
+          'This is reported once per hook; the hook is still broken.',
+        hookErr,
+      )
+    } catch {
+      /* last-resort: give up logging; the decision matters more than diagnostics */
+    }
+  }
 }

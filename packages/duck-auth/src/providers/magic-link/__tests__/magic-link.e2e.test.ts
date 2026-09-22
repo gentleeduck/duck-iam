@@ -1,22 +1,9 @@
-/**
- * E2E: magic links against REAL Postgres.
- *
- * A magic link is a bearer credential mailed in plaintext, so the only things
- * standing between a leaked inbox and an account are that the token works once,
- * expires, and belongs to exactly one identity. `complete` claims the row with a
- * compare-and-set on its version before revoking it, which is the right shape,
- * and is also the shape that only a real database can be tested against: an
- * in-memory store cannot lose the race the CAS exists to win.
- *
- * Findings are recorded, not repaired.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset; `globalSetup` provisions a
- * container when docker is available.
- */
+/** E2E: magic links against REAL Postgres. */
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import type { Channel } from '~/channels/channels.types'
+import { orNull } from '~/core/answer'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -45,7 +32,7 @@ function capturingChannel(): Channel.Channel & { links: string[] } {
 suite('E2E magic links on real Postgres', () => {
   let pool: Pool
   let auth: AuthEngine<Profile>
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  let stores: DrizzlePgAdapter
   let channel: ReturnType<typeof capturingChannel>
   const planted: string[] = []
 
@@ -71,7 +58,7 @@ suite('E2E magic links on real Postgres', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: PG_URL })
     await applyPgSchema(pool)
-    stores = drizzlePgStorage<Profile>(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL as string)
     channel = capturingChannel()
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
@@ -82,7 +69,7 @@ suite('E2E magic links on real Postgres', () => {
     auth.providers.register(
       magicLink<Profile>({
         channels: { email: channel },
-        findIdentityByEmail: async (email) => stores.identities.findByEmail(email),
+        findIdentityByEmail: async (email) => orNull(stores.identities.find({ email })),
       }),
     )
   }, 60_000)
@@ -220,12 +207,18 @@ suite('E2E magic links on real Postgres', () => {
       expect(channel.links.length).toBe(before)
     })
 
+    // The shape of the address is a 400. An unknown address resolves instead, as the case above shows, so
+    // there is no enumeration cover to give up by saying so.
     it('refuses an oversize address before touching the store', async () => {
-      await expect(auth.flows.beginProvider('magic-link', { email: `${'x'.repeat(300)}@test.local` })).rejects.toThrow()
+      await expect(
+        auth.flows.beginProvider('magic-link', { email: `${'x'.repeat(300)}@test.local` }),
+      ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('refuses a non-string address', async () => {
-      await expect(auth.flows.beginProvider('magic-link', { email: 42 as unknown as string })).rejects.toThrow()
+      await expect(auth.flows.beginProvider('magic-link', { email: 42 as unknown as string })).rejects.toMatchObject({
+        code: 'AUTH_INVALID_PARAMETERS',
+      })
     })
   })
 

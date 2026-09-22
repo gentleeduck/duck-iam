@@ -1,7 +1,11 @@
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
+import { AuthError } from '~/core/errors'
+import { refuseRateLimited } from '~/core/events/events.lockout'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
@@ -9,13 +13,12 @@ import {
   parseBodyStringField,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 /** Hono exposes no resolved address, so `ctx.ip` is whatever the app chose to put there. */
-function honoCaller(ctx: { ip?: string; req: { header: (n?: string) => unknown } }): {
-  ip?: string
-  userAgent?: string
-} {
+export function honoCaller(ctx: { ip?: string; req: { header: (n?: string) => unknown } }): CallerFingerprint {
   const ua = ctx.req.header('user-agent')
   return callerContext({ ip: ctx.ip, userAgent: typeof ua === 'string' ? ua : undefined })
 }
@@ -30,7 +33,7 @@ function reqMethod(ctx: HonoAdapter.Context): string {
   return ctx.req.raw.method
 }
 
-/** `honoSignIn`. CSRF-guarded. */
+/** CSRF-guarded. */
 export function honoSignIn(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
@@ -47,7 +50,7 @@ export function honoSignIn(auth: AuthEngine): HonoAdapter.Handler {
   }
 }
 
-/** `honoSignOut`. CSRF-guarded. */
+/** CSRF-guarded. */
 export function honoSignOut(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
@@ -62,17 +65,17 @@ export function honoSignOut(auth: AuthEngine): HonoAdapter.Handler {
   }
 }
 
-/** `honoSession`. */
+/** Hono handler answering the current session. */
 export function honoSession(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
-      const resolved = await auth.resolveSession({ headers: reqHeaders(ctx) })
-      const body = resolved
-        ? { session: resolved.session, identity: resolved.identity }
-        : { session: null, identity: null }
+      const resolved = await auth.resolveSession({ headers: reqHeaders(ctx) }).orNull()
+      // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
+      const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
+      const body = resolved ? { session, identity: resolved.identity } : { session: null, identity: null }
       return new Response(JSON.stringify(body), {
         status: 200,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
+        headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
       })
     } catch (err) {
       return handleError(err)
@@ -80,7 +83,7 @@ export function honoSession(auth: AuthEngine): HonoAdapter.Handler {
   }
 }
 
-/** `honoProviderBegin`. */
+/** Hono handler starting a provider flow. */
 export function honoProviderBegin(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
@@ -105,7 +108,7 @@ function handleError(err: unknown): Response {
   const { status, body } = errorToHttp(err)
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
   })
 }
 
@@ -141,7 +144,8 @@ export function toHonoAdapterCtx(c: {
   }
 }
 
-/** Register every duck-auth route on a Hono `app`. `opts.skip` omits route groups; `opts.cors` mounts a scoped CORS middleware. */
+/** Register every duck-auth route on a Hono `app`. `opts.skip` omits route groups. `opts.cors` is inert:
+ *  mount `hono/cors` on the app yourself. */
 export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.Options = {}): void {
   const prefix = opts.prefix ?? '/auth'
   const skip = new Set(opts.skip ?? [])
@@ -160,8 +164,15 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
       const url = new URL(c.req.url)
       const code = url.searchParams.get('code') ?? ''
       const state = url.searchParams.get('state') ?? ''
+      // The provider reads its own cookie out of this. Without it every callback is refused, which
+      // is the right direction to fail but not a good way to find out.
+      const cookieHeader = c.req.header('cookie') ?? ''
       try {
-        const result = await auth.flows.signIn({ input: { code, state }, providerId: provider, ...honoCaller(c) })
+        const result = await auth.flows.signIn({
+          input: { code, cookieHeader, state },
+          providerId: provider,
+          ...honoCaller(c),
+        })
         return executeIntents(result.intents)
       } catch (err) {
         return handleError(err)
@@ -185,6 +196,9 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
   if (!skip.has('passkey')) {
     app.post(`${prefix}/passkey/begin`, async (c) => {
       try {
+        // Guarded like `/signin` and `/providers/:id/begin`, which these two mirror. An unauthenticated
+        // request still gets the double-submit check, against the cookie alone.
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const body = parseProviderBeginBody(await c.req.json().catch(() => null))
         if (body === null) {
           return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
@@ -197,6 +211,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     })
     app.post(`${prefix}/passkey/complete`, async (c) => {
       try {
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const body: unknown = await c.req.json().catch(() => ({}))
         const result = await auth.flows.signIn({ input: body, providerId: 'passkey', ...honoCaller(c) })
         return executeIntents(result.intents)
@@ -211,7 +226,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     app.post(`${prefix}/mfa/totp/begin`, async (c) => {
       try {
         await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
-        const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
+        const resolved = await auth.resolveSession({ headers: c.req.raw.headers }).orNull()
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
@@ -228,7 +243,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     app.post(`${prefix}/mfa/totp/confirm`, async (c) => {
       try {
         await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
-        const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
+        const resolved = await auth.resolveSession({ headers: c.req.raw.headers }).orNull()
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
@@ -246,7 +261,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     app.post(`${prefix}/mfa/totp/verify`, async (c) => {
       try {
         await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
-        const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
+        const resolved = await auth.resolveSession({ headers: c.req.raw.headers }).orNull()
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
@@ -255,6 +270,11 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         if (code === null) {
           return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
         }
+        // SECURITY: this route answers `{ ok: false }` with a 200 however often it is asked, which is a
+        // clean six-digit oracle for a caller who already has the password. The same bucket
+        // `completeStepUp` uses, so grinding cannot buy a second budget by switching routes.
+        const limited = await auth.limiter.consume(`stepup:${resolved.session.identityId}`)
+        if (!limited.ok) await refuseRateLimited(auth.events, limited, resolved.session.identityId)
         return jsonResponse(200, { ok: await auth.mfa.verifyTotp(resolved.session.identityId, code) })
       } catch (err) {
         return handleError(err)
@@ -263,9 +283,17 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     app.post(`${prefix}/mfa/totp/remove`, async (c) => {
       try {
         await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
-        const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
+        const resolved = await auth.resolveSession({ headers: c.req.raw.headers }).orNull()
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
+        }
+        // SECURITY: proving the factor is what may delete it. This route took any authenticated
+        // session, so a caller holding only the password could delete the second factor that exists
+        // for exactly that theft - cheaper than guessing a code, and it is the one mounted route that
+        // destroys a credential. `AUTH_STEP_UP_REQUIRED` carries the challenge back.
+        const stepUp = await auth.flows.checkStepUp(resolved.session, { aal: 2 })
+        if (!stepUp.satisfied) {
+          throw new AuthError('AUTH_STEP_UP_REQUIRED', { challenge: stepUp })
         }
         await auth.mfa.removeTotp(resolved.session.identityId)
         return jsonResponse(200, { ok: true })
@@ -276,9 +304,17 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     app.post(`${prefix}/mfa/backup-codes/regenerate`, async (c) => {
       try {
         await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
-        const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
+        const resolved = await auth.resolveSession({ headers: c.req.raw.headers }).orNull()
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
+        }
+        // SECURITY: proving the factor is what may replace it, as on `/mfa/totp/remove`. This answered any
+        // authenticated session with ten working second factors in the body, so a caller holding only the
+        // password read a set out and spent one on `completeStepUp` - AAL2 without ever holding the phone,
+        // and the victim's own codes destroyed on the way through.
+        const stepUp = await auth.flows.checkStepUp(resolved.session, { aal: 2 })
+        if (!stepUp.satisfied) {
+          throw new AuthError('AUTH_STEP_UP_REQUIRED', { challenge: stepUp })
         }
         return jsonResponse(200, { codes: await auth.mfa.regenerateBackupCodes(resolved.session.identityId) })
       } catch (err) {
@@ -290,9 +326,38 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
     status,
   })
+}
+
+/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
+ *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
+ *  with the session's, running the anomaly detectors and the hijack policy.
+ *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
+export type HonoActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (ctx: HonoAdapter.Context) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+/** Bind the request's actor scope for everything downstream; install it above your own routes,
+ *  alongside the CSRF guard. Anonymous and unresolvable sessions run unbound, which is the honest
+ *  `null`; while impersonating the actor is the operator behind `actingAs`. */
+export function honoActorContext(auth: AuthEngine, opts: HonoActorOptions = {}): HonoAdapter.Middleware {
+  return async (ctx, next) => {
+    await withRequestActor(
+      auth,
+      { headers: ctx.req.raw.headers },
+      () => next(),
+      requestSecurity(auth, {
+        ...(opts.onHijack && { onHijack: opts.onHijack }),
+        ...(opts.getCaller && { caller: opts.getCaller(ctx) }),
+      }),
+    )
+    return undefined
+  }
 }
 
 /** CSRF guard for your own routes: `app.use('*', honoCsrf(auth))`. */

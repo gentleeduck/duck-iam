@@ -26,6 +26,11 @@ describe('Vue client (no `vue` installed)', () => {
   it('install() surfaces a clear error when `vue` is missing', () => {
     const plugin = createAuthVuePlugin({ baseUrl: '/auth' })
     const fakeApp = { provide: () => fakeApp }
-    expect(() => plugin.install(fakeApp)).toThrow(/vue/)
+    expect(() => plugin.install(fakeApp)).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: expect.stringContaining('`vue` is not installed') },
+      }),
+    )
   })
 })

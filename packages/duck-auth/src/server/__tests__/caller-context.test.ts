@@ -10,10 +10,6 @@ import { callerContext } from '../generic'
  * Every adapter has to hand the caller to `flows.signIn`, because the flow, the store and the
  * columns all take it and a session row that cannot name a device is worse than none: somebody
  * reads their own device list, recognises nothing, and concludes nothing is wrong.
- *
- * The rule the helper encodes is that an address is only ever what the framework resolved.
- * Reading a forwarded header inside the library would take the value the caller wrote, and the
- * host is the only layer that knows how many proxies it trusts.
  */
 
 const EMAIL = 'caller@example.test'

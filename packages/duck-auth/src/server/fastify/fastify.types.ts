@@ -1,3 +1,4 @@
+/** The Fastify request and reply surface the adapter touches. */
 export namespace FastifyAdapter {
   export type Handler = (
     req: FastifyAdapter.Request,

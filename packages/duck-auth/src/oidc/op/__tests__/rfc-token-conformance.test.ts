@@ -1,16 +1,12 @@
 /**
  * RFC 6749 §5.1 (Successful Response) + RFC 6749 §5.2 (Error Response)
  * + OIDC Core §3.1.3.3 (Token Endpoint Response) conformance for the
- *
- * /token endpoint output.
- * Mainstream OIDC client libs (openid-client, oidc-client-ts, MSAL) all
- * parse this shape. Drift = silent client-side rejection.
  */
 
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { Identity } from '~/core'
+import { Identities } from '~/core'
 import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -18,7 +14,7 @@ import { passwords } from '~/providers/passwords'
 import { ScryptHasher } from '~/providers/passwords/hashers/scrypt'
 import { createOidcOP, type OidcOpRoot } from '../index'
 
-interface ProfileShape extends Identity.ProfileMetadataBase {}
+interface ProfileShape extends Identities.ProfileMetadataBase {}
 
 function buildOp(): { op: OidcOpRoot<ProfileShape>; auth: AuthEngine<ProfileShape> } {
   const adapter = new MemoryAdapter<ProfileShape>()

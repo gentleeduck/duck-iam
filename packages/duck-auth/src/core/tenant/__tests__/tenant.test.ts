@@ -4,10 +4,6 @@
  * boundary implemented by a mechanism that is easy to lose track of: a value that
  * survives an `await` but not a callback, or that leaks out of a `Promise.all`
  * branch into its sibling, is a cross-tenant read.
- *
- * The cases below are the ways an async context is normally lost or leaked:
- * awaits, timers, microtasks, concurrent branches, thrown errors, nesting, and
- * callbacks scheduled inside a scope but run outside it.
  */
 import { describe, expect, it } from 'vitest'
 import { currentTenant, resolveTenant, withTenant } from '../tenant'

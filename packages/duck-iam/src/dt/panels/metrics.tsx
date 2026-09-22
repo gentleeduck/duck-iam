@@ -3,6 +3,8 @@ import { Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { Section } from '../components/layout'
 import { Badge, Button, Empty } from '../components/ui'
+import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine, IamIDevtoolsMetrics } from '../lib/types'
 
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
@@ -15,6 +17,10 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
   )
 }
 
+/**
+ * Live cache and decision counters, re-read every `pollMs`.
+ * PERF: polls instead of hooking each decision, so devtools rendering stays off the authorization hot path.
+ */
 export function IamMetricsPanel({
   engine,
   metrics,
@@ -24,30 +30,34 @@ export function IamMetricsPanel({
   metrics?: IamIDevtoolsMetrics
   pollMs?: number
 }) {
-  const [stats, setStats] = React.useState(() => engine.stats())
+  useIamDevtoolsStyles()
+  const [stats, setStats] = React.useState(() => engine.stats.get())
   const [snap, setSnap] = React.useState(() => metrics?.snapshot() ?? null)
 
   React.useEffect(() => {
     const id = setInterval(() => {
-      setStats(engine.stats())
+      setStats(engine.stats.get())
       if (metrics) setSnap(metrics.snapshot())
     }, pollMs)
     return () => clearInterval(id)
   }, [engine, metrics, pollMs])
 
+  // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
+  if (!isDevtoolsAllowed(engine)) return null
+
   const allowRate = snap && snap.total > 0 ? Math.round((snap.allow / snap.total) * 100) : 0
 
   return (
-    <div className="iam-dt-detail">
+    <div className="iam-dt iam-dt-detail">
       <div className="iam-dt-detail__head">
         <span className="iam-dt-listshell__title">Telemetry</span>
         <Badge tone="info">poll {pollMs}ms</Badge>
         <span style={{ marginLeft: 'auto' }}>
           <Button
             onClick={() => {
-              engine.resetStats()
+              engine.stats.reset()
               metrics?.reset()
-              setStats(engine.stats())
+              setStats(engine.stats.get())
               setSnap(metrics?.snapshot() ?? null)
             }}>
             <Refresh size={10} /> reset

@@ -4,6 +4,8 @@ import { AuthConsoleChannel, AuthNoopChannel, AuthTestChannel } from '../index'
 
 function makeIdentity(): Identities.Me {
   return {
+    createdBy: null,
+    updatedBy: null,
     id: 'ident-1',
     profile: { username: 'u', email: 'u@x.com' },
     providers: [],
@@ -12,6 +14,7 @@ function makeIdentity(): Identities.Me {
     createdAt: new Date(0),
     updatedAt: new Date(0),
     deletedAt: null,
+    deletedBy: null,
   }
 }
 
@@ -51,7 +54,8 @@ describe('AuthNoopChannel', () => {
       tenant: {},
     })
     expect(result.ok).toBe(true)
-    expect(result.providerMessageId).toMatch(/^noop:/)
+    // No id: a caller storing one for support diagnostics recorded a delivery that never happened.
+    expect(result.providerMessageId).toBeUndefined()
   })
 })
 

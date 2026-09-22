@@ -113,8 +113,7 @@ describe('iamAccessMiddleware (hono)', () => {
       ctx,
       vi.fn(async () => undefined),
     )
-    // No `c.set('userId', ...)` was called upstream, so default getUserId
-    // returns null and middleware fails closed at 401.
+    // No upstream `c.set('userId', ...)`, so the default getUserId returns null and the middleware fails closed.
     expect(res?.status).toBe(401)
   })
 
@@ -161,7 +160,8 @@ describe('iamAccessMiddleware (hono)', () => {
     can.mockRestore()
   })
 
-  it('uses default env extractor with cf-connecting-ip', async () => {
+  // SECURITY: `cf-connecting-ip` is client-writable and hono has no socket address to fall back on, so it is opt-in.
+  it('ignores cf-connecting-ip unless trustCloudflareHeaders is set', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
     const { ctx } = makeContext({
@@ -173,18 +173,67 @@ describe('iamAccessMiddleware (hono)', () => {
       ctx,
       vi.fn(async () => undefined),
     )
-    expect(can.mock.calls[0]?.[3]?.ip).toBe('1.2.3.4')
+    expect(can.mock.calls[0]?.[3]?.ip).toBeUndefined()
     expect(can.mock.calls[0]?.[3]?.userAgent).toBe('curl')
     can.mockRestore()
   })
 
-  it('falls back to x-forwarded-for', async () => {
+  it('uses cf-connecting-ip once trustCloudflareHeaders is set', async () => {
+    const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u', trustCloudflareHeaders: true })
+    const { ctx } = makeContext({
+      method: 'GET',
+      path: '/post',
+      headers: { 'cf-connecting-ip': '1.2.3.4', 'user-agent': 'curl' },
+    })
+    await mw(
+      ctx,
+      vi.fn(async () => undefined),
+    )
+    expect(can.mock.calls[0]?.[3]?.ip).toBe('1.2.3.4')
+    can.mockRestore()
+  })
+
+  // SECURITY: without a trusted proxy in front, the client writes this header itself.
+  it('ignores x-forwarded-for unless trustCloudflareHeaders is set', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
     const { ctx } = makeContext({
       method: 'GET',
       path: '/post',
       headers: { 'x-forwarded-for': '5.6.7.8' },
+    })
+    await mw(
+      ctx,
+      vi.fn(async () => undefined),
+    )
+    expect(can.mock.calls[0]?.[3]?.ip).toBeUndefined()
+    can.mockRestore()
+  })
+
+  it('falls back to x-forwarded-for once trustCloudflareHeaders is set', async () => {
+    const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u', trustCloudflareHeaders: true })
+    const { ctx } = makeContext({
+      method: 'GET',
+      path: '/post',
+      headers: { 'x-forwarded-for': '5.6.7.8' },
+    })
+    await mw(
+      ctx,
+      vi.fn(async () => undefined),
+    )
+    expect(can.mock.calls[0]?.[3]?.ip).toBe('5.6.7.8')
+    can.mockRestore()
+  })
+
+  it('takes the leftmost hop from a multi-value x-forwarded-for', async () => {
+    const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u', trustCloudflareHeaders: true })
+    const { ctx } = makeContext({
+      method: 'GET',
+      path: '/post',
+      headers: { 'x-forwarded-for': ' 5.6.7.8 , 10.0.0.1' },
     })
     await mw(
       ctx,
@@ -372,6 +421,65 @@ describe('iamBindAdminRouter (hono)', () => {
     const res = (await handlers['PUT /policies']!(ctx)) as unknown as { status: number; data: unknown }
     expect(res.status).toBe(403)
     expect(authorizeCalled).toBe(false)
+  })
+
+  // SECURITY: pins the default gate itself; the case above only shows a supplied `csrfCheck` is honoured.
+  it('the default csrfCheck blocks a cross-site mutation with no csrfCheck supplied', async () => {
+    const engine = makeEngine()
+    let authorizeCalled = false
+    type Handler = (c: unknown) => Promise<Response> | Response
+    const handlers: Record<string, Handler> = {}
+    const router = {
+      get: vi.fn(),
+      put: vi.fn((path: string, h: Handler) => {
+        handlers[`PUT ${path}`] = h
+      }),
+      post: vi.fn(),
+      delete: vi.fn(),
+    }
+    iamBindAdminRouter(router, engine, {
+      authorize: () => {
+        authorizeCalled = true
+        return true
+      },
+    })
+    const ctx = {
+      req: {
+        param: () => undefined,
+        json: async () => ({ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }),
+        header: (n: string) => (n === 'sec-fetch-site' ? 'cross-site' : undefined),
+      },
+      json: (data: unknown, status?: number) => ({ data, status: status ?? 200 }) as unknown as Response,
+    }
+    const res = (await handlers['PUT /policies']!(ctx)) as unknown as { status: number }
+    expect(res.status).toBe(403)
+    expect(authorizeCalled).toBe(false)
+  })
+
+  it('a same-origin mutation still gets through the default check', async () => {
+    // Positive control - a default that refused everything would pass above.
+    const engine = makeEngine()
+    type Handler = (c: unknown) => Promise<Response> | Response
+    const handlers: Record<string, Handler> = {}
+    const router = {
+      get: vi.fn(),
+      put: vi.fn((path: string, h: Handler) => {
+        handlers[`PUT ${path}`] = h
+      }),
+      post: vi.fn(),
+      delete: vi.fn(),
+    }
+    iamBindAdminRouter(router, engine, { authorize: () => true })
+    const ctx = {
+      req: {
+        param: () => undefined,
+        json: async () => ({ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }),
+        header: (n: string) => (n === 'sec-fetch-site' ? 'same-origin' : undefined),
+      },
+      json: (data: unknown, status?: number) => ({ data, status: status ?? 200 }) as unknown as Response,
+    }
+    const res = (await handlers['PUT /policies']!(ctx)) as unknown as { status: number }
+    expect(res.status).toBe(200)
   })
 
   describe('onAdminMutation', () => {

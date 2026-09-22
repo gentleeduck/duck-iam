@@ -1,13 +1,14 @@
+export type { Batch } from './batch'
 export * from './builder'
 export * from './conditions'
 export * from './config'
 export * from './engine'
 export * from './evaluate'
 export * from './explain'
+export type { Pending } from './pending'
 export * from './rbac'
 export * from './resolve'
 export * from './schema'
 export * from './types'
-// validate is intentionally NOT re-exported. Import it via
-// `@gentleduck/iam/core/validate` to opt in to the 12 KB validator chunk.
+// PERF: validate is not re-exported; import `@gentleduck/iam/core/validate` to opt in to its 12 KB chunk.
 export type { IamValidate } from './validate'

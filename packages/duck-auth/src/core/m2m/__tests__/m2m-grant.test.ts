@@ -4,10 +4,6 @@
  * identity the token speaks for, which tenant it is scoped to, and which scopes
  * it carries. The existing suite covers the happy exchange and the scope caps.
  * These cover the inputs the caller controls that are not the secret.
- *
- * Sources: RFC 6749 sections 3.3 and 4.4 (scope handling and the
- * client_credentials grant), RFC 6750 on bearer token lifetime, and RFC 9700
- * section 2.4 on binding a token to the client that asked for it.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -16,6 +12,7 @@ import type { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
 import { JwtTransport } from '~/core/transport/jwt.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { NoopLimiter } from '~/limiters/mock'
 import { apiKeyProvider } from '~/providers/api-key'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
@@ -41,7 +38,12 @@ function build(cfg?: M2m.Cfg) {
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
     transport,
   })
-  return { adapter, auth, m2m: new M2MImpl(auth.apiKeys, auth.sessions, auth.transport, cfg), transport }
+  return {
+    adapter,
+    auth,
+    m2m: new M2MImpl(auth.apiKeys, auth.sessions, auth.transport, new NoopLimiter(), cfg),
+    transport,
+  }
 }
 
 /** Decode the JWT payload without verifying, to read what was minted. */
@@ -72,14 +74,21 @@ describe('m2m client_credentials', () => {
   })
 
   describe('the tenant the token speaks for', () => {
-    it('FINDING: a key with no tenant mints a token for whatever tenant the caller names', async () => {
-      // The cross-tenant guard only fires when the credential itself carries a
-      // tenant. A global key leaves `verified.tenantId` undefined, so the check is
-      // skipped and `effectiveTenantId` falls through to the caller's value. The
-      // `tid` claim on the resulting JWT is then chosen by the request body, which
-      // is the one thing a client_credentials grant must never let a client pick.
-      const result = await env.m2m.exchange({ clientId, clientSecret, tenantId: 'victim-tenant' })
-      expect(claims(result.access_token).tid).toBe('victim-tenant')
+    it('a key with no tenant cannot mint a token for a tenant the caller names', async () => {
+      // This was a finding: the cross-tenant guard in `exchange` only fires when
+      // the credential itself carries a tenant, so a global key left
+      // `verified.tenantId` undefined, the check was skipped, and the `tid` claim
+      // was chosen by the request body - the one thing a client_credentials grant
+      // must never let a client pick.
+      await expect(env.m2m.exchange({ clientId, clientSecret, tenantId: 'victim-tenant' })).rejects.toMatchObject({
+        code: 'AUTH_APIKEY_INVALID',
+      })
+    })
+
+    it('the same global key still works when the caller names no tenant', async () => {
+      // Without this the refusal above could pass by breaking global keys outright.
+      const result = await env.m2m.exchange({ clientId, clientSecret })
+      expect(claims(result.access_token).tid).toBeUndefined()
     })
 
     it('refuses when a tenant-scoped key is asked to mint for a different tenant', async () => {
@@ -95,24 +104,31 @@ describe('m2m client_credentials', () => {
       expect(claims(result.access_token).tid).toBe('tenant-a')
     })
 
-    it('FINDING: an empty-string tenant is a distinct tenant, not an absent one', async () => {
-      // `!== undefined` is the only absence test, so `tenantId: ''` reaches the
-      // session and the claim as a real value.
-      const result = await env.m2m.exchange({ clientId, clientSecret, tenantId: '' })
-      expect(result.access_token.split('.')).toHaveLength(3)
+    it('an empty-string tenant is a distinct tenant, not an absent one - and now fails closed', async () => {
+      // `!== undefined` is still the only absence test, so `tenantId: ''` is
+      // carried as a real tenant rather than collapsing to "unscoped". That used
+      // to mint a token; with lookups tenant-scoped it refuses, because no
+      // credential belongs to the tenant named by the empty string.
+      await expect(env.m2m.exchange({ clientId, clientSecret, tenantId: '' })).rejects.toMatchObject({
+        code: 'AUTH_APIKEY_INVALID',
+      })
     })
   })
 
   describe('the scopes the token carries', () => {
-    it('FINDING: asking for scopes the key does not have yields a token with no scope at all', async () => {
-      // In the default intersect mode an empty intersection is not an error. RFC
-      // 6749 section 3.3 says the server must either fail or issue the scopes it
-      // is willing to grant; issuing a token with an empty scope claim leaves the
-      // resource server to decide what a scopeless bearer token means, which is
-      // exactly the ambiguity that turns into an allow.
-      const result = await env.m2m.exchange({ clientId, clientSecret, scope: 'admin:everything' })
-      expect(result.scope).toBe('')
-      expect(claims(result.access_token).scope).toBe('')
+    it('refuses rather than minting a token with no scope at all', async () => {
+      // RFC 6749 section 3.3 gives the server two answers, fail or issue what it will grant. An
+      // empty intersection used to take a third: a token whose scope claim is the empty string,
+      // leaving the resource server to decide what a scopeless bearer token means.
+      await expect(env.m2m.exchange({ clientId, clientSecret, scope: 'admin:everything' })).rejects.toMatchObject({
+        code: 'AUTH_APIKEY_SCOPE_INSUFFICIENT',
+      })
+    })
+
+    it('still grants the part of a partly-held request that the key does hold', async () => {
+      // The refusal above must not become "all or nothing"; that is strict mode's job.
+      const result = await env.m2m.exchange({ clientId, clientSecret, scope: 'read:users admin:everything' })
+      expect(result.scope).toBe('read:users')
     })
 
     it('strict mode refuses the same request instead', async () => {
@@ -126,10 +142,7 @@ describe('m2m client_credentials', () => {
       ).rejects.toMatchObject({ code: 'AUTH_APIKEY_SCOPE_INSUFFICIENT' })
     })
 
-    it('FINDING: the strict-mode refusal reports the key’s full scope set back to the caller', async () => {
-      // The error meta carries `have`, so a caller probing with one scope learns
-      // every scope the key holds. The caller already has the secret, but an error
-      // body forwarded to a client, or written to a shared log, spreads it.
+    it('the refusal names back only what the caller asked for, never the key’s other scopes', async () => {
       const strict = build({ scopeMode: 'strict', ttlMs: 60_000 })
       const ident = await strict.adapter.identities.create(
         identityInput({ profile: { email: 's@a.test', username: 's@a.test' }, providers: [] }),
@@ -139,9 +152,9 @@ describe('m2m client_credentials', () => {
         .exchange({ clientId: key.key.id, clientSecret: key.plaintext, scope: 'nope' })
         .catch((e: AuthError) => e)
 
-      expect((err as AuthError).meta.have).toEqual(['secret:a', 'secret:b'])
-      // And the redactor does not treat it as sensitive, so it survives onto the wire.
-      expect((err as AuthError).toJSON().error).toMatchObject({ have: ['secret:a', 'secret:b'] })
+      expect((err as AuthError).meta).toEqual({ missing: ['nope'], required: ['nope'] })
+      // The meta is not redacted, so anything in it reaches the wire; nothing in it is the key's.
+      expect(JSON.stringify((err as AuthError).toJSON())).not.toContain('secret:')
     })
 
     it('omitting scope grants everything the key holds', async () => {
@@ -149,42 +162,35 @@ describe('m2m client_credentials', () => {
       expect(result.scope.split(' ').sort()).toEqual(['read:orders', 'read:users', 'write:users'])
     })
 
-    it('FINDING: an empty scope string is read as omitted, so it grants everything', async () => {
-      // `if (input.scope)` is a truthiness test, so a client sending `scope=`
-      // asking for nothing receives the full set instead of none.
-      const result = await env.m2m.exchange({ clientId, clientSecret, scope: '' })
-      expect(result.scope.split(' ')).toHaveLength(3)
+    it('a scope string naming nothing is a request, not an absence', async () => {
+      // A truthiness test read `scope=` as "omitted" and handed back the full set, so a client
+      // asking for nothing received everything the key holds.
+      for (const scope of ['', '   \t  ']) {
+        await expect(env.m2m.exchange({ clientId, clientSecret, scope })).rejects.toMatchObject({
+          code: 'AUTH_INVALID_CREDENTIALS',
+        })
+      }
     })
 
-    it('FINDING: a whitespace-only scope also grants everything', async () => {
-      // The split filters out empties, leaving a zero-length request, which
-      // `_resolveScopes` treats the same as no request at all.
-      const result = await env.m2m.exchange({ clientId, clientSecret, scope: '   \t  ' })
-      expect(result.scope.split(' ')).toHaveLength(3)
-    })
-
-    it('FINDING: duplicates survive into the granted scope claim and count against the cap', async () => {
-      // Nothing deduplicates, so a client can pad the scope string. Sixty-four
-      // copies of one scope exhausts the token budget and pushes out the scopes
-      // that follow it in the same request.
+    it('deduplicates before counting the cap, so padding cannot push out a real scope', async () => {
       const result = await env.m2m.exchange({ clientId, clientSecret, scope: 'read:users read:users read:users' })
-      expect(result.scope).toBe('read:users read:users read:users')
+      expect(result.scope).toBe('read:users')
 
+      // Sixty-four copies of one scope used to exhaust the budget and refuse the request outright,
+      // taking the scope that followed them down with it.
       const padded = [...Array.from({ length: 64 }, () => 'read:users'), 'write:users'].join(' ')
-      await expect(env.m2m.exchange({ clientId, clientSecret, scope: padded })).rejects.toMatchObject({
-        code: 'AUTH_INVALID_CREDENTIALS',
-      })
+      expect((await env.m2m.exchange({ clientId, clientSecret, scope: padded })).scope).toBe('read:users write:users')
     })
 
-    it('FINDING: a scope token may contain any character that is not whitespace', async () => {
-      // RFC 6749 section 3.3 restricts a scope token to a printable subset that
-      // excludes the quote and the backslash. Neither the grant nor the key
-      // creation path checks, so a quote or a brace rides into the `scope` claim
-      // and back out to whatever parses the response.
-      const key = await makeKey(['read:"users"', 'a\\b', '{"admin":true}'])
-      const result = await env.m2m.exchange(key)
-      expect(result.scope).toContain('{"admin":true}')
-      expect(claims(result.access_token).scope).toContain('read:"users"')
+    it('refuses a scope outside the RFC 6749 grammar, at the key and at the grant', async () => {
+      // A quote or a backslash rode into the `scope` claim and back out to whatever parses the
+      // token response, where a space-delimited string stops being unambiguous.
+      for (const scope of ['read:"users"', 'a\\b', '{"admin":true}']) {
+        await expect(makeKey([scope])).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+        await expect(env.m2m.exchange({ clientId, clientSecret, scope })).rejects.toMatchObject({
+          code: 'AUTH_INVALID_CREDENTIALS',
+        })
+      }
     })
 
     it('splits on any run of whitespace, including newlines', async () => {
@@ -203,7 +209,8 @@ describe('m2m client_credentials', () => {
     })
 
     it('accepts a request sitting exactly on both caps', async () => {
-      const sixtyFour = Array.from({ length: 64 }, () => 'read:users').join(' ')
+      // Sixty-four distinct tokens, since the cap counts what survives deduplication.
+      const sixtyFour = ['read:users', ...Array.from({ length: 63 }, (_, i) => `s${i}`)].join(' ')
       await expect(env.m2m.exchange({ clientId, clientSecret, scope: sixtyFour })).resolves.toBeDefined()
     })
 
@@ -213,7 +220,10 @@ describe('m2m client_credentials', () => {
       })
     })
 
-    it('FINDING: a key holding no scopes still mints a token rather than being refused', async () => {
+    it('a key holding no scopes mints an authentication-only token, deliberately', async () => {
+      // Left as it is. A service account that proves who it is and carries no authorization is a
+      // real shape, and the ambiguity the empty intersection had is absent here: the client asked
+      // for nothing, so nothing is what it is told it got.
       const key = await makeKey([])
       const result = await env.m2m.exchange(key)
       expect(result.scope).toBe('')
@@ -245,14 +255,12 @@ describe('m2m client_credentials', () => {
       })
     })
 
-    it('FINDING: a token minted before revocation keeps verifying afterwards', async () => {
-      // Documented on the facet, pinned here because it is the grant's sharpest
-      // edge: revoking a leaked key stops new exchanges and does nothing about the
-      // tokens already issued, for up to the configured ttl. The default ttl is an
-      // hour.
+    it('a token minted before revocation keeps verifying afterwards, which is what stateless means', async () => {
+      // Left as it is, and documented on the facet. Revoking a leaked key stops new exchanges and
+      // does nothing about tokens already issued, for up to the configured ttl.
       const result = await env.m2m.exchange({ clientId, clientSecret })
       await env.auth.apiKeys.revoke(clientId)
-      expect(await env.transport.verify(result.access_token)).not.toBeNull()
+      await expect(env.transport.verify(result.access_token)).resolves.toBeDefined()
     })
 
     it('refuses a secret longer than the hashing cap', async () => {
@@ -269,28 +277,21 @@ describe('m2m client_credentials', () => {
   })
 
   describe('what each exchange leaves behind', () => {
-    it('FINDING: every exchange persists a session row that nothing ever cleans up', async () => {
-      // The grant is stateless from the client's point of view, but each call
-      // writes a session. A service polling for a token, or an attacker holding a
-      // valid key, grows the session store one row per request, and the rows are
-      // never revoked because no client ever signs out of them.
-      for (let i = 0; i < 25; i++) await env.m2m.exchange({ clientId, clientSecret })
-      expect(await env.adapter.sessions.listByIdentity(identityId)).toHaveLength(25)
-    })
-
-    it('FINDING: the persisted session outlives the token whose lifetime was capped', async () => {
-      // `issue` receives a copy with the expiry clamped to the m2m ttl, but the
-      // row written a moment earlier keeps the sessions facet's own, longer
-      // expiry. The token expires in a minute; the record stays live far past it.
+    it('every exchange still writes a row, and every row now expires with its own token', async () => {
+      // One row per call is inherent: nothing about a client_credentials exchange lets the grant
+      // reuse an earlier session. What is not inherent is the row outliving the token, which made
+      // the growth unbounded - no client ever signs out of an m2m session, so an over-long expiry
+      // was a row nothing would ever remove.
       const short = build({ scopeMode: 'intersect', ttlMs: 60_000 })
       const ident = await short.adapter.identities.create(
         identityInput({ profile: { email: 's@a.test', username: 's@a.test' }, providers: [] }),
       )
       const key = await short.auth.apiKeys.create(ident.id, { name: 'k', scopes: ['read:users'] })
-      await short.m2m.exchange({ clientId: key.key.id, clientSecret: key.plaintext })
+      for (let i = 0; i < 25; i++) await short.m2m.exchange({ clientId: key.key.id, clientSecret: key.plaintext })
 
-      const [row] = await short.adapter.sessions.listByIdentity(ident.id)
-      expect(row?.expiresAt.getTime()).toBeGreaterThan(Date.now() + 60_000)
+      const rows = await short.adapter.sessions.listByIdentity(ident.id)
+      expect(rows).toHaveLength(25)
+      for (const row of rows) expect(row.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000)
     })
 
     it('the minted session is an apikey session at aal 1, not a user session', async () => {
@@ -317,35 +318,42 @@ describe('m2m client_credentials', () => {
       expect(result.expires_in).toBeLessThanOrEqual(120)
     })
 
-    it('FINDING: a negative ttl is accepted and mints a token that is already expired', async () => {
-      // Nothing validates `ttlMs`. The clamped expiry lands in the past, so the
-      // grant returns a two hundred with a token no resource server will accept,
-      // and a negative `expires_in` for the client to reason about.
-      const bad = build({ scopeMode: 'intersect', ttlMs: -60_000 })
-      const ident = await bad.adapter.identities.create(
-        identityInput({ profile: { email: 's@a.test', username: 's@a.test' }, providers: [] }),
-      )
-      const key = await bad.auth.apiKeys.create(ident.id, { name: 'k', scopes: [] })
-      const result = await bad.m2m.exchange({ clientId: key.key.id, clientSecret: key.plaintext })
-
-      expect(result.expires_in).toBeLessThan(0)
-      expect(await bad.transport.verify(result.access_token)).toBeNull()
+    it('refuses a ttl that could only mint an unusable token, at construction', async () => {
+      // An unvalidated `ttlMs` put the expiry in the past, so the grant answered two hundred with a
+      // token no resource server would accept and a negative `expires_in` for the client to reason
+      // about. Refused where the mistake is, rather than on every exchange after it.
+      for (const ttlMs of [-60_000, 0, 999, Number.NaN, Number.POSITIVE_INFINITY, 31 * 24 * 60 * 60 * 1000]) {
+        expect(() => build({ scopeMode: 'intersect', ttlMs })).toThrow(
+          expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+        )
+      }
     })
 
-    it('FINDING: a ttl longer than the session lifetime is silently ignored', async () => {
-      // The clamp is a `Math.min`, so asking for a twenty-four hour token against a
-      // shorter session policy quietly yields the shorter one while `expires_in`
-      // is computed from the configured ttl and overstates it.
-      const long = build({ scopeMode: 'intersect', ttlMs: 24 * 60 * 60 * 1000 })
-      const ident = await long.adapter.identities.create(
-        identityInput({ profile: { email: 's@a.test', username: 's@a.test' }, providers: [] }),
-      )
-      const key = await long.auth.apiKeys.create(ident.id, { name: 'k', scopes: [] })
-      const result = await long.m2m.exchange({ clientId: key.key.id, clientSecret: key.plaintext })
+    it('a ttl longer than the session policy still yields the shorter one, and says so', async () => {
+      // The clamp is a `Math.min` and stays one: the sessions facet's ttl (seven days by default) is
+      // a ceiling the grant does not get to raise. What changed is that `expires_in` is read back
+      // off the session rather than recomputed from the configured ttl, which overstated a lifetime
+      // already cut short.
+      const silent = {
+        clear: () => [],
+        issue: () => [{ body: { access_token: 'tok' }, type: 'json' as const }],
+        read: async () => null,
+        verify: async () => null,
+      }
+      const fortnight = 14 * 24 * 60 * 60 * 1000
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, silent as never, new NoopLimiter(), {
+        scopeMode: 'intersect',
+        ttlMs: fortnight,
+      })
+      const result = await facet.exchange({ clientId, clientSecret })
 
-      const exp = (claims(result.access_token).exp as number) * 1000
-      expect(exp).toBeLessThan(Date.now() + 24 * 60 * 60 * 1000)
-      expect(result.expires_in).toBeGreaterThan((exp - Date.now()) / 1000)
+      expect(result.expires_in).toBeLessThan(fortnight / 1000)
+      // Tracks the row rather than the config. Read a moment later than the exchange computed it,
+      // so it is the row's remaining seconds or a second or two more, never fewer.
+      const [row] = await env.adapter.sessions.listByIdentity(identityId)
+      const remaining = Math.floor(((row?.expiresAt.getTime() ?? 0) - Date.now()) / 1000)
+      expect(result.expires_in).toBeGreaterThanOrEqual(remaining)
+      expect(result.expires_in).toBeLessThanOrEqual(remaining + 2)
     })
   })
 
@@ -357,7 +365,7 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never)
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never, new NoopLimiter())
       await expect(facet.exchange({ clientId, clientSecret })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
@@ -370,7 +378,7 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, empty as never)
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, empty as never, new NoopLimiter())
       await expect(facet.exchange({ clientId, clientSecret })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
@@ -383,42 +391,63 @@ describe('m2m client_credentials', () => {
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, nan as never)
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, nan as never, new NoopLimiter())
       await expect(facet.exchange({ clientId, clientSecret })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
     })
 
-    it('FINDING: a transport reporting its own expires_in overrides the m2m policy in the response', async () => {
-      // The envelope prefers whatever the transport put in the body, so the number
-      // the client is told can disagree with the ttl the operator configured, and
-      // with the token's actual exp.
+    it('a transport may shorten the advertised lifetime but never extend it past the policy', async () => {
+      // The envelope preferred whatever the transport put in the body, so the number the client was
+      // told could disagree with both the operator's ttl and the token's own exp.
       const lying = {
         clear: () => [],
         issue: () => [{ body: { access_token: 'tok', expires_in: 999_999 }, type: 'json' as const }],
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, lying as never, {
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, lying as never, new NoopLimiter(), {
         scopeMode: 'intersect',
         ttlMs: 60_000,
       })
-      expect((await facet.exchange({ clientId, clientSecret })).expires_in).toBe(999_999)
+      expect((await facet.exchange({ clientId, clientSecret })).expires_in).toBeLessThanOrEqual(60)
+
+      const brief = {
+        clear: () => [],
+        issue: () => [{ body: { access_token: 'tok', expires_in: 5 }, type: 'json' as const }],
+        read: async () => null,
+        verify: async () => null,
+      }
+      const short = new M2MImpl(env.auth.apiKeys, env.auth.sessions, brief as never, new NoopLimiter(), {
+        scopeMode: 'intersect',
+        ttlMs: 60_000,
+      })
+      expect((await short.exchange({ clientId, clientSecret })).expires_in).toBe(5)
     })
 
-    it('FINDING: the session is written before the transport is checked, so a misconfiguration still leaves rows', async () => {
-      // The AUTH_MISCONFIGURED throw happens after `sessions.create`. Every
-      // rejected exchange against a wrongly wired transport persists a session
-      // that no token was ever issued for.
+    it('a misconfigured transport leaves no session behind', async () => {
+      // The AUTH_MISCONFIGURED throw is after `sessions.create`, because only issuing reveals the
+      // transport is wrong. Every rejected exchange used to persist a session no token was ever
+      // issued for, which a service retrying on the error turns into a row per attempt.
       const cookieish = {
         clear: () => [],
         issue: () => [{ name: 'sid', type: 'cookie' as const, value: 'x' }],
         read: async () => null,
         verify: async () => null,
       }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never)
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never, new NoopLimiter())
       await facet.exchange({ clientId, clientSecret }).catch(() => undefined)
-      expect(await env.adapter.sessions.listByIdentity(identityId)).toHaveLength(1)
+      expect(await env.adapter.sessions.listByIdentity(identityId)).toHaveLength(0)
+
+      const bodyless = {
+        clear: () => [],
+        issue: () => [{ body: { ok: true }, type: 'json' as const }],
+        read: async () => null,
+        verify: async () => null,
+      }
+      const second = new M2MImpl(env.auth.apiKeys, env.auth.sessions, bodyless as never, new NoopLimiter())
+      await second.exchange({ clientId, clientSecret }).catch(() => undefined)
+      expect(await env.adapter.sessions.listByIdentity(identityId)).toHaveLength(0)
     })
   })
 })

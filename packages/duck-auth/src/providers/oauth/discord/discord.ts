@@ -1,7 +1,4 @@
-/**
- * Discord oauth 2.0 provider. Discord does not implement OIDC; the
- * provider hits `/users/@me` directly to derive sub + email + avatar.
- */
+/** Discord implements no OIDC, so the profile comes from `/users/@me` directly. */
 
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
@@ -18,7 +15,7 @@ const DISCORD_ENDPOINTS: OAuth.Endpoints = {
   revocationEndpoint: 'https://discord.com/api/oauth2/token/revoke',
 }
 
-/** Discord oauth 2.0 provider factory. */
+/** Discord OAuth provider. */
 export function discord<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.DiscordOptions<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
@@ -36,14 +33,13 @@ export function discord<Profile extends Identities.ProfileMetadataBase = Identit
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
+    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
     ...(opts.profileToIdentityProfile !== undefined && {
       profileToIdentityProfile: opts.profileToIdentityProfile,
     }),
     async fetchProfile(tokens, c) {
       const info = await c.userinfo(tokens.access_token)
-      // safe-extract instead of `as`. Discord
-      // user ids are stringified snowflakes; verify the shape rather
-      // than trust the cast.
+      // Discord user ids are stringified snowflakes, so the shape is verified rather than asserted.
       const sub = getUserinfoString(info, 'id')
       if (sub === undefined) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {

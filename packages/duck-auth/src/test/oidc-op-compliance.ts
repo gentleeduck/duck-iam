@@ -1,19 +1,17 @@
 /**
  * Shared contract for the OIDC OP stores, so every dialect answers the same
  * questions instead of each restating them.
- *
- * Only the sqlite flavour had a test, and it is bun-gated, so under Node nothing
- * exercised these stores at all and the pg and mysql flavours were never run.
- * That matters more here than in most stores: single-use codes and refresh-token
- * rotation are the security properties of an authorization server, and both are
- * "delete/mark returned exactly one row" claims that only a real database can
- * settle. The sqlite DDL also drops the constraints, so the shipped schemas were
- * unproven even where the suite did run.
- *
- * @param factory - fresh, empty stores per case. Callers wipe between cases.
  */
 import { describe, expect, it } from 'vitest'
 import type { OidcOP } from '~/oidc/op/types'
+import {
+  expectFieldTypes,
+  OIDC_ACCESS_TOKEN_FIELDS,
+  OIDC_CLIENT_FIELDS,
+  OIDC_CODE_FIELDS,
+  OIDC_CONSENT_FIELDS,
+  OIDC_REFRESH_TOKEN_FIELDS,
+} from '~/test/type-fidelity'
 
 export type OidcOpStores = {
   clients: OidcOP.ClientStore
@@ -21,6 +19,42 @@ export type OidcOpStores = {
   accessTokens: OidcOP.AccessTokenStore
   refreshTokens: OidcOP.RefreshTokenStore
   consents: OidcOP.ConsentStore
+}
+
+/** The three rows every `authGcDrizzle*OidcOp` is specified to prune: an expired code, an expired access
+ *  token, and a consumed refresh token that has not expired. */
+export async function insertGcFixture(stores: OidcOpStores, now: number): Promise<void> {
+  await stores.codes.insert({
+    client_id: 'app',
+    code: 'gc-code',
+    code_challenge: null,
+    code_challenge_method: null,
+    exp: now - 1,
+    identity_id: 'u',
+    nonce: null,
+    redirect_uri: 'x',
+    scope: ['openid'],
+    sid: 's',
+    tenant_id: null,
+  })
+  await stores.accessTokens.insert({
+    client_id: 'app',
+    exp: now - 1,
+    identity_id: 'u',
+    scope: ['openid'],
+    tenant_id: null,
+    token_hash: 'gc-at',
+  })
+  await stores.refreshTokens.insert({
+    client_id: 'app',
+    consumedAt: now - 1,
+    exp: now + 60_000,
+    family_id: 'f',
+    identity_id: 'u',
+    scope: ['openid'],
+    tenant_id: null,
+    token_hash: 'gc-rt',
+  })
 }
 
 export function runOidcOpCompliance(factory: () => OidcOpStores): void {
@@ -75,6 +109,31 @@ export function runOidcOpCompliance(factory: () => OidcOpStores): void {
   })
 
   describe('OIDC OP store compliance', () => {
+    it('every read path returns the field types the row type declares', async () => {
+      // Every instant on these rows is an epoch `number`. On Postgres they are `bigint` columns,
+      // which node-postgres returns as strings rather than round an id past 2^53, so `exp`,
+      // `createdAt`, `consumedAt` and `grantedAt` are exactly the fields that arrive
+      // declared-number and delivered-string.
+      const s = factory()
+
+      await s.clients.insert(client())
+      expectFieldTypes(await s.clients.findById('app'), OIDC_CLIENT_FIELDS, 'clients.findById')
+
+      const now = Date.now()
+      await s.codes.insert(code())
+      expectFieldTypes(await s.codes.consume('code-1', now), OIDC_CODE_FIELDS, 'codes.consume')
+
+      await s.accessTokens.insert(accessToken())
+      expectFieldTypes(await s.accessTokens.findByHash('at-1', now), OIDC_ACCESS_TOKEN_FIELDS, 'accessTokens.findByHash')
+
+      await s.refreshTokens.insert(refreshToken())
+      expectFieldTypes(await s.refreshTokens.findByHash('rt-1', now), OIDC_REFRESH_TOKEN_FIELDS, 'refreshTokens.findByHash')
+      expectFieldTypes(await s.refreshTokens.consume('rt-1', now), OIDC_REFRESH_TOKEN_FIELDS, 'refreshTokens.consume')
+
+      await s.consents.upsert({ client_id: 'app', grantedAt: 1_700_000_001, identity_id: 'user-1', scope: ['openid'] })
+      expectFieldTypes(await s.consents.find('user-1', 'app'), OIDC_CONSENT_FIELDS, 'consents.find')
+    })
+
     describe('clients', () => {
       it('round-trips a client, arrays included', async () => {
         const s = factory()

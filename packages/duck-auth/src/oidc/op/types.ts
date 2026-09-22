@@ -1,22 +1,12 @@
-/**
- * Types for the minimal OIDC OP.
- *
- * Scope: authorization_code grant + refresh_token grant + S256 PKCE,
- * /userinfo with bearer-opaque access tokens, scope-gated claims.
- *
- * Out of scope: implicit / hybrid flows, JAR/PAR, DCR, request URI,
- * pairwise subject identifiers, claims request parameter, ACR/AMR
- * claim mapping, distributed claims, RP-initiated logout (separate).
- */
+/** Types for the minimal OIDC OP. */
 
-import type { Identity } from '~/core'
+import type { Identities } from '~/core'
 
 export namespace OidcOP {
   export type GrantType = 'authorization_code' | 'refresh_token'
   export type ResponseType = 'code'
   export type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none'
   export type CodeChallengeMethod = 'S256' | 'plain'
-  export type Prompt = 'none' | 'login' | 'consent' | 'select_account'
 
   /** A registered OIDC client. */
   export type Client = {
@@ -175,10 +165,10 @@ export namespace OidcOP {
   }
 
   /** /authorize result the host app routes on. */
-  export type AuthorizeResult<Profile extends Identity.ProfileMetadataBase> =
+  export type AuthorizeResult<Profile extends Identities.ProfileMetadataBase> =
     | { kind: 'redirect'; url: string }
     | { kind: 'login_required'; reason: 'no_session' | 'prompt_login' | 'max_age_exceeded' }
-    | { kind: 'consent_required'; client: Client; scope: string[]; identity: Identity.Me<Profile> }
+    | { kind: 'consent_required'; client: Client; scope: string[]; identity: Identities.Me<Profile> }
     | { kind: 'error'; status: number; body: OauthError; redirectUri?: string }
 
   /** /token request shape, post body parse. */

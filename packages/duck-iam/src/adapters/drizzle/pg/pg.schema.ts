@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import {
   check,
+  customType,
   foreignKey,
   index,
   integer,
@@ -16,14 +17,9 @@ import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl, IamPrimitives } from '../../../core/types'
 
 /**
- * PostgreSQL schema for the duck-iam IamDrizzle adapter. Run `drizzle-kit generate`
- * against this file to emit migrations.
- *
- * `created_by`/`updated_by` are left NULL by the adapter (no actor context); an
- * external trigger or admin write sets them. Every delete here is a hard delete -
- * `deletePolicy`/`deleteRole` so a name can be reused, `revokeRole` because a
- * revoked grant has no reason to be retained. No `deleted_at` column on any table.
- * Constraint naming: pk_ fk_ uq_ idx_ ch_.
+ * PostgreSQL schema for the drizzle adapter; run `drizzle-kit generate` against it to emit migrations.
+ * `created_by`/`updated_by` come from the caller's actor (NULL when none). Deletes are hard deletes.
+ * Constraint prefixes: pk_ fk_ uq_ idx_ ch_.
  */
 
 /** Mirrors {@link AccessControl.CombiningAlgorithm}; `satisfies` catches drift at compile time. */
@@ -55,7 +51,7 @@ export const iamPolicies = pgTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
-    unique('uq_iam_policies_name').on(t.name),
+    // NOTE: no unique index on `name`: policies resolve by `id`, and every adapter must accept a duplicate name.
     // Containment search over rules, e.g. `rules @> '[{"actions":["read"]}]'`.
     index('idx_iam_policies_rules_gin').using('gin', t.rules),
     check('ch_iam_policies_name_not_blank', sql`${t.name} ~ '[^[:space:]]'`),
@@ -84,7 +80,7 @@ export const iamRoles = pgTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    unique('uq_iam_roles_name_scope').on(t.name, t.scope).nullsNotDistinct(),
+    // NOTE: no unique index on (name, scope), for the same reason as `iam_policies`.
     index('idx_iam_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
     // Containment search over permissions, e.g. `permissions @> '[{"resource":"post"}]'`.
     index('idx_iam_roles_permissions_gin').using('gin', t.permissions),
@@ -94,10 +90,30 @@ export const iamRoles = pgTable(
 )
 
 /**
- * Subject-to-role assignments. NULL `scope` is a global (unscoped) grant. NULL
- * `starts_at`/`expires_at` means unbounded in that direction - a grant with both
- * NULL never expires, matching every assignment before this column existed.
+ * `timestamptz` that maps Postgres `infinity`/`-infinity` to `Infinity`/`-Infinity`; same SQL type, so no migration.
+ * INFO: drizzle's `timestamp()` yields `new Date('infinity')`, an Invalid Date the adapter reads as an inactive bound.
  */
+const timestamptzWithInfinity = customType<{
+  data: Date | number
+  driverData: string
+}>({
+  dataType() {
+    return 'timestamp with time zone'
+  },
+  fromDriver(value: string): Date | number {
+    if (value === 'infinity') return Number.POSITIVE_INFINITY
+    if (value === '-infinity') return Number.NEGATIVE_INFINITY
+    return new Date(value)
+  },
+  toDriver(value: Date | number): string {
+    if (value === Number.POSITIVE_INFINITY) return 'infinity'
+    if (value === Number.NEGATIVE_INFINITY) return '-infinity'
+    if (value instanceof Date) return value.toISOString()
+    return new Date(value).toISOString()
+  },
+})
+
+/** Subject-to-role assignments. NULL `scope` is a global grant; NULL `starts_at`/`expires_at` is unbounded that way. */
 export const iamAssignments = pgTable(
   'iam_assignments',
   {
@@ -107,8 +123,8 @@ export const iamAssignments = pgTable(
     subjectId: text('subject_id').notNull(),
     roleId: text('role_id').notNull(),
     scope: text('scope'),
-    startsAt: timestamp('starts_at', { withTimezone: true }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    startsAt: timestamptzWithInfinity('starts_at'),
+    expiresAt: timestamptzWithInfinity('expires_at'),
     attributes: jsonb('attributes').$type<IamPrimitives.Attributes>(),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),

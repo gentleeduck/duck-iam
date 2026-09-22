@@ -1,12 +1,8 @@
-/** Safe-extractor helpers for per-IdP userinfo / id_token claim shapes. */
+/** Extractors for per-IdP userinfo and id_token claim shapes, which are whatever the IdP sent. */
 
-import { isFiniteNumber } from '~/core/credentials/credentials'
+import { isFiniteNumber } from '~/core/predicates/predicates'
 
-/**
- * Extract a non-empty string field from a userinfo object. Returns
- * `undefined` when the field is missing, null, or non-string - never
- * lies about the shape.
- */
+/** `undefined` when the field is missing, null or not a string, rather than a coerced value. */
 export function getUserinfoString(info: unknown, key: string): string | undefined {
   if (typeof info !== 'object' || info === null || Array.isArray(info)) return undefined
   const v = Reflect.get(info, key)
@@ -15,10 +11,10 @@ export function getUserinfoString(info: unknown, key: string): string | undefine
 }
 
 /**
- * Extract a numeric id field and coerce to a non-empty string. Used
- * by GitHub (`info.id` is a numeric snowflake). Returns `undefined`
- * if the field isn't a finite number - defending against the
- * `String(null) === 'null'` multi-account-collapse bug.
+ * Coerces a numeric id field to a string, for GitHub, whose `info.id` is a numeric snowflake.
+ *
+ * SECURITY: anything that is not a finite number answers `undefined`. Coercing blindly would make
+ * `String(null)` the id `'null'`, collapsing every such account onto one identity.
  */
 export function getUserinfoNumericIdAsString(info: unknown, key: string): string | undefined {
   if (typeof info !== 'object' || info === null || Array.isArray(info)) return undefined
@@ -27,12 +23,7 @@ export function getUserinfoNumericIdAsString(info: unknown, key: string): string
   return String(v)
 }
 
-/**
- * Extract a strict boolean field. Returns `true` only when the field
- * is `=== true`; returns `false` for everything else. Used for
- * `email_verified` claims - `=== true` defends against truthy-but-
- * non-boolean confusion (`"true"`, `1`, `[]`).
- */
+/** True only for a literal `true`, so an `email_verified` of `"true"`, `1` or `[]` does not read as verified. */
 export function getUserinfoBooleanTrue(info: unknown, key: string): boolean {
   if (typeof info !== 'object' || info === null || Array.isArray(info)) return false
   return Reflect.get(info, key) === true

@@ -1,3 +1,7 @@
+/**
+ * One recorded authorization decision, flattened for the Flow panel.
+ * Consumers can also record entries from their own instrumentation.
+ */
 export interface IamIFlowEntry {
   id: number
   ts: number
@@ -16,6 +20,10 @@ export interface IamIFlowEntry {
 
 type IFlowRecordInput = Omit<IamIFlowEntry, 'id' | 'ts'> & { ts?: number }
 
+/**
+ * Append-and-subscribe surface over the decision ring buffer.
+ * `record` returns the entry with its assigned `id` and `ts`; `subscribe` returns its unsubscribe.
+ */
 export interface IamIFlowRecorder {
   record(entry: IFlowRecordInput): IamIFlowEntry
   list(): readonly IamIFlowEntry[]
@@ -24,14 +32,46 @@ export interface IamIFlowRecorder {
   subscribe(listener: () => void): () => void
 }
 
+/** Options for {@link iamCreateFlowRecorder}. */
 export interface IamIFlowRecorderOptions {
+  /** Ring-buffer capacity. Must be a positive integer; defaults to 250. */
   bufferSize?: number
 }
 
 const DEFAULT_BUFFER = 250
 
+/**
+ * Builds the in-memory decision log the Flow panel renders; bind `record` to the engine's `afterEvaluate` hook.
+ * Keeps the last `bufferSize` entries in memory only and notifies subscribers on every write.
+ *
+ * @param options - `bufferSize` caps retained entries; must be a positive integer, defaults to 250.
+ * @throws RangeError when `bufferSize` is not a positive integer.
+ * @example
+ * ```ts
+ * const flow = iamCreateFlowRecorder({ bufferSize: 500 })
+ * const engine = new IamEngine({
+ *   adapter,
+ *   hooks: {
+ *     afterEvaluate: (req, res, ms) =>
+ *       flow.record({
+ *         action: req.action,
+ *         allowed: res.allowed,
+ *         durationMs: ms,
+ *         resource: req.resource.type,
+ *         subjectId: req.subject.id,
+ *       }),
+ *   },
+ * })
+ * <IamDevtools engine={engine} flow={flow} />
+ * ```
+ */
 export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): IamIFlowRecorder {
   const bufferSize = options.bufferSize ?? DEFAULT_BUFFER
+  // NaN/Infinity would disable the trim (unbounded growth); a negative would throw inside `record()`,
+  // where `safeHookCall` swallows it.
+  if (!Number.isInteger(bufferSize) || bufferSize < 1) {
+    throw new RangeError(`[@gentleduck/iam:dt:flow] bufferSize must be a positive integer (got ${String(bufferSize)})`)
+  }
   let nextId = 1
   let buffer: IamIFlowEntry[] = []
   const listeners = new Set<() => void>()
@@ -41,9 +81,7 @@ export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): Ia
       try {
         fn()
       } catch (err) {
-        // Surface listener errors via console.error. Devtools only, so no
-        // operator-facing callback is needed.
-        // eslint-disable-next-line no-console
+        // Devtools-only, so console is the whole error channel.
         console.error('[@gentleduck/iam:dt:flow] listener threw - continuing', err)
       }
     }
@@ -72,7 +110,8 @@ export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): Ia
       return entry
     },
     list() {
-      return buffer
+      // A copy: `readonly` erases at runtime, so the live array would let callers mutate the buffer.
+      return buffer.slice()
     },
     get(id) {
       return buffer.find((e) => e.id === id)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/auth",
-  "version": "5.3.4",
+  "version": "5.13.0",
   "publishConfig": {
     "access": "public"
   },
@@ -82,6 +82,16 @@
         "default": "./dist/core/events/index.cjs"
       }
     },
+    "./adapters": {
+      "import": {
+        "types": "./dist/adapters/index.d.ts",
+        "default": "./dist/adapters/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/index.d.cts",
+        "default": "./dist/adapters/index.cjs"
+      }
+    },
     "./adapters/memory": {
       "import": {
         "types": "./dist/adapters/memory/index.d.ts",
@@ -102,14 +112,14 @@
         "default": "./dist/adapters/redis/index.cjs"
       }
     },
-    "./adapters/sql": {
+    "./adapters/drizzle": {
       "import": {
-        "types": "./dist/adapters/sql/index.d.ts",
-        "default": "./dist/adapters/sql/index.js"
+        "types": "./dist/adapters/drizzle/index.d.ts",
+        "default": "./dist/adapters/drizzle/index.js"
       },
       "require": {
-        "types": "./dist/adapters/sql/index.d.cts",
-        "default": "./dist/adapters/sql/index.cjs"
+        "types": "./dist/adapters/drizzle/index.d.cts",
+        "default": "./dist/adapters/drizzle/index.cjs"
       }
     },
     "./adapters/drizzle/pg": {
@@ -630,40 +640,51 @@
     "dist",
     "src",
     "public",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "test": "vitest run",
+    "test": "vitest run --project unit",
+    "test:coverage": "vitest run --project unit --coverage",
     "benchmark": "bun run scripts/benchmark.ts",
+    "bench:adapters": "bun run scripts/bench-adapters.ts",
     "findings": "bun run scripts/collect-findings.ts",
+    "dead-keys": "bun run scripts/audit-dead-keys.ts",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",
     "clean": "rimraf dist .cache .turbo node_modules",
-    "test:e2e": "vitest run e2e",
-    "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && node src/test/oidc-e2e-schema.mjs"
+    "test:e2e": "vitest run --project e2e",
+    "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-sqlite.config.ts && node src/test/sqlite-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-sqlite.config.ts && node src/test/oidc-e2e-schema.mjs"
   },
   "dependencies": {
-    "@types/node": "^26.1.0",
-    "uuid": "^14.0.2"
+    "@types/node": "^26.1.0"
   },
   "peerDependencies": {
     "@aws-sdk/client-kms": ">=3 <4",
+    "@aws-sdk/client-ses": ">=3 <4",
     "@gentleduck/iam": "workspace:^",
     "@nestjs/common": ">=10 <12",
     "@node-rs/argon2": ">=2 <3",
+    "@opentelemetry/api": ">=1 <2",
     "@simplewebauthn/server": "^13.3.1",
     "drizzle-orm": "^0.45.2",
     "react": "^18 || ^19",
+    "resend": ">=3",
     "solid-js": "^1.9.13",
     "svelte": "^4 || ^5",
-    "vue": "^3"
+    "twilio": ">=4",
+    "vue": "^3",
+    "web-push": ">=3"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-kms": {
+      "optional": true
+    },
+    "@aws-sdk/client-ses": {
       "optional": true
     },
     "@gentleduck/iam": {
@@ -675,6 +696,9 @@
     "@node-rs/argon2": {
       "optional": true
     },
+    "@opentelemetry/api": {
+      "optional": true
+    },
     "@simplewebauthn/server": {
       "optional": true
     },
@@ -684,13 +708,22 @@
     "react": {
       "optional": true
     },
+    "resend": {
+      "optional": true
+    },
     "solid-js": {
       "optional": true
     },
     "svelte": {
       "optional": true
     },
+    "twilio": {
+      "optional": true
+    },
     "vue": {
+      "optional": true
+    },
+    "web-push": {
       "optional": true
     }
   },

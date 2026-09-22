@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/iam",
-  "version": "5.7.0",
+  "version": "5.9.0",
   "publishConfig": {
     "access": "public"
   },
@@ -271,12 +271,24 @@
         "types": "./dist/dt/index.d.cts",
         "default": "./dist/dt/index.cjs"
       }
+    },
+    "./dt/v2": {
+      "import": {
+        "types": "./dist/dt/v2/index.d.ts",
+        "default": "./dist/dt/v2/index.js"
+      },
+      "require": {
+        "types": "./dist/dt/v2/index.d.cts",
+        "default": "./dist/dt/v2/index.cjs"
+      }
     }
   },
   "files": [
     "dist",
     "src",
     "public",
+    "docs",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE",
     "SECURITY.md"
@@ -287,7 +299,10 @@
     "debug": "bun run scripts/debug.ts",
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"**/*.e2e.test.ts\"",
+    "test:e2e": "vitest run --fileParallelism=false e2e.test.ts",
+    "test:all": "bun run test && bun run test:e2e",
+    "gen:test-inventory": "bun run scripts/gen-test-inventory.ts",
     "mutation": "stryker run",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
@@ -298,10 +313,10 @@
     "uuid": "^14.0.2"
   },
   "peerDependencies": {
-    "@gentleduck/libs": "^1.0.0",
-    "@gentleduck/registry-ui": "^0.4.3",
-    "@gentleduck/variants": "^1.0.0",
+    "@gentleduck/libs": ">=0.2.0",
+    "@gentleduck/registry-ui": ">=0.5.0",
     "drizzle-orm": ">=0.30.0",
+    "lucide-react": ">=0.400.0",
     "react": "^19.2.6"
   },
   "peerDependenciesMeta": {
@@ -311,10 +326,10 @@
     "@gentleduck/registry-ui": {
       "optional": true
     },
-    "@gentleduck/variants": {
+    "drizzle-orm": {
       "optional": true
     },
-    "drizzle-orm": {
+    "lucide-react": {
       "optional": true
     },
     "react": {
@@ -323,28 +338,27 @@
   },
   "devDependencies": {
     "@casl/ability": "^7.0.0",
-    "@gentleduck/libs": "^1.0.0",
+    "@gentleduck/libs": "catalog:",
     "@gentleduck/registry-ui": "^0.5.0",
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
-    "@gentleduck/variants": "^1.0.0",
     "@gentleduck/vitest-config": "workspace:*",
     "@rbac/rbac": "^2.1.3",
-    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^26.1.0",
+    "@types/pg": "^8.21.0",
     "@types/react": "^19.2.17",
     "accesscontrol": "^3.1.0",
     "casbin": "^5.50.0",
     "drizzle-orm": "^0.45.2",
     "easy-rbac": "^4.0.0",
-    "motion": "^12.40.0",
+    "lucide-react": "catalog:",
     "pg": "^8.23.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tsdown": "^0.22.3",
     "typescript": "^7.0.2",
-    "unrun": "^0.3.1",
     "vitest": "^4.1.9"
   },
   "engines": {

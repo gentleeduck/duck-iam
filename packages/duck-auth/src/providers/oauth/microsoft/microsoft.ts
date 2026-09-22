@@ -1,4 +1,4 @@
-/** Microsoft Entra ID (formerly Azure AD) oauth 2.0 / OIDC provider. */
+/** Microsoft Entra ID, formerly Azure AD. */
 
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
@@ -16,7 +16,7 @@ function endpointsFor(tenant: string): OAuth.Endpoints {
   }
 }
 
-/** Microsoft Entra ID OIDC provider factory. */
+/** Microsoft Entra ID OAuth provider. */
 export function microsoft<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.MicrosoftOptions<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
@@ -36,12 +36,12 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
+    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
     ...(opts.profileToIdentityProfile !== undefined && {
       profileToIdentityProfile: opts.profileToIdentityProfile,
     }),
     async fetchProfile(tokens, c) {
       const info = await c.userinfo(tokens.access_token)
-      // Safe-extract claims; email is org-verified for work/school accounts.
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -49,18 +49,12 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
           detail: 'Microsoft userinfo missing sub',
         })
       }
-      const out: {
-        sub: string
-        email?: string
-        emailVerified?: boolean
-        name?: string
-        avatarUrl?: string
-      } = { sub }
+      const out: { sub: string; email?: string; name?: string; avatarUrl?: string } = { sub }
       const email = getUserinfoString(info, 'email')
-      if (email !== undefined) {
-        out.email = email
-        out.emailVerified = true
-      }
+      // SECURITY: carried, never asserted as verified. Entra's `email` is mutable, set per-tenant and
+      // documented by Microsoft as unverified - "never use it for authorization" - and the default
+      // `tenant: 'common'` lets any tenant sign in, an attacker's own included.
+      if (email !== undefined) out.email = email
       const name = getUserinfoString(info, 'name')
       if (name !== undefined) out.name = name
       const picture = getUserinfoString(info, 'picture')

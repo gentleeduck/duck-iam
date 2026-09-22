@@ -1,11 +1,9 @@
-/**
- * Stats snapshot/reset, extracted from Engine. Pure plumbing over the
- * five caches.
- */
+// Stats snapshot and reset over the engine's five caches.
 
 import type { IamLRUCache } from '../../shared/cache'
 import type { AccessControl, IamRequest } from '../types'
 
+/** The five caches a stats snapshot reads, typed apart from the engine so any bag of caches works. */
 export interface IIamCachesForStats {
   policyCache: IamLRUCache<AccessControl.IPolicy[]>
   roleCache: IamLRUCache<AccessControl.IRole[]>
@@ -14,6 +12,7 @@ export interface IIamCachesForStats {
   subjectCache: IamLRUCache<IamRequest.ISubject>
 }
 
+/** One reading of every cache's hit/miss counters and current size. */
 export interface IStatsSnapshot {
   policies: { hits: number; misses: number; size: number }
   roles: { hits: number; misses: number; size: number }
@@ -22,6 +21,7 @@ export interface IStatsSnapshot {
   subjects: { hits: number; misses: number; size: number }
 }
 
+/** Reads every cache's counters at one instant into a plain snapshot. */
 export function statsSnapshot(c: IIamCachesForStats): IStatsSnapshot {
   return {
     policies: c.policyCache.stats,
@@ -32,6 +32,7 @@ export function statsSnapshot(c: IIamCachesForStats): IStatsSnapshot {
   }
 }
 
+/** Zeroes hit/miss counters but keeps entries, so resetting a sampling window does not cold-start the caches. */
 export function resetStats(c: IIamCachesForStats): void {
   c.policyCache.resetStats()
   c.roleCache.resetStats()
@@ -40,6 +41,7 @@ export function resetStats(c: IIamCachesForStats): void {
   c.subjectCache.resetStats()
 }
 
+/** Pools a {@link statsSnapshot} into one hit rate with its totals; `rate` is `0`, not `NaN`, before any lookup. */
 export function aggregateCacheHitRate(s: IStatsSnapshot): { total: number; hits: number; rate: number } {
   const total =
     s.policies.hits +

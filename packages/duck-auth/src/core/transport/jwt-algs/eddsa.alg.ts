@@ -1,10 +1,4 @@
-/**
- * EdDSA: Ed25519 sign + verify (RFC 8032).
- *
- * The KeyObject is required because Node's algorithm-less sign/verify
- * short-circuits when given a PEM string and the message length isn't
- * a multiple of 64.
- */
+/** EdDSA: Ed25519 sign + verify (RFC 8032). */
 
 import { createPrivateKey, createPublicKey, sign as ed25519Sign, verify as ed25519Verify } from 'node:crypto'
 

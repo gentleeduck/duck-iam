@@ -1,20 +1,12 @@
-/**
- * Koa adapter. Koa is Node-native and uses ctx.req / ctx.request, so
- * the adapter translates between Web-Fetch responses (from
- * executeIntents) and Koa's ctx response API.
- *
- * Mount each handler:
- *
- *   router.post('/AUTH/signin',  koaSignIn(auth))
- *   router.post('/AUTH/signout', koaSignOut(auth))
- *   router.get('/AUTH/session',  koaSession(auth))
- *   router.post('/AUTH/providers/:id/begin', koaProviderBegin(auth))
- */
+/** Koa adapter. Koa is Node-native and uses `ctx.req` / `ctx.request`, so this translates between
+ *  the Web Fetch responses `executeIntents` returns and Koa's ctx response API. */
 
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
@@ -23,6 +15,8 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 import type { KoaAdapter } from './koa.types'
@@ -34,11 +28,8 @@ function toCsrfRequest(ctx: KoaAdapter.Context): { method: string; headers: Head
   return { headers: toFetchHeaders(ctx.request.headers), method: ctx.request.method }
 }
 
-/**
- * Forward a Web Fetch `Response` (from executeIntents) onto a Koa
- * ctx. Set-Cookie multiplicity preserved by using `append()` when the
- * Koa version supports it; falls back to `set()` with a string-array.
- */
+/** Forward `executeIntents`' `Response` onto a Koa ctx, keeping Set-Cookie multiplicity through
+ *  `append()` where the Koa version has it and a string array otherwise. */
 async function forward(response: Response, ctx: KoaAdapter.Context): Promise<void> {
   ctx.status = response.status
   const cookies = extractSetCookies(response)
@@ -59,6 +50,7 @@ async function forward(response: Response, ctx: KoaAdapter.Context): Promise<voi
 function handleError(err: unknown, ctx: KoaAdapter.Context): void {
   const { status, body } = errorToHttp(err)
   ctx.status = status
+  ctx.set('cache-control', 'no-store')
   ctx.set('content-type', 'application/json; charset=utf-8')
   ctx.body = JSON.stringify(body)
 }
@@ -74,7 +66,7 @@ export function koaSignIn(auth: AuthEngine): KoaAdapter.Handler {
       }
       const result = await auth.flows.signIn({
         ...parsed,
-        ...callerContext({ ip: ctx.request.ip, userAgent: ctx.request.headers['user-agent'] }),
+        ...koaCaller(ctx),
       })
       await forward(executeIntents(result.intents), ctx)
     } catch (err) {
@@ -105,12 +97,13 @@ export function koaSignOut(auth: AuthEngine): KoaAdapter.Handler {
 export function koaSession(auth: AuthEngine): KoaAdapter.Handler {
   return async (ctx) => {
     try {
-      const resolved = await auth.resolveSession({ headers: toFetchHeaders(ctx.request.headers) })
+      const resolved = await auth.resolveSession({ headers: toFetchHeaders(ctx.request.headers) }).orNull()
+      // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
+      const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
       ctx.status = 200
+      ctx.set('cache-control', 'no-store')
       ctx.set('content-type', 'application/json; charset=utf-8')
-      ctx.body = JSON.stringify(
-        resolved ? { session: resolved.session, identity: resolved.identity } : { session: null, identity: null },
-      )
+      ctx.body = JSON.stringify(resolved ? { session, identity: resolved.identity } : { session: null, identity: null })
     } catch (err) {
       handleError(err, ctx)
     }
@@ -137,6 +130,39 @@ export function koaProviderBegin(auth: AuthEngine): KoaAdapter.Handler {
     } catch (err) {
       handleError(err, ctx)
     }
+  }
+}
+
+/** The fingerprint Koa resolved, the same pair {@link koaSignIn} stamps at sign-in. */
+export function koaCaller(ctx: KoaAdapter.Context): CallerFingerprint {
+  return callerContext({ ip: ctx.request.ip, userAgent: ctx.request.headers['user-agent'] })
+}
+
+/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
+ *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
+ *  with the session's, running the anomaly detectors and the hijack policy.
+ *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
+export type KoaActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (ctx: KoaAdapter.Context) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+/** Bind the request's actor scope for everything downstream; install it above your own routes,
+ *  alongside the CSRF guard. Anonymous and unresolvable sessions run unbound, which is the honest
+ *  `null`; while impersonating the actor is the operator behind `actingAs`. */
+export function koaActorContext(auth: AuthEngine, opts: KoaActorOptions = {}): KoaAdapter.Middleware {
+  return async (ctx, next) => {
+    await withRequestActor(
+      auth,
+      { headers: toFetchHeaders(ctx.request.headers) },
+      () => next(),
+      requestSecurity(auth, {
+        ...(opts.onHijack && { onHijack: opts.onHijack }),
+        ...(opts.getCaller && { caller: opts.getCaller(ctx) }),
+      }),
+    )
   }
 }
 

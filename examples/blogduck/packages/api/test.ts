@@ -1,5 +1,8 @@
-import { createIam, defineRole, IamEngine, validateRoles } from '@gentleduck/iam'
+import { createIam, defineRole, IamEngine } from '@gentleduck/iam'
 import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
+// `validateRoles` is deliberately not on the root barrel - it pulls in the
+// 12 KB validator chunk, so it lives behind its own subpath.
+import { validateRoles } from '@gentleduck/iam/core/validate'
 
 export const access = createIam({
   actions: ['create', 'read', 'update', 'delete', 'list', 'manage'] as const,

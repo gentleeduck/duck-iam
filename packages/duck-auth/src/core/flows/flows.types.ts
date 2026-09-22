@@ -6,6 +6,7 @@ import type { Identities, IdentitiesImpl } from '../identities'
 import type { Sessions, SessionsImpl } from '../sessions'
 import type { Transport } from '../transport'
 
+/** Inputs and results for the sign-in, sign-up, link, step-up and recovery flows. */
 export namespace Flows {
   /** Internal dependency bag passed to flow sub-functions. Not part of the public API. */
   export interface Deps<Profile extends Identities.ProfileMetadataBase> {
@@ -15,22 +16,22 @@ export namespace Flows {
     transport: Transport.ITransport
     events: Events.IBus
     ctxFactory: (tenantId?: string) => Provider.Context<Profile>
-    /** Lazy accessor — resolves the password facet at call-time; throws if the provider is absent. */
+    /** Resolves the password facet at call time, throwing when the provider is absent. */
     requirePasswords: () => PasswordsImpl
-    /** Lazy accessor — resolves the mfa facet at call-time; throws if the provider is absent. */
+    /** Resolves the mfa facet at call time, throwing when the provider is absent. */
     requireMfa: () => MfaFacet
     cfg: Flows.Cfg
   }
 
   export interface Cfg {
-    /** What `signIn` calls SessionsFacet.rotateOrCreate with by default. */
+    /** What `signIn` calls `SessionsImpl.rotateOrCreate` with by default. */
     signInPurpose: 'signin' | 're-auth'
   }
 
   export interface SignInOptions {
     providerId: string
     input: unknown
-    /** Currently-active SID (cookie or bearer); used by rotateOrCreate to revoke. */
+    /** The active SID, from the cookie or the bearer; `rotateOrCreate` revokes it. */
     previousSid?: string
     ip?: string
     userAgent?: string
@@ -38,12 +39,10 @@ export namespace Flows {
   }
 
   export type SignInOutcome = {
-    /**
-     * Persisted session row; `session.id` is the **hashed** row key. Null when
-     * the provider issued no `startSession` intent (typically because it
-     * returned `requireMfa` and the caller is mid-flow); in that case `sid`
-     * is also empty and `intents` carries the provider's response.
-     */
+    /** Persisted session row, keyed by the hashed sid. Null when the provider issued no `startSession`
+     *  intent and wants the caller to answer with something else - a redirect or a json body it put in
+     *  `intents`; `sid` is then empty too. A `requireMfa` intent does not land here: it throws
+     *  `AUTH_STEP_UP_REQUIRED`. */
     session: Sessions.Me | null
     /** Plaintext SID the client uses to authenticate; empty when `session` is null. */
     sid: string
@@ -56,7 +55,7 @@ export namespace Flows {
     aal?: Sessions.AAL
     /** Methods that satisfy the requirement (any-of). Default ['totp']. */
     methods?: Sessions.FactorMethod[]
-    /** Recency window in ms - re-auth required if last factor older than this. */
+    /** Recency window in ms; a last factor older than this needs re-auth. */
     freshness?: number
   }
 
@@ -66,11 +65,11 @@ export namespace Flows {
 
   export type PasswordResetRequestInput = {
     email: string
-    /** Channel to use; default 'email'. */
+    /** Default 'email'. */
     channel?: 'email' | 'sms' | 'webpush'
-    /** Path on the app that handles the reset; library appends `?token=`. */
+    /** Path on the app that handles the reset; the library appends `?token=`. */
     callbackPath?: string
-    /** Optional override; default 30 minutes. */
+    /** Default 30 minutes. */
     ttlMs?: number
   }
 
@@ -82,13 +81,13 @@ export namespace Flows {
   export type SignUpFlowState<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     /** Opaque flow id; surfaced to the framework adapter to put on a __Host-duck-signup cookie. */
     id: string
-    /** Identity row created at email-collected stage (profile.emailVerified=false until verifyEmail). */
+    /** Created at the email-collected stage, with `emailVerified` false until `completeEmailVerification`. */
     identityId: string
-    /** Required stages (ordered); apps configure per signup type (passkey-only, B2B, etc.). */
+    /** Ordered, and configured per signup type: passkey-only, B2B and the rest. */
     required: Flows.SignUpStage[]
-    /** Stages the user has already completed; library guarantees idempotent appends. */
+    /** Appends are idempotent. */
     completed: Flows.SignUpStage[]
-    /** Accumulated profile across stages; merged into Identity.profile at complete(). */
+    /** Accumulated across stages, merged into `Identity.profile` at `complete()`. */
     data: Partial<Profile>
     /** Sliding TTL (default 30 min). */
     expiresAt: number
@@ -103,16 +102,19 @@ export namespace Flows {
     realSid: string
     /** Identity being impersonated. */
     targetIdentityId: string
-    /** Human-readable reason; audit-logged via `identity.impersonated` event. */
+    /** Audit-logged on the `identity.impersonated` event. */
     reason: string
-    /** TTL cap; default 1 hour, cannot exceed 1 hour even if overridden. */
+    /** Which IAM decision authorised this, audit-logged beside `reason`. The event has always declared
+     *  the field and nothing could supply it, so every impersonation was untraceable to an authorization. */
+    iamDecisionId?: string
+    /** One hour, and an override cannot raise it. */
     ttlMs?: number
     tenantId?: string
   }
 
   export type ImpersonateOutcome = {
     session: Sessions.Me
-    /** Plaintext SID for the new actingAs session (separate from real session). */
+    /** For the new `actingAs` session, separate from the real one. */
     sid: string
     intents: Provider.Intent[]
   }
@@ -125,13 +127,25 @@ export namespace Flows {
     | 'terms-accepted'
     | 'completed'
 
-  export type LinkProviderInput = {
+  export type LinkProviderInput<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     /** Identity to attach the provider link to. */
     identityId: string
-    /** Provider id (`'authGoogle'`, `'authGithub'`, etc). */
+    /** Such as `'authGoogle'` or `'authGithub'`. */
     providerId: string
-    /** Provider-side subject id (verified by the oauth dance the caller just completed). */
+    /** Verified by the oauth dance the caller just completed. */
     providerSub: string
+    /**
+     * SECURITY: mandatory, and the only thing standing between this call and an account takeover. `providerSub`
+     * is whatever the host passed and a link is a permanent authentication factor, so wiring this to a route
+     * that trusts a request body lets an attacker link their own Google account to a victim and sign in as them.
+     * Answer `false` unless the `providerSub` came from a token exchange your own code performed, and never
+     * `async () => true`.
+     */
+    authorize: (input: {
+      identity: Identities.Me<Profile>
+      providerId: string
+      providerSub: string
+    }) => Promise<boolean>
     /** Tenant scope. */
     tenantId?: string
   }
@@ -140,23 +154,20 @@ export namespace Flows {
     identityId: string
     providerId: string
     tenantId?: string
-    /**
-     * Set true to bypass the "would lock out the user" guard. Use only
-     * during account deletion flows or admin overrides.
-     */
+    /** Bypasses the "would lock out the user" guard. For account deletion and admin overrides only. */
     allowLockout?: boolean
   }
 
   export type EmailVerificationRequestInput = {
     /** Identity to verify. */
     identityId: string
-    /** Channel keyed by kind. Email is the typical default. */
+    /** Keyed by kind. */
     channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
-    /** Which channel to dispatch on; default 'email'. */
+    /** Default 'email'. */
     channel?: 'email' | 'sms' | 'webpush'
-    /** TTL of the verification token, ms. Default 30 minutes. */
+    /** Default 30 minutes. */
     ttlMs?: number
-    /** Callback path on the app; library appends `?token=`. Default `/auth/verify-email`. */
+    /** The library appends `?token=`. Default `/auth/verify-email`. */
     callbackPath?: string
     tenantId?: string
   }
@@ -169,14 +180,15 @@ export namespace Flows {
 
   export type AccountDeletionRequestInput = {
     identityId: string
+    /** One channel per delivery method; the request goes out over each one named. */
     channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
-    /** Channel kind to use; default `'email'`. */
+    /** Default `'email'`. */
     channel?: 'email' | 'sms' | 'webpush'
-    /** Token TTL in ms. Default 30 minutes. */
+    /** Default 30 minutes. */
     ttlMs?: number
-    /** Path on the app that handles the confirmation. Default `/AUTH/delete-account`. */
+    /** Path on the app that handles the confirmation. Default `/auth/delete-account`. */
     callbackPath?: string
-    /** Optional human-readable reason persisted in metadata; surfaces in audit log. */
+    /** Persisted in metadata and surfaced in the audit log. */
     reason?: string
     tenantId?: string
   }
@@ -184,12 +196,41 @@ export namespace Flows {
   export type AccountDeletionCompleteInput = {
     /** Token from the confirmation link. */
     token: string
+    /** Where to send the undo link, when the library is to send it. Omit it and `cancellationToken` comes
+     *  back in the result for the host to deliver, or to drop, which is how undo is turned off. */
+    channels?: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
+    /** Used when `channels` is given. Default `'email'`. */
+    channel?: 'email' | 'sms' | 'webpush'
+    /** Path on the app that handles the undo. Default `/auth/cancel-deletion`. */
+    callbackPath?: string
     tenantId?: string
   }
 
-  export type AccountDeletionCancelInput = {
+  /** Cancel by presenting the undo token `completeAccountDeletion` minted. The token names its own subject,
+   *  so holding it is the authorization and no callback is consulted: this is the branch a user clicking
+   *  "undo" in their mail takes, with no admin rights at all. */
+  export type AccountDeletionCancelByToken = {
+    /** Single-use, expires when the grace window does. */
+    token: string
+    tenantId?: string
+    identityId?: never
+    authorize?: never
+  }
+
+  /** Cancel on someone else's behalf with no token in hand, the way an operator restores an account from
+   *  a support queue. */
+  export type AccountDeletionCancelByAuthorize = {
     /** Identity to restore. */
     identityId: string
+    /** SECURITY: mandatory, and the only gate on this branch, where a cancel restores an account from an id
+     *  alone. The identity is soft-deleted here so it cannot be loaded and handed over; resolve the caller
+     *  from your own request context and answer for that. */
+    authorize: (identityId: string) => Promise<boolean>
     tenantId?: string
+    token?: never
   }
+
+  /** One of the two, never both and never neither. Supplying both is refused rather than resolved, because which
+   *  gate applied would then turn on a precedence rule nobody reading the call site can see. */
+  export type AccountDeletionCancelInput = AccountDeletionCancelByToken | AccountDeletionCancelByAuthorize
 }

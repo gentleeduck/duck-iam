@@ -1,3 +1,4 @@
+/** Options for the generated OpenAPI document. */
 export namespace OpenApi {
   export type Cfg = {
     /** Server URL the routes are mounted under. */
@@ -8,8 +9,9 @@ export namespace OpenApi {
     version?: string
     /** Mount prefix; routes are emitted under `${baseUrl}${prefix}/<name>`. Default `/auth`. */
     prefix?: string
-    /** Enabled providers; controls which routes appear. Default emits all. */
-    providers?: Array<'password' | 'magic-link' | 'oauth' | 'passkey'>
+    /** Enabled features; controls which routes appear, matching the adapters' skip flags one for one.
+     *  Default emits all. `/signin`, `/signout` and `/session` are always mounted and never gated. */
+    providers?: Array<'magic-link' | 'oauth' | 'passkey' | 'totp'>
     /** Add `/.well-known/jwks.json` to the spec (JWT transport only). Default false. */
     includeJwks?: boolean
   }

@@ -1,12 +1,10 @@
+/** Machine-to-machine grants: the client-credentials exchange and the scopes it may mint. */
 export namespace M2m {
   export type Cfg = {
     /** Lifetime of the issued access token, ms. Default 1 hour. */
     ttlMs: number
-    /**
-     * When true, restrict the requested scopes to the intersection of
-     * (requested, key.scopes); when false, refuse the grant when the key
-     * lacks any requested scope. Default `'intersect'`.
-     */
+    /** `'intersect'` (default) narrows the request to what the key holds; `'strict'` refuses a grant naming
+     *  any scope the key lacks. */
     scopeMode: 'intersect' | 'strict'
   }
 

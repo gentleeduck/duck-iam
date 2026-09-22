@@ -28,7 +28,7 @@ describe('IamHttpAdapter subject-data shape validation', () => {
     it('rejects a string response (the corruption-as-string class)', async () => {
       const adapter = buildAdapter(() => 'admin=true')
       await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-        /getSubjectAttributes for "user-1" returned string \(expected JSON object\)/,
+        /getSubjectAttributes for "user-1" returned string \(expected a JSON object of scalar values\)/,
       )
     })
 
@@ -96,10 +96,13 @@ describe('IamHttpAdapter subject-data shape validation', () => {
       expect(roles).toEqual([])
     })
 
-    it('drops non-string entries silently (one bad row != full denial)', async () => {
+    it('rejects a list with a non-string entry rather than returning the readable half', async () => {
+      // Was pinned as a silent drop on the premise that roles are allow-only. They are not: a deny policy
+      // targets a role, so the half that survives reads as permission. See `http-subject-partial-row.test.ts`.
       const adapter = buildAdapter(() => ['admin', 42, null, 'viewer', { id: 'editor' }, ''])
-      const roles = await adapter.getSubjectRoles('user-1')
-      expect(roles).toEqual(['admin', 'viewer'])
+      await expect(adapter.getSubjectRoles('user-1')).rejects.toThrow(
+        /getSubjectRoles for "user-1" returned number at \[1\]/,
+      )
     })
   })
 
@@ -123,7 +126,7 @@ describe('IamHttpAdapter subject-data shape validation', () => {
       ])
     })
 
-    it('drops entries with missing or wrong-type role', async () => {
+    it('rejects entries with missing or wrong-type role', async () => {
       const adapter = buildAdapter(() => [
         { role: 'admin', scope: 'org-1' },
         { scope: 'org-2' }, // no role
@@ -131,28 +134,29 @@ describe('IamHttpAdapter subject-data shape validation', () => {
         { role: '', scope: 'org-2' }, // empty role
         { role: 'viewer', scope: 'org-2' },
       ])
-      const sr = await adapter.getSubjectScopedRoles('user-1')
-      expect(sr).toEqual([
-        { role: 'admin', scope: 'org-1' },
-        { role: 'viewer', scope: 'org-2' },
-      ])
+      await expect(adapter.getSubjectScopedRoles('user-1')).rejects.toThrow(
+        /an entry at \[1\] whose role is undefined and scope is string/,
+      )
     })
 
-    it('drops entries with missing or wrong-type scope (unscoped form belongs in getSubjectRoles)', async () => {
+    it('rejects entries with missing or wrong-type scope (unscoped form belongs in getSubjectRoles)', async () => {
+      // The two endpoints are disjoint by contract, so an unscoped row here is the server mixing them up.
       const adapter = buildAdapter(() => [
         { role: 'admin', scope: 'org-1' },
         { role: 'editor' }, // no scope
         { role: 'viewer', scope: 42 }, // wrong type scope
         { role: 'viewer', scope: '' }, // empty scope
       ])
-      const sr = await adapter.getSubjectScopedRoles('user-1')
-      expect(sr).toEqual([{ role: 'admin', scope: 'org-1' }])
+      await expect(adapter.getSubjectScopedRoles('user-1')).rejects.toThrow(
+        /an entry at \[1\] whose role is string and scope is undefined/,
+      )
     })
 
-    it('drops null / primitive / array entries silently', async () => {
+    it('rejects null / primitive / array entries', async () => {
       const adapter = buildAdapter(() => [null, 'admin', 42, [], { role: 'editor', scope: 'org-1' }])
-      const sr = await adapter.getSubjectScopedRoles('user-1')
-      expect(sr).toEqual([{ role: 'editor', scope: 'org-1' }])
+      await expect(adapter.getSubjectScopedRoles('user-1')).rejects.toThrow(
+        /getSubjectScopedRoles for "user-1" returned null at \[0\]/,
+      )
     })
   })
 

@@ -1,23 +1,7 @@
-/**
- * E2E: every credential that is meant to work exactly once, against REAL Postgres.
- *
- * No provider and no flow had an e2e suite before this file. They are all built on
- * the same shape as an OIDC authorization code, and that shape is where the bugs
- * of this audit clustered: a token is looked up, accepted, and then has to be
- * marked spent so the second presentation fails. Whether the marking actually
- * lands is a claim about a row, so an in-memory store answers it from the object
- * it was already holding.
- *
- * The TOTP cases come from NIST SP 800-63B, which requires a verifier to accept a
- * given time-based OTP only once during its validity period. Before this suite
- * `verifyTotp` accepted the same code indefinitely inside a ninety-second window.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset; `globalSetup` provisions a
- * container when docker is available.
- */
+/** E2E: every credential that is meant to work exactly once, against REAL Postgres. */
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { InMemoryEvents } from '~/core/events'
 import { TOTP_DEFAULTS, totpAt } from '~/providers/mfa/internal/totp'
 import { MfaImpl } from '~/providers/mfa/mfa'
@@ -32,7 +16,7 @@ type Profile = { username: string; email: string }
 
 suite('E2E one-shot credentials on real Postgres', () => {
   let pool: Pool
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  let stores: DrizzlePgAdapter
   let mfa: MfaImpl
   const planted: string[] = []
 
@@ -59,7 +43,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL })
     await applyPgSchema(pool)
-    stores = drizzlePgStorage<Profile>(URL as string)
+    stores = new DrizzlePgAdapter(URL as string)
     mfa = new MfaImpl(stores.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
   }, 60_000)
 
@@ -184,7 +168,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
   describe('credential revocation reaches the row', () => {
     it('a revoked credential stops matching by hashed secret', async () => {
       const id = await newIdentity('revoke')
-      const created = await stores.credentials.upsert(
+      const created = await stores.credentials.create(
         credentialInput({ identityId: id, kind: 'api-key', metadata: {}, secret: `hash-${e2ePrefix()}` }),
         {},
       )
@@ -197,7 +181,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
     it('rotate invalidates the previous secret', async () => {
       const id = await newIdentity('rotate')
       const secret = `hash-${e2ePrefix()}`
-      const created = await stores.credentials.upsert(
+      const created = await stores.credentials.create(
         credentialInput({ identityId: id, kind: 'password', metadata: {}, secret }),
         {},
       )
@@ -209,7 +193,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
 
     it('a stale version cannot rotate, so two rotations cannot both land', async () => {
       const id = await newIdentity('rotate-stale')
-      const created = await stores.credentials.upsert(
+      const created = await stores.credentials.create(
         credentialInput({ identityId: id, kind: 'password', metadata: {}, secret: `hash-${e2ePrefix()}` }),
         {},
       )
@@ -221,11 +205,11 @@ suite('E2E one-shot credentials on real Postgres', () => {
 
     it('deleteByKind removes only that kind for that identity', async () => {
       const id = await newIdentity('delete-kind')
-      await stores.credentials.upsert(
+      await stores.credentials.create(
         credentialInput({ identityId: id, kind: 'password', metadata: {}, secret: `p-${e2ePrefix()}` }),
         {},
       )
-      await stores.credentials.upsert(
+      await stores.credentials.create(
         credentialInput({ identityId: id, kind: 'totp', metadata: {}, secret: `t-${e2ePrefix()}` }),
         {},
       )
@@ -237,7 +221,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
 
     it('erasing the identity cascades its credentials away', async () => {
       const id = await newIdentity('cred-cascade')
-      await stores.credentials.upsert(
+      await stores.credentials.create(
         credentialInput({ identityId: id, kind: 'password', metadata: {}, secret: `c-${e2ePrefix()}` }),
         {},
       )
@@ -251,7 +235,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
       // The store reports the row; refusing it is the caller's decision, and it
       // needs the timestamp to make it.
       const id = await newIdentity('expiring')
-      const created = await stores.credentials.upsert(
+      const created = await stores.credentials.create(
         credentialInput({
           expiresAt: new Date(Date.now() + 1000),
           identityId: id,
@@ -268,7 +252,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
     it('findByHashedSecret prefers a live row over a revoked one with the same secret', async () => {
       const id = await newIdentity('freshest')
       const secret = `dup-${e2ePrefix()}`
-      const first = await stores.credentials.upsert(
+      const first = await stores.credentials.create(
         credentialInput({
           expiresAt: new Date(Date.now() + 60_000),
           identityId: id,
@@ -279,7 +263,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
         {},
       )
       await stores.credentials.revoke(first.id, {})
-      const second = await stores.credentials.upsert(
+      const second = await stores.credentials.create(
         credentialInput({
           expiresAt: new Date(Date.now() + 60_000),
           identityId: id,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AUTH_ERRORS } from '~/core/errors'
 import { AUTH_DEFAULT_EN_MESSAGES, type AuthI18n, AuthI18nMessageCatalog, AuthLinguiResolver } from '../index'
 
 describe('AuthI18nMessageCatalog', () => {
@@ -54,9 +55,9 @@ describe('AuthI18nMessageCatalog', () => {
 
   it('AUTH_DEFAULT_EN_MESSAGES covers every shipped flow + the common error codes', () => {
     const required = [
-      'AUTH/UNAUTHENTICATED',
+      'AUTH_UNAUTHENTICATED',
       'AUTH_INVALID_CREDENTIALS',
-      'AUTH/RATE_LIMITED',
+      'AUTH_RATE_LIMITED',
       'magic-link.subject',
       'magic-link.body',
       'email-verification.subject',
@@ -114,5 +115,15 @@ describe('AuthLinguiResolver', () => {
   it('exposes Lingui.locales', () => {
     const r = new AuthLinguiResolver(makeLingui({ locales: ['en', 'de'] }))
     expect(r.locales).toEqual(['en', 'de'])
+  })
+})
+
+describe('AUTH_DEFAULT_EN_MESSAGES', () => {
+  /** The seed is keyed by AuthError code. `t()` falls back to the id it was handed, so a key naming no
+   *  real code renders the raw code to an end user and no assertion anywhere notices. */
+  it('keys every AUTH_ message on a code that exists', () => {
+    const keys = Object.keys(AUTH_DEFAULT_EN_MESSAGES).filter((k) => k.startsWith('AUTH'))
+    expect(keys.length).toBeGreaterThan(5)
+    expect(keys.filter((k) => !(k in AUTH_ERRORS))).toEqual([])
   })
 })

@@ -1,3 +1,4 @@
+/** The Express request and response surface the adapter touches. */
 export namespace ExpressAdapter {
   /** Minimal duck-typed Express request subset. */
   export type Request = {

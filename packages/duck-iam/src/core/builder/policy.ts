@@ -3,15 +3,8 @@ import { validatePolicy } from '../validate'
 import { RuleBuilder } from './rule'
 
 /**
- * Fluent builder for constructing ABAC {@link AccessControl.IPolicy} objects.
- *
- * Policies define attribute-based access control rules that go beyond simple
- * role-permission mappings. Use them for time-based restrictions, IP/geo-fencing,
- * cross-attribute checks, dynamic deny rules, and maintenance-mode guards.
- *
- * The combining algorithm chosen via `.algorithm(...)` controls *intra*-policy
- * rule conflicts. Decisions across multiple policies are merged by the engine's
- * configured `policyCombine` (defaults to `'and'`; see {@link AccessControl.PolicyCombine}).
+ * Chainable builder for an ABAC {@link AccessControl.IPolicy}: time windows, geo-fencing, maintenance guards.
+ * `.algorithm()` resolves conflicts between its rules; {@link AccessControl.PolicyCombine} merges policies.
  *
  * @template TAction   - Union of valid action strings.
  * @template TResource - Union of valid resource strings.
@@ -57,56 +50,27 @@ export class PolicyBuilder<
     this._name = id
   }
 
-  /**
-   * Sets a human-readable name for the policy.
-   *
-   * Defaults to the policy `id` if not called.
-   *
-   * @param n - Display name.
-   * @returns `this` for chaining.
-   */
+  /** Sets the display name; defaults to the policy ID. */
   name(n: string): this {
     this._name = n
     return this
   }
 
-  /**
-   * Sets an optional description for the policy.
-   *
-   * @param d - Description text.
-   * @returns `this` for chaining.
-   */
+  /** Sets the description. */
   desc(d: string): this {
     this._description = d
     return this
   }
 
-  /**
-   * Sets a version number for tracking policy changes over time.
-   *
-   * @param v - Version number.
-   * @returns `this` for chaining.
-   */
+  /** Sets a version number for tracking changes. */
   version(v: number): this {
     this._version = v
     return this
   }
 
   /**
-   * Sets the combining algorithm used to resolve conflicts between rules
-   * within this policy.
-   *
-   * | Algorithm | Behavior |
-   * |---|---|
-   * | `deny-overrides` | Any deny wins. Default. Best for restriction policies. |
-   * | `allow-overrides` | Any allow wins. Best for RBAC / permissive rules. |
-   * | `first-match` | First matching rule wins. Best for firewall-style ordered lists. |
-   * | `highest-priority` | Highest priority number wins. Best for emergency overrides. |
-   *
-   * Defaults to `'deny-overrides'`.
-   *
-   * @param a - Combining algorithm.
-   * @returns `this` for chaining.
+   * Sets how conflicts between this policy's rules resolve; defaults to `'deny-overrides'`.
+   * See {@link AccessControl.CombiningAlgorithm} for what each algorithm does.
    */
   algorithm(a: AccessControl.CombiningAlgorithm): this {
     this._algorithm = a
@@ -114,13 +78,7 @@ export class PolicyBuilder<
   }
 
   /**
-   * Scopes this policy to specific actions, resources, or roles.
-   *
-   * If an incoming request does not match all specified targets, the policy is
-   * skipped entirely - its rules are not evaluated. This is useful for
-   * restriction policies that only apply to a subset of operations.
-   *
-   * @param t - Target constraints to match against.
+   * Limits the policy to requests matching all given targets; any other request skips its rules entirely.
    *
    * @example
    * ```typescript
@@ -130,7 +88,6 @@ export class PolicyBuilder<
    *     resources: ['post', 'comment'],
    *   })
    * ```
-   * @returns `this` for chaining.
    */
   target(t: NonNullable<AccessControl.IPolicy<TAction, TResource, TRole>['targets']>): this {
     this._targets = t
@@ -138,14 +95,7 @@ export class PolicyBuilder<
   }
 
   /**
-   * Adds a rule to the policy using an inline {@link RuleBuilder} callback.
-   *
-   * Rules are the individual allow/deny statements inside a policy. Each rule
-   * specifies an effect, the actions and resources it applies to, an optional
-   * priority, and attribute-based conditions.
-   *
-   * @param id - Unique identifier for the rule within this policy.
-   * @param fn - Builder callback that configures and returns the rule.
+   * Adds a rule built by an inline {@link RuleBuilder} callback.
    *
    * @example
    * ```typescript
@@ -157,7 +107,6 @@ export class PolicyBuilder<
    *     .when(w => w.env('ip', 'in', ['10.0.0.99', '10.0.0.100']))
    *   )
    * ```
-   * @returns `this` for chaining.
    */
   rule(
     id: string,
@@ -165,19 +114,15 @@ export class PolicyBuilder<
       r: RuleBuilder<TAction, TResource, TScope, TRole, TContext>,
     ) => RuleBuilder<TAction, TResource, TScope, TRole, TContext, any>,
   ): this {
+    // Honour a different returned builder, as the condition callbacks do. An unconfigured one throws in `build()`.
     const builder = new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id)
-    fn(builder)
-    this._rules.push(builder.build())
+    const returned = fn(builder)
+    this._rules.push((returned instanceof RuleBuilder ? returned : builder).build())
     return this
   }
 
   /**
-   * Adds a pre-built {@link AccessControl.IRule} object directly to the policy.
-   *
-   * Use this when you have rules defined separately via `defineRule` and want
-   * to compose them into a policy without the inline callback form.
-   *
-   * @param rule - A fully constructed `Rule` object.
+   * Adds a pre-built {@link AccessControl.IRule}, e.g. one from `defineRule`.
    *
    * @example
    * ```typescript
@@ -192,7 +137,6 @@ export class PolicyBuilder<
    *
    * definePolicy('post-access').addRule(denyDrafts)
    * ```
-   * @returns `this` for chaining.
    */
   addRule(rule: AccessControl.IRule<TAction, TResource>): this {
     this._rules.push(rule)
@@ -200,30 +144,26 @@ export class PolicyBuilder<
   }
 
   /**
-   * Produces the final {@link AccessControl.IPolicy} object.
+   * Returns the plain {@link AccessControl.IPolicy}, ready for an adapter or the engine.
    *
-   * Call this after all builder methods have been chained. The resulting object
-   * can be passed to an adapter or registered with the engine directly.
-   *
-   * @returns The constructed `Policy`.
+   * @throws If the policy fails validation
    */
   build(): AccessControl.IPolicy<TAction, TResource, TRole> {
+    // Omit unset optional keys instead of writing `undefined`: memory keeps such a key and JSON-backed stores
+    // drop it, so the same policy would read back unequal.
     const policy: AccessControl.IPolicy<TAction, TResource, TRole> = {
       id: this._id,
       name: this._name,
-      description: this._description,
-      version: this._version,
+      ...(this._description === undefined ? {} : { description: this._description }),
+      ...(this._version === undefined ? {} : { version: this._version }),
       algorithm: this._algorithm,
-      rules: this._rules,
-      targets: this._targets,
+      rules: [...this._rules],
+      ...(this._targets === undefined ? {} : { targets: this._targets }),
     }
-    // IamValidate at build time so callers wiring the adapter directly
-    // (bypassing engine.admin.savePolicy's validator) still see the
-    // failure where the bug was introduced.
+    // Validate here too: saving straight to an adapter skips `engine.admin.savePolicy`'s validator.
     const result = validatePolicy(policy)
     if (!result.valid) {
-      // The message carries the fix; the code alone does not. Policies are built in a
-      // barrel, so the id says which one without reading the stack.
+      // Include each message (it carries the fix) and the id, since policies are often built side by side.
       const errs = result.issues
         .filter((i) => i.type === 'error')
         .map((i) => `${i.code}${i.path ? ` at "${i.path}"` : ''}: ${i.message}`)
@@ -236,21 +176,14 @@ export class PolicyBuilder<
 }
 
 /**
- * Creates a new {@link PolicyBuilder} for the given policy ID.
- *
- * This is the primary entry point for defining ABAC policies. Prefer this
- * factory over constructing `PolicyBuilder` directly. When using
- * `createIam`, use `access.definePolicy()` instead to get type-safe
- * action, resource, and role constraints.
+ * Creates a {@link PolicyBuilder}; `id` doubles as the default name.
+ * With `createIam`, use `access.definePolicy()` for typed actions, resources and roles.
  *
  * @template TAction   - Union of valid action strings.
  * @template TResource - Union of valid resource strings.
  * @template TRole     - Union of valid role strings.
  * @template TScope    - Union of valid scope strings.
  * @template TContext  - Shape of the full evaluation context for typed dot-paths.
- *
- * @param id - Unique identifier for the policy. Also used as the default name.
- * @returns A new `PolicyBuilder` instance.
  *
  * @example
  * ```typescript

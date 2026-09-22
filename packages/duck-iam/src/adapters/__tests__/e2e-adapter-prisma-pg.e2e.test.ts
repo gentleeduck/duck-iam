@@ -1,0 +1,641 @@
+/**
+ * E2E: `IamPrismaAdapter` over a SQL-backed `IamPrisma.ILike` on real Postgres: NULL scopes, the unique index, races.
+ * NOTE: no `@prisma/client`; the Prisma-filter-to-SQL translation is hand-written below, one rule per clause.
+ */
+import { execFile } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
+import { connect } from 'node:net'
+import { promisify } from 'node:util'
+import { Pool } from 'pg'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { dockerIsUp as sharedDockerIsUp } from '../../test/e2e-env'
+import { runAdapterCompliance } from '../__compliance__/compliance'
+import { OPTIONAL_SUPPORT } from '../__compliance__/optional-support'
+import { type IamPrisma, IamPrismaAdapter } from '../prisma'
+
+// The shared matrix sets no per-case timeout, and a real container round trip can exceed vitest's 5s default.
+// 30s is still a bound: a CRUD round trip that needs longer is hung, not slow.
+vi.setConfig({ testTimeout: 30_000 })
+
+const exec = promisify(execFile)
+
+async function docker(args: string[], timeout = 60_000): Promise<string> {
+  const { stdout } = await exec('docker', args, { encoding: 'utf8', timeout })
+  return stdout.trim()
+}
+
+/** The shared probe from `src/test/e2e-env.ts`: one budget, so a busy daemon is not mistaken for an absent one. */
+const dockerIsUp = sharedDockerIsUp
+
+async function waitFor(what: string, probe: () => Promise<boolean>, budgetMs = 60_000): Promise<void> {
+  const deadline = Date.now() + budgetMs
+  while (Date.now() < deadline) {
+    if (await probe()) return
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  throw new Error(`${what} was not ready within ${budgetMs}ms`)
+}
+
+const CONTAINER = `duck-iam-adapterconf-prisma-${randomBytes(4).toString('hex')}`
+
+async function startPostgres(): Promise<string> {
+  await docker([
+    'run',
+    '-d',
+    '--name',
+    CONTAINER,
+    '--label',
+    'duck-iam-e2e-owned',
+    '-p',
+    '0:5432',
+    '-e',
+    'POSTGRES_USER=duckiam',
+    '-e',
+    'POSTGRES_PASSWORD=duckiam',
+    '-e',
+    'POSTGRES_DB=duckiam_prisma',
+    'postgres:18.4-alpine3.24',
+  ])
+  await waitFor(`${CONTAINER} accepting queries`, async () => {
+    try {
+      await docker(['exec', CONTAINER, 'psql', '-U', 'duckiam', '-d', 'duckiam_prisma', '-c', 'SELECT 1'], 10_000)
+      return true
+    } catch {
+      return false
+    }
+  })
+  const published = await docker(['port', CONTAINER, '5432'])
+  const port = Number(published.split('\n')[0]?.split(':').pop())
+  if (!Number.isInteger(port) || port <= 0) throw new Error(`no published port: ${published}`)
+  await waitFor(`127.0.0.1:${port}`, async () => {
+    return await new Promise<boolean>((resolve) => {
+      const socket = connect({ host: '127.0.0.1', port })
+      const done = (ok: boolean) => {
+        socket.destroy()
+        resolve(ok)
+      }
+      socket.once('connect', () => done(true))
+      socket.once('error', () => done(false))
+      socket.setTimeout(1_000, () => done(false))
+    })
+  })
+  return `postgres://duckiam:duckiam@127.0.0.1:${port}/duckiam_prisma`
+}
+
+/** The reference Prisma models, as Postgres sees them. */
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS access_policy (
+  id text PRIMARY KEY, name text NOT NULL, description text,
+  version integer NOT NULL DEFAULT 1, algorithm text NOT NULL,
+  rules jsonb NOT NULL, targets jsonb
+);
+CREATE TABLE IF NOT EXISTS access_role (
+  id text PRIMARY KEY, name text NOT NULL, description text,
+  permissions jsonb NOT NULL, inherits jsonb NOT NULL DEFAULT '[]'::jsonb,
+  scope text, metadata jsonb
+);
+-- AccessAssignment.role is a required relation with onDelete: Cascade, which
+-- Prisma migrates to exactly this foreign key. Without it this database would
+-- accept a grant naming a role that does not exist - a write the contract
+-- refuses on all six adapters.
+CREATE TABLE IF NOT EXISTS access_assignment (
+  id bigserial PRIMARY KEY, subject_id text NOT NULL, role_id text NOT NULL, scope text,
+  CONSTRAINT fk_access_assignment_role FOREIGN KEY (role_id) REFERENCES access_role (id) ON DELETE CASCADE
+);
+-- NULLS NOT DISTINCT, matching the drizzle pg schema and the migration
+-- schema.prisma now tells consumers to apply. The @@unique Prisma generates is
+-- a plain unique index, and a plain unique index treats NULLs as distinct, so
+-- two unscoped grants of the same role do not collide and the adapter's
+-- read-then-write - which cannot be atomic on its own - let a concurrent pile
+-- of identical rows through. Prisma cannot spell this, so it is a migration
+-- the consumer runs; this DDL transcribes it.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_access_assignment ON access_assignment (subject_id, role_id, scope) NULLS NOT DISTINCT;
+CREATE TABLE IF NOT EXISTS access_subject_attr (subject_id text PRIMARY KEY, data jsonb NOT NULL);
+`
+
+// ---------------------------------------------------------------------------
+// A SQL-backed implementation of the delegate surface the adapter declares.
+// ---------------------------------------------------------------------------
+
+type Sql = { text: string; values: unknown[] }
+
+/** camelCase field name to the column the reference schema gives it. */
+function column(field: string): string {
+  return field.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)
+}
+
+/**
+ * Translates a Prisma `where` object to SQL: `null` -> `IS NULL`, a value -> `= $n`, `NOT` -> `IS NOT NULL` or `<>`.
+ * INFO: older Prisma clients drop NULL rows under `NOT` on a nullable column; `notIncludesNull` picks the reading.
+ */
+function buildWhere(where: Record<string, unknown>, values: unknown[], notIncludesNull: boolean): string {
+  const clauses: string[] = []
+  for (const [field, value] of Object.entries(where)) {
+    if (field === 'NOT') {
+      if (typeof value !== 'object' || value === null) continue
+      for (const [nf, nv] of Object.entries(value as Record<string, unknown>)) {
+        const col = column(nf)
+        if (nv === null) {
+          clauses.push(`${col} IS NOT NULL`)
+          continue
+        }
+        values.push(nv)
+        clauses.push(
+          notIncludesNull ? `(${col} IS NULL OR ${col} <> $${values.length})` : `${col} <> $${values.length}`,
+        )
+      }
+      continue
+    }
+    const col = column(field)
+    if (value === null || value === undefined) {
+      clauses.push(`${col} IS NULL`)
+      continue
+    }
+    values.push(value)
+    clauses.push(`${col} = $${values.length}`)
+  }
+  return clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+}
+
+function rowsToObjects<T>(rows: Record<string, unknown>[], fields: readonly string[]): T[] {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {}
+    for (const f of fields) out[f] = row[column(f)] ?? null
+    return out as T
+  })
+}
+
+const POLICY_FIELDS = ['id', 'name', 'description', 'version', 'algorithm', 'rules', 'targets'] as const
+const ROLE_FIELDS = ['id', 'name', 'description', 'permissions', 'inherits', 'scope', 'metadata'] as const
+const ASSIGNMENT_FIELDS = ['subjectId', 'roleId', 'scope'] as const
+
+/** The delegate the adapter is built with; every method runs a real statement. */
+function sqlPrisma(pool: Pool, notIncludesNull: boolean): IamPrisma.ILike {
+  async function query(sql: Sql): Promise<Record<string, unknown>[]> {
+    const res = await pool.query(sql.text, sql.values)
+    return res.rows as Record<string, unknown>[]
+  }
+
+  /**
+   * `INSERT ... ON CONFLICT DO UPDATE`, binding `create` and `update` separately as a real `upsert` applies them.
+   * NOTE: the payloads differ (`created_by` vs `updated_by`), so SET must not come from `create` or `EXCLUDED`.
+   */
+  function upsertSql(
+    table: string,
+    key: string,
+    create: Record<string, unknown>,
+    update: Record<string, unknown>,
+  ): Sql {
+    const bind = (v: unknown): unknown => (v !== null && typeof v === 'object' ? JSON.stringify(v) : v)
+    const createFields = Object.keys(create)
+    const cols = createFields.map(column)
+    const placeholders = cols.map((_, i) => `$${i + 1}`)
+
+    const updateFields = Object.keys(update).filter((f) => column(f) !== column(key))
+    if (updateFields.length === 0)
+      throw new Error(`${table}.upsert: empty update payload would make a conflict a no-op`)
+    const sets = updateFields.map((f, i) => `${column(f)} = $${cols.length + i + 1}`)
+
+    return {
+      text: `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders.join(', ')})
+             ON CONFLICT (${column(key)}) DO UPDATE SET ${sets.join(', ')} RETURNING *`,
+      values: [...createFields.map((f) => bind(create[f])), ...updateFields.map((f) => bind(update[f]))],
+    }
+  }
+
+  /** The first row of a result the caller has already established is non-empty. */
+  function firstRow<TRow>(rows: Record<string, unknown>[], fields: readonly string[], what: string): TRow {
+    const mapped = rowsToObjects<TRow>(rows, fields)[0]
+    if (mapped === undefined) throw new Error(`${what} returned no row`)
+    return mapped
+  }
+
+  function store<TRow, TWhere extends Record<string, unknown>>(table: string, key: string, fields: readonly string[]) {
+    return {
+      deleteMany: async (args: { where: TWhere }) => {
+        const values: unknown[] = []
+        const where = buildWhere(args.where, values, notIncludesNull)
+        const res = await pool.query(`DELETE FROM ${table} ${where}`, values)
+        return { count: res.rowCount ?? 0 }
+      },
+      findMany: async (_args?: unknown): Promise<TRow[]> =>
+        rowsToObjects<TRow>(await query({ text: `SELECT * FROM ${table}`, values: [] }), fields),
+      findUnique: async (args: { where: TWhere }): Promise<TRow | null> => {
+        const values: unknown[] = []
+        const where = buildWhere(args.where, values, notIncludesNull)
+        const rows = await query({ text: `SELECT * FROM ${table} ${where} LIMIT 1`, values })
+        if (rows.length === 0) return null
+        return firstRow<TRow>(rows, fields, `${table}.findUnique`)
+      },
+      upsert: async (args: {
+        where: TWhere
+        create: Record<string, unknown>
+        update: Record<string, unknown>
+      }): Promise<TRow> =>
+        firstRow<TRow>(await query(upsertSql(table, key, args.create, args.update)), fields, `${table}.upsert`),
+    }
+  }
+
+  const policies = store<IamPrisma.IPolicyRow, { id: string }>('access_policy', 'id', POLICY_FIELDS)
+  const roles = store<IamPrisma.IRoleRow, { id: string }>('access_role', 'id', ROLE_FIELDS)
+  const attrs = store<IamPrisma.IAttrRow, { subjectId: string }>('access_subject_attr', 'subjectId', [
+    'subjectId',
+    'data',
+  ])
+
+  return {
+    accessAssignment: {
+      create: async (args: { data: Record<string, unknown> }) => {
+        const fields = Object.keys(args.data)
+        const cols = fields.map(column)
+        const placeholders = cols.map((_, i) => `$${i + 1}`)
+        try {
+          const rows = await query({
+            text: `INSERT INTO access_assignment (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
+            values: fields.map((f) => args.data[f]),
+          })
+          return firstRow<IamPrisma.IAssignmentRow>(rows, ASSIGNMENT_FIELDS, 'accessAssignment.create')
+        } catch (err) {
+          // INFO: Prisma reports a unique violation as `P2002`, the code the adapter matches, not pg's `23505`.
+          if (err !== null && typeof err === 'object' && Reflect.get(err, 'code') === '23505') {
+            throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' })
+          }
+          // Likewise pg's foreign-key `23503` reaches a Prisma caller as `P2003`.
+          if (err !== null && typeof err === 'object' && Reflect.get(err, 'code') === '23503') {
+            throw Object.assign(new Error('Foreign key constraint failed on the field: `roleId`'), { code: 'P2003' })
+          }
+          throw err
+        }
+      },
+      deleteMany: async (args: { where: Record<string, unknown> }) => {
+        const values: unknown[] = []
+        const where = buildWhere(args.where, values, notIncludesNull)
+        const res = await pool.query(`DELETE FROM access_assignment ${where}`, values)
+        return { count: res.rowCount ?? 0 }
+      },
+      findMany: async (args: {
+        take?: number
+        where: { subjectId: string; roleId?: string; scope?: string | null }
+      }): Promise<IamPrisma.IAssignmentRow[]> => {
+        const values: unknown[] = []
+        const where = buildWhere(args.where, values, notIncludesNull)
+        const limit = args.take === undefined ? '' : ` LIMIT ${Number(args.take)}`
+        return rowsToObjects<IamPrisma.IAssignmentRow>(
+          await query({ text: `SELECT * FROM access_assignment ${where}${limit}`, values }),
+          ASSIGNMENT_FIELDS,
+        )
+      },
+      updateMany: async (args: { data: Record<string, unknown>; where: Record<string, unknown> }) => {
+        const values: unknown[] = []
+        const sets = Object.entries(args.data).map(([f, v]) => {
+          values.push(v)
+          return `${column(f)} = $${values.length}`
+        })
+        const where = buildWhere(args.where, values, notIncludesNull)
+        const res = await pool.query(`UPDATE access_assignment SET ${sets.join(', ')} ${where}`, values)
+        return { count: res.rowCount ?? 0 }
+      },
+    },
+    accessPolicy: policies,
+    accessRole: roles,
+    accessSubjectAttr: {
+      findUnique: attrs.findUnique,
+      upsert: attrs.upsert,
+    },
+  }
+}
+
+const DOCKER_UP = await dockerIsUp()
+let bootError: string | undefined
+let URL_: string | undefined
+if (DOCKER_UP) {
+  try {
+    URL_ = await startPostgres()
+    const boot = new Pool({ connectionString: URL_ })
+    await boot.query(SCHEMA)
+    await boot.end()
+  } catch (err) {
+    bootError = err instanceof Error ? err.message : String(err)
+  }
+}
+
+afterAll(async () => {
+  if (DOCKER_UP) await docker(['rm', '-f', '-v', CONTAINER]).catch(() => '')
+})
+
+describe('E2E harness reachability (prisma/pg)', () => {
+  it('provisions a Postgres database whenever docker is available', () => {
+    // Guard against a skipped suite passing vacuously. CI provisions the backend up front, so there it is required.
+    if (process.env.CI) {
+      expect(bootError, 'the container failed to start in CI, where it is provisioned').toBeUndefined()
+      expect(URL_, 'no database in CI, where the workflow provisions one - the suite skipped').toBeDefined()
+      return
+    }
+    if (!DOCKER_UP) {
+      expect(URL_, 'docker is down, so no e2e database is expected').toBeUndefined()
+      return
+    }
+    expect(bootError, 'docker is up but the container failed to start').toBeUndefined()
+    expect(URL_, 'docker is up but no database was provisioned - the suite would have skipped').toBeDefined()
+  })
+})
+
+async function truncate(pool: Pool): Promise<void> {
+  await pool.query('TRUNCATE access_assignment, access_subject_attr, access_role, access_policy')
+}
+
+// ---------------------------------------------------------------------------
+// The shared matrix, against real SQL.
+// ---------------------------------------------------------------------------
+if (URL_) {
+  const pool = new Pool({ connectionString: URL_, max: 8 })
+  runAdapterCompliance(
+    'IamPrismaAdapter @ real Postgres',
+    async () => {
+      await truncate(pool)
+      return new IamPrismaAdapter<string, string, string, string>(sqlPrisma(pool, true))
+    },
+    { supports: OPTIONAL_SUPPORT.IamPrismaAdapter },
+  )
+  afterAll(async () => {
+    await pool.end()
+  })
+}
+
+const suite = URL_ ? describe : describe.skip
+
+suite('IamPrismaAdapter against real SQL', () => {
+  let pool: Pool
+  let adapter: IamPrismaAdapter<string, string, string, string>
+
+  beforeAll(() => {
+    pool = new Pool({ connectionString: URL_ as string, max: 8 })
+  })
+
+  afterAll(async () => {
+    await pool.end()
+  })
+
+  async function reset(notIncludesNull = true): Promise<void> {
+    await truncate(pool)
+    // `fk_access_assignment_role` refuses grants of unknown roles, so seed every role these cases grant.
+    await pool.query(
+      `INSERT INTO access_role (id, name, permissions) VALUES ('editor','Editor','[]'::jsonb), ('viewer','Viewer','[]'::jsonb), ('auditor','Auditor','[]'::jsonb)`,
+    )
+    adapter = new IamPrismaAdapter<string, string, string, string>(sqlPrisma(pool, notIncludesNull))
+  }
+
+  async function assignmentCount(): Promise<number> {
+    const r = await pool.query('SELECT count(*)::int AS n FROM access_assignment')
+    return (r.rows[0] as { n: number }).n
+  }
+
+  describe('the scoped/unscoped split, against a WHERE the server actually evaluates', () => {
+    it('getSubjectRoles filters in SQL and getSubjectScopedRoles in JS - and they agree', async () => {
+      await reset()
+      await adapter.assignRole('u1', 'editor')
+      await adapter.assignRole('u1', 'viewer', 'org-1')
+      await adapter.assignRole('u1', 'auditor', 'org-2')
+
+      // `getSubjectRoles` sends `scope: null` to the server; the scoped read
+      // fetches every row and splits in JavaScript. Two code paths, one answer.
+      expect((await adapter.getSubjectRoles('u1')).sort()).toEqual(['editor'])
+      expect((await adapter.getSubjectScopedRoles('u1')).map((s) => `${s.role}@${s.scope}`).sort()).toEqual([
+        'auditor@org-2',
+        'viewer@org-1',
+      ])
+      expect(await assignmentCount()).toBe(3)
+    })
+
+    it('a row whose scope is SQL NULL is global; a row whose scope is a string is not', async () => {
+      await reset()
+      await pool.query(`INSERT INTO access_assignment (subject_id, role_id, scope) VALUES ('u1','editor',NULL)`)
+      await pool.query(`INSERT INTO access_assignment (subject_id, role_id, scope) VALUES ('u1','editor','org-1')`)
+      expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
+      expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'editor', scope: 'org-1' }])
+    })
+
+    it('a row whose scope is the EMPTY STRING is neither global nor rejected', async () => {
+      await reset()
+      // The Prisma schema has no CHECK constraint (drizzle's does), so a migration or another writer can store this.
+      await pool.query(`INSERT INTO access_assignment (subject_id, role_id, scope) VALUES ('u1','editor','')`)
+      const global = await adapter.getSubjectRoles('u1')
+      const scoped = await adapter.getSubjectScopedRoles('u1')
+      // The row must land in exactly one bucket: in neither it is invisible, in both a scoped grant goes global.
+      expect(
+        global.length + scoped.length,
+        `empty-scope row landed in ${global.length} global + ${scoped.length} scoped buckets`,
+      ).toBe(1)
+    })
+
+    it('an empty-string scope grant is refused, not stored', async () => {
+      await reset()
+      await expect(adapter.assignRole('u1', 'editor', '')).rejects.toThrow(/empty string/)
+      expect(await assignmentCount()).toBe(0)
+    })
+
+    it('revokeRole without a scope removes the unscoped row and every scoped one', async () => {
+      await reset()
+      await adapter.assignRole('u1', 'editor')
+      await adapter.assignRole('u1', 'editor', 'org-1')
+      await adapter.assignRole('u1', 'editor', 'org-2')
+      await adapter.revokeRole('u1', 'editor')
+      expect(await assignmentCount()).toBe(0)
+    })
+
+    it('revokeRole with a scope leaves the unscoped row alone', async () => {
+      await reset()
+      await adapter.assignRole('u1', 'editor')
+      await adapter.assignRole('u1', 'editor', 'org-1')
+      await adapter.revokeRole('u1', 'editor', 'org-1')
+      expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
+      expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
+    })
+  })
+
+  describe('two writers on two connections', () => {
+    it('twenty concurrent identical unscoped grants leave exactly one row', async () => {
+      await reset()
+      const second = new Pool({ connectionString: URL_ as string, max: 8 })
+      try {
+        const b = new IamPrismaAdapter<string, string, string, string>(sqlPrisma(second, true))
+        // INFO: `assignRole` is `findMany` then `create`, so the NULLS NOT DISTINCT index decides this race;
+        // losers get P2002, which the adapter reads as already granted.
+        const results = await Promise.allSettled(
+          Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? adapter : b).assignRole('u1', 'editor')),
+        )
+        const failed = results.filter((r) => r.status === 'rejected').length
+        expect(await assignmentCount(), `${failed} of 20 grants were rejected`).toBe(1)
+      } finally {
+        await second.end()
+      }
+    }, 30_000)
+
+    it('twenty concurrent identical SCOPED grants leave exactly one row', async () => {
+      await reset()
+      const second = new Pool({ connectionString: URL_ as string, max: 8 })
+      try {
+        const b = new IamPrismaAdapter<string, string, string, string>(sqlPrisma(second, true))
+        // A repeat grant is idempotent, so losing the unique-index race must resolve, not reject.
+        const results = await Promise.allSettled(
+          Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? adapter : b).assignRole('u1', 'editor', 'org-1')),
+        )
+        const failed = results.filter((r) => r.status === 'rejected').length
+        expect(await assignmentCount()).toBe(1)
+        expect(failed, 'a repeat grant of a role the subject already holds was rejected').toBe(0)
+      } finally {
+        await second.end()
+      }
+    }, 30_000)
+
+    it('duplicate unscoped rows do not change the answer to getSubjectRoles', async () => {
+      await reset()
+      // Drops the index to simulate a table from before the NULLS NOT DISTINCT migration:
+      // duplicate rows must still read as one role and revoke completely.
+      await pool.query('DROP INDEX uq_access_assignment')
+      try {
+        for (let i = 0; i < 5; i++) {
+          await pool.query(`INSERT INTO access_assignment (subject_id, role_id, scope) VALUES ('u1','editor',NULL)`)
+        }
+        expect(await assignmentCount()).toBe(5)
+        expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
+        await adapter.revokeRole('u1', 'editor')
+        expect(await assignmentCount()).toBe(0)
+      } finally {
+        await pool.query(
+          'CREATE UNIQUE INDEX uq_access_assignment ON access_assignment (subject_id, role_id, scope) NULLS NOT DISTINCT',
+        )
+      }
+    })
+  })
+
+  describe('updateAssignmentScope over a nullable column', () => {
+    // Runs under both `NOT`-over-NULL readings, so the result cannot depend on the installed Prisma version.
+    for (const notIncludesNull of [true, false]) {
+      const label = notIncludesNull ? 'NOT includes NULL rows' : 'NOT excludes NULL rows'
+
+      it(`moves an unscoped grant to a scope (${label})`, async () => {
+        await reset(notIncludesNull)
+        await adapter.assignRole('u1', 'editor')
+        expect(await adapter.updateAssignmentScope('u1', 'editor', undefined, 'org-1')).toBe(true)
+        expect(await adapter.getSubjectRoles('u1')).toEqual([])
+        expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'editor', scope: 'org-1' }])
+      })
+
+      it(`moves a scoped grant to global (${label})`, async () => {
+        await reset(notIncludesNull)
+        await adapter.assignRole('u1', 'editor', 'org-1')
+        expect(await adapter.updateAssignmentScope('u1', 'editor', 'org-1', undefined)).toBe(true)
+        expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
+        expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
+      })
+
+      it(`collapses onto an already-granted target scope (${label})`, async () => {
+        await reset(notIncludesNull)
+        await adapter.assignRole('u1', 'editor')
+        await adapter.assignRole('u1', 'editor', 'org-1')
+        expect(await adapter.updateAssignmentScope('u1', 'editor', undefined, 'org-1')).toBe(true)
+        expect(await assignmentCount()).toBe(1)
+        expect(await adapter.getSubjectRoles('u1')).toEqual([])
+        expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'editor', scope: 'org-1' }])
+      })
+
+      it(`collapses onto an already-held GLOBAL grant (${label})`, async () => {
+        await reset(notIncludesNull)
+        await adapter.assignRole('u1', 'editor')
+        await adapter.assignRole('u1', 'editor', 'org-1')
+        // Moving the scoped row onto an existing global row: the NULL-scoped target must be merged, not duplicated.
+        expect(await adapter.updateAssignmentScope('u1', 'editor', 'org-1', undefined)).toBe(true)
+        expect(await assignmentCount()).toBe(1)
+        expect(await adapter.getSubjectRoles('u1')).toEqual(['editor'])
+      })
+
+      it(`returns false when no source row matches (${label})`, async () => {
+        await reset(notIncludesNull)
+        await adapter.assignRole('u1', 'editor', 'org-2')
+        expect(await adapter.updateAssignmentScope('u1', 'editor', 'org-9', 'org-1')).toBe(false)
+        // A stale fromScope must not delete the grant the caller is moving onto.
+        expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'editor', scope: 'org-2' }])
+      })
+    }
+  })
+
+  describe('corrupt rows must not read as absent', () => {
+    it('a data column holding JSON null throws rather than answering {}', async () => {
+      await reset()
+      await pool.query(`INSERT INTO access_subject_attr (subject_id, data) VALUES ('u1','null'::jsonb)`)
+      // SECURITY: `{}` here would retire every deny rule that tests an attribute.
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+    })
+
+    it('a data column holding a JSON array throws', async () => {
+      await reset()
+      await pool.query(`INSERT INTO access_subject_attr (subject_id, data) VALUES ('u1','[1,2]'::jsonb)`)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+    })
+
+    it('a policy row whose rules column is JSON null is refused, not dropped', async () => {
+      await reset()
+      await pool.query(
+        `INSERT INTO access_policy (id, name, algorithm, rules) VALUES ('p1','Broken','deny-overrides','null'::jsonb)`,
+      )
+      // SECURITY: fail closed - read loosely this denies nothing, and `null` would look like a deleted policy.
+      await expect(adapter.getPolicy('p1')).rejects.toThrow(/cannot be read/)
+      await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+    })
+
+    it('a role row whose permissions column is a JSON object is dropped', async () => {
+      await reset()
+      await pool.query(`INSERT INTO access_role (id, name, permissions) VALUES ('r1','Broken','{"action":"*"}'::jsonb)`)
+      expect(await adapter.getRole('r1')).toBeNull()
+    })
+
+    it('a stored __proto__ attribute key makes the row unreadable rather than half-read', async () => {
+      await reset()
+      await pool.query(
+        `INSERT INTO access_subject_attr (subject_id, data) VALUES ('u1','{"__proto__":{"tier":"gold"},"team":"A"}'::jsonb)`,
+      )
+      // SECURITY: assigning the key sets the prototype, and owning it hides the value a deny rule tests,
+      // so the row is refused.
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+    })
+  })
+
+  describe('round-trip fidelity', () => {
+    it('a policy keeps its scalar types across a real jsonb column', async () => {
+      await reset()
+      await adapter.savePolicy({
+        algorithm: 'deny-overrides',
+        description: 'D',
+        id: 'p1',
+        name: 'P',
+        rules: [
+          { actions: ['read'], conditions: { all: [] }, effect: 'allow', id: 'r1', priority: 10, resources: ['post'] },
+        ],
+        targets: { actions: ['read'] },
+        version: 7,
+      })
+      const got = await adapter.getPolicy('p1')
+      expect(typeof got?.version).toBe('number')
+      expect(got?.version).toBe(7)
+      expect(typeof got?.rules[0]?.priority).toBe('number')
+      expect(got?.targets).toEqual({ actions: ['read'] })
+    })
+
+    it('a role keeps inherits and metadata across a real jsonb column', async () => {
+      await reset()
+      await adapter.saveRole({
+        id: 'r1',
+        inherits: ['base'],
+        metadata: { level: 3 },
+        name: 'R',
+        permissions: [{ action: 'read', resource: 'post' }],
+        scope: 'org-1',
+      })
+      const got = await adapter.getRole('r1')
+      expect(got?.inherits).toEqual(['base'])
+      expect(got?.metadata).toEqual({ level: 3 })
+      expect(got?.scope).toBe('org-1')
+    })
+  })
+})

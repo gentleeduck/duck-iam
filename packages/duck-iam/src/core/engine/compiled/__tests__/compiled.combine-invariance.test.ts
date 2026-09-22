@@ -3,14 +3,8 @@ import { IamMemoryAdapter } from '../../../../adapters/memory'
 import type { AccessControl, IamPrimitives } from '../../../types'
 import { IamEngine } from '../../engine'
 
-// Both `policyCombine` modes this engine supports ('and', 'allow-overrides') are defined
-// as commutative: the combined decision must not depend on the order policies/roles were
-// declared, loaded, or iterated in. Unlike 'first-applicable' (excluded from `mode:
-// 'production'` entirely), neither mode should ever short-circuit on iteration order - a
-// bug that accidentally introduced order-sensitivity (e.g. a stray `.find()` instead of
-// `.every()`/`.some()`, or a Map-iteration-order dependency) would be invisible to every
-// other test in this suite, since they all use one fixed declaration order. This file
-// holds that fixed input constant and permutes only the declaration order.
+// 'and' and 'allow-overrides' are commutative: permuting policy/role declaration order must not change a decision.
+// Every other test uses one fixed order, so an order-sensitive bug (a stray `.find()`) would pass there.
 
 const basePolicies: AccessControl.IPolicy[] = [
   {
@@ -70,13 +64,12 @@ const baseRoles: AccessControl.IRole[] = [
 const assignments = { u1: ['editor'], u2: ['admin'], u3: [] }
 const attributes = { u1: {}, u2: {}, u3: {} }
 
-/** Deterministic array shuffle (Fisher-Yates over a fixed permutation index list, no Math.random). */
+/** Reorders `arr` by a fixed index permutation (deterministic, no `Math.random`). */
 function permute<T>(arr: readonly T[], perm: readonly number[]): T[] {
   return perm.map((i) => arr[i]!)
 }
 
-// A handful of fixed, distinct permutations of [0,1,2,3] - covers reversed, rotated, and
-// swapped-pairs orderings without needing a full 24-permutation exhaustive sweep.
+// A few fixed, distinct permutations instead of an exhaustive sweep.
 const POLICY_PERMS: readonly number[][] = [
   [0, 1, 2, 3],
   [3, 2, 1, 0],
@@ -167,9 +160,7 @@ describe('wildcard action/resource patterns are separator-bound, not raw substri
     const engine = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' })
     // Matches: shares the 'admin:' separator-bound prefix.
     expect(await engine.can('u1', 'admin:ban', { type: 'post', attributes: {} })).toBe(true)
-    // Must NOT match: 'adminX' shares the raw substring 'admin' but not the 'admin:' prefix
-    // (a naive `action.startsWith('admin')` check, instead of `startsWith('admin:')`, would
-    // wrongly allow this).
+    // Must NOT match: shares the raw substring 'admin' but not the 'admin:' prefix.
     expect(await engine.can('u1', 'adminXban', { type: 'post', attributes: {} })).toBe(false)
     expect(await engine.can('u1', 'administer', { type: 'post', attributes: {} })).toBe(false)
   })

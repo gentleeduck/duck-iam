@@ -1,19 +1,6 @@
 /**
  * E2E: the OIDC OP's security invariants, driven through the whole provider with
  * REAL Postgres behind it.
- *
- * `oidc-op.pg.e2e` proves the stores keep their contract. This proves the provider
- * enforces the rules that contract exists to serve, and it does so against a real
- * database because the two interesting ones are both "exactly one row changed"
- * claims: an authorization code must burn on first presentation even when the
- * request is then rejected, and a refresh token reuse must revoke a whole family.
- *
- * The cases come from RFC 9700 (BCP 240, OAuth 2.0 Security Best Current
- * Practice): bind the code to the client and to the redirect_uri, require PKCE for
- * public clients and verify it, rotate refresh tokens and detect reuse.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset; `globalSetup` provisions a
- * container when docker is available.
  */
 import { Buffer } from 'node:buffer'
 import { createHmac, randomUUID } from 'node:crypto'

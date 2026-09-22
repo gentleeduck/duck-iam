@@ -1,7 +1,8 @@
-import type { Identity, Session } from '@gentleduck/auth/core'
+import type { Identities, Sessions } from '@gentleduck/auth/core'
 import { CurrentIdentity, CurrentSession, NestExceptionFilter } from '@gentleduck/auth/server/nestjs'
 import { Controller, Get, UseFilters, UseGuards } from '@nestjs/common'
 import { DuckAuthGuard } from '../auth/auth.guard'
+import type { UserProfile } from '../auth/auth.profile'
 import { Authorize } from '../iam/iam.decorators'
 import { IamGuard } from '../iam/iam.guard'
 import type { UsersService } from './users.service'
@@ -13,10 +14,7 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get('me')
-  me(
-    @CurrentSession() session: Session.ISession,
-    @CurrentIdentity() identity: Identity.IIdentity<{ email: string; name: string }>,
-  ) {
+  me(@CurrentSession() session: Sessions.Me, @CurrentIdentity() identity: Identities.Me<UserProfile>) {
     if (identity?.profile && session.identityId) {
       this.usersService.upsert(session.identityId, identity.profile)
     }

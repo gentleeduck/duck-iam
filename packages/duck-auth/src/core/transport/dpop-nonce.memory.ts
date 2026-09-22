@@ -1,14 +1,12 @@
 import type { DPoPVerifier } from './dpop.transport'
 import type { RedisDPoPNonceStore } from './dpop-nonce.redis'
 
-/**
- * In-memory nonce store. Single-process only; multi-pod deploys must
- * wire a Redis-backed store {@link RedisDPoPNonceStore} using `SETNX` for true atomic claim.
- */
+/** Single-process only: a multi-pod deploy needs {@link RedisDPoPNonceStore}, whose `SETNX` claim is
+ *  atomic across pods. */
 export class MemoryDPoPNonceStore implements DPoPVerifier.NonceStore {
   private readonly _seen = new Map<string, number>()
 
-  /** Mark `jti`. Lazy prune assumes uniform TTL; cross-TTL stragglers fail closed (false-positive). */
+  /** The lazy prune assumes a uniform TTL, so a cross-TTL straggler fails closed as a false positive. */
   async recordSeen(jti: string, ttlMs: number): Promise<boolean> {
     const now = Date.now()
     for (const [k, expiresAt] of this._seen) {
@@ -24,7 +22,7 @@ export class MemoryDPoPNonceStore implements DPoPVerifier.NonceStore {
   }
 }
 
-/** Factory around {@link MemoryDPoPNonceStore} for functional-style config. */
+/** In-process DPoP nonce store. Single node only; a fleet needs the Redis store. */
 export function memoryDPoPNonceStore(): MemoryDPoPNonceStore {
   return new MemoryDPoPNonceStore()
 }

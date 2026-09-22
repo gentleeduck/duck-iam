@@ -1,24 +1,4 @@
-/**
- * E2E: `valkeyAdapter` against a REAL server.
- *
- * This adapter had no tests at all, which is the worst place for that to be true.
- * Its own docblock states the failure it exists to prevent: an ioredis-style
- * client passed straight through takes `set` options variadically, so an object
- * `{ ex, nx }` is dropped on the floor. The write still succeeds, so nothing
- * throws; the key simply never expires and the conditional write is not
- * conditional. A session that outlives its TTL and an idempotency claim that
- * admits every caller both look like success.
- *
- * Only a real server can show it. An in-memory double is written against the
- * object shape, so it "passes" precisely when the translation is broken.
- *
- * Valkey speaks the Redis protocol and `iovalkey` mirrors ioredis' variadic
- * surface, so ioredis is used here as the stand-in client: what is under test is
- * the argument translation, not the driver.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a
- * container when docker is available.
- */
+/** E2E: `valkeyAdapter` against a REAL server. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { RedisSessionImpl } from '~/core/sessions/sessions.redis'

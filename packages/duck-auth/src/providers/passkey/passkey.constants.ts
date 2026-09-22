@@ -1,7 +1,11 @@
-/** Default passkey ceremony knobs; overridden per-call via `passkey(opts)`. */
+/** Overridden per call through `passkey(opts)`. */
 export const DEFAULT_PASSKEY_CONFIG = {
-  /** TTL applied to issued challenges, ms. */
+  /** Challenge TTL in ms. */
   challengeTtlMs: 5 * 60 * 1000,
   /** Required user verification level. */
   userVerification: 'preferred' as const,
+  /** Rate-limit key prefix for `begin`. */
+  limiterKeyPrefix: 'passkey:begin:',
+  /** Attestation requested at registration. */
+  attestationType: 'none' as const,
 }

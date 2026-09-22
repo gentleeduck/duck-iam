@@ -4,6 +4,8 @@ import { AuthResendChannel } from '../index'
 
 function makeIdentity(email: string | undefined): Identities.Me {
   return {
+    createdBy: null,
+    updatedBy: null,
     id: 'ident-1',
     // Empty email string models the "no deliverable address" case; the channel
     // reads it via getProfileString, which treats '' as absent (returns ok:false).
@@ -14,6 +16,7 @@ function makeIdentity(email: string | undefined): Identities.Me {
     createdAt: new Date(0),
     updatedAt: new Date(0),
     deletedAt: null,
+    deletedBy: null,
   }
 }
 
@@ -52,7 +55,7 @@ describe('AuthResendChannel', () => {
         new AuthResendChannel({
           from: '',
           client: makeClient(),
-          templates: () => ({ subject: 'x' }),
+          templates: () => ({ subject: 'x', text: 'body' }),
         }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
@@ -62,7 +65,7 @@ describe('AuthResendChannel', () => {
       () =>
         new AuthResendChannel({
           from: 'noreply@app.test',
-          templates: () => ({ subject: 'x' }),
+          templates: () => ({ subject: 'x', text: 'body' }),
         }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
@@ -71,7 +74,7 @@ describe('AuthResendChannel', () => {
     const channel = new AuthResendChannel({
       from: 'noreply@app.test',
       client: makeClient(),
-      templates: () => ({ subject: 'x' }),
+      templates: () => ({ subject: 'x', text: 'body' }),
     })
     const result = await channel.send({
       identity: makeIdentity(undefined),
@@ -87,7 +90,7 @@ describe('AuthResendChannel', () => {
     const channel = new AuthResendChannel({
       from: 'noreply@app.test',
       client: makeClient(async () => ({ data: null, error: { message: 'domain-not-verified' } })),
-      templates: () => ({ subject: 'x' }),
+      templates: () => ({ subject: 'x', text: 'body' }),
     })
     const result = await channel.send({
       identity: makeIdentity('user@x.com'),
@@ -105,7 +108,7 @@ describe('AuthResendChannel', () => {
       client: makeClient(async () => {
         throw new Error('network')
       }),
-      templates: () => ({ subject: 'x' }),
+      templates: () => ({ subject: 'x', text: 'body' }),
     })
     const result = await channel.send({
       identity: makeIdentity('user@x.com'),
