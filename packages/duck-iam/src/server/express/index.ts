@@ -1,17 +1,33 @@
 import type { IamEngine } from '../../core'
-import type { AccessControl, IamRequest } from '../../core/types'
+import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
+import { type IamValidationError, iamIsValidationError } from '../../shared/errors'
 import {
-  IAM_METHOD_ACTION_MAP,
+  iamAsActionLiteral,
+  iamAsRoleLiteral,
+  iamAsScopeLiteral,
+  iamResourceAtCallerType,
+} from '../../shared/tenant-literals'
+import {
+  type IamAdminActor,
   type IamAdminAudit,
+  type IamAdminAuthzAnswer,
+  iamActionForMethod,
+  iamAdminActorOptions,
+  iamAuditIdOf,
   iamDefaultCsrfCheck,
+  iamDefaultResource,
   iamExtractEnvironment,
+  iamIsSubjectId,
   iamNoticeCsrfDefaultIfNeeded,
+  iamOptionalStringField,
+  iamRequirePathParam,
+  iamRequireStringField,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
 
-/** Minimal IamExpress request shape. */
-interface Req {
+/** Minimal Express request shape. */
+export interface Req {
   method?: string
   path?: string
   url?: string
@@ -22,59 +38,64 @@ interface Req {
   user?: { id: string; [k: string]: unknown }
   [k: string]: unknown
 }
-/** Minimal IamExpress response shape. */
-interface Res {
+/** Minimal Express response shape. */
+export interface Res {
   status(code: number): Res
   json(body: unknown): void
 }
-/** IamExpress next function. */
-type Next = (err?: unknown) => void
-/** IamExpress middleware function. */
-type Middleware = (req: Req, res: Res, next: Next) => void
+/** Express next function. */
+export type Next = (err?: unknown) => void
+/** Express middleware function. */
+export type Middleware = (req: Req, res: Res, next: Next) => void
 
-/** Minimal IamExpress Router interface for admin routes. */
-interface ExpressRouterLike {
+/** Minimal Express Router interface for admin routes. */
+export interface ExpressRouterLike {
   get(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
   put(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
   post(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
   delete(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
 }
 
-/** IamExpress server integration types. Type-only namespace - zero bundle cost. */
+/** Express server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamExpress {
   /**
-   * Describes options for {@link iamAccessMiddleware} and {@link iamGuard}.
+   * Options for {@link iamAccessMiddleware} and {@link iamGuard}; every extractor has a default.
+   * WARN: `TScope` stays first, unlike the engine's order, so existing `IOptions<MyScope>` keeps binding the scope.
    *
-   * Every extractor has a sensible default; override only what your app needs.
-   *
-   * @template TScope - Constrains valid scope strings.
+   * @template TScope    - Constrains valid scope strings.
+   * @template TAction   - Constrains what `getAction` may return.
+   * @template TResource - Constrains what `getResource` may name.
    */
-  export interface IOptions<TScope extends string = string> {
+  export interface IOptions<
+    TScope extends string = string,
+    TAction extends string = string,
+    TResource extends string = string,
+  > {
     /** Extracts the current user ID from the request. */
     getUserId?: (req: Req) => string | null
     /** Derives the target resource from the request. */
-    getResource?: (req: Req) => IamRequest.IResource
+    getResource?: (req: Req) => IamRequest.IResource<TResource>
     /** Derives the action being performed from the request. */
-    getAction?: (req: Req) => string
+    getAction?: (req: Req) => TAction
     /** Extracts environment context (IP, user-agent, etc.) from the request. */
     getEnvironment?: (req: Req) => IamRequest.IEnvironment
     /** Determines the scope used for the access check. */
     getScope?: (req: Req) => TScope | undefined
     /** Handles a denied request (defaults to 403 JSON). */
     onDenied?: (req: Req, res: Res) => void
-    /** Handles thrown errors during evaluation (defaults to 500 JSON). */
-    onError?: (err: Error, req: Req, res: Res, next: Next) => void
+    /**
+     * Handles thrown errors during evaluation (defaults to 500 JSON).
+     * SECURITY: `next` is not passed: calling it would resume the request with no decision made (fail open).
+     */
+    onError?: (err: Error, req: Req, res: Res) => void
   }
 
   /**
-   * Required iamGuard callback for admin endpoints.
-   *
-   * Returning `false` (or throwing) blocks the mutation; returning `true` lets it
-   * proceed. The admin router writes policies, roles, and assignments directly
-   * to the adapter; mounting it without auth has historically been the most
-   * common foot-gun in authorization systems, so this hook is mandatory.
+   * Required admin gate: a falsy answer or a throw blocks the request, a truthy one lets it proceed.
+   * Prefer returning the actor over `true`, so the audit event and the write itself record who acted; a string
+   * answer also reaches `engine.admin`. See {@link IamAdminAuthzAnswer} and `getMutationActor`.
    */
-  export type IAdminAuthorize = (req: Req) => boolean | Promise<boolean>
+  export type IAdminAuthorize = (req: Req) => IamAdminAuthzAnswer | Promise<IamAdminAuthzAnswer>
 
   /** Describes options for {@link iamAdminRouter}. `authorize` is required. */
   export interface IAdminRouterOptions extends IamAdminAudit.IOptions {
@@ -84,23 +105,21 @@ export namespace IamExpress {
     onUnauthorized?: (req: Req, res: Res) => void
     /** Overrides the 500 internal error response. */
     onError?: (err: Error, req: Req, res: Res) => void
-    /**
-     * Optional audit hook fired AFTER every mutation handler (PUT/POST/
-     * DELETE/PATCH) completes - success or failure. The hook is
-     * fire-and-forget: a slow or throwing implementation never blocks the
-     * request and can never alter the response. GET handlers do not fire it.
-     *
-     * See {@link IamAdminAudit.IOptions} for additional hardening knobs:
-     * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
-     */
+    /** Audit hook fired after every mutation, on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
+    /**
+     * Names the caller for `engine.admin`, which reaches the adapter's `created_by` / `updated_by`.
+     * A string `authorize` answer is forwarded without this; an object one names no one until this picks the field.
+     */
+    getMutationActor?: (actor: IamAdminActor) => string | undefined
   }
 }
 
 /**
- * Builds global IamExpress middleware that runs `engine.can(...)` on every request.
+ * Builds global Express middleware that runs `engine.can(...)` on every request: 401 without a user, 403 on deny.
  *
- * Replies 401 when no user is present and 403 when denied.
+ * SECURITY: a rule reading `resource.attributes.*` sees only what `getResource` puts there, and it is synchronous:
+ * attributes an earlier middleware already attached work, loading the row here does not.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -108,7 +127,7 @@ export namespace IamExpress {
  * @template TScope - Constrains valid scope strings.
  * @param engine - Provides the access engine to consult.
  * @param opts - Configures extractors and error hooks.
- * @returns An IamExpress middleware function.
+ * @returns An Express middleware function.
  * @example
  * ```ts
  * app.use(iamAccessMiddleware(engine, {
@@ -121,14 +140,14 @@ export function iamAccessMiddleware<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamExpress.IOptions<TScope> = {}): Middleware {
+>(
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
+  opts: IamExpress.IOptions<NoInfer<TScope>, NoInfer<TAction>, NoInfer<TResource>> = {},
+): Middleware {
   const {
     getUserId = (req) => req.user?.id ?? null,
-    getResource = (req) => {
-      const parts = (req.path ?? '/').split('/').filter(Boolean)
-      return { type: parts[0] ?? 'root', id: parts[1], attributes: {} }
-    },
-    getAction = (req) => IAM_METHOD_ACTION_MAP[req.method ?? 'GET'] ?? 'read',
+    getResource = (req) => iamResourceAtCallerType<TResource>(iamDefaultResource(req.path)),
+    getAction = (req) => iamAsActionLiteral<TAction>(iamActionForMethod(req.method)),
     getEnvironment = iamExtractEnvironment,
     getScope,
     onDenied = (_, res) => res.status(403).json({ error: 'Forbidden' }),
@@ -136,30 +155,36 @@ export function iamAccessMiddleware<
   } = opts
 
   return async (req, res, next) => {
-    const userId = getUserId(req)
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' })
+    try {
+      // INFO: inside the try because `getUserId` may do I/O, and Express 4 answers nothing for a rejected
+      // middleware promise, leaving the client to time out.
+      const userId = getUserId(req)
+      if (!iamIsSubjectId(userId)) {
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+
+      const allowed = await engine.can(userId, getAction(req), getResource(req), getEnvironment(req), getScope?.(req))
+      if (!allowed) {
+        onDenied(req, res)
+        return
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err : new Error(String(err)), req, res)
       return
     }
-
-    try {
-      const allowed = await engine.can(
-        userId,
-        getAction(req) as TAction,
-        getResource(req) as IamRequest.IResource<TResource>,
-        getEnvironment(req),
-        getScope?.(req),
-      )
-      allowed ? next() : onDenied(req, res)
-    } catch (err) {
-      onError(err instanceof Error ? err : new Error(String(err)), req, res, next)
-    }
+    // NOTE: outside the try, as in the hono and next guards, so a route's own error reaches Express's error
+    // middleware rather than being answered here as an authorization failure.
+    next()
   }
 }
 
 /**
  * Builds per-route middleware that checks `(action, resourceType)` for the
- * current user, pulling the resource ID from `req.params.id`.
+ * current user, pulling the resource ID from `req.params.id` unless `opts.getResourceId` names another source.
+ *
+ * SECURITY: a rule reading `resource.attributes.*` sees only what `getResourceAttributes` returns; without it the
+ * resource is the route's type and id alone, and such a rule cannot fire.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -169,7 +194,7 @@ export function iamAccessMiddleware<
  * @param action - Specifies the action being performed.
  * @param resourceType - Specifies the resource type required for the check.
  * @param opts - Configures optional extractors and `scope` override.
- * @returns An IamExpress middleware function.
+ * @returns An Express middleware function.
  * @example
  * ```ts
  * app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
@@ -185,42 +210,76 @@ export function iamGuard<
   engine: IamEngine<TAction, TResource, TRole, TScope>,
   action: TAction,
   resourceType: TResource,
-  opts: Pick<IamExpress.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied'> & { scope?: TScope } = {},
+  opts: Pick<IamExpress.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & {
+    scope?: TScope
+    /**
+     * The scope this check runs under, when the route names it (`/orgs/:orgId/...`). Consulted only when the static
+     * `scope` is absent; without either, a scoped grant does not apply and a rule reading `scope` cannot fire.
+     */
+    getScope?: (req: Req) => TScope | undefined
+    /**
+     * The instance this check is about. The default reads the `:id` path param, which names the wrong row on a route
+     * whose own id sits under another name (`/orgs/:id/posts/:postId`).
+     */
+    getResourceId?: (req: Req) => string | undefined
+    /**
+     * The resource's own attributes for this check; receives the request and the resolved tuple.
+     * Declared here, not on {@link IamExpress.IOptions}, because `iamAccessMiddleware` takes them from `getResource`.
+     */
+    getResourceAttributes?: (
+      req: Req,
+      ctx: { action: TAction; resource: TResource; resourceId: string | undefined; scope: TScope | undefined },
+    ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
+  } = {},
 ): Middleware {
   const {
     getUserId = (req) => req.user?.id ?? null,
     getEnvironment = iamExtractEnvironment,
     onDenied = (_, res) => res.status(403).json({ error: 'Forbidden' }),
-    scope,
+    // SECURITY: a fixed 500 body, not `next(err)`: without an app error handler, express's finalhandler writes
+    // `err.stack` into the response outside production.
+    onError = (_err, _, res) => res.status(500).json({ error: 'Internal server error' }),
+    getResourceAttributes,
+    getResourceId = (req: Req) => req.params?.id,
+    getScope,
+    scope: staticScope,
   } = opts
 
   return async (req, res, next) => {
-    const userId = getUserId(req)
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' })
-      return
-    }
-
     try {
+      const userId = getUserId(req)
+      if (!iamIsSubjectId(userId)) {
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+
+      const scope = staticScope ?? getScope?.(req)
+      const resourceId = getResourceId(req)
+      const attributes = getResourceAttributes
+        ? await getResourceAttributes(req, { action, resource: resourceType, resourceId, scope })
+        : {}
       const allowed = await engine.can(
         userId,
         action,
-        { type: resourceType, id: req.params?.id, attributes: {} },
+        { type: resourceType, id: resourceId, attributes },
         getEnvironment(req),
         scope,
       )
-      allowed ? next() : onDenied(req, res)
+      if (!allowed) {
+        onDenied(req, res)
+        return
+      }
     } catch (err) {
-      next(err)
+      onError(err instanceof Error ? err : new Error(String(err)), req, res)
+      return
     }
+    // NOTE: outside the try, for the same reason as the middleware above.
+    next()
   }
 }
 
 /**
- * Builds an IamExpress router for the duck-iam admin API.
- *
- * Returns a factory that accepts the IamExpress `Router` constructor so we never
- * import express at runtime. Throws when `opts.authorize` is missing.
+ * Builds an Express router for the duck-iam admin API, as a factory taking `Router` so express is never imported.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -239,8 +298,7 @@ export function iamGuard<
  * })(Router))
  * ```
  * @example
- * Rate limiting is out of scope; compose at the mount point with the
- * caller's library of choice - `express-rate-limit` is the canonical pick:
+ * Rate limiting is out of scope; compose it at the mount point, e.g. with `express-rate-limit`:
  * ```ts
  * import rateLimit from 'express-rate-limit'
  * const adminLimiter = rateLimit({ windowMs: 60_000, max: 30 })
@@ -258,41 +316,43 @@ export function iamAdminRouter<
 ): (Router: () => ExpressRouterLike) => ExpressRouterLike {
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error(
-      '[@gentleduck/iam] iamAdminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
+      '[@gentleduck/iam:express] iamAdminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
     )
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
+    opts
   const onUnauthorized = opts.onUnauthorized ?? ((_, res) => res.status(401).json({ error: 'Unauthorized' }))
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
   const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
+  const onBadRequest = (res: Res, err: IamValidationError) =>
+    res.status(400).json({ error: `Invalid ${err.kind}`, issues: err.issues })
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
-  /** Read gate: no audit emission. */
+  /**
+   * Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event.
+   * NOTE: CSRF runs on reads too, so an operator's `csrfCheck` is enforced alike on all four adapters.
+   */
   const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {
+    const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
+    if (authz.phase === 'forbidden') return onForbidden(res)
+    if (authz.phase === 'unauthorized') return onUnauthorized(req, res)
+    if (authz.phase === 'error') return onError(authz.error, req, res)
     try {
-      if (!(await authorize(req))) {
-        onUnauthorized(req, res)
-        return
-      }
       await handler(req, res)
     } catch (err) {
       onError(err instanceof Error ? err : new Error(String(err)), req, res)
     }
   }
 
-  /**
-   * Mutation gate: identical to {@link gate} but emits an `onAdminMutation`
-   * event after the handler resolves or rejects. Uses try/finally so the
-   * hook fires even when the handler throws.
-   */
+  /** Mutation gate: the CSRF and `authorize` phase, then an `onAdminMutation` event on success or failure. */
   const mutate =
     (
       action: IamAdminAudit.Action,
       target: IamAdminAudit.Target,
       getTargetId: ((req: Req) => string | undefined) | undefined,
-      handler: (req: Req, res: Res) => Promise<void>,
+      handler: (req: Req, res: Res, who: { actor?: string }) => Promise<void>,
     ) =>
     async (req: Req, res: Res) => {
       // Shared CSRF + authorize phase.
@@ -314,9 +374,11 @@ export function iamAdminRouter<
             onAuditHookError,
             includeErrorMessage,
           },
-          () => handler(req, res),
+          () => handler(req, res, iamAdminActorOptions(authz.actor, getMutationActor)),
         )
       } catch (err) {
+        // A rejected body is the caller's mistake: answer 400, since a 500 invites retrying what can never succeed.
+        if (iamIsValidationError(err)) return onBadRequest(res, err)
         onError(err instanceof Error ? err : new Error(String(err)), req, res)
       }
     }
@@ -343,9 +405,11 @@ export function iamAdminRouter<
       mutate(
         'replace',
         'policy',
-        (req) => (req.body as { id?: string } | undefined)?.id,
-        async (req, res) => {
-          await engine.admin.savePolicy(req.body as AccessControl.IPolicy<TAction, TResource, TRole>)
+        // NOTE: not a cast on `body.id`: the event fires even for a refused policy, so the id needs its own check.
+        (req) => iamAuditIdOf(req.body),
+        async (req, res, who) => {
+          // The document is not checked here: `savePolicy` validates it before writing.
+          await engine.admin.savePolicy(req.body as AccessControl.IPolicy<TAction, TResource, TRole>, who)
           res.json({ ok: true })
         },
       ),
@@ -356,9 +420,10 @@ export function iamAdminRouter<
       mutate(
         'replace',
         'role',
-        (req) => (req.body as { id?: string } | undefined)?.id,
-        async (req, res) => {
-          await engine.admin.saveRole(req.body as AccessControl.IRole<TAction, TResource, TRole, TScope>)
+        // See the note on `PUT /policies` above.
+        (req) => iamAuditIdOf(req.body),
+        async (req, res, who) => {
+          await engine.admin.saveRole(req.body as AccessControl.IRole<TAction, TResource, TRole, TScope>, who)
           res.json({ ok: true })
         },
       ),
@@ -370,9 +435,14 @@ export function iamAdminRouter<
         'create',
         'role-assignment',
         (req) => req.params?.id,
-        async (req, res) => {
-          const body = req.body as Record<string, unknown>
-          await engine.admin.assignRole(req.params?.id as string, body.roleId as TRole, body.scope as TScope)
+        async (req, res, who) => {
+          const scope = iamOptionalStringField(req.body, 'scope')
+          await engine.admin.assignRole(
+            iamRequirePathParam(req.params?.id, 'id'),
+            iamAsRoleLiteral<TRole>(iamRequireStringField(req.body, 'roleId')),
+            scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+            who,
+          )
           res.json({ ok: true })
         },
       ),
@@ -384,8 +454,13 @@ export function iamAdminRouter<
         'delete',
         'role-assignment',
         (req) => req.params?.id,
-        async (req, res) => {
-          await engine.admin.revokeRole(req.params?.id as string, req.params?.roleId as TRole)
+        async (req, res, who) => {
+          await engine.admin.revokeRole(
+            iamRequirePathParam(req.params?.id, 'id'),
+            iamAsRoleLiteral<TRole>(iamRequirePathParam(req.params?.roleId, 'roleId')),
+            undefined,
+            who,
+          )
           res.json({ ok: true })
         },
       ),

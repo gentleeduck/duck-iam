@@ -1,13 +1,11 @@
 import type { Events } from './events.types'
 
-/**
- * In-memory event bus. Single-process; production swaps in Redis pub/sub
- * (`RedisEvents`) or Kafka (`KafkaEvents`). Handlers run sequentially per
- * event; a throwing handler is caught + logged so siblings still fire.
- */
+/** Single-process: production swaps in `RedisEvents`. Handlers run sequentially per
+ *  event, and a throwing one is caught and logged so its siblings still fire. */
 export class InMemoryEvents implements Events.IBus {
   private _handlers = new Map<Events.EventName, Set<(p: unknown) => void | Promise<void>>>()
 
+  /** Registers a handler and answers the function that unsubscribes it. */
   on<K extends Events.EventName>(event: K, handler: Events.Handler<K>): Events.Unsubscribe {
     let set = this._handlers.get(event)
     if (!set) {
@@ -19,12 +17,12 @@ export class InMemoryEvents implements Events.IBus {
     return () => set?.delete(wrapped)
   }
 
+  /** Dispatches to the handlers registered when the emit began; a throwing one cannot stop the rest. */
   async emit<K extends Events.EventName>(event: K, payload: Events.EventMap[K]): Promise<void> {
     const set = this._handlers.get(event)
     if (!set || set.size === 0) return
-    // Snapshot the listener set so a handler that subscribes / unsubscribes
-    // mid-emit cannot reorder this dispatch or loop forever (each handler
-    // sees the listener set as it was at emit time).
+    // Snapshotted, so a handler subscribing or unsubscribing mid-emit cannot reorder this dispatch or
+    // loop for ever: every handler sees the set as it stood at emit time.
     const snapshot = [...set]
     for (const handler of snapshot) {
       try {
@@ -35,18 +33,14 @@ export class InMemoryEvents implements Events.IBus {
     }
   }
 
-  /**
-   * Introspection helper. Returns the number of handlers attached to an
-   * event. Used by `AuthEngine.strict()` to assert that operators have
-   * wired the required event listeners (e.g. `lockout`) without reaching
-   * into private state.
-   */
+  /** Lets `AuthEngine.strict()` assert the required listeners are wired, `lockout` among them, without
+   *  reaching into private state. */
   listenerCount<K extends Events.EventName>(event: K): number {
     return this._handlers.get(event)?.size ?? 0
   }
 }
 
-/** Factory around {@link InMemoryEvents}, for callers who prefer functions to `new`. */
+/** In-process event bus. No cross-node delivery, so a fleet needs the Redis bus instead. */
 export function inMemoryEvents(...args: ConstructorParameters<typeof InMemoryEvents>): InMemoryEvents {
   return new InMemoryEvents(...args)
 }

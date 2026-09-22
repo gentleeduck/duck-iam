@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluate } from '../../../evaluate'
+import { evaluate } from '../../../evaluate/evaluate'
 import { rolesToPolicy } from '../../../rbac'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../../types'
 import { compileTable } from '../compiled.compile'
@@ -188,8 +188,7 @@ describe('lookup: rbacDynamic (scoped/conditioned role permissions), differentia
   })
 
   it('a plain mask hit still short-circuits before rbacDynamic is even consulted', () => {
-    // Regression: a role with a simple grant at a DIFFERENT cell than its own scoped grant
-    // must not have the simple grant affected by the scoped one existing at all.
+    // A simple grant at a different cell from the role's scoped grant is unaffected by it.
     const roles: AccessControl.IRole[] = [
       {
         id: 'editor',

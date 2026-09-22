@@ -4,6 +4,8 @@ import { AuthTwilioChannel } from '../index'
 
 function makeIdentity(phone: string | undefined): Identities.Me {
   return {
+    createdBy: null,
+    updatedBy: null,
     id: 'ident-1',
     // Phone omitted models the "no SMS number" case; the channel reads it via
     // getProfileString, which treats absent as undeliverable (returns ok:false).
@@ -14,6 +16,7 @@ function makeIdentity(phone: string | undefined): Identities.Me {
     createdAt: new Date(0),
     updatedAt: new Date(0),
     deletedAt: null,
+    deletedBy: null,
   }
 }
 

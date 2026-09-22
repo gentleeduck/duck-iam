@@ -91,7 +91,7 @@ const admin = access.defineRole('admin')
 ### 3. Define Policies (ABAC)
 
 ```ts
-const weekendDeny = access.policy('deny-weekends')
+const weekendDeny = access.definePolicy('deny-weekends')
   .name('Deny on Weekends')
   .algorithm('deny-overrides')
   .rule('r-deny-weekends', r => r
@@ -102,7 +102,7 @@ const weekendDeny = access.policy('deny-weekends')
   )
   .build()
 
-const ownerPolicy = access.policy('owner-access')
+const ownerPolicy = access.definePolicy('owner-access')
   .algorithm('allow-overrides')
   .rule('owner-update', r => r
     .allow()
@@ -196,9 +196,9 @@ The `When` builder is used inside `.when()`, `.whenAny()`, and `.grantWhen()` ca
 ### 6. Create the Engine
 
 ```ts
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
-const adapter = new MemoryAdapter({
+const adapter = new IamMemoryAdapter({
   policies: [weekendDeny, ownerPolicy],
   roles: [viewer, editor, admin],
   assignments: { 'user-1': ['editor'], 'user-2': ['viewer'] },
@@ -224,7 +224,7 @@ const engine = access.createEngine({
 - `engine.check(subjectId, action, resource, environment?, scope?)` -- returns `Decision` (includes `allowed`, `effect`, `reason`, `duration`, `timestamp`)
 - `engine.authorize(request)` -- full `AccessRequest` evaluation
 - `engine.explain(subjectId, action, resource, environment?, scope?)` -- returns `ExplainResult` trace (debug only, has overhead)
-- `engine.permissions(subjectId, checks, environment?)` -- batch check, returns `PermissionMap` keyed by `"action:resource"` or `"scope:action:resource"`
+- `engine.permissions(subjectId, checks, environment?)` -- batch check, returns an `IamClient.PartialPermissionMap` keyed by `"action:resource"`, `"action:resource:resourceId"`, `"@scope:action:resource"` or `"@scope:action:resource:resourceId"`. The `@` marks the leading segment as a scope, which is what makes a three-segment key unambiguous; build keys with `iamBuildPermissionKey` rather than by hand
 - `engine.admin` -- CRUD interface for policies, roles, subjects (lazy-created)
 - `engine.invalidate()` / `engine.invalidateSubject(id)` / `engine.invalidatePolicies()` / `engine.invalidateRoles()`
 
@@ -233,50 +233,54 @@ const engine = access.createEngine({
 #### Express
 
 ```ts
-import { accessMiddleware, guard, adminRouter } from '@gentleduck/iam/server/express'
+import { iamAccessMiddleware, iamAdminRouter, iamGuard } from '@gentleduck/iam/server/express'
 
 // Global middleware
-app.use(accessMiddleware(engine, { getUserId: req => req.user?.id }))
+app.use(iamAccessMiddleware(engine, { getUserId: req => req.user?.id }))
 
 // Per-route guard
-app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
+app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
 
 // Admin API
-app.use('/api/access-admin', adminRouter(engine)(() => express.Router()))
+app.use('/api/access-admin', iamAdminRouter(engine)(() => express.Router()))
 ```
 
 #### Hono
 
 ```ts
-import { accessMiddleware, guard } from '@gentleduck/iam/server/hono'
+import { iamAccessMiddleware, iamGuard } from '@gentleduck/iam/server/hono'
 
-app.use('*', accessMiddleware(engine, { getUserId: c => c.get('userId') as string }))
-app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
+// Identity comes from what your auth middleware set on the context. The
+// shipped default reads `c.get('userId')` and never a client-settable header.
+app.use('*', iamAccessMiddleware(engine, { getUserId: c => c.get('userId') ?? null }))
+app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
 ```
 
 #### Next.js App Router
 
 ```ts
-import { withAccess, checkAccess, getPermissions, createNextMiddleware } from '@gentleduck/iam/server/next'
+import { checkIamAccess, createIamNextMiddleware, getIamPermissions, withIamAccess } from '@gentleduck/iam/server/next'
 
 // Route handler wrapper
-export const DELETE = withAccess(engine, 'delete', 'post', handler, {
-  getUserId: req => req.headers.get('x-user-id'),
+// `getUserId` is required and has no default: deriving identity from request
+// headers is spoofable, so resolve it from your session instead.
+export const DELETE = withIamAccess(engine, 'delete', 'post', handler, {
+  getUserId: async req => (await getServerSession(req))?.user?.id ?? null,
 })
 
 // Server component helper
-const allowed = await checkAccess(engine, userId, 'read', 'post')
+const allowed = await checkIamAccess(engine, userId, 'read', 'post')
 
 // Generate permission map for client hydration
-const perms = await getPermissions(engine, userId, [
+const perms = await getIamPermissions(engine, userId, [
   { action: 'create', resource: 'post' },
   { action: 'delete', resource: 'post' },
 ])
 
 // Edge middleware
-const checkMiddleware = createNextMiddleware(engine, {
+const checkMiddleware = createIamNextMiddleware(engine, {
   rules: [{ pattern: '/api/posts', resource: 'post' }],
-  getUserId: req => req.headers.get('x-user-id'),
+  getUserId: async req => (await getServerSession(req))?.user?.id ?? null,
 })
 ```
 
@@ -313,11 +317,11 @@ if (can('delete', 'post')) { /* show delete button */ }
 
 ## Testing Authorization
 
-Use `MemoryAdapter` for unit tests. Seed it with roles, policies, and assignments, then assert with `engine.can()` or `engine.check()`:
+Use `IamMemoryAdapter` for unit tests. Seed it with roles, policies, and assignments, then assert with `engine.can()` or `engine.check()`:
 
 ```ts
 import { createIam } from '@gentleduck/iam'
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
 import { describe, expect, it } from 'vitest'
 
 describe('authorization', () => {
@@ -331,7 +335,7 @@ describe('authorization', () => {
   const admin = access.defineRole('admin').grantAll('*').build()
 
   const engine = access.createEngine({
-    adapter: new MemoryAdapter({
+    adapter: new IamMemoryAdapter({
       roles: [viewer, admin],
       assignments: { 'u1': ['viewer'], 'u2': ['admin'] },
     }),
@@ -355,15 +359,15 @@ Use `engine.explain()` to debug failing assertions -- it returns the full evalua
 
 ## Coding Conventions
 
-- Use `createIam` for type-safe builders. Use standalone `defineRole`/`defineRule`/`policy`/`when` only for untyped or dynamic scenarios.
+- Use `createIam` for type-safe builders. Use standalone `defineRole`/`defineRule`/`definePolicy`/`when` only for untyped or dynamic scenarios.
 - Always call `.build()` to finalize builders -- they return plain data objects.
 - Roles produce RBAC permissions; policies produce ABAC rules. The engine combines both.
 - A deny from any policy is final when using `deny-overrides`.
-- Adapters are async interfaces. Use `MemoryAdapter` for tests, implement `Adapter` for production.
+- Adapters are async interfaces. Use `IamMemoryAdapter` for tests, implement `IamAdapter.IAdapter` for production.
 - The engine caches roles, policies, subjects, and RBAC-to-policy conversions with configurable TTL.
 - Use `engine.explain()` for debugging -- it returns a full trace of why a decision was made.
 - Use `engine.permissions()` for batch checks -- it loads data once and evaluates many.
-- Server integrations follow a consistent pattern: `accessMiddleware` for global checks, `guard` for per-route.
+- Server integrations follow a consistent pattern: `iamAccessMiddleware` for global checks, `iamGuard` for per-route.
 
 ## Do Not
 

@@ -11,7 +11,7 @@ import { MemoryAdapter } from '../index'
 describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
   it('100 concurrent disjoint patches all land', async () => {
     const adapter = new MemoryAdapter()
-    const c = await adapter.credentials.upsert(
+    const c = await adapter.credentials.create(
       credentialInput({ identityId: 'u', kind: 'passkey', metadata: { counter: 0 }, secret: 's' }),
       {},
     )
@@ -27,7 +27,7 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
 
   it('overlapping patches: the last write of a shared key wins; version still bumps cleanly', async () => {
     const adapter = new MemoryAdapter()
-    const c = await adapter.credentials.upsert(
+    const c = await adapter.credentials.create(
       credentialInput({ identityId: 'u', kind: 'passkey', metadata: { counter: 0 }, secret: 's' }),
       {},
     )
@@ -41,7 +41,7 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
 
   it('patch never deletes a pre-existing key not mentioned in the patch', async () => {
     const adapter = new MemoryAdapter()
-    const c = await adapter.credentials.upsert(
+    const c = await adapter.credentials.create(
       credentialInput({
         identityId: 'u',
         kind: 'passkey',
@@ -61,7 +61,7 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
 
   it('patch on a revoked credential still succeeds (revoke is informational, not a lock)', async () => {
     const adapter = new MemoryAdapter()
-    const c = await adapter.credentials.upsert(
+    const c = await adapter.credentials.create(
       credentialInput({ identityId: 'u', kind: 'passkey', metadata: { counter: 1 }, secret: 's' }),
       {},
     )
@@ -72,10 +72,10 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
     expect(row?.revokedAt).toBeDefined()
   })
 
-  it('patch on a missing id throws AUTH/UNAUTHENTICATED', async () => {
+  it('patch on a missing id throws AUTH_CREDENTIAL_NOT_FOUND', async () => {
     const adapter = new MemoryAdapter()
     await expect(adapter.credentials.patchMetadata('missing', { x: 1 }, {})).rejects.toMatchObject({
-      code: 'AUTH_UNAUTHENTICATED',
+      code: 'AUTH_CREDENTIAL_NOT_FOUND',
     })
   })
 })

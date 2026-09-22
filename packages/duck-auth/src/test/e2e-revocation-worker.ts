@@ -1,17 +1,4 @@
-/**
- * Child process for the multi-instance revocation e2e test.
- *
- * Plan `C3-engine/01-jwt-instant-revocation.md` keeps an in-memory revocation
- * registry fresh over pub/sub. That design **cannot be validated in one
- * process**, a single instance both publishes and subscribes, and `RedisEvents`
- * dedupes its own messages by instance id, so the fan-out path never executes.
- *
- * This worker is a real second instance: its own process, its own connections,
- * its own `RedisEvents` instance id. It reports what it observed back through
- * Redis so the parent can measure propagation without parsing stdout.
- *
- * Usage: bun run src/test/e2e-revocation-worker.ts <redisUrl> <runId> <workerId>
- */
+/** Child process for the multi-instance revocation e2e test. */
 import Redis from 'ioredis'
 import type { ValkeyClient, ValkeySubscriberClient } from '~/adapters/valkey'
 import { RedisEvents } from '~/core/events/events.redis'

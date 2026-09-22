@@ -64,14 +64,14 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
   it('rejects ciphertext with wrong version header', async () => {
     const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
     await expect(a.decrypt('kms-env$v9$k$a$b$c$d', { field: 'x', identityId: 'u' })).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
     })
   })
 
   it('rejects ciphertext with truncated parts', async () => {
     const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
     await expect(a.decrypt('kms-env$v1$k$a$b', { field: 'x', identityId: 'u' })).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
     })
   })
 
@@ -84,7 +84,11 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
     body[0] = body[0]! ^ 0x01
     parts[6] = body.toString('base64url')
     const tampered = parts.join('$')
-    await expect(a.decrypt(tampered, { field: 'x', identityId: 'u' })).rejects.toThrow()
+    // Typed, not Node's own wording: an unwrapped `final()` failure leaves as a message no error map knows.
+    await expect(a.decrypt(tampered, { field: 'x', identityId: 'u' })).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: expect.stringContaining('auth-tag mismatch') },
+    })
   })
 
   it('zeroes the plaintext DEK after encrypt (memory-disclosure hygiene)', async () => {
@@ -126,7 +130,9 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
       id: 'watch',
     }
     const b = new AuthKmsEnvelopeDataAtRest({ kms: watchKms })
-    await expect(b.decrypt(ct, { field: 'x', identityId: 'u' })).rejects.toThrow()
+    await expect(b.decrypt(ct, { field: 'x', identityId: 'u' })).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+    })
     expect(leakedAfter).not.toBeNull()
     expect((leakedAfter as unknown as Uint8Array).every((byte) => byte === 0)).toBe(true)
   })
@@ -156,5 +162,54 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
     }
     const b = new AuthKmsEnvelopeDataAtRest({ kms: broken })
     await expect(b.decrypt(ct, { field: 'f', identityId: 'i' })).rejects.toThrow('kms-decrypt-down')
+  })
+})
+
+/**
+ * The AES-GCM adapter next door refuses a non-standard IV or auth tag before handing either to Node,
+ * with the reason written down: "Node accepts shorter ones, which weaken the cipher." This adapter
+ * calls the same two Node APIs and checked neither. A 4-byte tag is a forgery target of 2^32 rather
+ * than 2^128, and the whole point of encryption at rest is to hold when someone can write the column.
+ */
+describe('AuthKmsEnvelopeDataAtRest - GCM parameter sizes', () => {
+  const ctx = { field: 'email', identityId: 'u1' }
+
+  /** Re-emit a real ciphertext with one component swapped, so everything else stays valid. */
+  async function withPart(index: number, value: string) {
+    const kms = makeFakeKms()
+    const adapter = new AuthKmsEnvelopeDataAtRest({ kms })
+    const parts = (await adapter.encrypt('secret@example.com', ctx)).split('$')
+    parts[index] = value
+    return { adapter, cipherText: parts.join('$') }
+  }
+
+  /**
+   * On the `detail`, not the code. A random short tag fails to authenticate anyway, so asserting the
+   * code alone passes whether or not the size was ever checked - the test would read as coverage while
+   * Node went on accepting 32-bit tags. The message is the only thing that says which branch refused it.
+   */
+  it.each([
+    ['a truncated', 4],
+    ['an oversize', 32],
+  ])('refuses %s auth tag by size, before Node is given the chance to accept it', async (_label, bytes) => {
+    const { adapter, cipherText } = await withPart(5, randomBytes(bytes).toString('base64url'))
+    await expect(adapter.decrypt(cipherText, ctx)).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'kms-envelope: auth tag must be 16 bytes' },
+    })
+  })
+
+  it.each([4, 8, 16])('refuses a %d-byte IV by size, since GCM is specified at 12', async (bytes) => {
+    const { adapter, cipherText } = await withPart(4, randomBytes(bytes).toString('base64url'))
+    await expect(adapter.decrypt(cipherText, ctx)).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'kms-envelope: IV must be 12 bytes' },
+    })
+  })
+
+  it('still roundtrips an untouched ciphertext', async () => {
+    const kms = makeFakeKms()
+    const adapter = new AuthKmsEnvelopeDataAtRest({ kms })
+    expect(await adapter.decrypt(await adapter.encrypt('secret@example.com', ctx), ctx)).toBe('secret@example.com')
   })
 })

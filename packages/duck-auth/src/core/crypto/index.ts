@@ -1,1 +1,1 @@
-export { authUlid, randomToken, sha256, timingSafeEqual } from './crypto'
+export { authUuidV7, randomToken, sha256, timingSafeEqual } from './crypto'

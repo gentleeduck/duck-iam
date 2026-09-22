@@ -17,7 +17,7 @@ duck-iam ships server integrations for Express, NestJS, Hono, and Next.js. Each 
         E2["getAction(req) -> 'delete' (from DELETE)"]
         E3["getResource(req) -> {type:'post', id:'42'}"]
         E4["getScope(req) -> 'org-1' (from header)"]
-        E5["getEnvironment(req) -> {ip, userAgent, timestamp}"]
+        E5["getEnvironment(req) -> {userAgent, timestamp} (ip is opt-in)"]
     end
 
     EXTRACT --> Extract
@@ -63,8 +63,11 @@ Use the generic helpers when the built-in framework wrappers are too opinionated
   `engine.permissions()` for server-to-client hydration.
 - `createIamSubjectCan(engine, subjectId, environment?)` returns a subject-bound
   `can(action, resource, resourceId?, scope?)` function convenient in handlers, jobs, and service objects.
-- `iamExtractEnvironment(req)` builds the default `{ ip, userAgent, timestamp }` environment
-  object from common request shapes.
+- `iamExtractEnvironment(req, opts?)` builds the default environment object from common request
+  shapes. It sets exactly three keys, and only two of them are populated by default:
+  `timestamp` (always), `userAgent` (the header, dropped when blank or over 2048 chars), and
+  `ip` — which stays `undefined` unless you pass `{ trustProxy: true }` or supply the value
+  yourself. See [the environment note](#environmentip-is-opt-in) below.
 - `IAM_METHOD_ACTION_MAP` is the same CRUD-oriented map the built-in integrations use by default.
 
 ```typescript
@@ -80,6 +83,40 @@ const permissions = await generateIamPermissionMap(engine, userId, [
 ])
 ```
 
+### environment.ip is opt-in
+
+No integration populates `environment.ip` on its own. `X-Forwarded-For` and `X-Real-IP` are
+request headers like any other, so with nothing in front of the app a client sets its own
+address and satisfies an IP-conditioned grant with one header. `req.ip` is ignored by default
+for the same reason -- a framework may fill it from a platform header rather than from the
+socket.
+
+```typescript
+// Behind exactly one trusted proxy that appends the peer address:
+getEnvironment: (req) => ({ ...iamExtractEnvironment(req), ip: trustedClientIp(req) })
+
+// Or, when the framework already knows about your proxies:
+getEnvironment: (req) => iamExtractEnvironment(req, { trustProxy: true })
+```
+
+Under `trustProxy` the chain is `req.ip`, then the leftmost `x-forwarded-for` hop, then
+`x-real-ip`. Each is normalised: a header over 4096 characters is dropped whole, the text
+before the first comma is taken and trimmed, and a blank or over-256-character result is
+dropped.
+
+<Callout type="warning" title="A condition on a field nobody set reads as a non-match">
+A rule keyed on `environment.ip` -- or on any custom key such as `environment.region` -- is
+resolved against a field that is absent, and an absent operand is a non-match, not an error.
+A **deny** rule written that way never fires, and the request is allowed, silently. The
+extractor sets three keys and nothing else, so `getEnvironment` is the only place any other
+value can enter.
+
+The user-agent cap has the same shape with the opposite polarity: `userAgent` is
+attacker-controlled and flows into `matches` conditions, which throw above the regex input
+cap, so an oversized value is dropped -- and a `matches` on `environment.userAgent` then
+reads as a non-match for that request.
+</Callout>
+
 ---
 
 ## Express
@@ -94,39 +131,123 @@ Apply access control to every route under a path prefix.
 
 ```typescript
 import { iamAccessMiddleware } from '@gentleduck/iam/server/express'
+import { iamActionForMethod, iamDefaultResource, iamExtractEnvironment } from '@gentleduck/iam/server/generic'
 
 const middleware = iamAccessMiddleware(engine, {
   // Extract user ID from your auth layer (passport, jwt, etc.)
   getUserId: (req) => req.user?.id,
 
-  // Map HTTP method to action (defaults to IAM_METHOD_ACTION_MAP)
-  getAction: (req) => IAM_METHOD_ACTION_MAP[req.method],
-
-  // Infer resource from the URL path
-  getResource: (req) => {
-    const parts = req.path.split('/').filter(Boolean)
-    return { type: parts[0] ?? 'root', id: parts[1], attributes: {} }
-  },
+  // These two are the defaults - shown only so you can see what they do.
+  // You rarely need to override them, and overriding them by hand is how
+  // deny rules get bypassed (see the callout below).
+  getAction: (req) => iamActionForMethod(req.method),
+  getResource: (req) => iamDefaultResource(req.path),
 
   // Optional: extract scope from headers or query
-  getScope: (req) => req.headers['x-org-id'] as string | undefined,
+  getScope: (req) => (typeof req.headers['x-org-id'] === 'string' ? req.headers['x-org-id'] : undefined),
 
-  // Optional: extract environment context (IP, user agent, timestamp)
-  getEnvironment: (req) => ({
-    ip: req.ip,
-    userAgent: req.headers['user-agent'],
-    timestamp: Date.now(),
-  }),
+  // Optional: extract environment context. The default is
+  // `iamExtractEnvironment`, which leaves `ip` undefined - name the trusted hop
+  // yourself if a policy reads it.
+  getEnvironment: (req) => ({ ...iamExtractEnvironment(req), ip: trustedClientIp(req) }),
 
   // Custom denial response
   onDenied: (req, res) => res.status(403).json({ error: 'Forbidden' }),
 
-  // Custom error handler
+  // Custom error handler. It is not handed `next`, on purpose: `next()` from
+  // here resumes a request whose decision could not be computed.
   onError: (err, req, res) => res.status(500).json({ error: 'Internal server error' }),
 })
 
 app.use('/api', middleware)
 ```
+
+<Callout type="warning" title="Prefer the default getAction / getResource">
+Both defaults exist because the obvious hand-written versions are bypassable.
+
+A plain method-map lookup (`METHOD_ACTION_MAP[req.method]`) returns `undefined` for a
+lowercase or unknown method, and `undefined` matches no deny rule -- so `delete` in
+lowercase slips past a rule that denies `delete`. `iamActionForMethod` case-folds the
+method and maps anything unrecognised to a real action instead of `undefined`.
+
+A plain `req.path.split('/')` never decodes the path, so `/%61dmin` becomes the resource
+type `%61dmin` while routing to the same handler as `/admin` -- a different resource type,
+and a rule written against `admin` never fires. `iamDefaultResource` refuses first and
+normalises second: a path that two routers could read two ways (`/posts/../admin`,
+`/posts/%2e%2e/admin`, `/posts\..\admin`, a double-encoded `%252e`) becomes
+`IAM_UNKNOWN_RESOURCE`, and only a path with one reading is decoded once, slash-collapsed
+and dot-resolved into `{ type, id }`.
+
+Refusing rather than resolving is the design. A traversal has no safe resolution at this
+layer because the routers disagree: measured against real servers, express served `/admin`
+for `/admin/../public` while a resolving helper had already authorized `public`.
+
+If you do override these, run the incoming value through `iamNormalizePathname` and
+`iamActionForMethod` rather than reading `req` directly.
+</Callout>
+
+#### The request-derivation helpers
+
+These five are exported from `@gentleduck/iam/server/generic` and are what the
+built-in defaults are made of. Reach for them instead of hand-rolling — the
+hand-rolled version is the bypass described above.
+
+```typescript
+import {
+  IAM_UNKNOWN_ACTION,
+  IAM_UNKNOWN_RESOURCE,
+  iamActionForMethod,
+  iamDefaultResource,
+  iamNormalizePathname,
+  iamPathIsAmbiguous,
+  iamIsSubjectId,
+} from '@gentleduck/iam/server/generic'
+```
+
+| Export | Signature | What it guarantees |
+|---|---|---|
+| `iamActionForMethod` | `(method: string \| undefined) => string` | Upper-cases before the lookup, so a lowercase `delete` cannot miss the map. The upper-case also blocks prototype walking: every inherited key on the map object (`constructor`, `toString`, `valueOf`) is lowercase, so the lookup misses. Never returns `undefined`. |
+| `IAM_UNKNOWN_ACTION` | `'unknown'` | What `iamActionForMethod` returns for an unrecognised or missing method. |
+| `iamPathIsAmbiguous` | `(raw: string) => boolean` | True when a raw segment can be read one way here and another way by the router that serves the request: a segment that is a dot-segment, contains a literal backslash, decodes into a dot-segment or into another separator/escape/NUL, or carries a malformed escape. |
+| `iamNormalizePathname` | `(pathname: string) => string` | Decodes once, collapses `//` runs, then resolves `.`/`..` — in that order, because decoding can reveal new dot segments. A trailing slash is preserved. A malformed escape keeps the raw path rather than throwing. |
+| `iamDefaultResource` | `(pathname: string \| undefined) => { type, id, attributes }` | Refuses first (`iamPathIsAmbiguous`), then normalises, then refuses again if any surviving segment still contains `%`. `type` is the **first** path segment and `id` the **second**, so `/orgs/o1/members/m2` derives `{ type: 'orgs', id: 'o1' }`. `attributes` is always present (`{}`) because `IResource` requires it. |
+| `IAM_UNKNOWN_RESOURCE` | `'unknown'` | What `iamDefaultResource` returns as the type when the path cannot be trusted to name one. |
+| `iamIsSubjectId` | `(value: unknown) => value is string` | A non-blank string. Every integration runs `getUserId`'s return through it before touching the engine, so `42`, `true`, `{}`, `''` and `'   '` are a 401 rather than a cache key the engine will happily answer for. |
+
+| Path | `type` | `id` |
+|---|---|---|
+| `/posts/42` | `posts` | `42` |
+| `/posts` | `posts` | `undefined` |
+| `/` or `undefined` | `root` | `undefined` |
+| `/posts/../admin/secret` | `unknown` | `undefined` |
+| `/posts/%2e%2e/admin` | `unknown` | `undefined` |
+| `/posts/%252e%252e/admin` | `unknown` | `undefined` |
+| `/posts\..\admin` | `unknown` | `undefined` |
+| `//admin` | `admin` | `undefined` |
+| `/%61dmin` | `admin` | `undefined` |
+| `/posts/hello%20world` | `posts` | `hello world` |
+
+<Callout type="warning" title="The sentinels are fail-closed, not fallbacks">
+`IAM_UNKNOWN_ACTION` and `IAM_UNKNOWN_RESOURCE` are both the literal string
+`'unknown'`, and the engine **reserves** that token: `authorize()` and
+`permissions()` refuse a request naming it before any policy is consulted. So a
+request the helpers could not classify is denied, rather than authorized against
+whatever the raw method or path happened to spell.
+
+The refusal lives in the engine because it cannot live in the string. These
+constants used to rely on `'unknown'` simply matching no policy — but `'*'`
+matches every string, so a single wildcard rule (`.on('*').of('*')`, the
+ordinary shape of an admin role) matched the sentinel too and turned every
+unclassifiable request back into an allow, on exactly the path built to refuse
+it. Reserving the token is what makes the denial true by construction.
+
+The consequence worth knowing: a resource type or action genuinely named
+`'unknown'` can no longer be granted. The value they replace is `undefined` —
+and `undefined` matches no *deny* rule either, which is the opposite outcome.
+That asymmetry is the entire reason these exist. Do not "improve" them by
+falling back to `'read'` or to the raw path segment; both turn an unclassifiable
+request into an allowed one.
+</Callout>
 
 ### Per-route guard
 
@@ -157,9 +278,14 @@ app.get('/reports', iamGuard(engine, 'read', 'report', {
 }), handler)
 ```
 
-The `iamGuard` function catches errors and passes them to Express's `next(err)`, so they
-reach your error-handling middleware. The `iamAccessMiddleware` catches errors and calls
-the `onError` option.
+Both `iamGuard` and `iamAccessMiddleware` catch and call `onError`, which defaults to a fixed
+500 `{ error: 'Internal server error' }`. Neither hands the error to `next(err)`: with no app
+error handler and `NODE_ENV !== 'production'`, express's finalhandler writes `err.stack` into
+the response body.
+
+`getUserId` is called inside the same `try`. It is the extractor most likely to do I/O -- JWT
+verification, a session lookup, an IdP call -- and an Express 4 middleware that returns a
+rejected promise writes nothing to the socket at all, so the client hangs until it times out.
 
 <Callout type="info">
 The Express `iamGuard()` helper reads the resource instance ID from `req.params.id`. If your
@@ -173,11 +299,17 @@ once you have the real resource ID and attributes.
 Mount a pre-built admin API for managing policies, roles, and assignments.
 
 ```typescript
-import express from 'express'
+import { Router } from 'express'
 import { iamAdminRouter } from '@gentleduck/iam/server/express'
 
-const createRouter = iamAdminRouter(engine)
-app.use('/api/access-admin', createRouter(() => express.Router()))
+// `authorize` is mandatory. Construction throws without it, so the router
+// cannot be mounted unauthenticated.
+const createRouter = iamAdminRouter(engine, {
+  authorize: (req) => (req.user?.role === 'admin' ? req.user : false),
+  onAdminMutation: (event) => auditLog.write(event),
+})
+
+app.use('/api/access-admin', createRouter(Router))
 ```
 
 <Callout type="warning" title="Scoped revoke caveat">
@@ -197,6 +329,58 @@ This exposes:
 | POST | /subjects/:id/roles | Assign a role to a subject |
 | DELETE | /subjects/:id/roles/:roleId | Revoke a role from a subject |
 
+Hono exposes the same six through `iamBindAdminRouter(router, engine, opts)`, Next through
+`createIamAdminHandlers(engine, opts)`, and NestJS through `createIamAdminOperations(engine, opts)`.
+The rest of `engine.admin` -- `getPolicy`, `deletePolicy`, `getRole`, `deleteRole`,
+`updateAssignmentScope`, `setAttributes` and the batch methods -- is deliberately not exposed
+over HTTP; wire your own handler against the engine if you need it.
+
+#### The admin gate, in order
+
+1. **CSRF.** `iamDefaultCsrfCheck` reads `Sec-Fetch-Site` and refuses `cross-site` /
+   `cross-origin`; every other value, and the header's absence, passes. It is on by default,
+   it applies to reads as well as mutations, and a predicate that throws is treated as a
+   refusal rather than an error. Pass `csrfCheck: false` to disable the phase, or your own
+   predicate (an `Origin` allowlist, say) to replace it.
+2. **`authorize`.** Return the actor -- not `true`. `true`, `42` and `'   '` all authorize but
+   name nobody, so the audit event records `actor: undefined` and one `console.warn` fires per
+   process. `false`, `0`, `''`, `null`, `undefined` and `NaN` refuse.
+3. **The handler**, wrapped in the audit hook on `PUT` / `POST` / `DELETE` only. `GET` fires no
+   event. The hook is fire-and-forget and runs from a `finally`, so it lands whether the
+   handler resolved or threw, and a slow or throwing hook can never block the response.
+
+#### Status codes
+
+Express, Hono and Next write these responses. **NestJS throws instead**, with `status` and
+`statusCode` both set on the error so Nest's base filter routes it to something other than a
+blanket 500.
+
+| Situation | Status | Body | Audit event |
+| --- | --- | --- | --- |
+| CSRF predicate returns `false`, or throws | 403 | `{error:'Forbidden (CSRF check failed)'}` | none |
+| `authorize` returns falsy | 401 | `{error:'Unauthorized'}` | none |
+| `authorize` throws | 500 | `{error:'Internal server error'}` | none |
+| body is not valid JSON (Hono and Next only) | 400 | `{error:'Invalid request', issues:['MALFORMED_JSON']}` | fires, `success:false` |
+| body or path param fails an edge validator | 400 | `{error:'Invalid request', issues:[...]}` | fires, `success:false` |
+| document fails the engine validator | 400 | `{error:'Invalid policy'}` / `{error:'Invalid role'}` plus `issues` | fires, `success:false` |
+| engine or adapter fault | 500 | `{error:'Internal server error'}` | fires, `success:false` |
+| success | 200 | the list, or `{ok:true}` | fires on mutations only, `success:true` |
+
+There is no 404 anywhere in the admin surface. A 404 on an admin path comes from the host's
+routing table. `GET /policies` on an empty store is `200 []`, and revoking an assignment that
+does not exist is `200 {ok:true}` -- the adapters treat revoke as idempotent.
+
+Field validation is shared across all four adapters: a body must be a JSON object
+(`NOT_AN_OBJECT`); a required string must be present, non-empty (`INVALID_FIELD`) and not
+whitespace-only (`BLANK_FIELD`); any field is capped at 1024 characters (`FIELD_TOO_LONG`),
+which is the engine's own cap; a path parameter has the same three rules
+(`MISSING_PARAM` / `BLANK_PARAM` / `PARAM_TOO_LONG`). Blank is refused rather than trimmed, so
+`{"roleId": "   "}` is a 400 rather than a grant on a role nobody can name. An **absent**
+`scope` means unscoped; an explicit `scope: null` is a 400.
+
+Rate limiting is out of scope -- compose it at the mount point (`express-rate-limit` before the
+router, `@nestjs/throttler` on the controller, a `middleware.ts` check on `/api/admin/`).
+
 ### Options reference
 
 | Option | Type | Default | Description |
@@ -204,10 +388,13 @@ This exposes:
 | `getUserId` | `(req) -> string or null` | `req.user?.id` | Extract the subject ID from the request |
 | `getAction` | `(req) -> string` | HTTP method map | Map the request to an action |
 | `getResource` | `(req) -> Resource` | Infer from URL path | Map the request to a resource |
-| `getEnvironment` | `(req) -> Environment` | IP + user agent + timestamp | Extract environment context |
+| `getEnvironment` | `(req) -> Environment` | `iamExtractEnvironment` -- user agent + timestamp, **no IP** | Extract environment context |
 | `getScope` | `(req) -> string or undefined` | `undefined` | Extract scope (e.g. org ID, team ID) |
 | `onDenied` | `(req, res) -> void` | 403 JSON | Custom denial response |
-| `onError` | `(err, req, res, next) -> void` | 500 JSON | Custom error handler |
+| `onError` | `(err, req, res) -> void` | 500 JSON | Custom error handler. Three arguments -- `next` is deliberately not offered |
+
+`iamGuard` takes a subset: `getUserId`, `getEnvironment`, `onDenied`, `onError`, plus a fixed
+`scope`. Its action and resource type are the arguments you passed.
 
 ---
 
@@ -235,7 +422,28 @@ const canAccess = iamNestAccessGuard(engine, {
 // APP_GUARD -> { provide: APP_GUARD, useValue: { canActivate: canAccess } }
 ```
 
-Handlers without an `@IamAuthorize` decorator are allowed by default -- the guard only activates when metadata is present.
+Metadata absent and metadata unreadable are two different answers.
+
+- **No `@IamAuthorize` decorator: the guard returns `true`.** An undecorated handler is not this
+  package's business, and an unset reflect key answers `undefined`, which is indistinguishable
+  from no decorator. Mounting `iamNestAccessGuard` globally with `@UseGuards` therefore does not
+  protect anything by itself -- it protects exactly the handlers carrying the decorator. A
+  handler that loses its decorator in a refactor becomes public with no error and no log.
+- **Metadata present but unreadable: deny, through `onError`.** `null`, `false`, `0`, `''`, a
+  string, a number, an array, `{action: 1}`, `{scope: 7}` and `{infer: 'true'}` are all refused
+  before the engine is consulted, and the error message contains `@gentleduck/iam:nest` so an
+  operator can find the broken handler rather than hunt a silent 403. Extra keys of your own are
+  not refused; the four the guard reads are checked strictly.
+
+<Callout type="warning" title="@IamAuthorize({}) always denies">
+Every field is optional, so `{}` is readable. With `infer` unset, `action` falls back to
+`'read'` and `resource` falls back to the literal `'unknown'` -- which is the engine's reserved
+refusal token, so the route is dead-denied. The same goes for
+`@IamAuthorize({ action: 'read' })` with no `resource`.
+
+If you mean "check with the defaults", write `@IamAuthorize()`. Its default argument is
+`{ infer: true }`.
+</Callout>
 
 ### The IamAuthorize decorator
 
@@ -278,6 +486,28 @@ async updateBilling() { ... }
 
 If no scope is set on the decorator, the guard falls back to the `getScope` option from the guard factory.
 
+### What `infer: true` resolves to
+
+The action comes from `iamActionForMethod(request.method)`. The resource comes from
+`inferResource`, which has to agree with `iamDefaultResource` or a policy written against
+Express silently does not apply under Nest:
+
+1. If `request.path` is ambiguous, return `unknown` -- **before** looking at the route template.
+   A matched template does not make an ambiguous target safe; it only records which route
+   Express picked for it.
+2. If `request.route?.path` is not a string -- the normal case under `@nestjs/platform-fastify`,
+   which exposes `routeOptions.url` and sets no `route` -- delegate to `iamDefaultResource(request.path).type`.
+3. Otherwise take the **first** non-`:param` segment of the template.
+
+| Route template | Resource |
+|---|---|
+| `/posts/:id` | `posts` |
+| `/orgs/:orgId/members/:id` | `orgs` |
+| `/secrets/*` | `secrets` |
+| `/files/*path` | `files` |
+| `/*`, `*`, `/*path` | `unknown` |
+| `/:id`, `/` | `root` |
+
 ### Engine provider
 
 Register the engine as a NestJS provider.
@@ -302,18 +532,19 @@ export class AppModule {}
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `getUserId` | `(req) -> string or null` | `req.user?.id ?? req.user?.sub` | Extract the subject ID |
-| `getEnvironment` | `(req) -> Environment` | IP + user agent + timestamp | Extract environment context |
+| `getUserId` | `(req) -> string or null` | `req.user?.id ?? req.user?.sub ?? null` | Extract the subject ID. A missing one returns `false`, not a 401 -- the guard cannot distinguish them, so Nest's own filter decides |
+| `getEnvironment` | `(req) -> Environment` | `iamExtractEnvironment` -- user agent + timestamp, **no IP** even though express-backed Nest has `req.ip` | Extract environment context |
 | `getResourceId` | `(req) -> string or undefined` | `req.params?.id` | Extract the resource instance ID |
+| `getResourceAttributes` | `(req, {action, resource, scope}) -> Attributes` | `{}` | Load attributes for the resolved check. Values must be `AttributeValue`, so use `null` for "absent", never `undefined` |
 | `getScope` | `(req) -> string or undefined` | `undefined` | Fallback scope when decorator has none |
-| `onError` | `(err, req) -> boolean` | `() => false` | Return true to allow on error, false to deny |
+| `onError` | `(err, req) -> boolean` | `() => false` | Return true to allow on error, false to deny. Also the channel for unreadable decorator metadata |
 
 ---
 
 ## Hono
 
 ```
-import { iamAccessMiddleware, iamGuard } from '@gentleduck/iam/server/hono'
+import { iamAccessMiddleware, iamGuard, iamBindAdminRouter } from '@gentleduck/iam/server/hono'
 ```
 
 ### Global middleware
@@ -324,7 +555,9 @@ Apply access control to all routes under a path pattern. If no user ID is found,
 import { iamAccessMiddleware } from '@gentleduck/iam/server/hono'
 
 app.use('/api/*', iamAccessMiddleware(engine, {
-  getUserId: (c) => c.get('userId') as string ?? c.req.header('x-user-id'),
+  // Read identity from what your auth middleware set on the context. Never from
+  // a client-settable header - the shipped default reads `c.get('userId')` only.
+  getUserId: (c) => c.get('userId') ?? null,
   getScope: (c) => c.req.header('x-org-id'),
   onDenied: (c) => c.json({ error: 'Forbidden' }, 403),
   onError: (err, c) => c.json({ error: 'Internal server error' }, 500),
@@ -367,32 +600,50 @@ For nested resources or different param names, prefer `iamAccessMiddleware()` wi
 
 ### Environment extraction
 
-Hono's default environment extractor reads:
+By default Hono's extractor reads `user-agent` and `Date.now()`, and leaves `environment.ip`
+`undefined`.
 
-- `cf-connecting-ip` or `x-forwarded-for` for the IP address
-- `user-agent` for the user agent string
-- `Date.now()` for the timestamp
+Hono is the only integration with a built-in IP opt-in, `trustCloudflareHeaders`. Turn it on and
+the chain becomes `cf-connecting-ip`, then `x-forwarded-for`, then `x-real-ip`:
 
-Override with `getEnvironment` to add custom fields.
+```typescript
+app.use('/api/*', iamAccessMiddleware(engine, { trustCloudflareHeaders: true }))
+```
+
+`cf-connecting-ip` is trustworthy only when Cloudflare is the sole ingress -- a Hono app exposed
+directly lets any client set it. An app behind its own proxy should supply the value through
+`getEnvironment` instead. Either way, `getEnvironment` is also where any custom field has to be
+added; the extractor sets three keys and nothing else.
 
 ### Options reference
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `getUserId` | `(c) -> string or null` | Context `userId` or `x-user-id` header | Extract the subject ID |
+| `getUserId` | `(c) -> string or null` | Context `userId` only | Extract the subject ID. The default never reads a request header - client-settable identity is spoofable and is refused on purpose. |
 | `getAction` | `(c) -> string` | HTTP method map | Map the request to an action |
 | `getResource` | `(c) -> Resource` | Infer from URL path | Map the request to a resource |
-| `getEnvironment` | `(c) -> Environment` | CF/forwarded IP + user agent + timestamp | Extract environment context |
+| `getEnvironment` | `(c) -> Environment` | user agent + timestamp, **no IP** | Extract environment context |
+| `trustCloudflareHeaders` | `boolean` | `false` | Populate `environment.ip` from `cf-connecting-ip`, then `x-forwarded-for`, then `x-real-ip` |
 | `getScope` | `(c) -> string or undefined` | `undefined` | Extract scope from the request |
 | `onDenied` | `(c) -> Response` | 403 JSON | Custom denial response |
-| `onError` | `(err, c) -> Response` | 500 JSON | Custom error handler |
+| `onError` | `(err, c) -> Response` | 500 JSON | Custom error handler. Evaluation errors only -- see below |
+
+`await next()` sits **outside** the middleware's own `try`, so an error thrown by your route
+handler reaches your `app.onError` rather than being reported as an authorization failure. Only
+errors raised while deriving and evaluating the check reach `onError`.
 
 ---
 
 ## Next.js App Router
 
 ```
-import { withIamAccess, checkIamAccess, getIamPermissions, createIamNextMiddleware } from '@gentleduck/iam/server/next'
+import {
+  withIamAccess,
+  checkIamAccess,
+  getIamPermissions,
+  createIamNextMiddleware,
+  createIamAdminHandlers,
+} from '@gentleduck/iam/server/next'
 ```
 
 Covers route handler protection, server component checks, permission map generation for client hydration, and edge middleware.
@@ -421,7 +672,9 @@ export const DELETE = withIamAccess(engine, 'delete', 'post', handler, {
 })
 ```
 
-The wrapper automatically reads `params.id` as the resource instance ID.
+The wrapper automatically reads `ctx.params.id` as the resource instance ID, awaiting it when it
+is a promise. No user is 401, a denial is 403, and a throw goes to `onError`, which defaults to
+500.
 
 <Callout type="info">
 `withIamAccess()` only auto-binds `params.id`. If your route uses `params.postId` or another
@@ -451,6 +704,11 @@ export default async function PostPage({ params }: { params: { id: string } }) {
   )
 }
 ```
+
+`checkIamAccess` passes `undefined` as the environment. A rule keyed on `environment.userAgent`,
+`environment.ip` or any custom key reads as a non-match there; only `environment.now`, which the
+engine injects, is available. If a policy depends on the environment, call `engine.can` directly
+with one you built.
 
 ### Permission map generation
 
@@ -520,7 +778,29 @@ export const config = {
 }
 ```
 
-When no rule matches a request path, the middleware returns `null` and the request passes through.
+The middleware runs five steps, in this order:
+
+1. `iamPathIsAmbiguous(url.pathname)` refuses, through `onDenied`, **before** any
+   canonicalisation. `/admin/..%2fpublic` keeps its `%2f` through `new URL()`, so a
+   canonicalising middleware resolved the `..`, matched a `/public` rule and allowed, while
+   Next's own router decoded the escape and served `/admin`.
+2. `iamNormalizePathname(url.pathname)`. `//admin` and `/%61dmin` both survive `new URL()` and
+   skip a `/admin` prefix rule while still routing to `/admin`.
+3. A surviving `%` -- double-encoding residue -- refuses through `onDenied`.
+4. `rules.find(...)`, first match wins. A string `pattern` is a **prefix** (`startsWith`), not a
+   substring, so `/admin/public-report` cannot match a `/public` rule listed first.
+5. No rule matches: return `null` and the request passes through with **no authorization call**.
+   A rule list is opt-in, and a path that merely contains a pattern mid-string
+   (`/notes/admin-draft`) matches nothing.
+
+The resource carries only a `type` here -- there is no id, so this is route-shape gating, not a
+record-level check. `getEnvironment` defaults to `iamExtractEnvironment` over the request's
+headers, method and URL.
+
+One platform limit worth knowing: `new Request(url)` resolves dot segments while constructing
+the URL, so a traversal written on the wire never reaches Next middleware (or Hono) as a
+traversal -- they are handed `/public` and authorize `public`, which is self-consistent, while
+Express, Nest and the generic helper still see the raw target and refuse it.
 
 ### Options reference
 
@@ -528,7 +808,7 @@ When no rule matches a request path, the middleware returns `null` and the reque
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `getUserId` | `(req) -> string or null or Promise` | `x-user-id` header | Extract the subject ID |
+| `getUserId` | `(req) -> string or null or Promise` | none - **required** | Extract the subject ID. `withIamAccess` throws when it is omitted: deriving identity from request headers is unsafe, so there is no default. |
 | `getEnvironment` | `(req) -> Environment` | IP + user agent + timestamp | Extract environment context |
 | `scope` | `string` | `undefined` | Fixed scope for this handler |
 | `onError` | `(err, req) -> Response` | 500 JSON | Custom error handler |
@@ -539,6 +819,9 @@ When no rule matches a request path, the middleware returns `null` and the reque
 | --- | --- | --- | --- |
 | `rules` | `Array` | -- | Route rules (see below). Required. |
 | `getUserId` | `(req) -> string or null or Promise` | -- | Extract the subject ID. Required. |
+| `getEnvironment` | `(req) -> Environment` | `iamExtractEnvironment` over headers, method and URL | Extract environment context |
+| `onUnauthorized` | `(req) -> Response` | 401 JSON | No usable subject ID |
+| `onDenied` | `(req) -> Response` | 403 JSON | A denial, and both path refusals |
 | `onError` | `(err, req) -> Response` | 500 JSON | Custom error handler |
 
 **Rule format (each entry in `rules`):**
@@ -574,14 +857,21 @@ app.delete('/api/admin/users/:id',
 Override the default HTTP method mapping for non-standard action patterns.
 
 ```typescript
+import { iamActionForMethod, iamNormalizePathname } from '@gentleduck/iam/server/generic'
+
 const middleware = iamAccessMiddleware(engine, {
   getUserId: (req) => req.user?.id,
   getAction: (req) => {
-    // POST /api/posts/:id/publish -> "publish" action
-    if (req.method === 'POST' && req.path.endsWith('/publish')) {
+    // POST /api/posts/:id/publish -> "publish" action.
+    // Normalise the path first: `/posts/1/%70ublish` routes to the same
+    // handler but does not match a raw `endsWith('/publish')`.
+    if (req.method?.toUpperCase() === 'POST' && iamNormalizePathname(req.path).endsWith('/publish')) {
       return 'publish'
     }
-    return IAM_METHOD_ACTION_MAP[req.method] ?? 'read'
+    // Fall back to the library helper, never to a hard-coded action: an
+    // unrecognised method defaulting to `'read'` lets an unknown verb through
+    // a rule that denies writes.
+    return iamActionForMethod(req.method)
   },
 })
 ```
@@ -591,15 +881,18 @@ const middleware = iamAccessMiddleware(engine, {
 All server integrations wrap `engine.can()` in try/catch. If the engine throws (adapter
 failure, misconfigured policy, etc.), the default behavior is:
 
-- **Express middleware**: calls `onError(err, req, res, next)` -- defaults to 500 JSON.
-- **Express guard**: passes the error to `next(err)` for Express error middleware.
-- **Hono**: returns `onError(err, c)` -- defaults to 500 JSON.
+- **Express middleware and guard**: both call `onError(err, req, res)` -- defaults to a fixed
+  500 JSON on each. Neither calls `next(err)`.
+- **Hono**: returns `onError(err, c)` -- defaults to 500 JSON. Errors from your route handler
+  are not caught here.
 - **NestJS**: calls `onError(err, req)` -- defaults to returning `false` (deny).
 - **Next.js**: returns `onError(err, req)` -- defaults to 500 JSON.
 
-The engine itself never throws from `authorize()` -- it catches internal errors, calls the
-`onError` hook, and returns a deny decision. The server integration try/catch is an extra
-safety net for edge cases like adapter connection failures during subject resolution.
+The engine never throws from `can()` or `check()`: an adapter failure during subject resolution,
+or anything thrown inside evaluation, denies and fires the engine's own `onError` hook. What the
+integration's try/catch actually covers is your extractors -- `getUserId`, `getResource`,
+`getEnvironment` -- which are consumer code that can throw or reject. (`engine.permissions()` and
+`engine.explain()` do throw; those are not on the middleware path.)
 
 ### Server-driven client permissions
 
@@ -630,26 +923,33 @@ const permissions = await engine.permissions(userId, checks)
   <AccordionItem value="override-inference">
     <AccordionTrigger>Why should I override the default resource and action inference?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The defaults are optimized for CRUD-style demos: action comes from the HTTP method map, resource type usually comes
-      from the path, and resource attributes are empty. Real applications often need custom logic for nested routes,
-      record attributes, body-driven actions, query parameters, or tenant metadata.
+      The defaults suit CRUD-shaped routes: the action comes from the HTTP method map, the resource type is the first path
+      segment and the id the second, and attributes are always empty. Anything else -- nested routes, record attributes,
+      body-driven actions, query parameters, tenant metadata -- needs your own extractor. Run the raw value through
+      <code className="rounded bg-muted px-2 py-1">iamActionForMethod</code> and
+      <code className="rounded bg-muted px-2 py-1">iamNormalizePathname</code> when you do.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="default-failure-responses">
     <AccordionTrigger>What are the default auth failure responses in the server integrations?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Missing user identity fails closed with <code className="rounded bg-muted px-2 py-1">401</code>. A denied access
-      check returns <code className="rounded bg-muted px-2 py-1">403</code>. Unexpected integration or adapter errors
-      default to <code className="rounded bg-muted px-2 py-1">500</code>. Each integration exposes overrides for those handlers.
+      Missing user identity fails closed with <code className="rounded bg-muted px-2 py-1">401</code>, a denial returns
+      <code className="rounded bg-muted px-2 py-1">403</code>, and an unexpected integration or adapter error defaults to
+      <code className="rounded bg-muted px-2 py-1">500</code>. Each integration exposes overrides. NestJS is the exception
+      to the first one: a guard returns a boolean, so a missing subject ID returns
+      <code className="rounded bg-muted px-2 py-1">false</code> like any other denial and Nest's own exception filter picks
+      the status.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="express-admin-surface">
     <AccordionTrigger>Does the Express admin router secure itself?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. It is an admin surface for policy, role, and assignment management, but it does not automatically wrap itself in
-      authorization. Mount it behind your own admin-only authentication and authorization controls.
+      Partly. <code className="rounded bg-muted px-2 py-1">authorize</code> is mandatory and construction throws without it, so
+      the router cannot be mounted unauthenticated, and the default CSRF check refuses cross-site requests on reads as well
+      as mutations. What it does not do is decide who counts as an admin. That is your predicate, and everything it lets
+      through can write policies, roles and assignments.
     </AccordionContent>
   </AccordionItem>
 

@@ -1,24 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import type { AccessControl, IamRequest } from '../../types'
-import { type Explain, escapeHtml } from '..'
+import { type Explain, iamEscapeHtml } from '..'
 import { explainEvaluation } from '../explain'
 
-describe('escapeHtml', () => {
+describe('iamEscapeHtml', () => {
   it('escapes & < > " \' to HTML entities', () => {
-    expect(escapeHtml('a & b')).toBe('a &amp; b')
-    expect(escapeHtml('<script>')).toBe('&lt;script&gt;')
-    expect(escapeHtml('"x"')).toBe('&quot;x&quot;')
-    expect(escapeHtml("o'brien")).toBe('o&#39;brien')
+    expect(iamEscapeHtml('a & b')).toBe('a &amp; b')
+    expect(iamEscapeHtml('<script>')).toBe('&lt;script&gt;')
+    expect(iamEscapeHtml('"x"')).toBe('&quot;x&quot;')
+    expect(iamEscapeHtml("o'brien")).toBe('o&#39;brien')
   })
 
   it('orders replacement so & is escaped first', () => {
     // If `<` were replaced first, &lt; would be re-escaped to &amp;lt;.
-    expect(escapeHtml('<&>')).toBe('&lt;&amp;&gt;')
+    expect(iamEscapeHtml('<&>')).toBe('&lt;&amp;&gt;')
   })
 
   it('passes through safe strings unchanged', () => {
-    expect(escapeHtml('hello world')).toBe('hello world')
-    expect(escapeHtml('123 abc')).toBe('123 abc')
+    expect(iamEscapeHtml('hello world')).toBe('hello world')
+    expect(iamEscapeHtml('123 abc')).toBe('123 abc')
   })
 })
 
@@ -259,7 +259,7 @@ describe('explainEvaluation()', () => {
     expect(result.decision.rule?.id).toBe('r1')
   })
 
-  it('combine="first-applicable": first policy with a deciding rule wins', () => {
+  it('combine="first-applicable": the first applicable policy wins', () => {
     const result = explainEvaluation(
       [allowReadPolicy, denyAllPolicy],
       makeReq(),

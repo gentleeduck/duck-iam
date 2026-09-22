@@ -1,31 +1,24 @@
 import type { IamPrimitives, IamRequest } from '../types'
-// Bare resource patterns (no `:*` / `.*` suffix) match ONLY the literal
-// resource; recursive matching requires the explicit `:*` / `.*` suffix.
-/** Top-level path prefixes accepted by {@link resolve}. */
-export const ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])
 
-/** Property names refused at any segment - blocks prototype-pollution lookups. */
-const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
+/** Top-level path prefixes accepted by {@link resolve}. */
+export const ALLOWED_ROOTS: ReadonlySet<string> = new Set(['subject', 'resource', 'environment'])
 
 /**
- * Hard cap for path-segment caches. Each entry is at most ~200 bytes
- * (path string + segment array), so 10k entries ~ 2 MB worst case.
- * Insertion-order eviction (FIFO) when the cap is hit.
+ * Property names refused at any segment, so such a path is rejected once at parse time rather than walked per request.
+ * SECURITY: prototype-pollution guard; exported so the validator's `isResolvablePath` refuses exactly this set.
  */
+export const BLOCKED_SEGMENTS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
+
+/** Cap on path-segment caches (~200 bytes an entry, so ~2 MB worst case); evicts in insertion order (FIFO). */
 export const PATH_CACHE_MAX = 10_000
 
 /**
- * Process-wide default path-segment cache. Used when a caller does not pass
- * a per-instance cache. Multi-tenant deployments should prefer per-Engine
- * caches to prevent cross-tenant eviction.
+ * Process-wide path-segment cache, used when no per-instance cache is passed.
+ * NOTE: multi-tenant deployments should pass per-Engine caches so tenants cannot evict each other.
  */
 export const pathCache = new Map<string, string[] | null>()
 
-/**
- * Drop every entry in the process-wide path cache. Intended for multi-tenant
- * operators who flush periodically to bound any single tenant's eviction
- * influence.
- */
+/** Clears the process-wide path cache, e.g. periodically to bound one tenant's eviction influence. */
 export function clearPathCache(): void {
   pathCache.clear()
 }
@@ -59,11 +52,12 @@ function getSegments(path: string, cache: Map<string, string[] | null> = pathCac
 }
 
 /**
- * Resolve a dot-path field against an {@link IamRequest.IAccessRequest}; blocks `__proto__` / `constructor` / `prototype`.
- *
+ * Resolves a dot-path field against an {@link IamRequest.IAccessRequest}.
+ * SECURITY: reads own properties only, so nothing on the prototype chain is reachable.
  * @param request - The access request providing root data.
- * @param path    - Dot-path string starting with an allowed root or shorthand.
- * @returns The resolved attribute value, or `null` when the path is invalid or missing.
+ * @param path - Dot-path starting with an allowed root, or the `action` / `scope` shorthand.
+ * @param caches - Optional per-Engine path-segment cache; falls back to the module-global one.
+ * @returns The resolved attribute value, or `null` when the path is invalid, missing or off-contract.
  */
 export function resolve(
   request: IamRequest.IAccessRequest,
@@ -81,20 +75,32 @@ export function resolve(
 
   for (const seg of segments) {
     if (node == null || typeof node !== 'object') return null
-    node = Reflect.get(node, seg)
+    // SECURITY: own properties only, so `Object.prototype` members (`toString`, ...) never resolve
+    // and `exists` means "the request carries it".
+    node = Object.hasOwn(node, seg) ? Reflect.get(node, seg) : undefined
   }
 
-  return node === undefined ? null : (node as IamPrimitives.AttributeValue)
+  return isAttributeValue(node) ? node : null
+}
+
+function isScalar(value: unknown): value is IamPrimitives.Scalar {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
 }
 
 /**
- * Tests if an action matches a pattern.
- * Supports wildcards: "*" matches all, "posts:*" matches "posts:read", "posts:write"
- *
- * @param pattern - Action pattern from a rule (may include `'*'` or `'foo:*'`).
- * @param action  - The literal action from the request.
- * @returns `true` when the request action matches the pattern.
+ * Narrows a resolved node to the {@link resolve} contract; adapters can pass nested objects, `Date`s and functions.
+ * SECURITY: anything off-contract resolves to `null`, so no operator gives it a wrong `false` that retires a deny.
  */
+function isAttributeValue(value: unknown): value is IamPrimitives.AttributeValue {
+  if (isScalar(value)) return true
+  if (Array.isArray(value)) return value.every(isScalar)
+  if (typeof value !== 'object') return false
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== Object.prototype && proto !== null) return false
+  return Object.values(value).every(isScalar)
+}
+
+/** Whether a request action matches a rule pattern: `*` matches all, `posts:*` matches `posts:read`. */
 export function matchesAction(pattern: string, action: string): boolean {
   if (pattern === '*') return true
   if (pattern === action) return true
@@ -107,20 +113,12 @@ export function matchesAction(pattern: string, action: string): boolean {
   return false
 }
 
-/**
- * Match a resource type against a pattern. Bare = literal; `:*` / `.*` suffixes match recursively under the separator.
- *
- * @param pattern      - Resource pattern from a rule.
- * @param resourceType - The literal resource type from the request.
- * @returns `true` when the request resource type matches the pattern.
- */
+/** Whether a resource type matches a pattern. Bare is literal; a `:*` / `.*` suffix matches everything under it. */
 export function matchesResource(pattern: string, resourceType: string): boolean {
   if (pattern === '*') return true
   if (pattern === resourceType) return true
 
-  // Recognise both `:*` and `.*` as recursive suffixes. The separator is
-  // taken from the pattern, so a dot-pattern only matches dot-style request
-  // resources and vice versa.
+  // The separator comes from the pattern, so a dot-pattern only matches dot-style resources and vice versa.
   if (pattern.endsWith(':*') || pattern.endsWith('.*')) {
     const prefix = pattern.slice(0, -1) // includes the trailing separator
     return resourceType.startsWith(prefix)
@@ -130,11 +128,8 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
 }
 
 /**
- * Match a resource type against a dot-notation hierarchical pattern; `*` global, `prefix.*` recursive subtree.
- *
- * @param pattern      - Resource pattern from a rule (dot-notation).
- * @param resourceType - The literal resource type from the request.
- * @returns `true` when the request resource type matches the pattern.
+ * Dot-notation resource match: `*` is global, `prefix.*` matches the subtree, anything else is literal.
+ * A strict subset of {@link matchesResource}, which the engine uses everywhere; this one ignores `':*'`.
  */
 export function matchesResourceHierarchical(pattern: string, resourceType: string): boolean {
   if (pattern === '*') return true
@@ -150,18 +145,12 @@ export function matchesResourceHierarchical(pattern: string, resourceType: strin
 }
 
 /**
- * Tests if a scope matches a pattern.
- *
- * - undefined/null pattern or "*" matches any scope (global permission)
- * - If request has no scope, only global patterns match
- * - Otherwise exact match
- *
- * @param pattern - Scope pattern from a rule (may be `undefined`, `null`, or `'*'`).
- * @param scope   - The request's scope (may be `undefined` or `null`).
- * @returns `true` when the request scope matches the pattern.
+ * Whether a request scope matches a rule's pattern: `undefined` / `null` / `'*'` match any scope, else exact match.
+ * SECURITY: `''` is an ordinary scope value, never a wildcard.
  */
 export function matchesScope(pattern: string | undefined | null, scope: string | undefined | null): boolean {
-  if (!pattern || pattern === '*') return true
-  if (!scope) return false
+  // Explicit checks, not truthiness: an empty pattern read as global would grant across every scope.
+  if (pattern === undefined || pattern === null || pattern === '*') return true
+  if (scope === undefined || scope === null) return false
   return pattern === scope
 }

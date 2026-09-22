@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluate } from '../../../evaluate'
+import { evaluate } from '../../../evaluate/evaluate'
 import { rolesToPolicy } from '../../../rbac'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../../types'
 import { CellKind, compileTable } from '../compiled.compile'
@@ -137,10 +137,7 @@ describe('differential: role scope/conditions fix - not unconditionally granted'
 })
 
 describe("differential: 'and'-mode soundness - an irrelevant co-located policy abstains instead of vetoing", () => {
-  // Two untargeted ABAC policies: 'grantable' has a rule at this cell, 'irrelevant' has none
-  // at all. Under 'and', a policy with no rule shaped for this action/resource has nothing to
-  // say about it and abstains (NotApplicable) instead of forcing a defaultEffect vote - so
-  // 'irrelevant' does not veto 'grantable's allow.
+  // 'irrelevant' has no rule at this cell, so under 'and' it abstains instead of vetoing 'grantable's allow.
   const grantable: AccessControl.IPolicy = {
     id: 'grantable',
     name: 'Grantable',
@@ -181,9 +178,7 @@ describe("differential: 'and'-mode soundness - an irrelevant co-located policy a
     const mask = maskOf(t, ['editor'])
     const request = req(['editor'], 'update', 'post')
     const oracle = evaluate([rolesToPolicy(roles), irrelevant], request, 'deny', 'and')
-    // Ground truth: 'irrelevant' has no rule shaped for update/post, so it abstains
-    // (NotApplicable) instead of voting defaultEffect - the RBAC-equivalent grant is the only
-    // applicable vote, and 'and' over a single applicable vote is just that vote.
+    // 'irrelevant' has no update/post rule and abstains, so the RBAC grant is the only vote.
     expect(oracle.allowed).toBe(true)
     expect(lookup(t, mask, 'update', 'post', request, 'deny')).toBe(oracle.allowed)
   })
@@ -210,14 +205,8 @@ describe("differential: 'and'-mode soundness - an irrelevant co-located policy a
 })
 
 describe('differential: mixed simple+dynamic RBAC (regression - all sources of one role must OR, not become independent AND voters)', () => {
-  // A role with BOTH a simple (mask-eligible) permission AND a complex (scope/condition
-  // -restricted) one used to split RBAC across `residualPolicies` (the residual half) and
-  // the flat mask (the simple half), and `lookup()` treated them as two independent 'and'
-  // voters instead of one OR'd RBAC vote - so a mask hit at the simple cell could still get
-  // vetoed by the residual half voting its own "no rule here" fallback. See
-  // docs/engine-rewrite.md's final-review findings. The scoped permission itself now
-  // compiles into `rbacDynamic` rather than `rbacResidual` (see the RBAC scope/condition
-  // fast-path design doc), but the same OR-not-AND invariant applies to all three sources.
+  // A role's simple and scoped/conditioned grants form one OR'd RBAC vote across the mask, `rbacDynamic` and
+  // `rbacResidual`; as separate 'and' voters, one source's fallback could veto another's hit.
   const roles: AccessControl.IRole[] = [
     {
       id: 'editor',

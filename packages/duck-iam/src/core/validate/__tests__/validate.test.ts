@@ -226,9 +226,8 @@ describe('validatePolicy()', () => {
   })
 
   it('warns on unresolvable condition field (silent-null at runtime)', () => {
-    // A condition.field that doesn't start with subject/resource/environment
-    // (or action/scope shorthand) silently resolves to null at runtime,
-    // which means the rule never matches. Surface as warning at validate time.
+    // A field outside subject/resource/environment (or the action/scope shorthands) resolves to null at runtime, so
+    // the rule never matches; warn at validate time.
     const policy = {
       ...validPolicy,
       rules: [
@@ -570,8 +569,7 @@ describe('detectCatastrophicRegex() (P1)', () => {
   })
 
   it('does not mistake escaped quantifiers in a group body for nested quantifiers', () => {
-    // The body `\+` is a literal plus; the outer `+` quantifies the group.
-    // No real nested quantifier here.
+    // The body `\+` is a literal plus, so the outer `+` is not a nested quantifier.
     expect(detectCatastrophicRegex('(\\+)+').safe).toBe(true)
   })
 
@@ -603,16 +601,16 @@ describe('detectCatastrophicRegex() (P1)', () => {
     expect(detectCatastrophicRegex('a{1,1000}').safe).toBe(true)
   })
 
-  it('flags `(?=(a+)+)` lookaround containing a quantifier', () => {
+  it('flags `(?=(a+)+)` lookaround containing a quantified group', () => {
     const r = detectCatastrophicRegex('(?=(a+)+)')
     expect(r.safe).toBe(false)
-    expect(r.reason).toBe('lookaround-with-quantifier')
+    expect(r.reason).toBe('lookaround-with-quantified-group')
   })
 
-  it('flags `(?<=(a*)*)` lookbehind containing a quantifier', () => {
+  it('flags `(?<=(a*)*)` lookbehind containing a quantified group', () => {
     const r = detectCatastrophicRegex('(?<=(a*)*)')
     expect(r.safe).toBe(false)
-    expect(r.reason).toBe('lookaround-with-quantifier')
+    expect(r.reason).toBe('lookaround-with-quantified-group')
   })
 
   it('accepts `(?<=foo)` lookbehind without inner quantifier', () => {

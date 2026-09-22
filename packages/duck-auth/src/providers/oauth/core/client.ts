@@ -6,17 +6,12 @@ export class OAuthClient {
 
   constructor(private readonly _opts: OAuth.ClientOptions) {}
 
-  /**
-   * Resolve the per-call client_secret. Dynamic generator wins when
-   * supplied (Sign in with Apple); otherwise the static value is used.
-   * Returns undefined when neither is configured (PKCE public clients).
-   */
+  /** The dynamic generator wins when supplied (Sign in with Apple); undefined means a PKCE public client. */
   private async _resolveSecret(): Promise<string | undefined> {
     if (this._opts.dynamicClientSecret) {
       const value = await this._opts.dynamicClientSecret()
-      // Reject non-string returns from the operator's dynamic-secret callback;
-      // a falsy/object/number value would otherwise propagate into the URLSearchParams
-      // body as the literal string and corrupt the token exchange.
+      // A falsy/object/number return would otherwise stringify into the URLSearchParams body and
+      // corrupt the token exchange.
       if (typeof value !== 'string') return undefined
       return value.length === 0 ? undefined : value
     }
@@ -26,10 +21,8 @@ export class OAuthClient {
   private async _resolveEndpoints(): Promise<OAuth.Endpoints> {
     if (this._endpoints) return this._endpoints
     const e = typeof this._opts.endpoints === 'function' ? await this._opts.endpoints() : this._opts.endpoints
-    // Validate endpoint URLs at resolution time. A buggy/typo'd dynamic
-    // endpoints callback that returns a `javascript:`/`file:` URL would
-    // otherwise reach fetch() and either fail unhelpfully or fire on an
-    // unintended scheme.
+    // SECURITY: a dynamic endpoints callback that answers a `javascript:` or `file:` URL would otherwise
+    // reach fetch() on an unintended scheme.
     if (typeof e?.authorizationEndpoint !== 'string' || !isHttpUrl(e.authorizationEndpoint)) {
       throw new AuthError('AUTH_MISCONFIGURED', { detail: 'oauth: authorizationEndpoint must be an http(s) URL' })
     }
@@ -92,6 +85,9 @@ export class OAuthClient {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      // SECURITY: the scheme check above applies to this URL, not to wherever a redirect would land, and
+      // a 307 re-posts this body -- `client_secret` included -- to whatever the `Location` names.
+      redirect: 'error',
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
@@ -100,7 +96,7 @@ export class OAuthClient {
         detail: `token endpoint returned ${res.status}: ${text.slice(0, 200)}`,
       })
     }
-    // Strict parse; non-numeric `expires_in` would propagate NaN past expiry.
+    // Strict parse: a non-numeric `expires_in` would propagate NaN past every expiry check.
     const tokens = parseTokenResponse(await readJsonSafe(res))
     if (!tokens) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -111,7 +107,7 @@ export class OAuthClient {
     return tokens
   }
 
-  /** Refresh-token rotation; throws on any non-2xx. */
+  /** Refresh-token rotation. Throws on any non-2xx. */
   async refresh(refreshToken: string): Promise<OAuth.TokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
@@ -126,6 +122,9 @@ export class OAuthClient {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      // SECURITY: the scheme check above applies to this URL, not to wherever a redirect would land, and
+      // a 307 re-posts this body -- `client_secret` included -- to whatever the `Location` names.
+      redirect: 'error',
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
@@ -144,7 +143,7 @@ export class OAuthClient {
     return tokens
   }
 
-  /** Fetch the OIDC userinfo profile (when the provider exposes one). */
+  /** The provider may not expose one, in which case the profile comes from the id_token instead. */
   async userinfo(accessToken: string): Promise<Record<string, unknown>> {
     const e = await this._resolveEndpoints()
     if (!e.userinfoEndpoint) {
@@ -155,6 +154,7 @@ export class OAuthClient {
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const res = await fetchImpl(e.userinfoEndpoint, {
       headers: { authorization: `Bearer ${accessToken}` },
+      redirect: 'error',
     })
     if (!res.ok) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -162,8 +162,7 @@ export class OAuthClient {
         detail: `userinfo failed ${res.status}`,
       })
     }
-    // userinfo bodies are IdP-controlled. Require an object shape
-    // before handing the body back to caller-supplied `fetchProfile`.
+    // The body is IdP-controlled, so its shape is checked before any caller-supplied `fetchProfile` sees it.
     const json = await readJsonSafe(res)
     if (!isPlainObject(json)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -172,6 +171,27 @@ export class OAuthClient {
       })
     }
     return json
+  }
+
+  /** An authenticated GET of a JSON endpoint, under the same 64KB cap as {@link OAuthClient.userinfo}.
+   *  For a provider whose profile needs a second call: GitHub keeps verified addresses on
+   *  `/user/emails`, never on `/user`. The body is returned unnarrowed, because it is an array there
+   *  and an object at userinfo. */
+  async authedJson(url: string, accessToken: string, providerId = 'oauth'): Promise<unknown> {
+    // SECURITY: reachable from a host's own `fetchProfile`, so the scheme is checked here for the same
+    // reason `_resolveEndpoints` checks it -- a `file:` or `javascript:` URL must not reach fetch().
+    if (!isHttpUrl(url)) {
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'oauth: authedJson url must be an http(s) URL' })
+    }
+    const fetchImpl = this._opts.fetch ?? globalThis.fetch
+    const res = await fetchImpl(url, {
+      headers: { authorization: `Bearer ${accessToken}` },
+      redirect: 'error',
+    })
+    if (!res.ok) {
+      throw new AuthError('AUTH_PROVIDER_FAILED', { providerId, detail: `authed request failed ${res.status}` })
+    }
+    return readJsonSafe(res)
   }
 }
 
@@ -189,9 +209,8 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 async function readJsonSafe(res: Response): Promise<unknown> {
-  // Stream + cap so a hostile IdP that streams a multi-GB body cannot OOM us
-  // before we ever reach JSON.parse. Real oauth token / userinfo bodies are
-  // <10KB; 64KB is generous.
+  // Streamed and capped so a hostile IdP cannot OOM the process with a multi-GB body before JSON.parse is
+  // ever reached. Real token and userinfo bodies are under 10KB, so 64KB is generous.
   const MAX_BYTES = 64 * 1024
   const reader = res.body?.getReader()
   if (!reader) {
@@ -225,7 +244,7 @@ async function readJsonSafe(res: Response): Promise<unknown> {
   }
 }
 
-/** Validator for oauth2 token-endpoint responses (RFC 6749 section 5.1). */
+/** Validates an oauth2 token-endpoint response against RFC 6749 section 5.1. */
 function parseTokenResponse(raw: unknown): OAuth.TokenResponse | null {
   if (!isPlainObject(raw)) return null
   const { access_token, token_type, expires_in, refresh_token, id_token, scope } = raw

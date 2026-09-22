@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'
+import { orNull } from '~/core/answer'
+import type { Credential } from '~/core/credentials'
 import { AuthEngine } from '~/core/engine'
+import { AuthError } from '~/core/errors'
 import { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -24,7 +27,14 @@ function fakeChannel(): Channel.Channel & { sent: Array<{ to: string; url: strin
   }
 }
 
-function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.Channel } = {}): {
+function buildAuth(
+  opts: {
+    autoCreate?: boolean
+    channel?: Channel.Channel
+    credentials?: (base: Credential.Store) => Credential.Store
+    lookup?: (email: string, tenantId?: string) => Promise<{ id: string } | null>
+  } = {},
+): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
   channel: Channel.Channel & { sent: Array<{ to: string; url: string }> }
@@ -37,14 +47,14 @@ function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.Channel } = {
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
-      credentials: adapter.credentials,
+      credentials: opts.credentials?.(adapter.credentials) ?? adapter.credentials,
     },
     limiter: new MemoryLimiter({ max: 3, windowMs: 60_000 }),
   })
   auth.providers.register(
     magicLink<MyProfile>({
       channels: { email: channel },
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email),
+      findIdentityByEmail: opts.lookup ?? ((email) => orNull(adapter.identities.find({ email }))),
       autoCreateIdentity: opts.autoCreate ?? false,
       autoCreateProfile: (email) => ({ username: email, email }),
       ttlMs: 1_000,
@@ -78,16 +88,34 @@ describe('magic-link provider', () => {
       const intents = await auth.flows.beginProvider('magic-link', { email: 'ghost@x.com' })
       expect(intents).toEqual([{ type: 'json', status: 200, body: { ok: true } }])
       expect(channel.sent).toHaveLength(0)
-      expect(await adapter.identities.findByEmail('ghost@x.com')).toBeNull()
+      await expect(adapter.identities.find({ email: 'ghost@x.com' })).rejects.toMatchObject({
+        code: 'AUTH_IDENTITY_NOT_FOUND',
+      })
+    })
+
+    it('stays silent when the host lookup rejects, the way `auth.identities.getByEmail` does', async () => {
+      // The wiring a host writes. An absence has to reach the provider as one, or an unknown address
+      // answers differently from a known one and the whole branch becomes an oracle.
+      const { auth, channel } = buildAuth({
+        autoCreate: false,
+        lookup: () => Promise.reject(new AuthError('AUTH_IDENTITY_NOT_FOUND')),
+      })
+      const intents = await auth.flows.beginProvider('magic-link', { email: 'ghost@x.com' })
+      expect(intents).toEqual([{ type: 'json', status: 200, body: { ok: true } }])
+      expect(channel.sent).toHaveLength(0)
     })
 
     it('unknown email + autoCreate=true -> identity created, token sent', async () => {
       const { auth, channel, adapter } = buildAuth({ autoCreate: true })
       await auth.flows.beginProvider('magic-link', { email: 'new@x.com' })
       expect(channel.sent).toHaveLength(1)
-      const i = await adapter.identities.findByEmail('new@x.com')
+      const i = await adapter.identities.find({ email: 'new@x.com' })
       expect(i).not.toBeNull()
-      expect(i?.providers.some((p) => p.providerId === 'magic-link')).toBe(true)
+      // No provider row: a magic link is a credential the identity holds, not an account at some other
+      // party, and nothing ever looks one up by subject.
+      expect(i?.providers).toEqual([])
+      const creds = await adapter.credentials.listByIdentity(i!.id, 'magic-link', {})
+      expect(creds).toHaveLength(1)
     })
 
     it('rate-limit trips after configured attempts', async () => {
@@ -126,7 +154,7 @@ describe('magic-link provider', () => {
       expect(seen).toEqual(['channel.send rejected delivery'])
     })
 
-    it('missing channel surfaces AUTH/MISCONFIGURED', async () => {
+    it('missing channel surfaces AUTH_MISCONFIGURED', async () => {
       const { auth } = buildAuth()
       await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
       await expect(auth.flows.beginProvider('magic-link', { email: 'a@x.com', channel: 'sms' })).rejects.toMatchObject({
@@ -136,7 +164,7 @@ describe('magic-link provider', () => {
   })
 
   describe('callbackPath open-redirect defense', () => {
-    it('throws AUTH/MISCONFIGURED at construction when callbackPath is protocol-relative `//evil.com`', () => {
+    it('throws AUTH_MISCONFIGURED at construction when callbackPath is protocol-relative `//evil.com`', () => {
       expect(() =>
         magicLink<MyProfile>({
           channels: { email: fakeChannel() },
@@ -190,7 +218,7 @@ describe('magic-link provider', () => {
       expect(signinHandler).toHaveBeenCalledOnce()
     })
 
-    it('replay of same token surfaces AUTH/RECOVERY_TOKEN_INVALID (single-use)', async () => {
+    it('replay of same token surfaces AUTH_RECOVERY_TOKEN_INVALID (single-use)', async () => {
       const { auth, channel } = buildAuth({ autoCreate: true })
       await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
       const token = extractToken(channel.sent[0]?.url ?? '')
@@ -215,22 +243,57 @@ describe('magic-link provider', () => {
       expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
     })
 
-    it('expired token surfaces AUTH/RECOVERY_TOKEN_EXPIRED', async () => {
+    it("a second redemption reading between the winner's claim and its revoke is refused", async () => {
+      // The claim and the revoke are two statements, and the test above only passes because both reads
+      // happen to land before either write. Holding the revoke open is what a loaded connection pool
+      // does by itself, and it is the window a second redemption slipped through.
+      let calls = 0
+      let release = (): void => {}
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const { auth, channel } = buildAuth({
+        autoCreate: true,
+        credentials: (base) => ({
+          ...base,
+          revoke: async (id, ctx) => {
+            calls += 1
+            if (calls === 1) await held
+            return base.revoke(id, ctx)
+          },
+        }),
+      })
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      const token = extractToken(channel.sent[0]?.url ?? '')
+
+      const winner = auth.flows.signIn({ providerId: 'magic-link', input: { token } })
+      await vi.waitFor(() => {
+        if (calls === 0) throw new Error('the winner has not claimed the row yet')
+      })
+
+      await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
+        code: 'AUTH_RECOVERY_TOKEN_INVALID',
+      })
+      release()
+      expect((await winner).session?.identityId).toBeTruthy()
+    })
+
+    it('expired token surfaces AUTH_RECOVERY_TOKEN_EXPIRED', async () => {
       const { auth, channel, adapter } = buildAuth({ autoCreate: true })
       await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
       const token = extractToken(channel.sent[0]?.url ?? '')
-      const i = await adapter.identities.findByEmail('a@x.com')
+      const i = await adapter.identities.find({ email: 'a@x.com' })
       if (!i) throw new Error('identity missing')
       const creds = await adapter.credentials.listByIdentity(i.id, 'magic-link', {})
       const cred = creds[0]
       if (!cred) throw new Error('credential missing')
-      cred.expiresAt = new Date(Date.now() - 1)
+      adapter.raw.credentials.set(cred.id, { ...cred, expiresAt: new Date(Date.now() - 1) })
       await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
       })
     })
 
-    it('bogus token surfaces AUTH/RECOVERY_TOKEN_INVALID', async () => {
+    it('bogus token surfaces AUTH_RECOVERY_TOKEN_INVALID', async () => {
       const { auth } = buildAuth({ autoCreate: true })
       await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token: 'not-real' } })).rejects.toMatchObject(
         { code: 'AUTH_RECOVERY_TOKEN_INVALID' },
@@ -247,7 +310,7 @@ describe('magic-link provider', () => {
         const { auth, adapter, channel } = buildAuth({ autoCreate: true })
         await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
         const token = extractToken(channel.sent[0]?.url ?? '')
-        const i = await adapter.identities.findByEmail('a@x.com')
+        const i = await adapter.identities.find({ email: 'a@x.com' })
         if (!i) throw new Error('identity missing')
         const creds = await adapter.credentials.listByIdentity(i.id, 'magic-link', {})
         const cred = creds[0]
@@ -257,32 +320,32 @@ describe('magic-link provider', () => {
       }
 
       it('non-numeric expiresAt (from a buggy adapter) is treated as expired (NaN-bypass defense)', async () => {
-        const { auth, row, token } = await mintTokenAndGrabRow()
+        const { adapter, auth, row, token } = await mintTokenAndGrabRow()
         if (!row) throw new Error('row missing')
         // Inject a malformed expiresAt that would have made
         // `expiresAt < now` evaluate `NaN < N === false` and let the
         // token be treated as fresh.
         // @ts-expect-error: SEC test intentionally violates the typed shape
-        row.expiresAt = 'not-a-number'
+        adapter.raw.credentials.set(row.id, { ...row, expiresAt: 'not-a-number' })
         await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
           code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
         })
       })
 
       it('revokedAt === 0 (legitimate epoch number) is now treated as revoked (previously slipped past `!revokedAt`)', async () => {
-        const { auth, row, token } = await mintTokenAndGrabRow()
+        const { adapter, auth, row, token } = await mintTokenAndGrabRow()
         if (!row) throw new Error('row missing')
-        row.revokedAt = new Date(0)
+        adapter.raw.credentials.set(row.id, { ...row, revokedAt: new Date(0) })
         await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
           code: 'AUTH_RECOVERY_TOKEN_INVALID',
         })
       })
 
       it('revokedAt as a non-numeric value also surfaces as revoked', async () => {
-        const { auth, row, token } = await mintTokenAndGrabRow()
+        const { adapter, auth, row, token } = await mintTokenAndGrabRow()
         if (!row) throw new Error('row missing')
         // @ts-expect-error: SEC test intentionally violates the typed shape
-        row.revokedAt = 'truthy-but-not-a-timestamp'
+        adapter.raw.credentials.set(row.id, { ...row, revokedAt: 'truthy-but-not-a-timestamp' })
         await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
           code: 'AUTH_RECOVERY_TOKEN_INVALID',
         })

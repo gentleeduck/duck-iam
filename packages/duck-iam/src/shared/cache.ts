@@ -1,6 +1,6 @@
 import type { IamEngine } from '../core'
 /**
- * LRU cache with TTL expiration; relies on `Map` insertion order. Used by {@link IamEngine} for policies/roles/subjects.
+ * LRU cache with TTL expiry, ordered by `Map` insertion. Used by {@link IamEngine} for policies, roles and subjects.
  *
  * @template V - Type of cached values.
  */
@@ -12,9 +12,9 @@ export class IamLRUCache<V> {
   private _misses = 0
 
   /**
-   * @param maxSize - Sets the maximum number of entries before LRU eviction.
-   * @param ttlMs - Sets time-to-live in milliseconds for each entry.
-   * @throws `RangeError` when `maxSize < 1` or `ttlMs < 0`.
+   * @param maxSize - Max entries before the least recently used one is evicted.
+   * @param ttlMs - Time-to-live per entry, in milliseconds.
+   * @throws `RangeError` when either is non-finite, `maxSize < 1`, or `ttlMs < 0`.
    */
   constructor(maxSize: number, ttlMs: number) {
     if (!Number.isFinite(maxSize) || maxSize < 1)
@@ -24,28 +24,33 @@ export class IamLRUCache<V> {
     this._ttl = ttlMs
   }
 
-  /**
-   * Get + refresh LRU; `undefined` when missing or expired.
-   *
-   * @param key - Looks up the entry under this cache key.
-   * @returns The stored value, or `undefined` when missing or expired.
-   */
+  /** Returns the value and marks it most recently used; `undefined` when missing or expired. */
   get(key: string): V | undefined {
     const entry = this._map.get(key)
     if (!entry) {
       this._misses++
       return undefined
     }
-    if (Date.now() > entry.expiresAt) {
+    // NOTE: `>=`, not `>`: `expiresAt` is exclusive, as it is for grants, so a `notAfter` cap holds to the millisecond.
+    if (Date.now() >= entry.expiresAt) {
       this._map.delete(key)
       this._misses++
       return undefined
     }
-    // Move to end (most recently used)
     this._map.delete(key)
     this._map.set(key, entry)
     this._hits++
     return entry.value
+  }
+
+  /**
+   * Epoch ms the entry under `key` expires at, or `undefined` when absent or lapsed. Moves neither LRU order nor stats.
+   * NOTE: lets a derived cache inherit its source's expiry via {@link IamLRUCache.set}'s `notAfter` instead of a fresh full TTL.
+   */
+  expiresAt(key: string): number | undefined {
+    const entry = this._map.get(key)
+    if (!entry) return undefined
+    return Date.now() >= entry.expiresAt ? undefined : entry.expiresAt
   }
 
   /** Hit/miss counters + current size. */
@@ -60,26 +65,28 @@ export class IamLRUCache<V> {
   }
 
   /**
-   * Set + TTL refresh; evicts the oldest at capacity.
+   * Stores `value` with a fresh TTL, evicting the least recently used entry at capacity.
    *
-   * @param key - Stores the entry under this cache key.
-   * @param value - Associates this value with the key.
+   * @param key - Cache key.
+   * @param value - Value to store.
+   * @param notAfter - Epoch ms the value stops being true; caps the TTL, and a past instant stores nothing.
    */
-  set(key: string, value: V): void {
+  set(key: string, value: V, notAfter?: number): void {
     this._map.delete(key)
+    const now = Date.now()
+    let expiresAt = now + this._ttl
+    if (notAfter !== undefined && Number.isFinite(notAfter) && notAfter < expiresAt) {
+      if (notAfter <= now) return
+      expiresAt = notAfter
+    }
     if (this._map.size >= this._maxSize) {
       const first = this._map.keys().next().value
       if (first !== undefined) this._map.delete(first)
     }
-    this._map.set(key, { value, expiresAt: Date.now() + this._ttl })
+    this._map.set(key, { value, expiresAt })
   }
 
-  /**
-   * Remove a single entry.
-   *
-   * @param key - Removes the entry stored under this cache key.
-   * @returns `true` when the entry existed and was deleted.
-   */
+  /** Removes one entry; `true` when it existed. */
   delete(key: string): boolean {
     return this._map.delete(key)
   }
@@ -93,11 +100,11 @@ export class IamLRUCache<V> {
     return this._map.size
   }
 
-  /** Iterate non-expired entries; does NOT refresh LRU order. */
+  /** Iterates non-expired entries without refreshing LRU order; expiry uses `>=` to agree with {@link IamLRUCache.get}. */
   *entries(): IterableIterator<[string, V]> {
     const now = Date.now()
     for (const [key, entry] of this._map) {
-      if (now > entry.expiresAt) continue
+      if (now >= entry.expiresAt) continue
       yield [key, entry.value]
     }
   }

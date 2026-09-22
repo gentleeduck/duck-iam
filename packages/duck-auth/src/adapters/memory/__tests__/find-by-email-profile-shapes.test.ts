@@ -4,69 +4,51 @@ import { identityInput } from '~/test/store-inputs'
 import { MemoryAdapter } from '..'
 
 /**
- * These robustness tests deliberately feed malformed `profile` shapes
- * (non-string email, arrays, objects, missing email) to prove `findByEmail`
- * fails closed. The strict `ProfileMetadataBase` contract rejects those at the
- * type level, so `mal()` casts each fixture through — the runtime behaviour is
- * exactly what we are exercising.
+ * `find({ email })` must answer on the address and on nothing else. The malformed *stored* profiles this
+ * file used to plant — a numeric address, an array, a missing one — are refused on the way in now, the
+ * store carrying the same `chk_auth_identities_profile_shape` every dialect declares; those cases live in
+ * `identity-invariants-parity.test.ts`. What is left here is what a caller can still ask for.
  */
-const mal = (p: Record<string, unknown>): Identities.ProfileMetadataBase =>
-  p as unknown as Identities.ProfileMetadataBase
+const profile = (over: Record<string, unknown> = {}): Identities.ProfileMetadataBase =>
+  Object.assign({ email: 'ada@example.com', username: 'ada' }, over)
 
-describe('MemoryAdapter.findByEmail - profile-shape robustness', () => {
+describe('MemoryAdapter find({ email }) matches the address and nothing else', () => {
   let adapter: MemoryAdapter<Identities.ProfileMetadataBase>
 
   beforeEach(() => {
     adapter = new MemoryAdapter<Identities.ProfileMetadataBase>()
   })
 
-  it('finds an identity by well-formed string email', async () => {
-    const ident = await adapter.identities.create(
-      identityInput({ profile: mal({ email: 'ada@example.com' }), providers: [] }),
-    )
-    const found = await adapter.identities.findByEmail('ada@example.com')
-    expect(found?.id).toBe(ident.id)
+  it('finds an identity by its address', async () => {
+    const ident = await adapter.identities.create(identityInput({ profile: profile(), providers: [] }))
+
+    await expect(adapter.identities.find({ email: 'ada@example.com' })).resolves.toMatchObject({ id: ident.id })
   })
 
-  it('does NOT match an identity whose profile.email is a number', async () => {
-    await adapter.identities.create(identityInput({ profile: mal({ email: 42 }), providers: [] }))
-    const found = await adapter.identities.findByEmail('42')
-    expect(found).toBeNull()
-  })
-
-  it('does NOT match an identity whose profile.email is an array', async () => {
-    await adapter.identities.create(identityInput({ profile: mal({ email: ['a@x.com', 'b@x.com'] }), providers: [] }))
-    const found = await adapter.identities.findByEmail('a@x.com')
-    expect(found).toBeNull()
-  })
-
-  it('does NOT match an identity whose profile.email is an object', async () => {
-    await adapter.identities.create(identityInput({ profile: mal({ email: { primary: 'a@x.com' } }), providers: [] }))
-    const found = await adapter.identities.findByEmail('a@x.com')
-    expect(found).toBeNull()
-  })
-
-  it('does NOT match an identity whose profile.email is the empty string', async () => {
-    await adapter.identities.create(identityInput({ profile: mal({ email: '' }), providers: [] }))
-    const found = await adapter.identities.findByEmail('')
-    expect(found).toBeNull()
-  })
-
-  it('skips a malformed-email identity while still finding a well-formed one', async () => {
-    await adapter.identities.create(identityInput({ profile: mal({ email: 42 }), providers: [] }))
-    const good = await adapter.identities.create(
-      identityInput({ profile: mal({ email: 'good@example.com' }), providers: [] }),
-    )
-    await adapter.identities.create(identityInput({ profile: mal({ email: ['arr@example.com'] }), providers: [] }))
-    const found = await adapter.identities.findByEmail('good@example.com')
-    expect(found?.id).toBe(good.id)
-  })
-
-  it("handles identities with no profile.email at all (other fields don't bleed through)", async () => {
+  it('does not let another profile key answer for the address', async () => {
     await adapter.identities.create(
-      identityInput({ profile: mal({ phone: '+1234567890', name: 'Ada' }), providers: [] }),
+      identityInput({ profile: profile({ name: 'Ada', phone: '+1234567890' }), providers: [] }),
     )
-    const found = await adapter.identities.findByEmail('Ada')
-    expect(found).toBeNull()
+
+    await expect(adapter.identities.find({ email: 'Ada' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+  })
+
+  it('matches nothing on a blank address, which is now a thing no row can hold', async () => {
+    // `toEmailList('')` answers `['']` on the reasoning that no dialect stores a blank one. That was true
+    // of the dialects and not of this store.
+    await adapter.identities.create(identityInput({ profile: profile(), providers: [] }))
+
+    await expect(adapter.identities.find({ email: '' })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
+  })
+
+  it('finds the one identity among several that holds the address asked for', async () => {
+    await adapter.identities.create(
+      identityInput({ profile: profile({ email: 'other@example.com', username: 'other' }), providers: [] }),
+    )
+    const good = await adapter.identities.create(
+      identityInput({ profile: profile({ email: 'good@example.com', username: 'good' }), providers: [] }),
+    )
+
+    await expect(adapter.identities.find({ email: 'good@example.com' })).resolves.toMatchObject({ id: good.id })
   })
 })

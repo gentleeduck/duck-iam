@@ -1,20 +1,10 @@
-/**
- * Minimal OIDC OP. Implements:
- *
- *   GET  /authorize  (response_type=code + S256 PKCE)
- *   POST /token      (authorization_code + refresh_token grants)
- *   GET  /userinfo   (Bearer opaque access token)
- *   POST /introspect (RFC 7662, confidential clients only)
- *   POST /revoke     (RFC 7009)
- *
- * The host wires HTTP routing and presents login/consent UIs; this
- * module owns the state machine.
- */
+/** Minimal OIDC OP. Implements: */
 
-import type { Identity } from '~/core'
-import { getProfileString, isFiniteNumber } from '~/core/credentials/credentials'
+import type { Identities } from '~/core'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
+import { AuthError } from '~/core/errors'
+import { getProfileString, isFiniteNumber } from '~/core/predicates/predicates'
 import {
   AuthMemoryAccessTokenStore,
   AuthMemoryClientStore,
@@ -44,7 +34,7 @@ export {
   AuthMemoryRefreshTokenStore,
 }
 
-interface IDeps<Profile extends Identity.ProfileMetadataBase> {
+interface IDeps<Profile extends Identities.ProfileMetadataBase> {
   auth: AuthEngine<Profile>
   clients: OidcOP.ClientStore
   codes: OidcOP.CodeStore
@@ -74,12 +64,9 @@ function parseScopeString(raw: unknown): string[] | { error: string } {
   return tokens
 }
 
-/**
- * The OP. Wire it up with `authCreateOidcOP({ auth, signIdToken, ... })`
- * and route `authorize` / `token` / `userinfo` / `introspect` / `revoke`
- * from your HTTP layer.
- */
-export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
+/** The OP. Build it with `authCreateOidcOP({ auth, signIdToken, ... })` and route `authorize`, `token`,
+ *  `userinfo`, `introspect` and `revoke` to it from your HTTP layer. */
+export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
   readonly issuer: string
   readonly supportedScopes: string[]
   private deps: IDeps<Profile>
@@ -88,7 +75,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
 
   constructor(cfg: OidcOP.Cfg, deps: IDeps<Profile>, dcr?: OidcOP.DcrCfg) {
     this.dcrCfg = dcr ?? { enabled: false }
-    if (!cfg.issuer) throw new Error('AuthOidcOP: issuer required')
+    if (!cfg.issuer) throw new AuthError('AUTH_MISCONFIGURED', { detail: 'AuthOidcOP: issuer required' })
     const parsed = parseIssuer(cfg.issuer, cfg.allowHttp ?? false)
     this.issuer = parsed
     const scopes = new Set(cfg.supportedScopes)
@@ -117,9 +104,10 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
     client_uri?: string
     logo_uri?: string
   }): Promise<{ client_id: string; client_secret: string | null }> {
-    if (!input.client_id) throw new Error('registerClient: client_id required')
+    if (!input.client_id)
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'registerClient: client_id required' })
     if (input.redirect_uris.length === 0) {
-      throw new Error('registerClient: at least one redirect_uri required')
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'registerClient: at least one redirect_uri required' })
     }
     for (const uri of input.redirect_uris) assertValidRedirect(uri)
     const method = input.token_endpoint_auth_method ?? (input.client_secret ? 'client_secret_basic' : 'none')
@@ -142,17 +130,10 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
   }
 
   /**
-   * RFC 7591 dynamic client registration. Host wires this on
-   * `POST /register` and returns the result body as application/json.
-   *
-   * When `dcrCfg.initialAccessToken` is set, the request MUST carry
-   * `Authorization: Bearer <token>` (constant-time compared) or the
-   * call returns `{ error: 'unauthorized' }`. When unset, registration
-   * is open and SHOULD be put behind a private network.
-   *
-   * Discovery doc must advertise `registration_endpoint` for clients
-   * to find this; emit that field by passing `registrationEndpoint`
-   * to `buildOidcDiscovery`.
+   * RFC 7591 dynamic client registration, wired on `POST /register` and returned as application/json. With
+   * `dcrCfg.initialAccessToken` set the request must carry a matching `Authorization: Bearer <token>`, compared
+   * in constant time, or this answers `{ error: 'unauthorized' }`. WARN: unset, registration is open and belongs
+   * behind a private network. Pass `registrationEndpoint` to `buildOidcDiscovery` for clients to find it.
    */
   async register(
     req: OidcOP.DcrRequest,
@@ -265,11 +246,8 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
     }
   }
 
-  /**
-   * Validate an /authorize request and decide what the host should do
-   * next: 302 to login, prompt consent, or 302 to redirect_uri with a
-   * fresh code.
-   */
+  /** Validate an /authorize request and say what the host does next: 302 to login, prompt consent, or 302 to
+   *  the redirect_uri with a fresh code. */
   async authorize(
     req: OidcOP.AuthorizeRequest,
     httpReq: { headers: Headers },
@@ -288,7 +266,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
         body: { error: 'invalid_request', error_description: 'redirect_uri mismatch' },
       }
     }
-    // From here on we can redirect errors back to redirect_uri per OIDC.
+    // From here on errors can be redirected back to redirect_uri, per OIDC.
     if (req.response_type !== 'code') {
       return {
         kind: 'error',
@@ -333,7 +311,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
         }
       }
     }
-    // PKCE is mandatory for public clients; we require S256 across the board.
+    // PKCE is mandatory for public clients, and S256 is required across the board.
     if (req.code_challenge_method && req.code_challenge_method !== 'S256') {
       return {
         kind: 'error',
@@ -350,8 +328,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
         body: { error: 'invalid_request', error_description: 'PKCE required for public clients', state: req.state },
       }
     }
-    // Resolve session for the host's browser.
-    const resolved = await this.deps.auth.resolveSession(httpReq)
+    const resolved = await this.deps.auth.resolveSession(httpReq).orNull()
     if (!resolved?.identity) {
       if (req.prompt === 'none') {
         return {
@@ -363,7 +340,6 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
       }
       return { kind: 'login_required', reason: req.prompt === 'login' ? 'prompt_login' : 'no_session' }
     }
-    // Consent gate.
     const consent = await this.deps.consents.find(resolved.identity.id, client.client_id)
     const consentCoversRequest = consent !== null && requested.every((s) => consent.scope.includes(s))
     if (!consentCoversRequest || req.prompt === 'consent') {
@@ -398,7 +374,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
    */
   async completeConsent(input: {
     client_id: string
-    identity: Identity.Me<Profile>
+    identity: Identities.Me<Profile>
     redirect_uri: string
     scope: string[]
     state?: string
@@ -434,7 +410,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
 
   private async mintCodeAndRedirect(input: {
     client: OidcOP.Client
-    identity: Identity.Me<Profile>
+    identity: Identities.Me<Profile>
     redirect_uri: string
     scope: string[]
     state?: string
@@ -631,7 +607,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
     if (ctx.tenantId !== undefined && row.tenant_id !== ctx.tenantId) {
       return { error: 'invalid_token', error_description: 'cross-tenant token' }
     }
-    const identity = await this.deps.auth.identities.getById(row.identity_id)
+    const identity = await this.deps.auth.identities.getById(row.identity_id).orNull()
     if (!identity) return { error: 'invalid_token', error_description: 'subject not found' }
     const claims: OidcOP.UserinfoClaims = { sub: identity.id }
     if (row.scope.includes('profile')) {
@@ -742,7 +718,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
 }
 
 /** Convenience factory with sensible memory-store defaults. */
-export function createOidcOP<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(args: {
+export function createOidcOP<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(args: {
   auth: AuthEngine<Profile>
   config: OidcOP.Cfg
   signIdToken: (payload: Record<string, unknown>) => Promise<string> | string
@@ -775,10 +751,12 @@ function parseIssuer(input: string, allowHttp: boolean): string {
   try {
     parsed = new URL(input)
   } catch {
-    throw new Error(`AuthOidcOP: issuer '${input}' is not a valid URL`)
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: `AuthOidcOP: issuer '${input}' is not a valid URL` })
   }
   if (parsed.protocol !== 'https:' && !allowHttp) {
-    throw new Error(`AuthOidcOP: issuer must use HTTPS (${parsed.protocol}); pass allowHttp: true for dev only`)
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `AuthOidcOP: issuer must use HTTPS (${parsed.protocol}); pass allowHttp: true for dev only`,
+    })
   }
   return `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
 }
@@ -788,12 +766,38 @@ function assertValidRedirect(uri: string): void {
   try {
     url = new URL(uri)
   } catch {
-    throw new Error(`registerClient: redirect_uri '${uri}' is not a valid absolute URL`)
+    throw new AuthError('AUTH_INVALID_PARAMETERS', {
+      detail: `registerClient: redirect_uri '${uri}' is not a valid absolute URL`,
+    })
   }
-  if (url.hash !== '') throw new Error(`registerClient: redirect_uri must not include a fragment`)
+  if (url.hash !== '')
+    throw new AuthError('AUTH_INVALID_PARAMETERS', {
+      detail: 'registerClient: redirect_uri must not include a fragment',
+    })
   if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
-    throw new Error(`registerClient: non-loopback http redirect_uri rejected: ${uri}`)
+    throw new AuthError('AUTH_INVALID_PARAMETERS', {
+      detail: `registerClient: non-loopback http redirect_uri rejected: ${uri}`,
+    })
   }
+  if (url.username !== '' || url.password !== '') {
+    throw new AuthError('AUTH_INVALID_PARAMETERS', {
+      detail: `registerClient: redirect_uri must not carry userinfo: ${uri}`,
+    })
+  }
+  assertUsableScheme(url, uri)
+}
+
+/** Accepts https, loopback http, or the reverse-DNS private-use scheme RFC 8252 section 7.1 asks native clients
+ *  for. SECURITY: a rule, not a denylist. `javascript:`, `data:`, `file:`, `blob:`, `about:` and every future
+ *  sibling have no dot in the scheme, so one condition turns them all down and a stale list cannot miss one.
+ *  Sending a browser to `javascript:` with the code in scope is an XSS sink wearing a redirect's clothes. */
+function assertUsableScheme(url: URL, uri: string): void {
+  if (url.protocol === 'https:' || url.protocol === 'http:') return
+  // `protocol` keeps the trailing colon, which is not part of the scheme name.
+  if (url.protocol.slice(0, -1).includes('.')) return
+  throw new AuthError('AUTH_INVALID_PARAMETERS', {
+    detail: `registerClient: redirect_uri scheme '${url.protocol}' is not https, loopback http, or a reverse-DNS private-use scheme: ${uri}`,
+  })
 }
 
 function isLoopbackHost(hostname: string): boolean {
@@ -856,7 +860,6 @@ function parseBasicAuth(header: string | null): { user: string; pass: string } |
   return { user: decoded.slice(0, idx), pass: decoded.slice(idx + 1) }
 }
 
-/** Factory around {@link OidcOpRoot}, for callers who prefer functions to `new`. */
 export function oidcOpRoot(...args: ConstructorParameters<typeof OidcOpRoot>): OidcOpRoot {
   return new OidcOpRoot(...args)
 }

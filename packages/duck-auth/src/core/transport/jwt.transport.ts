@@ -1,9 +1,10 @@
 import { createPublicKey } from 'node:crypto'
-import { isExpiredAt } from '../credentials/credentials'
+import { type Answer, answer } from '../answer'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
+import { isExpiredAt } from '../predicates/predicates'
 import type { Provider } from '../provider/provider.types'
-import type { Sessions } from '../sessions/sessions.types'
+import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
 import { signEddsa, verifyEddsa } from './jwt-algs/eddsa.alg'
 import { signEs256, verifyEs256 } from './jwt-algs/es256.alg'
@@ -11,38 +12,28 @@ import { signHs256, verifyHs256 } from './jwt-algs/hs256.alg'
 import { signRs256, verifyRs256 } from './jwt-algs/rs256.alg'
 
 /**
- * `AuthJwtTransport` - stateless transport (edge / serverless) backed by `node:crypto`.
- * Algorithms: HS256, ES256, RS256, EdDSA. Alg is pinned per-kid to defeat alg-confusion
- * (RFC 8725 section 3.1). Refresh tokens are opaque cookies rotated server-side.
+ * Stateless, for edge and serverless, over `node:crypto`. HS256, ES256, RS256 and EdDSA, with the alg
+ * pinned per kid to defeat alg-confusion (RFC 8725 section 3.1). Refresh tokens are opaque cookies
+ * rotated server-side.
  */
 
 const DEFAULT_REFRESH_COOKIE = '__Host-duck-refresh'
 
 export namespace JwtTransport {
   export interface Cfg {
-    /**
-     * Active signing key. For HS256 the `key` is the secret; for ES256 /
-     * RS256 it is the PEM-encoded PRIVATE key. `alg` defaults to HS256.
-     */
+    /** `key` is the secret for HS256 and the PEM-encoded private key for ES256 and RS256. `alg` defaults
+     *  to HS256. */
     signKey: { kid: string; alg?: JwtTransport.IJwtAlg; key: string }
-    /**
-     * All currently-valid verify keys. Must contain `signKey`; during rotation,
-     * the previous keys remain here for an overlap window so already-issued
-     * tokens keep verifying.
-     */
+    /** Every currently-valid verify key, `signKey` included. During rotation the previous keys stay
+     *  for an overlap window, so already-issued tokens keep verifying. */
     verifyKeys: JwtTransport.IVerifyKey[]
     issuer: string
     audience?: string
     /** JWT TTL in ms. Default 15 minutes. */
     ttlMs?: number
-    /**
-     * Freshness window in ms. A JWT round-trip reconstructs the session
-     * with `fresh = (now - rotatedAt) < freshnessMs`. Default 5 minutes,
-     * matching `SessionsFacet.Cfg.freshnessMs`. Privileged
-     * operations (password reset with TOTP, step-up-required actions)
-     * branch on the `fresh` flag; setting this too high effectively
-     * disables the freshness gate.
-     */
+    /** Freshness window in ms: a round trip reconstructs the session with
+     *  `fresh = (now - rotatedAt) < freshnessMs`. Default 5 minutes, matching `Sessions.Cfg`.
+     *  WARN: privileged operations branch on `fresh`, so too high a value disables the gate. */
     freshnessMs?: number
     /** Optional refresh cookie shape. */
     refresh?: {
@@ -55,37 +46,29 @@ export namespace JwtTransport {
 
   export interface IVerifyKey {
     kid: string
-    /**
-     * Algorithm this key verifies. Default `'HS256'` for backwards
-     * compatibility; ES256 + RS256 callers must set this explicitly.
-     */
+    /** `'HS256'` by default, for backwards compatibility; ES256 and RS256 callers set it explicitly. */
     alg?: JwtTransport.IJwtAlg
-    /**
-     * Key material. For `HS256`: the UTF-8 secret. For `ES256` / `RS256`:
-     * the PEM-encoded public key (SPKI or RSA-PUBLIC).
-     */
+    /** The UTF-8 secret for `HS256`, and the PEM-encoded public key (SPKI or RSA-PUBLIC) for `ES256`
+     *  and `RS256`. */
     key: string
-    /** Optional rotation cutoff - verify-only after this. */
+    /** Rotation cutoff: verify-only past this point. */
     notAfter?: number
   }
 
   export type IJwtAlg = 'HS256' | 'ES256' | 'RS256' | 'EdDSA'
 
   export interface IRotateOpts {
-    /** New signing key. Becomes effective for all subsequent issue() calls. */
+    /** Effective for every subsequent `issue()`. */
     signKey: { kid: string; alg?: IJwtAlg; key: string }
-    /**
-     * Optional verify-side entry for the new key. Required for
-     * asymmetric algs since signKey carries the PRIVATE key and the
-     * verify ring needs the PUBLIC counterpart.
-     */
+    /** The verify-side entry for the new key. Required for asymmetric algs, where `signKey` carries
+     *  the private key and the ring needs its public counterpart. */
     verifyKey?: IVerifyKey
   }
 
   export interface Payload {
     /** Issuer. */
     iss: string
-    /** Subject - identity id. */
+    /** Subject: the identity id. */
     sub: string | null
     /** Audience (optional). */
     aud?: string
@@ -97,23 +80,18 @@ export namespace JwtTransport {
     sid: string
     /** Session AAL. */
     aal: Sessions.AAL
-    /** Session factors (method names only). Parser validates each entry against {@link Sessions.FactorMethod}. */
+    /** Method names only; the parser checks each against {@link Sessions.FactorMethod}. */
     factors: Sessions.FactorMethod[]
     /** Tenant id when present. */
     tid?: string
     /** Acting-as envelope when impersonating. Timestamps are epoch seconds on the wire. */
     acting_as?: { realIdentityId: string; startedAt: number; reason: string; expiresAt: number }
-    /** Session kind (`'user' | 'apikey' | 'guest'`). Preserved so M2M tokens round-trip correctly. */
+    /** `'user' | 'apikey' | 'guest'`, preserved so an M2M token round-trips. */
     knd?: Sessions.Kind
-    /** Session rotation timestamp (epoch s); drives `session.fresh = now - rotatedAt < freshnessMs`. */
+    /** Epoch seconds, driving `session.fresh = now - rotatedAt < freshnessMs`. */
     frsh?: number
-    /**
-     * oauth-style scope string (space-separated). Emitted when
-     * `issue()` was called with `Transport.IssueOpts.scope`. Resource
-     * servers branch on this without an out-of-band scope lookup. Used
-     * by the M2MFacet client_credentials grant so the `scopeMode` knob
-     * has wire-level effect.
-     */
+    /** Space-separated OAuth scope, emitted when `issue()` was given one, so a resource server
+     *  branches without an out-of-band lookup. What gives `M2MImpl`'s `scopeMode` wire-level effect. */
     scope?: string
   }
 }
@@ -153,17 +131,9 @@ function jwsVerify(alg: JwtTransport.IJwtAlg, key: string, signingInput: string,
 }
 
 /** Runtime validators for JWT header + payload; any rejection makes `verify()` return `null`. */
-const FACTOR_METHOD_VALUES: ReadonlySet<string> = new Set<Sessions.FactorMethod>([
-  'password',
-  'passkey',
-  'totp',
-  'oauth',
-  'magic-link',
-  'webauthn',
-  'sms',
-  'api-key',
-  'backup-code',
-])
+// Derived, not restated: a method added to the constant but not to a second copy here would be
+// dropped from every parsed token while the source of truth still called it valid.
+const FACTOR_METHOD_VALUES: ReadonlySet<string> = new Set<Sessions.FactorMethod>(AUTH_SESSION_FACTOR_METHODS)
 const SESSION_KIND_VALUES: ReadonlySet<string> = new Set<Sessions.Kind>(['guest', 'user', 'apikey'])
 const JWT_ALG_VALUES: ReadonlySet<string> = new Set<JwtTransport.IJwtAlg>(['HS256', 'ES256', 'RS256', 'EdDSA'])
 
@@ -244,6 +214,7 @@ function parseJwtPayload(raw: unknown): JwtTransport.Payload | null {
   return payload
 }
 
+/** Stateless JWT transport: signs the session into the token and verifies it without a store read. */
 export class JwtTransport implements Transport.ITransport {
   private readonly _verifyKeys: Map<string, JwtTransport.IVerifyKey>
   private _signKey: JwtTransport.Cfg['signKey']
@@ -252,10 +223,11 @@ export class JwtTransport implements Transport.ITransport {
   private readonly _refreshCookieName: string
   private readonly _refreshTtlMs: number
   private readonly _refreshEnabled: boolean
+  /** Read by `strict()`, which enforces the production floor. A boolean, never the key. */
+  readonly __weakSigningKey: boolean
 
   constructor(private readonly _cfg: JwtTransport.Cfg) {
-    // signKey kid sanity check; flows into the JOSE header per token. A
-    // huge or non-string kid would inflate every issued JWT.
+    // The kid flows into the JOSE header of every token, so a huge or non-string one inflates them all.
     if (typeof _cfg.signKey.kid !== 'string' || _cfg.signKey.kid.length === 0 || _cfg.signKey.kid.length > 256) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthJwtTransport.signKey.kid must be a non-empty string <=256 chars',
@@ -266,9 +238,13 @@ export class JwtTransport implements Transport.ITransport {
         detail: 'AuthJwtTransport.signKey.key must be a non-empty string (HS256 secret or PEM)',
       })
     }
-    // assert verifyKeys carries no duplicate kid. The Map constructor
-    // would silently last-wins, leaving operators with two kids in config
-    // but one effective entry. Surface the misconfig at boot.
+    // RFC 7518 section 3.2 puts a floor under the HMAC algorithms; an asymmetric `key` is a PEM, whose
+    // strength is in the key it encodes and not in its length. Recorded, not thrown: a short secret is a
+    // production footgun, and `strict({ env: 'production' })` is where those are refused.
+    this.__weakSigningKey =
+      (_cfg.signKey.alg ?? 'HS256').startsWith('HS') && Buffer.byteLength(_cfg.signKey.key, 'utf8') < 32
+    // No duplicate kid: the Map constructor takes the last silently, leaving an operator with two kids
+    // in config and one effective entry. Surfaced at boot instead.
     const seen = new Set<string>()
     for (const k of _cfg.verifyKeys) {
       if (typeof k.kid !== 'string' || k.kid.length === 0 || k.kid.length > 256) {
@@ -284,9 +260,8 @@ export class JwtTransport implements Transport.ITransport {
       seen.add(k.kid)
     }
     this._verifyKeys = new Map(_cfg.verifyKeys.map((k) => [k.kid, k]))
-    // If the signKey's kid is also in verifyKeys, alg + key material
-    // (for HS*) must match; catches operator typos that would silently
-    // swap signing material under a shared kid label.
+    // A signKey kid that also appears in verifyKeys must match on alg, and on key material for HS*:
+    // otherwise a typo silently swaps signing material under a shared kid label.
     const matchedVerify = this._verifyKeys.get(_cfg.signKey.kid)
     if (matchedVerify) {
       const signAlg = _cfg.signKey.alg ?? 'HS256'
@@ -316,12 +291,12 @@ export class JwtTransport implements Transport.ITransport {
     this._refreshTtlMs = _cfg.refresh?.ttlMs ?? 7 * 24 * 60 * 60 * 1000
   }
 
-  /** Pull the Bearer access token (header form preferred; cookie fallback for refresh). */
+  /** Header form preferred, with the cookie as the refresh fallback. */
   extract(req: { headers: Headers }): string | null {
     const auth = req.headers.get('authorization')
     if (!auth) return null
-    // Case-insensitive scheme match (RFC 7235), 4KB cap, reject
-    // comma-joined multi-Authorization smuggling.
+    // Case-insensitive scheme match (RFC 7235), a 4KB cap, and comma-joined multi-Authorization
+    // smuggling refused.
     const head = auth.slice(0, 'Bearer '.length).toLowerCase()
     if (head !== 'bearer ') return null
     const token = auth.slice('Bearer '.length).trim()
@@ -331,11 +306,8 @@ export class JwtTransport implements Transport.ITransport {
     return token
   }
 
-  /**
-   * Issue an access JWT plus (when refresh enabled) an opaque refresh
-   * cookie. The plaintext SID is used as the refresh cookie value so
-   * the framework adapter can read it back at refresh time.
-   */
+  /** Issue an access JWT and, with refresh enabled, an opaque refresh cookie carrying the plaintext
+   *  SID, which is what the framework adapter reads back at refresh time. */
   issue(sid: string, session: Sessions.Me, opts: Transport.IssueOpts): Provider.Intent[] {
     const now = Math.floor(Date.now() / 1000)
     const sessionExpiresMs =
@@ -356,9 +328,8 @@ export class JwtTransport implements Transport.ITransport {
       aal: session.aal,
       factors: session.factors.map((f) => f.method),
       knd: session.kind,
-      // rotatedAt-epoch seconds. Lets `verify()` compute `fresh` without
-      // a store hit (cookie sessions get this from the store row; JWTs
-      // must carry it on the wire).
+      // rotatedAt in epoch seconds, so `verify()` computes `fresh` without a store hit: a cookie session
+      // reads it off the row, and a JWT has to carry it on the wire.
       frsh: Math.floor(
         (session.rotatedAt instanceof Date ? session.rotatedAt.getTime() : (session.rotatedAt as number)) / 1000,
       ),
@@ -412,7 +383,7 @@ export class JwtTransport implements Transport.ITransport {
     return intents
   }
 
-  /** Revoke the refresh cookie (when in use); no-op for the stateless JWT. */
+  /** Revokes the refresh cookie when one is in use; a no-op for the stateless JWT. */
   revoke(): Provider.Intent[] {
     if (!this._refreshEnabled) {
       return [{ type: 'json', status: 200, body: { revoked: true } }]
@@ -426,93 +397,104 @@ export class JwtTransport implements Transport.ITransport {
     ]
   }
 
-  /** Verify the JWT and reconstruct a Session WITHOUT a store hit. */
-  async verify(token: string): Promise<Sessions.Me | null> {
-    if (typeof token !== 'string' || token.length === 0 || token.length > 4096) {
-      return null
-    }
-    const [headerB64, payloadB64, sig, ...rest] = token.split('.')
-    if (rest.length > 0 || headerB64 === undefined || payloadB64 === undefined || sig === undefined) {
-      return null
-    }
-
-    let rawHeader: unknown
-    try {
-      rawHeader = JSON.parse(base64urlDecode(headerB64))
-    } catch {
-      return null
-    }
-    const header = parseJwtHeader(rawHeader)
-    if (!header) return null
-
-    const key = this._verifyKeys.get(header.kid)
-    if (!key) return null
-    // Pin the alg to the key configuration to prevent alg-confusion
-    // attacks (RFC 8725 section 3.1).
-    const expectedAlg: JwtTransport.IJwtAlg = key.alg ?? 'HS256'
-    if (header.alg !== expectedAlg) return null
-    // `isExpiredAt` fail-closes; non-finite `notAfter` would slip past expiry.
-    if (isExpiredAt(key.notAfter)) return null
-
-    if (!jwsVerify(expectedAlg, key.key, `${headerB64}.${payloadB64}`, sig)) return null
-
-    let rawPayload: unknown
-    try {
-      rawPayload = JSON.parse(base64urlDecode(payloadB64))
-    } catch {
-      return null
-    }
-    const payload = parseJwtPayload(rawPayload)
-    if (!payload) return null
-
-    const nowSec = Math.floor(Date.now() / 1000)
-    if (payload.exp < nowSec) return null
-    if (payload.iss !== this._cfg.issuer) return null
-    if (this._cfg.audience !== undefined && payload.aud !== this._cfg.audience) return null
-
-    // `frsh` claim (or `iat` fallback) matches cookie-session freshness window.
-    const rotatedAtMs = (payload.frsh ?? payload.iat) * 1000
-    const completedAtDate = new Date(payload.iat * 1000)
-    const session: Sessions.Me = {
-      id: payload.sid,
-      identityId: payload.sub,
-      tenantId: payload.tid ?? null,
-      kind: payload.knd ?? (payload.sub ? 'user' : 'guest'),
-      aal: payload.aal,
-      factors: payload.factors.map((m) => ({ method: m, completedAt: completedAtDate })),
-      csrfHash: null,
-      ip: null,
-      userAgent: null,
-      fingerprint: null,
-      createdAt: new Date(payload.iat * 1000),
-      rotatedAt: new Date(rotatedAtMs),
-      expiresAt: new Date(payload.exp * 1000),
-      absoluteExpiresAt: new Date(payload.exp * 1000),
-      fresh: Date.now() - rotatedAtMs < this._freshnessMs,
-      actingAs: null,
-    }
-    if (payload.acting_as !== undefined) {
-      const aa = payload.acting_as
-      session.actingAs = {
-        realIdentityId: aa.realIdentityId,
-        reason: aa.reason,
-        startedAt: new Date(aa.startedAt * 1000),
-        expiresAt: new Date(aa.expiresAt * 1000),
+  /** Reconstructs the session with no store hit. */
+  verify(token: string): Answer.Me<Sessions.Me> {
+    return answer(async () => {
+      if (typeof token !== 'string' || token.length === 0 || token.length > 4096) {
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'token is empty or over the 4096-character cap' })
       }
-    }
-    // Stateless JWT mode enforces actingAs expiry at verify time.
-    if (session.actingAs?.expiresAt !== undefined && isExpiredAt(session.actingAs.expiresAt)) {
-      return null
-    }
-    return session
+      const [headerB64, payloadB64, sig, ...rest] = token.split('.')
+      if (rest.length > 0 || headerB64 === undefined || payloadB64 === undefined || sig === undefined) {
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'token is not a three-part JWS' })
+      }
+
+      let rawHeader: unknown
+      try {
+        rawHeader = JSON.parse(base64urlDecode(headerB64))
+      } catch {
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the header is not decodable base64url JSON' })
+      }
+      const header = parseJwtHeader(rawHeader)
+      if (!header)
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the header is missing or has a malformed alg or kid' })
+
+      const key = this._verifyKeys.get(header.kid)
+      if (!key)
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'no verification key is configured for this kid' })
+      // Pinned to the key configuration, against alg-confusion (RFC 8725 section 3.1).
+      const expectedAlg: JwtTransport.IJwtAlg = key.alg ?? 'HS256'
+      if (header.alg !== expectedAlg)
+        throw new AuthError('AUTH_SESSION_REVOKED', {
+          reason: 'the header alg does not match the alg pinned to the key',
+        })
+      // `isExpiredAt` fail-closes; non-finite `notAfter` would slip past expiry.
+      if (isExpiredAt(key.notAfter))
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the verification key is past its notAfter' })
+
+      if (!jwsVerify(expectedAlg, key.key, `${headerB64}.${payloadB64}`, sig))
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the signature does not verify under that key' })
+
+      let rawPayload: unknown
+      try {
+        rawPayload = JSON.parse(base64urlDecode(payloadB64))
+      } catch {
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the payload is not decodable base64url JSON' })
+      }
+      const payload = parseJwtPayload(rawPayload)
+      if (!payload)
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the payload is missing or has a malformed claim' })
+
+      const nowSec = Math.floor(Date.now() / 1000)
+      if (payload.exp < nowSec) throw new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: payload.exp * 1000 })
+      if (payload.iss !== this._cfg.issuer)
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'iss does not match the configured issuer' })
+      if (this._cfg.audience !== undefined && payload.aud !== this._cfg.audience)
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'aud does not match the configured audience' })
+
+      // `frsh` claim (or `iat` fallback) matches cookie-session freshness window.
+      const rotatedAtMs = (payload.frsh ?? payload.iat) * 1000
+      const completedAtDate = new Date(payload.iat * 1000)
+      const session: Sessions.Me = {
+        id: payload.sid,
+        identityId: payload.sub,
+        tenantId: payload.tid ?? null,
+        kind: payload.knd ?? (payload.sub ? 'user' : 'guest'),
+        aal: payload.aal,
+        factors: payload.factors.map((m) => ({ method: m, completedAt: completedAtDate })),
+        csrfHash: null,
+        ip: null,
+        userAgent: null,
+        fingerprint: null,
+        createdAt: new Date(payload.iat * 1000),
+        // No stored row to have been updated: the claims were last written when the token was minted.
+        updatedAt: new Date(payload.iat * 1000),
+        rotatedAt: new Date(rotatedAtMs),
+        expiresAt: new Date(payload.exp * 1000),
+        absoluteExpiresAt: new Date(payload.exp * 1000),
+        // SECURITY: bounds both ends. `frsh` is minted on the issuing clock and read on the verifying one,
+        // so a bare `now - frsh` makes a future stamp permanently fresh and the step-up gate permanently met.
+        fresh: Math.abs(Date.now() - rotatedAtMs) < this._freshnessMs,
+        actingAs: null,
+      }
+      if (payload.acting_as !== undefined) {
+        const aa = payload.acting_as
+        session.actingAs = {
+          realIdentityId: aa.realIdentityId,
+          reason: aa.reason,
+          startedAt: new Date(aa.startedAt * 1000),
+          expiresAt: new Date(aa.expiresAt * 1000),
+        }
+      }
+      // Stateless JWT mode enforces actingAs expiry at verify time.
+      if (session.actingAs?.expiresAt !== undefined && isExpiredAt(session.actingAs.expiresAt)) {
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the impersonation window has closed' })
+      }
+      return session
+    })
   }
 
-  /**
-   * Emit a JWKS document for the asymmetric verify keys. HS256 keys
-   * are skipped (symmetric secrets must never appear in JWKS). RS256
-   * + ES256 PEM keys are parsed via `createPublicKey` and exported as
-   * JWK with the configured `kid` + `alg` + `use:'sig'`.
-   */
+  /** A JWKS document for the asymmetric verify keys, exported with their `kid`, `alg` and `use: 'sig'`.
+   *  SECURITY: HS256 keys are skipped, since a symmetric secret must never appear in a JWKS. */
   jwks(): { keys: Array<Record<string, unknown>> } {
     const out: Array<Record<string, unknown>> = []
     for (const key of this._verifyKeys.values()) {
@@ -522,36 +504,25 @@ export class JwtTransport implements Transport.ITransport {
         const pub = createPublicKey(key.key).export({ format: 'jwk' }) as Record<string, unknown>
         out.push({ ...pub, kid: key.kid, alg, use: 'sig' })
       } catch {
-        // Skip malformed key rather than fail the whole document.
+        // A malformed key is skipped rather than failing the whole document.
       }
     }
     return { keys: out }
   }
 
-  /**
-   * Mint a fresh JWT from a session without rotating the SID. Used by
-   * refresh endpoints after verifying the refresh cookie.
-   */
+  /** Mints a fresh JWT from a session without rotating the SID, for a refresh endpoint that has already
+   *  verified the refresh cookie. */
   static mintFresh(transport: JwtTransport, sid: string, session: Sessions.Me): Provider.Intent[] {
     return transport.issue(sid, session, { fresh: true, absolute: false })
   }
 
-  /**
-   * Live JWKS rotation. Promote a new signing key and (optionally) add
-   * its public counterpart to the verify ring atomically. Older keys
-   * stay in the ring under their original kid so already-issued tokens
-   * keep verifying; operators retire them via `retireVerifyKey(kid)`
-   * after their grace window elapses.
-   */
+  /** Promote a new signing key and add its public counterpart to the verify ring atomically. Older
+   *  keys stay under their original kid so issued tokens keep verifying, until `retireVerifyKey`. */
   rotateSignKey(opts: JwtTransport.IRotateOpts): void {
     const newSign = opts.signKey
     const newAlg: JwtTransport.IJwtAlg = newSign.alg ?? 'HS256'
-    // Asymmetric algs sign with a private key but verify with its public
-    // counterpart. Omitting verifyKey is fine when signKey.kid is already in
-    // the ring under a matching alg (e.g. rotating back to a previously-added
-    // key) - otherwise no verifier holds this kid's public key, so every
-    // token minted under this rotation fails verification the moment it's
-    // checked.
+    // Omitting `verifyKey` is fine only when this kid is already in the ring under a matching alg;
+    // otherwise no verifier holds its public key and every token minted under the rotation fails.
     if (newAlg !== 'HS256' && !opts.verifyKey) {
       const known = this._verifyKeys.get(newSign.kid)
       if (!known || (known.alg ?? 'HS256') !== newAlg) {
@@ -584,11 +555,8 @@ export class JwtTransport implements Transport.ITransport {
     this._signKey = newSign
   }
 
-  /**
-   * Remove a kid from the verify ring. Use after the grace window
-   * expires so verifiers stop accepting tokens minted under the old
-   * key. Refuses to remove the current signing kid.
-   */
+  /** Remove a kid from the verify ring once its grace window has passed. Refuses the current signing
+   *  kid. */
   retireVerifyKey(kid: string): void {
     if (kid === this._signKey.kid) {
       throw new AuthError('AUTH_MISCONFIGURED', {
@@ -599,6 +567,7 @@ export class JwtTransport implements Transport.ITransport {
   }
 }
 
+/** Constructs a {@link JwtTransport}. */
 export function jwtTransport(cfg: JwtTransport.Cfg): JwtTransport {
   return new JwtTransport(cfg)
 }

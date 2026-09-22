@@ -1,24 +1,11 @@
 import { sql } from 'drizzle-orm'
-import {
-  check,
-  foreignKey,
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-  unique,
-  uniqueIndex,
-} from 'drizzle-orm/sqlite-core'
+import { check, foreignKey, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl } from '../../../core/types'
 
 /**
- * SQLite schema for the duck-iam IamDrizzle adapter. Every payload column is TEXT, so
- * the adapter must run in `json: 'string'` mode. Global rows (NULL scope) are
- * de-duplicated via a `COALESCE(scope, '')` expression unique index.
- * `created_by`/`updated_by` are left NULL by the adapter (no actor context); see the
- * Postgres schema for fuller notes.
+ * SQLite schema for the drizzle adapter. Payload columns are TEXT, so the adapter must use `json: 'string'`.
+ * NULL-scope rows are de-duplicated by a `COALESCE(scope, '')` expression unique index.
  */
 
 /** Mirrors {@link AccessControl.CombiningAlgorithm}. */
@@ -53,7 +40,7 @@ export const iamPolicies = sqliteTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
-    unique('uq_iam_policies_name').on(t.name),
+    // NOTE: no unique index on `name`: policies resolve by `id`, and every adapter must accept a duplicate name.
     check(
       'ch_iam_policies_algorithm_valid',
       sql`${t.algorithm} IN ('deny-overrides','allow-overrides','first-match','highest-priority')`,
@@ -87,19 +74,20 @@ export const iamRoles = sqliteTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    uniqueIndex('uq_iam_roles_name_scope').on(t.name, sql`coalesce(${t.scope}, '')`),
+    // NOTE: no unique index on (name, scope), for the same reason as `iam_policies`.
     index('idx_iam_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
     check(
       'ch_iam_roles_name_not_blank',
       sql`trim(${t.name}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
     ),
+    check(
+      'ch_iam_roles_scope_not_blank',
+      sql`${t.scope} IS NULL OR trim(${t.scope}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
   ],
 )
 
-/**
- * Subject-to-role assignments. NULL scope is a global (unscoped) grant. NULL
- * `starts_at`/`expires_at` means unbounded in that direction.
- */
+/** Subject-to-role assignments. NULL `scope` is a global grant; NULL `starts_at`/`expires_at` is unbounded that way. */
 export const iamAssignments = sqliteTable(
   'iam_assignments',
   {
@@ -127,7 +115,13 @@ export const iamAssignments = sqliteTable(
       columns: [t.roleId],
       foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
-    uniqueIndex('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`coalesce(${t.scope}, '')`),
+    // Two partial indexes rather than one over `coalesce(scope, '')`: drizzle-kit splits any comma-bearing
+    // expression in `.on()` into separate index columns, which emits invalid DDL. Together these say what
+    // `nullsNotDistinct()` says on pg - a subject holds a role at most once per scope, global scope included.
+    uniqueIndex('uq_iam_assignments_subject_role_scope')
+      .on(t.subjectId, t.roleId, t.scope)
+      .where(sql`${t.scope} IS NOT NULL`),
+    uniqueIndex('uq_iam_assignments_subject_role_global').on(t.subjectId, t.roleId).where(sql`${t.scope} IS NULL`),
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
     index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
@@ -135,6 +129,10 @@ export const iamAssignments = sqliteTable(
     check(
       'ch_iam_assignments_subject_not_blank',
       sql`trim(${t.subjectId}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
+    check(
+      'ch_iam_assignments_scope_not_blank',
+      sql`${t.scope} IS NULL OR trim(${t.scope}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
     ),
     check(
       'ch_iam_assignments_starts_before_expires',

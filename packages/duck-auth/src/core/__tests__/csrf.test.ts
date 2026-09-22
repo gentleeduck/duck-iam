@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { sha256 } from '../crypto'
 import { AUTH_DEFAULT_CSRF_CONFIG, buildCsrfCookieOptions, csrfGuard, issueCsrfToken, verifyCsrf } from '../csrf'
+import { AuthError } from '../errors'
 
 describe('CSRF', () => {
   describe('authIssueCsrfToken / authBuildCsrfCookieOptions', () => {
@@ -213,9 +214,12 @@ describe('CSRF', () => {
   })
 
   describe('authCsrfGuard convenience helper', () => {
+    /** `null` means no session, which the engine answers by rejecting; `csrfGuard` reads that through
+     *  `orNull` and still runs the double-submit check against the cookie alone. */
     const fakeAuth = (resolved: { session: { csrfHash?: string } } | null) => ({
-      async resolveSession() {
-        return resolved as never
+      async resolveSession(): Promise<{ session: { csrfHash?: string }; identity: unknown }> {
+        if (resolved === null) throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'no session' })
+        return { ...resolved, identity: null }
       },
     })
 

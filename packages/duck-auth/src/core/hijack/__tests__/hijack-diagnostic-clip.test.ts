@@ -12,6 +12,7 @@ function fakeSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
     aal: 1,
     factors: [{ method: 'password', completedAt: new Date(now) }],
     createdAt: new Date(now),
+    updatedAt: new Date(now),
     rotatedAt: new Date(now),
     expiresAt: new Date(now + 60_000),
     absoluteExpiresAt: new Date(now + 60_000),

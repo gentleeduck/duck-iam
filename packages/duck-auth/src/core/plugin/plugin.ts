@@ -1,43 +1,35 @@
+import { AuthError } from '~/core/errors'
 import type { Events } from '~/core/events/events.types'
 import type { Provider } from '~/core/provider/provider.types'
 import type { AuthEngine } from '../engine'
 import type { Identities } from '../identities'
 
-/**
- * Plugin registry. Generic over the AuthEngine generics so `install` does not
- * need a cast at the call site; `AuthEngine.use(plugin)` forwards its own
- * generics unchanged.
- */
+/** Generic over the engine's own generics, so `AuthEngine.use` forwards them and `install` needs no cast. */
 export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
   private readonly _plugins = new Map<string, PluginRegistry.Plugin<Profile, Tenant, OrgMeta>>()
   private readonly _eventUnsubs: Array<() => void> = []
 
-  /** All installed plugins keyed by id. */
   get installed(): ReadonlyMap<string, PluginRegistry.Plugin<Profile, Tenant, OrgMeta>> {
     return this._plugins
   }
 
-  /** Mounted facets keyed by plugin id; consumer-side narrowing required. */
+  /** Keyed by plugin id, and `unknown`, so the consumer narrows. */
   readonly facets: Record<string, unknown> = {}
 
-  /** Install a plugin atomically. */
+  /** All of the plugin or none of it: a failure part-way unwinds what landed. */
   async install(
     auth: AuthEngine<Profile, Tenant, OrgMeta>,
     plugin: PluginRegistry.Plugin<Profile, Tenant, OrgMeta>,
   ): Promise<void> {
     if (typeof plugin?.id !== 'string' || plugin.id.length === 0 || plugin.id.length > 128) {
-      throw new Error('@gentleduck/auth: plugin.id must be a non-empty string <=128 chars')
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: '@gentleduck/auth: plugin.id must be a non-empty string <=128 chars',
+      })
     }
     if (this._plugins.has(plugin.id)) {
-      throw new Error(`@gentleduck/auth: plugin "${plugin.id}" already installed`)
-    }
-
-    // Providers first: a duplicate provider id throws here, before the plugin id is
-    // committed, so the author can fix the collision and install under the same id.
-    // `Providers` has no unregister, so anything registered by a plugin that fails
-    // later stays; the rollback below covers what can be undone.
-    if (plugin.providers) {
-      for (const p of plugin.providers) auth.providers.register(p)
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `@gentleduck/auth: plugin "${plugin.id}" already installed`,
+      })
     }
 
     const unsubs: Array<() => void> = []
@@ -51,9 +43,15 @@ export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tena
       if (plugin.facet !== undefined) {
         this.facets[plugin.id] = plugin.facet
       }
-      // Last, so the hook observes the finished wiring.
       if (plugin.install) {
         await plugin.install(auth)
+      }
+      // Providers last, because this is the only step that cannot be undone: `Providers` has no
+      // unregister. Registered first, a hook that then threw left its sign-in providers reachable
+      // through `signIn` for the life of the engine - wired by a plugin that is not installed, whose
+      // `install` never ran and whose facet and events were rolled back around them.
+      if (plugin.providers) {
+        auth.providers.registerAll(plugin.providers)
       }
     } catch (err) {
       for (const unsub of unsubs) unsub()

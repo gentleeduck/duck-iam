@@ -1,4 +1,4 @@
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey/valkey-like'
+import { type ValkeyClient, valkeyAdapter } from '~/core/drivers/valkey-like'
 import { RedisDPoPNonceStore } from './dpop-nonce.redis'
 
 /** {@link RedisDPoPNonceStore}, driven by an ioredis/iovalkey client via {@link valkeyAdapter}. */

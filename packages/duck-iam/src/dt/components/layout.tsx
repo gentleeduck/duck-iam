@@ -1,16 +1,21 @@
-import { cn } from '@gentleduck/libs/cn'
+/** The two-pane skeleton the panels share: list, detail pane, and the filter, section and empty-state pieces. */
 import React from 'react'
 import { ChevronDown, ChevronRight, Search } from './icons'
 
+/**
+ * Two-pane frame: a 300px list beside a fluid detail pane, stacking into rows at 720px and below.
+ * NOTE: carries the `iam-dt` root class so a panel mounted on its own still gets the theme tokens.
+ */
 export function SplitView({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
   return (
-    <div className="grid h-full min-h-0 grid-cols-[300px_1fr] overflow-hidden">
-      <aside className="flex h-full min-h-0 flex-col overflow-hidden border-r bg-card">{left}</aside>
-      <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">{right}</section>
+    <div className="iam-dt iam-dt-split">
+      <aside className="iam-dt-split__aside">{left}</aside>
+      <section className="iam-dt-split__main">{right}</section>
     </div>
   )
 }
 
+/** A scrolling list under a fixed header with its title, item count and toolbar. */
 export function ListShell({
   title,
   count,
@@ -23,25 +28,20 @@ export function ListShell({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-card px-3 py-2">
-        <div className="flex items-center gap-2">
-          {title && (
-            <h3 className="font-semibold text-[10px] text-muted-foreground uppercase tracking-[0.2em]">{title}</h3>
-          )}
-          {typeof count === 'number' && (
-            <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 font-mono font-semibold text-[9px] text-muted-foreground">
-              {count}
-            </span>
-          )}
+    <div className="iam-dt-list">
+      <div className="iam-dt-list__head">
+        <div className="iam-dt-list__titles">
+          {title && <h3 className="iam-dt-list__title">{title}</h3>}
+          {typeof count === 'number' && <span className="iam-dt-list__count">{count}</span>}
         </div>
         {toolbar}
       </div>
-      <div className="flex-1 overflow-auto">{children}</div>
+      <div className="iam-dt-list__body">{children}</div>
     </div>
   )
 }
 
+/** One selectable row. `active` is owned by the caller and mirrored to `aria-current`. */
 export function ListItem({
   active,
   onClick,
@@ -59,28 +59,22 @@ export function ListItem({
 }) {
   return (
     <button
-      type="button"
+      aria-current={active ? 'true' : undefined}
+      className="iam-dt-item"
+      data-active={active ? '1' : undefined}
       onClick={onClick}
-      className={cn(
-        'group flex w-full items-center gap-2 border-border/50 border-b px-3 py-1.5 text-left transition-colors',
-        active ? 'bg-primary/10 hover:bg-primary/15' : 'hover:bg-muted/50',
-      )}>
-      {dot && <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: dot }} />}
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div
-          className={cn(
-            'truncate font-mono text-[11px]',
-            active ? 'font-semibold text-foreground' : 'text-foreground',
-          )}>
-          {primary}
-        </div>
-        {secondary && <div className="truncate font-mono text-[9px] text-muted-foreground">{secondary}</div>}
-      </div>
+      type="button">
+      {dot && <span aria-hidden className="iam-dt-item__dot" style={{ backgroundColor: dot }} />}
+      <span className="iam-dt-item__text">
+        <span className="iam-dt-item__primary">{primary}</span>
+        {secondary && <span className="iam-dt-item__secondary">{secondary}</span>}
+      </span>
       {trailing}
     </button>
   )
 }
 
+/** A collapsible detail-pane block. Open state is seeded once from `defaultOpen`, so polling re-renders keep it. */
 export function Section({
   title,
   defaultOpen = true,
@@ -93,30 +87,38 @@ export function Section({
   children: React.ReactNode
 }) {
   const [open, setOpen] = React.useState(defaultOpen)
+  const bodyId = React.useId()
   return (
-    <div className="border-b">
-      <div className="flex items-center justify-between gap-2 bg-card/60 px-3 py-1.5">
-        <button type="button" onClick={() => setOpen((o) => !o)} className="flex flex-1 items-center gap-2 text-left">
-          <span className="inline-flex w-3 text-muted-foreground">
+    <div className="iam-dt-section">
+      <div className="iam-dt-section__head">
+        <button
+          aria-controls={bodyId}
+          aria-expanded={open}
+          className="iam-dt-section__btn"
+          onClick={() => setOpen((o) => !o)}
+          type="button">
+          <span aria-hidden className="iam-dt-section__chev">
             {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
           </span>
-          <h4 className="font-semibold text-[10px] text-muted-foreground uppercase tracking-[0.2em]">{title}</h4>
+          <h4 className="iam-dt-section__title">{title}</h4>
         </button>
         {toolbar}
       </div>
-      {open && <div className="px-3 py-2">{children}</div>}
+      {open && (
+        <div className="iam-dt-section__body" id={bodyId}>
+          {children}
+        </div>
+      )}
     </div>
   )
 }
 
+/** The centred placeholder shown in a detail pane before anything is selected. */
 export function DetailEmpty({ message }: { message: string }) {
-  return (
-    <div className="flex h-full items-center justify-center p-6 text-center text-muted-foreground text-xs">
-      {message}
-    </div>
-  )
+  return <div className="iam-dt-empty iam-dt-empty--fill">{message}</div>
 }
 
+/** Controlled search input above a list; the placeholder doubles as its `aria-label`. */
 export function FilterBar({
   value,
   onChange,
@@ -129,14 +131,16 @@ export function FilterBar({
   trailing?: React.ReactNode
 }) {
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b bg-card/60 px-2 py-1.5">
-      <div className="relative flex flex-1 items-center">
-        <Search className="pointer-events-none absolute left-2 text-muted-foreground" size={11} />
+    <div className="iam-dt-filter">
+      <div className="iam-dt-filter__wrap">
+        <Search className="iam-dt-filter__icon" size={11} />
         <input
-          value={value}
+          aria-label={placeholder}
+          className="iam-dt-input"
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="flex h-7 w-full rounded-md border border-input bg-background pr-2 pl-7 text-[11px] outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
+          type="search"
+          value={value}
         />
       </div>
       {trailing}

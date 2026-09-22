@@ -1,12 +1,4 @@
-/**
- * Direct tests of the extracted flow free functions.
- *
- * The `FlowsImpl` class methods are thin shims that delegate to free
- * functions in `flows/*.ts`. These tests import each free function by
- * name and assert (a) the module exports it with the right shape and
- * (b) the function produces the same result as the class method that
- * wraps it. This proves the extraction is real, not a rename.
- */
+/** Direct tests of the extracted flow free functions. */
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
@@ -15,6 +7,7 @@ import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../account-deletion.flow'
 import { completeEmailVerification, requestEmailVerification } from '../email-verification.flow'
@@ -22,6 +15,13 @@ import { impersonate, releaseImpersonation } from '../impersonate.flow'
 import { completePasswordReset, requestPasswordReset } from '../password-reset.flow'
 import { linkProvider, unlinkProvider } from '../provider-link.flow'
 import { advanceSignUp, beginSignUp, completeSignUp, getSignUpFlow } from '../signup.flow'
+
+/**
+ * Stand-in for the host's proof that it completed the provider's dance. These
+ * suites are about what `linkProvider` does once the caller is trusted; the
+ * callback itself is exercised in `flows-c6-open-findings.test.ts`.
+ */
+const ALLOW_LINK = async () => true
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   emailVerified?: boolean
@@ -34,7 +34,7 @@ function build() {
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
   })
   return { auth, adapter }
 }
@@ -116,7 +116,9 @@ describe('flows/account-deletion.ts - direct exports', () => {
   })
 
   it('cancelAccountDeletion rejects oversize identityId', async () => {
-    await expect(cancelAccountDeletion(auth.flows.deps, { identityId: 'x'.repeat(300) })).rejects.toMatchObject({
+    await expect(
+      cancelAccountDeletion(auth.flows.deps, { authorize: async () => true, identityId: 'x'.repeat(300) }),
+    ).rejects.toMatchObject({
       code: 'AUTH_UNAUTHENTICATED',
     })
   })
@@ -140,7 +142,7 @@ describe('flows/signup.ts - direct exports', () => {
     expect(flow.identityId).toBeTruthy()
     expect(flowToken.length).toBeGreaterThan(20)
     const fetched = await getSignUpFlow(auth.flows.deps, flowToken)
-    expect(fetched?.identityId).toBe(flow.identityId)
+    expect(fetched.identityId).toBe(flow.identityId)
   })
 
   it('advanceSignUp rejects unknown token directly', async () => {
@@ -226,6 +228,7 @@ describe('flows/provider-link.ts - direct exports', () => {
   it('linkProvider attaches a provider link to an existing identity', async () => {
     const ident = await auth.identities.create({ profile: { username: 'b@x.com', email: 'b@x.com' } })
     const out = await linkProvider(auth.flows.deps, {
+      authorize: ALLOW_LINK,
       identityId: ident.id,
       providerId: 'authGithub',
       providerSub: 'gh-sub-1',
@@ -238,13 +241,18 @@ describe('flows/provider-link.ts - direct exports', () => {
 
   it('linkProvider rejects invalid providerId', async () => {
     await expect(
-      linkProvider(auth.flows.deps, { identityId: 'x', providerId: '', providerSub: 's' }),
+      linkProvider(auth.flows.deps, { authorize: ALLOW_LINK, identityId: 'x', providerId: '', providerSub: 's' }),
     ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('unlinkProvider lockout guard refuses to leave identity with no factors', async () => {
     const ident = await auth.identities.create({ profile: { username: 'c@x.com', email: 'c@x.com' } })
-    await linkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub', providerSub: 'gh-1' })
+    await linkProvider(auth.flows.deps, {
+      authorize: ALLOW_LINK,
+      identityId: ident.id,
+      providerId: 'authGithub',
+      providerSub: 'gh-1',
+    })
     await expect(
       unlinkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub' }),
     ).rejects.toMatchObject({
@@ -254,7 +262,12 @@ describe('flows/provider-link.ts - direct exports', () => {
 
   it('unlinkProvider allows lockout when allowLockout: true', async () => {
     const ident = await auth.identities.create({ profile: { username: 'd@x.com', email: 'd@x.com' } })
-    await linkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub', providerSub: 'gh-2' })
+    await linkProvider(auth.flows.deps, {
+      authorize: ALLOW_LINK,
+      identityId: ident.id,
+      providerId: 'authGithub',
+      providerSub: 'gh-2',
+    })
     const out = await unlinkProvider(auth.flows.deps, {
       identityId: ident.id,
       providerId: 'authGithub',

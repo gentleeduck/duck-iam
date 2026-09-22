@@ -7,11 +7,23 @@ Everything below is measured, not guessed. Several things I expected to be
 problems turned out to be free, and one thing nobody would suspect turned out
 to be the single biggest cost in the whole check. Both are recorded.
 
-**How these numbers were produced.** vitest 4.1.9, AMD Ryzen 9 9955HX, scratch
-benchmarks in `packages/duck-iam/tmp/arch*.bench.ts` (that directory is
-gitignored, so they are yours to rerun or delete). Run one with
-`npx vitest bench --run tmp/arch.bench.ts`. Absolute nanosecond figures are
-machine specific. The ratios are what matter.
+**When and where these numbers were produced.** `@gentleduck/iam` 5.6.0, on
+2026-08-29, under vitest 4.1.9 on an AMD Ryzen 9 9955HX. The scratch benchmarks
+were `packages/duck-iam/tmp/arch*.bench.ts`, run with
+`npx vitest bench --run tmp/arch.bench.ts`. That directory is gitignored, so a
+fresh clone does not contain them and no number here is reproducible from the
+repository alone. Absolute nanosecond figures are machine specific. The ratios
+are what matter.
+
+**What has changed since.** Every measurement below predates the compiled lookup
+table becoming the engine's verdict path. At 5.6.0 a production check ran
+`evaluateFast` over the merged policy array. Since `8c131a42` (2026-09-03) both
+modes take their verdict from `lookup()` on the compiled table, `evaluateFast`
+is no longer reached from any engine request path, and `mode` defaults to
+`'production'`. Findings 1, 2, 3 and 8 concern code that has not moved.
+Findings 4 and 7 now describe the interpreter path only. Finding 5's scope
+caveat was overtaken by `2b243350` (2026-09-03). Finding 6 is resolved.
+Each is annotated in place. Re-measure before acting on any figure here.
 
 ---
 
@@ -47,7 +59,7 @@ There are five layers. A check falls through all of them.
       |                 targets check      -> skip policy entirely
       |                 indexPolicy()      -> WeakMap, built once
       |                 precomputed table  -> O(1) answer, done
-      |                 literal bucket     -> Map<action\0resource>
+      |                 literal bucket     -> Map<action, Map<resource>>
       |                 wildcard scan      -> linear
       |                 conditions         -> resolve path, run operator
       |              then combine across policies
@@ -55,20 +67,32 @@ There are five layers. A check falls through all of them.
   [5] REPORT         afterEvaluate / onDeny / onMetrics hooks
 ```
 
+That diagram is the 5.6.0 shape. Today layer 4 is one `lookup()` against the
+compiled table; the per-policy walk shown above runs only in development, or
+when the table is unavailable because the catalog has more roles than the 32-bit
+mask can address.
+
 Layer 4 is the part everyone thinks about and the part the README benchmarks.
 Layers 1 to 3 are where the time actually goes.
 
 ### The two evaluators
 
-`mode: 'production'` runs `evaluateFast`, which returns a bare boolean.
-`mode: 'development'` runs `evaluate`, which builds an `IDecision` per policy
-with a reason string, a duration, and a timestamp. The repo's own benchmark puts
-that at **12.9x** (496K/s vs 6.4M/s).
+At 5.6.0, `mode: 'production'` ran `evaluateFast`, which returns a bare boolean,
+and `mode: 'development'` ran `evaluate`, which builds an `IDecision` per policy
+with a reason string, a duration, and a timestamp. The repo's own benchmark put
+that at **12.9x** (496K/s vs 6.4M/s). `mode` defaulted to `'development'`, so
+anyone who did not explicitly pass `mode: 'production'` ran the 13x slow path in
+production.
 
-`mode` defaults to `'development'`. Anyone who does not explicitly pass
-`mode: 'production'` is running the 13x slow path in production. See finding 6.
+Both halves of that changed in `8c131a42` (2026-09-03). The verdict in *both*
+modes now comes from `lookup()` on the compiled table; development additionally
+runs `evaluate` to recover the `reason`/`policy`/`rule` the table erases at
+compile time, and throws if the two disagree. `evaluateFast` survives only as a
+standalone public export. `mode` defaults to `'production'`. The split the rest
+of this document assumes is therefore not the split the engine has today - see
+`docs/reference/core-engine.md` §4.
 
-### The three caching layers
+### The four caching layers
 
 They are easy to confuse because they solve different problems:
 
@@ -77,6 +101,11 @@ They are easy to confuse because they solve different problems:
 | Data caches | `IamLRUCache` in the engine | `'all'`, `'merged'`, subject id | TTL, default 60s |
 | Rule index | `WeakMap` in `evaluate.libs.ts` | the policy object itself | until the policy is GC'd |
 | String memos | `Map` for regex and dot paths | pattern / path string | until capacity, then evicted |
+| Compiled table | plain field on the engine | the whole role + policy model | `cacheTTL` from `_derivedBuiltAt`, or an invalidation |
+
+The compiled table is not in the 5.6.0 measurements below; it did not yet carry
+the verdict. `docs/reference/core-engine.md` §6 enumerates all six caches with
+their keys and expiry rules.
 
 The rule index is the well designed one. Keying a `WeakMap` on the policy object
 means a new policy array from a cache refresh automatically gets a fresh index
@@ -86,8 +115,8 @@ and the old one is collected, with no invalidation code to get wrong.
 
 ## 2. Where the time actually goes
 
-One warm `engine.can()` in production mode costs about **950 nanoseconds**.
-Here is what it is spent on. Each line was measured separately, so treat this as
+On 5.6.0, one warm `engine.can()` in production mode cost about
+**950 nanoseconds**. Here is what it was spent on. Each line was measured separately, so treat this as
 attribution rather than a profiler trace, but it accounts for the total closely.
 
 | Step | Cost | Share |
@@ -99,8 +128,13 @@ attribution rather than a profiler trace, but it accounts for the total closely.
 | `ensureEnvNow` spread plus `Date.now()` | ~34 ns | 4% |
 | Request object, signals object, guards | ~40 ns | 4% |
 
-**The evaluator is 7% of a real check.** The README optimises and advertises the
-7%. The other 93% is cache bookkeeping and promise machinery.
+Two of those lines no longer describe a production check: the merged policy
+cache and `evaluateFast` are both on the interpreter path, which production
+reaches only when the compiled table is unavailable. The subject cache read and
+the promise chain - 79% between them - are untouched by that change.
+
+**The evaluator was 7% of a real check.** The README optimises and advertises
+the 7%. The other 93% is cache bookkeeping and promise machinery.
 
 That is the whole thesis of this document. Confirmed end to end:
 
@@ -155,6 +189,9 @@ is not artificial: it is exactly what one busy subject making many requests look
 like.
 
 The default `maxCacheSize` is 1000, so this is the default configuration.
+`IamLRUCache.get` still does the `delete` + `set` at 5.9.0, and the subject
+cache is still read on every `can()`, so this finding is unaffected by the
+compiled table.
 
 **Fix.** Stop mutating the Map on read. Store `used` on the entry and bump it:
 
@@ -222,6 +259,10 @@ can()                    async
     evaluateFast                   sync
 ```
 
+Still four awaits at 5.9.0. Only the innermost step changed: `authorize` awaits
+`_evaluateOnce`, which awaits `_getCompiledTable()` and then calls `lookup()`
+synchronously. `_loadAllPolicies` moved to the interpreter path.
+
 Every one of those `async` functions allocates a promise and schedules a
 microtask even when it returns an already-computed value. Measured with nothing
 in the functions but the awaits:
@@ -258,7 +299,7 @@ decision onto users.
 Recommendation: do findings 1 and 2 first, re-measure, then decide. Once the
 cache reads drop from 568 ns to about 60 ns, the promise chain becomes the
 majority of what is left and the case for this gets much stronger. It may also
-turn out that 300 ns per check is simply fine for your users, in which case skip
+turn out that 300 ns per check is fine for your users, in which case skip
 it. Do not start here.
 
 **Risk: medium to high.** Touches the control flow of the primary code path,
@@ -268,6 +309,12 @@ run.
 ### Finding 4: evaluation is linear in total policy count, not matching policy count
 
 **Impact: 4x at 50 policies, 40x at 200. Grows without bound.**
+
+**Scope at 5.9.0.** This is a property of `evaluateFast` / `evaluate` over a
+policy array. The engine reaches that code in development, when the compiled
+table is unavailable, and through the `iamEvaluateFast` public export. A
+production check that the table can answer does not walk the policy array at
+all.
 
 `evaluateFast` loops every policy in the array and calls `evaluatePolicyFast` on
 each. A policy targeted at `billing:*` still costs a function call, a WeakMap
@@ -335,12 +382,17 @@ guarded by `subject.roles contains viewer`, already matches. Copying viewer's
 permissions into admin's rules produces a second rule that matches the same
 request for the same reason.
 
-**The caveat, which is real.** `collectPermissions` applies `perm.scope ?? role.scope`,
-so an inherited permission picks up the *inheriting* role's scope. Drop the
-flattening and it keeps the *defining* role's scope instead. For unscoped roles
-these are identical. For scoped roles they are not. So the fix is: emit only
-`role.permissions` when the role has no `scope`, and keep flattening for scoped
-roles. Test that specific case first, because it is the one that breaks.
+**The caveat held at 5.6.0 and no longer does.** It said `collectPermissions`
+applies `perm.scope ?? role.scope`, so an inherited permission picks up the
+*inheriting* role's scope. `2b243350` (2026-09-03) changed that:
+`rolesToPolicy` now applies `perm.scope ?? owner.scope`
+(`src/core/rbac/rbac.ts:127`), where `owner` is the role that *declared* the
+permission. The emitted scope is already the defining role's, in both the
+flattened copy and the original, so the asymmetry this paragraph was built on is
+gone. That removes the objection; it does not on its own prove the flattening
+redundant. `''` is a scope like any other - only `undefined` and `'*'` are
+global - so re-derive the argument against the scoped-role cases before removing
+anything.
 
 **Second, every generated RBAC rule carries a condition**, the
 `subject.roles contains <role>` guard. The precompute table in `indexPolicy`
@@ -383,7 +435,13 @@ conditions, and the interaction with `policyCombine` all have to keep working.
 But the RBAC test suite is the thing that should catch regressions, and it exists.
 Do it after findings 1, 2, and 4.
 
-### Finding 6: `mode` defaults to `'development'`
+### Finding 6: `mode` defaulted to `'development'` - resolved
+
+**Resolved in `8c131a42` (2026-09-03).** `engine.ts:212` now reads
+`config.mode ?? 'production'`. The default flipped rather than being derived
+from `NODE_ENV`, and no startup warning was added; the recommendation below is
+kept as the record of what was considered. Everything from here to the end of
+this finding describes 5.6.0.
 
 **Impact: ~2.5x, on anyone who forgets.** (The 13x/34x figures in section 1
 are `evaluateFast` raw vs. `engine.can()`; the number that matters for *this*
@@ -426,6 +484,16 @@ if (wildcardAny.length === 0 && (algo === 'deny-overrides' || ...)) {
   // build the precomputed table
 }
 ```
+
+That snippet was already out of date when this was written. `a49db03f`
+(2026-08-28) split the flat `wildcardAny` array into three buckets keyed by
+whichever side is literal, so a request only scans the wildcards whose literal
+side already matched. The per-policy bail-out survived the split as
+`hasNoWildcards && precomputable` (`src/core/evaluate/evaluate.libs.ts:398-410`),
+which is the behaviour measured below, but the 2.98x is against the pre-bucket
+scan and the fix sketched here has to be rewritten against the bucketed shape.
+As with finding 4, production only reaches this code when the compiled table
+cannot answer.
 
 One wildcard rule anywhere in a policy, even one that provably cannot match the
 request, drops the whole policy off the O(1) path. Measured with a policy of 51
@@ -470,8 +538,9 @@ subject once and loads policies once, which is why it beats a loop of `can()`:
 | `permissions()` x20 | 473 ns |
 | `permissions()` x20, `telemetry: false` | 457 ns |
 
-Note that `telemetry: false` buys 3%, not the "~2x throughput" the README claims.
-That claim should be corrected or re-measured.
+Note that `telemetry: false` buys 3%, not the "~2x throughput" claimed for it.
+The README no longer makes that claim; it now survives only as a source comment
+at `src/core/engine/engine.ts:1153`.
 
 Inside the loop each check allocates a resource object, a request object, and
 then `ensureEnvNow` spreads both the request and its environment again. Four
@@ -536,7 +605,7 @@ represents.
 | 0 | ~~Fix `MemoryAdapter` in the benchmark and docs~~ | unblocks measurement | none | **done** - see §0 |
 | 1 | Stop Map churn on `IamLRUCache.get` (finding 1) | ~40% off a warm check | low | one class |
 | 2 | `SingleSlot` for the four 1-entry caches (finding 2) | ~5% more | very low | one class |
-| 3 | Default `mode` from `NODE_ENV`, or warn (finding 6) | ~2.5x for anyone who forgot | low | a few lines |
+| 3 | ~~Default `mode` from `NODE_ENV`, or warn (finding 6)~~ | ~2.5x for anyone who forgot | low | **done** - defaulted to `'production'` in `8c131a42` |
 | 4 | Cross-policy target index (finding 4) | 2.7x at 10, 38x at 200 policies | low-med | loaders plus evaluator |
 | 5 | Hoist request building in `permissions()` (finding 8) | ~7% of batched checks | very low | one loop |
 | 6 | Direct RBAC role index (finding 5) | 8.2x on RBAC, kills the quadratic | medium | rbac plus evaluator |
@@ -563,5 +632,7 @@ that are already in memory. Scaling is linear in total policy count rather than
 matching policy count, and the RBAC layer generates a quadratic number of rules
 that then cannot use the fast path it would most benefit from.
 
-None of that is visible in the current benchmarks, because they call
-`evaluateFast` directly and never touch the layers that cost the money.
+None of that was visible in the 5.6.0 benchmarks, because they called
+`evaluateFast` directly and never touched the layers that cost the money. That
+gap is wider now, not narrower: `evaluateFast` is no longer on any engine
+request path, so a benchmark of it measures code the engine does not run.

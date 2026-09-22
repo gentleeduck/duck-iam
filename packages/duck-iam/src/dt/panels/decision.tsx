@@ -1,13 +1,23 @@
 import React from 'react'
 import type { Explain } from '../../core/explain'
-import type { IamPrimitives } from '../../core/types'
+import { iamNarrowAttributes } from '../../shared/attributes'
 import { Spinner } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button, Field, Input, TextArea } from '../components/ui'
 import { safeParseJson } from '../lib/format'
+import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDecisionInput, IamIDevtoolsEngine } from '../lib/types'
 import { IamTraceTree } from './trace-tree'
+
+/** Narrows parsed JSON to a plain object (not `null`, not an array) for the free-form environment bag. */
+function narrowRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const out: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value)) out[key] = entry
+  return out
+}
 
 const INITIAL: IamIDecisionInput = {
   subjectId: '',
@@ -19,6 +29,10 @@ const INITIAL: IamIDecisionInput = {
   scope: '',
 }
 
+/**
+ * Runs an ad-hoc `engine.explain()` and renders the trace via {@link IamTraceTree}.
+ * Invalid JSON in the attribute or environment box is shown as an error instead of being sent.
+ */
 export function IamDecisionInspector({
   engine,
   defaults,
@@ -26,10 +40,14 @@ export function IamDecisionInspector({
   engine: IamIDevtoolsEngine
   defaults?: Partial<IamIDecisionInput>
 }) {
+  useIamDevtoolsStyles()
   const [input, setInput] = React.useState<IamIDecisionInput>({ ...INITIAL, ...defaults })
   const [result, setResult] = React.useState<Explain.IResult | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
+
+  // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
+  if (!isDevtoolsAllowed(engine)) return null
 
   const update = (patch: Partial<IamIDecisionInput>) => setInput((s) => ({ ...s, ...patch }))
 
@@ -37,13 +55,18 @@ export function IamDecisionInspector({
     setError(null)
     setPending(true)
     try {
-      const attrs = safeParseJson<Record<string, IamPrimitives.AttributeValue>>(input.attributesJson, {})
-      const env = safeParseJson<Record<string, unknown>>(input.environmentJson, {})
+      const attrs = safeParseJson(input.attributesJson)
+      const env = safeParseJson(input.environmentJson)
       if (attrs.error) throw new Error(`attributes JSON: ${attrs.error}`)
       if (env.error) throw new Error(`environment JSON: ${env.error}`)
-      const resource = { type: input.resourceType, id: input.resourceId || undefined, attributes: attrs.value }
-      const environment = { ...env.value, ...(input.scope ? { scope: input.scope } : {}) }
-      const trace = await engine.explain(input.subjectId, input.action, resource, environment)
+      // Valid JSON is not necessarily an attribute bag (`[1,2]` parses too), so narrow it.
+      const attributes = attrs.value === undefined ? {} : iamNarrowAttributes(attrs.value)
+      if (attributes === null) throw new Error('attributes JSON: expected an object of scalar values')
+      const environment = env.value === undefined ? {} : narrowRecord(env.value)
+      if (environment === null) throw new Error('environment JSON: expected an object')
+      const resource = { type: input.resourceType, id: input.resourceId || undefined, attributes }
+      // NOTE: `scope` must be the 5th argument; the engine never reads `environment.scope`.
+      const trace = await engine.explain(input.subjectId, input.action, resource, environment, input.scope || undefined)
       setResult(trace)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

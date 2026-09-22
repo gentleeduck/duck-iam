@@ -6,16 +6,12 @@ import { validatePolicy, validateRoles } from '../validate'
 import type { IamConfig } from './config.types'
 
 /**
- * Creates a type-safe access configuration for your application.
- *
- * The primary entry point for duck-iam. Pass your permission schema
- * using `as const` arrays and get back an {@link IamConfig.IAccessConfig} with fully typed
- * builder methods.
+ * Creates a type-safe access configuration: the primary entry point for duck-iam.
  *
  * @template TActions   - Tuple of action strings, declared `as const`.
  * @template TResources - Tuple of resource strings, declared `as const`.
- * @template TScopes    - Tuple of scope strings, declared `as const`.
  * @template TRoles     - Tuple of role ID strings, declared `as const`.
+ * @template TScopes    - Tuple of scope strings, declared `as const`.
  * @template TContext   - Shape of the evaluation context for typed dot-paths.
  *
  * @param input - Your permission schema: actions, resources, and optionally scopes, roles, and context.
@@ -23,7 +19,7 @@ import type { IamConfig } from './config.types'
  *
  * @example
  * ```ts
- * const iam = createIam({
+ * const access = createIam({
  *   actions: ['create', 'read', 'update', 'delete'] as const,
  *   resources: ['post', 'comment', 'user'] as const,
  *   roles: ['viewer', 'editor', 'admin'] as const,
@@ -31,8 +27,8 @@ import type { IamConfig } from './config.types'
  * })
  *
  * // All builders are now type-safe:
- * iam.defineRole('viewer').grant('read', 'post')   // OK
- * iam.defineRole('viewer').grant('raed', 'post')   // compile error
+ * access.defineRole('viewer').grant('read', 'post')   // OK
+ * access.defineRole('viewer').grant('raed', 'post')   // compile error
  * ```
  */
 export function createIam<
@@ -63,14 +59,18 @@ export function createIam<
 
     when: () => new When<TAction, TResource, TRole, TScope, TContext>(),
 
-    createEngine: <TMode extends AccessControl.Mode = 'development'>(
+    createEngine: <TMode extends AccessControl.Mode = 'production'>(
       config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
     ) => new IamEngine<TAction, TResource, TRole, TScope, TMode>(config),
 
     checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => checks,
 
-    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, string, TScope>[]) => validateRoles(roles),
+    // Pass the declared vocabulary, so a grant that can never match a request is reported.
+    validateRoles: (roles: readonly AccessControl.IRole[]) =>
+      validateRoles(roles, { actions: input.actions, resources: input.resources, scopes: input.scopes }),
 
-    validatePolicy: (input: unknown) => validatePolicy(input),
+    // Same vocabulary pass `validateRoles` gets: a rule naming an undeclared action matches nothing.
+    validatePolicy: (policy: unknown) =>
+      validatePolicy(policy, { actions: input.actions, resources: input.resources, roles: input.roles ?? [] }),
   }
 }

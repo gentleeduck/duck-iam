@@ -21,7 +21,7 @@ describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)
   })
 
   it('returns 3 when the user has a hardware-bound passkey + signed in with passkey', async () => {
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({
         identityId: 'u',
         kind: 'passkey',
@@ -34,7 +34,7 @@ describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)
   })
 
   it('returns 2 when the passkey is cloud-synced (backedUp:true), even with two factors', async () => {
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({
         identityId: 'u',
         kind: 'passkey',
@@ -47,7 +47,7 @@ describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)
   })
 
   it('returns 2 when deviceType is singleDevice but backedUp is true (e.g. local-only-but-synced)', async () => {
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({
         identityId: 'u',
         kind: 'passkey',
@@ -60,7 +60,7 @@ describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)
   })
 
   it('returns 2 when current factor set does NOT include authPasskey (even if user has one)', async () => {
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({
         identityId: 'u',
         kind: 'passkey',
@@ -73,7 +73,7 @@ describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)
   })
 
   it('returns 3 when ANY of the user passkeys is hardware-bound', async () => {
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({
         identityId: 'u',
         kind: 'passkey',
@@ -82,7 +82,7 @@ describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)
       }),
       {},
     )
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({
         identityId: 'u',
         kind: 'passkey',
@@ -95,7 +95,7 @@ describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)
   })
 
   it('AAL drops back to 1 with only a single factor regardless of passkey hardware binding', async () => {
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({
         identityId: 'u',
         kind: 'passkey',
@@ -108,7 +108,7 @@ describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)
   })
 
   it('missing passkey metadata fields gracefully fall back to AAL=2', async () => {
-    await adapter.credentials.upsert(
+    await adapter.credentials.create(
       credentialInput({
         identityId: 'u',
         kind: 'passkey',

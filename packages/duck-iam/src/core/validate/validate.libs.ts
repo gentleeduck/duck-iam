@@ -1,6 +1,21 @@
 import type { IamEngine } from '..'
-import { MAX_CONDITION_DEPTH, MAX_REGEX_LENGTH } from '../conditions/conditions.libs'
-import { ALLOWED_ROOTS } from '../resolve/resolve'
+import {
+  detectCatastrophicRegex,
+  MAX_CONDITION_DEPTH,
+  OPERAND_TYPES,
+  operandHasType,
+  VALUELESS_OPERATORS,
+} from '../conditions/conditions.libs'
+
+// Re-exported public surface. The heuristic lives beside `getCachedRegex` so validation and evaluation refuse the
+// same patterns.
+export {
+  detectCatastrophicRegex,
+  MAX_BOUNDED_QUANTIFIER,
+  MAX_UNBOUNDED_QUANTIFIERS,
+} from '../conditions/conditions.libs'
+
+import { ALLOWED_ROOTS, BLOCKED_SEGMENTS } from '../resolve/resolve'
 import type { IamValidate } from './validate.types'
 
 function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
@@ -8,192 +23,40 @@ function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Maximum number of unbounded quantifiers (`+`, `*`, `{n,}`) allowed in a
- * single `matches` pattern. Beyond this the surface area for catastrophic
- * backtracking gets impractical to reason about, so we refuse outright.
- */
-export const MAX_UNBOUNDED_QUANTIFIERS = 4
-
-/**
- * Largest finite upper bound permitted in a `{n,m}` quantifier. The matcher
- * walks `m` iterations worst-case, so anything above ~1000 starts to look
- * like a DoS vector even though it isn't technically unbounded.
- */
-export const MAX_BOUNDED_QUANTIFIER = 1_000
-
-/**
- * Cheap heuristic for catastrophic-backtracking regex (nested quantifiers, large bounds, backref-quantifier, etc).
- *
- * @param pattern - Raw regex source.
- * @returns `{ safe: true }` when the pattern looks benign, otherwise `{ safe: false, reason }`.
- */
-export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
-  if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
-  if (pattern.length > MAX_REGEX_LENGTH) {
-    return {
-      safe: false,
-      reason: `pattern length ${pattern.length} exceeds MAX_REGEX_LENGTH (${MAX_REGEX_LENGTH})`,
-    }
-  }
-
-  // Backreference followed by a quantifier - run before the nested-quantifier
-  // scan so the more specific reason wins for shapes like `(\w+)\1+`. Numeric
-  // (`\1+`, `\3*`, `\2{1,5}`) and named (`\k<name>+`) forms can drive
-  // exponential backtracking when the captured group matches a variable-length
-  // pattern. Flag any backref+quantifier pair.
-  if (/\\[1-9]\d*\s*[+*?{]/.test(pattern) || /\\k<[^>]+>\s*[+*?{]/.test(pattern)) {
-    return { safe: false, reason: 'backref-quantifier' }
-  }
-
-  // Lookaround group whose body contains a quantifier. Run before the
-  // nested-quantifier scan so `(?=(a+)+)` is reported with the more specific
-  // reason. JS supports `(?=...)`, `(?!...)`, `(?<=...)`, `(?<!...)`. Walk
-  // paren depth and inspect the body of any lookaround for `+`, `*`, or
-  // `{...}`.
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i]
-    if (ch === '\\') {
-      i++
-      continue
-    }
-    if (ch !== '(') continue
-    const tail3 = pattern.slice(i, i + 3)
-    const tail4 = pattern.slice(i, i + 4)
-    const isLookahead = tail3 === '(?=' || tail3 === '(?!'
-    const isLookbehind = tail4 === '(?<=' || tail4 === '(?<!'
-    if (!isLookahead && !isLookbehind) continue
-    const bodyStart = i + (isLookahead ? 3 : 4)
-    let depth = 1
-    let j = bodyStart
-    while (j < pattern.length && depth > 0) {
-      const cj = pattern[j]
-      if (cj === '\\') {
-        j += 2
-        continue
-      }
-      if (cj === '(') depth++
-      else if (cj === ')') depth--
-      if (depth === 0) break
-      j++
-    }
-    if (depth !== 0) continue
-    const body = pattern.slice(bodyStart, j)
-    const bodyStripped = body.replace(/\\./g, '')
-    if (/[+*]/.test(bodyStripped) || /\{\d+,?\d*\}/.test(bodyStripped)) {
-      return { safe: false, reason: 'lookaround-with-quantifier' }
-    }
-    i = j
-  }
-
-  // Bounded `{n,m}` with a very large upper bound, or `{n,}` with a very
-  // large lower bound. Lone repetitions like `a{5}` are fine; only the
-  // comma-form is a range.
-  {
-    const re = /(?<!\\)\{(\d+)(?:,(\d*))?\}/g
-    let m: RegExpExecArray | null
-    // biome-ignore lint/suspicious/noAssignInExpressions: classic regex iteration
-    while ((m = re.exec(pattern)) !== null) {
-      const low = Number(m[1])
-      const upperStr = m[2]
-      if (upperStr === undefined) continue // `{n}` exact count - not a range.
-      if (upperStr === '') {
-        if (low > MAX_BOUNDED_QUANTIFIER) {
-          return { safe: false, reason: 'bounded-large-quantifier' }
-        }
-        continue
-      }
-      const high = Number(upperStr)
-      if (Number.isFinite(high) && high > MAX_BOUNDED_QUANTIFIER) {
-        return { safe: false, reason: 'bounded-large-quantifier' }
-      }
-    }
-  }
-
-  // Nested quantifiers: a group whose closing `)` is immediately followed by
-  // `+`, `*`, or `{n,}` AND whose body itself contains an unbounded quantifier.
-  // We walk parens with a depth counter so nested groups are inspected too.
-  const stack: number[] = []
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i]
-    if (ch === '\\') {
-      i++
-      continue
-    }
-    if (ch === '(') {
-      stack.push(i)
-      continue
-    }
-    if (ch === ')') {
-      const openIdx = stack.pop()
-      if (openIdx === undefined) continue
-      const next = pattern[i + 1]
-      const isUnboundedQuant = next === '+' || next === '*' || (next === '{' && /^\{\d+,\}?/.test(pattern.slice(i + 1)))
-      if (!isUnboundedQuant) continue
-      const body = pattern.slice(openIdx + 1, i)
-      // Strip escapes from body before scanning so `\+` doesn't trigger.
-      const bodyStripped = body.replace(/\\./g, '')
-      if (/[+*]/.test(bodyStripped) || /\{\d+,\d*\}/.test(bodyStripped)) {
-        return { safe: false, reason: 'nested quantifier (e.g. `(a+)+`) - catastrophic backtracking risk' }
-      }
-      if (bodyStripped.includes('|')) {
-        return { safe: false, reason: 'alternation inside a quantified group - catastrophic backtracking risk' }
-      }
-    }
-  }
-
-  // Count unbounded quantifiers outside of escapes. `+`, `*`, and `{n,}`
-  // each count once.
-  let unbounded = 0
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i]
-    if (ch === '\\') {
-      i++
-      continue
-    }
-    if (ch === '+' || ch === '*') {
-      unbounded++
-      continue
-    }
-    if (ch === '{') {
-      // `{n,}` or `{n,m}` - only `{n,}` (no upper bound) is unbounded.
-      const close = pattern.indexOf('}', i)
-      if (close === -1) continue
-      const inner = pattern.slice(i + 1, close)
-      if (/^\d+,\s*$/.test(inner)) unbounded++
-      i = close
-    }
-  }
-  if (unbounded > MAX_UNBOUNDED_QUANTIFIERS) {
-    return {
-      safe: false,
-      reason: `${unbounded} unbounded quantifiers exceed limit of ${MAX_UNBOUNDED_QUANTIFIERS}`,
-    }
-  }
-
-  return { safe: true }
-}
-
-/**
- * Field paths longer than this are refused. The runtime DotPath resolver
- * splits on dots, so an enormous field string would cost O(length) work
- * per evaluation with no upside.
+ * Field paths longer than this are refused.
+ * PERF: the resolver splits on dots, so a huge field costs O(length) on every evaluation.
  */
 export const MAX_FIELD_LENGTH = 256
 
 /** Max allowed length for a string `value` on a condition. */
 export const MAX_CONDITION_VALUE_LENGTH = 1024
 /** Valid combining algorithm names. */
-export const VALID_ALGORITHMS = new Set(['deny-overrides', 'allow-overrides', 'first-match', 'highest-priority'])
-
-/** Valid rule effect values. */
-export const VALID_EFFECTS = new Set(['allow', 'deny'])
+export const VALID_ALGORITHMS: ReadonlySet<string> = new Set([
+  'deny-overrides',
+  'allow-overrides',
+  'first-match',
+  'highest-priority',
+])
 
 /**
- * IamValidate-time policy size caps.
- *
- * `indexPolicy()` builds an `actions x resources` cartesian per rule, so an
- * unbounded policy can stall the event loop. Limits also cap memory growth
- * in {@link IamEngine}'s LRU caches.
+ * True when `value` contains an ASCII control character.
+ * SECURITY: rejected, not stripped: it is invisible in a UI, and rewriting a name changes which rules match.
+ */
+export function hasControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code < 0x20 || code === 0x7f) return true
+  }
+  return false
+}
+
+/** Valid rule effect values. */
+export const VALID_EFFECTS: ReadonlySet<string> = new Set(['allow', 'deny'])
+
+/**
+ * Validate-time policy size caps.
+ * PERF: `indexPolicy()` builds an `actions x resources` cartesian per rule; the caps also bound {@link IamEngine}'s
+ * caches.
  */
 export const POLICY_LIMITS = {
   rulesPerPolicy: 1_000,
@@ -208,19 +71,20 @@ const RESOLVABLE_SHORTHANDS = new Set(['action', 'scope'])
 
 /**
  * True when `path` would resolve to a real attribute at evaluation time.
- * Shares {@link ALLOWED_ROOTS} with the resolver so the two stay in lock-step.
+ * NOTE: shares {@link ALLOWED_ROOTS} and {@link BLOCKED_SEGMENTS} with the resolver, so blocked segments are flagged.
  *
- * @param path - Dot-path string to check.
- * @returns `true` when the path's root is a known resolvable root.
+ * @returns `true` when the path has a known root and no blocked segment.
  */
 export function isResolvablePath(path: string): boolean {
   if (RESOLVABLE_SHORTHANDS.has(path)) return true
-  const root = path.split('.', 1)[0]
-  return !!root && ALLOWED_ROOTS.has(root)
+  const segments = path.split('.')
+  const root = segments[0]
+  if (!root || !ALLOWED_ROOTS.has(root)) return false
+  return !segments.some((segment) => BLOCKED_SEGMENTS.has(segment))
 }
 
 /** Set of valid condition operator names supported by the condition evaluator. */
-export const VALID_OPERATORS = new Set([
+export const VALID_OPERATORS: ReadonlySet<string> = new Set([
   'eq',
   'neq',
   'gt',
@@ -242,8 +106,67 @@ export const VALID_OPERATORS = new Set([
   'after',
 ])
 
+function isCompilableRegex(pattern: string): boolean {
+  try {
+    new RegExp(pattern)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
- * IamValidate one condition item (leaf or group); groups delegate to {@link validateConditionGroup}.
+ * Push `UNKNOWN_FIELD` for keys outside `allowed`, matching `POLICY_JSON_SCHEMA`'s `additionalProperties: false`.
+ * SECURITY: a misspelled `targets` / `conditions` / `value` is a restriction never applied. Skips `undefined` keys.
+ */
+export function checkKnownKeys(
+  obj: object,
+  allowed: ReadonlySet<string>,
+  path: string,
+  issues: IamValidate.IIssue[],
+): void {
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined || allowed.has(key)) continue
+    issues.push({
+      type: 'error',
+      code: 'UNKNOWN_FIELD',
+      message: `Unknown field "${key}"; the policy schema forbids additional properties here`,
+      path: path ? `${path}.${key}` : key,
+    })
+  }
+}
+
+/** Keys `POLICY_JSON_SCHEMA` declares on a policy. */
+export const POLICY_KEYS: ReadonlySet<string> = new Set([
+  'id',
+  'name',
+  'description',
+  'version',
+  'algorithm',
+  'rules',
+  'targets',
+])
+
+/** Keys `POLICY_JSON_SCHEMA` declares on `policy.targets`. */
+export const TARGET_KEYS: ReadonlySet<string> = new Set(['actions', 'resources', 'roles'])
+
+/** Keys `POLICY_JSON_SCHEMA` declares on a rule. */
+const RULE_KEYS: ReadonlySet<string> = new Set([
+  'id',
+  'effect',
+  'description',
+  'priority',
+  'actions',
+  'resources',
+  'conditions',
+  'metadata',
+])
+
+/** Keys `POLICY_JSON_SCHEMA` declares on a leaf condition. */
+const CONDITION_KEYS: ReadonlySet<string> = new Set(['field', 'operator', 'value'])
+
+/**
+ * Validate one condition item (leaf or group); groups delegate to {@link validateConditionGroup}.
  *
  * @param input  - The condition item to validate.
  * @param path   - Dot-path prefix used in reported issues.
@@ -264,6 +187,7 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
   const obj = input
 
   if ('field' in obj) {
+    checkKnownKeys(obj, CONDITION_KEYS, path, issues)
     if (typeof obj.field !== 'string' || !obj.field) {
       issues.push({
         type: 'error',
@@ -282,17 +206,43 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
       issues.push({
         type: 'warning',
         code: 'UNRESOLVABLE_FIELD',
-        message: `Condition field "${obj.field}" has no resolvable root (expected subject/resource/environment, or shorthand action/scope)`,
+        message:
+          `Condition field "${obj.field}" does not resolve at evaluation time (expected a subject/resource/` +
+          'environment root or the shorthand action/scope, and no __proto__/constructor/prototype segment)',
         path: `${path}.field`,
       })
     }
-    if (typeof obj.operator !== 'string' || !VALID_OPERATORS.has(obj.operator)) {
+    const operator = typeof obj.operator === 'string' && VALID_OPERATORS.has(obj.operator) ? obj.operator : null
+    if (operator === null) {
       issues.push({
         type: 'error',
         code: 'INVALID_OPERATOR',
         message: `Invalid operator "${String(obj.operator)}"`,
         path: `${path}.operator`,
       })
+    } else if (!VALUELESS_OPERATORS.has(operator)) {
+      // SECURITY: missing and `undefined` are one case, since JSON drops the key. A `null` operand equals a missing
+      // attribute, so the guard would pass for exactly the subjects it excludes.
+      if (!('value' in obj) || obj.value === undefined) {
+        issues.push({
+          type: 'error',
+          code: 'MISSING_VALUE',
+          message: `Operator "${operator}" requires a "value"`,
+          path: `${path}.value`,
+        })
+      } else if (!(typeof obj.value === 'string' && obj.value.startsWith('$'))) {
+        // A `$` value resolves from the request, so its type is unknown here. The evaluator applies the same
+        // `OPERAND_TYPES` table on read.
+        const expected = OPERAND_TYPES.get(operator)
+        if (expected !== undefined && !operandHasType(expected, obj.value)) {
+          issues.push({
+            type: 'error',
+            code: 'OPERAND_TYPE_MISMATCH',
+            message: `Operator "${operator}" expects ${expected === 'temporal' ? 'a number or ISO-8601 string' : `a ${expected}`} value`,
+            path: `${path}.value`,
+          })
+        }
+      }
     }
     if (typeof obj.value === 'string' && obj.value.length > MAX_CONDITION_VALUE_LENGTH) {
       issues.push({
@@ -322,9 +272,20 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
         path: `${path}.value`,
       })
     }
-    // `matches` is the only operator that compiles its value into a regex.
-    // Refuse catastrophic patterns at validate-time so they never reach the
-    // policy store. Non-string / $-resolved values are caught elsewhere.
+    // SECURITY: `matches` compiles its value, so catastrophic patterns are refused before they reach the store. A
+    // `$`-sourced pattern is a ReDoS vector that `evalCondition` refuses, leaving the policy indeterminate.
+    if (obj.operator === 'matches' && typeof obj.value === 'string' && obj.value.startsWith('$')) {
+      issues.push({
+        type: 'error',
+        code: 'ERR_REGEX_USER_SOURCED',
+        message:
+          'Condition "matches" pattern is read from request data. This is refused at evaluation time ' +
+          '(a caller-supplied pattern is a ReDoS vector): the condition raises, which makes the policy ' +
+          'indeterminate rather than false. An indeterminate policy still votes - deny if it carries any ' +
+          'deny rule - so do not read this as "the rule is inert". Use a literal pattern.',
+        path: `${path}.value`,
+      })
+    }
     if (obj.operator === 'matches' && typeof obj.value === 'string' && !obj.value.startsWith('$')) {
       const result = detectCatastrophicRegex(obj.value)
       if (!result.safe) {
@@ -332,6 +293,14 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
           type: 'error',
           code: 'ERR_REGEX_CATASTROPHIC',
           message: `Condition "matches" pattern rejected: ${result.reason}`,
+          path: `${path}.value`,
+        })
+      } else if (!isCompilableRegex(obj.value)) {
+        // An uncompilable pattern is refused at evaluation (Indeterminate); catch it here where the author sees it.
+        issues.push({
+          type: 'error',
+          code: 'ERR_REGEX_INVALID',
+          message: 'Condition "matches" pattern is not a valid regular expression',
           path: `${path}.value`,
         })
       }
@@ -342,7 +311,7 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
 }
 
 /**
- * IamValidate a condition group `{ all | any | none: ConditionItem[] }`; depth-bounded.
+ * Validate a condition group `{ all | any | none: ConditionItem[] }`; depth-bounded.
  *
  * @param input  - The condition group to validate.
  * @param path   - Dot-path prefix used in reported issues.
@@ -350,7 +319,9 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
  * @param depth  - Current nesting depth (defaults to `0`; bounded by `MAX_CONDITION_DEPTH`).
  */
 export function validateConditionGroup(input: unknown, path: string, issues: IamValidate.IIssue[], depth = 0): void {
-  if (depth > MAX_CONDITION_DEPTH) {
+  // SECURITY: keep `>=` identical to `evalConditionGroup`, which fails closed at this depth. `>` would validate a
+  // deny rule one level too deep to ever fire.
+  if (depth >= MAX_CONDITION_DEPTH) {
     issues.push({
       type: 'error',
       code: 'LIMIT_EXCEEDED',
@@ -369,9 +340,9 @@ export function validateConditionGroup(input: unknown, path: string, issues: Iam
     return
   }
 
-  const groupKey = (['all', 'any', 'none'] as const).find((k) => k in input)
+  const present = (['all', 'any', 'none'] as const).filter((k) => k in input)
 
-  if (!groupKey) {
+  if (present.length === 0) {
     issues.push({
       type: 'error',
       code: 'INVALID_CONDITION',
@@ -380,6 +351,21 @@ export function validateConditionGroup(input: unknown, path: string, issues: Iam
     })
     return
   }
+
+  // SECURITY: `evalConditionGroup` reads one key and ignores the rest, so `{ all, any }` would honour only half.
+  if (present.length > 1) {
+    issues.push({
+      type: 'error',
+      code: 'INVALID_CONDITION',
+      message: `Condition group has ${present.join(' and ')}; exactly one of "all", "any" or "none" is evaluated`,
+      path,
+    })
+    return
+  }
+
+  const groupKey = present[0]
+  if (groupKey === undefined) return
+  if (isPlainObjectLike(input)) checkKnownKeys(input, new Set([groupKey]), path, issues)
 
   const items = Reflect.get(input, groupKey)
   if (!Array.isArray(items)) {
@@ -398,7 +384,7 @@ export function validateConditionGroup(input: unknown, path: string, issues: Iam
 }
 
 /**
- * IamValidate a Rule's shape (id, effect, priority, actions, resources, optional conditions).
+ * Validate a Rule's shape (id, effect, priority, actions, resources, optional conditions).
  *
  * @param input  - The rule object to validate.
  * @param path   - Dot-path prefix used in reported issues.
@@ -411,6 +397,7 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
   }
 
   const rule = input
+  checkKnownKeys(rule, RULE_KEYS, path, issues)
 
   if (typeof rule.id !== 'string' || !rule.id) {
     issues.push({
@@ -439,6 +426,25 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
     })
   }
 
+  // `IRule` types both; `explain()` renders `description` and admin surfaces spread `metadata`.
+  if (rule.description !== undefined && typeof rule.description !== 'string') {
+    issues.push({
+      type: 'error',
+      code: 'INVALID_TYPE',
+      message: 'Rule "description" must be a string if provided',
+      path: `${path}.description`,
+    })
+  }
+
+  if (rule.metadata !== undefined && !isPlainObjectLike(rule.metadata)) {
+    issues.push({
+      type: 'error',
+      code: 'INVALID_TYPE',
+      message: 'Rule "metadata" must be an object if provided',
+      path: `${path}.metadata`,
+    })
+  }
+
   if (!Array.isArray(rule.actions) || rule.actions.length === 0) {
     issues.push({
       type: 'error',
@@ -461,6 +467,13 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
           type: 'error',
           code: 'INVALID_TYPE',
           message: 'Action must be a string',
+          path: `${path}.actions[${i}]`,
+        })
+      } else if (hasControlChar(action)) {
+        issues.push({
+          type: 'error',
+          code: 'INVALID_TYPE',
+          message: 'Action must not contain control characters',
           path: `${path}.actions[${i}]`,
         })
       }
@@ -491,8 +504,26 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
           message: 'Resource must be a string',
           path: `${path}.resources[${i}]`,
         })
+      } else if (hasControlChar(resource)) {
+        issues.push({
+          type: 'error',
+          code: 'INVALID_TYPE',
+          message: 'Resource must not contain control characters',
+          path: `${path}.resources[${i}]`,
+        })
       }
     }
+  }
+
+  // Required by IRule and the schema, so a row without it never reaches the engine. Non-object values are reported by
+  // validateConditionGroup below.
+  if (rule.conditions === undefined) {
+    issues.push({
+      type: 'error',
+      code: 'MISSING_FIELD',
+      message: 'Rule must have a "conditions" object (use `{ all: [] }` for an unconditional rule)',
+      path: `${path}.conditions`,
+    })
   }
 
   // Warn on unconditional allow * * (super-admin vs. mistake ambiguity).

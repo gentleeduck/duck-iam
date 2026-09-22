@@ -1,4 +1,4 @@
-import type { PermissionMap } from '@gentleduck/iam'
+import type { IamClient } from '@gentleduck/iam'
 import { cookies } from 'next/headers'
 import { PostList } from '@/components/post-list'
 import { UserSwitcher } from '@/components/user-switcher'
@@ -17,7 +17,7 @@ export default async function Home() {
   const userId = cookieStore.get('user-id')?.value ?? 'alice'
 
   let posts: Post[] = []
-  let permissions: PermissionMap = {}
+  let permissions: IamClient.PermissionMap = {}
 
   try {
     posts = await apiFetch('/posts', userId)

@@ -246,17 +246,30 @@ describe('iamGuard (express)', () => {
     can.mockRestore()
   })
 
-  it('forwards engine errors to next()', async () => {
-    vi.spyOn(engine, 'can').mockRejectedValue(new Error('engine err'))
+  // SECURITY: not `next(err)`: without an app error handler, Express's finalhandler writes `err.stack` into the body
+  // outside production.
+  it('answers 500 rather than handing the engine error to the framework', async () => {
+    vi.spyOn(engine, 'can').mockRejectedValue(new Error('engine err secret=hunter2'))
     const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'u' })
     const next = vi.fn()
+    const res = makeRes()
+    await mw({ method: 'DELETE', path: '/post/1' } as Parameters<typeof mw>[0], res as Parameters<typeof mw>[1], next)
+    expect(next).not.toHaveBeenCalled()
+    expect(res.statusCode).toBe(500)
+    expect(JSON.stringify(res.body)).not.toContain('hunter2')
+  })
+
+  it('routes the engine error to onError when one is given', async () => {
+    vi.spyOn(engine, 'can').mockRejectedValue(new Error('engine err'))
+    const onError = vi.fn()
+    const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'u', onError })
     await mw(
       { method: 'DELETE', path: '/post/1' } as Parameters<typeof mw>[0],
       makeRes() as Parameters<typeof mw>[1],
-      next,
+      vi.fn(),
     )
-    expect(next).toHaveBeenCalledOnce()
-    expect((next.mock.calls[0]?.[0] as Error).message).toBe('engine err')
+    expect(onError).toHaveBeenCalledOnce()
+    expect(onError.mock.calls[0]?.[0]?.message).toBe('engine err')
   })
 })
 
@@ -358,8 +371,7 @@ describe('iamAdminRouter (express)', () => {
   it('rejects mutation with 403 when csrfCheck returns false', async () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
-    // Even if authorize() would allow, csrfCheck blocks cross-site requests
-    // before authorize ever runs.
+    // csrfCheck blocks cross-site requests before authorize() runs, even if it would allow.
     let authorizeCalled = false
     iamAdminRouter(engine, {
       authorize: () => {
@@ -674,5 +686,144 @@ describe('iamAdminRouter (express)', () => {
       engine.admin.savePolicy = original
       expect(events[0]!.error).toBe('full-detailed-message')
     })
+  })
+})
+
+// SECURITY: a bad `scope` must be an error, never a dropped field, because a dropped scope makes a scoped grant global.
+describe('iamAdminRouter validates the fields it used to cast', () => {
+  type RouteHandler = (req: never, res: never) => Promise<void> | void
+
+  function mount() {
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      assignments: {},
+      roles: [viewerRole, editorRole],
+    })
+    const handlers: Record<string, RouteHandler> = {}
+    const record = (key: string) => (path: string, h: RouteHandler) => {
+      handlers[`${key} ${path}`] = h
+    }
+    const router = {
+      delete: vi.fn(record('DELETE')),
+      get: vi.fn(record('GET')),
+      post: vi.fn(record('POST')),
+      put: vi.fn(record('PUT')),
+    }
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const onError = vi.fn()
+    iamAdminRouter(engine, { authorize: () => true, onError })(() => router as never)
+    return { adapter, handlers, onError, res: makeRes() }
+  }
+
+  async function assign(body: unknown, params: unknown = { id: 'user-1' }) {
+    const { adapter, handlers, onError, res } = mount()
+    await handlers['POST /subjects/:id/roles']!({ body, params } as never, res as never)
+    return {
+      onError,
+      res,
+      roles: await adapter.getSubjectRoles('user-1'),
+      scoped: await adapter.getSubjectScopedRoles('user-1'),
+    }
+  }
+
+  /** A client mistake is a 400 and never reaches `onError`, which would page an operator and invite endless retries. */
+  function expectRefusedAsBadRequest(res: MockRes, onError: ReturnType<typeof vi.fn>): void {
+    expect(res.statusCode).toBe(400)
+    expect(onError).not.toHaveBeenCalled()
+  }
+
+  // Control: a well-formed call still works, so the refusals below are not a blanket reject.
+  it('accepts a well-formed assignment', async () => {
+    const { onError, scoped } = await assign({ roleId: 'editor', scope: 'org-1' })
+    expect(onError).not.toHaveBeenCalled()
+    // A scoped grant comes back from `getSubjectScopedRoles`, not the unscoped list.
+    expect(scoped).toEqual([{ role: 'editor', scope: 'org-1' }])
+  })
+
+  it.each([
+    ['a numeric roleId', { roleId: 123 }],
+    ['a missing roleId', {}],
+    ['an empty roleId', { roleId: '' }],
+    ['an object roleId', { roleId: { id: 'editor' } }],
+    ['a non-object body', 'editor'],
+    ['an array body', ['editor']],
+  ])('refuses %s without assigning anything', async (_label, body) => {
+    const { onError, res, roles } = await assign(body)
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+  })
+
+  it('refuses a blank roleId rather than granting a role nobody can name', async () => {
+    // `'   '` passes a `length === 0` check but names no role.
+    const { onError, res, roles, scoped } = await assign({ roleId: '   ' })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+    expect(scoped).toEqual([])
+  })
+
+  it('refuses a blank scope rather than making the grant global', async () => {
+    // A blank scope reaching the adapter would be unselectable or dropped into a tenant-wide grant.
+    const { onError, res, roles, scoped } = await assign({ roleId: 'editor', scope: ' ' })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+    expect(scoped).toEqual([])
+  })
+
+  it("refuses a roleId past the engine's own 1024-char cap", async () => {
+    const { onError, res, roles } = await assign({ roleId: 'e'.repeat(1025) })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+  })
+
+  it('accepts a roleId of exactly the cap - the boundary is not off by one', async () => {
+    const atCap = 'e'.repeat(1024)
+    const { onError, res } = await assign({ roleId: atCap })
+    // Not a known role, so the engine refuses it; only the length check must not fire.
+    expect(res.body).not.toEqual(expect.objectContaining({ error: 'Invalid request' }))
+    expect(String(onError.mock.calls[0]?.[0] ?? '')).not.toContain('1024-char cap')
+  })
+
+  // A bad scope must not be silently dropped: that widens the grant.
+  it('refuses a non-string scope rather than granting globally', async () => {
+    const { onError, res, roles, scoped } = await assign({ roleId: 'editor', scope: 7 })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+    expect(scoped).toEqual([])
+  })
+
+  it('treats an absent scope as unscoped', async () => {
+    const absent = await assign({ roleId: 'editor' })
+    expect(absent.onError).not.toHaveBeenCalled()
+    expect(absent.roles).toEqual(['editor'])
+  })
+
+  // SECURITY: reading `null` as absent would make a tenant-wide grant from a body the other integrations refuse.
+  it('refuses an explicit null scope rather than granting globally', async () => {
+    const { onError, res, roles, scoped } = await assign({ roleId: 'editor', scope: null })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+    expect(scoped).toEqual([])
+  })
+
+  it('says how to spell "unset" in the refusal', async () => {
+    // Read off the response, not `onError`: the client needs the fix, and the operator hook does not fire here.
+    const { res } = await assign({ roleId: 'editor', scope: null })
+    expect(JSON.stringify(res.body)).toContain('omit the field')
+  })
+
+  it('refuses a missing path parameter', async () => {
+    const { onError, res } = await assign({ roleId: 'editor' }, {})
+    expectRefusedAsBadRequest(res, onError)
+  })
+
+  it('refuses a blank path parameter', async () => {
+    const { onError, res, roles } = await assign({ roleId: 'editor' }, { id: '  ' })
+    expectRefusedAsBadRequest(res, onError)
+    expect(roles).toEqual([])
+  })
+
+  it('refuses a missing roleId path parameter on revoke', async () => {
+    const { handlers, onError, res } = mount()
+    await handlers['DELETE /subjects/:id/roles/:roleId']!({ params: { id: 'user-1' } } as never, res as never)
+    expectRefusedAsBadRequest(res, onError)
   })
 })

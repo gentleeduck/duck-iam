@@ -50,21 +50,31 @@ describe('runHealthCheck', () => {
 })
 
 describe('preloadEngine', () => {
-  it('runs loadAllPolicies; skips validator import when flag false', async () => {
+  const loadAllRoles = async () => []
+
+  it('runs loadAllPolicies; skips the roles read when the validator flag is false', async () => {
     const loadAllPolicies = vi.fn(async () => [])
-    await preloadEngine({ loadAllPolicies, loadValidator: false })
+    const roles = vi.fn(loadAllRoles)
+    await preloadEngine({ loadAllPolicies, loadAllRoles: roles, loadValidator: false })
     expect(loadAllPolicies).toHaveBeenCalledTimes(1)
+    expect(roles).not.toHaveBeenCalled()
   })
 
-  it('runs both when validator flag true', async () => {
+  it('reads roles too when the validator flag is true', async () => {
     const loadAllPolicies = vi.fn(async () => [])
-    await preloadEngine({ loadAllPolicies, loadValidator: true })
+    const roles = vi.fn(loadAllRoles)
+    await preloadEngine({ loadAllPolicies, loadAllRoles: roles, loadValidator: true })
     expect(loadAllPolicies).toHaveBeenCalledTimes(1)
+    expect(roles).toHaveBeenCalledTimes(1)
   })
 
   it('rejects when loadAllPolicies rejects', async () => {
     await expect(
-      preloadEngine({ loadAllPolicies: async () => Promise.reject(new Error('boom')), loadValidator: false }),
+      preloadEngine({
+        loadAllPolicies: async () => Promise.reject(new Error('boom')),
+        loadAllRoles,
+        loadValidator: false,
+      }),
     ).rejects.toThrow('boom')
   })
 })

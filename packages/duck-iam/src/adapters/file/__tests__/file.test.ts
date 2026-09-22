@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccessControl } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { IamFile, IamFileAdapter } from '../index'
+import { runEngineCapabilityCompliance } from '../../__compliance__/engine-capability'
+import { OPTIONAL_SUPPORT } from '../../__compliance__/optional-support'
+import { IamFile, IamFileAdapter, iamFileAdapter } from '../index'
 
 type Action = 'read' | 'write'
 type Resource = 'post'
@@ -11,11 +13,12 @@ type Scope = 'org-1'
 type FakeFS = IamFile.IFS & {
   files: Map<string, string>
   dirs: Set<string>
-  realpathMap?: Map<string, string>
+  realpathMap: Map<string, string>
 }
 
 function makeFakeFS(initial?: string, opts: { storePath?: string; preCreatedDirs?: string[] } = {}): FakeFS {
   const files = new Map<string, string>()
+  const realpathMap = new Map<string, string>()
   const dirs = new Set<string>(opts.preCreatedDirs ?? [])
   const storePath = opts.storePath ?? '/store.json'
   if (initial) files.set(storePath, initial)
@@ -43,6 +46,26 @@ function makeFakeFS(initial?: string, opts: { storePath?: string; preCreatedDirs
       }
       dirs.add(path)
     },
+    // `rename` and `realpath` select the shipped temp-then-rename write path and root containment.
+    async rename(from: string, to: string) {
+      const data = files.get(from)
+      if (data == null) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException
+        err.code = 'ENOENT'
+        throw err
+      }
+      files.set(to, data)
+      files.delete(from)
+    },
+    async realpath(path: string) {
+      const mapped = realpathMap.get(path)
+      if (mapped !== undefined) return mapped
+      if (files.has(path) || dirs.has(path)) return path
+      const err = new Error('ENOENT') as NodeJS.ErrnoException
+      err.code = 'ENOENT'
+      throw err
+    },
+    realpathMap,
   }
 }
 
@@ -55,9 +78,24 @@ afterEach(() => {
   _warnSpy?.mockRestore()
 })
 
-// IamAdapter compliance - fresh in-memory fake FS per call so each scenario
-// runs against an empty store.
-runAdapterCompliance('IamFileAdapter', () => new IamFileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never)
+/**
+ * The configuration a real deployment runs: an FS with `rename` and `realpath`, plus a `rootDir`.
+ * NOTE: without them the adapter takes the in-place fallback and skips containment, which is not what ships.
+ */
+function shippedFile(): IamFileAdapter {
+  return new IamFileAdapter({
+    fs: makeFakeFS(undefined, { preCreatedDirs: ['/data'] }),
+    path: '/data/store.json',
+    rootDir: '/data',
+  })
+}
+
+// Fresh fake FS per call, so each compliance scenario starts from an empty store.
+runAdapterCompliance('IamFileAdapter', shippedFile, {
+  supports: OPTIONAL_SUPPORT.IamFileAdapter,
+})
+
+runEngineCapabilityCompliance('IamFileAdapter', shippedFile)
 
 const policy: AccessControl.IPolicy<Action, Resource, Role> = {
   id: 'p1',
@@ -78,7 +116,8 @@ describe('IamFileAdapter', () => {
     const fs = makeFakeFS()
     const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     await adapter.savePolicy(policy)
-    expect(await adapter.listPolicies()).toEqual([policy])
+    // `version: 1` comes from the shared write-path normaliser.
+    expect(await adapter.listPolicies()).toEqual([{ ...policy, version: 1 }])
     // Verify on-disk JSON
     const disk = JSON.parse(fs.files.get('/store.json')!)
     expect(disk.policies.p1.name).toBe('Allow Read')
@@ -102,6 +141,7 @@ describe('IamFileAdapter', () => {
   it('assignRole + getSubjectRoles persists across calls', async () => {
     const fs = makeFakeFS()
     const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    await adapter.saveRole({ id: 'viewer', name: 'Viewer', permissions: [] })
     await adapter.assignRole('user-1', 'viewer')
     expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
   })
@@ -109,6 +149,7 @@ describe('IamFileAdapter', () => {
   it('scoped assignments are exposed via getSubjectScopedRoles only', async () => {
     const fs = makeFakeFS()
     const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    await adapter.saveRole({ id: 'editor', name: 'Editor', permissions: [] })
     await adapter.assignRole('user-1', 'editor', 'org-1')
     expect(await adapter.getSubjectRoles('user-1')).toEqual([])
     expect(await adapter.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
@@ -133,19 +174,16 @@ describe('IamFileAdapter', () => {
   })
 
   it('throws on malformed JSON instead of silently emptying the store', async () => {
-    // Previous behaviour silently populated _cache = {} which the next
-    // flush would persist, permanently destroying recoverable data.
+    // A cached `{}` would be persisted by the next flush, destroying recoverable data.
     const fs = makeFakeFS('not-json{')
     const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     await expect(adapter.listPolicies()).rejects.toThrow(/corrupt.*refusing to load/)
   })
 
-  describe('malformed-row drop (P0)', () => {
-    // Same guarantee the IamRedis adapter provides: a corrupt row stored on
-    // disk (manual edit, partial migration, etc) must be dropped, not
-    // returned as-is. The engine's safeEval would otherwise treat it as
-    // NotApplicable and silently strip any deny rules it would have carried.
-    it('drops a policy entry that fails validation, keeps valid ones', async () => {
+  describe('malformed-row handling (P0)', () => {
+    // A corrupt role row is dropped and reported (the grants left naming it are reported too); a policy row throws,
+    // since dropping it would strip its denies. See `iamUnreadablePolicy`.
+    it('refuses a policy entry that fails validation, rather than keeping the rest', async () => {
       const seeded = JSON.stringify({
         policies: {
           good: policy,
@@ -163,8 +201,7 @@ describe('IamFileAdapter', () => {
         fs,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
-      const list = await adapter.listPolicies()
-      expect(list.map((p) => p.id)).toEqual(['p1'])
+      await expect(adapter.listPolicies()).rejects.toThrow(/policy "bad" cannot be read and will not be skipped/)
       expect(errors[0]?.rowId).toBe('bad')
     })
 
@@ -249,37 +286,11 @@ describe('IamFileAdapter', () => {
       ).toThrow(/escapes rootDir/)
     })
 
-    it('warns at most once per process when rootDir is omitted', () => {
-      _warnSpy?.mockClear()
-      const fs = makeFakeFS()
-      // Latch is module-level: prior tests in this file may already have
-      // tripped it, so the warn for these constructions may not fire at all.
-      // Contract is `at most one` across multiple constructions, never per-
-      // construction spam.
-      new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store-1.json', fs })
-      new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store-2.json', fs })
-      new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store-3.json', fs })
-      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c: unknown[]) => /rootDir/.test(String(c[0])))
-      expect(rootDirWarns.length).toBeLessThanOrEqual(1)
-    })
-
-    it('does not reflect the constructed path in the rootDir-missing warn', () => {
-      _warnSpy?.mockClear()
-      const fs = makeFakeFS()
-      const uniquePath = `/very-unique-path-${Date.now()}.json`
-      new IamFileAdapter<Action, Resource, Role, Scope>({ path: uniquePath, fs })
-      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c: unknown[]) => /rootDir/.test(String(c[0])))
-      // Latch may already have fired in prior tests, so this assertion only
-      // applies if a fresh warn did fire here.
-      for (const call of rootDirWarns) {
-        expect(String(call[0])).not.toContain(uniquePath)
-      }
-    })
+    // The missing-`rootDir` warning is tested in `file-rootdir-warn.test.ts`: the compliance call above trips
+    // its module-level latch at collection time, so no test here could observe it.
 
     it('rejects a symlink that resolves outside rootDir (via realpath)', async () => {
-      // Inject a fake realpath that mimics a symlink: /srv/iam/store.json is
-      // actually a symlink to /etc/passwd on disk. The constructor's textual
-      // check passes (path string is under rootDir) but the async realpath
+      // Fake a symlink from /srv/iam/store.json to /etc/passwd: the textual check passes, but the realpath
       // check on first read must reject.
       const fs: IamFile.IFS = {
         async readFile() {
@@ -304,9 +315,7 @@ describe('IamFileAdapter', () => {
     })
 
     it('rethrows non-ENOENT realpath errors instead of falling through to parent', async () => {
-      // A symlink-loop on the file (ELOOP) was previously silenced by the
-      // parent-realpath fallback, letting a hostile symlink bypass the
-      // containment check.
+      // SECURITY: ELOOP must not fall back to the parent realpath, or a hostile symlink bypasses containment.
       const fs: IamFile.IFS = {
         async readFile() {
           return JSON.stringify({ policies: {}, roles: {}, assignments: {}, attributes: {} })
@@ -332,8 +341,7 @@ describe('IamFileAdapter', () => {
     })
 
     it('still falls back to parent realpath when file is ENOENT', async () => {
-      // ENOENT (file genuinely missing on first run) keeps the legitimate
-      // fallback alive - containment is asserted via the parent + basename.
+      // A genuinely missing file (first run) still checks containment via parent + basename.
       const fs: IamFile.IFS = {
         async readFile() {
           throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
@@ -360,9 +368,7 @@ describe('IamFileAdapter', () => {
     })
 
     it('_loadInFlight clears after symlink-escape rejection', async () => {
-      // The in-flight slot must clear on any throw so a fixed-up filesystem
-      // can be re-tried; otherwise a rejected promise would pin the adapter
-      // in permanent failure.
+      // The in-flight slot must clear on any throw so a fixed filesystem can be retried.
       let escapingSymlink = true
       const fs: IamFile.IFS = {
         async readFile() {
@@ -382,16 +388,13 @@ describe('IamFileAdapter', () => {
         fs,
       })
       await expect(adapter.listPolicies()).rejects.toThrow(/symlink traversal/)
-      // Fix the underlying FS state and retry - the in-flight slot must
-      // have cleared so a fresh load is attempted.
+      // Fix the FS and retry; a fresh load must be attempted.
       escapingSymlink = false
       expect(await adapter.listPolicies()).toEqual([])
     })
 
     it('throws on non-ENOENT load failures instead of fail-opening to empty store', async () => {
-      // EACCES (permissions drift), EISDIR (path overwritten), etc. must
-      // surface immediately. A silent empty-store fallback would let the
-      // engine see zero policies and let defaultEffect decide every request.
+      // EACCES, EISDIR, etc. must surface; an empty-store fallback would leave every decision to defaultEffect.
       const fs: IamFile.IFS = {
         async readFile() {
           throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
@@ -416,9 +419,7 @@ describe('IamFileAdapter', () => {
     })
 
     it('re-checks realpath on every I/O, not just the first', async () => {
-      // After the first successful read, the file is swapped for a symlink to
-      // /etc/passwd. The second I/O must re-run realpath and reject - the
-      // one-shot _rootCheckDone latch would have let the symlink through.
+      // After the first read the file is swapped for a symlink to /etc/passwd; the next write must re-check and reject.
       let realpathCalls = 0
       let swapped = false
       const fs: IamFile.IFS = {
@@ -445,8 +446,7 @@ describe('IamFileAdapter', () => {
       expect(callsAfterFirst).toBeGreaterThan(0)
       // Attacker swap.
       swapped = true
-      // Second op must re-run realpath and reject.
-      // savePolicy clears the cache so _loadState will re-invoke _assertWithinRoot.
+      // The write path runs `_assertWithinRoot` before writing, even though the load is served from cache.
       await expect(adapter.savePolicy({ id: 'p', name: 'p', algorithm: 'deny-overrides', rules: [] })).rejects.toThrow(
         /symlink traversal/,
       )
@@ -454,8 +454,7 @@ describe('IamFileAdapter', () => {
     })
 
     it('does not call mkdir recursively (only the immediate parent)', async () => {
-      // Pre-seed the immediate parent so the non-recursive mkdir EEXISTs and
-      // succeeds; the grandparent is never touched.
+      // The immediate parent is pre-seeded so the non-recursive mkdir hits EEXIST; the grandparent is never touched.
       const fs = makeFakeFS(undefined, { storePath: '/srv/iam/store.json', preCreatedDirs: ['/srv/iam'] })
       const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/srv/iam/store.json',
@@ -468,5 +467,19 @@ describe('IamFileAdapter', () => {
       // Parent was either pre-existing or EEXIST'd; either way the file is there.
       expect(fs.files.has('/srv/iam/store.json')).toBe(true)
     })
+  })
+})
+
+describe('iamFileAdapter factory', () => {
+  it('returns a working IamFileAdapter over the supplied FS', async () => {
+    const adapter = iamFileAdapter({ fs: makeFakeFS(), path: '/store.json' })
+    expect(adapter).toBeInstanceOf(IamFileAdapter)
+    await adapter.saveRole({ id: 'viewer', name: 'Viewer', permissions: [] })
+    await adapter.assignRole('user-1', 'viewer')
+    expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
+  })
+
+  it('propagates constructor validation (relative path still rejected)', () => {
+    expect(() => iamFileAdapter({ fs: makeFakeFS(), path: 'relative.json' })).toThrow(/absolute path/)
   })
 })

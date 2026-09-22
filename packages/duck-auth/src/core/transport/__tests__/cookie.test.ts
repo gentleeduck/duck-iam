@@ -17,15 +17,30 @@ describe('AuthCookieTransport - construction invariants', () => {
   })
 
   it('rejects __Host- prefix with a Domain attribute', () => {
-    expect(() => new CookieTransport({ name: '__Host-mine', domain: 'x.com' })).toThrow(/__Host-/)
+    expect(() => new CookieTransport({ name: '__Host-mine', domain: 'x.com' })).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: expect.stringContaining('__Host- prefix forbids the Domain attribute') },
+      }),
+    )
   })
 
   it('rejects __Host- prefix with non-root Path', () => {
-    expect(() => new CookieTransport({ name: '__Host-mine', path: '/api' })).toThrow(/Path=\//)
+    expect(() => new CookieTransport({ name: '__Host-mine', path: '/api' })).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: expect.stringContaining('__Host- prefix requires Path=/') },
+      }),
+    )
   })
 
   it('rejects __Host- prefix with secure:false', () => {
-    expect(() => new CookieTransport({ name: '__Host-mine', secure: false })).toThrow(/Secure=true/)
+    expect(() => new CookieTransport({ name: '__Host-mine', secure: false })).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: expect.stringContaining('__Host- prefix requires Secure=true') },
+      }),
+    )
   })
 })
 
@@ -92,9 +107,7 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
 
   it('rejects an oversize cookie value (decode-then-authSha256 DoS defense)', () => {
     // Real opaque SIDs are 64 chars; JWTs run a few hundred. 1024 cap
-    // is generous. Without it, an attacker who fits a large cookie
-    // under the HTTP-server header limit (typically 8-16k) can force
-    // a multi-KB decodeURIComponent + downstream sha256 per request.
+    // is generous.
     const huge = 'x'.repeat(1025)
     expect(t.extract(withCookie(`duck-sid=${huge}`))).toBeNull()
   })
@@ -106,16 +119,36 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
 
   describe('cookie name validation at construction', () => {
     it('rejects a cookie name with whitespace (RFC 6265 token)', () => {
-      expect(() => new CookieTransport({ secure: false, name: 'duck sid' })).toThrow(/RFC 6265/)
+      expect(() => new CookieTransport({ secure: false, name: 'duck sid' })).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: { detail: '@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character' },
+        }),
+      )
     })
     it('rejects a cookie name with semicolon', () => {
-      expect(() => new CookieTransport({ secure: false, name: 'duck;sid' })).toThrow(/RFC 6265/)
+      expect(() => new CookieTransport({ secure: false, name: 'duck;sid' })).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: { detail: '@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character' },
+        }),
+      )
     })
     it('rejects a cookie name with equals sign', () => {
-      expect(() => new CookieTransport({ secure: false, name: 'duck=sid' })).toThrow(/RFC 6265/)
+      expect(() => new CookieTransport({ secure: false, name: 'duck=sid' })).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: { detail: '@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character' },
+        }),
+      )
     })
     it('rejects an empty cookie name', () => {
-      expect(() => new CookieTransport({ secure: false, name: '' })).toThrow(/non-empty string/)
+      expect(() => new CookieTransport({ secure: false, name: '' })).toThrow(
+        expect.objectContaining({
+          code: 'AUTH_MISCONFIGURED',
+          meta: { detail: '@gentleduck/auth CookieTransport: name must be a non-empty string <=256 chars' },
+        }),
+      )
     })
     it('accepts the default duck-sid name', () => {
       expect(() => new CookieTransport({ secure: false, name: 'duck-sid' })).not.toThrow()

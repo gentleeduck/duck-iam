@@ -1,11 +1,7 @@
-/**
- * ES256: ECDSA-P256-SHA256 sign + verify with DER<->JOSE conversion.
- *
- * Node's createSign/createVerify use DER; JOSE wire format is the raw
- * r||s pair (64 bytes for P-256). The two helpers handle the conversion.
- */
+/** ES256: ECDSA-P256-SHA256 sign + verify with DER<->JOSE conversion. */
 
 import { createSign, createVerify } from 'node:crypto'
+import { AuthError } from '~/core/errors'
 
 export function signEs256(key: string, signingInput: string): string {
   const signer = createSign('SHA256')
@@ -28,14 +24,14 @@ export function verifyEs256(key: string, signingInput: string, sigB64: string): 
 
 export function derToJoseEs256(der: Buffer): Buffer {
   const halfLen = 32
-  if (der[0] !== 0x30) throw new Error('ES256 sig: not a DER sequence')
+  if (der[0] !== 0x30) throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'ES256 sig: not a DER sequence' })
   let offset = 2
   if ((der[1] ?? 0) & 0x80) offset = 2 + ((der[1] ?? 0) & 0x7f)
-  if (der[offset] !== 0x02) throw new Error('ES256 sig: expected r INTEGER')
+  if (der[offset] !== 0x02) throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'ES256 sig: expected r INTEGER' })
   const rLen = der.readUInt8(offset + 1)
   let r = der.subarray(offset + 2, offset + 2 + rLen)
   offset = offset + 2 + rLen
-  if (der[offset] !== 0x02) throw new Error('ES256 sig: expected s INTEGER')
+  if (der[offset] !== 0x02) throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'ES256 sig: expected s INTEGER' })
   const sLen = der.readUInt8(offset + 1)
   let s = der.subarray(offset + 2, offset + 2 + sLen)
   if (r[0] === 0 && r.length === halfLen + 1) r = r.subarray(1)
@@ -45,7 +41,7 @@ export function derToJoseEs256(der: Buffer): Buffer {
 
 export function joseToDerEs256(raw: Buffer): Buffer {
   const halfLen = 32
-  if (raw.length !== halfLen * 2) throw new Error('ES256 sig: bad length')
+  if (raw.length !== halfLen * 2) throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'ES256 sig: bad length' })
   let r = raw.subarray(0, halfLen)
   let s = raw.subarray(halfLen)
   while (r.length > 1 && r[0] === 0) r = r.subarray(1)

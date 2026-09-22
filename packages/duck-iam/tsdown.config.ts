@@ -40,8 +40,10 @@ export default createTsdownConfig({
     'client/vue/index': 'src/client/vue/index.ts',
     'client/vanilla/index': 'src/client/vanilla/index.ts',
 
-    // Devtools (React)
+    // Devtools (React). Two entries, two dependency contracts: `dt` is
+    // self-contained, `dt/v2` is built on duck-ui - see src/dt/v2/index.ts.
     'dt/index': 'src/dt/index.ts',
+    'dt/v2/index': 'src/dt/v2/index.ts',
   },
   external: [
     ...baseExternal,
@@ -62,5 +64,10 @@ export default createTsdownConfig({
     /^@gentleduck\/registry-ui($|\/)/,
     /^@gentleduck\/libs($|\/)/,
     /^@gentleduck\/variants($|\/)/,
+    /^@gentleduck\/primitives($|\/)/,
+    /^@gentleduck\/hooks($|\/)/,
+    /^@gentleduck\/vim($|\/)/,
+    /^@gentleduck\/motion($|\/)/,
+    'lucide-react',
   ],
 })

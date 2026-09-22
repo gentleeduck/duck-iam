@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthTestChannel } from '~/channels/console'
+import type { Credential } from '~/core/credentials'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -12,7 +13,7 @@ interface MyProfile extends Identities.ProfileMetadataBase {
   emailVerified?: boolean
 }
 
-function build() {
+function build(opts: { credentials?: (base: Credential.Store) => Credential.Store } = {}) {
   const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
@@ -20,7 +21,7 @@ function build() {
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
-      credentials: adapter.credentials,
+      credentials: opts.credentials?.(adapter.credentials) ?? adapter.credentials,
     },
     limiter: new MemoryLimiter({ max: 3, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
@@ -53,8 +54,12 @@ describe('FlowsImpl - email verification', () => {
     const url = (channel.outbox[0]!.vars as { url: string }).url
     const token = new URL(url).searchParams.get('token')
     expect(token).toBeTruthy()
-    await auth.flows.completeEmailVerification({ token: token! })
-    const ident = await adapter.identities.findById(identityId)
+    const done = await auth.flows.completeEmailVerification({ token: token! })
+    // The verified row straight off the write that set the flag, so a caller
+    // rendering the account afterwards needs no second read.
+    expect(done.identity.emailVerified).toBe(true)
+    expect(done.identity.id).toBe(done.identityId)
+    const ident = await adapter.identities.find({ id: identityId })
     expect(ident?.emailVerified).toBe(true)
   })
 
@@ -88,6 +93,46 @@ describe('FlowsImpl - email verification', () => {
     await expect(auth.flows.completeEmailVerification({ token })).rejects.toMatchObject({
       code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
+  })
+
+  it('a second verification reading between the claim and the delete is refused', async () => {
+    // The claim and the delete are two statements, with the identity write between them. The replay test
+    // above never opens that window, because it runs the second call after the first has finished.
+    let gatedId: string | null = null
+    let calls = 0
+    let release = (): void => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { adapter: ad, auth: engine } = build({
+      credentials: (base) => ({
+        ...base,
+        delete: async (id, ctx) => {
+          if (id === gatedId) {
+            calls += 1
+            if (calls === 1) await held
+          }
+          return base.delete(id, ctx)
+        },
+      }),
+    })
+    const ident = await engine.identities.create({ profile: { username: 'b@x.com', email: 'b@x.com' } })
+    const ch = new AuthTestChannel()
+    await engine.flows.requestEmailVerification({ channels: { email: ch }, identityId: ident.id })
+    const token = new URL((ch.outbox[0]?.vars as { url: string }).url).searchParams.get('token') as string
+    const [row] = await ad.credentials.listByIdentity(ident.id, 'recovery', {})
+    gatedId = row?.id ?? null
+
+    const winner = engine.flows.completeEmailVerification({ token })
+    await vi.waitFor(() => {
+      if (calls === 0) throw new Error('the winner has not claimed the row yet')
+    })
+
+    await expect(engine.flows.completeEmailVerification({ token })).rejects.toMatchObject({
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
+    })
+    release()
+    expect((await winner).identity.emailVerified).toBe(true)
   })
 
   it('rate-limit enforced (max 3 within window)', async () => {

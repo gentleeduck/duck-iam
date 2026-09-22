@@ -1,26 +1,12 @@
-/**
- * E2E: the token-carrying flows against REAL Postgres and REAL Redis.
- *
- * Password reset, email verification and account deletion all hand a secret to a
- * channel, then take it back later and act on it. That is the same shape as an
- * OIDC authorization code, and every bug this audit found sat in that shape: the
- * token has to work once, expire, belong to exactly one account, and leave the
- * right wreckage behind when it is spent.
- *
- * Two of those are only observable against a real store. Whether the reset marked
- * the token spent is a claim about a row a later request reads back, and whether
- * it revoked the other devices is a claim about rows nobody in this process is
- * holding.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL or DUCKAUTH_E2E_REDIS_URL is unset;
- * `globalSetup` provisions both when docker is available.
- */
+/** E2E: the token-carrying flows against REAL Postgres and REAL Redis. */
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { AuthTestChannel } from '~/channels/console'
+import { orNull } from '~/core/answer'
+import { getCredentialPurpose } from '~/core/credentials/credentials'
 import { AuthEngine } from '~/core/engine'
 import { redisIdempotency } from '~/core/idempotency'
 import { RedisIdempotency } from '~/core/idempotency/idempotency.redis'
@@ -43,7 +29,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
   let raw: Redis
   let prefix: string
   let auth: AuthEngine<Profile>
-  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  let stores: DrizzlePgAdapter
   const planted: string[] = []
 
   const cookie = (sid: string) => ({ headers: new Headers({ cookie: `duck-sid=${sid}` }) })
@@ -67,7 +53,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
     return { email, id: identity.id }
   }
 
-  const findByEmail = async (email: string) => stores.identities.findByEmail(email)
+  const findByEmail = async (email: string) => orNull(stores.identities.find({ email }))
 
   async function requestReset(email: string): Promise<{ channel: AuthTestChannel; token: string }> {
     const channel = new AuthTestChannel()
@@ -89,7 +75,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
     raw = new Redis(REDIS_URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
-    stores = drizzlePgStorage<Profile>(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL as string)
 
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
@@ -194,8 +180,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
       await auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })
 
-      expect(await auth.resolveSession(cookie(a.sid))).toBeNull()
-      expect(await auth.resolveSession(cookie(b.sid))).toBeNull()
+      await expect(auth.resolveSession(cookie(a.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      await expect(auth.resolveSession(cookie(b.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('leaves other accounts signed in', async () => {
@@ -206,7 +192,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
       await auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })
 
-      expect(await auth.resolveSession(cookie(theirs.sid))).not.toBeNull()
+      await expect(auth.resolveSession(cookie(theirs.sid))).resolves.toBeDefined()
     })
 
     it('says nothing about whether an address is registered', async () => {
@@ -243,10 +229,12 @@ suite('E2E token flows on real Postgres + Redis', () => {
       const done = await auth.flows.completeEmailVerification({ token })
       expect(done.identityId).toBe(user.id)
 
-      const verified = await stores.identities.findById(user.id)
+      const verified = await stores.identities.find({ id: user.id })
       expect(verified?.emailVerified).toBe(true)
 
-      await expect(auth.flows.completeEmailVerification({ token })).rejects.toBeTruthy()
+      await expect(auth.flows.completeEmailVerification({ token })).rejects.toMatchObject({
+        code: 'AUTH_RECOVERY_TOKEN_INVALID',
+      })
     })
 
     it('writes the column and leaves no flag in the profile for a caller to set', async () => {
@@ -259,124 +247,36 @@ suite('E2E token flows on real Postgres + Redis', () => {
       await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: user.id })
       await auth.flows.completeEmailVerification({ token: tokenFrom(channel) })
 
-      const row = await stores.identities.findById(user.id)
-      expect(row?.emailVerified).toBe(true)
-      expect((row?.profile as { emailVerified?: boolean }).emailVerified).toBeUndefined()
-    })
-
-    it('refuses a token that was never issued', async () => {
-      await expect(
-        auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token: `made-up-${e2ePrefix()}` }),
-      ).rejects.toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
-    })
-
-    it('refuses a token issued for a different account', async () => {
-      // Two live resets at once: neither token may act on the other's account.
-      const mine = await newUser('reset-mine')
-      const theirs = await newUser('reset-theirs')
-      const { token: theirToken } = await requestReset(theirs.email)
-      await requestReset(mine.email)
-
-      await auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token: theirToken })
-
-      // Their password changed; mine did not.
-      const stillMine = await signIn(mine.email)
-      expect(stillMine.sid).toBeTruthy()
-    })
-
-    it('revokes every other session for the account', async () => {
-      // The reason a reset exists: whoever was in the account is put out of it.
-      const user = await newUser('reset-revokes')
-      const a = await signIn(user.email)
-      const b = await signIn(user.email)
-      const { token } = await requestReset(user.email)
-
-      await auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })
-
-      expect(await auth.resolveSession(cookie(a.sid))).toBeNull()
-      expect(await auth.resolveSession(cookie(b.sid))).toBeNull()
-    })
-
-    it('leaves other accounts signed in', async () => {
-      const victim = await newUser('reset-victim')
-      const bystander = await newUser('reset-bystander')
-      const theirs = await signIn(bystander.email)
-      const { token } = await requestReset(victim.email)
-
-      await auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })
-
-      expect(await auth.resolveSession(cookie(theirs.sid))).not.toBeNull()
-    })
-
-    it('says nothing about whether an address is registered', async () => {
-      // Enumeration: the response for an unknown address must look like the
-      // response for a known one.
-      const channel = new AuthTestChannel()
-      const result = await auth.flows.requestPasswordReset({
-        channels: { email: channel },
-        findIdentityByEmail: findByEmail,
-        input: { email: `nobody-${e2ePrefix()}@test.local` },
-      })
-      expect(result).toEqual({ ok: true })
-      expect(channel.outbox).toHaveLength(0)
-    })
-
-    it('issues a distinct token each time it is asked', async () => {
-      const user = await newUser('reset-distinct')
-      const first = await requestReset(user.email)
-      const second = await requestReset(user.email)
-      expect(first.token).not.toBe(second.token)
-    })
-  })
-
-  describe('email verification', () => {
-    it('marks the address verified and refuses the token afterwards', async () => {
-      const user = await newUser('verify')
-      const channel = new AuthTestChannel()
-      await auth.flows.requestEmailVerification({
-        channels: { email: channel },
-        identityId: user.id,
-      })
-      const token = tokenFrom(channel)
-
-      const done = await auth.flows.completeEmailVerification({ token })
-      expect(done.identityId).toBe(user.id)
-
-      const verified = await stores.identities.findById(user.id)
-      expect(verified?.emailVerified).toBe(true)
-
-      await expect(auth.flows.completeEmailVerification({ token })).rejects.toBeTruthy()
-    })
-
-    it('writes the column and leaves no flag in the profile for a caller to set', async () => {
-      const user = await newUser('verify-column')
-      const channel = new AuthTestChannel()
-      await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: user.id })
-      await auth.flows.completeEmailVerification({ token: tokenFrom(channel) })
-
-      const row = await stores.identities.findById(user.id)
+      const row = await stores.identities.find({ id: user.id })
       expect(row?.emailVerified).toBe(true)
       expect((row?.profile as { emailVerified?: boolean }).emailVerified).toBeUndefined()
     })
     it('refuses a token that was never issued', async () => {
-      await expect(auth.flows.completeEmailVerification({ token: `made-up-${e2ePrefix()}` })).rejects.toBeTruthy()
+      await expect(auth.flows.completeEmailVerification({ token: `made-up-${e2ePrefix()}` })).rejects.toMatchObject({
+        code: 'AUTH_RECOVERY_TOKEN_INVALID',
+      })
     })
 
     it('a verification token cannot be spent as a password reset', async () => {
       // Different kinds must not be interchangeable, or the weaker flow becomes a
-      // way into the stronger one.
+      // way into the stronger one. The code is the same one a token that never existed gets, deliberately:
+      // telling the two apart would confirm the token is real to whoever is holding it.
       const user = await newUser('verify-crosskind')
       const channel = new AuthTestChannel()
       await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: user.id })
       const token = tokenFrom(channel)
 
-      await expect(auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })).rejects.toBeTruthy()
+      await expect(auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })).rejects.toMatchObject({
+        code: 'AUTH_RECOVERY_TOKEN_INVALID',
+      })
     })
 
     it('a reset token cannot be spent as an email verification', async () => {
       const user = await newUser('reset-crosskind')
       const { token } = await requestReset(user.email)
-      await expect(auth.flows.completeEmailVerification({ token })).rejects.toBeTruthy()
+      await expect(auth.flows.completeEmailVerification({ token })).rejects.toMatchObject({
+        code: 'AUTH_RECOVERY_TOKEN_INVALID',
+      })
     })
   })
 
@@ -388,10 +288,10 @@ suite('E2E token flows on real Postgres + Redis', () => {
       const token = tokenFrom(channel)
 
       await auth.flows.completeAccountDeletion({ token })
-      expect(await stores.identities.findById(user.id)).toBeNull()
+      await expect(stores.identities.find({ id: user.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
 
-      await auth.flows.cancelAccountDeletion({ identityId: user.id })
-      expect(await stores.identities.findById(user.id)).not.toBeNull()
+      await auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId: user.id })
+      await expect(stores.identities.find({ id: user.id })).resolves.toBeTruthy()
     })
 
     it('refuses the deletion token a second time', async () => {
@@ -401,9 +301,11 @@ suite('E2E token flows on real Postgres + Redis', () => {
       const token = tokenFrom(channel)
 
       await auth.flows.completeAccountDeletion({ token })
-      await expect(auth.flows.completeAccountDeletion({ token })).rejects.toBeTruthy()
+      await expect(auth.flows.completeAccountDeletion({ token })).rejects.toMatchObject({
+        code: 'AUTH_RECOVERY_TOKEN_INVALID',
+      })
       // Leave it restored so the afterAll cleanup can still find it.
-      await auth.flows.cancelAccountDeletion({ identityId: user.id })
+      await auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId: user.id })
     })
 
     it('a deleted account cannot sign in, and can again once restored', async () => {
@@ -412,23 +314,145 @@ suite('E2E token flows on real Postgres + Redis', () => {
       await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: user.id })
       await auth.flows.completeAccountDeletion({ token: tokenFrom(channel) })
 
-      await expect(signIn(user.email)).rejects.toBeTruthy()
+      await expect(signIn(user.email)).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
 
-      await auth.flows.cancelAccountDeletion({ identityId: user.id })
+      await auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId: user.id })
       expect((await signIn(user.email)).sid).toBeTruthy()
     })
 
-    it('frees the address while deleted, because the unique index is partial', async () => {
-      const user = await newUser('delete-frees')
+    it('keeps the address while deleted, so the grace window is worth having', async () => {
+      // `uq_auth_identities_email` is unconditional: a hidden row holds its address until it is erased.
+      // A partial index would free it the moment the delete landed, and cancelling would then restore an
+      // account whose address someone else had already taken and verified.
+      const user = await newUser('delete-keeps')
       const channel = new AuthTestChannel()
       await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: user.id })
       await auth.flows.completeAccountDeletion({ token: tokenFrom(channel) })
 
-      const replacement = await auth.identities.create({
-        profile: { email: user.email, username: `${user.email}-again` },
+      await expect(
+        auth.identities.create({ profile: { email: user.email, username: `${user.email}-again` } }),
+      ).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+    })
+  })
+
+  describe('signup, on the schema that used to reject it', () => {
+    // F27. `beginSignUp` built `{ ...initialProfile, email }` and cast it past a
+    // type that requires `username`.
+    it('accepts an email-only begin, which the profile CHECK used to refuse', async () => {
+      const email = `signup-${e2ePrefix()}@test.local`
+      const { flow, flowToken } = await auth.flows.beginSignUp({ email })
+      planted.push(flow.identityId)
+      expect(flowToken).toBeTruthy()
+
+      const row = await stores.identities.find({ id: flow.identityId })
+      expect(row?.profile.username).toBe(email)
+      expect(row?.emailVerified).toBe(false)
+    })
+
+    it('keeps a username the caller did supply', async () => {
+      const email = `signup-named-${e2ePrefix()}@test.local`
+      const username = `handle-${e2ePrefix()}`
+      const { flow } = await auth.flows.beginSignUp({ email, initialProfile: { username } })
+      planted.push(flow.identityId)
+      expect((await stores.identities.find({ id: flow.identityId }))?.profile.username).toBe(username)
+    })
+
+    it('carries the flow through to a session', async () => {
+      const email = `signup-full-${e2ePrefix()}@test.local`
+      const { flow, flowToken } = await auth.flows.beginSignUp({ email, required: ['email-verified'] })
+      planted.push(flow.identityId)
+      await auth.flows.advanceSignUp({ flowToken, stage: 'email-verified' })
+      const done = await auth.flows.completeSignUp({ flowToken })
+      expect(done.session?.identityId).toBe(flow.identityId)
+    })
+
+    it('the flow-state row is a recovery credential the other flows can tell apart', async () => {
+      // F8/F9. One `kind` holds four different token types; `metadata.purpose` is
+      // the only thing separating them, and this row used to write `metadata.kind`
+      // instead - invisible to every helper that reads the discriminator.
+      const email = `signup-purpose-${e2ePrefix()}@test.local`
+      const { flow } = await auth.flows.beginSignUp({ email })
+      planted.push(flow.identityId)
+      const rows = await stores.credentials.listByIdentity(flow.identityId, 'recovery', {})
+      expect(rows.map((r) => getCredentialPurpose(r))).toEqual(['signup-flow'])
+    })
+
+    it('an email verification request does not void an in-flight signup', async () => {
+      const email = `signup-survives-${e2ePrefix()}@test.local`
+      const { flow, flowToken } = await auth.flows.beginSignUp({ email, required: ['email-verified'] })
+      planted.push(flow.identityId)
+
+      await auth.flows.requestEmailVerification({
+        channels: { email: new AuthTestChannel() },
+        identityId: flow.identityId,
       })
-      planted.push(replacement.id)
-      expect(replacement.id).not.toBe(user.id)
+
+      // `deleteByKind(identityId, 'recovery')` used to take the signup row with it,
+      // stranding the user mid-signup with a token that no longer resolves.
+      await expect(auth.flows.getSignUpFlow(flowToken)).resolves.toBeDefined()
+    })
+  })
+
+  describe('what the C6 fixes claim, on real rows', () => {
+    it('a release hands the operator back a working session rather than clearing the cookie', async () => {
+      const admin = await newUser('imp-admin')
+      const target = await newUser('imp-target')
+      const { sid: adminSid } = await signIn(admin.email)
+
+      const started = await auth.flows.impersonate({
+        authorize: async () => true,
+        realSid: adminSid,
+        reason: 'support ticket 1',
+        targetIdentityId: target.id,
+      })
+      // The impersonation session is the target's, at no assurance of its own.
+      expect(started.session.identityId).toBe(target.id)
+      expect(started.session.aal).toBe(1)
+      expect(started.session.factors).toEqual([])
+
+      const released = await auth.flows.releaseImpersonation(started.sid)
+      expect(released.session?.identityId).toBe(admin.id)
+      // The sid it answers with resolves against the real store, and the one it
+      // replaced does not.
+      expect((await auth.resolveSession(cookie(released.sid))).session.identityId).toBe(admin.id)
+      await expect(auth.resolveSession(cookie(started.sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    })
+
+    it('a reset by a signed-in caller rotates them into a new session instead of stranding them', async () => {
+      const user = await newUser('reset-rotate')
+      const { sid } = await signIn(user.email)
+      const { token } = await requestReset(user.email)
+
+      const out = await auth.flows.completePasswordReset({ currentSid: sid, newPassword: NEW_PASSWORD, token })
+      expect(out.intents.length).toBeGreaterThan(0)
+      // The session they arrived on is gone with the rest.
+      await expect(auth.resolveSession(cookie(sid))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      // And the new password is the one that works.
+      expect((await auth.passwords.verify(user.id, NEW_PASSWORD, stores.credentials)).ok).toBe(true)
+    })
+
+    it('a reset row on a real table carries a purpose and no address', async () => {
+      const user = await newUser('reset-meta')
+      await requestReset(user.email)
+      const rows = await stores.credentials.listByIdentity(user.id, 'recovery', {})
+      const reset = rows.filter((r) => getCredentialPurpose(r) === 'password-reset')
+      expect(reset).toHaveLength(1)
+      expect(reset[0]?.metadata).toEqual({ purpose: 'password-reset' })
+    })
+
+    it('advancing a signup patches the row in place, leaving one live token', async () => {
+      const email = `advance-${e2ePrefix()}@test.local`
+      const { flow, flowToken } = await auth.flows.beginSignUp({ email, required: ['terms-accepted'] })
+      planted.push(flow.identityId)
+      await auth.flows.advanceSignUp({ flowToken, profilePatch: { username: email }, stage: 'terms-accepted' })
+
+      const rows = await stores.credentials.listByIdentity(flow.identityId, 'recovery', {})
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.revokedAt).toBeNull()
+      // The same token still reads the advanced state back out of Postgres.
+      expect((await auth.flows.getSignUpFlow(flowToken)).completed).toContain('terms-accepted')
+      const out = await auth.flows.completeSignUp({ flowToken })
+      expect(out.session?.identityId).toBe(flow.identityId)
     })
   })
 
@@ -458,8 +482,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
     })
 
     it('finds the account whatever the case of the address', async () => {
-      // The partial unique index is on lower(email), so the lookup has to match it
-      // or an address registered with capitals can never sign in again.
+      // The unique index is on lower(email), so the lookup has to match it or an
+      // address registered with capitals can never sign in again.
       const email = `MiXeD-${e2ePrefix()}@Test.Local`
       const identity = await auth.identities.create({ profile: { email, username: email } })
       planted.push(identity.id)

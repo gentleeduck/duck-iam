@@ -27,7 +27,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     const firstRejected = rejected[0]
     if (firstRejected && firstRejected.status === 'rejected') {
       expect(firstRejected.reason).toMatchObject({
-        code: 'AUTH_PROVIDER_FAILED',
+        code: 'AUTH_ALREADY_EXISTS',
         meta: { detail: 'identity already a member of this org' },
       })
     } else {
@@ -40,24 +40,16 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
       facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['admin'] }),
       facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['viewer'] }),
     ])
-    // Identify the winner by status.
     const winner = a.status === 'fulfilled' ? a.value : b.status === 'fulfilled' ? b.value : null
     expect(winner).not.toBeNull()
     // The persisted state must equal the winner's roles, NOT a silent
     // mix or the loser's overwrite.
     const resolved = await facet.resolveMembership('org-1', 'u')
-    expect(resolved).not.toBeNull()
-    if (
-      winner &&
-      typeof winner === 'object' &&
-      'roles' in winner &&
-      resolved &&
-      typeof resolved === 'object' &&
-      'roles' in resolved
-    ) {
+    // Only `winner` needs narrowing: it comes off `allSettled` and is null when both calls rejected.
+    if (winner && typeof winner === 'object' && 'roles' in winner) {
       expect(resolved.roles).toEqual(winner.roles)
     } else {
-      throw new Error('expected winner and resolved to both expose roles')
+      throw new Error('expected the winning addMember to expose roles')
     }
   })
 
@@ -75,7 +67,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     // surprise type / DB constraint blow-up.
     for (const r of rejected) {
       if (r.status === 'rejected') {
-        expect(r.reason).toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
+        expect(r.reason).toMatchObject({ code: 'AUTH_ALREADY_EXISTS' })
       }
     }
   })
@@ -87,8 +79,8 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     expect(back.roles).toEqual(['returned'])
     // leftAt cleared on the new joinedAt row.
     const resolved = await facet.resolveMembership('org-1', 'u')
-    expect(resolved?.roles).toEqual(['returned'])
-    expect(resolved?.leftAt).toBeNull()
+    expect(resolved.roles).toEqual(['returned'])
+    expect(resolved.leftAt).toBeNull()
   })
 
   it('store-level guard fires even when called directly (bypassing the facet)', async () => {
@@ -98,7 +90,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     await expect(
       adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [], invitedAt: null, leftAt: null }, {}),
     ).rejects.toMatchObject({
-      code: 'AUTH_PROVIDER_FAILED',
+      code: 'AUTH_ALREADY_EXISTS',
       meta: { detail: 'identity already a member of this org' },
     })
   })

@@ -2,7 +2,7 @@
 
 Three things covered in full (wildcard buckets, role bitmasks, the
 `CompiledTable` shape) with real code and real worked examples, then a
-tight recap of everything else from this thread. Diagrams are Mermaid -
+tight recap of the rest of the engine. Diagrams are Mermaid -
 render in GitHub or any Mermaid-aware markdown viewer.
 
 Companion docs, not duplicated here: [`engine-rewrite.md`](./engine-rewrite.md)
@@ -17,9 +17,9 @@ libraries).
 ```mermaid
 flowchart TD
     A["engine.can(subjectId, action, resource)"] --> B["resolveSubject() + enrichSubjectWithScopedRoles()"]
-    B --> C{"mode?"}
-    C -->|development| D["evaluate(policies, req) — interpreter, full trace"]
-    C -->|production| E["maskFromRoles(table, subject.roles) — one bit per held role"]
+    B --> C{"_getCompiledTable()"}
+    C -->|"null — over 32 roles, or<br/>policyCombine 'first-applicable'"| D["evaluate(policies, req) — interpreter, either mode"]
+    C -->|table| E["maskFromRoles(table, subject.roles) — one bit per held role"]
     E --> F["lookup(table, mask, action, resource, req)"]
     F --> G["abacFlatVote — one cell in the table"]
     F --> H["rbacVote — mask bits OR rbacDynamic OR rbacResidual"]
@@ -27,19 +27,31 @@ flowchart TD
     G --> J["combine per table.policyCombine"]
     H --> J
     I --> J
-    J --> K["boolean"]
-    D --> L["IDecision (allowed, rule, reason, trace)"]
+    J --> K{"mode?"}
+    K -->|production| L["boolean"]
+    K -->|development| M["evaluate() re-run for reason/policy/rule;<br/>a verdict disagreement throws"]
+    M --> N["IDecision (allowed, rule, reason, trace)"]
+    D -->|production| L
+    D -->|development| N
 ```
 
-Production never calls the interpreter for policies that compiled in.
-`evaluate()` only runs for `mode: 'development'` — a full, separate
-codepath the compiled engine doesn't touch. Everything under `lookup()`
-is array indexing and Map lookups; the only place real per-request
-*matching* work happens is inside the residual-policy loop and the
-`rbacResidual` fallback, both of which reuse `evaluatePolicyFast` — the
-same function development mode's `evaluate()` also calls internally
-(see §7, this is why the wildcard-bucket rewrite sped up development
-mode too, not just production).
+The compiled table produces the verdict in *both* modes. Development
+then runs `evaluate()` as well, because the table cannot explain itself:
+`CONST_ALLOW`/`CONST_DENY` is one `kind` byte and `allow` is a raw
+bitmask, so policy identity is erased at compile time. The interpreter
+supplies `reason`/`policy`/`rule`, the table supplies the verdict, and a
+disagreement between the two throws. Two configs have no table at all —
+`_getCompiledTable()` returns `null` past 32 roles and for
+`policyCombine: 'first-applicable'` — and then both modes run on the
+interpreter alone.
+
+Everything under `lookup()` is array indexing and Map lookups; the only
+place real per-request *matching* work happens is inside the
+residual-policy loop and the `rbacResidual` fallback, both of which reuse
+`evaluatePolicyFast`. That is not the function `evaluate()` calls:
+`evaluate()` goes through `evaluatePolicy`, which walks `policy.rules`
+in order so it can name the rule that decided. The wildcard buckets of §4
+are `evaluatePolicyFast`'s alone.
 
 ## 2. The whole system, compile time
 
@@ -51,7 +63,7 @@ flowchart TD
     RP -->|yes| BAKE["allow[a*nR+r] gets OR'd with mask(holders)"]
     RP -->|no: conditions and/or scope| RDYN["rbacDynamic[a*nR+r] gets a {roleMask, scope?, conditions?} group"]
 
-    P["policies[]"] --> PC{"isResidualPolicy(policy)?<br/>any wildcard rule, or a wildcarded target"}
+    P["policies[]"] --> PC{"isResidualPolicy(policy)?<br/>any wildcard rule, a wildcarded target,<br/>or an unrecognised algorithm"}
     PC -->|no| FLAT["flatPolicies"]
     PC -->|yes| RESID["residualPolicies"]
 
@@ -87,6 +99,7 @@ graph LR
         COMPILE["compiled.compile.ts<br/>compileTable() — build time"]
         LOOKUP["compiled.lookup.ts<br/>lookup(), abacFlatVote, rbacVote — request time"]
         CTYPES["compiled.types.ts<br/>CompiledTable, CellKind, DynamicPolicyGroup, RbacRuleGroup"]
+        CERR["compiled.errors.ts<br/>IamRoleLimitExceededError, IamPolicyCompileError"]
     end
     subgraph "evaluate/"
         EVAL["evaluate.ts<br/>evaluate, evaluatePolicy (trace)<br/>evaluateFast, evaluatePolicyFast (no trace)"]
@@ -98,12 +111,13 @@ graph LR
     COND["conditions/<br/>evalConditionGroup"]
 
     ENGINE --> ELIBS
-    ENGINE -->|mode production| LOOKUP
-    ENGINE -->|mode development| EVAL
+    ENGINE -->|"every mode"| LOOKUP
+    ENGINE -->|"development's explanation run,<br/>and either mode when the table is null"| EVAL
     LOOKUP --> CTYPES
     LOOKUP -->|residual policies + rbacResidual| EVAL
     LOOKUP -->|ABAC DYNAMIC cells + rbacDynamic groups| COND
     COMPILE --> CTYPES
+    COMPILE --> CERR
     COMPILE --> RBAC
     COMPILE --> ELIBS2
     EVAL --> ELIBS2
@@ -113,10 +127,11 @@ graph LR
     ELIBS2 --> RESOLVE
 ```
 
-Both `lookup()` (production, residual policies only) and `evaluate()`
-(development, every policy) end up calling `evaluatePolicyFast`, which
-is why the two share `indexPolicy` and both benefit from the wildcard-
-bucket rewrite in §4.
+`indexPolicy` and the wildcard buckets of §4 are reached through
+`evaluatePolicyFast` only — `lookup()`'s residual-policy loop and its
+`rbacResidual` fallback. `evaluate()`'s traced path (`evaluatePolicy`)
+walks `policy.rules` in order instead, which is what lets it report the
+rule that decided.
 
 ---
 
@@ -145,7 +160,10 @@ if (hasWildcardAction && hasWildcardResource) {
   for (const r of resources) addToBucket(byResourceWildcardAction, r, entry)
 } else {
   for (const a of actions) {
-    for (const r of resources) addToBucket(byActionResource, `${a}\0${r}`, entry)
+    // Two-level action -> resource map, not one `${a}\0${r}` key: literal
+    // buckets are trusted as exact-key hits and skip the shape re-check, so a
+    // NUL inside either side collided two unrelated pairs onto the same key.
+    for (const r of resources) addToPairBucket(byActionResource, a, r, entry)
   }
 }
 ```
@@ -188,7 +206,7 @@ R4: { actions: ['*'],        resources: ['*'] }            // both wildcard
 
 | Structure | Contents |
 |---|---|
-| `byActionResource` | `"read\0post" → [R1]` |
+| `byActionResource` | `'read' → { 'post' → [R1] }` |
 | `byActionWildcardResource` | `"update" → [R2]` |
 | `byResourceWildcardAction` | `"comment" → [R3]` |
 | `wildcardBoth` | `[R4]` |
@@ -198,7 +216,7 @@ Three requests, three different bucket paths:
 ```mermaid
 flowchart LR
     subgraph "Request A: read / post"
-        A1["literalBuckets: byActionResource.get('read\0post') → [R1]"]
+        A1["literalBuckets: byActionResource.get('read')?.get('post') → [R1]"]
         A2["wildcardBuckets: byActionWildcardResource.get('read') → miss<br/>byResourceWildcardAction.get('post') → miss<br/>wildcardBoth (non-empty) → [R4]"]
         A3["Scanned: R1, R4. R2 and R3 never touched."]
         A1 --> A2 --> A3
@@ -208,7 +226,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph "Request B: update / report:q3"
-        B1["literalBuckets: byActionResource.get('update\0report:q3') → miss (R2 was never keyed here)"]
+        B1["literalBuckets: byActionResource.get('update')?.get('report:q3') → miss (R2 was never keyed here)"]
         B2["wildcardBuckets: byActionWildcardResource.get('update') → [R2]<br/>byResourceWildcardAction.get('report:q3') → miss<br/>wildcardBoth → [R4]"]
         B3["candidateShapeMatches(R2): action 'update' literal-hit, then matchesResource('report:*','report:q3') → prefix 'report:' → startsWith → true"]
         B4["Scanned: R2, R4. R3 never touched."]
@@ -255,18 +273,30 @@ export function matchesAction(pattern: string, action: string): boolean {
 one `&`, with role inheritance already resolved — no walking a
 role-inherits-role graph on every request.
 
-**Compile time** (`compiled.compile.ts:134-168`), 3 steps:
+**Compile time** (`compileTable`, `compiled.compile.ts`), 3 steps:
 
 ```ts
 // 1. roleId: name -> bit position
 const roleId = new Map(roles.map((r, i) => [r.id, i]))
 
-// 2. effective[i] = role i's own index + every ancestor's, via inherits
+// 2. effective[i] = role i's own index + every ancestor's, via inherits.
+//    `seen` is a shallowest-depth memo, not a visited set: a role reached
+//    again by a *shorter* route is re-walked, because its ancestors may now
+//    be in range of the depth bound, while the index is pushed only on first
+//    arrival. The bound is MAX_INHERITANCE_DEPTH (32), the interpreter's own
+//    constant, so a cycle terminates here exactly where it terminates there.
 const effective: number[][] = roles.map((r) => {
   const out: number[] = []
+  const seen = new Map<string, number>()
   const walk = (id: string, depth: number): void => {
-    const idx = roleId.get(id)
-    if (idx !== undefined) out.push(idx)
+    if (depth > MAX_INHERITANCE_DEPTH) return
+    const best = seen.get(id)
+    if (best !== undefined && best <= depth) return
+    if (best === undefined) {
+      const idx = roleId.get(id)
+      if (idx !== undefined) out.push(idx)
+    }
+    seen.set(id, depth)
     for (const parent of byId.get(id)?.inherits ?? []) walk(parent, depth + 1)
   }
   walk(r.id, 0)
@@ -279,13 +309,21 @@ for (let i = 0; i < effective.length; i++) {
   for (const a of effective[i]!) holders[a]!.push(i)
 }
 
-// Baking: for each simple permission owned by role i, OR in every holder's bit
+// Baking: for each permission owned by role i, OR in every holder's bit. A
+// wildcarded action/resource has no cell at all (it lives in `rbacResidual`),
+// and a literal-but-not-simple one gets an rbacDynamic group instead.
 for (let i = 0; i < roles.length; i++) {
-  for (const perm of roles[i]!.permissions) {
-    const idx = actionId.get(perm.action)! * nR + resourceId.get(perm.resource)!
+  const role = roles[i]!
+  for (const perm of role.permissions) {
+    if (isWildcardPermission(perm)) continue
+    const a = actionId.get(perm.action)
+    const r = resourceId.get(perm.resource)
+    if (a === undefined || r === undefined) continue
+    const idx = a * nR + r
     let mask = 0
     for (const holder of holders[i]!) mask |= 1 << holder
-    allow[idx]! |= mask
+    if (isSimplePermission(perm, role)) allow[idx]! |= mask
+    // else: an RbacRuleGroup at this cell - see below
   }
 }
 ```
@@ -337,12 +375,22 @@ Check: `mask & allow[idx] = 0b010 & 0b111 = 0b010 ≠ 0` → **allowed**, in
 one AND, with zero inheritance walking at request time — it was already
 folded into `7` when the table was built.
 
-**The 32-role cap** falls straight out of this: `allow` is a
+**The 32-role limit** falls straight out of this: `allow` is a
 `Uint32Array`, and JS bitwise ops wrap shift amounts mod 32 —
 `1 << 32 === 1 << 0`. A 33rd role would silently alias role 0's bit.
-`compileTable` throws past `MAX_ROLES = 32` rather than risk that. Full
-rationale, alternatives, and the two separate scope mechanisms (subject-
-scoped-role enrichment vs permission-level scope) are in
+`compileTable` throws `IamRoleLimitExceededError` past
+`IAM_MAX_COMPILED_ROLES = 32` rather than risk that.
+
+It is not a cap on the catalog. `_getCompiledTable()` catches that one
+error — every other compile failure still propagates and still denies —
+prints its message through `console.warn` once, and returns `null`, which
+puts *both* modes on the interpreter. Nothing is refused and nothing is
+denied; the loss is throughput, and `healthCheck().compiledTable` keeps
+reporting it after the one warning has scrolled away. The latch clears on
+a role-touching invalidation, not a policy write, and the next check
+retries the compile. Full rationale, alternatives, and the two separate
+scope mechanisms (subject-scoped-role enrichment vs permission-level
+scope) are in
 [`engine-rewrite.md` § Known limits](./engine-rewrite.md#known-limits-role-cap-and-scope) -
 not repeated here.
 
@@ -370,8 +418,18 @@ Request time, inside `rbacVote()`, after the plain mask misses:
 ```ts
 for (const g of groups) {
   if ((mask & g.roleMask) === 0) continue
-  if (g.scope !== undefined && g.scope !== req.scope) continue
-  if (g.conditions && !evalConditionGroup(req, g.conditions, 0, caches)) continue
+  if (g.scope !== undefined && !scopeCovers(g.scope, req.scope, table.scopeMode)) continue
+  try {
+    // IAM_RBAC_CONDITION_DEPTH, not 0: `g.conditions` is `perm.conditions`
+    // raw, and `rolesToPolicy` nests the same group one level down, so
+    // starting at 0 gave production one nesting level more than development.
+    if (g.conditions && !evalConditionGroup(req, g.conditions, IAM_RBAC_CONDITION_DEPTH, caches)) continue
+  } catch (err) {
+    // Per group, not around the scan: these are independent grants from
+    // separate roles, so one rotten condition must not delete the others.
+    safeErrorReport(onPolicyError, err, g.policy)
+    continue
+  }
   return true // role permissions are allow-only - first match wins
 }
 ```
@@ -401,6 +459,7 @@ export interface CompiledTable {
   readonly resourceId: ReadonlyMap<string, number>
   readonly roleId: ReadonlyMap<string, number>
   readonly policyCombine: AccessControl.PolicyCombine
+  readonly scopeMode: 'flat' | 'hierarchical'  // IConfig.scopeMode, baked in for RbacRuleGroup.scope matching
   readonly kind: Uint8Array           // CellKind per cell
   readonly touched: Uint8Array        // 1 if any flat policy has a rule shaped for this cell
   readonly allow: Uint32Array         // RBAC grant bitmask per cell
@@ -427,6 +486,7 @@ This is real, captured output — one role (`editor`, permission
   resourceId: Map(1) { 'post' => 0 },
   roleId: Map(1) { 'editor' => 0 },
   policyCombine: 'and',
+  scopeMode: 'flat',
   kind: Uint8Array(2) [ 0, 2 ],
   touched: Uint8Array(2) [ 0, 1 ],
   allow: Uint32Array(2) [ 1, 0 ],
@@ -470,9 +530,15 @@ export enum CellKind {
 
 **Residual vs. flat.** A policy is *residual* (evaluated per-request via
 `evaluatePolicyFast`, never compiled to fixed cells) only if it has a
-wildcard rule, or a *wildcarded* `targets.actions`/`targets.resources`
-value (`isResidualPolicy`, `compiled.compile.ts:40-47`). A **literal**
-target restriction compiles in instead — resolved once at compile time
+wildcard rule, a *wildcarded* `targets.actions`/`targets.resources`
+value, or an `algorithm` that is not a key of `combiners`
+(`isResidualPolicy`, `compiled.compile.ts`). The algorithm check is the
+load-bearing one: cell kind is decided from `rule.effect` alone, so a
+deny-carrying policy with an unrecognised algorithm would compile to
+`CONST_ALLOW` and grant, while the interpreter throws and denies. Residual
+keeps it on `evaluatePolicyFast`, which rejects it the same way. A
+**literal** target restriction compiles in instead — resolved once at
+compile time
 via `policyTargetsActionResource(policy, action, resource)`
 (`evaluate.libs.ts`), since it depends only on the (action, resource)
 pair, which is already the cell's own key. A role-only target
@@ -485,9 +551,12 @@ way `policyApplies()` does in the interpreter: missing the role means
 **Conflict resolution is entirely the combining algorithms.** Nothing
 else picks a winner between competing rules. `deny-overrides`/
 `allow-overrides`/`first-match`/`highest-priority` decide *within* one
-policy (`combiners`, `evaluate.libs.ts`); `table.policyCombine`
-(`'and'` / `'allow-overrides'` / `'first-applicable'`) decides *across*
-policies, in `lookup()`'s final `applicable.some/every(Boolean)`.
+policy (`combiners`, `evaluate.libs.ts`); `table.policyCombine` decides *across*
+policies, in `lookup()`'s final `applicable.some/every(Boolean)` —
+`'allow-overrides'` takes `some`, anything else takes `every`. Only two of
+the three values ever reach it: `'first-applicable'` gets no table at all
+(`_getCompiledTable()` returns `null` for it), because `every` would
+silently answer it as `'and'`.
 
 **RBAC is one vote, not three.** `rbacVote` (`compiled.lookup.ts`) checks
 the mask bit first; on a miss it scans `rbacDynamic` (scoped/conditioned
@@ -499,6 +568,11 @@ and only matters, when the earlier ones didn't already decide it. A
 `null` result (abstain) happens when none of the three has anything
 shaped for this action/resource — not "no", just "not applicable," same
 distinction `evaluatePolicy`'s NotApplicable makes in the interpreter.
+"Nothing shaped for it" is narrower than "this subject missed": if the
+cell's raw grant is nonzero — some role, not necessarily one the subject
+holds, grants this exact action+resource, through the mask or through a
+group with a nonzero `roleMask` — RBAC votes `defaultEffect` rather than
+abstaining.
 
 **Speed, honestly.** `engine.can()` in `mode: 'production'` measures
 ~1.15M ops/sec full-stack (adapter + hooks + compiled table), ~14x
@@ -509,5 +583,6 @@ an adapter/cache layer, and hooks inside that same call, and it's
 per check vs. the network/DB/serialization around it), and throughput
 doesn't degrade with catalog size — `lookup()` is O(1) array indexing
 regardless of role/policy count. What actually constrains scale is
-catalog *shape*: the 32-role cap, very wide action×resource grids, and
-deeply nested hierarchical resource types. Full numbers: [`README.md` § Performance](../README.md#performance).
+catalog *shape*: the 32-role limit past which the table is abandoned for
+the interpreter, very wide action×resource grids, and deeply nested
+hierarchical resource types. Full numbers: [`README.md` § Performance](../README.md#performance).

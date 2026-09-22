@@ -4,4 +4,12 @@ bun run fix
 bun run check
 bun run test
 
+# The e2e suites are a separate command because they are a separate kind of
+# test: each one boots its own Postgres or Redis container, so they are slow,
+# they contend for the docker daemon, and they cannot run at all on a machine
+# without docker. Keeping them out of `bun run test` means the fast suite stays
+# fast and honest; running them here means nothing reaches a remote without
+# them having passed.
+bun run test:e2e
+
 echo "[husky] pre-push checks passed"

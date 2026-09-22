@@ -3,16 +3,15 @@ import type { IamEngine, IamEngineTypes } from '../engine'
 import type { AccessControl, DotPath, IamClient } from '../types'
 import type { IamValidate } from '../validate'
 
+/** What a consumer passes to `createIam`, and the typed config it returns with defaults applied. Type-only. */
 export namespace IamConfig {
   /**
-   * Input shape for {@link createIam}. Pass `as const` arrays so the
-   * factory extracts union types from each array and threads them through
-   * every builder method.
+   * Input for `createIam`. Pass `as const` arrays so their unions reach every builder method.
    *
    * @template TActions   - Tuple of action strings declared `as const`.
    * @template TResources - Tuple of resource strings declared `as const`.
-   * @template TScopes    - Tuple of scope strings declared `as const`.
    * @template TRoles     - Tuple of role ID strings declared `as const`.
+   * @template TScopes    - Tuple of scope strings declared `as const`.
    * @template TContext   - Shape of the evaluation context for typed dot-paths.
    * @example
    * ```ts
@@ -38,24 +37,19 @@ export namespace IamConfig {
     /** Role IDs to constrain role builders. `as const`. */
     readonly roles?: TRoles
     /**
-     * Phantom field for context type inference.
-     *
-     * Pass `{} as unknown as YourContext` to enable typed dot-path
-     * intellisense on `.attr()`, `.resourceAttr()`, `.env()`, `.check()`.
-     * Runtime value is never used - only the type information flows through.
+     * Phantom field, never read at runtime: pass `{} as unknown as YourContext` for typed dot-paths
+     * on `.attr()`, `.resourceAttr()`, `.env()` and `.check()`.
      */
     readonly context?: TContext
   }
 
   /**
-   * Typed configuration object returned by {@link createIam}. Every
-   * builder method is constrained to the declared action / resource / scope /
-   * role unions. Misspelling produces a compile-time error.
+   * Typed config returned by `createIam`; builders accept only the declared unions, so typos do not compile.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
-   * @template TScope    - Union of valid scope strings.
    * @template TRole     - Union of valid role ID strings.
+   * @template TScope    - Union of valid scope strings.
    * @template TContext  - Shape of the evaluation context for typed dot-paths.
    */
   export interface IAccessConfig<
@@ -84,24 +78,21 @@ export namespace IamConfig {
     /** Typed {@link When} builder for reusable condition groups. */
     when: () => When<TAction, TResource, TRole, TScope, TContext>
 
-    /**
-     * Typed {@link IamEngine} instance. Permission checks are constrained to the
-     * declared actions / resources / scopes.
-     */
-    createEngine: <TMode extends AccessControl.Mode = 'development'>(
+    /** Typed {@link IamEngine}; permission checks are constrained to the declared actions, resources and scopes. */
+    createEngine: <TMode extends AccessControl.Mode = 'production'>(
       config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
     ) => IamEngine<TAction, TResource, TRole, TScope, TMode>
 
     /** Compile-time-typed pass-through for `engine.permissions()` inputs. */
     checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => T
 
-    /** Role validation: duplicate IDs, dangling inherits, circular inheritance, empty roles. */
-    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, TRole, TScope>[]) => IamValidate.IResult
-
     /**
-     * IamValidate a policy object from an untrusted source (database, API, JSON).
-     * Deep shape + semantic checks.
+     * The bare `validateRoles` checks, plus grants naming an action, resource or scope this config never declared.
+     * NOTE: takes the unconstrained `IRole` since input is untrusted; malformed entries become `INVALID_TYPE` issues.
      */
+    validateRoles: (roles: readonly AccessControl.IRole[]) => IamValidate.IResult
+
+    /** Deep shape and semantic checks for a policy from an untrusted source (database, API, JSON). */
     validatePolicy: (input: unknown) => IamValidate.IResult
   }
 }

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 
-/** `IConfig` gained <TDb, TType> in the rename these suites were disabled for. */
 type TestConfig = IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>
 
 type A = 'read'
@@ -100,7 +99,7 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     expect(onPolicyErrorMock).toHaveBeenCalled()
     const errArg = onPolicyErrorMock.mock.calls[0]?.[0] as Error | undefined
     expect(errArg).toBeInstanceOf(Error)
-    expect(errArg?.message).toContain('must be a JSON object (got array)')
+    expect(errArg?.message).toContain('must be a JSON object of scalar values (got array)')
   })
 
   it('throws when native data column holds a number', async () => {
@@ -117,14 +116,20 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     )
   })
 
-  it('returns {} when data column is null (legit empty state, not corruption)', async () => {
+  // SECURITY: `data` is `.notNull()`, so a `null` is a stored `'null'::jsonb` and must throw, not read as `{}`
+  // and drop deny rules. A subject with no attributes has no row and still reads `{}`.
+  it('throws when the data column holds a stored JSON null', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: null }])
-    await expect(adapter.getSubjectAttributes('user-1')).resolves.toEqual({})
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
+      /corrupted attributes for "user-1" \(not a JSON object\)/,
+    )
   })
 
-  it('returns {} when data column is undefined', async () => {
+  it('throws when the data column is undefined', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: undefined }])
-    await expect(adapter.getSubjectAttributes('user-1')).resolves.toEqual({})
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
+      /corrupted attributes for "user-1" \(not a JSON object\)/,
+    )
   })
 
   it('accepts a valid native object', async () => {
@@ -140,6 +145,28 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
       /corrupted attributes for "user-1" \(not a JSON object\)/,
     )
+  })
+
+  // Without `iamAssertAttributesParam`, a string would spread into per-character keys.
+  it.each([
+    ['a string', '"abc"'],
+    ['an array', '[1,2]'],
+    ['null', 'null'],
+    ['a number', '7'],
+  ])('setSubjectAttributes rejects %s', async (_label, json) => {
+    const adapter = buildAdapter([])
+    await expect(adapter.setSubjectAttributes('user-1', JSON.parse(json))).rejects.toThrow(/must be a plain object/)
+  })
+
+  // Control: the mock has no write path, so this still fails, but on the write rather than the guard.
+  it('setSubjectAttributes lets a plain object past the guard', async () => {
+    let message = ''
+    try {
+      await buildAdapter([]).setSubjectAttributes('user-1', { tier: 'gold' })
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).not.toMatch(/must be a plain object/)
   })
 
   it('error text never echoes the raw column value', async () => {

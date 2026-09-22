@@ -17,13 +17,13 @@ describe('PasswordsFacet', () => {
   })
 
   describe('strength validation', () => {
-    it('rejects passwords shorter than minLength as AUTH/INVALID_CREDENTIALS', async () => {
+    it('rejects passwords shorter than minLength as AUTH_INVALID_CREDENTIALS', async () => {
       await expect(facet.set('u', 'short', adapter.credentials)).rejects.toMatchObject({
         code: 'AUTH_INVALID_CREDENTIALS',
       })
     })
 
-    it('rejects common passwords as AUTH/INVALID_CREDENTIALS', async () => {
+    it('rejects common passwords as AUTH_INVALID_CREDENTIALS', async () => {
       await expect(facet.set('u', 'password1', adapter.credentials)).rejects.toMatchObject({
         code: 'AUTH_INVALID_CREDENTIALS',
       })

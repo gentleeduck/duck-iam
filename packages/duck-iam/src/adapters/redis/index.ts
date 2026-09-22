@@ -1,14 +1,21 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertRoleExists } from '../../shared/assignment-target'
+import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import {
+  iamAssertSavablePolicy,
+  iamAssertSavableRole,
+  iamNormalizePolicy,
+  iamRoleWithoutInherit,
+  iamUnreadablePolicy,
+} from '../../shared/rows'
+import { iamAssertAssignableScope } from '../../shared/scope'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
-/** IamRedis adapter integration types. Type-only namespace - zero bundle cost. */
+/** Redis adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamRedis {
-  /**
-   * Describes the minimal IamRedis client surface used by {@link IamRedisAdapter}.
-   *
-   * Both ioredis and node-redis (v4+) implement these methods, so consumers can
-   * pass either without a hard dependency.
-   */
+  /** Minimal Redis client surface {@link IamRedisAdapter} needs; ioredis and node-redis v4+ both satisfy it. */
   export interface ILike {
     get(key: string): Promise<string | null>
     set(key: string, value: string): Promise<unknown>
@@ -22,29 +29,51 @@ export namespace IamRedis {
     sadd(key: string, ...members: string[]): Promise<number>
     srem(key: string, ...members: string[]): Promise<number>
     smembers(key: string): Promise<string[]>
-    /** Optional Lua EVAL for cross-process atomic RMW on assignments; targets ioredis positional shape. */
+    /** Optional Lua EVAL (ioredis positional shape), used to migrate legacy assignments atomically across processes. */
     eval?(script: string, numkeys: number, ...keysAndArgs: string[]): Promise<unknown>
+    /**
+     * Optional `KEYS`, used only by `deleteRole`; without it the role's grants stay and `onPolicyError` says so.
+     * NOTE: `KEYS`, not `SCAN`, because ioredis and node-redis share its signature but not `SCAN`'s.
+     */
+    keys?(pattern: string): Promise<string[]>
   }
 
   /** Describes the configuration required to construct a {@link IamRedisAdapter}. */
   export interface IConfig<TClient extends ILike = ILike> {
-    /** Provides the IamRedis client instance (ioredis, node-redis v4+, or compatible). */
+    /** Provides the Redis client instance (ioredis, node-redis v4+, or compatible). */
     client: TClient
     /** Optional key prefix that namespaces every duck-iam key. */
     keyPrefix?: string
     /**
-     * Invoked when a stored row fails JSON parse or shape validation. The
-     * malformed row is dropped from the result set; the rest are returned
-     * intact. Wire this to your alerting pipeline so corrupt rows do not
-     * silently vanish from authorization decisions.
+     * Called when a stored row fails JSON parse or shape validation, or a migration or cascade cannot complete.
+     * NOTE: a bad role row is dropped; a bad policy row or attribute blob is reported and then thrown.
      */
-    onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
+    onPolicyError?: IamAdapter.RowErrorHandler<'redis'>
+    /**
+     * Rewrite legacy space-separated assignment members to the NUL-separated form on read. Off by default.
+     * WARN: a spaced role id reads as role + scope; enable only if every member was written by the old encoder.
+     */
+    migrateLegacyAssignments?: boolean
   }
 }
 
 /**
- * IamRedis-backed adapter using hashes + sets. Layout (with `keyPrefix`):
- * `${p}policies` (hash), `${p}roles` (hash), `${p}assignments:${id}` (set: `roleId\x00scope`), `${p}attrs:${id}` (JSON).
+ * Stored attributes that exist but cannot be read, as distinct from a failed `GET`.
+ * SECURITY: `setSubjectAttributes` overwrites only this case; merging after a failed read would wipe unseen attributes.
+ */
+class IamRedisCorruptAttributesError extends Error {
+  override readonly name = 'IamRedisCorruptAttributesError'
+}
+
+/** Matches {@link IamRedisCorruptAttributesError} by name, not `instanceof`, so a duplicated package copy matches. */
+function isCorruptAttributes(err: unknown): err is Error {
+  return err instanceof Error && err.name === 'IamRedisCorruptAttributesError'
+}
+
+/**
+ * Redis-backed adapter using hashes and sets.
+ * INFO: keys are `${p}policies` (hash), `${p}roles` (hash), `${p}assignments:${id}` (set of `roleId\x00scope`)
+ * and `${p}attrs:${id}` (JSON string), where `p` is `keyPrefix`.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -61,41 +90,33 @@ export class IamRedisAdapter<
 {
   private _client: TClient
   private _prefix: string
-  private _onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
+  private _onPolicyError?: IamAdapter.RowErrorHandler<'redis'>
   /**
-   * Per-assignment-key serialisation. Read-modify-write on the legacy
-   * migration path can race with concurrent `revokeRole` and resurrect a
-   * just-deleted assignment. Without `EVAL`/`MULTI` in the minimal
-   * `IamRedis.ILike` interface, the soundest in-process fix is to serialise
-   * writes against a single assignments key behind a chained promise.
-   * Cross-process races remain - operators running multiple writer
-   * processes should rely on the Lua `eval` path when available.
+   * Per-assignments-key promise chain, so a migration cannot re-add a member a concurrent revoke just removed.
+   * NOTE: in-process only; across processes only the Lua `eval` migration is atomic.
    */
   private _assignmentWriteLocks = new Map<string, Promise<unknown>>()
+  private _migrateLegacyAssignments: boolean
 
-  /**
-   * Creates a new IamRedis-backed adapter.
-   *
-   * @param config - Provides the client and optional key prefix.
-   */
   constructor(config: IamRedis.IConfig<TClient>) {
     this._client = config.client
     this._prefix = config.keyPrefix ?? ''
     this._onPolicyError = config.onPolicyError
+    this._migrateLegacyAssignments = config.migrateLegacyAssignments ?? false
   }
 
   /**
-   * Parse + validate a stored JSON blob. Returns `null` on parse error or
-   * shape mismatch and routes the failure through `onPolicyError` (or the
-   * console as a last resort) so the malformed row never reaches the engine.
+   * Parses and validates a stored policy; on failure it reports, then throws (unlike `_safeParseRole`, which drops).
+   * SECURITY: an unreadable policy is refused, not skipped, because it may be the one that denies.
    */
   private _safeParsePolicy(raw: string, rowId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
     } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
-      return null
+      const detail = err instanceof Error ? err : new Error(String(err))
+      this._reportPolicyError(detail, rowId)
+      throw iamUnreadablePolicy('redis', rowId, detail.message)
     }
     const policy = parsePolicyRow<TAction, TResource, TRole>(parsed)
     if (policy === null) {
@@ -103,7 +124,7 @@ export class IamRedisAdapter<
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
-      return null
+      throw iamUnreadablePolicy('redis', rowId, issues)
     }
     return policy
   }
@@ -132,11 +153,8 @@ export class IamRedisAdapter<
       this._onPolicyError(err, { adapter: 'redis', rowId })
       return
     }
-    // eslint-disable-next-line no-console
     console.warn(`[@gentleduck/iam:redis] dropped malformed row "${rowId}": ${err.message}`)
   }
-
-  // -- key helpers --
 
   private _policiesKey(): string {
     return `${this._prefix}policies`
@@ -152,26 +170,17 @@ export class IamRedisAdapter<
   }
 
   /**
-   * Separator between role and scope in an encoded assignment set member.
-   *
-   * NUL (`0x00`) is rejected at encode time so it cannot appear in any
-   * `TRole` / `TScope` string, preventing decode collisions that would drift
-   * privileges (e.g. a space-separated `'admin user'` round-tripping as
-   * `('admin', 'user ')`).
+   * Role/scope separator in an assignment member.
+   * SECURITY: NUL is refused in role and scope at encode time, so a decode can never split in the wrong place.
    */
   private static readonly _SEP = '\0'
 
   /**
-   * Detects entries written by versions of this adapter that used a literal
-   * space as separator. Format: exactly one `0x20`, no `0x00` byte. On read,
-   * such entries are transparently re-encoded with the NUL separator and the
-   * legacy form is removed from the set.
-   *
-   * False positives are scoped to subjects whose role/scope strings happened
-   * to contain spaces - exactly the cases that were silently broken before -
-   * so the migration corrects rather than corrupts them.
+   * A member in the old space-separated form: exactly one space, no NUL. Always `false` unless opted in.
+   * WARN: a global grant of a spaced role id looks identical; misreading it grants the prefix and deletes the original.
    */
   private _isLegacyEncoded(member: string): boolean {
+    if (!this._migrateLegacyAssignments) return false
     if (member.includes(IamRedisAdapter._SEP)) return false
     const first = member.indexOf(' ')
     if (first === -1) return false
@@ -179,8 +188,11 @@ export class IamRedisAdapter<
   }
 
   private _encodeAssignment(roleId: TRole, scope?: TScope | null): string {
-    const r = roleId as string
-    const s = (scope ?? '') as string
+    const r: string = roleId
+    // SECURITY: "" spells "no scope" in this encoding, so an empty scope would decode as a global grant.
+    // Guarded here as well as in `assignRole`/`revokeRole`, so no internal caller has to remember.
+    iamAssertAssignableScope('redis', scope, 'lookup')
+    const s: string = scope ?? ''
     if (r.includes(IamRedisAdapter._SEP) || s.includes(IamRedisAdapter._SEP)) {
       throw new Error('[@gentleduck/iam:redis] role / scope must not contain NUL bytes')
     }
@@ -189,28 +201,21 @@ export class IamRedisAdapter<
   private _decodeAssignment(member: string): { role: TRole; scope?: TScope } {
     const sep = member.indexOf(IamRedisAdapter._SEP)
     if (sep === -1) {
-      // Legacy-format fallback: older versions used a space separator.
-      // Accept exactly-one-space entries here; the caller
-      // (`_migrateLegacyAssignment`) re-encodes them on first read.
+      // Space-separated legacy member, decoded only under `migrateLegacyAssignments`; the read path re-encodes it.
       if (this._isLegacyEncoded(member)) {
         const legacySep = member.indexOf(' ')
-        const role = member.slice(0, legacySep) as TRole
+        const role = iamAsRoleLiteral<TRole>(member.slice(0, legacySep))
         const scope = member.slice(legacySep + 1)
-        return scope === '' ? { role } : { role, scope: scope as TScope }
+        return scope === '' ? { role } : { role, scope: iamAsScopeLiteral<TScope>(scope) }
       }
-      return { role: member as TRole }
+      return { role: iamAsRoleLiteral<TRole>(member) }
     }
-    const role = member.slice(0, sep) as TRole
+    const role = iamAsRoleLiteral<TRole>(member.slice(0, sep))
     const scope = member.slice(sep + 1)
-    return scope === '' ? { role } : { role, scope: scope as TScope }
+    return scope === '' ? { role } : { role, scope: iamAsScopeLiteral<TScope>(scope) }
   }
 
-  /**
-   * Serialise an async task against a specific assignments key. Chains onto
-   * any in-flight task for the same key so concurrent callers see a strict
-   * happens-before order, defeating the migrate-vs-revoke race in a
-   * single-process deployment.
-   */
+  /** Runs `task` after any in-flight task on `key`, ordering writes to one assignments key within this process. */
   private _runSerialised<T>(key: string, task: () => Promise<T>): Promise<T> {
     const prev = this._assignmentWriteLocks.get(key) ?? Promise.resolve()
     const next = prev.then(task, task)
@@ -227,23 +232,18 @@ export class IamRedisAdapter<
   }
 
   /**
-   * One-shot migration: convert any legacy space-separated assignment members
-   * for `subjectId` to the NUL-separated form. Idempotent and best-effort -
-   * a migration failure must not block authorization, so any errors are
-   * surfaced through `_reportPolicyError` and the original entries left in
-   * place to be retried on the next read.
+   * Re-encodes the subject's legacy members in the NUL form. Idempotent and best-effort.
+   * NOTE: failures are reported, not thrown, so a migration never blocks authorization; the next read retries.
    */
   private async _migrateLegacyAssignment(subjectId: string, members: string[]): Promise<void> {
     const legacy = members.filter((m) => this._isLegacyEncoded(m))
     if (legacy.length === 0) return
     const key = this._assignmentsKey(subjectId)
-    // Prefer Lua EVAL for true atomicity (cross-process safe).
-    // Falls back to in-process serialisation when client lacks eval.
+    // INFO: a Lua script runs atomically in Redis, so it is safe across processes; without `eval`, serialise locally.
     if (typeof this._client.eval === 'function') {
       await this._migrateLegacyAssignmentLua(key, subjectId, legacy)
       return
     }
-    // Single-process serialisation fallback.
     await this._runSerialised(key, async () => {
       try {
         const current = await this._client.smembers(key)
@@ -262,7 +262,7 @@ export class IamRedisAdapter<
     })
   }
 
-  /** Cross-process atomic legacy-assignment migration via IamRedis EVAL; ARGV pairs `[migrated, legacy]`. */
+  /** Cross-process atomic legacy-assignment migration via Redis EVAL; ARGV pairs `[migrated, legacy]`. */
   private static readonly _MIGRATE_LUA = `
     local key = KEYS[1]
     for i = 1, #ARGV, 2 do
@@ -290,12 +290,7 @@ export class IamRedisAdapter<
     }
   }
 
-  /**
-   * Lists every policy stored in the IamRedis hash.
-   *
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns All policies decoded from the `policies` hash.
-   */
+  /** Lists every stored policy; throws if any row is unreadable. */
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const entries = await this._client.hgetall(this._policiesKey())
     const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
@@ -306,13 +301,7 @@ export class IamRedisAdapter<
     return out
   }
 
-  /**
-   * Fetches a single policy by ID.
-   *
-   * @param id - Identifies the policy to look up.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns The matching policy or `null` when absent.
-   */
+  /** Fetches a policy by id, or `null` when absent; throws if the row is unreadable. */
   async getPolicy(
     id: string,
     _opts?: IamAdapter.IReadOptions,
@@ -321,32 +310,18 @@ export class IamRedisAdapter<
     return value ? this._safeParsePolicy(value, id) : null
   }
 
-  /**
-   * Stores or overwrites a policy under its ID.
-   *
-   * @param p - Provides the policy to persist.
-   * @returns Resolves once the HSET completes.
-   */
+  /** Stores or overwrites a policy under its id. */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
-    await this._client.hset(this._policiesKey(), p.id, JSON.stringify(p))
+    iamAssertSavablePolicy('redis', p)
+    await this._client.hset(this._policiesKey(), p.id, JSON.stringify(iamNormalizePolicy(p)))
   }
 
-  /**
-   * Removes a policy by ID.
-   *
-   * @param id - Identifies the policy to delete.
-   * @returns Resolves once the HDEL completes.
-   */
+  /** Removes a policy by id. */
   async deletePolicy(id: string): Promise<void> {
     await this._client.hdel(this._policiesKey(), id)
   }
 
-  /**
-   * Lists every role stored in the IamRedis hash.
-   *
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns All roles decoded from the `roles` hash.
-   */
+  /** Lists every stored role, dropping (and reporting) unreadable rows. */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const entries = await this._client.hgetall(this._rolesKey())
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
@@ -357,13 +332,7 @@ export class IamRedisAdapter<
     return out
   }
 
-  /**
-   * Fetches a single role by ID.
-   *
-   * @param id - Identifies the role to look up.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns The matching role or `null` when absent.
-   */
+  /** Fetches a role by id, or `null` when absent or unreadable. */
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
@@ -372,40 +341,66 @@ export class IamRedisAdapter<
     return value ? this._safeParseRole(value, id) : null
   }
 
-  /**
-   * Stores or overwrites a role under its ID.
-   *
-   * @param r - Provides the role to persist.
-   * @returns Resolves once the HSET completes.
-   */
+  /** Stores or overwrites a role under its id. */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+    iamAssertSavableRole('redis', r)
     await this._client.hset(this._rolesKey(), r.id, JSON.stringify(r))
   }
 
   /**
-   * Removes a role by ID.
-   *
-   * @param id - Identifies the role to delete.
-   * @returns Resolves once the HDEL completes.
+   * Removes a role, every grant naming it (a `KEYS` sweep) and every `inherits` edge pointing at it.
+   * SECURITY: a kept orphan grant or edge would be held again by its old subjects if the id is recreated.
    */
   async deleteRole(id: string): Promise<void> {
     await this._client.hdel(this._rolesKey(), id)
+    await this._disinheritEverywhere(id)
+    await this._revokeEverywhere(id)
+  }
+
+  /** Rewrites every readable role that inherits `deletedId` without that edge. */
+  private async _disinheritEverywhere(deletedId: string): Promise<void> {
+    const entries = await this._client.hgetall(this._rolesKey())
+    for (const [rowId, raw] of Object.entries(entries)) {
+      const role = this._safeParseRole(raw, rowId)
+      if (role === null) continue
+      const stripped = iamRoleWithoutInherit(role, deletedId)
+      if (stripped !== null) await this._client.hset(this._rolesKey(), rowId, JSON.stringify(stripped))
+    }
   }
 
   /**
-   * Lists deduplicated role IDs assigned to a subject.
-   *
-   * @param subjectId - Identifies the subject whose roles are read.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns Deduplicated array of role IDs.
+   * Drops every assignment naming `roleId`, scoped and global, for every subject.
+   * NOTE: each key is serialised because the read, filter and `SREM` are separate commands.
    */
+  private async _revokeEverywhere(roleId: string): Promise<void> {
+    const list = this._client.keys
+    if (list === undefined) {
+      this._reportPolicyError(
+        new Error(
+          'the role was deleted but its grants were not: this client exposes no `keys`, ' +
+            'so the assignment sets cannot be enumerated. Revoke them explicitly, or pass a ' +
+            'client (ioredis, node-redis v4+) that implements it.',
+        ),
+        `roles:${roleId}`,
+      )
+      return
+    }
+    const keys = await list.call(this._client, `${globLiteral(this._prefix)}assignments:*`)
+    for (const key of keys) {
+      await this._runSerialised(key, async () => {
+        const stale = (await this._client.smembers(key)).filter((m) => this._decodeAssignment(m).role === roleId)
+        if (stale.length === 0) return
+        await this._client.srem(key, ...stale)
+      })
+    }
+  }
+
+  /** Lists the subject's global role ids, deduplicated; scoped grants come from `getSubjectScopedRoles`. */
   async getSubjectRoles(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     const members = await this._client.smembers(this._assignmentsKey(subjectId))
     const roles = new Set<TRole>()
     for (const m of members) {
       const decoded = this._decodeAssignment(m)
-      // Contract: unscoped (global) roles only - same as file/memory
-      // adapters. Scoped assignments are surfaced via getSubjectScopedRoles.
       if (decoded.scope !== undefined) continue
       roles.add(decoded.role)
     }
@@ -413,13 +408,7 @@ export class IamRedisAdapter<
     return Array.from(roles)
   }
 
-  /**
-   * Lists scoped role assignments for a subject (excludes unscoped).
-   *
-   * @param subjectId - Identifies the subject whose scoped roles are read.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns Array of `(role, scope)` pairs.
-   */
+  /** Lists the subject's scoped `(role, scope)` grants; global grants are excluded. */
   async getSubjectScopedRoles(
     subjectId: string,
     _opts?: IamAdapter.IReadOptions,
@@ -435,38 +424,29 @@ export class IamRedisAdapter<
   }
 
   /**
-   * Grants a role to a subject, optionally restricted to a scope.
-   *
-   * Idempotent thanks to IamRedis set semantics.
-   *
-   * @param subjectId - Identifies the subject receiving the role.
-   * @param roleId - Specifies the role being granted.
-   * @param scope - Optional scope binding the assignment.
-   * @returns Resolves once the SADD completes.
+   * Grants a role, optionally within a scope. Idempotent (set semantics).
+   * Refuses a role that is not stored; see {@link iamAssertRoleExists}.
    */
-  async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+  async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
+    iamAssertAssignableScope('redis', scope)
+    iamAssertNoAssignOptions('redis', opts)
+    // Encode first, so an id this encoding cannot carry is refused for that reason, not as a missing role.
+    const member = this._encodeAssignment(roleId, scope)
+    // `hget`, not `hexists`, so the client interface does not need another method.
+    iamAssertRoleExists('redis', (await this._client.hget(this._rolesKey(), roleId)) !== null)
     const key = this._assignmentsKey(subjectId)
     // Serialise against the migration path.
-    await this._runSerialised(key, () => this._client.sadd(key, this._encodeAssignment(roleId, scope)))
+    await this._runSerialised(key, () => this._client.sadd(key, member))
   }
 
-  /**
-   * Removes role assignments matching the given filters.
-   *
-   * Omitting `scope` removes every assignment for the role regardless of scope.
-   *
-   * @param subjectId - Identifies the subject losing the role.
-   * @param roleId - Specifies the role being revoked.
-   * @param scope - Optional scope filter to narrow the delete.
-   * @returns Resolves once the SREM completes.
-   */
+  /** Revokes a role grant; without `scope`, removes the role in every scope and globally. */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+    iamAssertAssignableScope('redis', scope, 'lookup')
     const key = this._assignmentsKey(subjectId)
-    // Serialise against migration so a racing _migrateLegacyAssignment
-    // cannot SADD the migrated form after our SREM lands.
+    // Serialised so a racing migration cannot SADD the migrated member after this SREM.
     await this._runSerialised(key, async () => {
       if (scope !== undefined) {
-        // Cover BOTH encodings so a partially-migrated set is cleaned in one go.
+        // Also removes the legacy space-separated member, so a partially migrated set is cleaned in one call.
         const migrated = this._encodeAssignment(roleId, scope)
         const legacy = `${roleId} ${scope}`
         await this._client.srem(key, migrated, legacy)
@@ -480,13 +460,7 @@ export class IamRedisAdapter<
     })
   }
 
-  /**
-   * Fetches the attribute bag stored for a subject.
-   *
-   * @param subjectId - Identifies the subject whose attributes are read.
-   * @param _opts - Ignored read options accepted for interface compatibility.
-   * @returns The subject's attributes or `{}` when none are recorded.
-   */
+  /** Reads the subject's attributes, or `{}` when none are stored; throws on a corrupt blob. */
   async getSubjectAttributes(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     const value = await this._client.get(this._attrsKey(subjectId))
     if (!value) return {}
@@ -494,38 +468,49 @@ export class IamRedisAdapter<
     try {
       parsed = JSON.parse(value)
     } catch (err) {
-      // Corruption != empty; returning {} would silently strip ABAC and flip allow->deny.
+      // SECURITY: corrupt is not empty; returning {} would strip the subject's attributes from every decision.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-      throw new Error(`[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (JSON parse failed)`)
+      throw new IamRedisCorruptAttributesError(
+        `[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (JSON parse failed)`,
+      )
     }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
-      throw new Error(`[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (not a JSON object)`)
+    const attrs = iamNarrowAttributes(parsed)
+    if (attrs === null) {
+      this._reportPolicyError(
+        new Error(`Attributes for "${subjectId}" must be a JSON object of scalar values`),
+        subjectId,
+      )
+      throw new IamRedisCorruptAttributesError(
+        `[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (not a JSON object)`,
+      )
     }
-    return parsed as IamPrimitives.Attributes
+    return attrs
   }
 
-  /**
-   * Shallow-merges new attributes into the subject's existing bag.
-   *
-   * @param subjectId - Identifies the subject whose attributes are written.
-   * @param attrs - Provides the partial attribute patch to merge in.
-   * @returns Resolves once the SET completes.
-   */
+  /** Shallow-merges `attrs` into the subject's stored attributes. */
   async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
-    // Admin write path is the one place a corrupt existing blob must NOT
-    // lock the operator out of recovering. Treat corrupt as `{}` and log
-    // through _reportPolicyError so the operator still sees the signal.
+    iamAssertAttributesParam('redis', subjectId, attrs)
+    // SECURITY: only a corrupt blob merges as `{}`, so an operator can overwrite it. Any other read failure throws,
+    // since merging into a bag nobody read would replace it. See {@link IamRedisCorruptAttributesError}.
     let existing: IamPrimitives.Attributes
     try {
       existing = await this.getSubjectAttributes(subjectId)
     } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
+      if (!isCorruptAttributes(err)) throw err
+      this._reportPolicyError(err, subjectId)
       existing = {}
     }
     const merged = { ...existing, ...attrs }
     await this._client.set(this._attrsKey(subjectId), JSON.stringify(merged))
   }
+}
+
+/**
+ * Escapes Redis `KEYS` glob metacharacters (`\` is the escape) so `keyPrefix` matches as literal text.
+ * SECURITY: a raw `app[1]:` prefix would miss its own keys and sweep grants in the `app1:` namespace instead.
+ */
+function globLiteral(text: string): string {
+  return text.replace(/[\\*?[\]]/g, (ch) => `\\${ch}`)
 }
 
 /** Factory around {@link IamRedisAdapter}, for callers who prefer functions to `new`. */

@@ -4,9 +4,13 @@ import { ChevronDown, ChevronRight, Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
+import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
+/** Read-only browser for the live policies from `engine.admin.listPolicies()`, with the selected policy rules. */
 export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
+  useIamDevtoolsStyles()
   const [policies, setPolicies] = React.useState<AccessControl.IPolicy[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -24,6 +28,9 @@ export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
+  if (!isDevtoolsAllowed(engine)) return null
 
   const filtered = policies.filter(
     (p) =>

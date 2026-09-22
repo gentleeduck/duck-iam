@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { orNull } from '~/core/answer'
 import { IdempotencyImpl } from '../idempotency'
 import { DEFAULT_IDEMPOTENCY_CONFIG } from '../idempotency.constants'
 import { MemoryIdempotency } from '../idempotency.memory'
 
 describe('MemoryIdempotencyStore', () => {
-  it('get returns null for unseen keys', async () => {
+  it('get rejects for unseen keys, and orNull reads that back as null', async () => {
     const store = new MemoryIdempotency()
-    expect(await store.get('k', {})).toBeNull()
+    await expect(store.get('k', {})).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
+    await expect(orNull(store.get('k', {}))).resolves.toBeNull()
   })
 
   it('claim returns true the first time + false on subsequent claims within TTL', async () => {
@@ -19,23 +21,23 @@ describe('MemoryIdempotencyStore', () => {
     const store = new MemoryIdempotency()
     await store.put('k', { status: 201, body: { ok: true }, createdAt: new Date() }, 60_000, {})
     const got = await store.get('k', {})
-    expect(got?.status).toBe(201)
-    expect(got?.body).toEqual({ ok: true })
+    expect(got.status).toBe(201)
+    expect(got.body).toEqual({ ok: true })
   })
 
   it('respects tenant scope (same key in different tenants do not collide)', async () => {
     const store = new MemoryIdempotency()
     await store.put('k', { status: 200, body: 'A', createdAt: new Date() }, 60_000, { tenantId: 'A' })
     await store.put('k', { status: 200, body: 'B', createdAt: new Date() }, 60_000, { tenantId: 'B' })
-    expect((await store.get('k', { tenantId: 'A' }))?.body).toBe('A')
-    expect((await store.get('k', { tenantId: 'B' }))?.body).toBe('B')
+    expect((await store.get('k', { tenantId: 'A' })).body).toBe('A')
+    expect((await store.get('k', { tenantId: 'B' })).body).toBe('B')
   })
 
-  it('TTL elapses + get returns null', async () => {
+  it('TTL elapses + get rejects as a miss', async () => {
     const store = new MemoryIdempotency()
     await store.put('k', { status: 200, body: 'x', createdAt: new Date() }, 1, {})
     await new Promise((r) => setTimeout(r, 5))
-    expect(await store.get('k', {})).toBeNull()
+    await expect(store.get('k', {})).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
   })
 })
 
@@ -124,6 +126,19 @@ describe('IdempotencyFacet.handle', () => {
     expect(b.body).toEqual({ who: 'bob' })
   })
 
+  it('identity scoping - without an identityId the key alone authorises the replay', async () => {
+    // The counterpart to the Alice/Bob case above, and the one the isolation claim does NOT cover.
+    // Two unrelated anonymous callers presenting one key share a bucket, so the second is answered
+    // with the first's body.
+    const facet2 = new IdempotencyImpl(store, DEFAULT_IDEMPOTENCY_CONFIG)
+    const mine = vi.fn(async () => ({ body: { token: 'victim-session' }, createdAt: new Date(), status: 200 }))
+    const theirs = vi.fn(async () => ({ body: { token: 'attacker-session' }, createdAt: new Date(), status: 200 }))
+    const first = await facet2.handle('shared-key', {}, mine)
+    const second = await facet2.handle('shared-key', {}, theirs)
+    expect(theirs).not.toHaveBeenCalled()
+    expect(second.body).toEqual(first.body)
+  })
+
   it('identity scoping - same identity replaying same key gets the cached response (not re-executed)', async () => {
     const facet2 = new IdempotencyImpl(store, DEFAULT_IDEMPOTENCY_CONFIG)
     const exec = vi.fn(async () => ({ status: 200, body: { ok: true }, createdAt: new Date() }))
@@ -134,8 +149,9 @@ describe('IdempotencyFacet.handle', () => {
 
   it('MemoryIdempotencyStore.get filters its own tombstone (matches Redis semantics)', async () => {
     await store.claim('k-tomb', 60_000, {})
-    // After claim() the entry exists but the put() has not landed.
-    // get() must report null so handle() does not serve the tombstone.
-    expect(await store.get('k-tomb', {})).toBeNull()
+    // After claim() the entry exists but the put() has not landed. A tombstone is not a miss, but it is
+    // refused with the same code: `handle` must fall through to `claim` and then poll, and a third-party
+    // store that only rejected "never seen" would serve the tombstone and break that protocol.
+    await expect(store.get('k-tomb', {})).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
   })
 })

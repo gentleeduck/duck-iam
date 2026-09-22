@@ -1,13 +1,13 @@
-export { createDrizzleSqliteBridge, drizzleSqliteStorage } from './sqlite'
+export { DrizzleSqliteAdapter, drizzleSqliteAdapter } from './sqlite'
 export {
   authCredentials,
-  // Deprecated: use the auth-prefixed names above.
-  authCredentials as credentialsTable,
-  authEvents,
-  authEvents as eventsTable,
+  authCredentialsRelations,
   authIdentities,
-  authIdentities as identitiesTable,
+  authIdentitiesRelations,
+  authIdentityProviders,
+  authIdentityProvidersRelations,
   authSessions,
-  authSessions as sessionsTable,
+  authSessionsRelations,
+  authSqliteSchema,
 } from './sqlite.schema'
 export type { Sqlite } from './sqlite.types'

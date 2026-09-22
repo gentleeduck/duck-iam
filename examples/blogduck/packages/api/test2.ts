@@ -1,7 +1,7 @@
-import { createIam, type DefaultContext } from '@gentleduck/iam'
+import { createIam, type DotPath } from '@gentleduck/iam'
 import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
-export interface AppContext extends DefaultContext {
+export interface AppContext extends DotPath.IDefaultContext {
   subject: {
     id: string
     roles: string[]

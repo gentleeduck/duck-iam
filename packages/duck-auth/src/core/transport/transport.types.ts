@@ -1,56 +1,60 @@
 import type { Provider } from '~/core/provider/provider.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 
-/**
- * Session-bearer transport contract. Cookie (web), Bearer (native + API keys),
- * JWT (stateless edge). Apps pick one or compose; the same AuthEngine wires them.
- */
+/** Cookie for web, Bearer for native and API keys, JWT for the stateless edge. Apps pick one or
+ *  compose them, and the same AuthEngine wires either way. */
 export namespace Transport {
   export type CookieOptions = {
     domain?: string
     path?: string
     httpOnly?: boolean
     secure?: boolean
+    /** Cross-site policy written onto the cookie; `none` is only valid alongside `secure`. */
     sameSite?: 'strict' | 'lax' | 'none'
+    /** Lifetime in **seconds**, the unit Set-Cookie takes, not the ms used elsewhere. */
     maxAge?: number
     expires?: Date
   }
 
   export type IssueOpts = {
-    /** Newly created or just-rotated session. Drives cookie `Max-Age`/JWT `exp`. */
+    /** Newly created or just rotated; drives the cookie `Max-Age` and the JWT `exp`. */
     fresh: boolean
-    /** Whether the absolute TTL is being hit (forces re-auth instead of refresh). */
+    /** Hitting the absolute TTL forces re-auth rather than a refresh. */
     absolute: boolean
-    /** oauth-style scope string embedded in the bearer (JWT `scope` claim); CookieTransport ignores. */
+    /** Embedded in the bearer as the JWT `scope` claim; CookieTransport ignores it. */
     scope?: string
-    /**
-     * Plaintext CSRF token to emit alongside the session cookie. Minted
-     * by `SessionsFacet.create` (returned as `csrfToken`); the hash
-     * lives on the session row. `CookieTransport.issue` emits a
-     * `__Host-duck-csrf` cookie (httpOnly:false so JS can read it for
-     * the `x-csrf-token` header); other transports ignore.
-     */
+    /** Plaintext CSRF token to emit beside the session cookie, minted by `SessionsImpl.create` with its hash on
+     *  the session row. `CookieTransport.issue` emits it as the CSRF companion cookie, not httpOnly so JS can
+     *  read it back for the `x-csrf-token` header; every other transport ignores it. */
     csrfToken?: string
   }
 
   export type ITransport = {
-    /** Pull the bearer token (cookie value, header token, JWT) from an inbound request. */
+    /** The cookie value, header token or JWT carried by an inbound request. */
     extract(req: { headers: Headers }): string | null
-    /**
-     * Build a response Intent that persists the bearer for subsequent requests.
-     * `sid` is the **plaintext** session identifier - the value the client will
-     * send back on subsequent requests. `session` carries the row metadata
-     * (`session.id` is the hashed row key; never put it on the wire).
-     * Cookie transport -> setCookie intent. JWT transport -> setCookie (refresh)
-     * + json (access token); the access token is derived from `session`.
-     */
+    /** Build the Intent that persists the bearer for later requests. `sid` is the plaintext identifier the
+     *  client sends back; `session` carries the row metadata. SECURITY: `session.id` is the hashed row key and
+     *  never goes on the wire. Cookie transport emits a setCookie; JWT emits setCookie plus a json access token. */
     issue(sid: string, session: Sessions.Me, opts: IssueOpts): Provider.Intent[]
-    /** Build a response Intent that revokes any persisted bearer. */
+    /** The response Intent that revokes any persisted bearer. */
     revoke(): Provider.Intent[]
-    /**
-     * Optional verify step - JWT transports verify locally and reconstruct Session
-     * without a store hit; opaque transports return null and rely on Session.IStore lookup.
-     */
-    verify?(token: string): Promise<Sessions.Me | null>
+    /**  has no `verify` at all and leaves the caller to the `Session.IStore` lookup. */
+    verify?(token: string): Promise<Sessions.Me>
+    /** The longest token this transport accepts. A composite takes the largest its members declare rather than
+     *  carrying its own constant, which silently clamped any member with a wider ceiling. */
+    maxTokenLength?: number
+    /** SECURITY: a refusal here ends verification instead of falling through. A composite verifies by
+     *  disjunction, so putting DPoP beside a plain bearer adds nothing on its own, the unbound path still
+     *  answering for every token the bound one rejects. Set this and the strict transport's refusal is a
+     *  veto. */
+    authoritative?: boolean
+  }
+
+  /** How a {@link ITransport} composite behaves when its members disagree. */
+  export type CompositeOpts = {
+    /** SECURITY: what to do when one request presents a credential by more than one method. RFC 6750 section 2
+     *  says a client must not and a server must refuse. `'first'` lets array order pick a winner and discards
+     *  the rest silently, which lets anyone who can plant a cookie choose which identity the request runs as. */
+    onMultipleCredentials?: 'refuse' | 'first'
   }
 }

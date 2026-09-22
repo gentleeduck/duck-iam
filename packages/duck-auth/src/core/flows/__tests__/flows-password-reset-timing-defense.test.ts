@@ -59,7 +59,7 @@ describe('flows.requestPasswordReset - timing-defense', () => {
       channels: { email: channel },
     })
     const elapsed = performance.now() - start
-    // The handler returned in tens of ms (token mint + upsert + hasTotp +
+    // The handler returned in tens of ms (token mint + create + hasTotp +
     // event emit), NOT after the 200 ms channel delay.
     expect(elapsed).toBeLessThan(100)
     // But channel.send WAS scheduled.

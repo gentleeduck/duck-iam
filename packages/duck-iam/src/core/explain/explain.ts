@@ -1,13 +1,12 @@
+import { iamIsReservedRefusal } from '../../shared/reserved'
+import { firstApplicableOrder } from '../evaluate/evaluate.libs'
 import type { AccessControl, IamRequest } from '../types'
 import { tracePolicy } from './explain.libs'
 import type { Explain } from './explain.types'
 /**
  * Produce a detailed evaluation trace for debugging authorization decisions.
- * Every policy is traced (no short-circuit) so callers can see the full picture;
- * `combine` controls which trace produces the final {@link AccessControl.IDecision}.
+ * NOTE: every policy is traced without short-circuiting; `combine` only decides which trace yields the final decision.
  *
- * @param policies      All policies to trace.
- * @param request       The access request.
  * @param defaultEffect Effect when no rule fires inside any policy.
  * @param subjectInfo   Subject metadata (id, roles, scoped roles applied).
  * @param combine       Cross-policy combine strategy (defaults to `'and'`).
@@ -37,12 +36,25 @@ export function explainEvaluation(
     finalRule = decided.rule
   }
 
+  // SECURITY: the reserved refusal token is denied before any policy is consulted, so the summary must say deny even
+  // when a wildcard grant would have matched. Calls the decision path's own predicate, never a hand-copy of it.
+  if (iamIsReservedRefusal(request.action) || iamIsReservedRefusal(request.resource.type)) {
+    finalEffect = 'deny'
+    finalReason = 'Denied: the request names the reserved refusal token, which no policy can grant'
+    finalPolicy = undefined
+    finalRule = undefined
+  }
+
   const decision: AccessControl.IDecision = {
     allowed: finalEffect === 'allow',
     effect: finalEffect,
     rule: finalRule,
     policy: finalPolicy,
     reason: finalReason,
+    // The same `failure` tag `_reservedRefusalDecision` carries, so a caller branching on it reads one value.
+    ...(iamIsReservedRefusal(request.action) || iamIsReservedRefusal(request.resource.type)
+      ? { failure: 'input' as const }
+      : {}),
     duration: performance.now() - start,
     timestamp: Date.now(),
   }
@@ -68,15 +80,21 @@ export function explainEvaluation(
   }
 }
 
+/**
+ * Whether a traced policy takes part in the cross-policy combine.
+ * NOTE: mirrors both of `evaluate`'s NotApplicable tests; on one alone the explanation contradicts the decision.
+ */
+function traceIsApplicable(trace: Explain.IPolicyTrace): boolean {
+  return trace.targetMatch && trace.rules.some((rule) => rule.actionMatch && rule.resourceMatch)
+}
+
 /** Resolve the final decision across all policy traces under the given combine mode. */
 function decideFinal(
   traces: readonly Explain.IPolicyTrace[],
   defaultEffect: AccessControl.Effect,
   combine: AccessControl.PolicyCombine,
 ): { effect: AccessControl.Effect; reason: string; policy?: string; rule?: AccessControl.IRule } {
-  // NotApplicable traces (targets didn't match) are skipped in every mode  -
-  // they contribute nothing to the cross-policy combine.
-  const applicable = traces.filter((t) => t.targetMatch)
+  const applicable = traces.filter(traceIsApplicable)
 
   if (combine === 'and') {
     let lastAllow: Explain.IPolicyTrace | null = null
@@ -101,11 +119,11 @@ function decideFinal(
       return { effect: 'deny', reason: lastDeny.reason, policy: lastDeny.policyId, rule: lastDeny.decidingRule }
     }
   } else {
-    // first-applicable
-    for (const pt of applicable) {
-      if (pt.decidingRule) {
-        return { effect: pt.result, reason: pt.reason, policy: pt.policyId, rule: pt.decidingRule }
-      }
+    // first-applicable: the first applicable trace wins, rule or not. Gating on `decidingRule` would skip a policy
+    // that voted its `defaultEffect`, which `evaluate` counts. Same RBAC-last order `evaluate` uses.
+    const first = firstApplicableOrder(applicable, (pt) => pt.policyId)[0]
+    if (first !== undefined) {
+      return { effect: first.result, policy: first.policyId, reason: first.reason, rule: first.decidingRule }
     }
   }
   return {
@@ -127,12 +145,10 @@ function buildSummary(
   const verb = decision.allowed ? 'ALLOWED' : 'DENIED'
   const parts: string[] = []
 
-  // Header
   parts.push(
     `${verb}: "${info.subjectId}" attempting ${req.action} on ${req.resource.type}${req.scope ? ` [scope: ${req.scope}]` : ''}`,
   )
 
-  // Roles
   const roles = [...info.originalRoles]
   if (info.scopedRolesApplied.length > 0) {
     parts.push(`  Roles: [${roles.join(', ')}] + scoped: [${info.scopedRolesApplied.join(', ')}]`)
@@ -140,13 +156,12 @@ function buildSummary(
     parts.push(`  Roles: [${roles.join(', ')}]`)
   }
 
-  // Per-policy summary
   for (const pt of policyTraces) {
     const matched = pt.rules.filter((r) => r.matched).length
     const total = pt.rules.length
 
-    if (!pt.targetMatch) {
-      parts.push(`  ${pt.policyId}: targets don't match (${pt.result})`)
+    if (!traceIsApplicable(pt)) {
+      parts.push(`  ${pt.policyId}: not applicable to this request`)
     } else if (pt.decidingRuleId) {
       parts.push(`  ${pt.policyId} [${pt.algorithm}]: ${pt.reason} (${matched}/${total} rules matched)`)
     } else {
@@ -156,7 +171,6 @@ function buildSummary(
     }
   }
 
-  // Final
   parts.push(`  Result: ${decision.reason}`)
 
   return parts.join('\n')

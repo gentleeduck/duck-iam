@@ -1,20 +1,15 @@
-/**
- * Remember-me / trusted-device facet. Issues a long-lived random token
- * the framework adapter stores in an `__Host-duck-device` cookie. On
- * subsequent sign-in attempts the consumer can present the token to
- * skip MFA (and grant aal=2 implicitly) for the device the cookie was
- * minted on.
- *
- * Storage shape: hashed token under `Credential.kind='recovery'` with
- * `metadata.purpose='trusted-device'` + caller-supplied metadata.
- */
+/** Trusted-device tokens: a long-lived random value the framework adapter keeps in an `__Host-duck-device`
+ *  cookie and presents on later sign-ins to skip MFA, granting aal=2 on that device. Stored hashed under
+ *  `Credential.kind='recovery'` with `metadata.purpose='trusted-device'`. */
 
+import { type Answer, answer, orNull } from '~/core/answer'
 import {
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
-  toCredentialUpsert,
+  toCredentialCreate,
 } from '~/core/credentials/credentials'
+import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import type { TenantContext } from '~/core/tenant/tenant.types'
@@ -39,21 +34,18 @@ export namespace RememberMeFacet {
   export type Verified = {
     identityId: string
     credentialId: string
-    /** Caller-supplied metadata attached at issue (label, userAgent, etc.). */
+    /** Attached at issue; a label and a userAgent, typically. */
     metadata: Record<string, unknown> | null
   }
 }
 
+/** Defaults applied when remember-this-device config omits a field. */
 export const DEFAULT_REMEMBER_ME_CONFIG: RememberMeFacet.Cfg = {
   ttlMs: 90 * 24 * 60 * 60 * 1000,
   byteLength: 32,
 }
 
-/**
- * Remember-me facet. Caller wires it next to the rest of the MFA
- * facets; the facet does not auto-mount because not every app wants a
- * remember-me path.
- */
+/** Wired beside the rest of the MFA facets. It does not auto-mount, because not every app wants this path. */
 export class RememberMeFacet {
   constructor(
     private readonly _credentials: Credential.Store,
@@ -62,14 +54,26 @@ export class RememberMeFacet {
       authSha256(s: string): string
     },
     private readonly _cfg: RememberMeFacet.Cfg = DEFAULT_REMEMBER_ME_CONFIG,
-  ) {}
+  ) {
+    // The third site of the shape the two backup-code classes carry: `authRandomToken(0)` answers `''`,
+    // and this one mints a token that skips the second factor for ninety days. `verify` refuses an empty
+    // string, so the issued token is unusable rather than universal - a device that can never be trusted
+    // instead of one anybody can be. 16 bytes matches `APIKEY_MIN_RANDOM_BYTES`; 128 stays inside the
+    // 256-character cap `verify` puts on what it will hash.
+    if (!Number.isInteger(this._cfg.byteLength) || this._cfg.byteLength < 16 || this._cfg.byteLength > 128) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `rememberMe: byteLength must be a whole number between 16 and 128, got ${String(this._cfg.byteLength)}`,
+      })
+    }
+    if (!Number.isFinite(this._cfg.ttlMs) || this._cfg.ttlMs < 1) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `rememberMe: ttlMs must be a positive number, got ${String(this._cfg.ttlMs)}`,
+      })
+    }
+  }
 
-  /**
-   * Mint + persist a remember-me token. Returns plaintext exactly once.
-   * Caller-supplied `metadata` is opaque to the facet; common pairs
-   * are { label, userAgent, ip } so the user-facing devices list can
-   * surface them.
-   */
+  /** Mints and persists a token, handing back the plaintext exactly once. `metadata` is opaque here,
+   *  usually `{ label, userAgent, ip }` for the user-facing devices list to render. */
   async issue(
     identityId: string,
     opts: { metadata?: Record<string, unknown> } = {},
@@ -79,12 +83,12 @@ export class RememberMeFacet {
     const hash = this._crypto.authSha256(token)
     const now = Date.now()
     const expiresAt = now + this._cfg.ttlMs
-    const cred = await this._credentials.upsert(
-      toCredentialUpsert({
+    const cred = await this._credentials.create(
+      toCredentialCreate({
         identityId,
         kind: 'recovery',
         secret: hash,
-        metadata: { purpose: 'trusted-device', ...(opts.metadata ?? {}) },
+        metadata: { purpose: RECOVERY_PURPOSES.trustedDevice, ...(opts.metadata ?? {}) },
         expiresAt: new Date(expiresAt),
       }),
       ctx,
@@ -92,43 +96,39 @@ export class RememberMeFacet {
     return { token, credentialId: cred.id, expiresAt }
   }
 
-  /**
-   * Verify a remember-me token. Returns null on miss / TTL expiry /
-   * wrong-purpose row; throws `AUTH/RECOVERY_TOKEN_INVALID` only when
-   * the input is structurally bogus (empty / non-string).
-   *
-   * Successful verifies do NOT consume the token (unlike backup codes
-   * + magic links) - remember-me cookies are reused across many
-   * sign-ins inside the TTL window.
-   */
-  async verify(token: string, ctx: TenantContext = {}): Promise<RememberMeFacet.Verified | null> {
-    // cap token length at 256 chars to bound the sha256 cost.
-    // Trusted-device tokens are 32 random bytes (~43 base64url chars).
-    if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
-      throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
-    }
-    const hash = this._crypto.authSha256(token)
-    const row = await this._credentials.findByHashedSecret(hash, 'recovery', ctx)
-    if (!row || isRevoked(row)) return null
-    if (getCredentialPurpose(row) !== 'trusted-device') return null
-    // defense against malformed `expiresAt` from a buggy adapter.
-    // Centralized via `isCredentialExpired`.
-    if (isCredentialExpired(row)) {
-      void this._credentials.delete(row.id, ctx).catch(() => {})
-      return null
-    }
-    return {
-      identityId: row.identityId,
-      credentialId: row.id,
-      metadata: row.metadata,
-    }
+  /** Rejects `AUTH_CREDENTIAL_NOT_FOUND` on a miss, an elapsed TTL or a wrong-purpose row, which
+   *  `orNull()` reads back as null, and `AUTH_RECOVERY_TOKEN_INVALID` only for structurally bogus input —
+   *  that one is an argument the caller holds, so it stays loud either way. A success does not consume the
+   *  token, unlike a backup code or a magic link, since the cookie is reused across every sign-in inside
+   *  the TTL window. */
+  verify(token: string, ctx: TenantContext = {}): Answer.Me<RememberMeFacet.Verified> {
+    return answer(async () => {
+      // Capped at 256 chars to bound the sha256 cost; a trusted-device token is 32 random bytes, about 43
+      // base64url chars.
+      if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
+        throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
+      }
+      const hash = this._crypto.authSha256(token)
+      const row = await orNull(this._credentials.findByHashedSecret(hash, 'recovery', ctx))
+      if (!row || isRevoked(row)) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+      if (getCredentialPurpose(row) !== RECOVERY_PURPOSES.trustedDevice) {
+        throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+      }
+      // Through `isCredentialExpired`, against a malformed `expiresAt` from a buggy adapter.
+      if (isCredentialExpired(row)) {
+        void this._credentials.delete(row.id, ctx).catch(() => {})
+        throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+      }
+
+      return {
+        identityId: row.identityId,
+        credentialId: row.id,
+        metadata: row.metadata,
+      }
+    })
   }
 
-  /**
-   * List the live trusted devices for an identity. Returns the
-   * credential row ids + caller-supplied metadata; never the secret.
-   * Used to render a user-facing "devices" page.
-   */
+  /** The live trusted devices for an identity, as row ids plus the caller's metadata and never the secret. */
   async list(
     identityId: string,
     ctx: TenantContext = {},
@@ -142,7 +142,9 @@ export class RememberMeFacet {
   > {
     const rows = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
     return rows
-      .filter((r) => getCredentialPurpose(r) === 'trusted-device' && !isRevoked(r))
+      .filter(
+        (r) => getCredentialPurpose(r) === RECOVERY_PURPOSES.trustedDevice && !isRevoked(r) && !isCredentialExpired(r),
+      )
       .map((r) => ({
         credentialId: r.id,
         createdAt: r.createdAt,
@@ -153,21 +155,28 @@ export class RememberMeFacet {
 
   /** Revoke a specific trusted-device row. */
   async revoke(identityId: string, credentialId: string, ctx: TenantContext = {}): Promise<void> {
-    const row = await this._credentials.findById(credentialId, ctx)
+    const row = await orNull(this._credentials.findById(credentialId, ctx))
     if (!row || row.identityId !== identityId) return
+    // SECURITY: the purpose as well as the owner. This id arrives on a "remove this device" request, and
+    // owner-only left the endpoint deleting whichever of the caller's credentials it named - their TOTP
+    // enrollment, their passkey, the reset token sitting in their inbox - silently, and without the
+    // events the real removal paths emit. Every other read and delete over `recovery` filters on it.
+    if (getCredentialPurpose(row) !== RECOVERY_PURPOSES.trustedDevice) return
     await this._credentials.delete(credentialId, ctx)
   }
 
-  /** Wipe every trusted device for an identity. */
+  /** Wipe every trusted device for an identity, an elapsed TTL included: `list` answers what is live,
+   *  which is not the same set, and going through it left the expired rows behind for good. */
   async revokeAll(identityId: string, ctx: TenantContext = {}): Promise<void> {
-    const live = await this.list(identityId, ctx)
-    for (const dev of live) {
-      await this._credentials.delete(dev.credentialId, ctx)
+    const rows = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
+    for (const row of rows) {
+      if (getCredentialPurpose(row) !== RECOVERY_PURPOSES.trustedDevice) continue
+      await this._credentials.delete(row.id, ctx)
     }
   }
 }
 
-/** Factory around {@link RememberMeFacet}, for callers who prefer functions to `new`. */
+/** Constructs a {@link RememberMeFacet}. */
 export function rememberMeFacet(...args: ConstructorParameters<typeof RememberMeFacet>): RememberMeFacet {
   return new RememberMeFacet(...args)
 }

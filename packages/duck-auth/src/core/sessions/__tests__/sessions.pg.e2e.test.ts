@@ -1,16 +1,4 @@
-/**
- * E2E: the SQL session store against REAL Postgres, on the REAL shipped schema.
- *
- * The sqlite conformance run already covers the `sql.ts` bridge's logic. What it
- * cannot cover is the actual production dialect: `timestamptz`, `jsonb`, `uuid`
- * identity ids, and the `ON DELETE CASCADE` foreign key to `auth_identities`.
- * Those only exist here.
- *
- * The suite creates the shipped schema itself (generated from the drizzle pg
- * schema), so it runs against exactly what ships and never touches app data.
- *
- * Skips when DUCKAUTH_E2E_DATABASE_URL is unset. See `.env.example`.
- */
+/** E2E: the SQL session store against REAL Postgres, on the REAL shipped schema. */
 import { createHash, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -65,9 +53,9 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
     await applyPgSchema(pool)
     identityId = randomUUID()
     await pool.query(
-      `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-       VALUES ($1, $2::jsonb, $3::jsonb, 1, true, now(), now())`,
-      [identityId, JSON.stringify({ username: 'e2e', email: 'e2e@test.local' }), JSON.stringify([])],
+      `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+       VALUES ($1, $2::jsonb, 1, true, now(), now())`,
+      [identityId, JSON.stringify({ username: 'e2e', email: 'e2e@test.local' })],
     )
   }, 30_000)
 
@@ -95,14 +83,14 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
     })
 
     it('rejects a non-uuid identity_id — the column type is a real constraint', async () => {
-      await expect(insertSession({ identity_id: 'not-a-uuid' })).rejects.toThrow()
+      await expect(insertSession({ identity_id: 'not-a-uuid' })).rejects.toThrow(/invalid input syntax for type uuid/)
     })
 
     it('CASCADE deletes sessions when the identity is erased', async () => {
       const doomedIdentity = randomUUID()
       await pool.query(
-        `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-         VALUES ($1, $2::jsonb, '[]'::jsonb, 1, true, now(), now())`,
+        `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+         VALUES ($1, $2::jsonb, 1, true, now(), now())`,
         [doomedIdentity, JSON.stringify({ username: 'doomed', email: 'd@test.local' })],
       )
       await insertSession({ identity_id: doomedIdentity })
@@ -120,9 +108,7 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
 
   describe('CHECK constraints that ONLY Postgres enforces', () => {
     // The sqlite conformance DDL says in its own comment that it "intentionally
-    // omits CHECK constraints". Memory and Redis have no schema at all. So these
-    // eight invariants are enforced in production and nowhere else — a write the
-    // library considers valid can still be rejected by the real database.
+    // omits CHECK constraints". Memory and Redis have no schema at all.
 
     it('rejects a session id that is not exactly 64 chars (sha-256 hex)', async () => {
       // Memory, Redis and sqlite all accept any string as an id.
@@ -150,8 +136,8 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
       const id = randomUUID()
       await expect(
         pool.query(
-          `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-           VALUES ($1, $2::jsonb, '[]'::jsonb, 1, false, now(), now())`,
+          `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+           VALUES ($1, $2::jsonb, 1, false, now(), now())`,
           [id, JSON.stringify({ email: 'no-username@test.local', emailVerified: false })],
         ),
       ).rejects.toThrow(/chk_auth_identities_profile_shape/)
@@ -182,8 +168,8 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
     it('measures listByIdentity and gc over 2000 rows', async () => {
       const bulkIdentity = randomUUID()
       await pool.query(
-        `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
-         VALUES ($1, $2::jsonb, '[]'::jsonb, 1, true, now(), now())`,
+        `INSERT INTO auth_identities (id, profile, version, email_verified, created_at, updated_at)
+         VALUES ($1, $2::jsonb, 1, true, now(), now())`,
         [bulkIdentity, JSON.stringify({ username: 'bulk', email: 'b@test.local' })],
       )
 
@@ -218,8 +204,8 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
 
       await pool.query('DELETE FROM auth_identities WHERE id = $1', [bulkIdentity])
 
-      // Postgres does this set-based in one statement; Redis needs N+1 round
-      // trips for the same work (S3/S4).
+      // One statement each. The redis store reaches the same rows through the identity index and
+      // an `mget`, which is two round trips rather than one but not one per row (S3/S4).
       expect(listed.rowCount).toBe(2000)
       expect(gc.rowCount).toBeGreaterThan(0)
       expect(listMs).toBeLessThan(5000)

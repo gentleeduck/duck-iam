@@ -1,12 +1,20 @@
 import React from 'react'
 import type { IamPrimitives } from '../../core/types'
+import { iamNarrowAttributes } from '../../shared/attributes'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button, Field, Input, TextArea } from '../components/ui'
 import { safeParseJson } from '../lib/format'
+import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
+/**
+ * Loads one subject's attributes and edits them and its role assignments through `engine.admin`.
+ * SECURITY: writes with no auth of its own and is exported individually, so it runs `isDevtoolsAllowed` itself.
+ */
 export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
+  useIamDevtoolsStyles()
   const [subjectId, setSubjectId] = React.useState('')
   const [attrs, setAttrs] = React.useState<IamPrimitives.Attributes | null>(null)
   const [attrsDraft, setAttrsDraft] = React.useState('{}')
@@ -15,6 +23,9 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [status, setStatus] = React.useState<string | null>(null)
+
+  // Below every hook, so the hook order is the same on both branches.
+  if (!isDevtoolsAllowed(engine)) return null
 
   async function load() {
     setError(null)
@@ -35,12 +46,15 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   async function saveAttrs() {
     setError(null)
     setStatus(null)
-    const parsed = safeParseJson<IamPrimitives.Attributes>(attrsDraft, {})
+    const parsed = safeParseJson(attrsDraft)
     if (parsed.error) return setError(`attributes JSON: ${parsed.error}`)
+    // Narrow before `setAttributes`, which writes whatever it is given.
+    const attributes = parsed.value === undefined ? {} : iamNarrowAttributes(parsed.value)
+    if (attributes === null) return setError('attributes JSON: expected an object of scalar values')
     setBusy(true)
     try {
-      await engine.admin.setAttributes(subjectId, parsed.value)
-      setAttrs(parsed.value)
+      await engine.admin.setAttributes(subjectId, attributes)
+      setAttrs(attributes)
       setStatus('attributes saved')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

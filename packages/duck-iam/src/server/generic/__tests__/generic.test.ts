@@ -89,27 +89,29 @@ describe('createIamSubjectCan()', () => {
 })
 
 describe('iamExtractEnvironment()', () => {
-  it('extracts IP and user agent from request object', () => {
+  it('reports the user agent without being asked for an IP', () => {
     const env = iamExtractEnvironment({
       ip: '192.168.1.1',
       headers: { 'user-agent': 'Mozilla/5.0' },
     })
-    expect(env.ip).toBe('192.168.1.1')
     expect(env.userAgent).toBe('Mozilla/5.0')
     expect(env.timestamp).toBeGreaterThan(0)
   })
 
-  it('falls back to x-forwarded-for header', () => {
-    const env = iamExtractEnvironment({
-      headers: { 'x-forwarded-for': '10.0.0.1' },
-    })
+  it('leaves ip undefined unless the app opts in', () => {
+    // SECURITY: forwarding headers are client-settable without a proxy, and `req.ip` exists only on express.
+    expect(iamExtractEnvironment({ ip: '192.168.1.1' }).ip).toBeUndefined()
+    expect(iamExtractEnvironment({ headers: { 'x-forwarded-for': '10.0.0.1' } }).ip).toBeUndefined()
+    expect(iamExtractEnvironment({ headers: { 'x-real-ip': '10.0.0.2' } }).ip).toBeUndefined()
+  })
+
+  it('reads x-forwarded-for when the app opts in', () => {
+    const env = iamExtractEnvironment({ headers: { 'x-forwarded-for': '10.0.0.1' } }, { trustProxy: true })
     expect(env.ip).toBe('10.0.0.1')
   })
 
-  it('falls back to x-real-ip header', () => {
-    const env = iamExtractEnvironment({
-      headers: { 'x-real-ip': '10.0.0.2' },
-    })
+  it('falls back to x-real-ip when the app opts in', () => {
+    const env = iamExtractEnvironment({ headers: { 'x-real-ip': '10.0.0.2' } }, { trustProxy: true })
     expect(env.ip).toBe('10.0.0.2')
   })
 
@@ -118,7 +120,7 @@ describe('iamExtractEnvironment()', () => {
     headers.set('user-agent', 'TestAgent')
     headers.set('x-forwarded-for', '10.0.0.3')
 
-    const env = iamExtractEnvironment({ headers })
+    const env = iamExtractEnvironment({ headers }, { trustProxy: true })
     expect(env.userAgent).toBe('TestAgent')
     expect(env.ip).toBe('10.0.0.3')
   })
@@ -130,9 +132,10 @@ describe('iamExtractEnvironment()', () => {
   })
 
   it('handles array header values', () => {
-    const env = iamExtractEnvironment({
-      headers: { 'x-forwarded-for': ['10.0.0.1', '10.0.0.2'] },
-    })
+    const env = iamExtractEnvironment(
+      { headers: { 'x-forwarded-for': ['10.0.0.1', '10.0.0.2'] } },
+      { trustProxy: true },
+    )
     expect(env.ip).toBe('10.0.0.1')
   })
 })

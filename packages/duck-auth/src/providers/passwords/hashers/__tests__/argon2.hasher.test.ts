@@ -49,7 +49,7 @@ describe('AuthArgon2idHasher (contract)', () => {
     expect(newer.needsRehash(weak)).toBe(true)
   })
 
-  it('hash() throws AUTH/MISCONFIGURED with install hint when peerDep is missing', async () => {
+  it('hash() throws AUTH_MISCONFIGURED with install hint when peerDep is missing', async () => {
     const has = await hasArgon2()
     if (has) return // Skip - peer is installed, error path not reachable.
     await expect(hasher.hash('pw')).rejects.toMatchObject({

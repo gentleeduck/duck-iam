@@ -1,46 +1,49 @@
+import { AuthError } from '~/core/errors'
 import type { Provider } from '../provider/provider.types'
 import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
 
 export namespace CookieTransport {
   export interface Cfg {
-    /**
-     * Cookie name. Defaults to `__Host-duck-sid` when no `domain` is set
-     * (browser enforces Secure + Path=/ + no Domain), else `duck-sid`.
-     */
+    /** `__Host-duck-sid` when no `domain` is set, which is the prefix browsers enforce Secure, `Path=/`
+     *  and no Domain for; `duck-sid` otherwise. */
     name?: string
-    /** Set only for cross-subdomain deployments. Forbidden together with `__Host-` prefix. */
+    /** For cross-subdomain deployments only, and forbidden alongside the `__Host-` prefix. */
     domain?: string
     path?: string
-    /** Must be true in production; strict() rejects false. */
+    /** `strict()` rejects `false` in production. The CSRF companion follows it, and drops its `__Host-`
+     *  prefix along with it, since the prefix is what requires Secure. */
     secure?: boolean
     sameSite?: 'strict' | 'lax' | 'none'
-    /** Default 7d. Overridden by Session.absoluteExpiresAt at issue time. */
+    /** Default 7d, capped at issue time by `Sessions.Me.expiresAt` - the sliding deadline, which each
+     *  rotation reissues the cookie against. The absolute cap is server-side, in `isSessionExpired`. */
     maxAgeSec?: number
   }
 }
 
-/**
- * Cookie transport - opaque session ID in an HttpOnly cookie. Default for web apps.
- * Verify is unset -> caller must call Session.IStore.getByHash() to resolve.
- */
+/** An opaque session id in an HttpOnly cookie, the default for web apps. `verify` is unset, so the
+ *  caller resolves the id through `Session.IStore.getByHash()`. */
 export class CookieTransport implements Transport.ITransport {
   private readonly _name: string
   private readonly _options: Transport.CookieOptions
+  private readonly _csrfName: string
+  private readonly _csrfOptions: Transport.CookieOptions
 
   constructor(cfg: CookieTransport.Cfg = {}) {
-    // Reject invalid cookie names early: RFC 6265 forbids CTL chars and the
-    // separators below. Otherwise serializeCookie would emit a malformed
-    // Set-Cookie that browsers silently drop, producing "session never sticks"
-    // outages with no error surface.
+    // RFC 6265 forbids CTL chars and the separators below. Left to `serializeCookie`, a bad name emits a
+    // malformed Set-Cookie that browsers silently drop: a "session never sticks" outage with no error.
     if (cfg.name !== undefined) {
       if (typeof cfg.name !== 'string' || cfg.name.length === 0 || cfg.name.length > 256) {
-        throw new Error('@gentleduck/auth CookieTransport: name must be a non-empty string <=256 chars')
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: '@gentleduck/auth CookieTransport: name must be a non-empty string <=256 chars',
+        })
       }
-      // RFC 6265 token: alphanumerics + small set of safe punctuation. `-` is
-      // allowed (the default `duck-sid`).
+      // RFC 6265 token: alphanumerics and a small set of safe punctuation, `-` included, as the default
+      // `duck-sid` needs.
       if (!/^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/.test(cfg.name)) {
-        throw new Error('@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character')
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: '@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character',
+        })
       }
     }
     const hasDomain = Boolean(cfg.domain)
@@ -56,48 +59,63 @@ export class CookieTransport implements Transport.ITransport {
     // Fail-fast on __Host- violations; browsers silently drop them.
     if (this._name.startsWith('__Host-')) {
       if (cfg.domain) {
-        throw new Error(
-          '@gentleduck/auth CookieTransport: __Host- prefix forbids the Domain attribute. ' +
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail:
+            '@gentleduck/auth CookieTransport: __Host- prefix forbids the Domain attribute. ' +
             'Either drop `domain` or override `name` to a non-__Host- value.',
-        )
+        })
       }
       if (this._options.path !== '/') {
-        throw new Error(
-          `@gentleduck/auth CookieTransport: __Host- prefix requires Path=/. Got Path=${this._options.path}.`,
-        )
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `@gentleduck/auth CookieTransport: __Host- prefix requires Path=/. Got Path=${this._options.path}.`,
+        })
       }
       if (this._options.secure !== true) {
-        throw new Error(
-          '@gentleduck/auth CookieTransport: __Host- prefix requires Secure=true. ' +
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail:
+            '@gentleduck/auth CookieTransport: __Host- prefix requires Secure=true. ' +
             'Either set { secure: true } (production) or override `name` to a non-__Host- value.',
-        )
+        })
       }
     }
+    // SECURITY: the companion is scoped to the session cookie rather than to a fixed shape, and every one
+    // of these attributes was hardcoded. Measured: `{ domain: '.example.com' }` - the option that exists
+    // for cross-subdomain deployments, and the one the checks above validate - emitted the session cookie
+    // for the whole domain and a `__Host-` CSRF cookie for the issuing host alone, so a page on a sibling
+    // subdomain could not read the token, could not put it on `x-csrf-token`, and had every state-changing
+    // request refused `AUTH_CSRF` with nothing said. `sameSite: 'none'` sent the session cookie cross-site
+    // and held the companion back; `path: '/app'` scoped the session down and left the token readable at
+    // `/`. The prefix goes exactly when its three conditions do, which is also what had a `secure: false`
+    // dev deployment dropping the cookie rather than renaming it.
+    const hostPrefixOk = this._options.secure === true && this._options.path === '/' && !hasDomain
+    this._csrfName = hostPrefixOk ? '__Host-duck-csrf' : 'duck-csrf'
+    this._csrfOptions = { ...this._options, httpOnly: false }
   }
 
-  /**
-   * Diagnostic getter consumed by `AuthEngine.strict()` to assert that
-   * production deployments have `secure: true`. Read-only.
-   */
+  /** The companion CSRF cookie's name, which drops the `__Host-` prefix when the transport's own settings
+   *  forbid it. This is what a client passes as `csrfCookieName`. */
+  get csrfCookieName(): string {
+    return this._csrfName
+  }
+
+  /** Read by `AuthEngine.strict()` to assert a production deployment set `secure: true`. */
   get secure(): boolean {
     return this._options.secure === true
   }
 
-  /**
-   * Diagnostic getter exposing the cookie name (e.g. `__Host-duck-sid`).
-   * Read-only; used by tests + framework adapters that need to render the
-   * name in user-facing output.
-   */
+  /** For tests, and for a framework adapter that renders the name in user-facing output. */
   get cookieName(): string {
     return this._name
   }
 
+  /** The session id out of the `Cookie` header, or `null` when it is absent or ambiguous. */
   extract(req: { headers: Headers }): string | null {
     const header = req.headers.get('cookie')
     if (!header) return null
     return parseCookie(header, this._name)
   }
 
+  /** Sets the session cookie, capped by the session's own deadline, plus the CSRF companion. */
   issue(sid: string, session: Sessions.Me, opts: Transport.IssueOpts): Provider.Intent[] {
     const expiresInMs = Math.max(0, session.expiresAt.getTime() - Date.now())
     const maxAge = Math.min(this._options.maxAge ?? 0, Math.floor(expiresInMs / 1000))
@@ -109,25 +127,20 @@ export class CookieTransport implements Transport.ITransport {
         options: { ...this._options, maxAge },
       },
     ]
-    // Emit `__Host-duck-csrf` for JS to read back as the `x-csrf-token`
-    // header. httpOnly:false is intentional; the hash lives on the row.
+    // For JS to read back as the `x-csrf-token` header. `httpOnly` is the one attribute that deliberately
+    // differs from the session cookie: the hash lives on the row.
     if (opts.csrfToken !== undefined) {
       intents.push({
         type: 'setCookie',
-        name: '__Host-duck-csrf',
+        name: this._csrfName,
         value: opts.csrfToken,
-        options: {
-          httpOnly: false,
-          secure: true,
-          sameSite: 'lax',
-          path: '/',
-          maxAge,
-        },
+        options: { ...this._csrfOptions, maxAge },
       })
     }
     return intents
   }
 
+  /** Clears both cookies it sets. */
   revoke(): Provider.Intent[] {
     return [
       {
@@ -136,28 +149,28 @@ export class CookieTransport implements Transport.ITransport {
         options: { ...this._options, maxAge: 0 },
       },
       {
+        // The attributes it was set with: a clear that does not match on path or domain leaves the cookie
+        // in the browser.
         type: 'clearCookie',
-        name: '__Host-duck-csrf',
-        options: { httpOnly: false, secure: true, sameSite: 'lax', path: '/', maxAge: 0 },
+        name: this._csrfName,
+        options: { ...this._csrfOptions, maxAge: 0 },
       },
     ]
   }
 }
 
-/** SEC: per-value length cap. A real opaque SID is 64 hex chars; JWTs
- * commonly run a few hundred. 1024 is generous. Without the cap, an
- * attacker who can fit a large cookie under the HTTP-server header
- * limit (typically 8-16k) can still force `decodeURIComponent` + a
- * downstream `sha256` over the whole blob per request. Reject early. */
+/** A real opaque SID is 64 hex chars and a JWT a few hundred, so 1024 is generous.
+ *  SECURITY: without the cap, a large cookie that still fits under the HTTP server's 8-16k header limit
+ *  forces a `decodeURIComponent` and a `sha256` over the whole blob on every request. */
 const COOKIE_VALUE_MAX = 1024
 
-function parseCookie(header: string, name: string): string | null {
-  // Whole-header cap: browsers cap Cookie at ~8KB by default; servers may
-  // accept more. Refuse outliers up-front so a multi-MB header cannot force
-  // a giant string.split(';') allocation.
+/** One cookie's value out of a `Cookie` header, or `null` when absent. */
+export function parseCookie(header: string, name: string): string | null {
+  // Browsers cap Cookie at ~8KB and servers may accept more, so an outlier is refused up front: a
+  // multi-MB header would otherwise force a giant `string.split(';')` allocation.
   if (header.length > 16384) return null
-  // Reject ambiguous Cookie headers (path/domain shadowing) by failing
-  // closed when more than one match for `name=` appears.
+  // Ambiguous headers, from path or domain shadowing, fail closed: more than one match for `name=` is
+  // refused rather than picked between.
   const pairs = header.split(';')
   let found: string | null = null
   for (const raw of pairs) {
@@ -166,14 +179,14 @@ function parseCookie(header: string, name: string): string | null {
     const k = raw.slice(0, eq).trim()
     if (k !== name) continue
     if (found !== null) {
-      // Duplicate - refuse to choose. Caller surfaces as missing-session.
+      // A duplicate is refused rather than chosen between; the caller surfaces it as a missing session.
       return null
     }
     const rawValue = raw.slice(eq + 1).trim()
-    // cap value length BEFORE `decodeURIComponent` so an oversize
-    // cookie cannot force a multi-KB decode-then-sha256 per request.
+    // Capped before `decodeURIComponent`, so an oversize cookie cannot force a multi-KB decode and
+    // sha256 on every request.
     if (rawValue.length > COOKIE_VALUE_MAX) return null
-    // Catch URIError on malformed `%XX`; would otherwise crash the auth pipeline.
+    // A malformed `%XX` raises URIError, which would otherwise crash the auth pipeline.
     try {
       found = decodeURIComponent(rawValue)
     } catch {
@@ -183,7 +196,7 @@ function parseCookie(header: string, name: string): string | null {
   return found
 }
 
-/** Factory around {@link CookieTransport} for functional-style config. */
+/** Constructs a {@link CookieTransport}. */
 export function cookieTransport(cfg: CookieTransport.Cfg = {}): CookieTransport {
   return new CookieTransport(cfg)
 }
