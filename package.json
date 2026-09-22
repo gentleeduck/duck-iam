@@ -82,7 +82,10 @@
     "qs": "^6.15.2",
     "nanoid": "^3.3.18",
     "hono": "^4.12.34",
-    "rolldown-plugin-dts": "^0.28.4"
+    "rolldown-plugin-dts": "^0.28.4",
+    "@blocknote/core": "0.54.2",
+    "@blocknote/mantine": "0.54.2",
+    "@blocknote/react": "0.54.2"
   },
   "workspaces": {
     "packages": [
