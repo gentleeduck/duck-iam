@@ -58,6 +58,38 @@ describe('createAuthClient', () => {
       await client.signOut()
       expect(onChange).toHaveBeenCalledWith({ session: null, identity: null })
     })
+
+    it('a refused signout still clears local state, and says the server refused', async () => {
+      const fetchImpl = mockFetch(() => ({ status: 500, body: { ok: false, error: { code: 'AUTH_INTERNAL' } } }))
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never, notifyImmediately: false })
+      const onChange = vi.fn()
+      client.onChange(onChange)
+
+      const result = await client.signOut()
+
+      // The session is still live on the server, so reporting success would tell the caller the one
+      // thing signout exists to guarantee, wrongly.
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('expected the refusal to surface')
+      expect(result.error.code).toBe('AUTH_INTERNAL')
+      expect(onChange).toHaveBeenCalledWith({ session: null, identity: null })
+    })
+
+    it('an unreachable server surfaces the network error rather than a clean signout', async () => {
+      const fetchImpl = vi.fn(async () => {
+        throw new Error('offline')
+      })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never, notifyImmediately: false })
+      const onChange = vi.fn()
+      client.onChange(onChange)
+
+      const result = await client.signOut()
+
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('expected the network error to surface')
+      expect(result.error.code).toBe('AUTH_NETWORK_ERROR')
+      expect(onChange).toHaveBeenCalledWith({ session: null, identity: null })
+    })
   })
 
   describe('getSession', () => {

@@ -1,14 +1,11 @@
 /**
- * Storybook decorator. Wraps each story in
- * `<Provider>` with either a mock `VanillaClient.Client` or a
- * real one pointed at a running backend. Mock is the default so
- * stories render without a server; opt in to live mode by passing
- * `live: true` (or a custom `baseUrl`).
+ * Storybook decorator. Wraps each story in `<Provider>` with a mock `VanillaClient.Client`, so stories render
+ * without a server; `live: true` or a custom `baseUrl` points it at a real backend instead.
  *
  * @example
  * ```ts
  * // .storybook/preview.ts
- * import { authWithStorybook } from '@gentleduck/AUTH/client/react/storybook'
+ * import { authWithStorybook } from '@gentleduck/auth/client/react/storybook'
  *
  * export const decorators = [
  *   authWithStorybook({
@@ -32,11 +29,8 @@ import { Provider } from '../index'
 /** Default backend URL when a story opts into `live: true` without a custom `baseUrl`. */
 export const AUTH_DEFAULT_LIVE_BASE_URL = 'http://localhost:8787/auth'
 
-/**
- * Build a fake `VanillaClient.Client<Profile>` from a `Storybook.State`.
- * Every RPC resolves immediately with the configured state; `onChange`
- * fires once on subscribe.
- */
+/** Build a fake `VanillaClient.Client<Profile>` from a `Storybook.State`. Every RPC resolves immediately with
+ *  the configured state, and `onChange` fires once on subscribe. */
 export function authCreateMockClient<Profile extends Identities.ProfileMetadataBase>(
   state: Storybook.State<Profile>,
 ): VanillaClient.Client<Profile> {
@@ -70,13 +64,8 @@ export function authCreateMockClient<Profile extends Identities.ProfileMetadataB
   }
 }
 
-/**
- * Storybook decorator factory. Wraps the story in `<Provider>`.
- * By default builds a mock client from `defaults`; passing
- * `live: true` (top-level or via `parameters.auth.live`) swaps in
- * `authCreateClient({ baseUrl })` so the story hits a real backend
- * with credentials.
- */
+/** Wraps the story in `<Provider>` over a mock client built from `defaults`. `live: true`, top-level or through
+ *  `parameters.auth.live`, swaps in `authCreateClient({ baseUrl })` and hits a real backend with credentials. */
 export function authWithStorybook<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   defaults: Storybook.State<Profile> = {},
 ) {
@@ -110,16 +99,12 @@ export function authWithStorybook<Profile extends Identities.ProfileMetadataBase
   }
 }
 
+/** Decorator options and the mock identity a story renders against. */
 export namespace Storybook {
   /**
-   * The state the decorator should reflect. Both `identity` and
-   * `session` default to `null` (guest). `status` is informational -
-   * stories that branch on it should read `parameters.auth.status`.
-   *
-   * When `live: true`, the decorator ignores `identity`/`session` and
-   * builds a real `VanillaClient` against `baseUrl` (default
-   * `http://localhost:8787/auth`, which matches the bundled
-   * `apps/duck-auth-demo` server).
+   * The state the decorator reflects. `identity` and `session` default to `null`, a guest, and `status` is
+   * informational: a story branching on it should read `parameters.auth.status`. Under `live: true` both are
+   * ignored for a real `VanillaClient` against `baseUrl`, which defaults to the bundled demo server.
    */
   export type State<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     status?: 'loading' | 'authed' | 'guest'

@@ -1,15 +1,27 @@
 # React + TypeScript + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The stock Vite React scaffold, kept as a baseline. It depends on `react` and
+`react-dom` only - nothing here imports `@gentleduck/iam` or `@gentleduck/auth`.
+For a worked authorization example see [`../blogduck`](../blogduck).
 
-Currently, two official plugins are available:
+## Run it
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+bun install          # from the repo root; this is a workspace package
+bun run dev          # vite dev server
+bun run build        # tsc -b && vite build
+bun run preview      # serve the build
+bun run lint         # eslint, configured in eslint.config.js
+```
+
+`bun run lint` is the one place in this repo that runs ESLint; everything else
+uses Biome.
 
 ## React Compiler
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+The React Compiler is enabled: `vite.config.ts` passes `reactCompilerPreset()`
+to `@rolldown/plugin-babel` alongside `@vitejs/plugin-react`. See
+[the React docs](https://react.dev/learn/react-compiler) for what it does.
 
 Note: This will impact Vite dev & build performances.
 

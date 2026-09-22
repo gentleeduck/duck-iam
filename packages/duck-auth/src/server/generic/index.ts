@@ -1,11 +1,19 @@
+import type { RequestActorOptions } from '~/core/actor'
+import type { Anomaly } from '~/core/anomaly/anomaly.types'
 import { AuthError } from '~/core/errors'
+import type { Hijack } from '~/core/hijack/hijack.types'
 import type { Provider } from '~/core/provider/provider.types'
+import { SESSION_COLUMN_CAPS } from '~/core/sessions/sessions.constants'
+import type { Sessions } from '~/core/sessions/sessions.types'
 
 /** Web-Fetch executor: turn `Provider.Intent[]` into a `Response`. */
 export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Response {
   let status = baseStatus
   let body: string | null = null
   const headers = new Headers()
+  // Auth responses vary by cookie on a URL that does not: a shared cache holding one would answer
+  // the next caller with it.
+  headers.set('cache-control', 'no-store')
   let bodyContentType: string | undefined
 
   for (const intent of intents) {
@@ -20,10 +28,14 @@ export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Re
       }
       case 'redirect': {
         if (!isSafeRedirectUrl(intent.url)) {
-          status = 500
-          body = JSON.stringify({ code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected' })
-          bodyContentType = 'application/json; charset=utf-8'
-          break
+          // SECURITY: returns rather than breaking. A `break` leaves the switch, not the loop, so the
+          // next intent reassigned `status` and `body` and the refusal was gone - a following `json`
+          // answered 200, and a following safe redirect answered 302 with a Location.
+          headers.set('content-type', 'application/json; charset=utf-8')
+          return new Response(JSON.stringify({ code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected' }), {
+            headers,
+            status: 500,
+          })
         }
         status = intent.status ?? 302
         headers.set('location', intent.url)
@@ -67,6 +79,7 @@ export function parseProviderBeginBody(raw: unknown): object | null {
 }
 
 const PROVIDER_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/
+/** Whether a string is a well-formed provider id. */
 export function isValidProviderId(value: unknown): value is string {
   return typeof value === 'string' && PROVIDER_ID_RE.test(value)
 }
@@ -160,11 +173,12 @@ export function serializeCookie(
     expires?: Date
   },
 ): string {
-  if (hasControlChar(name) || /[;=]/.test(name)) throw new Error('serializeCookie: invalid cookie name')
+  if (hasControlChar(name) || /[;=]/.test(name))
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'serializeCookie: invalid cookie name' })
   if (opts.path !== undefined && (hasControlChar(opts.path) || opts.path.includes(';')))
-    throw new Error('serializeCookie: invalid cookie Path')
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'serializeCookie: invalid cookie Path' })
   if (opts.domain !== undefined && (hasControlChar(opts.domain) || opts.domain.includes(';')))
-    throw new Error('serializeCookie: invalid cookie Domain')
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'serializeCookie: invalid cookie Domain' })
   const parts = [`${name}=${encodeURIComponent(value)}`]
   if (opts.maxAge !== undefined) parts.push(`Max-Age=${opts.maxAge}`)
   if (opts.expires) parts.push(`Expires=${opts.expires.toUTCString()}`)
@@ -185,8 +199,81 @@ export function serializeCookie(
  * how many proxies it trusts. Omitted keys stay omitted so the flow's own defaults apply.
  */
 export function callerContext(input: { ip?: string; userAgent?: unknown }): { ip?: string; userAgent?: string } {
+  const ip = typeof input.ip === 'string' && input.ip.length > 0 ? input.ip.slice(0, SESSION_COLUMN_CAPS.ip) : undefined
+  const userAgent =
+    typeof input.userAgent === 'string' && input.userAgent.length > 0
+      ? input.userAgent.slice(0, SESSION_COLUMN_CAPS.userAgent)
+      : undefined
   return {
-    ...(typeof input.ip === 'string' && input.ip.length > 0 && { ip: input.ip }),
-    ...(typeof input.userAgent === 'string' && input.userAgent.length > 0 && { userAgent: input.userAgent }),
+    ...(ip !== undefined && { ip }),
+    ...(userAgent !== undefined && { userAgent }),
+  }
+}
+
+/** The fingerprint an adapter reads off a request, as {@link callerContext} normalises it. */
+export type CallerFingerprint = { ip?: string; userAgent?: string }
+
+/**
+ * Lift a {@link callerContext} fingerprint into the snapshot the anomaly detectors take.
+ * `now` is a parameter so a caller can pin it; detectors compare it against session timestamps.
+ */
+export function callerSnapshot(caller: CallerFingerprint, now: number = Date.now()): Anomaly.RequestSnapshot {
+  return { ...caller, now }
+}
+
+/** Drift that `hijack.evaluate` refused to pass. */
+export type HijackDrift = Extract<Hijack.Evaluation, { ok: false }>
+
+/** What {@link requestSecurity} needs off the engine, structurally. */
+export type HijackEvaluable = {
+  hijack: {
+    evaluate(session: Sessions.Me, request: CallerFingerprint): Promise<Hijack.Evaluation>
+    applyReaction(reaction: Hijack.Reaction): void
+  }
+}
+
+/** What {@link requestSecurity} takes: the request fingerprint, and what to do when it drifts. */
+export type RequestSecurityOptions = {
+  /**
+   * The request fingerprint. Passing one is what switches these checks on: without it the
+   * session's recorded `ip` / `userAgent` are stamped at sign-in and never looked at again.
+   */
+  caller?: CallerFingerprint
+  /**
+   * Called instead of the configured reaction when drift is detected, and the place to handle
+   * `'rotate'`. `applyReaction` throws for `'mfa'` and `'revoke'` but is deliberately a no-op for
+   * `'rotate'`: rotating means writing a new session cookie onto the response, which a wrapper
+   * that only owns handler execution cannot do. Throwing from here refuses the request.
+   */
+  onHijack?: (drift: HijackDrift, session: Sessions.Me) => void | Promise<void>
+}
+
+/**
+ * Build the {@link RequestActorOptions} that turn an actor-context wrapper into a fingerprint
+ * check as well: the anomaly detectors get a snapshot to run against, and every resolved session
+ * is compared with `hijack.evaluate`, which emits `suspicious` on any drift, even when the
+ * configured reaction is `'ignore'`.
+ */
+export function requestSecurity(auth: HijackEvaluable, opts: RequestSecurityOptions = {}): RequestActorOptions {
+  const caller = opts.caller
+  // SECURITY: `!caller` alone. Supplying a `getCaller` is the host's opt-in; supplying no values is the
+  // *caller's* choice, and those were the same early return, so a request that sent neither an IP nor a
+  // User-Agent was never compared with the session at all. `nextCaller` and `grpcCaller` resolve no IP
+  // by design - a Web `Request` has no peer and gRPC's is on the runtime's object - so on those two the
+  // User-Agent was the whole fingerprint and dropping one header turned the check off, `suspicious`
+  // included. `onMissingSignal: 'strict'` exists for exactly that move and could never be reached.
+  // The facet already distinguishes a stripped value from an absent baseline, so it decides now.
+  if (!caller) return {}
+  return {
+    onSession: async (session) => {
+      const evaluation = await auth.hijack.evaluate(session, caller)
+      if (evaluation.ok) return
+      if (opts.onHijack) {
+        await opts.onHijack(evaluation, session)
+        return
+      }
+      auth.hijack.applyReaction(evaluation.reaction)
+    },
+    requestSnapshot: callerSnapshot(caller),
   }
 }

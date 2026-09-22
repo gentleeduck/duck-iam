@@ -1,6 +1,7 @@
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 
+/** The Nest request and response surface the adapter touches. */
 export namespace NestAdapter {
   export type Handler = (req: NestAdapter.Request, reply: NestAdapter.Response) => Promise<unknown>
 

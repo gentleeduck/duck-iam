@@ -1,3 +1,4 @@
+/** The Hono context surface the handlers touch. */
 export namespace HonoAdapter {
   export type Handler = (ctx: HonoAdapter.Context) => Promise<Response>
 
@@ -18,8 +19,9 @@ export namespace HonoAdapter {
   }
 }
 
+/** Options for `mountHono`, which mounts every route on one app. */
 export namespace MountHono {
-  /** Subset of Hono's `Context` we use in handlers. */
+  /** The subset of Hono's `Context` the handlers touch. */
   export type HonoCtx = {
     req: {
       method: string
@@ -30,13 +32,15 @@ export namespace MountHono {
       header: (n?: string) => unknown
     }
   }
-  /** Duck-typed Hono `app` - only `get` / `post` are required. Keeps Hono a peerDep. */
+  /** Duck-typed Hono `app`: only `get` and `post` are required, so Hono is not a dependency of this
+   *  package at all. There is no `use`, so no middleware can be mounted through this type. */
   export type App = {
     get(path: string, handler: (c: HonoCtx) => Response | Promise<Response>): void
     post(path: string, handler: (c: HonoCtx) => Response | Promise<Response>): void
   }
 
-  /** Group identifiers that `opts.skip` understands. */
+  /** Group identifiers that `opts.skip` understands. `'totp'` gates every MFA route, backup-code
+   *  regeneration included, so there is no way to skip one without the other. */
   export type SkipGroup = 'oauth' | 'magic-link' | 'passkey' | 'totp'
 
   export type Options = {
@@ -44,7 +48,8 @@ export namespace MountHono {
     prefix?: string
     /** Skip route groups your app doesn't expose. */
     skip?: SkipGroup[]
-    /** Reserved for the upcoming `cors: true` shortcut; CORS today is set on the app directly via `hono/cors`. */
+    /** WARN: inert. Nothing reads this, and `App` exposes no `use` to mount middleware through, so a
+     *  value here is silently ignored. Mount `hono/cors` on the app yourself. */
     cors?: boolean | { origins: string[] }
   }
 }

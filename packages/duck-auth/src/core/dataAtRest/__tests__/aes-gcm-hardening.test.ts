@@ -23,7 +23,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     const eightByteIv = Buffer.alloc(8).toString('base64url')
     const tampered = `${parts[0]}$${parts[1]}$${eightByteIv}$${parts[3]}$${parts[4]}`
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: IV must be 12 bytes' },
     })
   })
@@ -35,7 +35,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     const eightByteTag = Buffer.alloc(8).toString('base64url')
     const tampered = `${parts[0]}$${parts[1]}$${parts[2]}$${eightByteTag}$${parts[4]}`
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: auth tag must be 16 bytes' },
     })
   })
@@ -50,7 +50,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     ctBytes[0] = ctBytes[0]! ^ 0xff
     const tampered = `${parts[0]}$${parts[1]}$${parts[2]}$${parts[3]}$${ctBytes.toString('base64url')}`
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: auth-tag mismatch' },
     })
   })
@@ -65,7 +65,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     const tamperedTag = tagBytes.toString('base64url')
     const tampered = `${parts[0]}$${parts[1]}$${parts[2]}$${tamperedTag}$${parts[4]}`
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: auth-tag mismatch' },
     })
   })
@@ -74,7 +74,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     const a = makeAdapter()
     const ct = await a.encrypt('original', ctx)
     await expect(a.decrypt(ct, { identityId: 'other-identity', field: ctx.field })).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: auth-tag mismatch' },
     })
   })
@@ -82,7 +82,7 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
   it('rejects malformed ciphertext (wrong prefix)', async () => {
     const a = makeAdapter()
     await expect(a.decrypt('not-the-right-shape', ctx)).rejects.toMatchObject({
-      code: 'AUTH_MISCONFIGURED',
+      code: 'AUTH_INVALID_PARAMETERS',
       meta: { detail: 'aes-256-gcm: malformed ciphertext' },
     })
   })
@@ -95,5 +95,34 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
       code: 'AUTH_MISCONFIGURED',
     })
+  })
+})
+
+/**
+ * The ciphertext layout is `$`-separated and the kid is written into it verbatim, so a kid carrying a
+ * `$` produces a six-field ciphertext that `decrypt` rejects as malformed. Encryption never complains,
+ * which makes it the worst shape of misconfiguration: writes succeed and every read of them fails.
+ */
+describe('AuthAesGcmDataAtRest - kid cannot collide with the field separator', () => {
+  const KEY = 'x'.repeat(32)
+
+  it.each([['key$1'], ['prod$2026'], ['$'], ['']])('refuses kid %j at construction', (kid) => {
+    expect(() => new AuthAesGcmDataAtRest({ kid, masterKey: KEY })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+  })
+
+  it('refuses it in previousKeys too, which is where a rotation would smuggle one in', () => {
+    expect(
+      () => new AuthAesGcmDataAtRest({ kid: 'k2', masterKey: KEY, previousKeys: [{ kid: 'k$1', masterKey: KEY }] }),
+    ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+  })
+
+  it('still accepts the ordinary shapes an operator uses', async () => {
+    for (const kid of ['k1', '2026-05-01', 'prod.v2', 'a_b-c']) {
+      const a = new AuthAesGcmDataAtRest({ kid, masterKey: KEY })
+      const ctx = { field: 'email', identityId: 'u1' }
+      expect(await a.decrypt(await a.encrypt('secret@example.com', ctx), ctx)).toBe('secret@example.com')
+    }
   })
 })

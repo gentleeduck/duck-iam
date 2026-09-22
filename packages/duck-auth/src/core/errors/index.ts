@@ -1,2 +1,6 @@
-export { AuthError, rethrowAuthError, throwAuthError } from './errors'
+export { AuthError, asAuthError, rethrowAuthError, throwAuthError } from './errors'
+export { AUTH_ERRORS, type Carries, detail, type MetaOf } from './errors.codes'
+export { type SqlFault, STORE_RAISES, sqlError } from './errors.drivers'
+export { declares, type ErrorMap, errorMap, GENERIC, type RangeOf } from './errors.map'
+export { isSecretKey, redactSecrets } from './errors.scrub'
 export type { Envelope } from './errors.types'

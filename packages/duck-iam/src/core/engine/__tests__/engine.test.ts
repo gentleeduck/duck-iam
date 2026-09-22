@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { withoutInPlaceUpdate } from '../../../test/adapter-capabilities'
 import type { AccessControl, IamClient, IamRequest } from '../../types'
 import { IamEngine, iamFlushSharedCaches } from '../engine'
 
@@ -54,7 +55,11 @@ const orgEditorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = 
   ],
 }
 
-function createEngine(overrides?: { roles?: AccessControl.IRole[]; assignments?: Record<string, RoleId[]> }) {
+function createEngine(overrides?: {
+  roles?: AccessControl.IRole[]
+  assignments?: Record<string, RoleId[]>
+  cacheTTL?: number
+}) {
   const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
     roles: (overrides?.roles ?? [
       viewerRole,
@@ -71,11 +76,16 @@ function createEngine(overrides?: { roles?: AccessControl.IRole[]; assignments?:
       'user-org-editor': ['org-editor'] as RoleId[],
     },
   })
-  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+  // Pinned to development: these tests assert on the rich `IDecision`, and `mode` defaults to 'production'.
+  return new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+    adapter,
+    cacheTTL: overrides?.cacheTTL ?? 0,
+    mode: 'development',
+  })
 }
 
 describe('Engine.can() - basic RBAC', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     engine = createEngine()
@@ -121,7 +131,7 @@ describe('Engine.can() - basic RBAC', () => {
 })
 
 describe('Engine.can() - scoped RBAC', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     engine = createEngine()
@@ -202,7 +212,7 @@ describe('Engine.can() - scoped role assignments via assignRole', () => {
 })
 
 describe('Engine.can() - isOwner conditions with $subject.id', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     const ownerEditorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
@@ -265,7 +275,7 @@ describe('Engine.can() - isOwner conditions with $subject.id', () => {
 })
 
 describe('Engine.permissions() - batch check', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     engine = createEngine()
@@ -286,10 +296,7 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('returns fail-closed all-deny map when adapter rejects', async () => {
-    // IamAdapter rejects on listPolicies - without the outer try permissions()
-    // would reject the whole batch and callers that don't .catch() lose the
-    // fail-closed behaviour. With the catch: every requested check is keyed
-    // false and onError fires once.
+    // A rejecting adapter must not reject the batch: every check is keyed false and onError fires once.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -317,9 +324,7 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('forwards onPolicyError to evaluator for batch checks', async () => {
-    // A policy whose evaluator throws (RegexInputTooLargeError when matching
-    // against an oversize subject attribute) must surface via onPolicyError;
-    // permissions() previously passed undefined and the throw was eaten.
+    // A policy that throws (oversized `matches` input) must surface via onPolicyError in a batch too.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -408,7 +413,7 @@ describe('Engine.permissions() - batch check', () => {
 })
 
 describe('Engine.check() - detailed decision', () => {
-  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope, 'development'>
 
   beforeEach(() => {
     engine = createEngine()
@@ -461,9 +466,7 @@ describe('Engine.admin - CRUD operations', () => {
 
   it('updateAssignmentScope falls back to revoke + assign when the adapter has no in-place update', async () => {
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [editorRole] })
-    // Strip the optional capability to exercise the engine's fallback path.
-    // biome-ignore lint/performance/noDelete: test-only, deleting the optional method to simulate an adapter without it
-    delete (adapter as { updateAssignmentScope?: unknown }).updateAssignmentScope
+    withoutInPlaceUpdate(adapter)
     const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
     await engine.admin.assignRole('user-fallback', 'editor', 'org-1')
@@ -499,7 +502,9 @@ describe('Engine.admin - CRUD operations', () => {
     await engine.admin.savePolicy(policy)
     const policies = await engine.admin.listPolicies()
     expect(policies).toHaveLength(1)
-    expect(policies[0]).toEqual(policy)
+    // `version: 1` is filled in on the write path so all six adapters return
+    // one shape for one write; see the compliance suite's shape pins.
+    expect(policies[0]).toEqual({ ...policy, version: 1 })
 
     await engine.admin.deletePolicy('test-policy')
     expect(await engine.admin.listPolicies()).toEqual([])
@@ -790,9 +795,10 @@ describe('Engine - hooks', () => {
       roles: [viewerRole],
       assignments: { 'user-viewer': ['viewer'] as RoleId[] },
     })
-    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
       adapter,
       cacheTTL: 0,
+      mode: 'development',
       hooks: {
         onMetrics: (e) => events.push({ subjectId: e.subjectId, allowed: e.allowed, mode: e.mode }),
       },
@@ -834,7 +840,11 @@ describe('Engine - stats', () => {
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+      adapter,
+      cacheTTL: 60,
+      mode: 'development',
+    })
 
     // First call: every cache misses then populates.
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
@@ -890,10 +900,8 @@ describe('Engine - empty RBAC + explicit ABAC allow', () => {
 
 describe('Engine - construction guards', () => {
   it("throws when mode='production' is combined with policyCombine='first-applicable'", () => {
-    // evaluateFast cannot represent "rule fired" vs "default applied", so it
-    // would silently downgrade first-applicable to AND in production. The
-    // ctor refuses the combination to surface the issue at boot, not at
-    // request time.
+    // evaluateFast cannot tell "rule fired" from "default applied", so first-applicable would degrade to AND.
+    // The constructor refuses it at boot rather than at request time.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(
       () =>
@@ -954,9 +962,7 @@ describe('Engine - construction guards', () => {
   })
 
   it("refuses defaultEffect='allow' in development without opt-in (P0)", () => {
-    // Fail-open is just as dangerous in dev/staging as in prod - a dev
-    // engine that ships with allow-by-default lets corrupt policies vanish
-    // silently. Same opt-in required in every mode.
+    // SECURITY: fail-open needs the same opt-in in every mode; allow-by-default hides corrupt policies.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(() => new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow' })).toThrow(
       /fail-open/i,
@@ -1049,7 +1055,7 @@ describe('Engine - construction guards', () => {
     })
     const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
+      const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
         adapter,
         mode: 'development',
         hooks: {
@@ -1074,7 +1080,7 @@ describe('Engine - construction guards', () => {
     })
     const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
+      const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
         adapter,
         mode: 'development',
         hooks: {
@@ -1139,8 +1145,10 @@ describe('Engine - DoS bounds at load time (B5)', () => {
   })
 })
 
-describe('Engine - fail-skip on malformed policy (B4)', () => {
-  it('skips a throwing policy and continues evaluating the rest', async () => {
+describe('Engine - Indeterminate on malformed policy (B4)', () => {
+  // SECURITY: a policy too malformed to evaluate is Indeterminate, not NotApplicable; skipping it would let a
+  // corrupt or attacker-supplied policy row disable itself.
+  it('a throwing policy casts its defaultEffect vote instead of being skipped', async () => {
     const goodPolicy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
       id: 'good',
       name: 'good',
@@ -1163,7 +1171,7 @@ describe('Engine - fail-skip on malformed policy (B4)', () => {
       cacheTTL: 0,
       hooks: { onPolicyError: (err, id) => errors.push({ msg: err.message, id }) },
     })
-    expect(await engine.can('u', 'read', { type: 'post', attributes: {} })).toBe(true)
+    expect(await engine.can('u', 'read', { type: 'post', attributes: {} })).toBe(false)
     expect(errors).toHaveLength(1)
     expect(errors[0]?.id).toBe('bad')
   })
@@ -1180,12 +1188,12 @@ describe('Engine - cache invalidation', () => {
     // First check caches the result
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
 
-    // Assign editor role directly through adapter
-    await adapter.assignRole('user-1', 'editor' as RoleId)
+    // Assign editor role directly through adapter. The role is saved first:
+    // `assignRole` refuses a role id nothing is stored under.
     await adapter.saveRole(editorRole)
+    await adapter.assignRole('user-1', 'editor' as RoleId)
 
-    // Before invalidation: still using cached subject (only has viewer)
-    // After invalidation: should pick up the new role
+    // The cached subject only has viewer; invalidation picks up the new role.
     engine.cache.invalidate()
     expect(await engine.can('user-1', 'create', { type: 'post', attributes: {} })).toBe(true)
   })
@@ -1248,8 +1256,7 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('single-flight: concurrent cold-start checks fan in to one adapter load', async () => {
-    // 50 parallel can() calls on a fresh engine must hit listPolicies/listRoles once each,
-    // not 50 times. Catches the thundering-herd regression.
+    // 50 parallel can() calls on a fresh engine must hit listPolicies/listRoles once each.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -1350,8 +1357,16 @@ describe('Engine - cache invalidation', () => {
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engineA = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
-    const engineB = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engineA = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+      adapter,
+      cacheTTL: 60,
+      mode: 'development',
+    })
+    const engineB = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+      adapter,
+      cacheTTL: 60,
+      mode: 'development',
+    })
     // Reach into private caches for assertion only.
     const a = (engineA as unknown as { _caches: { regex: Map<string, RegExp>; path: Map<string, string[] | null> } })
       ._caches
@@ -1386,10 +1401,9 @@ describe('Engine - cache invalidation', () => {
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
     const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
-    // Warm subject cache so .can() proceeds straight to _loadAllPolicies on
-    // the next call (otherwise _resolveSubject's first microtask hides the
-    // race window we want to hit).
-    await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+    // Warm the subject cache so the batch's pre-loop `Promise.all` is waiting
+    // on the merged load alone.
+    await engine.permissions('user-1', [{ action: 'read', resource: 'post' }])
     engine.cache.invalidatePolicies()
 
     const origPolicies = adapter.listPolicies.bind(adapter)
@@ -1397,14 +1411,19 @@ describe('Engine - cache invalidation', () => {
       await new Promise((r) => setTimeout(r, 5))
       return origPolicies()
     }
-    // Now _loadAllPolicies is the very next thing .can() will do.
-    const pending = engine.can('user-1', 'read', { type: 'post', attributes: {} })
-    // Yield once so the merger sets `_mergedInFlight = pending` before invalidate.
-    await Promise.resolve()
-    await Promise.resolve()
+
+    // NOTE: `permissions()` with no checks, not `can()`: it awaits the merged load once and reloads nothing after,
+    // so an empty cache is the honest assertion. `can()` pre-warms that load while building the compiled table.
+    const internals = engine as unknown as { _inFlight: { merged: { value: Promise<unknown> | null } } }
+    const pending = engine.permissions('user-1', [])
+    // Poll on a macrotask, because the stub waits on a `setTimeout` that a
+    // microtask-only spin would starve.
+    while (internals._inFlight.merged.value === null) await new Promise((r) => setTimeout(r, 0))
     engine.cache.invalidatePolicies()
     await pending
 
+    // `runSingleFlight` writes back only if the slot still holds its own promise, so the mid-flight
+    // invalidation wins and the stale value is never cached.
     const cache = (engine as unknown as { _mergedPolicyCache: { get(k: string): unknown } })._mergedPolicyCache
     expect(cache.get('merged')).toBeUndefined()
   })
@@ -1416,7 +1435,11 @@ describe('Engine - cache invalidation', () => {
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'development'>({
+      adapter,
+      cacheTTL: 60,
+      mode: 'development',
+    })
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
     // Reach into private cache via a typed accessor on the engine for the test only.
     const cache = (engine as unknown as { _rbacPolicyCache: { get(k: string): { rules: unknown[] } | undefined } })
@@ -1482,7 +1505,9 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('synthesised RBAC policy is deep-frozen (M2)', async () => {
-    const engine = createEngine()
+    // A live TTL: with the suite's `cacheTTL: 0` the entry expires as it is written and the read races it.
+    // Freezing happens on write, so the TTL does not affect what is asserted.
+    const engine = createEngine({ cacheTTL: 60_000 })
     await engine.can('user-editor', 'read', { type: 'post', attributes: {} })
     const internal = engine as unknown as { _rbacPolicyCache: { get(k: string): AccessControl.IPolicy | undefined } }
     const rbac = internal._rbacPolicyCache.get('rbac')
@@ -1641,9 +1666,8 @@ describe('Engine - cross-instance invalidator (B2)', () => {
     await engine.can('u', 'read', { type: 'post', attributes: {} })
     engine.cache.invalidatePolicies()
     await engine.can('u', 'read', { type: 'post', attributes: {} })
-    // The single publish goes to the bus and back into our subscription.
-    // Bus-handler applies invalidate with `broadcast: false`. We expect: warm
-    // call, invalidate, cold call -> exactly 2 listPolicies calls.
+    // The publish echoes back through our own subscription with `broadcast: false`, so warm call +
+    // invalidate + cold call is exactly 2 listPolicies calls.
     expect(listCalls).toBe(2)
     engine.dispose()
   })

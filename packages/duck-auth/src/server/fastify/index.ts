@@ -1,20 +1,13 @@
-/**
- * Fastify adapter. Fastify is Node-native (req/reply rather than
- * Web-Fetch), so the adapter translates between the Web Fetch
- * `Response` that `executeIntents` returns and Fastify's reply API.
- *
- * Mount each handler on your Fastify instance:
- *
- *   fastify.post('/AUTH/signin',  fastifySignIn(auth))
- *   fastify.post('/AUTH/signout', fastifySignOut(auth))
- *   fastify.get('/AUTH/session',  fastifySession(auth))
- *   fastify.post('/AUTH/providers/:id/begin', fastifyProviderBegin(auth))
- */
+/** Fastify adapter. Fastify is Node-native, so this translates between the Web Fetch `Response`
+ *  `executeIntents` returns and Fastify's reply API. Mount each handler yourself, or use
+ *  {@link registerFastify}. */
 
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
@@ -23,6 +16,8 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 import type { FastifyAdapter } from './fastify.types'
@@ -30,12 +25,8 @@ import type { FastifyAdapter } from './fastify.types'
 /** Convert the loose Fastify header bag into a Web Fetch Headers object. */
 const toFetchHeaders: (headers: FastifyAdapter.Request['headers']) => Headers = nodeHeadersToFetch
 
-/**
- * Forward the Web Fetch `Response` produced by `executeIntents` onto
- * the Fastify reply. Handles Set-Cookie multiplicity correctly (one
- * header per cookie). Returns the reply so the caller can `return`
- * straight from the handler.
- */
+/** Forward `executeIntents`' `Response` onto the Fastify reply, one header per cookie. Answers with
+ *  the reply, so a handler can `return` it straight. */
 async function forward(response: Response, reply: FastifyAdapter.Reply): Promise<FastifyAdapter.Reply> {
   reply.status(response.status)
   for (const cookie of extractSetCookies(response)) {
@@ -53,6 +44,7 @@ async function forward(response: Response, reply: FastifyAdapter.Reply): Promise
 function handleError(err: unknown, reply: FastifyAdapter.Reply): FastifyAdapter.Reply {
   const { status, body } = errorToHttp(err)
   reply.status(status)
+  reply.header('cache-control', 'no-store')
   reply.header('content-type', 'application/json; charset=utf-8')
   reply.send(JSON.stringify(body))
   return reply
@@ -69,7 +61,7 @@ export function fastifySignIn(auth: AuthEngine): FastifyAdapter.Handler {
       }
       const result = await auth.flows.signIn({
         ...parsed,
-        ...callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] }),
+        ...fastifyCaller(req),
       })
       return forward(executeIntents(result.intents), reply)
     } catch (err) {
@@ -97,13 +89,14 @@ export function fastifySignOut(auth: AuthEngine): FastifyAdapter.Handler {
 export function fastifySession(auth: AuthEngine): FastifyAdapter.Handler {
   return async (req, reply) => {
     try {
-      const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
+      const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) }).orNull()
+      // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
+      const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
       reply.status(200)
+      reply.header('cache-control', 'no-store')
       reply.header('content-type', 'application/json; charset=utf-8')
       reply.send(
-        JSON.stringify(
-          resolved ? { session: resolved.session, identity: resolved.identity } : { session: null, identity: null },
-        ),
+        JSON.stringify(resolved ? { session, identity: resolved.identity } : { session: null, identity: null }),
       )
       return reply
     } catch (err) {
@@ -136,11 +129,8 @@ export function fastifyProviderBegin(auth: AuthEngine): FastifyAdapter.Handler {
   }
 }
 
-/**
- * Convenience plugin function that mounts every handler under
- * `/AUTH/*` in one call. Apps that want a custom path layout can
- * skip this and wire each handler directly.
- */
+/** Mount every handler under `/auth/*` in one call. Wire the handlers directly instead for a custom
+ *  path layout. */
 export function registerFastify(
   fastify: {
     post: (path: string, handler: FastifyAdapter.Handler) => void
@@ -154,6 +144,42 @@ export function registerFastify(
   fastify.post(`${prefix}/signout`, fastifySignOut(auth))
   fastify.get(`${prefix}/session`, fastifySession(auth))
   fastify.post(`${prefix}/providers/:id/begin`, fastifyProviderBegin(auth))
+}
+
+/** The fingerprint Fastify resolved, the same pair {@link fastifySignIn} stamps at sign-in. */
+export function fastifyCaller(req: FastifyAdapter.Request): CallerFingerprint {
+  return callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] })
+}
+
+/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
+ *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
+ *  with the session's, running the anomaly detectors and the hijack policy.
+ *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
+export type FastifyActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (req: FastifyAdapter.Request) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+/** Wrap one handler so its writes carry the request's actor. Per-handler rather than middleware,
+ *  since Fastify composes no `next`. Anonymous and unresolvable sessions run unbound, which is the
+ *  honest `null`; while impersonating the actor is the operator behind `actingAs`. */
+export function fastifyWithActor(
+  auth: AuthEngine,
+  handler: FastifyAdapter.Handler,
+  opts: FastifyActorOptions = {},
+): FastifyAdapter.Handler {
+  return (req, reply) =>
+    withRequestActor(
+      auth,
+      { headers: toFetchHeaders(req.headers) },
+      () => handler(req, reply),
+      requestSecurity(auth, {
+        ...(opts.onHijack && { onHijack: opts.onHijack }),
+        ...(opts.getCaller && { caller: opts.getCaller(req) }),
+      }),
+    )
 }
 
 /** CSRF guard for your own routes: `fastify.addHook('preHandler', fastifyCsrf(auth))`. */

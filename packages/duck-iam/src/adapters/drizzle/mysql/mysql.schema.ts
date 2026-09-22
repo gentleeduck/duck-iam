@@ -9,7 +9,6 @@ import {
   mysqlEnum,
   mysqlTable,
   primaryKey,
-  unique,
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/mysql-core'
@@ -17,11 +16,8 @@ import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl, IamPrimitives } from '../../../core/types'
 
 /**
- * MySQL schema for the duck-iam IamDrizzle adapter. CHECK constraints are enforced on
- * MySQL 8.0.16+ and parsed-but-ignored below that. No partial indexes, so global rows
- * (NULL scope) are de-duplicated via a `COALESCE(scope, '')` functional unique index.
- * `created_by`/`updated_by` are left NULL by the adapter (no actor context); see the
- * Postgres schema for fuller notes.
+ * MySQL schema for the drizzle adapter. INFO: CHECK constraints are enforced from MySQL 8.0.16 and ignored below that.
+ * No partial indexes, so NULL-scope rows are de-duplicated by a `COALESCE(scope, '')` functional unique index.
  */
 
 /** Mirrors {@link AccessControl.CombiningAlgorithm}. */
@@ -56,7 +52,7 @@ export const iamPolicies = mysqlTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
-    unique('uq_iam_policies_name').on(t.name),
+    // NOTE: no unique index on `name`: policies resolve by `id`, and every adapter must accept a duplicate name.
     check('ch_iam_policies_name_not_blank', sql`${t.name} REGEXP '[^[:space:]]'`),
     check('ch_iam_policies_version_positive', sql`${t.version} >= 1`),
   ],
@@ -70,7 +66,8 @@ export const iamRoles = mysqlTable(
     name: varchar('name', { length: 191 }).notNull(),
     description: varchar('description', { length: 1024 }),
     permissions: json('permissions').$type<AccessControl.IPermission[]>().notNull(),
-    inherits: json('inherits').$type<string[]>().notNull(),
+    // INFO: an expression default is the only form MySQL accepts on a JSON column (8.0.13+).
+    inherits: json('inherits').$type<string[]>().notNull().default(sql`('[]')`),
     scope: varchar('scope', { length: 191 }),
     metadata: json('metadata').$type<IamPrimitives.Attributes>(),
     createdBy: varchar('created_by', { length: 191 }),
@@ -83,17 +80,14 @@ export const iamRoles = mysqlTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    uniqueIndex('uq_iam_roles_name_scope').on(t.name, sql`(coalesce(${t.scope}, ''))`),
+    // NOTE: no unique index on (name, scope), for the same reason as `iam_policies`.
     index('idx_iam_roles_scope').on(t.scope),
     check('ch_iam_roles_name_not_blank', sql`${t.name} REGEXP '[^[:space:]]'`),
+    check('ch_iam_roles_scope_not_blank', sql`${t.scope} IS NULL OR ${t.scope} REGEXP '[^[:space:]]'`),
   ],
 )
 
-/**
- * Subject-to-role assignments. NULL scope is a global (unscoped) grant. NULL
- * `starts_at`/`expires_at` means unbounded in that direction - a grant with both
- * NULL never expires, matching every assignment before this column existed.
- */
+/** Subject-to-role assignments. NULL `scope` is a global grant; NULL `starts_at`/`expires_at` is unbounded that way. */
 export const iamAssignments = mysqlTable(
   'iam_assignments',
   {
@@ -124,8 +118,11 @@ export const iamAssignments = mysqlTable(
     uniqueIndex('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`(coalesce(${t.scope}, ''))`),
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
+    // INFO: MySQL has no partial indexes, so this and the expiry index are unfiltered (pg/sqlite filter `IS NOT NULL`).
+    index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope),
     index('idx_iam_assignments_expires_at').on(t.expiresAt),
     check('ch_iam_assignments_subject_not_blank', sql`${t.subjectId} REGEXP '[^[:space:]]'`),
+    check('ch_iam_assignments_scope_not_blank', sql`${t.scope} IS NULL OR ${t.scope} REGEXP '[^[:space:]]'`),
     check(
       'ch_iam_assignments_starts_before_expires',
       sql`${t.startsAt} IS NULL OR ${t.expiresAt} IS NULL OR ${t.startsAt} < ${t.expiresAt}`,

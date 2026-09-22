@@ -1,33 +1,13 @@
-/**
- * OpenTelemetry instrumentation for `@gentleduck/auth`. Wires the
- * Events bus into OTel metrics (counters + gauges + histograms) so
- * sign-in / session / lockout traffic surfaces in any
- * OpenTelemetry-compatible backend (Datadog, Grafana, Honeycomb, etc.).
- *
- * Tracing-side instrumentation is intentionally out of scope here:
- * use the framework's own OTel auto-instrumentation (express, hono,
- * etc.) - this module only adds the auth-domain metrics those traces
- * cannot derive on their own.
- */
+/** OpenTelemetry instrumentation: wires the Events bus into OTel metrics so sign-in, session and lockout traffic
+ *  surfaces in any compatible backend. Tracing is out of scope: the framework's own auto-instrumentation covers
+ *  that, and this adds only the auth-domain metrics those traces cannot derive. */
 
 import { AuthError } from '~/core/errors'
 import type { Events } from '~/core/events'
 
 /**
- * Records auth-domain metrics off an Events.IBus. The recorded
- * surface:
- *
- *   - {prefix}.signin.total (counter): tag provider + result (success / failed)
- *   - {prefix}.signup.total (counter)
- *   - {prefix}.session.active (up-down counter): incremented on session.created,
- *     decremented on session.revoked
- *   - {prefix}.session.rotated.total (counter)
- *   - {prefix}.lockout.total (counter): tag identityId
- *   - {prefix}.mfa.enrolled.total / mfa.removed.total (counters)
- *   - {prefix}.identity.impersonated.total (counter)
- *   - {prefix}.suspicious.total (counter): tag signal + score-bucket
- *
- * `attach(bus)` subscribes; the returned cleanup detaches every listener.
+ * Records auth-domain metrics off an `Events.IBus`. `attach(bus)` subscribes and the returned cleanup detaches
+ * every listener. The recorded surface:
  */
 export class AuthOtelInstrumentation {
   private readonly _signinTotal: AuthOtelInstrumentation.ICounter
@@ -166,11 +146,8 @@ function bucketSeverity(score: number): 'low' | 'medium' | 'high' {
   return 'high'
 }
 
-/**
- * Convenience: tries to load `@opentelemetry/api` lazily + return a
- * meter named after the auth lib. Throws AUTH/MISCONFIGURED when the
- * peer is missing.
- */
+/** Lazily load `@opentelemetry/api` and return a meter named after the library, throwing AUTH_MISCONFIGURED when
+ *  the peer is missing. */
 export async function authGetOtelMeter(name = '@gentleduck/auth'): Promise<AuthOtelInstrumentation.IMeter> {
   try {
     const otel = (await import('@opentelemetry/api' as string)) as {
@@ -185,20 +162,17 @@ export async function authGetOtelMeter(name = '@gentleduck/auth'): Promise<AuthO
   }
 }
 
+/** Configuration for the OpenTelemetry instrumentation. */
 export namespace AuthOtelInstrumentation {
   export interface Cfg {
     /**
      * Meter to record against. Production: `metrics.getMeter('@gentleduck/auth')`
-     * from `@opentelemetry/api`. Tests: any stub satisfying `OtelMeterLike`.
+     * from `@opentelemetry/api`. Tests: any stub satisfying `AuthOtelInstrumentation.IMeter`.
      */
     meter: AuthOtelInstrumentation.IMeter
     /** Metric name prefix. Default `auth`. Final names look like `auth.signin.total`. */
     prefix?: string
-    /**
-     * Extra attributes attached to every recorded measurement (env,
-     * service.name, etc.). Useful when the meter does not auto-resource
-     * those.
-     */
+    /** Extra attributes on every recorded measurement, for a meter that does not auto-resource them. */
     defaultAttributes?: Record<string, string | number | boolean>
   }
 
@@ -220,7 +194,7 @@ export namespace AuthOtelInstrumentation {
   }
 }
 
-/** Factory around {@link AuthOtelInstrumentation}, for callers who prefer functions to `new`. */
+/** Constructs an {@link AuthOtelInstrumentation}. */
 export function authOtelInstrumentation(
   ...args: ConstructorParameters<typeof AuthOtelInstrumentation>
 ): AuthOtelInstrumentation {

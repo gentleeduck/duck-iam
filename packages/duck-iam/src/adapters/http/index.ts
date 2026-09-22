@@ -1,4 +1,15 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import {
+  iamAssertSavablePolicy,
+  iamAssertSavableRole,
+  iamNormalizePolicy,
+  iamUnreadablePolicy,
+} from '../../shared/rows'
+import { iamAssertAssignableScope } from '../../shared/scope'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
 /** Brand symbol marking an error as retry-eligible. Internal to this adapter. */
 const TRANSIENT = Symbol('duck-iam.http.transient')
@@ -10,9 +21,8 @@ function makeTransient<T extends Error>(err: T): T {
 }
 
 /**
- * Returns `true` if the error should trigger a retry: anything tagged with
- * {@link TRANSIENT}, fetch `AbortError`/`TypeError`, or common Node socket
- * codes (`ECONNRESET`, `ECONNREFUSED`, `ETIMEDOUT`, `ENOTFOUND`).
+ * True if the error should be retried: tagged {@link TRANSIENT}, a fetch `AbortError`/`TypeError`,
+ * or a Node socket code (`ECONNRESET`, `ECONNREFUSED`, `ETIMEDOUT`, `ENOTFOUND`).
  */
 function isTransientError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
@@ -23,12 +33,7 @@ function isTransientError(err: unknown): boolean {
   return code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT' || code === 'ENOTFOUND'
 }
 
-/**
- * Composes multiple AbortSignals into one that aborts when any source aborts.
- *
- * Used to layer the per-request fetch timeout with the engine's
- * `adapterTimeoutMs` and any user-supplied `IReadOptions.signal`.
- */
+/** Combines AbortSignals into one that aborts when any does (request timeout, engine timeout, caller signal). */
 function anySignal(signals: AbortSignal[]): AbortSignal | undefined {
   if (signals.length === 0) return undefined
   if (signals.length === 1) return signals[0]
@@ -45,96 +50,52 @@ function anySignal(signals: AbortSignal[]): AbortSignal | undefined {
 }
 /** HTTP adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamHttp {
-  /**
-   * Describes the configuration for {@link IamHttpAdapter}.
-   *
-   * Covers endpoint, fetch overrides, retry, and circuit-breaker tuning.
-   */
+  /** Configuration for {@link IamHttpAdapter}: endpoint, fetch overrides, retry, and circuit-breaker tuning. */
   export interface IConfig {
     /** Specifies the base URL of the duck-iam API (e.g. `https://api.example.com/access`). */
     baseUrl: string
+    /**
+     * Called when an API row fails validation: a bad role row is dropped, a bad policy row makes the read throw.
+     * SECURITY: policy rows fail closed because the dropped policy could be the one that denies.
+     */
+    onPolicyError?: IamAdapter.RowErrorHandler<'http'>
     /** Overrides the default `globalThis.fetch` implementation. */
     fetch?: typeof globalThis.fetch
     /** Provides headers (e.g. auth tokens) merged into every request. */
     headers?: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>)
     /**
-     * Sets the per-request timeout in milliseconds.
-     *
-     * Layered with the engine's `adapterTimeoutMs`; whichever fires first wins.
-     * Defaults to `5_000`. Set to `0` to rely solely on the engine timeout.
+     * Per-request timeout in ms, layered with the engine's `adapterTimeoutMs` (first to fire wins).
+     * Defaults to `5_000`; `0` relies on the engine timeout alone.
      */
     timeoutMs?: number
-    /**
-     * Caps retry attempts on transient failures (5xx, network errors, or
-     * `AbortError` from a per-request timeout).
-     *
-     * 4xx responses are never retried. Defaults to `2` (3 total attempts).
-     */
+    /** Retry attempts on transient failures (5xx, network errors, timeouts); 4xx is never retried. Defaults to `2`. */
     retries?: number
-    /**
-     * Sets the base delay in ms for exponential backoff between retries.
-     *
-     * Attempt N waits `backoffMs * 2^(N-1)` plus jitter. Defaults to `100`.
-     */
+    /** Base backoff in ms: retry N waits `backoffMs * 2^(N-1)` (capped at 60 s) plus jitter. Defaults to `100`. */
     backoffMs?: number
     /**
-     * Opens the circuit after this many consecutive transient failures.
-     *
-     * Once open, requests reject immediately until the cooldown elapses. Default
-     * `5`. Set to `0` to disable.
+     * Opens the circuit after this many consecutive failed requests; while open, requests reject until the cooldown.
+     * SECURITY: an integer >= 1 (default `5`); `0` is refused at construction, so a bad env value cannot disable it.
      */
     circuitBreakerThreshold?: number
-    /**
-     * Sets the half-open cooldown in ms.
-     *
-     * After this window, the next request is allowed through as a probe; success
-     * closes the circuit, failure re-opens it. Default `30_000` (30 s).
-     */
+    /** Cooldown in ms before one half-open probe goes through; success closes, failure re-opens. Default `30_000`. */
     circuitBreakerCooldownMs?: number
     /**
-     * Restricts the set of acceptable hosts for `baseUrl`. When set, the
-     * parsed URL must match an entry in the list or construction throws.
-     *
-     * Matching rules:
-     * - Comparison is case-insensitive on both sides - `Example.COM` in the
-     *   list matches `example.com` in `baseUrl` and vice versa.
-     * - Entries may be bare hostnames (`example.com`) or host:port pairs
-     *   (`example.com:8080`).
-     * - A bare-host entry matches the URL's hostname regardless of port - so
-     *   `allowedHosts: ['example.com']` accepts `example.com`, `example.com:80`,
-     *   and `example.com:8443`.
-     * - A host:port entry matches only that exact port - `example.com:8080`
-     *   rejects `example.com` (no port) and `example.com:9090`.
-     * - Precedence: bare hostname is tried first, then full `host` (with port).
-     *
-     * Defaults to `undefined` (allow any host); when omitted a one-time
-     * `console.warn` is emitted at construction recommending a list.
+     * Allowed `baseUrl` hosts, case-insensitive: a bare host matches any port, `host:port` only that port.
+     * SECURITY: SSRF defence in depth; construction throws on a mismatch, and omitting it logs a one-time warning.
      */
     allowedHosts?: string[]
     /**
-     * Permits `baseUrl` whose hostname is an IP literal in a private/loopback
-     * range (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`,
-     * `169.254.0.0/16`, `::1`, `fc00::/7`, `fe80::/10`). Defaults to `false`.
-     * DNS names are not resolved (would require sync I/O at init); they pass
-     * through and are only constrained by `allowedHosts`.
+     * Permits a `baseUrl` that is a private, loopback, or link-local IP literal. Defaults to `false`.
+     * INFO: DNS names are not resolved (that would need sync I/O), so only `allowedHosts` constrains them.
      */
     allowPrivateHosts?: boolean
   }
 }
 
-/**
- * One-time warning latch for omitted `allowedHosts`. Module-level so repeated
- * adapter constructions during tests / per-request scopes don't spam stderr.
- */
+/** One-time latch for the omitted-`allowedHosts` warning; module-level so repeated constructions do not spam. */
 const _ALLOWED_HOSTS_WARNED = { fired: false }
 
-/**
- * Converts a 32-bit IPv4 tail expressed as two colon-separated hex groups
- * (e.g. `7f00:1`) into dotted-quad form (`127.0.0.1`). Returns `null` if the
- * input is not a well-formed 32-bit hex tail. Both groups may be 1-4 hex
- * digits; the second group may be omitted leading zeros (`7f00:1` ==
- * `7f00:0001`).
- */
+/** Converts a two-group hex IPv4 tail (`7f00:1`) to dotted-quad (`127.0.0.1`), or `null` if malformed. */
 function _hexTailToDottedQuad(tail: string): string | null {
   const m = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail)
   if (!m || m[1] === undefined || m[2] === undefined) return null
@@ -146,14 +107,11 @@ function _hexTailToDottedQuad(tail: string): string | null {
 }
 
 /**
- * Returns `true` when the given hostname is an IP literal in a private,
- * loopback, link-local, or unique-local range. DNS names return `false`
- * (caller controls them via `allowedHosts`).
+ * True for an IP literal in a private, loopback, link-local, or unique-local range; DNS names return `false`.
+ * SECURITY: unwraps IPv4 embedded in IPv6 (mapped, compatible, 6to4, NAT64) so those forms cannot bypass it.
  */
 function _isPrivateHost(hostname: string): boolean {
-  // Strip surrounding brackets from IPv6 literals and a single trailing FQDN
-  // dot so `127.0.0.1.` / `example.com.` normalise to their bare form before
-  // the rest of the checks fire.
+  // Strip IPv6 brackets and one trailing FQDN dot, so `127.0.0.1.` is checked as `127.0.0.1`.
   let h = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
   if (h.endsWith('.')) h = h.slice(0, -1)
   // IPv4 dotted-quad
@@ -173,16 +131,13 @@ function _isPrivateHost(hostname: string): boolean {
   if (h.includes(':')) {
     const lower = h.toLowerCase()
     if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true
-    // IPv6 unspecified `::` (kernel wildcard, often resolves to a local
-    // interface). Block its expanded form too.
+    // Unspecified `::` often reaches a local interface; block its expanded form too.
     if (lower === '::' || lower === '0:0:0:0:0:0:0:0') return true
     // fc00::/7 - first byte 0xfc or 0xfd
     if (/^f[cd][0-9a-f]{0,2}:/.test(lower)) return true
     // fe80::/10 - fe8x, fe9x, feax, febx
     if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true
-    // IPv4-mapped IPv6 - `::ffff:a.b.c.d` (dotted-quad tail) or
-    // `::ffff:hhhh:hhhh` (hex tail, canonical form Node's URL parser emits).
-    // Also accept the fully expanded `0:0:0:0:0:ffff:...` form.
+    // IPv4-mapped: `::ffff:a.b.c.d`, the `::ffff:hhhh:hhhh` form Node's URL parser emits, or `0:0:0:0:0:ffff:...`.
     let mappedTail: string | null = null
     if (lower.startsWith('::ffff:')) mappedTail = lower.slice(7)
     else if (lower.startsWith('0:0:0:0:0:ffff:')) mappedTail = lower.slice(15)
@@ -194,16 +149,12 @@ function _isPrivateHost(hostname: string): boolean {
       if (dotted) return _isPrivateHost(dotted)
       return false
     }
-    // IPv4-compatible IPv6 (deprecated RFC4291 section 2.5.5.1) - `::a.b.c.d`.
-    // Node canonicalises these to hex too, but cover textual form for
-    // completeness.
+    // IPv4-compatible `::a.b.c.d` (deprecated, RFC 4291 2.5.5.1); Node emits hex, but cover the textual form.
     if (lower.startsWith('::') && lower.includes('.')) {
       const tail = lower.slice(2)
       if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(tail)) return _isPrivateHost(tail)
     }
-    // 6to4 prefix `2002::/16` carries an inner IPv4 in the next two 16-bit
-    // groups (`2002:AABB:CCDD::` -> `A.B.C.D` with bytes AA,BB,CC,DD). Linux
-    // ships 6to4 by default - `2002:7f00:1::` carries `127.0.0.1`.
+    // 6to4 `2002::/16` embeds an IPv4 in the next two groups: `2002:7f00:1::` carries `127.0.0.1`.
     if (lower.startsWith('2002:')) {
       const m = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/.exec(lower)
       if (m) {
@@ -245,11 +196,55 @@ function _normaliseHostForAllowlist(host: string): string {
   }
 }
 
+/** Longest id this adapter puts in a URL path; past this a server is more likely to truncate or reject than serve. */
+const MAX_ID_LENGTH = 1024
+
 /**
- * Backs the access store with a remote [@gentleduck/iam:http] HTTP API.
- *
- * Useful for client-side engines that delegate storage to a backend service.
- * Adds per-request timeout, exponential-backoff retry, and a circuit breaker.
+ * One URL path segment from an id; reads and writes share it, so a write cannot store an id no read can fetch.
+ * SECURITY: separators and all-dot segments are refused, not encoded, since some servers decode `%2F` before routing.
+ */
+function segment(value: string, field: string): string {
+  if (typeof value !== 'string' || value === '') {
+    throw new Error(`[@gentleduck/iam:http] ${field} must be a non-empty string`)
+  }
+  if (value.includes('/') || value.includes('\\')) {
+    throw new Error(`[@gentleduck/iam:http] ${field} cannot contain a path separator`)
+  }
+  if (/^\.+$/.test(value)) {
+    throw new Error(`[@gentleduck/iam:http] ${field} cannot be a path segment of "${value}"`)
+  }
+  if (value.length > MAX_ID_LENGTH) {
+    throw new Error(
+      `[@gentleduck/iam:http] ${field} is ${value.length} characters, over the ${MAX_ID_LENGTH} this adapter will put in a URL path`,
+    )
+  }
+  return encodeURIComponent(value)
+}
+
+/** Rejects an id the read path could never fetch back; `savePolicy`/`saveRole` send it in the body, not the path. */
+function assertReadableId(id: unknown, field: string): void {
+  if (typeof id !== 'string') {
+    throw new Error(`[@gentleduck/iam:http] ${field} must be a non-empty string`)
+  }
+  segment(id, field)
+}
+
+/** Best-effort row id for error context: the row's own string `id`, else the caller's fallback. */
+function rowIdOf(row: unknown, fallback: string): string {
+  return typeof row === 'object' && row !== null && 'id' in row && typeof row.id === 'string' ? row.id : fallback
+}
+
+/**
+ * The only request fields {@link IamHttpAdapter} sets; see `_request`.
+ * NOTE: narrower than `RequestInit` on purpose: spreading a `Headers` instance yields `{}` and would drop auth headers.
+ */
+interface IHttpInit {
+  readonly method?: string
+  readonly body?: string
+}
+
+/**
+ * Backs the access store with a remote HTTP API, adding per-request timeout, backoff retry, and a circuit breaker.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -278,34 +273,60 @@ export class IamHttpAdapter<
   private _backoffMs: number
   private _cbThreshold: number
   private _cbCooldownMs: number
+  private _onPolicyError: IamHttp.IConfig['onPolicyError']
   // Circuit-breaker state. closed -> too many transients -> open -> cooldown
   // expires -> half-open -> success closes / failure re-opens.
   private _cbConsecutiveFailures = 0
   private _cbOpenedAt: number | null = null
   private _cbHalfOpenInFlight = false
 
-  /**
-   * Creates a new HTTP adapter.
-   *
-   * @param config - Provides endpoint, fetch overrides, retry, and breaker tuning.
-   */
+  /** Creates a new HTTP adapter; throws on an invalid `baseUrl` or tuning option. */
   constructor(config: IamHttp.IConfig) {
     this._baseUrl = IamHttpAdapter._validateBaseUrl(config)
     this._fetch = config.fetch ?? globalThis.fetch.bind(globalThis)
     this._headers = config.headers
-    this._timeoutMs = config.timeoutMs ?? 5_000
-    this._retries = config.retries ?? 2
-    this._backoffMs = config.backoffMs ?? 100
-    this._cbThreshold = config.circuitBreakerThreshold ?? 5
-    this._cbCooldownMs = config.circuitBreakerCooldownMs ?? 30_000
+    this._timeoutMs = IamHttpAdapter._number('timeoutMs', config.timeoutMs, 5_000, { min: 0 })
+    this._retries = IamHttpAdapter._number('retries', config.retries, 2, { integer: true, min: 0 })
+    this._backoffMs = IamHttpAdapter._number('backoffMs', config.backoffMs, 100, { min: 0 })
+    // NOTE: `min: 1` refuses a value that would disable the breaker; the `<= 0` branches in `_circuitState` and
+    // `_onCircuitFailure` are unreachable through config, not a supported off switch.
+    this._cbThreshold = IamHttpAdapter._number('circuitBreakerThreshold', config.circuitBreakerThreshold, 5, {
+      integer: true,
+      min: 1,
+    })
+    this._cbCooldownMs = IamHttpAdapter._number('circuitBreakerCooldownMs', config.circuitBreakerCooldownMs, 30_000, {
+      min: 0,
+    })
+    this._onPolicyError = config.onPolicyError
   }
 
   /**
-   * Validates `baseUrl` at construction time. Rejects non-`http(s)` schemes,
-   * trailing query/fragment, hosts not in the allow-list, and private/loopback
-   * IP literals when `allowPrivateHosts` is `false`. Emits a one-time warn
-   * recommending `allowedHosts` when omitted. Returns the canonical base URL
-   * with any trailing `/` stripped (for back-compat with the previous behaviour).
+   * Reads a numeric option: `undefined` takes `fallback`; otherwise it must be finite, >= `min`, and integral if asked.
+   * SECURITY: `retries: NaN` would send no request and `timeoutMs: NaN` would abort every one, so both throw here.
+   */
+  private static _number(
+    name: string,
+    value: number | undefined,
+    fallback: number,
+    bounds: { min: number; integer?: boolean },
+  ): number {
+    if (value === undefined) return fallback
+    const ok =
+      typeof value === 'number' &&
+      Number.isFinite(value) &&
+      value >= bounds.min &&
+      (bounds.integer !== true || Number.isInteger(value))
+    if (!ok) {
+      throw new Error(
+        `[@gentleduck/iam:http] \`${name}\` must be a finite ${bounds.integer === true ? 'integer' : 'number'} >= ${bounds.min}, got ${JSON.stringify(value)}`,
+      )
+    }
+    return value
+  }
+
+  /**
+   * Validates `baseUrl` and returns it as given, minus one trailing `/`.
+   * SECURITY: http(s) only, no query or fragment, host in `allowedHosts`, and no private IP unless allowed.
    */
   private static _validateBaseUrl(config: IamHttp.IConfig): string {
     let parsed: URL
@@ -354,17 +375,12 @@ export class IamHttpAdapter<
         `[@gentleduck/iam:http] baseUrl host ${JSON.stringify(parsed.hostname)} resolves to a private/loopback range - set allowPrivateHosts: true to opt in`,
       )
     }
-    // Strip a single trailing `/` for back-compat with previous behaviour.
     return config.baseUrl.replace(/\/$/, '')
   }
 
   /**
-   * Gates fetch attempts based on circuit state.
-   *
-   * - closed: pass through.
-   * - open: reject immediately until the cooldown elapses.
-   * - half-open: allow exactly one probe; concurrent callers reject while the
-   *   probe is in flight. The probe's outcome closes or re-opens the circuit.
+   * Breaker state: closed passes, open rejects until the cooldown elapses, half-open allows one probe at a time.
+   * `_fetchWithRetry` enforces it; the probe's outcome closes or re-opens the circuit.
    */
   private _circuitState(): 'closed' | 'open' | 'half-open' {
     if (this._cbThreshold <= 0 || this._cbOpenedAt === null) return 'closed'
@@ -385,45 +401,83 @@ export class IamHttpAdapter<
     }
   }
 
-  /** Sends an HTTP request to the API, merging headers and parsing the JSON response. */
-  private async _request<T>(path: string, init?: RequestInit, readOpts?: IamAdapter.IReadOptions): Promise<T> {
+  /** Fetches with retry and returns the capped JSON body; a non-2xx response throws. */
+  private async _request(path: string, init?: IHttpInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (!res.ok) {
       throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
     }
-    return readJsonCapped<T>(res)
+    return readJsonCapped(res)
+  }
+
+  /** Routes a bad row to `onPolicyError`, or warns when no handler is set, so it never vanishes unseen. */
+  private _reportPolicyError(err: Error, rowId: string): void {
+    if (this._onPolicyError) {
+      this._onPolicyError(err, { adapter: 'http', rowId })
+      return
+    }
+    console.warn(`[@gentleduck/iam:http] dropped malformed row "${rowId}": ${err.message}`)
   }
 
   /**
-   * Same as {@link _request} but treats `404 Not Found` as a missing-resource
-   * signal and returns `null` instead of throwing. The `IamAdapter.IAdapter`
-   * contract for `getPolicy`/`getRole` is "the role, or null if not found";
-   * the previous throw-on-every-non-2xx behaviour broke that contract and
-   * caused engine.resolve() to bubble up a hard error on every cold miss.
+   * Narrows one API row to a policy; `_narrowRole` below drops a bad row instead.
+   * SECURITY: a mismatch is reported and throws, never dropped or returned raw; see {@link iamUnreadablePolicy}.
    */
-  private async _requestOrNull<T>(
-    path: string,
-    init?: RequestInit,
-    readOpts?: IamAdapter.IReadOptions,
-  ): Promise<T | null> {
+  private _narrowPolicy(row: unknown, fallbackId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+    const policy = parsePolicyRow<TAction, TResource, TRole>(row)
+    if (policy !== null) return policy
+    const rowId = rowIdOf(row, fallbackId)
+    const issues = validatePolicy(row)
+      .issues.map((i) => i.message)
+      .join('; ')
+    this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
+    throw iamUnreadablePolicy('http', rowId, issues)
+  }
+
+  private _narrowRole(row: unknown, fallbackId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+    const role = parseRoleRow<TAction, TResource, TRole, TScope>(row)
+    if (role !== null) return role
+    const rowId = rowIdOf(row, fallbackId)
+    const issues = validateRole(row)
+      .issues.map((i) => i.message)
+      .join('; ')
+    this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
+    return null
+  }
+
+  /** A list endpoint must return an array; anything else is dropped wholesale and reported once. */
+  private _narrowList<T>(body: unknown, path: string, narrow: (row: unknown, fallbackId: string) => T | null): T[] {
+    if (!Array.isArray(body)) {
+      const got = body === null ? 'null' : typeof body
+      this._reportPolicyError(new Error(`Expected an array from ${path}, got ${got}`), path)
+      return []
+    }
+    const out: T[] = []
+    for (const [i, row] of body.entries()) {
+      const v = narrow(row, `${path}[${i}]`)
+      if (v !== null) out.push(v)
+    }
+    return out
+  }
+
+  /** Like {@link IamHttpAdapter._request}, but a 404 returns `null`, per the "row or null" contract of `getPolicy`/`getRole`. */
+  private async _requestOrNull(path: string, init?: IHttpInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (res.status === 404) return null
     if (!res.ok) {
       throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
     }
-    return readJsonCapped<T>(res)
+    // A bodiless success means no row, the same answer as a 404.
+    return (await readJsonCapped(res)) ?? null
   }
 
   /**
-   * Fetches with per-request timeout and exponential-backoff retry on transient
-   * failures.
-   *
-   * Transient covers 5xx, network errors, or our own timeout abort. 4xx is
-   * treated as a definitive answer and returned without retry.
+   * Fetches through the circuit breaker, retrying transient failures (5xx, network, timeout) with backoff.
+   * 4xx is a definitive answer and is returned without retry.
    */
   private async _fetchWithRetry(
     path: string,
-    init: RequestInit | undefined,
+    init: IHttpInit | undefined,
     readOpts?: IamAdapter.IReadOptions,
   ): Promise<Response> {
     const state = this._circuitState()
@@ -450,8 +504,7 @@ export class IamHttpAdapter<
           this._onCircuitFailure()
           throw err
         }
-        // Cap exponential backoff so misconfigured `_retries` cannot drive the
-        // delay past 2^31 ms (setTimeout overflow).
+        // Cap the backoff so a large `_retries` cannot push the delay past setTimeout's 2^31 ms limit.
         const exp = Math.min(this._backoffMs * 2 ** attempt, 60_000)
         const delay = exp + Math.floor(Math.random() * Math.min(this._backoffMs, 5000))
         await new Promise((r) => setTimeout(r, delay))
@@ -459,225 +512,168 @@ export class IamHttpAdapter<
       }
     }
     this._onCircuitFailure()
-    throw lastError as Error
+    // Reachable only if the loop never ran, which `_number` prevents; still never throw an unassigned `lastError`.
+    if (lastError instanceof Error) throw lastError
+    throw new Error(`[@gentleduck/iam:http] request to ${path} failed and no error was recorded`, { cause: lastError })
   }
 
   private async _fetchOnce(
     path: string,
-    init: RequestInit | undefined,
+    init: IHttpInit | undefined,
     readOpts?: IamAdapter.IReadOptions,
   ): Promise<Response> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(typeof this._headers === 'function' ? await this._headers() : (this._headers ?? {})),
-      ...((init?.headers as Record<string, string>) ?? {}),
     }
-    const controllers = [readOpts?.signal, this._timeoutSignal()].filter((s): s is AbortSignal => !!s)
+    const timeout = this._timeout()
+    const controllers = [readOpts?.signal, timeout.signal].filter((s): s is AbortSignal => !!s)
     const signal = anySignal(controllers)
-    // SSRF defence: `redirect: 'error'` keeps the validated base URL.
-    const res = await this._fetch(`${this._baseUrl}${path}`, { ...init, headers, signal, redirect: 'error' })
-    if (res.status >= 500) {
-      const body = await readBodyCapped(res)
-      throw makeTransient(new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${body}`))
+    try {
+      // SECURITY: `redirect: 'error'` keeps requests on the validated base URL (SSRF).
+      const res = await this._fetch(`${this._baseUrl}${path}`, { ...init, headers, signal, redirect: 'error' })
+      if (res.status >= 500) {
+        const body = await readBodyCapped(res)
+        throw makeTransient(new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${body}`))
+      }
+      return res
+    } finally {
+      timeout.clear()
     }
-    return res
   }
 
-  private _timeoutSignal(): AbortSignal | undefined {
-    if (this._timeoutMs <= 0) return undefined
+  /** Per-request timeout signal; `clear` must run once the request settles so the timer cannot outlive it. */
+  private _timeout(): { signal?: AbortSignal; clear: () => void } {
+    if (this._timeoutMs <= 0) return { clear: () => {} }
     const ctrl = new AbortController()
-    setTimeout(
+    const timer = setTimeout(
       () => ctrl.abort(makeTransient(new Error(`IamHttpAdapter request timed out after ${this._timeoutMs}ms`))),
       this._timeoutMs,
     )
-    return ctrl.signal
+    return { signal: ctrl.signal, clear: () => clearTimeout(timer) }
   }
 
-  /**
-   * Lists every policy from the remote API.
-   *
-   * @param opts - Optional read options forwarded to fetch.
-   * @returns Array of policies returned by `GET /policies`.
-   */
+  /** Lists every policy via `GET /policies`. */
   async listPolicies(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
-    return this._request('/policies', undefined, opts)
+    const body = await this._request('/policies', undefined, opts)
+    return this._narrowList(body, '/policies', (row, fallbackId) => this._narrowPolicy(row, fallbackId))
   }
-  /**
-   * Fetches a single policy by ID.
-   *
-   * @param id - Identifies the policy to look up.
-   * @param opts - Optional read options forwarded to fetch.
-   * @returns The matching policy or `null` when the API returns 404.
-   */
+  /** Fetches a policy by ID, or `null` on a 404 or an empty id. */
   async getPolicy(
     id: string,
     opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
-    if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
-    return this._requestOrNull(`/policies/${encodeURIComponent(id)}`, undefined, opts)
+    if (typeof id !== 'string' || id.length === 0) return null
+    const row = await this._requestOrNull(`/policies/${segment(id, 'policy id')}`, undefined, opts)
+    return row === null ? null : this._narrowPolicy(row, id)
   }
-  /**
-   * Stores or overwrites a policy via PUT.
-   *
-   * @param p - Provides the policy to persist.
-   * @returns Resolves once the API acknowledges the write.
-   */
+  /** Stores or overwrites a policy via `PUT /policies`. */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+    iamAssertSavablePolicy('http', p)
+    assertReadableId(p?.id, 'policy id')
     await this._request('/policies', {
       method: 'PUT',
-      body: JSON.stringify(p),
+      body: JSON.stringify(iamNormalizePolicy(p)),
     })
   }
-  /**
-   * Removes a policy by ID via DELETE.
-   *
-   * @param id - Identifies the policy to delete.
-   * @returns Resolves once the API acknowledges the delete.
-   */
+  /** Removes a policy by ID via DELETE. */
   async deletePolicy(id: string): Promise<void> {
-    await this._request(`/policies/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await this._request(`/policies/${segment(id, 'policy id')}`, { method: 'DELETE' })
   }
 
-  /**
-   * Lists every role from the remote API.
-   *
-   * @param opts - Optional read options forwarded to fetch.
-   * @returns Array of roles returned by `GET /roles`.
-   */
+  /** Lists every role via `GET /roles`. */
   async listRoles(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
-    return this._request('/roles', undefined, opts)
+    const body = await this._request('/roles', undefined, opts)
+    return this._narrowList(body, '/roles', (row, fallbackId) => this._narrowRole(row, fallbackId))
   }
-  /**
-   * Fetches a single role by ID.
-   *
-   * @param id - Identifies the role to look up.
-   * @param opts - Optional read options forwarded to fetch.
-   * @returns The matching role or `null` when the API returns 404.
-   */
+  /** Fetches a role by ID, or `null` on a 404 or an empty id. */
   async getRole(
     id: string,
     opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
-    if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
-    return this._requestOrNull(`/roles/${encodeURIComponent(id)}`, undefined, opts)
+    if (typeof id !== 'string' || id.length === 0) return null
+    const row = await this._requestOrNull(`/roles/${segment(id, 'role id')}`, undefined, opts)
+    return row === null ? null : this._narrowRole(row, id)
   }
-  /**
-   * Stores or overwrites a role via PUT.
-   *
-   * @param r - Provides the role to persist.
-   * @returns Resolves once the API acknowledges the write.
-   */
+  /** Stores or overwrites a role via `PUT /roles`. */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+    iamAssertSavableRole('http', r)
+    assertReadableId(r?.id, 'role id')
     await this._request('/roles', { method: 'PUT', body: JSON.stringify(r) })
   }
   /**
-   * Removes a role by ID via DELETE.
-   *
-   * @param id - Identifies the role to delete.
-   * @returns Resolves once the API acknowledges the delete.
+   * Removes a role by ID via DELETE; `http-compliance.test.ts` has a reference server.
+   * WARN: the server must also drop the role's grants, as `ON DELETE CASCADE` does; this adapter cannot sweep them.
    */
   async deleteRole(id: string): Promise<void> {
-    await this._request(`/roles/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await this._request(`/roles/${segment(id, 'role id')}`, { method: 'DELETE' })
   }
 
   /**
-   * Lists role IDs assigned to a subject.
-   *
-   * **Contract:** the response MUST contain GLOBAL (unscoped) role IDs
-   * only. Scoped role assignments must be returned
-   * from `GET /subjects/{id}/scoped-roles` (see {@link getSubjectScopedRoles}).
-   * The HTTP adapter cannot enforce this - it forwards whatever the server
-   * returns - so the operator's API server is responsible for filtering
-   * out scoped roles. A server that collapses scoped+unscoped into one list
-   * will cause subjects to evaluate with MORE permissions than they would
-   * against any other adapter (memory, file, redis, drizzle, prisma),
-   * silently breaking authorization parity across backends.
-   *
-   * @param subjectId - Identifies the subject whose roles are read.
-   * @param opts - Optional read options forwarded to fetch.
-   * @returns Array of UNSCOPED role IDs returned by `GET /subjects/{id}/roles`.
+   * Lists a subject's unscoped role IDs via `GET /subjects/{id}/roles`; a malformed entry fails the whole read.
+   * SECURITY: the server must omit scoped roles (see {@link IamHttpAdapter.getSubjectScopedRoles}); mixing them in grants too much.
    */
   async getSubjectRoles(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
-    const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, undefined, opts)
+    if (typeof subjectId !== 'string' || subjectId.length === 0) return []
+    const raw: unknown = await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles`, undefined, opts)
     return parseHttpSubjectRoles<TRole>(raw, subjectId)
   }
-  /**
-   * Lists scoped role assignments for a subject.
-   *
-   * @param subjectId - Identifies the subject whose scoped roles are read.
-   * @param opts - Optional read options forwarded to fetch.
-   * @returns Array of `(role, scope)` pairs.
-   */
+  /** Lists a subject's scoped `(role, scope)` assignments via `GET /subjects/{id}/scoped-roles`; a malformed entry throws. */
   async getSubjectScopedRoles(
     subjectId: string,
     opts?: IamAdapter.IReadOptions,
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
-    const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/scoped-roles`, undefined, opts)
+    if (typeof subjectId !== 'string' || subjectId.length === 0) return []
+    const raw: unknown = await this._request(
+      `/subjects/${segment(subjectId, 'subject id')}/scoped-roles`,
+      undefined,
+      opts,
+    )
     return parseHttpSubjectScopedRoles<TRole, TScope>(raw, subjectId)
   }
   /**
-   * Grants a role to a subject, optionally restricted to a scope.
-   *
-   * @param subjectId - Identifies the subject receiving the role.
-   * @param roleId - Specifies the role being granted.
-   * @param scope - Optional scope binding the assignment.
-   * @returns Resolves once the API acknowledges the write.
+   * Grants a role to a subject, optionally within a scope.
+   * NOTE: the server decides whether the role exists; its non-2xx refusal surfaces as a throw.
    */
-  async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, {
+  async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
+    iamAssertAssignableScope('http', scope)
+    iamAssertNoAssignOptions('http', opts)
+    await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles`, {
       method: 'POST',
       body: JSON.stringify({ roleId, scope }),
     })
   }
-  /**
-   * Removes a role assignment from a subject.
-   *
-   * @param subjectId - Identifies the subject losing the role.
-   * @param roleId - Specifies the role being revoked.
-   * @param scope - Optional scope filter passed as a query param.
-   * @returns Resolves once the API acknowledges the delete.
-   */
+  /** Removes a role assignment from a subject; `scope`, when given, is sent as a query param. */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    const params = scope ? `?scope=${encodeURIComponent(scope)}` : ''
-    await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles/${encodeURIComponent(roleId)}${params}`, {
+    iamAssertAssignableScope('http', scope, 'lookup')
+    const params = scope !== undefined ? `?scope=${encodeURIComponent(scope)}` : ''
+    await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles/${segment(roleId, 'role id')}${params}`, {
       method: 'DELETE',
     })
   }
-  /**
-   * Fetches the attribute bag stored for a subject.
-   *
-   * @param subjectId - Identifies the subject whose attributes are read.
-   * @param opts - Optional read options forwarded to fetch.
-   * @returns The subject's attribute map.
-   */
+  /** Fetches a subject's attribute bag; a response that is not a flat object of scalars throws. */
   async getSubjectAttributes(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return {}
-    const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, undefined, opts)
+    if (typeof subjectId !== 'string' || subjectId.length === 0) return {}
+    const raw: unknown = await this._request(
+      `/subjects/${segment(subjectId, 'subject id')}/attributes`,
+      undefined,
+      opts,
+    )
     return parseHttpSubjectAttributes(raw, subjectId)
   }
-  /**
-   * Shallow-merges new attributes into the subject's existing bag via PATCH.
-   *
-   * @param subjectId - Identifies the subject whose attributes are written.
-   * @param attrs - Provides the partial attribute patch to merge in.
-   * @returns Resolves once the API acknowledges the write.
-   */
+  /** Shallow-merges an attribute patch into the subject's bag via PATCH. */
   async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
-    await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, {
+    iamAssertAttributesParam('http', subjectId, attrs)
+    await this._request(`/subjects/${segment(subjectId, 'subject id')}/attributes`, {
       method: 'PATCH',
       body: JSON.stringify(attrs),
     })
   }
 }
 
-/** Read up to 200 chars of the response body for error messages. */
+/** Reads up to 200 chars of the response body, for error messages. */
 async function readBodyCapped(res: Response): Promise<string> {
-  // Streaming read with a 4KB hard cap; `res.text()` would buffer the entire
-  // body first - a hostile remote sending a multi-GB body would exhaust
-  // memory before the cap-and-slice ever ran. We only need a short prefix
-  // for the error-context line, so cap during ingest.
+  // SECURITY: stream with a 4 KB cap; `res.text()` would buffer a hostile multi-GB body first.
   const MAX_BYTES = 4096
   const reader = res.body?.getReader()
   if (!reader) {
@@ -710,15 +706,17 @@ async function readBodyCapped(res: Response): Promise<string> {
 }
 
 /**
- * Stream-and-cap JSON reader: refuses bodies past 4 MiB so a hostile remote
- * cannot OOM us before we ever reach JSON.parse. Real IAM payloads are
- * <100 KiB; 4 MiB is generous for bulk-policy fetches.
+ * Reads a JSON body as `unknown` for callers to validate; an empty body is `undefined`, not a parse error.
+ * SECURITY: refuses bodies past 4 MiB while streaming, so a hostile remote cannot OOM us before `JSON.parse`.
  */
-async function readJsonCapped<T>(res: Response): Promise<T> {
+async function readJsonCapped(res: Response): Promise<unknown> {
   const MAX_BYTES = 4 * 1024 * 1024
+  // `204 No Content` and `205 Reset Content` are bodiless by definition.
+  if (res.status === 204 || res.status === 205) return undefined
   const reader = res.body?.getReader()
   if (!reader) {
-    return (await res.json()) as T
+    const raw = await res.text()
+    return raw === '' ? undefined : JSON.parse(raw)
   }
   const decoder = new TextDecoder()
   let text = ''
@@ -737,17 +735,26 @@ async function readJsonCapped<T>(res: Response): Promise<T> {
   } finally {
     void reader.cancel().catch(() => {})
   }
-  return JSON.parse(text) as T
+  return text === '' ? undefined : JSON.parse(text)
 }
 
 function parseHttpSubjectAttributes(value: unknown, subjectId: string): IamPrimitives.Attributes {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  const attrs = iamNarrowAttributes(value)
+  if (attrs === null) {
     const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
     throw new Error(
-      `[@gentleduck/iam:http] getSubjectAttributes for "${subjectId}" returned ${got} (expected JSON object)`,
+      `[@gentleduck/iam:http] getSubjectAttributes for "${subjectId}" returned ${got} (expected a JSON object of scalar values)`,
     )
   }
-  return value as IamPrimitives.Attributes
+  return attrs
+}
+
+/** Names the malformed element's type without echoing it, so a bad payload cannot be reflected into the error. */
+function describeEntry(entry: unknown): string {
+  if (entry === null) return 'null'
+  if (Array.isArray(entry)) return 'array'
+  if (typeof entry === 'string') return entry.length === 0 ? 'empty string' : 'string'
+  return typeof entry
 }
 
 function parseHttpSubjectRoles<TRole extends string>(value: unknown, subjectId: string): TRole[] {
@@ -756,10 +763,17 @@ function parseHttpSubjectRoles<TRole extends string>(value: unknown, subjectId: 
     throw new Error(`[@gentleduck/iam:http] getSubjectRoles for "${subjectId}" returned ${got} (expected JSON array)`)
   }
   const roles: TRole[] = []
-  for (const entry of value) {
-    if (typeof entry === 'string' && entry.length > 0) {
-      roles.push(entry as TRole)
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i]
+    // SECURITY: a dropped grant retires every policy whose `targets.roles` names it, turning a deny into an allow.
+    if (typeof entry !== 'string' || entry.length === 0) {
+      throw new Error(
+        `[@gentleduck/iam:http] getSubjectRoles for "${subjectId}" returned ${describeEntry(entry)} at [${i}] ` +
+          '(expected a non-empty string). A partial role list is not a smaller one: a role also carries the ' +
+          'denies that target it, so the missing entry reads as permission rather than as a failed read.',
+      )
     }
+    roles.push(iamAsRoleLiteral(entry))
   }
   return roles
 }
@@ -775,13 +789,25 @@ function parseHttpSubjectScopedRoles<TRole extends string, TScope extends string
     )
   }
   const out: IamRequest.IScopedRole<TRole, TScope>[] = []
-  for (const entry of value) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i]
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      throw new Error(
+        `[@gentleduck/iam:http] getSubjectScopedRoles for "${subjectId}" returned ${describeEntry(entry)} at [${i}] ` +
+          '(expected a {role, scope} object)',
+      )
+    }
     const role = Reflect.get(entry, 'role')
     const scope = Reflect.get(entry, 'scope')
-    if (typeof role !== 'string' || role.length === 0) continue
-    if (typeof scope !== 'string' || scope.length === 0) continue
-    out.push({ role: role as TRole, scope: scope as TScope })
+    // The endpoints are disjoint by contract, so an unscoped row here is the server mixing them, not a global grant.
+    if (typeof role !== 'string' || role.length === 0 || typeof scope !== 'string' || scope.length === 0) {
+      throw new Error(
+        `[@gentleduck/iam:http] getSubjectScopedRoles for "${subjectId}" returned an entry at [${i}] whose ` +
+          `role is ${describeEntry(role)} and scope is ${describeEntry(scope)} (both must be non-empty strings). ` +
+          'A dropped scoped grant silently retires the denies that target that role.',
+      )
+    }
+    out.push({ role: iamAsRoleLiteral(role), scope: iamAsScopeLiteral(scope) })
   }
   return out
 }

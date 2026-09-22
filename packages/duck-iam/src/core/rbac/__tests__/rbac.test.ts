@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AccessControl } from '../../types'
-import type { MAX_INHERITANCE_DEPTH } from '../rbac'
-import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
+import { MAX_INHERITANCE_DEPTH, resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 
 const viewer: AccessControl.IRole = {
   id: 'viewer',
@@ -78,6 +77,45 @@ describe('resolveEffectiveRoles()', () => {
   })
 })
 
+// A phantom inherited id would match ABAC `subject.roles contains` rules. Directly assigned ids stay (pinned above).
+describe('resolveEffectiveRoles() drops inherited ids that no role defines', () => {
+  const ghostParent: AccessControl.IRole = { id: 'r', inherits: ['ghost'], name: 'R', permissions: [] }
+
+  it('an inherited id with no definition does not reach the effective set', () => {
+    expect(resolveEffectiveRoles(['r'], [ghostParent])).toEqual(['r'])
+  })
+
+  it('the surviving roles are unaffected by the dangling sibling', () => {
+    const withReal: AccessControl.IRole = { id: 'r2', inherits: ['ghost', 'viewer'], name: 'R2', permissions: [] }
+    expect(resolveEffectiveRoles(['r2'], [withReal, viewer]).sort()).toEqual(['r2', 'viewer'])
+  })
+
+  it('deleting a role removes its id from the set of anyone inheriting it', () => {
+    // Same assignment and `inherits`; only the definition goes away.
+    const ghost: AccessControl.IRole = { id: 'ghost', name: 'Ghost', permissions: [] }
+    expect(resolveEffectiveRoles(['r'], [ghostParent, ghost]).sort()).toEqual(['ghost', 'r'])
+    expect(resolveEffectiveRoles(['r'], [ghostParent]).sort()).toEqual(['r'])
+  })
+
+  it('a dangling id deeper in the chain is dropped too', () => {
+    const mid: AccessControl.IRole = { id: 'mid', inherits: ['ghost'], name: 'Mid', permissions: [] }
+    const top: AccessControl.IRole = { id: 'top', inherits: ['mid'], name: 'Top', permissions: [] }
+    expect(resolveEffectiveRoles(['top'], [top, mid]).sort()).toEqual(['mid', 'top'])
+  })
+
+  it('an id that is both dangling-inherited and directly assigned is kept', () => {
+    // The assignment wins over the drop, whichever walk reaches the id first.
+    expect(resolveEffectiveRoles(['r', 'ghost'], [ghostParent]).sort()).toEqual(['ghost', 'r'])
+    expect(resolveEffectiveRoles(['ghost', 'r'], [ghostParent]).sort()).toEqual(['ghost', 'r'])
+  })
+
+  it('a chain that dangles at its root still yields the roles above it', () => {
+    const a: AccessControl.IRole = { id: 'a', inherits: ['b'], name: 'A', permissions: [] }
+    const b: AccessControl.IRole = { id: 'b', inherits: ['gone'], name: 'B', permissions: [] }
+    expect(resolveEffectiveRoles(['a'], [a, b]).sort()).toEqual(['a', 'b'])
+  })
+})
+
 describe('rolesToPolicy()', () => {
   it('converts roles into a policy with rules', () => {
     const policy = rolesToPolicy([viewer])
@@ -101,9 +139,7 @@ describe('rolesToPolicy()', () => {
 
   it('inherits parent permissions', () => {
     const policy = rolesToPolicy([viewer, editor])
-    // Editor's emitted rules carry "Editor:" in their description; inherited
-    // viewer perms are emitted as separate rules under "Editor" because
-    // collectPermissions flattens parent-first.
+    // Inherited viewer perms are emitted as separate rules under "Editor:", parent-first.
     const editorRules = policy.rules.filter((r) => r.description?.startsWith('Editor:'))
     // Editor should have: inherited viewer (read post, read comment) + own (create post, update post)
     expect(editorRules).toHaveLength(4)
@@ -152,17 +188,17 @@ describe('rolesToPolicy()', () => {
     }
     const policy = rolesToPolicy([condRole])
     const rule = policy.rules[0]!
-    const conditions = 'all' in rule.conditions ? rule.conditions.all : []
-    // Should have role condition + owner condition
-    expect(conditions).toHaveLength(2)
-    expect(conditions.some((c) => 'field' in c && c.field === 'subject.roles')).toBe(true)
-    expect(conditions.some((c) => 'field' in c && c.field === 'resource.attributes.ownerId')).toBe(true)
+    // Two siblings: the base group, then the author's group whole, so its depth doesn't depend on its key.
+    const top = 'all' in rule.conditions ? rule.conditions.all : []
+    expect(top).toHaveLength(2)
+    const fields = JSON.stringify(top)
+    expect(fields).toContain('subject.roles')
+    expect(fields).toContain('resource.attributes.ownerId')
   })
 })
 
 describe('rule id stability', () => {
-  // IamAdapter ETags and external caches key on `rule.id`. Lock the format so
-  // any change is intentional and shows up as a failing test.
+  // WARN: adapter ETags and external caches key on `rule.id`; this pins the format.
   it('emits ids in the `__rbac__#N` shape', () => {
     const policy = rolesToPolicy([viewer])
     expect(policy.rules.map((r) => r.id)).toEqual(['__rbac__#0', '__rbac__#1'])
@@ -189,6 +225,10 @@ describe('rule id stability', () => {
 })
 
 describe('inheritance-depth bound', () => {
+  it('pins MAX_INHERITANCE_DEPTH at 32', () => {
+    expect(MAX_INHERITANCE_DEPTH).toBe(32)
+  })
+
   it('resolveEffectiveRoles returns without throwing on a 1000-deep linear chain', () => {
     // Bound at 32 means traversal stops cleanly; we only assert no stack overflow / no hang.
     const roles: AccessControl.IRole[] = []
@@ -201,8 +241,45 @@ describe('inheritance-depth bound', () => {
       })
     }
     const effective = resolveEffectiveRoles(['r999'], roles)
-    // Walk stops at MAX_INHERITANCE_DEPTH=32 deep from the start role.
+    // Walk stops at MAX_INHERITANCE_DEPTH (32) deep from the start role.
     expect(effective.length).toBeLessThanOrEqual(34)
     expect(effective.length).toBeGreaterThan(1)
+  })
+
+  it('rolesToPolicy bounds permission collection on a deep linear chain', () => {
+    const depth = 200
+    const roles: AccessControl.IRole[] = []
+    for (let i = 0; i < depth; i++) {
+      roles.push({
+        id: `r${i}`,
+        name: `R${i}`,
+        permissions: [{ action: `act${i}`, resource: 'post' }],
+        ...(i > 0 ? { inherits: [`r${i - 1}`] } : {}),
+      })
+    }
+    // Rules emitted for the deepest role only: its own permission plus at most
+    // MAX_INHERITANCE_DEPTH inherited ones, never all 200.
+    const deepest = rolesToPolicy(roles).rules.filter((r) => r.description?.startsWith(`R${depth - 1}: `))
+    expect(deepest.length).toBeLessThanOrEqual(34)
+    expect(deepest.length).toBeGreaterThan(1)
+  })
+
+  it('rolesToPolicy terminates on a cyclic inherits graph without duplicating permissions', () => {
+    const a: AccessControl.IRole = {
+      id: 'a',
+      inherits: ['b'],
+      name: 'A',
+      permissions: [{ action: 'read', resource: 'post' }],
+    }
+    const b: AccessControl.IRole = {
+      id: 'b',
+      inherits: ['a'],
+      name: 'B',
+      permissions: [{ action: 'write', resource: 'post' }],
+    }
+    const rules = rolesToPolicy([a, b]).rules
+    // a: [b.write, a.read]; b: [a.read, b.write] - four rules, no runaway.
+    expect(rules).toHaveLength(4)
+    expect(new Set(rules.map((r) => r.id)).size).toBe(4)
   })
 })

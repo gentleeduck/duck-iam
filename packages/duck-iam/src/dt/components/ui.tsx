@@ -1,11 +1,11 @@
-import { cn } from '@gentleduck/libs/cn'
-import { Badge as RxBadge } from '@gentleduck/registry-ui/badge'
-import { Button as RxButton } from '@gentleduck/registry-ui/button'
-import { CardContent, CardHeader, CardTitle, Card as RxCard } from '@gentleduck/registry-ui/card'
-import { Input as RxInput } from '@gentleduck/registry-ui/input'
-import { Textarea as RxTextarea } from '@gentleduck/registry-ui/textarea'
+/**
+ * The devtools' own controls: plain elements over the `iam-dt-*` classes in `lib/styles.ts`.
+ * NOTE: no `@gentleduck/registry-ui` or Tailwind - both are optional for consumers of `./dt`.
+ */
 import type React from 'react'
+import { cn } from '../lib/cn'
 
+/** A titled box; the header renders only when there is a `title` or `actions`. */
 export function Card({
   title,
   children,
@@ -16,22 +16,26 @@ export function Card({
   actions?: React.ReactNode
 }) {
   return (
-    <RxCard className="gap-0 overflow-hidden py-0">
+    <div className="iam-dt-card">
       {(title || actions) && (
-        <CardHeader className="flex items-center justify-between gap-2 border-b px-3 py-2 [.border-b]:pb-2">
-          {title && (
-            <CardTitle className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">
-              {title}
-            </CardTitle>
-          )}
+        <div className="iam-dt-card__head">
+          {title && <span className="iam-dt-card__title">{title}</span>}
           {actions}
-        </CardHeader>
+        </div>
       )}
-      <CardContent className="p-3 text-xs">{children}</CardContent>
-    </RxCard>
+      <div className="iam-dt-card__body">{children}</div>
+    </div>
   )
 }
 
+const BUTTON_VARIANT = {
+  danger: 'iam-dt-btn--danger',
+  default: '',
+  ghost: 'iam-dt-btn--ghost',
+  primary: 'iam-dt-btn--primary',
+} as const
+
+/** A devtools button. `type` defaults to `'button'` so it never submits a surrounding form by accident. */
 export function Button({
   children,
   onClick,
@@ -39,100 +43,86 @@ export function Button({
   disabled,
   type = 'button',
   className,
+  title,
+  'aria-label': ariaLabel,
 }: {
   children: React.ReactNode
   onClick?: () => void
-  variant?: 'default' | 'primary' | 'ghost' | 'danger'
+  variant?: keyof typeof BUTTON_VARIANT
   disabled?: boolean
   type?: 'button' | 'submit'
   className?: string
+  title?: string
+  'aria-label'?: string
 }) {
-  const rxVariant =
-    variant === 'primary' ? 'default' : variant === 'danger' ? 'destructive' : variant === 'ghost' ? 'ghost' : 'outline'
   return (
-    <RxButton
-      className={cn('text-[11px]', className)}
+    <button
+      aria-label={ariaLabel}
+      className={cn('iam-dt-btn', BUTTON_VARIANT[variant], className)}
       disabled={disabled}
       onClick={onClick}
-      size="sm"
-      type={type}
-      variant={rxVariant}>
+      title={title}
+      type={type}>
       {children}
-    </RxButton>
+    </button>
   )
 }
 
+/** A form row whose `<label>` wraps its control, so clicking the caption focuses it and screen readers pair them. */
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <span className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
+    // biome-ignore lint/a11y/noLabelWithoutControl: the control is the `children` this wraps, which is an implicit association the rule cannot see through.
+    <label className="iam-dt-field">
+      <span className="iam-dt-field__label">{label}</span>
       {children}
-    </div>
+    </label>
   )
 }
 
+/** An `input` at devtools scale; every native prop passes through. */
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <RxInput {...props} className={cn('h-7 text-xs', props.className)} />
+  return <input {...props} className={cn('iam-dt-input', props.className)} />
 }
 
+/** A monospaced `textarea`, for the JSON the Decision Inspector and Subjects panel take as free text. */
 export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <RxTextarea {...props} className={cn('font-mono text-[11px] leading-relaxed', props.className)} />
+  return <textarea {...props} className={cn('iam-dt-textarea', props.className)} />
 }
 
+const BADGE_TONE = {
+  allow: 'iam-dt-badge--allow',
+  deny: 'iam-dt-badge--deny',
+  info: 'iam-dt-badge--info',
+  neutral: '',
+  warn: 'iam-dt-badge--warn',
+} as const
+
+/** A small status pill. `tone` is semantic, so `allow` and `deny` look the same wherever they appear. */
 export function Badge({
   children,
   tone = 'neutral',
   className,
 }: {
   children: React.ReactNode
-  tone?: 'neutral' | 'allow' | 'deny' | 'info' | 'warn'
+  tone?: keyof typeof BADGE_TONE
   className?: string
 }) {
-  const variant =
-    tone === 'allow'
-      ? 'default'
-      : tone === 'deny'
-        ? 'destructive'
-        : tone === 'info'
-          ? 'secondary'
-          : tone === 'warn'
-            ? 'outline'
-            : 'outline'
-  const toneCls =
-    tone === 'allow'
-      ? 'bg-lime-500/10 text-lime-400 border-lime-500/35 hover:bg-lime-500/15'
-      : tone === 'deny'
-        ? 'bg-red-500/10 text-red-400 border-red-500/35 hover:bg-red-500/15'
-        : tone === 'info'
-          ? 'bg-sky-500/10 text-sky-400 border-sky-500/35 hover:bg-sky-500/15'
-          : tone === 'warn'
-            ? 'bg-amber-500/10 text-amber-400 border-amber-500/35 hover:bg-amber-500/15'
-            : ''
-  return (
-    <RxBadge
-      className={cn('h-5 rounded-full px-2 font-semibold text-[9px] uppercase tracking-wider', toneCls, className)}
-      variant={variant}>
-      {children}
-    </RxBadge>
-  )
+  return <span className={cn('iam-dt-badge', BADGE_TONE[tone], className)}>{children}</span>
 }
 
+/** Dashed placeholder for an empty list; {@link DetailEmpty} is the detail-pane version. */
 export function Empty({ message }: { message: string }) {
-  return (
-    <div className="rounded-md border border-border/60 border-dashed bg-muted/20 p-6 text-center text-muted-foreground text-xs">
-      {message}
-    </div>
-  )
+  return <div className="iam-dt-empty iam-dt-empty--dashed">{message}</div>
 }
 
+/**
+ * Inline result banner. Errors use `role="alert"` so they are announced; successes use the politer `role="status"`.
+ */
 export function Alert({ kind, children }: { kind: 'error' | 'success'; children: React.ReactNode }) {
   return (
     <div
-      className={cn(
-        'm-2 rounded-md px-3 py-2 font-medium text-[11px]',
-        kind === 'error' && 'border border-red-500/30 bg-red-500/10 text-red-400',
-        kind === 'success' && 'border border-lime-500/30 bg-lime-500/10 text-lime-400',
-      )}>
+      className={cn('iam-dt-alert', kind === 'error' ? 'iam-dt-alert--error' : 'iam-dt-alert--success')}
+      role={kind === 'error' ? 'alert' : 'status'}>
       {children}
     </div>
   )

@@ -4,6 +4,7 @@ import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { JwtTransport } from '~/core/transport/jwt.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { NoopLimiter } from '~/limiters/mock'
 import { apiKeyProvider } from '~/providers/api-key'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
@@ -32,7 +33,7 @@ function build() {
     limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), apiKeyProvider()],
   })
-  const m2m = new M2MImpl(auth.apiKeys, auth.sessions, auth.transport)
+  const m2m = new M2MImpl(auth.apiKeys, auth.sessions, auth.transport, new NoopLimiter())
   return { auth, adapter, transport, m2m }
 }
 
@@ -89,7 +90,7 @@ describe('M2MFacet - client_credentials grant', () => {
   })
 
   it('strict mode: requested scope superset triggers SCOPE_INSUFFICIENT', async () => {
-    const strict = new M2MImpl(env.auth.apiKeys, env.auth.sessions, env.transport, {
+    const strict = new M2MImpl(env.auth.apiKeys, env.auth.sessions, env.transport, new NoopLimiter(), {
       ttlMs: 60 * 60 * 1000,
       scopeMode: 'strict',
     })
@@ -117,20 +118,20 @@ describe('M2MFacet - client_credentials grant', () => {
     })
   })
 
-  it('wrong client_secret throws AUTH/APIKEY_INVALID', async () => {
+  it('wrong client_secret throws AUTH_APIKEY_INVALID', async () => {
     await expect(env.m2m.exchange({ clientId, clientSecret: 'not-the-real-secret' })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_INVALID',
     })
   })
 
-  it('mismatched (client_id, secret) pair throws AUTH/APIKEY_INVALID', async () => {
+  it('mismatched (client_id, secret) pair throws AUTH_APIKEY_INVALID', async () => {
     const other = await env.auth.apiKeys.create(identityId, { name: 'other', scopes: [] })
     await expect(env.m2m.exchange({ clientId: other.key.id, clientSecret })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_INVALID',
     })
   })
 
-  it('missing client_id or client_secret throws AUTH/APIKEY_INVALID', async () => {
+  it('missing client_id or client_secret throws AUTH_APIKEY_INVALID', async () => {
     await expect(env.m2m.exchange({ clientId: '', clientSecret })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_INVALID',
     })
@@ -139,7 +140,7 @@ describe('M2MFacet - client_credentials grant', () => {
     })
   })
 
-  it('revoked api key rejects with AUTH/APIKEY_REVOKED', async () => {
+  it('revoked api key rejects with AUTH_APIKEY_REVOKED', async () => {
     await env.auth.apiKeys.revoke(clientId)
     await expect(env.m2m.exchange({ clientId, clientSecret })).rejects.toMatchObject({
       code: 'AUTH_APIKEY_REVOKED',

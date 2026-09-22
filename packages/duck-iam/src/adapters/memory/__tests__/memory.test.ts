@@ -1,15 +1,28 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { IamMemoryAdapter } from '../index'
+import { runEngineCapabilityCompliance } from '../../__compliance__/engine-capability'
+import { OPTIONAL_SUPPORT } from '../../__compliance__/optional-support'
+import { IamMemoryAdapter, iamMemoryAdapter } from '../index'
 
 // Shared adapter compliance suite - every adapter must pass.
-runAdapterCompliance('IamMemoryAdapter', () => new IamMemoryAdapter())
+runAdapterCompliance('IamMemoryAdapter', () => new IamMemoryAdapter(), {
+  supports: OPTIONAL_SUPPORT.IamMemoryAdapter,
+})
+
+// The capabilities the engine provides on top of any adapter.
+runEngineCapabilityCompliance('IamMemoryAdapter', () => new IamMemoryAdapter())
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'
 type Ro = 'viewer' | 'editor'
 type S = 'org-1'
+
+// `assignRole` refuses an unstored role, so the assignment cases seed these first.
+const GRANTABLE: AccessControl.IRole<A, R, Ro, S>[] = [
+  { id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] },
+  { id: 'editor', name: 'Editor', permissions: [{ action: 'write', resource: 'post' }] },
+]
 
 describe('IamMemoryAdapter', () => {
   let adapter: IamMemoryAdapter<A, R, Ro, S>
@@ -30,15 +43,16 @@ describe('IamMemoryAdapter', () => {
       expect(await adapter.listPolicies()).toEqual([])
     })
 
+    // The write path supplies `version: 1`, so a policy saved without one reads back the same on every adapter.
     it('savePolicy + listPolicies', async () => {
       await adapter.savePolicy(policy)
-      expect(await adapter.listPolicies()).toEqual([policy])
+      expect(await adapter.listPolicies()).toEqual([{ ...policy, version: 1 }])
     })
 
     it('getPolicy returns policy or null', async () => {
       expect(await adapter.getPolicy('p1')).toBeNull()
       await adapter.savePolicy(policy)
-      expect(await adapter.getPolicy('p1')).toEqual(policy)
+      expect(await adapter.getPolicy('p1')).toEqual({ ...policy, version: 1 })
     })
 
     it('deletePolicy removes policy', async () => {
@@ -85,6 +99,10 @@ describe('IamMemoryAdapter', () => {
   })
 
   describe('IamAdapter.ISubjectStore', () => {
+    beforeEach(() => {
+      adapter = new IamMemoryAdapter<A, R, Ro, S>({ roles: GRANTABLE })
+    })
+
     it('getSubjectRoles returns empty for unknown subject', async () => {
       expect(await adapter.getSubjectRoles('unknown')).toEqual([])
     })
@@ -125,7 +143,9 @@ describe('IamMemoryAdapter', () => {
       let a: IamMemoryAdapter<A, R, Ro, S2>
 
       beforeEach(() => {
-        a = new IamMemoryAdapter<A, R, Ro, S2>()
+        a = new IamMemoryAdapter<A, R, Ro, S2>({
+          roles: [{ id: 'editor', name: 'Editor', permissions: [{ action: 'write', resource: 'post' }] }],
+        })
       })
 
       it('moves the assignment to the new scope in place', async () => {
@@ -166,10 +186,25 @@ describe('IamMemoryAdapter', () => {
         attributes: { 'user-1': { level: 5 } },
       })
 
-      expect(await adapter.listPolicies()).toEqual([{ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }])
+      // Seeds are normalised like writes, so this is the same `version: 1`.
+      expect(await adapter.listPolicies()).toEqual([
+        { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [], version: 1 },
+      ])
       expect(await adapter.listRoles()).toEqual([{ id: 'viewer', name: 'Viewer', permissions: [] }])
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
       expect(await adapter.getSubjectAttributes('user-1')).toEqual({ level: 5 })
     })
+  })
+})
+
+describe('iamMemoryAdapter factory', () => {
+  it('returns a working IamMemoryAdapter seeded from init', async () => {
+    // `viewer` is declared because a seeded assignment to an unstored role is refused, as in `assignRole`.
+    const adapter = iamMemoryAdapter({
+      assignments: { 'user-1': ['viewer'] },
+      roles: [{ id: 'viewer', name: 'Viewer', permissions: [] }],
+    })
+    expect(adapter).toBeInstanceOf(IamMemoryAdapter)
+    expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
   })
 })

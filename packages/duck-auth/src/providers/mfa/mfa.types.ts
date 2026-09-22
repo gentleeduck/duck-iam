@@ -1,32 +1,26 @@
 import type { Compliance } from '~/core/compliance'
 import type { Passkey } from '~/providers/passkey/passkey.types'
 
-/**
- * Every type the MFA provider exposes lives under this one namespace, so
- * consumers reach for `Mfa.Cfg`, `Mfa.WebauthnLibrary`, etc. from a single
- * place.
- */
+/** MFA configuration, the factors it enrols, and the step-up contract. */
 export namespace Mfa {
-  /** Resolved, total facet config — every field explicit (null-discipline). */
+  /** Total: every field explicit. */
   export type Cfg = {
-    /** Brand shown in TOTP authenticator app entries. */
+    /** The brand an authenticator app shows against the entry. */
     issuer: string
-    /** How many backup codes to generate per enrollment. Default 10. */
+    /** Per enrollment. Default 10. */
     backupCodeCount: number
-    /** Backup code length in characters. Default 10. */
+    /** In characters. Default 10. */
     backupCodeLen: number
     /** Compliance preset(s); ratchets `backupCodeCount` up to the preset floor. */
     compliance: Compliance.Preset | Compliance.Preset[]
   }
 
-  /**
-   * Ergonomic, end-user-facing config. Every field optional; the boundary
-   * coalesces each key to its default (`toMfaCfg`) so the facet never sees
-   * `undefined`.
-   */
+  /** Every field optional: each is coalesced to its default, so the facet never sees an
+   *  `undefined`. */
   export type CfgInput = {
-    /** Brand shown in TOTP authenticator app entries. Default 'duck-auth'. */
+    /** The brand an authenticator app shows against the entry. Default 'duck-auth'. */
     issuer?: string
+    /** How many single-use backup codes are minted at enrollment. */
     backupCodeCount?: number
     backupCodeLen?: number
     /** Compliance preset(s); ratchets `backupCodeCount` up to the preset floor. */
@@ -38,7 +32,7 @@ export namespace Mfa {
     uri: string
   }
 
-  /** Structural shape of the `@simplewebauthn/server` module we use. */
+  /** The part of `@simplewebauthn/server` this uses. */
   export type WebauthnLibrary = {
     generateRegistrationOptions(input: unknown): Promise<Passkey.RegistrationOptions>
     verifyRegistrationResponse(input: unknown): Promise<{
@@ -54,46 +48,45 @@ export namespace Mfa {
     }>
   }
 
-  /** Caller-supplied per-session challenge store. The passkey
-   * provider's `MemoryPasskeyChallengeStore` is the canonical impl. */
-  export type WebauthnChallengeStore = {
-    put(key: string, challenge: string, ttlMs: number): Promise<void>
-    take(key: string): Promise<string | null>
-  }
-
   export type WebauthnMfaEnrollOpts = {
     rpID: string
     rpName: string
     userName: string
     expectedOrigins: string | string[]
-    challengeStore: WebauthnChallengeStore
-    /** Stable opaque key (typically the session id) tying enrollment ceremony pieces. */
+    challengeStore: Passkey.ChallengeStore
+    /** Ties the enrollment ceremony's pieces together; the session id, typically. */
     challengeKey: string
+    /** How long the WebAuthn challenge stays claimable, in ms. */
     challengeTtlMs?: number
+    /** WebAuthn user-verification requirement, passed through to the authenticator. */
     userVerification?: 'required' | 'preferred' | 'discouraged'
+    /** How much attestation the authenticator is asked for. */
     attestation?: 'none' | 'direct' | 'indirect' | 'enterprise'
-    /** Algorithm allowlist; default `[-8, -7, -257]` (Ed25519 + ES256 + RS256). */
+    /** Default `[-8, -7, -257]`: Ed25519, ES256 and RS256. */
     supportedAlgorithmIDs?: number[]
-    /** Override the library instance (tests). */
+    /** Where a test injects its own library instance. */
     webauthnModule?: WebauthnLibrary
   }
 
   export type WebauthnMfaConfirmOpts = {
     rpID: string
     expectedOrigins: string | string[]
-    challengeStore: WebauthnChallengeStore
+    challengeStore: Passkey.ChallengeStore
     challengeKey: string
     /** The browser's `RegistrationResponseJSON` from `navigator.credentials.create`. */
     response: unknown
+    /** WebAuthn user-verification requirement, passed through to the authenticator. */
     userVerification?: 'required' | 'preferred' | 'discouraged'
     webauthnModule?: WebauthnLibrary
   }
 
   export type WebauthnMfaVerifyBeginOpts = {
     rpID: string
-    challengeStore: WebauthnChallengeStore
+    challengeStore: Passkey.ChallengeStore
     challengeKey: string
+    /** How long the WebAuthn challenge stays claimable, in ms. */
     challengeTtlMs?: number
+    /** WebAuthn user-verification requirement, passed through to the authenticator. */
     userVerification?: 'required' | 'preferred' | 'discouraged'
     webauthnModule?: WebauthnLibrary
   }
@@ -101,27 +94,12 @@ export namespace Mfa {
   export type WebauthnMfaVerifyOpts = {
     rpID: string
     expectedOrigins: string | string[]
-    challengeStore: WebauthnChallengeStore
+    challengeStore: Passkey.ChallengeStore
     challengeKey: string
     /** The browser's `AuthenticationResponseJSON` from `navigator.credentials.get`. */
     response: unknown
+    /** WebAuthn user-verification requirement, passed through to the authenticator. */
     userVerification?: 'required' | 'preferred' | 'discouraged'
     webauthnModule?: WebauthnLibrary
-  }
-
-  // Minimal metadata shapes read by MfaFacet — defined locally to avoid
-  // core → provider dependency direction.
-  export type TotpMetadata = {
-    confirmed?: boolean
-    /**
-     * Highest time step already spent on this enrollment. A code matching this
-     * step or an earlier one is a replay and is refused, which is what makes a
-     * TOTP single-use within its validity window.
-     */
-    lastTotpStep?: number
-  }
-  export type PasskeyMetadata = {
-    deviceType?: string
-    backedUp?: boolean
   }
 }

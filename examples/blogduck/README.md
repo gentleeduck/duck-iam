@@ -2,7 +2,7 @@
 
 A full-stack example app showing how `@gentleduck/iam` handles authorization across a **NestJS API** and **Next.js frontend** with a shared **SQLite + Drizzle** database.
 
-Three users - Alice (viewer), Bob (editor), Charlie (admin) - each see a different UI based on their permissions. The same access rules are enforced on both the server and the client, defined once in a single shared package.
+Three users - Alice (viewer), Bob (editor), Charlie (admin) - each see a different UI based on their permissions. The rules are defined once in a shared package and enforced by the API; the frontend receives the resulting permission map and uses it to decide what to render.
 
 ## Quick Start
 
@@ -11,7 +11,18 @@ cd examples/blogduck
 ./run.sh
 ```
 
-This builds `@gentleduck/iam`, seeds the database, starts the API on `:3001` and the frontend on `:3000`. Press `Ctrl+C` to stop everything and delete the database.
+This builds `@gentleduck/iam`, seeds the database, starts the API on `:3001` and the frontend on `:3003`. Press `Ctrl+C` to stop everything and delete `packages/shared/data.db`.
+
+The same four steps by hand, if you want the processes in separate terminals:
+
+```bash
+(cd ../../packages/duck-iam && bun run build)   # the API imports the built package
+bun run setup                                   # seeds packages/shared/data.db
+bun run dev:api                                 # :3001
+bun run dev:web                                 # :3003
+```
+
+Three environment variables shift the defaults: `PORT` on the API (default `3001`), and `API_URL` / `NEXT_PUBLIC_API_URL` on the web app, which both default to `http://localhost:3001`. The frontend port is fixed by `next dev --port 3003` in `packages/web/package.json`.
 
 ## Project Structure
 
@@ -30,7 +41,7 @@ blogduck/
 |   |       |-- main.ts             # Entry point
 |   |       |-- app.module.ts       # Root module with global guard
 |   |       |-- access/
-|   |       |   |-- access.guard.ts # Wraps nestAccessGuard
+|   |       |   |-- access.guard.ts # Wraps iamNestAccessGuard
 |   |       |   |-- access.module.ts# Provides engine globally
 |   |       |   +-- authorize.ts    # Typed @Authorize decorator
 |   |       |-- posts/              # CRUD controller + service
@@ -38,6 +49,7 @@ blogduck/
 |   +-- web/                        # Next.js frontend
 |       +-- src/
 |           |-- app/page.tsx        # Server component: fetches data + permissions
+|           |-- app/api/switch-user/route.ts  # Sets the `user-id` cookie
 |           |-- lib/
 |           |   |-- access-client.tsx# Creates AccessProvider, Can, Cannot, useAccess
 |           |   +-- api.ts          # Fetch helper
@@ -56,6 +68,7 @@ Everything starts in `shared/src/access.ts`. You declare your actions and resour
 const access = createIam({
   actions: ['create', 'read', 'update', 'delete'] as const,
   resources: ['post', 'user'] as const,
+  scopes: ['org-1', 'org-2'] as const,
 })
 
 const viewer = access
@@ -84,7 +97,7 @@ const admin = access
   .build()
 ```
 
-The `as const` on the config input is what makes everything type-safe. If you write `.grant('deletee', 'post')`, TypeScript catches the typo at compile time. The same goes for `@Authorize({ action: 'deletee', resource: 'post' })` in your controllers and `<Can action="deletee" resource="post">` in your components.
+The `as const` on the config input is what makes everything type-safe. If you write `.grant('deletee', 'post')`, TypeScript catches the typo at compile time, and so does `@Authorize({ action: 'deletee', resource: 'post' })` in a controller - `packages/api/src/access/authorize.ts` pins `IamAuthorize` to the `AppAction` / `AppResource` unions re-exported from `@blogduck/shared`.
 
 ### 2. Store roles in your database
 
@@ -160,7 +173,7 @@ if (can('delete', 'post')) { ... }
 
 This is the key architectural point. The frontend gates are cosmetic - they hide buttons and forms. The real enforcement happens on the API. If someone bypasses the UI and sends a `DELETE /posts/1` request, the guard blocks it.
 
-Both sides use the same role definitions from `@blogduck/shared`, so they can never disagree about what a viewer or admin can do.
+The rules live in one place: `@blogduck/shared` owns the role definitions, the API is the only thing that evaluates them, and the frontend receives the result as a map. There is no second copy of the rules to drift.
 
 ## The Data Flow
 
@@ -199,13 +212,17 @@ Both sides use the same role definitions from `@blogduck/shared`, so they can ne
 
 ### Type safety from config to UI
 
-The `as const` config propagates literal types everywhere. Your actions are `'create' | 'read' | 'update' | 'delete'`, not `string`. Your resources are `'post' | 'user'`, not `string`. This means:
+The `as const` config propagates literal types through everything that imports `@blogduck/shared`. Your actions are `'create' | 'read' | 'update' | 'delete'`, not `string`. Your resources are `'post' | 'user'`, not `string`. This means:
 
 - `@Authorize({ action: 'publish', resource: 'post' })` - compile error, `'publish'` is not a valid action
-- `<Can action="read" resource="comment">` - compile error, `'comment'` is not a valid resource
 - `engine.can(userId, 'deletee', { type: 'post' })` - compile error, typo caught
 
-You can't ship a permission check that references something that doesn't exist.
+The client factories are generic but default to `string`, and `packages/web` does not depend on `@blogduck/shared`, so `<Can>` here accepts any string. Pass the unions to get the same protection in the UI:
+
+```tsx
+export const { AccessProvider, useAccess, Can, Cannot } =
+  createIamAccessControl<AppAction, AppResource>(React)
+```
 
 ### Role inheritance
 
@@ -223,11 +240,11 @@ The seed script inserts roles from code, but that's just for bootstrapping. In p
 
 ### Scoped roles
 
-Not shown in this example, but the engine supports scoped roles. A user can be an `editor` in `org-1` and a `viewer` in `org-2`:
+`access.ts` declares `scopes: ['org-1', 'org-2']`, but the seed assigns every role unscoped, so nothing in the running app exercises them. A scoped assignment makes a user an `editor` in `org-1` and a `viewer` in `org-2`:
 
 ```ts
-engine.admin.assignRole('alice', 'editor', 'org-1')
-engine.admin.assignRole('alice', 'viewer', 'org-2')
+await engine.admin.assignRole('alice', 'editor', 'org-1')
+await engine.admin.assignRole('alice', 'viewer', 'org-2')
 
 await engine.can('alice', 'create', { type: 'post' }, undefined, 'org-1')  // true
 await engine.can('alice', 'create', { type: 'post' }, undefined, 'org-2')  // false
@@ -243,13 +260,18 @@ Each integration is a thin layer:
 
 | Layer | What it does | Import |
 |-------|-------------|--------|
-| `nestAccessGuard` | Creates a NestJS-compatible guard function | `@gentleduck/iam/server/nest` |
-| `createTypedAuthorize` | Type-safe `@Authorize` decorator factory | `@gentleduck/iam/server/nest` |
-| `createEngineProvider` | NestJS DI provider for the engine | `@gentleduck/iam/server/nest` |
-| `generatePermissionMap` | Batch-evaluates permissions for a user | `@gentleduck/iam/server/generic` |
+| `iamNestAccessGuard` | Creates a NestJS-compatible guard function | `@gentleduck/iam/server/nest` |
+| `IamAuthorize` | The `@Authorize` decorator itself, already generic | `@gentleduck/iam/server/nest` |
+| `createIamEngineProvider` | NestJS DI provider for the engine | `@gentleduck/iam/server/nest` |
+| `generateIamPermissionMap` | Batch-evaluates permissions for a user | `@gentleduck/iam/server/generic` |
 | `createIamAccessControl` | React context + `Can`/`Cannot` components | `@gentleduck/iam/client/react` |
 
-None of these are magic. `nestAccessGuard` is ~30 lines. `createIamAccessControl` is a React context with a `can()` function. You can read the source and understand exactly what happens.
+> 5.0.0 prefixed the public surface with `Iam`. One name did not survive the
+> rename: `createTypedAuthorize` was **removed**, not renamed — `IamAuthorize` is
+> the decorator, not a factory that returns one. See `src/access/authorize.ts`
+> for the one-line alias that keeps the `@Authorize({ ... })` call sites intact.
+
+None of these are magic. `iamNestAccessGuard` is one function (`src/server/nest/index.ts:309-381`) that validates the decorator metadata, resolves the action and resource, and calls `engine.can`. `createIamAccessControl` is a React context with a `can()` function. You can read the source and understand exactly what happens.
 
 ### Caching built in
 
@@ -262,8 +284,8 @@ const engine = access.createEngine({
 })
 
 // Manually bust cache when you change roles
-engine.invalidate()
-engine.invalidateSubject('alice')
+engine.cache.invalidate()
+engine.cache.invalidateSubject('alice')
 ```
 
 ## Users and Permissions

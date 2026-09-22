@@ -50,23 +50,18 @@ Optional peer dependencies (install only what you wire):
 ## Quick start
 
 ```typescript
-import { createAuth } from '@gentleduck/auth/core/config'
-import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
+import { createAuth } from '@gentleduck/auth/core'
+import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
 import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
-import { password } from '@gentleduck/auth/providers/password'
+import { Argon2idHasher, passwords } from '@gentleduck/auth/providers/passwords'
 
-const storage = new MemoryAuthAdapter()
+const storage = new MemoryAdapter()
 
 export const auth = createAuth({
   baseUrl: 'http://localhost:3000',
   storage,
   limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
-  providers: [
-    (a) => password({
-      findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-      passwords: a.passwords,
-    }),
-  ],
+  providers: [passwords({ hasher: new Argon2idHasher() })],
 })
 
 const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
@@ -146,26 +141,177 @@ import {
   MemoryDPoPNonceStore,
   computeJwkThumbprint,
   bindPayloadToDPoP,
-} from '@gentleduck/auth/core/transport/dpop' // RFC 9449
+} from '@gentleduck/auth/core/transport' // RFC 9449
 ```
 
 ## Storage adapters
 
 ```typescript
-import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
-import { drizzlePgStorage }  from '@gentleduck/auth/adapters/drizzle/pg'
-import { drizzleMysqlStorage } from '@gentleduck/auth/adapters/drizzle/mysql'
-import { drizzleSqliteStorage } from '@gentleduck/auth/adapters/drizzle/sqlite'
-import { createSqlAuthStores } from '@gentleduck/auth/adapters/sql' // build your own bridge
+import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
+import { DrizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
+import { DrizzleMysqlAdapter } from '@gentleduck/auth/adapters/drizzle/mysql'
+import { DrizzleSqliteAdapter } from '@gentleduck/auth/adapters/drizzle/sqlite'
 import {
-  RedisSessionStore,
-  RedisIdempotencyStore,
-  RedisLimiter,
+  RedisSessionImpl,
   RedisEvents,
   RedisDPoPNonceStore,
-  FakeRedis, // in-tree, for tests
 } from '@gentleduck/auth/adapters/redis'
+import { RedisLimiter } from '@gentleduck/auth/limiters/redis'
+import { FakeRedis } from '@gentleduck/auth/test' // in-tree, for tests
+
+// One class per dialect, implementing the three store contracts. The constructor takes a
+// connection string, a driver pool, or a drizzle handle you already have.
+const storage = new DrizzlePgAdapter(process.env.DATABASE_URL)
+const { identities, credentials, sessions } = new DrizzlePgAdapter(db)
 ```
+
+### What a call costs
+
+p50 at the adapter boundary - drizzle building the SQL, the driver, the round trip and the row mapping -
+over 50k identities and 100k logins on every backend, on one laptop under everyday load:
+
+| call | Memory | SQLite | Postgres | MySQL |
+| --- | --- | --- | --- | --- |
+| `find({ id })` | 3 µs | 0.089 ms | 0.280 ms | 0.255 ms |
+| `find({ email })` | 7 µs | 0.090 ms | 0.299 ms | 0.259 ms |
+| `find({ providerId, providerSub })` | 8 µs | 0.112 ms | 0.383 ms | 0.282 ms |
+| `create (2 logins)` | 2.125 ms | 0.632 ms | 0.650 ms | 1.184 ms |
+| `erase` | 3 µs | 0.543 ms | 0.499 ms | 1.348 ms |
+| `link` | 0.630 ms | 0.454 ms | 0.549 ms | 1.404 ms |
+| `patchMetadata` | 4 µs | 0.282 ms | 0.271 ms | 0.906 ms |
+
+Reads are index-driven on every dialect and the driver round trip costs ~5x the query it carries. Writes
+are one statement on Postgres (`create` and `erase` are each a single CTE) and a transaction on the
+others, which have no `RETURNING` or no DML inside a `WITH`. Memory's `create` and `link` are the
+outliers: both check a login against every row the adapter holds, which is a test double being one, not a
+store to run 50k accounts through.
+
+Run it yourself with `bun run bench:adapters` - it starts and removes its own containers. The plans, the
+p95s, the method behind these and what is deliberately left unoptimised are in
+[`src/adapters/README.md`](./src/adapters/README.md).
+
+## Transactions
+
+Every SQL-backed write and read can run on a transaction you own. `withTransaction(tx)`
+returns a view of the engine bound to your transaction handle; the handle is opaque to
+duck-auth and is handed straight back to your adapter.
+
+```typescript
+let pending
+await db.transaction(async (tx) => {
+  const auth = engine.withTransaction(tx)
+  await auth.identities.softDelete(identityId)
+  await auth.sessions.revokeAllForIdentity(identityId)
+  await tx.delete(users).where(eq(users.id, identityId))
+  pending = auth.pending
+})
+await pending.flush()   // publish the events only once the commit landed
+```
+
+Nested calls inherit it: `auth.flows.completeAccountDeletion()` reaches
+`identities.softDelete`, `sessions.revokeAllForIdentity` and `credentials.delete`, and all
+three land on your transaction. Reads are bound too, so a read inside the transaction sees
+that transaction's own uncommitted writes.
+
+**Events do not fire inside a transaction.** They buffer in `pending` and publish when you
+call `flush()`. A rolled-back delete therefore never appears in the audit trail as a
+completed one. Call `flush()` after your commit; call `pending.discard()` if you rolled
+back deliberately and want the buffer dropped. `pending.peek()` inspects the buffer without
+draining it.
+
+### What is and isn't transactional
+
+| Surface | In a transaction? | On rollback |
+|---|---|---|
+| `identities`, `sessions`, `credentials` - writes and reads | yes | undone |
+| `flows.*`, including nested facet calls | yes | undone |
+| `mfa`, `apiKeys`, `passwords` credential writes | yes | undone |
+| `orgs` | interface ready; no shipped SQL adapter | n/a |
+| events | buffered in `pending` | never published |
+| channel sends (verification / reset mail) | **no - sent immediately** | mail already delivered |
+| `limiter` counters | **no** | token stays consumed |
+| `idempotency` records | **no** | record stands |
+| `hijack` / `anomaly` scoring | **no** | scores stand |
+
+The last four are guards: they decide *whether* to do the work, they write nothing to SQL,
+and they are not reachable on the bound view at all - use `engine.limiter`,
+`engine.idempotency` and friends outside the transaction. A flow that sends mail should be
+called outside a transaction, or split so the send happens after the commit; no rollback
+can retract a delivered email.
+
+**An engine with no transaction supplied behaves exactly as before:** writes go to its own
+connection and events publish immediately.
+
+### Adapter support
+
+`withTransaction` needs the adapter you passed as `stores` to implement `withClient` - one
+call rebinds every facet, since they share its connection. The drizzle pg, mysql and sqlite
+adapters do. Memory, redis and valkey do not - they cannot join a SQL transaction - and nor
+can a bag you assembled facet by facet, so `withTransaction` throws `AUTH_MISCONFIGURED`
+rather than silently leaving those writes outside your transaction.
+
+### Every mutating call answers with what it did
+
+A write that returns `void` cannot be told apart from one that matched nothing, and forces a
+second read for something the statement already had. Every mutating call returns the row,
+the rows, or the count it touched - `null` / `[]` / `0` when nothing matched. Where the
+dialect has `RETURNING` this is the same round trip.
+
+```typescript
+const identity = await auth.identities.softDelete(id)
+// `deletedAt` is when the grace window CLOSES, so the deadline you show the user
+// comes off the write itself rather than a second reading of the clock.
+identity?.deletedAt        // Date | null
+identity?.emailVerified    // false - the address is free to be claimed meanwhile
+
+const erased = await auth.identities.erase(id, { reason: 'gdpr' })
+// The row as it was: after the delete there is nothing left to read.
+
+const ended = await auth.sessions.revokeAllForIdentity(id)
+`Signed out of ${ended.length} devices`   // no second query; already read to emit events
+```
+
+| Surface | Calls | Answers with |
+|---|---|---|
+| `identities` | `softDelete`, `restore`, `erase`, `link`, `unlink`, `merge` | the row, `null` when nothing matched |
+| `sessions` | `revoke`, `revokeByHash` | the session ended, `null` when the sid matched nothing |
+| `sessions` | `revokeAllForIdentity` | the sessions ended |
+| `stores.credentials` | `revoke`, `delete` / `deleteByKind` | the row / the rows |
+| `apiKeys` | `revoke` | the key revoked |
+| `mfa` | `removeTotp`, `removeWebauthnMfa` | `{ removed }` - the count, not the rows, which carry the secret |
+| `orgs` | `removeMember`, `setRoles` | the membership, with the **sanitized** role set actually stored |
+| `flows` | `completeAccountDeletion`, `cancelAccountDeletion`, `completeEmailVerification`, `linkProvider`, `unlinkProvider` | `identity`, alongside the fields they already returned |
+| `operations` | `maintenance`, `readOnly` | the resulting `State` |
+| `webhooks` | `deliverOne` | one `Delivery` per eligible endpoint |
+| `pending` | `flush`, `discard` | `{ published }` / `{ discarded }` |
+| `anomaly` | `unregister` | whether it removed anything |
+
+Assertions (`apiKeys.requireScopes`, `operations.assertOperationsForRoute`,
+`hijack.applyReaction`), registrations (`anomaly.register`, `providers.register`) and
+`plugins.dispose` stay `void`: they throw or they do not, and a return value would be noise.
+
+### Batch writes
+
+Batch forms take a list and report per-row outcomes instead of collapsing to `void`:
+
+```typescript
+const result = await auth.identities.updateProfileMany([
+  { id: a, patch: { displayName: 'A' }, expectedVersion: 3 },
+  { id: b, patch: { displayName: 'B' }, expectedVersion: 7 },
+])
+result.outcomes  // [{ id: a, ok: true, value: … }, { id: b, ok: false, reason: 'stale-write' }]
+result.applied   // 1
+```
+
+Available on `identities` (`softDeleteMany`, `restoreMany`, `eraseMany`, `updateProfileMany`,
+`linkMany`, `unlinkMany`), `sessions` (`revokeAllForIdentities`, `revokeByHashes`) and the
+credential store (`auth.stores.credentials.deleteByIdentities`). Each collapses to one
+statement per table where the adapter can express it and loops otherwise, so every adapter
+supports every batch form.
+
+A **hard** failure - a constraint violation - throws and aborts your transaction, so one
+bad row rolls the whole batch back. A **soft** failure - a lost optimistic-lock race, a
+missing row - is reported per row and does not throw.
 
 ## Server adapters
 
@@ -175,8 +321,8 @@ import { mountSignIn, mountSignOut, mountProviderBegin } from '@gentleduck/auth/
 app.post('/auth/signin', mountSignIn(auth))
 
 // Hono
-import { mount } from '@gentleduck/auth/server/hono'
-mount(app, auth, { prefix: '/auth' })
+import { mountHono } from '@gentleduck/auth/server/hono'
+mountHono(app, auth, { prefix: '/auth' })
 
 // Next.js App Router
 import { nextSignIn, nextSignOut } from '@gentleduck/auth/server/next'
@@ -187,7 +333,7 @@ import { fastifySignIn } from '@gentleduck/auth/server/fastify'
 import { koaSignIn }     from '@gentleduck/auth/server/koa'
 import { nestSignIn }    from '@gentleduck/auth/server/nestjs'
 import { elysiaSignIn }  from '@gentleduck/auth/server/elysia'
-import { authGrpcService } from '@gentleduck/auth/server/grpc'
+import { withGrpc } from '@gentleduck/auth/server/grpc'
 
 // Generic Web-Fetch executor (Cloudflare Workers, Bun, Deno)
 import { executeIntents, parseSignInBody } from '@gentleduck/auth/server/generic'
@@ -208,12 +354,12 @@ import { executeIntents, parseSignInBody } from '@gentleduck/auth/server/generic
 
 ```typescript
 // React - <Provider> + useSession / useSignIn / useSignOut
-import { createAuthClient } from '@gentleduck/auth/client/react'
+import { Provider, useSession, useSignIn, useSignOut } from '@gentleduck/auth/client/react'
 
-// Vue, Solid, Svelte - parallel APIs
-import { createAuthClient as createVueAuth }    from '@gentleduck/auth/client/vue'
-import { createAuthClient as createSolidAuth }  from '@gentleduck/auth/client/solid'
-import { createAuthClient as createSvelteAuth } from '@gentleduck/auth/client/svelte'
+// Vue, Solid, Svelte - parallel APIs under each framework's own idiom
+import { createAuthVuePlugin, useAuthSession } from '@gentleduck/auth/client/vue'
+import { Provider as SolidProvider, authUseSession } from '@gentleduck/auth/client/solid'
+import { createAuthStore } from '@gentleduck/auth/client/svelte'
 
 // Vanilla - promise-based signIn / signOut / resolveSession
 import { createAuthClient } from '@gentleduck/auth/client/vanilla'
@@ -222,9 +368,11 @@ import { createAuthClient } from '@gentleduck/auth/client/vanilla'
 ## Captcha verifiers
 
 ```typescript
-import { turnstileVerifier } from '@gentleduck/auth/captcha/turnstile'
-import { hcaptchaVerifier }  from '@gentleduck/auth/captcha/hcaptcha'
-import { recaptchaVerifier } from '@gentleduck/auth/captcha/recaptcha'
+import {
+  authTurnstileVerifier,
+  authHCaptchaVerifier,
+  authRecaptchaV3Verifier,
+} from '@gentleduck/auth/core'
 ```
 
 ## Tooling

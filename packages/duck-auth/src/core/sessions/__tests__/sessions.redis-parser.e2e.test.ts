@@ -1,21 +1,6 @@
 /**
  * E2E: what `parseStoredSession` does with a blob it did not write, against REAL
  * Redis.
- *
- * The parser's contract is that it never throws: every failure returns `null`, so
- * a corrupt or tampered row reads as "no session" rather than taking a request
- * down. That contract does not hold, and the cases below say exactly where.
- *
- * These are not new discoveries. They are S1, S1b and S6 from the C1 audit, which
- * `docs/superpowers/plans/C1-sessions/02-sessions-redis-hardening.md` describes in
- * full and nothing has yet implemented. They are pinned here because a plan is a
- * promise and a test is a fact, and because a reader who plants a bad row deserves
- * to find the behaviour written down rather than discover it in production.
- *
- * Nothing here is repaired.
- *
- * Skips when DUCKAUTH_E2E_REDIS_URL is unset; `globalSetup` provisions a container
- * when docker is available.
  */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -65,120 +50,138 @@ suite('E2E RedisSessionImpl parser under corrupt rows (real Redis)', () => {
     }
   })
 
-  describe('the parser is documented never to throw', () => {
-    it('FINDING (audit S1): a null inside factors throws instead of returning null', async () => {
-      // `Array.isArray` narrows the value to `any[]`, so `f.method` is unchecked
-      // and TypeScript says nothing. The try/catch upstream wraps only JSON.parse,
-      // so this escapes. One corrupt or tampered blob turns every read of that
-      // session into a 500, and `getByHash` is on the path of every authed request
-      // for that user.
+  describe('the parser never throws, and never quietly loses a factor', () => {
+    it('returns null rather than throwing on a null inside factors (audit S1)', async () => {
+      // `Array.isArray` narrows the value to `any[]`, so `f.method` was unchecked
+      // and TypeScript said nothing. The try/catch upstream wraps only JSON.parse,
+      // so the throw escaped - and `getByHash` is on the path of every authed
+      // request for that user, so one tampered blob was a permanent 500.
       const id = 'parser-null-factor'
       await plant(id, wellFormed(id, { factors: [null] }))
 
-      await expect(store.getByHash(id)).rejects.toThrow(/Cannot read properties of null/)
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
-    it('FINDING (audit S1): the same blob takes listByIdentity down with it', async () => {
-      // The blast radius is wider than one lookup: anything that parses rows in a
-      // loop inherits the throw, including the active-devices listing.
+    it('no longer takes listByIdentity down with it (audit S1)', async () => {
+      // The blast radius was wider than one lookup: anything parsing rows in a
+      // loop inherited the throw, the active-devices listing included.
       const id = 'parser-null-in-list'
       await plant(id, wellFormed(id, { factors: [null] }))
       await raw.sadd(`${prefix}:idx:identity:identity-1`, id)
 
-      await expect(store.listByIdentity('identity-1')).rejects.toThrow(/Cannot read properties of null/)
+      expect(await store.listByIdentity('identity-1')).toEqual([])
       await raw.srem(`${prefix}:idx:identity:identity-1`, id)
     })
 
-    it('FINDING (audit S1b): a string in factors is dropped silently', async () => {
-      // Quieter than the throw and worse for it: the session comes back with
-      // `factors: []` while `aal` is untouched, so a row claiming two factors
-      // presents no evidence of any. Step-up logic reads that list as authoritative.
+    it('refuses the row when factors holds a string (audit S1b)', async () => {
+      // Quieter than the throw and worse for it. The session used to come back
+      // with `factors: []` and `aal` untouched, so a row claiming two factors
+      // presented evidence of none - and step-up logic reads that list as
+      // authoritative.
       const id = 'parser-string-factor'
       await plant(id, wellFormed(id, { aal: 2, factors: ['password'] }))
 
-      const got = await store.getByHash(id)
-      expect(got).not.toBeNull()
-      expect(got?.aal).toBe(2)
-      expect(got?.factors).toEqual([])
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
-    it('FINDING (audit S1b): a number in factors is dropped silently', async () => {
+    it('refuses the row when factors holds a number (audit S1b)', async () => {
       const id = 'parser-number-factor'
       await plant(id, wellFormed(id, { factors: [7] }))
-      expect((await store.getByHash(id))?.factors).toEqual([])
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
-    it('FINDING (audit S1b): an empty object in factors is dropped silently', async () => {
+    it('refuses the row when a factor entry carries no method (audit S1b)', async () => {
       const id = 'parser-empty-factor'
       await plant(id, wellFormed(id, { factors: [{}] }))
-      expect((await store.getByHash(id))?.factors).toEqual([])
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
-    it('FINDING (audit S6): the sixteen-factor cap is not enforced on read', async () => {
+    it('enforces the sixteen-factor cap on read (audit S6)', async () => {
       // `sessions.create` refuses more than sixteen and `parseJwtPayload` caps at
-      // the same number. This reader accepts as many as the blob carries.
+      // the same number. This reader was the one door in that did not.
       const id = 'parser-many-factors'
       const factors = Array.from({ length: 17 }, () => ({ completedAt: Date.now(), method: 'password' }))
       await plant(id, wellFormed(id, { factors }))
 
-      expect((await store.getByHash(id))?.factors).toHaveLength(17)
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
-    it('FINDING: a partial actingAs envelope is dropped rather than refused', async () => {
-      // Losing the envelope loses both halves of what it is for: the audit trail
-      // saying who the real actor was, and the expiry that bounds the session. The
-      // row then reads as an ordinary session belonging to the impersonated user.
+    it('keeps a row sitting exactly on the cap', async () => {
+      const id = 'parser-cap-factors'
+      const factors = Array.from({ length: 16 }, () => ({ completedAt: Date.now(), method: 'password' }))
+      await plant(id, wellFormed(id, { factors }))
+
+      expect((await store.getByHash(id))?.factors).toHaveLength(16)
+    })
+
+    it('refuses a partial actingAs envelope rather than dropping it', async () => {
+      // Dropping it lost both halves of what the envelope is for: the audit trail
+      // naming the real actor, and the expiry bounding the window. The row then
+      // read as an ordinary session belonging to the impersonated user.
       const id = 'parser-partial-acting'
       await plant(id, wellFormed(id, { actingAs: { realIdentityId: 'admin-1' } }))
 
-      const got = await store.getByHash(id)
-      expect(got).not.toBeNull()
-      expect(got?.actingAs).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    })
+
+    it('keeps a complete actingAs envelope intact', async () => {
+      // The other half of the contract: refusing broken envelopes must not cost
+      // the good ones.
+      const id = 'parser-whole-acting'
+      const startedAt = Date.now()
+      await plant(
+        id,
+        wellFormed(id, {
+          actingAs: { expiresAt: startedAt + 300_000, realIdentityId: 'admin-1', reason: 'support', startedAt },
+        }),
+      )
+
+      expect((await store.getByHash(id))?.actingAs).toMatchObject({ realIdentityId: 'admin-1', reason: 'support' })
     })
   })
 
   describe('where the parser does hold its contract', () => {
     it('returns null for a blob that is not JSON at all', async () => {
       await raw.set(`${prefix}:sess:not-json`, 'definitely-not-json{{{')
-      expect(await store.getByHash('not-json')).toBeNull()
+      await expect(store.getByHash('not-json')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for a top-level array', async () => {
       await plant('an-array', ['nope'])
-      expect(await store.getByHash('an-array')).toBeNull()
+      await expect(store.getByHash('an-array')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for a top-level number', async () => {
       await plant('a-number', 42)
-      expect(await store.getByHash('a-number')).toBeNull()
+      await expect(store.getByHash('a-number')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for an out-of-range aal', async () => {
       const id = 'bad-aal'
       await plant(id, wellFormed(id, { aal: 99 }))
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for an unrecognised kind', async () => {
       const id = 'bad-kind'
       await plant(id, wellFormed(id, { kind: 'browser' }))
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null when expiresAt is unparseable', async () => {
       const id = 'bad-expiry'
       await plant(id, wellFormed(id, { expiresAt: 'never' }))
-      expect(await store.getByHash(id)).toBeNull()
+      await expect(store.getByHash(id)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null when the id is missing', async () => {
       await plant('no-id', { ...wellFormed('no-id'), id: undefined })
-      expect(await store.getByHash('no-id')).toBeNull()
+      await expect(store.getByHash('no-id')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('returns null for an empty object', async () => {
       await plant('empty-object', {})
-      expect(await store.getByHash('empty-object')).toBeNull()
+      await expect(store.getByHash('empty-object')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })
 
     it('drops an unrecognised factor method while keeping the row', async () => {

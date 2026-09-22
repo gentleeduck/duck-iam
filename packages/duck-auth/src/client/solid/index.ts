@@ -1,5 +1,6 @@
-/** Solid client - context + signals; `solid-js` is an OPTIONAL peerDep. Types live in `./types`. */
+/** Context and signals over the vanilla client; `solid-js` is an optional peerDep. Types live in `./types`. */
 import { createContext, createMemo, createSignal, type JSX, onCleanup, onMount, useContext } from 'solid-js'
+import { AuthError } from '~/core/errors'
 import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
 import { createAuthClient, type VanillaClient } from '../vanilla'
@@ -9,7 +10,7 @@ export type { SolidClient } from './types'
 
 const AuthContext = createContext<SolidClient.Context<Identities.ProfileMetadataBase> | null>(null)
 
-/** `Provider`. */
+/** Puts an auth client on the Solid context. Every primitive below reads it. */
 export function Provider<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   props: SolidClient.IProviderProps<Profile>,
 ): JSX.Element {
@@ -46,12 +47,14 @@ function useAuthCtx<
 >(): SolidClient.Context<Profile> {
   const ctx = useContext(AuthContext) as SolidClient.Context<Profile> | null
   if (!ctx) {
-    throw new Error('[@gentleduck/AUTH/client/solid] use* hooks must be used inside <Provider>')
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: '[@gentleduck/auth/client/solid] use* hooks must be used inside <Provider>',
+    })
   }
   return ctx
 }
 
-/** `authUseSession`. */
+/** The current session, refetched when the client says it changed. */
 export function authUseSession<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): SolidClient.UseSessionResult<Profile> {
@@ -81,7 +84,7 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): SolidClient.MutationRe
   }
 }
 
-/** `authUseSignIn`. */
+/** Signs in through a provider. */
 export function authUseSignIn<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): SolidClient.MutationResult<VanillaClient.SignInOptions, Envelope<VanillaClient.SessionResult<Profile>, string>> {
@@ -89,13 +92,13 @@ export function authUseSignIn<
   return useMutation((opts: VanillaClient.SignInOptions) => client.signIn(opts))
 }
 
-/** `authUseSignOut`. */
-export function authUseSignOut(): SolidClient.MutationResult<void, Envelope<Record<string, never>, string>> {
+/** Signs the current session out. */
+export function authUseSignOut(): SolidClient.MutationResult<void, Envelope<unknown, string>> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
-/** `authUseClient`. */
+/** The client on the context, for a call no primitive covers. */
 export function authUseClient<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VanillaClient.Client<Profile> {

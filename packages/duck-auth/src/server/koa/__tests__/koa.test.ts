@@ -73,7 +73,7 @@ describe('Koa adapter', () => {
     ;({ auth, adapter } = buildAuth())
   })
 
-  it('signIn rejects missing providerId with 400 + AUTH/INVALID_CREDENTIALS body', async () => {
+  it('signIn rejects missing providerId with 400 + AUTH_INVALID_CREDENTIALS body', async () => {
     const ctx = makeCtx({ body: {} })
     await koaSignIn(auth)(ctx)
     expect(ctx.status).toBe(400)

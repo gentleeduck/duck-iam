@@ -6,6 +6,13 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 
+/**
+ * Stand-in for the host's proof that it completed the provider's dance. These
+ * suites are about what `linkProvider` does once the caller is trusted; the
+ * callback itself is exercised in `flows-c6-open-findings.test.ts`.
+ */
+const ALLOW_LINK = async () => true
+
 interface ProfileShape extends Identities.ProfileMetadataBase {
   email: string
 }
@@ -42,8 +49,18 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
 
   it('two concurrent linkProvider calls for same (providerId, providerSub) onto DIFFERENT identities: exactly one succeeds', async () => {
     const results = await Promise.allSettled([
-      auth.flows.linkProvider({ identityId: identityA, providerId: 'authGoogle', providerSub: 'sub-X' }),
-      auth.flows.linkProvider({ identityId: identityB, providerId: 'authGoogle', providerSub: 'sub-X' }),
+      auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: identityA,
+        providerId: 'authGoogle',
+        providerSub: 'sub-X',
+      }),
+      auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: identityB,
+        providerId: 'authGoogle',
+        providerSub: 'sub-X',
+      }),
     ])
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
     const rejected = results.filter((r) => r.status === 'rejected')
@@ -52,8 +69,8 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
     const firstRejected = rejected[0]
     if (firstRejected && firstRejected.status === 'rejected') {
       expect(firstRejected.reason).toMatchObject({
-        code: 'AUTH_PROVIDER_FAILED',
-        meta: { detail: 'provider sub already linked to a different identity' },
+        code: 'AUTH_PROVIDER_TAKEN',
+        meta: { providerId: 'authGoogle' },
       })
     } else {
       throw new Error('expected at least one rejection')
@@ -62,14 +79,24 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
 
   it('after race, findByProviderSub returns exactly ONE identity (no inconsistent state)', async () => {
     await Promise.allSettled([
-      auth.flows.linkProvider({ identityId: identityA, providerId: 'authGoogle', providerSub: 'sub-X' }),
-      auth.flows.linkProvider({ identityId: identityB, providerId: 'authGoogle', providerSub: 'sub-X' }),
+      auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: identityA,
+        providerId: 'authGoogle',
+        providerSub: 'sub-X',
+      }),
+      auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: identityB,
+        providerId: 'authGoogle',
+        providerSub: 'sub-X',
+      }),
     ])
     // Whichever identity won, ONLY that one has the link.
-    const found = await adapter.identities.findByProviderSub('authGoogle', 'sub-X')
+    const found = await adapter.identities.find({ providerId: 'authGoogle', providerSub: 'sub-X' })
     expect(found).not.toBeNull()
     const otherId = found?.id === identityA ? identityB : identityA
-    const other = await adapter.identities.findById(otherId)
+    const other = await adapter.identities.find({ id: otherId })
     expect(other?.providers.find((p) => p.providerSub === 'sub-X')).toBeUndefined()
   })
 
@@ -81,7 +108,12 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
       identities.push(ident.id)
     }
     const calls = identities.map((id) =>
-      auth.flows.linkProvider({ identityId: id, providerId: 'authGithub', providerSub: 'race-sub' }),
+      auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'authGithub',
+        providerSub: 'race-sub',
+      }),
     )
     const results = await Promise.allSettled(calls)
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
@@ -90,10 +122,16 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
   })
 
   it('idempotent re-link onto SAME identity is allowed (no false race)', async () => {
-    await auth.flows.linkProvider({ identityId: identityA, providerId: 'authGoogle', providerSub: 'sub-Y' })
+    await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
+      identityId: identityA,
+      providerId: 'authGoogle',
+      providerSub: 'sub-Y',
+    })
     // Second link to same identity is a no-op (the facet's
     // alreadyLinked check fires before the store call).
     const r = await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
       identityId: identityA,
       providerId: 'authGoogle',
       providerSub: 'sub-Y',
@@ -112,18 +150,8 @@ describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
     await expect(
       adapter.identities.link(identityB, { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: new Date() }),
     ).rejects.toMatchObject({
-      code: 'AUTH_PROVIDER_FAILED',
-      meta: { detail: 'provider sub already linked to a different identity' },
+      code: 'AUTH_PROVIDER_TAKEN',
+      meta: { providerId: 'authGithub' },
     })
-  })
-
-  it('link without providerSub (magic-link-style) is allowed across identities (no sub-uniqueness applies)', async () => {
-    // The magic-link provider creates links with `providerSub:
-    // undefined`. The uniqueness invariant only applies when both
-    // sides have a sub.
-    await adapter.identities.link(identityA, { providerId: 'magic-link', providerSub: null, addedAt: new Date() })
-    await adapter.identities.link(identityB, { providerId: 'magic-link', providerSub: null, addedAt: new Date() })
-    // Both succeeded - no error.
-    expect(true).toBe(true)
   })
 })

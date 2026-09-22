@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,27 +13,66 @@ import {
   authRun,
 } from '../index'
 
+/** A name the shell and `process.env` both accept. A rename sweep once replaced the `DUCK_AUTH_`
+ *  prefix with `DUCK_AUTH/`, which reads as a division in the code it scaffolds. */
+const LEGAL_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 describe('duck-auth CLI - scaffold templates', () => {
   it('quickstart scaffold names the in-memory adapter + scrypt hasher', () => {
     const text = __scaffoldTemplate('quickstart')
-    expect(text).toContain('AuthMemoryAdapter')
-    expect(text).toContain('AuthScryptHasher')
-    expect(text).toContain('AuthCookieTransport')
+    expect(text).toContain('MemoryAdapter')
+    expect(text).toContain('ScryptHasher')
+    expect(text).toContain('CookieTransport')
   })
 
-  it('production scaffold names Redis + Argon2id + AuthJwtTransport', () => {
+  it('production scaffold names Redis + Argon2id + JwtTransport', () => {
     const text = __scaffoldTemplate('production')
-    expect(text).toContain('RedisSessionStore')
-    expect(text).toContain('AuthArgon2idHasher')
-    expect(text).toContain('AuthJwtTransport')
-    expect(text).toContain("env: 'production'")
+    expect(text).toContain('RedisSessionImpl')
+    expect(text).toContain('Argon2idHasher')
+    expect(text).toContain('JwtTransport')
+    // `env` is not an AuthEngine option; production hardening is the strict() call.
+    expect(text).toContain("auth.strict({ env: 'production' })")
+    expect(text).not.toContain("env: 'production',")
+  })
+
+  it.each(['quickstart', 'production'] as const)('%s reads only legal env var names', (flavor) => {
+    const names = [...__scaffoldTemplate(flavor).matchAll(/process\.env\.([^\s!?)},;]+)/g)].map((m) => m[1] ?? '')
+    expect(names.length).toBeGreaterThan(0)
+    expect(names.filter((n) => !LEGAL_ENV_NAME.test(n))).toEqual([])
   })
 
   it('env template includes the required vars + warning comment', () => {
     const env = __envTemplate()
-    expect(env).toContain('DUCK_AUTH/BASE_URL')
-    expect(env).toContain('DUCK_AUTH/HS256_SECRET')
+    expect(env).toContain('DUCK_AUTH_BASE_URL')
+    expect(env).toContain('DUCK_AUTH_HS256_SECRET')
     expect(env).toContain('REDIS_URL')
+  })
+
+  it('every key the env template assigns is a legal env var name', () => {
+    const keys = __envTemplate()
+      .split('\n')
+      .filter((l) => l.includes('=') && !l.trimStart().startsWith('#'))
+      .map((l) => l.split('=')[0] ?? '')
+    expect(keys.length).toBeGreaterThan(0)
+    expect(keys.filter((k) => !LEGAL_ENV_NAME.test(k))).toEqual([])
+  })
+
+  it('the scaffold and the env template agree on every name', () => {
+    const declared = new Set(
+      __envTemplate()
+        .split('\n')
+        .filter((l) => l.includes('=') && !l.trimStart().startsWith('#'))
+        .map((l) => l.split('=')[0] ?? ''),
+    )
+    for (const flavor of ['quickstart', 'production'] as const) {
+      const read = [...__scaffoldTemplate(flavor).matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g)].map(
+        (m) => m[1] ?? '',
+      )
+      expect(
+        read.filter((n) => !declared.has(n)),
+        `${flavor} reads an undeclared var`,
+      ).toEqual([])
+    }
   })
 })
 
@@ -58,14 +97,34 @@ describe('duck-auth CLI - init subcommand', () => {
     const authText = readFileSync(join(workDir, 'my-auth', 'auth.ts'), 'utf8')
     expect(authText).toContain('AuthEngine')
     const envText = readFileSync(join(workDir, 'my-auth', '.env.duck-auth'), 'utf8')
-    expect(envText).toContain('DUCK_AUTH/BASE_URL')
+    expect(envText).toContain('DUCK_AUTH_BASE_URL')
   })
 
   it('--production flag emits the production scaffold', async () => {
     const code = await __init(['prod-auth', '--production'])
     expect(code).toBe(0)
     const authText = readFileSync(join(workDir, 'prod-auth', 'auth.ts'), 'utf8')
-    expect(authText).toContain('RedisSessionStore')
+    expect(authText).toContain('RedisSessionImpl')
+  })
+
+  it('creates the env file owner-only, since it is where the HS256 secret goes', async () => {
+    expect(await __init(['perm-auth'])).toBe(0)
+    const mode = statSync(join(workDir, 'perm-auth', '.env.duck-auth')).mode & 0o777
+    expect(mode & 0o077, `group/other bits set: ${mode.toString(8)}`).toBe(0)
+  })
+
+  it('keeps an existing env file and says so rather than claiming it scaffolded one', async () => {
+    const stdout: string[] = []
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdout.push(typeof chunk === 'string' ? chunk : chunk.toString())
+      return true
+    })
+    mkdirSync(join(workDir, 'keep-auth'), { recursive: true })
+    writeFileSync(join(workDir, 'keep-auth', '.env.duck-auth'), 'DUCK_AUTH_HS256_SECRET=live-secret\n')
+    expect(await __init(['keep-auth'])).toBe(0)
+    spy.mockRestore()
+    expect(readFileSync(join(workDir, 'keep-auth', '.env.duck-auth'), 'utf8')).toContain('live-secret')
+    expect(stdout.join('')).toContain('kept existing')
   })
 
   it('refuses to overwrite an existing auth.ts', async () => {
@@ -88,7 +147,7 @@ describe('duck-auth CLI - keys subcommand', () => {
     const code = await __keys(['generate', 'hs256'])
     expect(code).toBe(0)
     const combined = writes.join('')
-    expect(combined).toContain('DUCK_AUTH/HS256_SECRET')
+    expect(combined).toContain('DUCK_AUTH_HS256_SECRET')
     expect(combined).toMatch(/[A-Za-z0-9_-]{40,}/)
     spy.mockRestore()
   })
@@ -145,11 +204,11 @@ describe('duck-auth CLI - help / dispatch', () => {
 
 describe('duck-auth CLI - migrate', () => {
   it.each(['pg', 'mysql', 'sqlite'] as const)('renders DDL for %s with default prefix', (dialect) => {
-    const ddl = __renderMigration(dialect, 'AUTH/')
-    expect(ddl).toContain(`AuthSqlBridge schema (${dialect})`)
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS AUTH/identities')
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS AUTH/credentials')
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS AUTH/sessions')
+    const ddl = __renderMigration(dialect, 'auth_')
+    expect(ddl).toContain(`duck-auth schema (${dialect})`)
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS auth_identities')
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS auth_credentials')
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS auth_sessions')
     expect(ddl).toContain('CREATE INDEX')
   })
 
@@ -158,7 +217,7 @@ describe('duck-auth CLI - migrate', () => {
     expect(ddl).toContain('tenant_identities')
     expect(ddl).toContain('tenant_credentials')
     expect(ddl).toContain('tenant_sessions')
-    expect(ddl).not.toContain('AUTH_identities')
+    expect(ddl).not.toContain('auth_identities')
   })
 
   it('pg uses bigint, sqlite uses INTEGER, mysql uses BIGINT', () => {
@@ -184,7 +243,7 @@ describe('duck-auth CLI - migrate', () => {
       const code = await __migrate(['sqlite', `--out=schema.sql`])
       expect(code).toBe(0)
       const written = readFileSync(join(dir, 'schema.sql'), 'utf8')
-      expect(written).toContain('AuthSqlBridge schema (sqlite)')
+      expect(written).toContain('duck-auth schema (sqlite)')
       stdout.mockRestore()
     } finally {
       process.chdir(originalCwd)

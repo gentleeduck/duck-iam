@@ -4,6 +4,8 @@ import { AuthSesChannel } from '../index'
 
 function makeIdentity(email: string | undefined): Identities.Me {
   return {
+    createdBy: null,
+    updatedBy: null,
     id: 'ident-1',
     // Empty email string models the "no deliverable address" case; the channel
     // reads it via getProfileString, which treats '' as absent (returns ok:false).
@@ -14,6 +16,7 @@ function makeIdentity(email: string | undefined): Identities.Me {
     createdAt: new Date(Date.now()),
     updatedAt: new Date(Date.now()),
     deletedAt: null,
+    deletedBy: null,
   }
 }
 
@@ -28,7 +31,7 @@ describe('AuthSesChannel', () => {
         new AuthSesChannel({
           client: makeClient(),
           from: '',
-          templates: () => ({ subject: 'x' }),
+          templates: () => ({ subject: 'x', text: 'body' }),
         }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
@@ -39,7 +42,7 @@ describe('AuthSesChannel', () => {
         new AuthSesChannel({
           client: null as unknown as AuthSesChannel.IClient,
           from: 'noreply@app.test',
-          templates: () => ({ subject: 'x' }),
+          templates: () => ({ subject: 'x', text: 'body' }),
         }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
@@ -48,7 +51,7 @@ describe('AuthSesChannel', () => {
     const channel = new AuthSesChannel({
       client: makeClient(),
       from: 'noreply@app.test',
-      templates: () => ({ subject: 'x' }),
+      templates: () => ({ subject: 'x', text: 'body' }),
     })
     const result = await channel.send({
       identity: makeIdentity(undefined),
@@ -78,12 +81,31 @@ describe('AuthSesChannel', () => {
     expect(result.error).toContain('template-missing')
   })
 
-  it('SES SDK missing surfaces AUTH/MISCONFIGURED message via ok:false', async () => {
-    // Without @aws-sdk/client-ses installed in this workspace, the
-    // command import inside send() throws AUTH/MISCONFIGURED; the
-    // channel catches + reports as ok:false so the caller sees it.
+  it('names the configuration set the way SES spells it', async () => {
+    // A find-and-replace had shortened the key to `CfgurationSetName`, which SES does not know, so
+    // every feedback notification the set exists for was silently not configured.
+    const seen: Array<{ input: Record<string, unknown> }> = []
     const channel = new AuthSesChannel({
-      client: makeClient(),
+      client: {
+        send: async (command) => {
+          seen.push(command as { input: Record<string, unknown> })
+          return { MessageId: 'ses-1' }
+        },
+      },
+      configurationSetName: 'auth-notifications',
+      from: 'noreply@app.test',
+      templates: () => ({ subject: 'x', text: 'y' }),
+    })
+    await channel.send({ identity: makeIdentity('user@x.com'), templateId: 'x', tenant: {}, vars: {} })
+    expect(seen[0]?.input).toMatchObject({ ConfigurationSetName: 'auth-notifications' })
+  })
+
+  it('delivers through an injected client with the SDK absent from the workspace', async () => {
+    // @aws-sdk/client-ses is not installed here, and a caller who supplied a client should not
+    // need it: the command class is only an envelope around the request this builds.
+    const client = makeClient()
+    const channel = new AuthSesChannel({
+      client,
       from: 'noreply@app.test',
       templates: () => ({ subject: 'x', text: 'y' }),
     })
@@ -93,10 +115,6 @@ describe('AuthSesChannel', () => {
       vars: {},
       tenant: {},
     })
-    expect(result.ok).toBe(false)
-    // SDK missing surfaces as AUTH/MISCONFIGURED (Error.message = code);
-    // the install-hint lives in the AuthError.meta.detail. The
-    // channel boundary turns the throw into ok:false.error = message.
-    expect(result.error).toContain('AUTH_MISCONFIGURED')
+    expect(result.ok).toBe(true)
   })
 })

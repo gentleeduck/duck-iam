@@ -65,7 +65,7 @@ async function plantCredential(
   identityId: string,
   metadata: unknown,
 ): Promise<void> {
-  await adapter.credentials.upsert(
+  await adapter.credentials.create(
     credentialInput({
       identityId,
       kind: 'passkey',
@@ -106,7 +106,7 @@ describe('passkey complete() - metadata parser', () => {
     return (intents[0] && intents[0].type === 'json' && (intents[0].body as { challenge?: string }).challenge) || ''
   }
 
-  it('rejects credential with no publicKey field (AUTH/PASSKEY_MISMATCH)', async () => {
+  it('rejects credential with no publicKey field (AUTH_PASSKEY_MISMATCH)', async () => {
     await begin()
     await plantCredential(adapter, identityId, { counter: 0 })
     const provider = passkey<ProfileShape>(opts)

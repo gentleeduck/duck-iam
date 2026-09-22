@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FakeRedis } from '~/adapters/redis/redis-like'
+import { FakeRedis } from '~/core/drivers/redis-like'
 import { RedisIdempotency } from '../idempotency.redis'
 
 const ctx = { tenantId: 'acme' }
@@ -16,76 +16,76 @@ describe('RedisIdempotencyStore.get - parser hardening', () => {
   })
 
   describe('malformed JSON', () => {
-    it('returns null on truncated JSON (no SyntaxError propagation)', async () => {
+    it('refuses on truncated JSON (no SyntaxError propagation)', async () => {
       await redis.set(STORAGE_KEY, '{"status":200,"bo')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null on garbage bytes', async () => {
+    it('refuses on garbage bytes', async () => {
       await redis.set(STORAGE_KEY, 'not-json-at-all-just-binary-blob')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null on empty string body', async () => {
+    it('refuses on empty string body', async () => {
       // SET '' is normally indistinguishable from missing for our store
-      // (its `get` returns null for falsy raw). Verify the contract.
+      // (its `get` refuses a falsy raw). Verify the contract.
       await redis.set(STORAGE_KEY, '')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
   })
 
   describe('non-object JSON values (the `null.status` crash class)', () => {
-    it('returns null on `JSON.parse("null")` - no TypeError on .status', async () => {
+    it('refuses on `JSON.parse("null")` - no TypeError on .status', async () => {
       await redis.set(STORAGE_KEY, 'null')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null on a plain number', async () => {
+    it('refuses on a plain number', async () => {
       await redis.set(STORAGE_KEY, '42')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null on a plain string', async () => {
+    it('refuses on a plain string', async () => {
       await redis.set(STORAGE_KEY, '"oops"')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null on a boolean', async () => {
+    it('refuses on a boolean', async () => {
       await redis.set(STORAGE_KEY, 'true')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null on an array (which would silently bypass .status check)', async () => {
+    it('refuses on an array (which would silently bypass .status check)', async () => {
       await redis.set(STORAGE_KEY, '[]')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
   })
 
   describe('wrong-shape objects', () => {
-    it('returns null on empty object (no status / createdAt fields)', async () => {
+    it('refuses on empty object (no status / createdAt fields)', async () => {
       await redis.set(STORAGE_KEY, '{}')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null when status is a string (not a number)', async () => {
+    it('refuses when status is a string (not a number)', async () => {
       await redis.set(STORAGE_KEY, JSON.stringify({ status: '200', body: null, createdAt: Date.now() }))
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null when status is NaN', async () => {
+    it('refuses when status is NaN', async () => {
       // JSON.stringify(NaN) === 'null' so we have to bypass via raw string.
       await redis.set(STORAGE_KEY, '{"status":NaN,"body":null,"createdAt":1}')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null when createdAt is missing', async () => {
+    it('refuses when createdAt is missing', async () => {
       await redis.set(STORAGE_KEY, JSON.stringify({ status: 200, body: null }))
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
 
-    it('returns null when createdAt is non-finite', async () => {
+    it('refuses when createdAt is non-finite', async () => {
       await redis.set(STORAGE_KEY, '{"status":200,"body":null,"createdAt":"yesterday"}')
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
   })
 
@@ -101,8 +101,7 @@ describe('RedisIdempotencyStore.get - parser hardening', () => {
         }),
       )
       const got = await store.get('k1', ctx)
-      expect(got).not.toBeNull()
-      expect(got?.headers).toEqual({ 'X-Foo': 'bar' })
+      expect(got.headers).toEqual({ 'X-Foo': 'bar' })
     })
 
     it('drops headers entirely when the field is not a plain object', async () => {
@@ -116,8 +115,7 @@ describe('RedisIdempotencyStore.get - parser hardening', () => {
         }),
       )
       const got = await store.get('k1', ctx)
-      expect(got).not.toBeNull()
-      expect(got?.headers).toBeUndefined()
+      expect(got.headers).toBeUndefined()
     })
   })
 
@@ -125,9 +123,9 @@ describe('RedisIdempotencyStore.get - parser hardening', () => {
     it('round-trips a well-formed entry', async () => {
       await store.put('k1', { status: 200, body: { ok: true }, createdAt: new Date(42) }, 60_000, ctx)
       const got = await store.get('k1', ctx)
-      expect(got?.status).toBe(200)
-      expect(got?.body).toEqual({ ok: true })
-      expect(got?.createdAt).toEqual(new Date(42))
+      expect(got.status).toBe(200)
+      expect(got.body).toEqual({ ok: true })
+      expect(got.createdAt).toEqual(new Date(42))
     })
 
     it('round-trips well-formed entry with valid headers', async () => {
@@ -138,12 +136,12 @@ describe('RedisIdempotencyStore.get - parser hardening', () => {
         ctx,
       )
       const got = await store.get('k1', ctx)
-      expect(got?.headers).toEqual({ 'X-Trace-Id': 'abc' })
+      expect(got.headers).toEqual({ 'X-Trace-Id': 'abc' })
     })
 
     it('still filters the claim tombstone', async () => {
       await store.claim('k1', 60_000, ctx)
-      await expect(store.get('k1', ctx)).resolves.toBeNull()
+      await expect(store.get('k1', ctx)).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
     })
   })
 })

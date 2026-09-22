@@ -80,7 +80,7 @@ describe('NestJS adapter - handlers', () => {
     ;({ auth, adapter } = buildAuth())
   })
 
-  it('signIn missing providerId -> 400 + AUTH/INVALID_CREDENTIALS', async () => {
+  it('signIn missing providerId -> 400 + AUTH_INVALID_CREDENTIALS', async () => {
     const reply = makeReply()
     await nestSignIn(auth)({ method: 'POST', url: '/AUTH/signin', headers: {}, body: {} } as NestAdapter.Request, reply)
     expect(reply._status).toBe(400)
@@ -139,7 +139,7 @@ describe('NestJS adapter - makeGuard', () => {
     ;({ auth } = buildAuth())
   })
 
-  it('required:true + no cookie -> throws AUTH/UNAUTHENTICATED', async () => {
+  it('required:true + no cookie -> throws AUTH_UNAUTHENTICATED', async () => {
     const guard = makeGuard(auth)
     const req: NestAdapter.Request = { method: 'GET', headers: {}, session: null, identity: null }
     await expect(
@@ -211,5 +211,153 @@ describe('NestJS adapter - route CSRF', () => {
     }
     await expect(nestSignIn(auth)(req, reply)).rejects.toMatchObject({ code: 'AUTH_CSRF' })
     expect(reply._status).toBe(403)
+  })
+})
+
+describe('NestJS adapter - nestSignIn onAuthenticated', () => {
+  let auth: ReturnType<typeof buildAuth>['auth']
+  let adapter: ReturnType<typeof buildAuth>['adapter']
+
+  beforeEach(() => {
+    ;({ auth, adapter } = buildAuth())
+  })
+
+  async function seedIdentity(): Promise<string> {
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { email: 'user@x.com', username: 'user' }, providers: [] }),
+    )
+    await auth.passwords.set(ident.id, 'correcthorsebatterystaple', adapter.credentials)
+    return ident.id
+  }
+
+  function signInReq(): NestAdapter.Request {
+    return {
+      body: {
+        input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
+        providerId: 'password',
+      },
+      headers: {},
+      method: 'POST',
+      url: '/AUTH/signin',
+    } as NestAdapter.Request
+  }
+
+  /** Is the SID the flow just minted still good? */
+  async function sessionAlive(sid: string): Promise<boolean> {
+    const resolved = await auth.resolveSession({ headers: new Headers({ cookie: `duck-sid=${sid}` }) }).orNull()
+    return resolved !== null
+  }
+
+  it('a hook returning nothing leaves the happy path untouched', async () => {
+    await seedIdentity()
+    const reply = makeReply()
+    let sid = ''
+    await nestSignIn(auth, {
+      onAuthenticated: (outcome) => {
+        sid = outcome.sid
+      },
+    })(signInReq(), reply)
+
+    expect(reply._status).toBe(200)
+    expect((reply._headers.get('set-cookie') ?? [])[0]).toContain('duck-sid=')
+    expect(await sessionAlive(sid)).toBe(true)
+  })
+
+  it('the hook sees the identity behind the session it is gating', async () => {
+    const identityId = await seedIdentity()
+    const seen: (string | null | undefined)[] = []
+    await nestSignIn(auth, {
+      onAuthenticated: (outcome) => {
+        seen.push(outcome.session?.identityId)
+      },
+    })(signInReq(), makeReply())
+
+    expect(seen).toEqual([identityId])
+  })
+
+  it('a denial answers with the code and revokes the session it just created', async () => {
+    await seedIdentity()
+    const reply = makeReply()
+    let sid = ''
+    await nestSignIn(auth, {
+      onAuthenticated: (outcome) => {
+        sid = outcome.sid
+        return { code: 'AUTH_NOT_PERMITTED_ON_HOST', detail: 'wrong host', status: 403 }
+      },
+    })(signInReq(), reply)
+
+    expect(reply._status).toBe(403)
+    expect(JSON.parse(reply._body!)).toEqual({
+      error: { code: 'AUTH_NOT_PERMITTED_ON_HOST', detail: 'wrong host', status: 403 },
+      ok: false,
+    })
+    // The one that matters: a 403 with a live session behind it is the bypass.
+    expect(await sessionAlive(sid)).toBe(false)
+  })
+
+  it('a denial clears the cookie instead of leaving it on a dead session', async () => {
+    await seedIdentity()
+    const reply = makeReply()
+    await nestSignIn(auth, {
+      onAuthenticated: () => ({ code: 'AUTH_NOT_PERMITTED_ON_HOST', status: 403 }),
+    })(signInReq(), reply)
+
+    // `transport.revoke()` clears the SID and the CSRF cookie, so there is more than one.
+    const cookies = reply._headers.get('set-cookie') ?? []
+    expect(cookies.length).toBeGreaterThan(0)
+    for (const cookie of cookies) expect(cookie).toMatch(/Max-Age=0/i)
+    // No cookie may carry a value: a denial that ships a SID is the bug.
+    expect(cookies.some((c) => /duck-sid=[^;]/.test(c))).toBe(false)
+  })
+
+  it('a denial the adapter cannot read still denies, at 403', async () => {
+    await seedIdentity()
+    const reply = makeReply()
+    let sid = ''
+    await nestSignIn(auth, {
+      onAuthenticated: (outcome) => {
+        sid = outcome.sid
+        // A consumer bug: a 2xx would render the refusal as a success.
+        return { code: '  ', status: 200 }
+      },
+    })(signInReq(), reply)
+
+    expect(reply._status).toBe(403)
+    expect(reply._body).toContain('AUTH_DENIED')
+    expect(await sessionAlive(sid)).toBe(false)
+  })
+
+  it('a hook that throws does not leave the session behind', async () => {
+    await seedIdentity()
+    const reply = makeReply()
+    let sid = ''
+    await expect(
+      nestSignIn(auth, {
+        onAuthenticated: (outcome) => {
+          sid = outcome.sid
+          throw new Error('lookup exploded')
+        },
+      })(signInReq(), reply),
+    ).rejects.toThrow('lookup exploded')
+
+    expect(reply._status).toBe(500)
+    expect(await sessionAlive(sid)).toBe(false)
+  })
+
+  it('the hook is never consulted when the credentials themselves fail', async () => {
+    const reply = makeReply()
+    let ran = false
+    // No identity seeded: the password provider throws before any session exists, so there is
+    // nothing for the hook to gate - and nothing for it to leak about who does exist.
+    await expect(
+      nestSignIn(auth, {
+        onAuthenticated: () => {
+          ran = true
+        },
+      })(signInReq(), reply),
+    ).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
+
+    expect(ran).toBe(false)
+    expect(reply._status).toBe(401)
   })
 })

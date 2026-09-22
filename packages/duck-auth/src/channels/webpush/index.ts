@@ -6,6 +6,12 @@
 
 import type { Channel } from '~/channels/channels.types'
 import { AuthError } from '~/core/errors'
+import { assertSafeOutboundUrl } from '~/core/url-validators'
+import { ChannelGuard } from '../channels.guard'
+import { describeSendError } from '../channels.outbound'
+
+/** RFC 8291: an encrypted push payload is at most 4096 octets, and push services refuse more. */
+const PAYLOAD_MAX_BYTES = 4096
 
 export namespace AuthWebPushChannel {
   /** Standard Push API subscription shape. */
@@ -18,7 +24,7 @@ export namespace AuthWebPushChannel {
     }
   }
 
-  /** Subset of the `web-push` library we depend on. */
+  /** The subset of the `web-push` library this uses. */
   export interface IModule {
     setVapidDetails(subject: string, publicKey: string, privateKey: string): void
     sendNotification(
@@ -34,8 +40,7 @@ export namespace AuthWebPushChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ payload: string; ttl?: number }> | { payload: string; ttl?: number }
 
-  /** Cfg knobs for {@link AuthWebPushChannel}. */
-  export interface Cfg {
+  export interface Cfg extends ChannelGuard.Cfg {
     /** VAPID subject (HTTPS URL or mailto: URI). Required. */
     subject: string
     /** VAPID public key (base64url). Required. */
@@ -77,6 +82,7 @@ export class AuthWebPushChannel implements Channel.Channel {
   readonly id: string
   private readonly _cfg: AuthWebPushChannel.Cfg
   private _modulePromise: Promise<AuthWebPushChannel.IModule> | null = null
+  private readonly _guard: ChannelGuard
 
   constructor(cfg: AuthWebPushChannel.Cfg) {
     if (!cfg.subject || !cfg.publicKey || !cfg.privateKey) {
@@ -86,6 +92,7 @@ export class AuthWebPushChannel implements Channel.Channel {
     }
     this._cfg = cfg
     this.id = cfg.id ?? 'web-push'
+    this._guard = new ChannelGuard(this.id, cfg)
   }
 
   /** Lazy-load + configure VAPID once per process. */
@@ -107,34 +114,56 @@ export class AuthWebPushChannel implements Channel.Channel {
     const profile = input.identity.profile as { pushSubscription?: AuthWebPushChannel.ISubscription } | undefined
     const subscription = profile?.pushSubscription
     if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
-      return { ok: false, error: 'identity has no pushSubscription; AuthWebPushChannel cannot deliver' }
+      return {
+        error: 'identity has no pushSubscription; AuthWebPushChannel cannot deliver',
+        ok: false,
+        retryable: false,
+      }
     }
+    // The endpoint is a URL this process will POST to, held on a user-editable profile field, so it
+    // gets the same treatment as a webhook endpoint rather than none.
+    try {
+      assertSafeOutboundUrl(subscription.endpoint, { label: 'AuthWebPushChannel subscription endpoint' })
+    } catch (err) {
+      return { error: describeSendError(err), ok: false, retryable: false }
+    }
+    const budget = await this._guard.spend(input).wrap()
+    if (budget.error) return { error: budget.error.code, ok: false, retryable: true }
     let resolved: Awaited<ReturnType<AuthWebPushChannel.ITemplateResolver>>
     try {
       resolved = await this._cfg.templates(input.templateId, input.vars)
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      return { error: describeSendError(err), ok: false, retryable: false }
+    }
+    const size = Buffer.byteLength(resolved.payload)
+    if (size > PAYLOAD_MAX_BYTES) {
+      return {
+        error: `AuthWebPushChannel: payload is ${size} bytes, over the ${PAYLOAD_MAX_BYTES} a push service accepts`,
+        ok: false,
+        retryable: false,
+      }
     }
     try {
       const mod = await this._module()
-      const response = await mod.sendNotification(subscription, resolved.payload, {
-        ...(resolved.ttl !== undefined && { TTL: resolved.ttl }),
-      })
+      const response = await this._guard.attempt(() =>
+        mod.sendNotification(subscription, resolved.payload, {
+          ...(resolved.ttl !== undefined && { TTL: resolved.ttl }),
+        }),
+      )
       const out: Channel.SendResult = { ok: true }
       if (response.statusCode !== undefined) {
         out.providerMessageId = `webpush:${response.statusCode}`
       }
       return out
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
       const statusCode = (err as { statusCode?: number }).statusCode
-      const composed = statusCode ? `${statusCode}:${message}` : message
-      return { ok: false, error: composed }
+      const message = describeSendError(err)
+      return { error: statusCode ? `${statusCode}:${message}` : message, ok: false, retryable: true }
     }
   }
 }
 
-/** Factory around {@link AuthWebPushChannel}, for callers who prefer functions to `new`. */
+/** Web Push channel over VAPID. */
 export function authWebPushChannel(...args: ConstructorParameters<typeof AuthWebPushChannel>): AuthWebPushChannel {
   return new AuthWebPushChannel(...args)
 }

@@ -1,12 +1,7 @@
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 /**
- * Fluent condition builder for duck-iam rules and role permissions.
- *
- * `When` accumulates a list of {@link AccessControl.ICondition} and nested {@link AccessControl.IConditionGroup}
- * items and then emits them as an `all` (AND), `any` (OR), or `none` (NOT) group
- * via the terminal build methods. It is used as the callback argument in
- * {@link RuleBuilder.when}, {@link RuleBuilder.whenAny}, and
- * {@link RoleBuilder.grantWhen}.
+ * Chainable condition builder passed to `RuleBuilder.when`, `RuleBuilder.whenAny` and
+ * `RoleBuilder.grantWhen`. `buildAll`/`buildAny`/`buildNone` emit the AND/OR/NOT group.
  *
  * @example
  * ```ts
@@ -47,23 +42,15 @@ export class When<
   private _items: Array<AccessControl.ICondition | AccessControl.IConditionGroup> = []
 
   /**
-   * Appends a raw {@link AccessControl.ICondition} to the builder with fully typed dot-path
-   * field access. The `field` parameter is constrained to valid paths within
-   * `TContext`, and `value` is inferred from the type at that path.
-   *
-   * @param field - Dot-path to the attribute being tested (e.g. `'subject.attributes.tier'`)
-   * @param op    - The {@link AccessControl.Operator} to apply
-   * @param value - The right-hand side value (omit for `exists`)
-   * @returns `this` for chaining
+   * Appends a raw condition. `field` is a typed dot-path into `TContext`; `value` is inferred from it.
+   * Omit `value` for `exists`.
    *
    * @example
    * ```ts
    * w.check('subject.attributes.status', 'eq', 'banned')   // OK
-   * w.check('environment.hour', 'gte', 9)                  // OK
    * w.check('resource.attributes.status', 'eq', 'deleted') // ERROR if 'deleted' not in type
    * w.check('subject.attributes.age', 'eq', 30)            // ERROR if 'age' not in type
    * ```
-   * @returns `this` for chaining.
    */
   check<P extends DotPath.FlexibleDotPaths<TContext>>(
     field: P,
@@ -74,13 +61,7 @@ export class When<
     return this
   }
 
-  /**
-   * Asserts `field == value`.
-   *
-   * @param field - Typed dot-path attribute path
-   * @param value - Expected value (inferred from path type)
-   * @returns `this` for chaining
-   */
+  /** Asserts `field == value`. */
   eq<P extends DotPath.FlexibleDotPaths<TContext>>(
     field: P,
     value: DotPath.FieldValue<TContext, P> | DotPath.FlexibleDollarPaths<TContext>,
@@ -89,13 +70,7 @@ export class When<
     return this
   }
 
-  /**
-   * Asserts `field != value`.
-   *
-   * @param field - Typed dot-path attribute path
-   * @param value - Value the field must not equal
-   * @returns `this` for chaining
-   */
+  /** Asserts `field != value`. */
   neq<P extends DotPath.FlexibleDotPaths<TContext>>(
     field: P,
     value: DotPath.FieldValue<TContext, P> | DotPath.FlexibleDollarPaths<TContext>,
@@ -104,13 +79,7 @@ export class When<
     return this
   }
 
-  /**
-   * Asserts `field` is one of the given `values`.
-   *
-   * @param field  - Typed dot-path attribute path
-   * @param values - Array of acceptable values
-   * @returns `this` for chaining
-   */
+  /** Asserts `field` is one of `values`. An empty list matches nothing. */
   in<P extends DotPath.FlexibleDotPaths<TContext>>(
     field: P,
     values: Array<DotPath.FieldValue<TContext, P> | DotPath.FlexibleDollarPaths<TContext>>,
@@ -119,162 +88,82 @@ export class When<
     return this
   }
 
-  /**
-   * Asserts that the array at `field` contains `value`.
-   *
-   * Commonly used to check role membership:
-   * `w.contains('subject.roles', 'admin')`.
-   *
-   * @param field - Typed dot-path attribute path pointing to an array
-   * @param value - The value that must be present in the array
-   * @returns `this` for chaining
-   */
+  /** Asserts the array at `field` contains `value`, e.g. `w.contains('subject.roles', 'admin')`. */
   contains<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: string): this {
     this._items.push({ field, operator: 'contains', value })
     return this
   }
 
-  /**
-   * Asserts that `field` exists (is defined and non-null).
-   *
-   * @param field - Typed dot-path attribute path to check for existence
-   * @returns `this` for chaining
-   */
+  /** Asserts `field` is defined and non-null. */
   exists<P extends DotPath.FlexibleDotPaths<TContext>>(field: P): this {
     this._items.push({ field, operator: 'exists' })
     return this
   }
 
-  /**
-   * Asserts `field > value`.
-   *
-   * @param field - Typed dot-path attribute path
-   * @param value - Numeric lower bound (exclusive)
-   * @returns `this` for chaining
-   */
+  /** Asserts `field > value`. */
   gt<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'gt', value })
     return this
   }
 
-  /**
-   * Asserts `field >= value`.
-   *
-   * @param field - Typed dot-path attribute path
-   * @param value - Numeric lower bound (inclusive)
-   * @returns `this` for chaining
-   */
+  /** Asserts `field >= value`. */
   gte<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'gte', value })
     return this
   }
 
-  /**
-   * Asserts `field < value`.
-   *
-   * @param field - Typed dot-path attribute path
-   * @param value - Numeric upper bound (exclusive)
-   * @returns `this` for chaining
-   */
+  /** Asserts `field < value`. */
   lt<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'lt', value })
     return this
   }
 
-  /**
-   * Asserts `field <= value`.
-   *
-   * @param field - Typed dot-path attribute path
-   * @param value - Numeric upper bound (inclusive)
-   * @returns `this` for chaining
-   */
+  /** Asserts `field <= value`. */
   lte<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'lte', value })
     return this
   }
 
-  /**
-   * Asserts that `field` matches the given regular expression string.
-   *
-   * @param field - Typed dot-path attribute path
-   * @param regex - Regular expression pattern (as a string)
-   * @returns `this` for chaining
-   */
+  /** Asserts `field` matches the regular expression source `regex`. */
   matches<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, regex: string): this {
     this._items.push({ field, operator: 'matches', value: regex })
     return this
   }
 
-  /**
-   * Asserts the subject holds the given role.
-   *
-   * Equivalent to `w.contains('subject.roles', roleId)`.
-   *
-   * @param roleId - The role ID that must be present in `subject.roles`
-   * @returns `this` for chaining
-   */
+  /** Asserts the subject holds `roleId`; same as `w.contains('subject.roles', roleId)`. */
   role(roleId: TRole): this {
     this._items.push({ field: 'subject.roles', operator: 'contains', value: roleId })
     return this
   }
 
-  /**
-   * Asserts the subject holds at least one of the given roles.
-   *
-   * Equivalent to `w.check('subject.roles', 'in', roleIds)`.
-   *
-   * @param roleIds - Role IDs to test membership against
-   * @returns `this` for chaining
-   */
+  /** Asserts the subject holds at least one of `roleIds`. Throws when called with none. */
   roles(...roleIds: TRole[]): this {
-    this._items.push({ field: 'subject.roles', operator: 'in', value: roleIds as string[] })
+    assertNonEmptyList('roles', roleIds)
+    this._items.push({ field: 'subject.roles', operator: 'in', value: [...roleIds] })
     return this
   }
 
-  /**
-   * Asserts the request is made within a specific scope.
-   *
-   * Equivalent to `w.check('scope', 'eq', id)`.
-   *
-   * @param id - The scope the request must be in
-   * @returns `this` for chaining
-   */
+  /** Asserts the request scope is `id`. */
   scope(id: TScope): this {
     this._items.push({ field: 'scope', operator: 'eq', value: id })
     return this
   }
 
-  /**
-   * Asserts the request is made within one of the given scopes.
-   *
-   * Equivalent to `w.check('scope', 'in', ids)`.
-   *
-   * @param ids - Acceptable scope IDs
-   * @returns `this` for chaining
-   */
+  /** Asserts the request scope is one of `ids`. Throws when called with none. */
   scopes(...ids: TScope[]): this {
-    this._items.push({ field: 'scope', operator: 'in', value: ids as string[] })
+    assertNonEmptyList('scopes', ids)
+    this._items.push({ field: 'scope', operator: 'in', value: [...ids] })
     return this
   }
 
   /**
-   * Asserts the subject is the owner of the resource.
-   *
-   * Checks that `ownerField` equals the special variable `'$subject.id'`,
-   * which the engine resolves to the current subject's ID at evaluation time.
+   * Asserts the subject owns the resource: `ownerField` equals `$subject.id`, resolved at evaluation time.
    *
    * @example
    * ```ts
-   * // Using the default owner field
-   * w.isOwner()
-   *
-   * // Custom owner field
+   * w.isOwner() // resource.attributes.ownerId
    * w.isOwner('resource.attributes.createdBy')
    * ```
-   *
-   * @param ownerField - Dot-path to the owner attribute on the resource.
-   *   Defaults to `'resource.attributes.ownerId'`.
-   * @returns `this` for chaining
    */
   isOwner(
     ownerField: DotPath.FlexibleDotPaths<TContext> = 'resource.attributes.ownerId' as DotPath.FlexibleDotPaths<TContext>,
@@ -283,34 +172,20 @@ export class When<
     return this
   }
 
-  /**
-   * Asserts the resource's type is one of the given values.
-   *
-   * Equivalent to `w.check('resource.type', 'in', types)`.
-   *
-   * @param types - Acceptable resource type strings
-   * @returns `this` for chaining
-   */
+  /** Asserts `resource.type` is one of `types`. Throws when called with none. */
   resourceType(...types: (TResource | '*')[]): this {
-    this._items.push({ field: 'resource.type', operator: 'in', value: types as string[] })
+    assertNonEmptyList('resourceType', types)
+    this._items.push({ field: 'resource.type', operator: 'in', value: [...types] })
     return this
   }
 
   /**
-   * Asserts a subject attribute at the given path.
-   *
-   * Prefixes `path` with `'subject.attributes.'` automatically.
+   * Asserts on `subject.attributes.<path>`.
    *
    * @example
    * ```ts
-   * w.attr('department', 'eq', 'engineering')
-   * // evaluates: subject.attributes.department == 'engineering'
+   * w.attr('department', 'eq', 'engineering') // subject.attributes.department == 'engineering'
    * ```
-   *
-   * @param path  - Typed attribute key under `subject.attributes`
-   * @param op    - The {@link AccessControl.Operator} to apply
-   * @param value - Right-hand side value (inferred from type)
-   * @returns `this` for chaining
    */
   attr<K extends DotPath.SubjectAttrs<TContext> & string>(
     path: K,
@@ -324,20 +199,12 @@ export class When<
   }
 
   /**
-   * Asserts a resource attribute at the given path.
-   *
-   * Prefixes `path` with `'resource.attributes.'` automatically.
+   * Asserts on `resource.attributes.<path>`, typed by the resource selected with `RuleBuilder.of()`.
    *
    * @example
    * ```ts
-   * w.resourceAttr('status', 'eq', 'published')
-   * // evaluates: resource.attributes.status == 'published'
+   * w.resourceAttr('status', 'eq', 'published') // resource.attributes.status == 'published'
    * ```
-   *
-   * @param path  - Typed attribute key under `resource.attributes`
-   * @param op    - The {@link AccessControl.Operator} to apply
-   * @param value - Right-hand side value (inferred from type)
-   * @returns `this` for chaining
    */
   resourceAttr<K extends DotPath.ResolvedResourceAttrPaths<TContext, TActiveResource> & string>(
     path: K,
@@ -351,21 +218,12 @@ export class When<
   }
 
   /**
-   * Asserts an environment attribute at the given path.
-   *
-   * Prefixes `path` with `'environment.'` automatically. Useful for
-   * time-based or context-based conditions.
+   * Asserts on `environment.<path>`, e.g. a time window.
    *
    * @example
    * ```ts
-   * w.env('hour', 'gte', 9).env('hour', 'lte', 17)
-   * // evaluates: environment.hour >= 9 AND environment.hour <= 17
+   * w.env('hour', 'gte', 9).env('hour', 'lte', 17) // environment.hour >= 9 AND environment.hour <= 17
    * ```
-   *
-   * @param path  - Typed attribute key under `environment`
-   * @param op    - The {@link AccessControl.Operator} to apply
-   * @param value - Right-hand side value (inferred from type)
-   * @returns `this` for chaining
    */
   env<K extends DotPath.EnvAttrs<TContext> & string>(
     path: K,
@@ -379,18 +237,12 @@ export class When<
   }
 
   /**
-   * Appends a nested ALL-of (AND) condition group.
-   *
-   * Every condition added inside the callback must hold. The nested group is
-   * treated as a single item within the outer builder's condition list.
+   * Appends a nested AND group as a single item.
    *
    * @example
    * ```ts
    * w.and(a => a.attr('tier', 'eq', 'premium').env('region', 'eq', 'us'))
    * ```
-   *
-   * @param fn - Callback that receives a nested {@link When} and returns it
-   * @returns `this` for chaining
    */
   and(
     fn: (
@@ -404,18 +256,12 @@ export class When<
   }
 
   /**
-   * Appends a nested ANY-of (OR) condition group.
-   *
-   * At least one condition inside the callback must hold.
+   * Appends a nested OR group as a single item.
    *
    * @example
    * ```ts
-   * w.or(o => o.isOwner().role('admin'))
-   * // passes if subject is owner OR has the admin role
+   * w.or(o => o.isOwner().role('admin')) // owner OR admin
    * ```
-   *
-   * @param fn - Callback that receives a nested {@link When} and returns it
-   * @returns `this` for chaining
    */
   or(
     fn: (
@@ -429,19 +275,12 @@ export class When<
   }
 
   /**
-   * Appends a nested NONE-of (NOT) condition group.
-   *
-   * None of the conditions inside the callback may hold. Equivalent to
-   * negating an OR group.
+   * Appends a nested NOT group: passes only if none of its conditions hold.
    *
    * @example
    * ```ts
-   * w.not(n => n.attr('status', 'eq', 'banned'))
-   * // passes if subject.attributes.status is NOT 'banned'
+   * w.not(n => n.attr('status', 'eq', 'banned')) // status is NOT 'banned'
    * ```
-   *
-   * @param fn - Callback that receives a nested {@link When} and returns it
-   * @returns `this` for chaining
    */
   not(
     fn: (
@@ -454,49 +293,56 @@ export class When<
     return this
   }
 
-  /**
-   * Emits the accumulated conditions as an ALL-of (`{ all: [...] }`) group.
-   *
-   * Every condition in the list must hold. This is the default used by
-   * {@link RuleBuilder.when} and {@link RoleBuilder.grantWhen}.
-   *
-   * @returns A readonly `all` condition group
-   */
+  /** Emits a copy of the conditions as `{ all }` (AND); used by `when()` and `grantWhen()`. */
   buildAll(): { readonly all: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
-    return { all: this._items }
+    return { all: [...this._items] }
   }
 
-  /**
-   * Emits the accumulated conditions as an ANY-of (`{ any: [...] }`) group.
-   *
-   * At least one condition in the list must hold. Used by
-   * {@link RuleBuilder.whenAny}.
-   *
-   * @returns A readonly `any` condition group
-   */
+  /** Emits a copy of the conditions as `{ any }` (OR), as `RuleBuilder.whenAny` does. */
   buildAny(): { readonly any: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
-    return { any: this._items }
+    return { any: [...this._items] }
   }
 
-  /**
-   * Emits the accumulated conditions as a NONE-of (`{ none: [...] }`) group.
-   *
-   * None of the conditions in the list may hold. Produced by the {@link not}
-   * nesting helper.
-   *
-   * @returns A readonly `none` condition group
-   */
+  /** Emits a copy of the conditions as `{ none }` (NOT), as {@link When.not} does. */
   buildNone(): { readonly none: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
-    return { none: this._items }
+    return { none: [...this._items] }
   }
 }
 
 /**
- * Creates a standalone {@link When} condition builder.
- *
- * Useful when you need to construct a {@link AccessControl.IConditionGroup} outside of a
- * rule or role builder - for example, to build a reusable condition and
- * spread it across multiple rules.
+ * Refuses a zero-argument `roles()`, `scopes()` or `resourceType()`, which would build `in: []` and match nothing.
+ * SECURITY: on a deny rule that removes the guard. A computed `w.in(field, [])` is left alone.
+ */
+function assertNonEmptyList(method: 'roles' | 'scopes' | 'resourceType', values: readonly string[]): void {
+  if (values.length > 0) return
+  throw new Error(
+    `[@gentleduck/iam:builder] When.${method}() was called with no arguments, which builds a condition ` +
+      'that can never match: on a deny rule it removes the guard entirely. Pass at least one value, ' +
+      'or use `.in(field, list)` if the list is computed and may legitimately be empty.',
+  )
+}
+
+/**
+ * Picks the builder a condition callback meant: the returned one when it differs from the one given.
+ * SECURITY: ignoring a returned group leaves `{ all: [] }`, an unconditional grant. Conditions on both throw.
+ */
+export function iamChosenWhen<W extends { buildAll(): { readonly all: readonly unknown[] } }>(
+  given: W,
+  returned: W,
+): W {
+  if (!(returned instanceof When) || returned === given) return given
+  if (given.buildAll().all.length > 0) {
+    throw new Error(
+      '[@gentleduck/iam:builder] a condition callback added conditions to the builder it was given ' +
+        'and returned a different one; both cannot be kept. Chain onto the builder passed in, ' +
+        'or return a group built elsewhere - not both.',
+    )
+  }
+  return returned
+}
+
+/**
+ * Creates a standalone {@link When}, e.g. for a reusable condition group shared across rules.
  *
  * @example
  * ```ts
@@ -507,9 +353,7 @@ export class When<
  *   .buildAll()
  * ```
  *
- * @returns A new {@link When} instance
- *
- * @template TAction         - Union of valid action strings
+ * @template TAction        - Union of valid action strings
  * @template TResource       - Union of valid resource strings
  * @template TRole           - Union of valid role ID strings
  * @template TScope          - Union of valid scope strings
@@ -519,8 +363,8 @@ export class When<
 export const when = <
   TAction extends string = string,
   TResource extends string = string,
-  TScope extends string = string,
   TRole extends string = string,
+  TScope extends string = string,
   TContext extends object = DotPath.IDefaultContext,
   TActiveResource extends string = string,
 >() => new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()

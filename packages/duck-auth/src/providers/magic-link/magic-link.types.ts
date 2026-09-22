@@ -1,39 +1,31 @@
 import type { Channel } from '~/channels/channels.types'
 
-/**
- * Every type the magic-link provider exposes lives under this one namespace, so
- * consumers reach for `MagicLink.Options`, `MagicLink.BeginInput`, etc. from a
- * single place.
- */
+/** Magic-link options: the channel it sends over, and the token's lifetime. */
 export namespace MagicLink {
-  /** Cfg knobs for {@link magicLink}. */
   export interface Options<Profile = unknown> {
-    /** Channel implementations keyed by their `kind`. */
+    /** Keyed by their `kind`. */
     channels: { email?: Channel.Channel; sms?: Channel.Channel; webpush?: Channel.Channel }
-    /** Library uses this to find the identity given an email. */
+    /** How the library finds an identity from an email. Returning `null` and rejecting with an absence
+     *  code both read as "no such address", so `auth.identities.getByEmail` wires straight in. */
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    /**
-     * Optional auto-create - if no identity matches the email, create
-     * one on link request. Default false.
-     */
+    /** Creates an identity when no one matches the email. Default false. */
     autoCreateIdentity?: boolean
-    /** Used as the `profile` payload when autoCreating. */
+    /** The `profile` payload used when auto-creating. */
     autoCreateProfile?: (email: string) => Profile
-    /** TTL of magic-link token in ms. Default 10 minutes. */
+    /** Default 10 minutes. */
     ttlMs?: number
-    /** Per-email rate limit prefix. Default 'magic-link:request:'. */
+    /** Default 'magic-link:request:'. */
     limiterKeyPrefix?: string
-    /** Path the link lands on; sid appended as `?token=`. */
+    /** Where the link lands; the token is appended as `?token=`. */
     callbackPath?: string
   }
 
-  /** Input to begin. */
   export interface BeginInput {
     email: string
+    /** Which channel sends the link; it must be one the engine was configured with. */
     channel?: 'email' | 'sms' | 'webpush'
   }
 
-  /** Input to complete. */
   export interface CompleteInput {
     token: string
   }
@@ -41,6 +33,7 @@ export namespace MagicLink {
   /** Shape stored in `Credential.metadata` for magic-link credentials. */
   export interface CredentialMetadata {
     email: string
+    /** The channel the link went out over, recorded on the row. */
     channel: 'email' | 'sms' | 'webpush'
   }
 }

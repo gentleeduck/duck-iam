@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
+import type { Provider } from '~/core/provider/provider.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { type HonoAdapter, honoCsrf, honoSession, honoSignIn, honoSignOut } from '../index'
+import type { MountHono } from '../hono.types'
+import { type HonoAdapter, honoCsrf, honoSession, honoSignIn, honoSignOut, mountHono } from '../index'
 
 type MyProfile = {
   username: string
@@ -105,8 +107,13 @@ describe('Hono adapter - end-to-end', () => {
 
     const sessRes = await honoSession(auth)(makeCtx('GET', '/AUTH/session', { headers: { cookie: `duck-sid=${sid}` } }))
     expect(sessRes.status).toBe(200)
-    const body = (await sessRes.json()) as { identity: { id: string } | null }
+    const body = (await sessRes.json()) as { identity: { id: string } | null; session: Record<string, unknown> }
     expect(body.identity?.id).toBe(identity.id)
+    // One URL, a different body per cookie: a shared cache must not keep it.
+    expect(sessRes.headers.get('cache-control')).toBe('no-store')
+    // The row reaches the browser minus its CSRF hash: the plaintext is already in the cookie.
+    expect(body.session).not.toHaveProperty('csrfHash')
+    expect(body.session.id).toBeTypeOf('string')
   })
 
   it('honoSignOut revokes + clears cookie', async () => {
@@ -118,17 +125,18 @@ describe('Hono adapter - end-to-end', () => {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
       }),
     )
-    // signin now emits both __Host-duck-csrf and the SID; replay
-    // both on signout + attach the matching x-csrf-token header.
+    // `duck-csrf`, not `__Host-duck-csrf`: this transport is `{ secure: false }` for plain http, and
+    // the prefix requires Secure, so the companion drops it rather than being emitted as a cookie a
+    // browser would silently discard. Replay both on signout with the matching x-csrf-token header.
     const setCookieJoined = signinRes.headers.get('set-cookie') ?? ''
     const sid = decodeURIComponent(setCookieJoined.match(/duck-sid=([^;,]+)/)?.[1] ?? '')
-    const csrfToken = decodeURIComponent(setCookieJoined.match(/__Host-duck-csrf=([^;,]+)/)?.[1] ?? '')
+    const csrfToken = decodeURIComponent(setCookieJoined.match(/duck-csrf=([^;,]+)/)?.[1] ?? '')
     expect(csrfToken).not.toBe('')
     expect((await adapter.sessions.listByIdentity(identity.id)).length).toBe(1)
     const outRes = await honoSignOut(auth)(
       makeCtx('POST', '/AUTH/signout', {
         headers: {
-          cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
+          cookie: `duck-sid=${sid}; duck-csrf=${csrfToken}`,
           'x-csrf-token': csrfToken,
           'sec-fetch-site': 'same-origin',
         },
@@ -167,5 +175,68 @@ describe('honoCsrf', () => {
 
   it('lets an ordinary same-origin mutation through', async () => {
     expect((await run('POST', { 'sec-fetch-site': 'same-origin' })).nexted).toBe(true)
+  })
+})
+
+describe('the mounted oauth callback', () => {
+  /** A provider that signs nobody in and remembers what the route handed it. */
+  function recordingProvider(seen: { input?: unknown }): Provider.Me<unknown, unknown> {
+    return {
+      async begin() {
+        return []
+      },
+      async complete(_ctx, input) {
+        seen.input = input
+        return []
+      },
+      id: 'oauth:stub',
+      kind: 'oauth',
+    }
+  }
+
+  /** Hono hands a route the absolute URL and the matched param; `makeCtx` is built for the handlers. */
+  function asCallbackCtx(ctx: HonoAdapter.Context): MountHono.HonoCtx {
+    return { ...ctx, req: { ...ctx.req, param: () => 'oauth:stub', url: `https://x${ctx.req.url}` } }
+  }
+
+  /** Mount against a recorder rather than a real Hono, which this package does not depend on. */
+  function mountAndTake(auth: ReturnType<typeof buildAuth>['auth'], path: string) {
+    const registered: Record<string, (c: MountHono.HonoCtx) => Response | Promise<Response>> = {}
+    const app: MountHono.App = {
+      get(p, h) {
+        registered[p] = h
+      },
+      post() {},
+    }
+    mountHono(app, auth)
+    const handler = registered[path]
+    if (!handler) throw new Error(`no handler registered at ${path}`)
+    return handler
+  }
+
+  it('forwards the Cookie header, which is what binds the callback to one browser', async () => {
+    const { auth } = buildAuth()
+    const seen: { input?: unknown } = {}
+    auth.providers.register(recordingProvider(seen))
+    const handler = mountAndTake(auth, '/auth/providers/:provider/callback')
+
+    const ctx = makeCtx('GET', '/auth/providers/oauth:stub/callback?code=c&state=s', {
+      headers: { cookie: '__Host-duck-oauth=browser-value' },
+    })
+    await handler(asCallbackCtx(ctx))
+
+    expect(seen.input).toEqual({ code: 'c', cookieHeader: '__Host-duck-oauth=browser-value', state: 's' })
+  })
+
+  it('forwards an empty header rather than nothing when the browser sent no cookie', async () => {
+    const { auth } = buildAuth()
+    const seen: { input?: unknown } = {}
+    auth.providers.register(recordingProvider(seen))
+    const handler = mountAndTake(auth, '/auth/providers/:provider/callback')
+
+    const ctx = makeCtx('GET', '/auth/providers/oauth:stub/callback?code=c&state=s')
+    await handler(asCallbackCtx(ctx))
+
+    expect(seen.input).toEqual({ code: 'c', cookieHeader: '', state: 's' })
   })
 })

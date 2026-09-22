@@ -19,6 +19,9 @@ export function makeIdentity(over: Partial<Identities.Me> = {}): Identities.Me {
     createdAt: new Date(0),
     updatedAt: new Date(0),
     deletedAt: null,
+    deletedBy: null,
+    createdBy: null,
+    updatedBy: null,
     ...over,
   }
 }
@@ -38,6 +41,7 @@ export function makeSession(over: Partial<Sessions.Me> = {}): Sessions.Me {
     userAgent: null,
     fingerprint: null,
     createdAt: now,
+    updatedAt: now,
     rotatedAt: now,
     expiresAt: new Date(now.getTime() + 60_000),
     absoluteExpiresAt: new Date(now.getTime() + 60_000),
@@ -69,12 +73,21 @@ export function sessionInput(
       | 'fresh'
     >,
 ): Sessions.CreateInput {
-  return { tenantId: null, csrfHash: null, ip: null, userAgent: null, fingerprint: null, actingAs: null, ...over }
+  return {
+    tenantId: null,
+    csrfHash: null,
+    ip: null,
+    userAgent: null,
+    fingerprint: null,
+    actingAs: null,
+    updatedAt: over.createdAt,
+    ...over,
+  }
 }
 
-/** Build a total {@link Credential.UpsertInput}; nullable fields default to `null`. */
+/** Build a total {@link Credential.CreateInput}; nullable fields default to `null`. */
 export function credentialInput(
-  over: Partial<Credential.UpsertInput> & Pick<Credential.UpsertInput, 'identityId' | 'kind' | 'secret'>,
-): Credential.UpsertInput {
+  over: Partial<Credential.CreateInput> & Pick<Credential.CreateInput, 'identityId' | 'kind' | 'secret'>,
+): Credential.CreateInput {
   return { tenantId: null, metadata: null, lastUsedAt: null, expiresAt: null, revokedAt: null, ...over }
 }

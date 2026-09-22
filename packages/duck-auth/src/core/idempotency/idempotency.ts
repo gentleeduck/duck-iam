@@ -1,19 +1,21 @@
+import { orNull } from '../answer'
 import type { TenantContext } from '../tenant/tenant.types'
 import { DEFAULT_IDEMPOTENCY_CONFIG } from './idempotency.constants'
 import type { Idempotency } from './idempotency.types'
 
-/**
- * Idempotency facet. Driven by framework adapters: extract the header,
- * call {@link IdempotencyImpl.handle} with an executor; the facet
- * replays the cached response when the same key is presented again.
- */
+/** Driven by framework adapters: extract the header, call {@link IdempotencyImpl.handle} with an
+ *  executor, and the same key presented again replays the cached response. */
 export class IdempotencyImpl {
   private readonly _cfg: Idempotency.Cfg
+  /** Whether the store behind this facet keeps its keys in this process, republished so `strict()` can read
+   *  it without reaching into private state, as `JwtTransport.__weakSigningKey` is. */
+  readonly __isInProcessIdempotency: boolean
 
   constructor(
     private readonly _store: Idempotency.Store | null,
     private readonly cfg?: Partial<Idempotency.Cfg>,
   ) {
+    this.__isInProcessIdempotency = _store !== null && Reflect.get(_store, '__isInProcessIdempotency') === true
     this._cfg = {
       ttlMs: this.cfg?.ttlMs ?? DEFAULT_IDEMPOTENCY_CONFIG.ttlMs,
       headerName: this.cfg?.headerName ?? DEFAULT_IDEMPOTENCY_CONFIG.headerName,
@@ -26,59 +28,67 @@ export class IdempotencyImpl {
     return this._store !== null
   }
 
-  /** Read the configured header name (so framework adapters don't hard-code it). */
+  /** So a framework adapter does not hard-code it. */
   get headerName(): string {
     return this._cfg.headerName
   }
 
-  /**
-   * Wrap a mutating route handler with idempotency semantics.
-   *
-   * @param key plaintext Idempotency-Key header value (caller validates length)
-   * @param ctx tenant scope
-   * @param executor the original work the route would do; returns the
-   *                 status + body to persist
-   * @returns the executor's result on first invocation; the cached
-   *          response on subsequent invocations within ttlMs
-   */
+  /** `executor` runs once, and every repeat of `key` within `ttlMs` is answered from the cached response.
+   *  An executor that throws caches nothing and releases the key, so the retry the client makes with that
+   *  same key runs for real. */
   async handle(
     key: string,
     ctx: TenantContext,
     executor: () => Promise<Idempotency.CachedResponse>,
     opts: { identityId?: string } = {},
   ): Promise<Idempotency.CachedResponse> {
-    // Skip when no store configured, key is missing, or key is hostile-sized
-    // (multi-MB Idempotency-Key headers would bloat the store + every read).
+    // Skipped without a store or a key, and for a hostile-sized one: a multi-MB Idempotency-Key header
+    // would bloat the store and every read of it.
     if (!this._store || typeof key !== 'string' || key.length === 0 || key.length > 256) {
       return executor()
     }
-    // Scope the key by identity so a cached response for Alice is
-    // never replayed to Bob. Anonymous routes fall back to '_anon'.
+    // Scoped by identity, so one authenticated caller's cached response is never replayed to another.
+    // SECURITY: with no `identityId` every anonymous caller shares the '_anon' bucket, and the key is
+    // then the only thing authorising the replay - a bearer credential.
     const scopedKey = `${opts.identityId ?? '_anon'}::${key}`
 
-    const existing = await this._store.get(scopedKey, ctx)
+    const existing = await orNull(this._store.get(scopedKey, ctx))
     if (existing) return existing
 
     const claimed = await this._store.claim(scopedKey, this._cfg.ttlMs, ctx)
     if (claimed) {
-      const response = await executor()
+      let response: Idempotency.CachedResponse
+      try {
+        response = await executor()
+      } catch (err) {
+        // SECURITY: the claim is a lock on an executor that is no longer running, and it used to be left
+        // to `ttlMs` - a whole day by default, since that is how long a *response* stays replayable. There
+        // was no response: `put` never ran, so every retry of the key read a miss, lost the claim, polled
+        // out and was told 409 idempotency-conflict, for 24 hours, with the executor never running again.
+        // That is the one situation an Idempotency-Key exists for - a client retrying the same key after
+        // an error - and it was the situation the key could not survive. The 409 below names the case a
+        // release cannot cover, a process that died mid-execution; this one is alive and can let go.
+        // A failed release is not worth losing the executor's error over, which is what the caller needs;
+        // the claim then expires on its TTL as before.
+        await this._store.delete(scopedKey, ctx).catch(() => {})
+        throw err
+      }
       await this._store.put(scopedKey, response, this._cfg.ttlMs, ctx)
       return response
     }
 
-    // Claim refused; poll with bounded backoff for the originator's PUT.
-    // Double-executing would charge twice / mint two tokens.
+    // Claim refused, so poll with bounded backoff for the originator's put: executing twice would
+    // charge twice or mint two tokens.
     const deadline = Date.now() + this._cfg.pollTimeoutMs
     let delay = 10
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, delay))
-      const settled = await this._store.get(scopedKey, ctx)
+      const settled = await orNull(this._store.get(scopedKey, ctx))
       if (settled) return settled
       delay = Math.min(delay * 2, 250)
     }
-    // The originator either crashed mid-execution or the store is
-    // unreachable. Surface a 409 instead of double-executing; the
-    // client can retry with a fresh key.
+    // The originator's process died mid-execution, or the store is unreachable. A 409 beats executing
+    // twice. An executor that merely threw has already released the key above, so it is not this.
     return { status: 409, body: { error: 'idempotency-conflict' }, createdAt: new Date() }
   }
 }
@@ -113,7 +123,7 @@ export function idempotency(store: IdempotencyInput, cfg?: Partial<Idempotency.C
   return resolveIdempotency(store, cfg)
 }
 
-/** Factory around {@link IdempotencyImpl}, for callers who prefer functions to `new`. */
+/** Constructs the idempotency facet over a store. */
 export function idempotencyImpl(...args: ConstructorParameters<typeof IdempotencyImpl>): IdempotencyImpl {
   return new IdempotencyImpl(...args)
 }

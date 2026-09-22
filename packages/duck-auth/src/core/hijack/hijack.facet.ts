@@ -4,14 +4,8 @@ import type { Sessions } from '../sessions/sessions.types'
 import { DEFAULT_HIJACK_POLICY } from './hijack.constants'
 import type { Hijack } from './hijack.types'
 
-/**
- * Hijack-detection facet. Stateless beyond the configured reactions; the
- * caller (server adapter) compares the inbound request's IP / UA with
- * the session's recorded values and applies the chosen reaction.
- *
- * DESIGN section T1. Emits the canonical `suspicious` event regardless
- * of the reaction so audit pipelines see every drift.
- */
+/** Stateless beyond the configured reactions: the server adapter compares the request's IP and UA against
+ *  the session's and applies the answer. Emits `suspicious` whatever the reaction, so audit sees every drift. */
 export class HijackFacet {
   private readonly _policy: Required<Hijack.Cfg>
 
@@ -21,25 +15,20 @@ export class HijackFacet {
   ) {
     this._policy = {
       onIpChange: cfg.onIpChange ?? DEFAULT_HIJACK_POLICY.onIpChange,
+      onMissingSignal: cfg.onMissingSignal ?? DEFAULT_HIJACK_POLICY.onMissingSignal,
       onUserAgentChange: cfg.onUserAgentChange ?? DEFAULT_HIJACK_POLICY.onUserAgentChange,
     }
   }
 
-  /**
-   * Evaluate the request fingerprint against the session fingerprint.
-   * Returns `{ ok: true }` when no drift detected, otherwise a reaction
-   * the caller must act on (rotate / throw step-up / throw revoke).
-   *
-   * Always emits `suspicious` on drift, even when the configured reaction
-   * is 'ignore', so the audit pipeline sees every change.
-   */
+  /** `{ ok: true }` when nothing drifted, otherwise the reaction the caller must act on. Emits
+   *  `suspicious` on any drift, `'ignore'` included. */
   async evaluate(
     session: Sessions.Me,
     request: { ip?: string | null; userAgent?: string | null },
   ): Promise<Hijack.Evaluation> {
-    // Evaluate IP + UA drift independently and return the strongest
-    // reaction. One-sided absence (missing baseline or stripped header)
-    // is downgraded to `'rotate'` so audit fires without forcing step-up.
+    // IP and UA drift independently, and the strongest reaction wins. A missing baseline softens to
+    // `'rotate'` so audit fires without forcing step-up; a value the request dropped follows
+    // `onMissingSignal`, because that side is the caller's to choose.
     type DriftSignal = 'ip-change' | 'user-agent-change'
     const drifts: Array<{
       signal: DriftSignal
@@ -51,8 +40,7 @@ export class HijackFacet {
 
     const ipDrift = isDrift(session.ip, request.ip)
     if (ipDrift) {
-      const reaction =
-        ipDrift === 'asymmetric' ? downgradeForAsymmetric(this._policy.onIpChange) : this._policy.onIpChange
+      const reaction = this._reactionFor(ipDrift, this._policy.onIpChange)
       drifts.push({
         signal: 'ip-change',
         reaction,
@@ -63,10 +51,7 @@ export class HijackFacet {
     }
     const uaDrift = isDrift(session.userAgent, request.userAgent)
     if (uaDrift) {
-      const reaction =
-        uaDrift === 'asymmetric'
-          ? downgradeForAsymmetric(this._policy.onUserAgentChange)
-          : this._policy.onUserAgentChange
+      const reaction = this._reactionFor(uaDrift, this._policy.onUserAgentChange)
       drifts.push({
         signal: 'user-agent-change',
         reaction,
@@ -78,8 +63,7 @@ export class HijackFacet {
 
     if (drifts.length === 0) return { ok: true }
 
-    // Cap diagnostic strings (UA / IP) at 256 chars before emit so
-    // multi-KB headers cannot bloat OpenTelemetry / webhook payloads.
+    // Capped before emit, so a multi-KB header cannot bloat an OpenTelemetry or webhook payload.
     for (const d of drifts) {
       await this._events.emit('suspicious', {
         ...(session.identityId && { identityId: session.identityId }),
@@ -89,11 +73,11 @@ export class HijackFacet {
       })
     }
 
-    // Pick the strongest reaction. Precedence: revoke > mfa > rotate > ignore.
+    // Precedence: revoke > mfa > rotate > ignore.
     const severity: Record<Hijack.Reaction, number> = { ignore: 0, rotate: 1, mfa: 2, revoke: 3 }
     drifts.sort((a, b) => severity[b.reaction] - severity[a.reaction])
     const winner = drifts[0]
-    // drifts.length === 0 already early-returned above; this narrows for TS.
+    // The empty case already returned above; this only narrows for TS.
     if (!winner || winner.reaction === 'ignore') return { ok: true }
     return {
       ok: false,
@@ -104,11 +88,14 @@ export class HijackFacet {
     }
   }
 
-  /**
-   * Translate a reaction into the throw the caller should bubble.
-   * `'rotate'` is non-throwing; caller schedules a rotation via
-   * SessionsFacet.rotateOrCreate({ purpose: 're-auth' }).
-   */
+  private _reactionFor(drift: Exclude<Drift, null>, configured: Hijack.Reaction): Hijack.Reaction {
+    if (drift === 'mismatch') return configured
+    if (drift === 'no-baseline') return soften(configured)
+    return this._policy.onMissingSignal === 'strict' ? configured : soften(configured)
+  }
+
+  /** The throw a reaction becomes. `'rotate'` does not throw: the caller schedules one with
+   *  `SessionsImpl.rotateOrCreate({ purpose: 're-auth' })`. */
   applyReaction(reaction: Hijack.Reaction): void {
     if (reaction === 'mfa') {
       throw new AuthError('AUTH_STEP_UP_REQUIRED', {
@@ -121,43 +108,34 @@ export class HijackFacet {
   }
 }
 
-/** Compare a session baseline to a request value, three-state.
- *
- *   - `null`        - no drift (either both null/undefined or both equal)
- *   - `'mismatch'`  - both present, different values
- *   - `'asymmetric'`- one present, the other not (treated as a softer drift) */
-function isDrift(baseline: string | null, current: string | null | undefined): null | 'mismatch' | 'asymmetric' {
-  // Treat null and undefined as equivalent absence.
+/** A session baseline against a request value. */
+type Drift = null | 'mismatch' | 'no-baseline' | 'stripped'
+
+function isDrift(baseline: string | null, current: string | null | undefined): Drift {
+  // null and undefined are the same absence here.
   const b = baseline ?? undefined
   const c = current ?? undefined
   if (b === c) return null
-  if (b === undefined || c === undefined) return 'asymmetric'
+  if (b === undefined) return 'no-baseline'
+  if (c === undefined) return 'stripped'
   return 'mismatch'
 }
 
-/** Asymmetric drift (one side missing) is downgraded one notch so a
- * UA-less guest session does not force MFA on every request. Caller can
- * still configure `'ignore'` explicitly to suppress entirely. */
-function downgradeForAsymmetric(reaction: Hijack.Reaction): Hijack.Reaction {
+/** One notch down, so a UA-less guest session does not force MFA on every request. `'ignore'` is still
+ *  the way to suppress entirely. */
+function soften(reaction: Hijack.Reaction): Hijack.Reaction {
   if (reaction === 'revoke' || reaction === 'mfa') return 'rotate'
   return reaction
 }
 
-/**
- * cap a caller-supplied diagnostic string
- * (IP or User-Agent) for safe inclusion in events + return value.
- * Long values appended with `...(truncated)` so operators see the
- * partial value but downstream sinks aren't asked to log/transmit a
- * 8 KiB UA per drift. The clip is content-preserving for typical
- * inputs (<=256 chars round-trip unchanged).
- */
+/** Marks a clipped value `...(truncated)`, so operators still see the partial one without a sink being
+ *  handed an 8 KiB UA per drift. */
 const DIAGNOSTIC_MAX_LEN = 256
 function clipForDiagnostic(s: string): string {
   if (s.length <= DIAGNOSTIC_MAX_LEN) return s
   return `${s.slice(0, DIAGNOSTIC_MAX_LEN)}...(truncated)`
 }
 
-/** Factory around {@link HijackFacet}, for callers who prefer functions to `new`. */
 export function hijackFacet(events: Events.IBus, cfg: Partial<Hijack.Cfg> = {}): HijackFacet {
   return new HijackFacet(events, cfg)
 }

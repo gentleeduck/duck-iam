@@ -4,11 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IamEngineTypes } from '../../../core/engine/engine.types'
 import { createIamRedisInvalidator, type IamRedisInvalidator } from '../index'
 
-/**
- * In-memory pub/sub stub that mimics the narrow `IPubSubLike` surface. The
- * test drives both the publish path (capturing the on-wire string) and the
- * subscribe path (by invoking the saved handler directly).
- */
+/** In-memory `IPubSubLike` stub: captures published wire strings and delivers by calling the saved handler. */
 function makeBus(): {
   client: IamRedisInvalidator.IPubSubLike
   publish: (msg: string) => void
@@ -134,7 +130,7 @@ describe('createIamRedisInvalidator', () => {
     }
   })
 
-  it('peer without secret accepts unsigned and warns once at construction', () => {
+  it('peer without secret accepts unsigned and warns once per channel, not once per process', () => {
     const bus = makeBus()
     const inv = createIamRedisInvalidator({ client: bus.client })
     const received: IamEngineTypes.IInvalidateEvent[] = []
@@ -143,24 +139,43 @@ describe('createIamRedisInvalidator', () => {
     bus.publish(JSON.stringify({ event: { kind: 'all' }, instanceId: 'peer' }))
     expect(received).toEqual([{ kind: 'all' }])
 
-    // Construction-time warn: at most once per process. The latch is module-
-    // level so earlier tests in this file may already have tripped it; assert
-    // the warn fired at most once across multiple constructions in this case.
-    const before = warnSpy.mock.calls.length
-    createIamRedisInvalidator({ client: makeBus().client })
-    createIamRedisInvalidator({ client: makeBus().client })
-    const after = warnSpy.mock.calls.length
-    const unsignedWarns = warnSpy.mock.calls
+    // Fresh channels per case, so no earlier test holds the latch and the counts below are exact.
+    const unsignedWarnsFor = (channel: string): string[] =>
+      warnSpy.mock.calls
+        .map((c: unknown[]) => String(c[0] ?? ''))
+        .filter((m: string) => m.includes('`secret` not set') && m.includes(channel))
+
+    const chA = `t-unsigned-a-${Math.random().toString(36).slice(2)}`
+    const chB = `t-unsigned-b-${Math.random().toString(36).slice(2)}`
+    createIamRedisInvalidator({ channel: chA, client: makeBus().client })
+    createIamRedisInvalidator({ channel: chB, client: makeBus().client })
+    expect(unsignedWarnsFor(chA)).toHaveLength(1)
+    expect(unsignedWarnsFor(chB)).toHaveLength(1)
+
+    // Same channel again: still latched, so a reconnect loop that rebuilds its
+    // invalidator does not print the line forever.
+    createIamRedisInvalidator({ channel: chA, client: makeBus().client })
+    expect(unsignedWarnsFor(chA)).toHaveLength(1)
+  })
+
+  it('reports each tenant channel separately, and never prints the tenant id', () => {
+    const base = `t-unsigned-tenant-${Math.random().toString(36).slice(2)}`
+    createIamRedisInvalidator({ channel: base, client: makeBus().client, tenantId: 'acme' })
+    createIamRedisInvalidator({ channel: base, client: makeBus().client, tenantId: 'globex' })
+
+    const msgs = warnSpy.mock.calls
       .map((c: unknown[]) => String(c[0] ?? ''))
-      .filter((m: string) => m.includes('`secret` not set'))
-    expect(unsignedWarns.length).toBeLessThanOrEqual(1)
-    expect(after - before).toBeLessThanOrEqual(1)
+      .filter((m: string) => m.includes('`secret` not set') && m.includes(base))
+    // Keyed on the full channel: two tenants on one base channel are two reports.
+    expect(msgs).toHaveLength(2)
+    // The channel is named, but its tenant segment is the `redactChannel` digest.
+    expect(msgs.some((m: string) => m.includes('acme'))).toBe(false)
+    expect(msgs.some((m: string) => m.includes('globex'))).toBe(false)
+    expect(msgs.every((m: string) => m.includes(`${base}:tenant:`))).toBe(true)
   })
 
   it('tenantId option auto-namespaces channel (CAVEAT-1)', () => {
-    // Capture the channel name used for subscribe/publish by spying on the
-    // bus methods directly - real Redis enforces channel routing; this test
-    // pins the per-tenant channel-name contract that makes the isolation real.
+    // Real Redis enforces routing; this pins the per-tenant channel name that routing relies on.
     const subscribedChannels: string[] = []
     const publishedChannels: string[] = []
     const client: IamRedisInvalidator.IPubSubLike = {
@@ -192,9 +207,7 @@ describe('createIamRedisInvalidator', () => {
     const received: IamEngineTypes.IInvalidateEvent[] = []
     inv.subscribe((e) => received.push(e))
 
-    // Attacker forges v:1 envelope without secret. instanceId is chosen to
-    // potentially collide with a local UUID; the legitimate self-filter must
-    // not be steerable from the wire in unsigned mode.
+    // An unverifiable signed envelope must not be able to steer the `instanceId` self-filter in unsigned mode.
     bus.publish(
       JSON.stringify({
         v: 1,
@@ -221,9 +234,7 @@ describe('createIamRedisInvalidator', () => {
   })
 
   it('imports timingSafeEqual from node:crypto (constant-time compare)', () => {
-    // Static check: source must import `timingSafeEqual`. This guards against a
-    // future regression where someone refactors to `===` and reintroduces a
-    // timing side-channel on the signature compare.
+    // SECURITY: guards against a refactor to `===`, which would add a timing side-channel to the signature check.
     const path = resolve(__dirname, '..', 'index.ts')
     const src = readFileSync(path, 'utf8')
     expect(src).toMatch(/from\s+['"]node:crypto['"]/)
@@ -231,9 +242,7 @@ describe('createIamRedisInvalidator', () => {
   })
 
   it('warn-coalesce window: bursts of drops surface a single warn + suppressed count', () => {
-    // First drop warns and opens a 60s window; further drops in the window
-    // are counted but silent; the next drop after the window warns again
-    // with the suppressed count.
+    // The first drop warns and opens a 60s window; later drops in the window are counted silently.
     const bus = makeBus()
     const ch = `t-coalesce-${Math.random().toString(36).slice(2)}`
     const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
@@ -354,23 +363,16 @@ describe('createIamRedisInvalidator', () => {
       const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
       inv.subscribe(() => {})
 
-      // Construct a 100k-deep object iteratively (recursive JSON.parse on a
-      // string this deep would itself overflow on some engines, so we build
-      // the parse tree directly then JSON.stringify it - that path is also
-      // iterative inside V8).
+      // Built in a loop rather than parsed from a string, which could overflow `JSON.parse` on some engines.
       let deep: Record<string, unknown> = {}
       for (let i = 0; i < 100_000; i++) deep = { n: deep }
-      // Stringify may itself be the heavy step; if it cannot serialize we
-      // still want to assert the guard path is non-recursive. Wrap the whole
-      // publish so any RangeError surfaces as a failure.
+      // Any RangeError from the publish path fails the assertion.
       expect(() => {
         let wire: string
         try {
           wire = JSON.stringify({ payload: deep, sig: 'aa', v: 1 })
         } catch {
-          // Stringify overflow is environment-specific; fall back to a
-          // synthesised oversize-but-shallow blob to still exercise the
-          // pre-parse cap. Either way the guard must not throw RangeError.
+          // Stringify overflow is environment-specific; fall back to a deep, oversize blob that hits the byte cap.
           wire = `{"v":1,"sig":"aa","payload":${'['.repeat(50_000)}null${']'.repeat(50_000)}}`
         }
         bus.publish(wire)

@@ -1,4 +1,8 @@
 import type { AccessControl, IamPrimitives } from '../types'
+/**
+ * The decision trace: every policy and rule consulted, what each voted, and which one decided. Type-only.
+ * PERF: produced by `engine.explain()`, never by `can()`, so reconstructing the reasoning never taxes the fast path.
+ */
 export namespace Explain {
   /**
    * Trace of a single leaf condition: field, operator, expected vs actual, and the result.
@@ -86,6 +90,11 @@ export namespace Explain {
     readonly conditionsMet: boolean
     readonly conditions: IGroupTrace
     readonly matched: boolean
+    /**
+     * Set when tracing this rule's conditions threw; absent on every rule that evaluated normally.
+     * NOTE: that is Indeterminate, not a non-match, so the rule reads `matched: false` while the policy result votes.
+     */
+    readonly conditionError?: string
   }
 
   /**
@@ -121,7 +130,11 @@ export namespace Explain {
    *
    * @example
    * ```ts
-   * const trace: Explain.IResult = await engine.explain('user-1', 'read', { type: 'post' })
+   * // `attributes` is required on IResource - pass `{}` when the resource has none.
+   * const trace: Explain.IResult = await engine.explain('user-1', 'read', {
+   *   type: 'post',
+   *   attributes: {},
+   * })
    * trace.policies.forEach((p) => console.log(p.policyId, p.result, p.reason))
    * ```
    */
@@ -141,25 +154,24 @@ export namespace Explain {
     }
     readonly policies: readonly IPolicyTrace[]
     /**
-     * Plain-text human-readable summary. INFO-B: contains policy IDs, subject
-     * IDs, role IDs verbatim - values may be operator-controlled (admin-supplied
-     * policy names) or attacker-influenced (subject IDs from request paths).
-     * Downstream consumers that render this into HTML must HTML-escape it
-     * themselves; the explain pipeline never escapes for any specific
-     * rendering target.
+     * Plain-text human-readable summary.
+     * SECURITY: carries policy, subject and role ids verbatim, some attacker-influenced. The pipeline never escapes
+     * for a rendering target, so a consumer rendering this into HTML must escape it (see `iamEscapeHtml`).
      */
     readonly summary: string
   }
 
   /**
-   * Subject metadata passed to {@link explainEvaluation} for building the explain trace.
+   * Subject metadata passed to `explainEvaluation` for building the explain trace.
    *
    * @example
    * ```ts
    * const info: Explain.ISubjectInfo = {
    *   subjectId: 'user-1',
    *   originalRoles: ['editor'],
-   *   scopedRolesApplied: ['org-a:admin'],
+   *   // Plain role ids, never a scope-qualified composite: these are the roles a scoped grant added, and which
+   *   // scope added them is not encoded here.
+   *   scopedRolesApplied: ['admin'],
    * }
    * ```
    */

@@ -1,8 +1,10 @@
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import type { Provider } from '~/core/provider/provider.types'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   isSafeRedirectUrl,
@@ -10,6 +12,8 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
   serializeCookie,
 } from '../generic'
 
@@ -23,6 +27,9 @@ export const toHeaders: (headers: ExpressAdapter.Request['headers']) => Headers 
  * Express's mutable response object.
  */
 export function applyIntents(intents: Provider.Intent[], res: ExpressAdapter.Response, baseStatus = 200): void {
+  // Auth responses vary by cookie on a URL that does not: a shared cache holding one would answer
+  // the next caller with it.
+  res.setHeader('cache-control', 'no-store')
   let status = baseStatus
   let body: unknown = null
   let hasBody = false
@@ -65,10 +72,8 @@ export function applyIntents(intents: Provider.Intent[], res: ExpressAdapter.Res
   else res.end()
 }
 
-/** POST /AUTH/signin - `{ providerId, input }` body. CSRF-guarded
- * (Layer-1 Sec-Fetch-Site for the no-session case; Layer-2 double-submit
- * for the post-rotation case if the route is re-entered with a stale
- * SID). */
+/** POST /auth/signin, taking a `{ providerId, input }` body. CSRF-guarded by Sec-Fetch-Site for the
+ *  no-session case, and by double-submit when the route is re-entered with a stale SID. */
 export function mountSignIn(auth: AuthEngine): ExpressAdapter.Handler {
   return async (req, res) => {
     try {
@@ -81,7 +86,7 @@ export function mountSignIn(auth: AuthEngine): ExpressAdapter.Handler {
       }
       const result = await auth.flows.signIn({
         ...parsed,
-        ...callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] }),
+        ...expressCaller(req),
       })
       applyIntents(result.intents, res, 200)
     } catch (err) {
@@ -90,7 +95,7 @@ export function mountSignIn(auth: AuthEngine): ExpressAdapter.Handler {
   }
 }
 
-/** POST /AUTH/signout - reads the SID from the transport. CSRF-guarded. */
+/** POST /auth/signout, reading the SID from the transport. CSRF-guarded. */
 export function mountSignOut(auth: AuthEngine): ExpressAdapter.Handler {
   return async (req, res) => {
     try {
@@ -109,7 +114,7 @@ export function mountSignOut(auth: AuthEngine): ExpressAdapter.Handler {
   }
 }
 
-/** POST /AUTH/providers/:id/begin - driver for two-step flows. CSRF-guarded. */
+/** POST /auth/providers/:id/begin, the driver for two-step flows. CSRF-guarded. */
 export function mountProviderBegin(auth: AuthEngine): ExpressAdapter.Handler {
   return async (req, res) => {
     try {
@@ -133,16 +138,19 @@ export function mountProviderBegin(auth: AuthEngine): ExpressAdapter.Handler {
   }
 }
 
-/** GET /AUTH/session - returns the resolved session as JSON. */
+/** GET /auth/session, answering the resolved session as JSON. */
 export function mountSession(auth: AuthEngine): ExpressAdapter.Handler {
   return async (req, res) => {
     try {
-      const resolved = await auth.resolveSession({ headers: toHeaders(req.headers) })
+      const resolved = await auth.resolveSession({ headers: toHeaders(req.headers) }).orNull()
+      res.setHeader('cache-control', 'no-store')
       if (!resolved) {
         res.status(200).json({ session: null, identity: null })
         return
       }
-      res.status(200).json({ session: resolved.session, identity: resolved.identity })
+      // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
+      const { csrfHash: _csrfHash, ...session } = resolved.session
+      res.status(200).json({ session, identity: resolved.identity })
     } catch (err) {
       handleError(err, res)
     }
@@ -151,6 +159,7 @@ export function mountSession(auth: AuthEngine): ExpressAdapter.Handler {
 
 function handleError(err: unknown, res: ExpressAdapter.Response): void {
   const { status, body } = errorToHttp(err)
+  res.setHeader('cache-control', 'no-store')
   res.status(status).json(body)
 }
 
@@ -160,6 +169,43 @@ function providerIdFromUrl(url: string, suffix: string): string | null {
   if (parts.length < 4) return null
   if (parts[parts.length - 1] !== suffix) return null
   return parts[parts.length - 2] ?? null
+}
+
+/** The fingerprint Express resolved, the same pair {@link mountSignIn} stamps at sign-in. */
+export function expressCaller(req: ExpressAdapter.Request): CallerFingerprint {
+  return callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] })
+}
+
+/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
+ *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
+ *  with the session's, running the anomaly detectors and the hijack policy.
+ *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
+export type ExpressActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (req: ExpressAdapter.Request) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+/** Bind the request's actor scope for everything downstream; install it above your own routes,
+ *  alongside the CSRF guard. Anonymous and unresolvable sessions run unbound, which is the honest
+ *  `null`; while impersonating the actor is the operator behind `actingAs`. */
+export function expressActorContext(auth: AuthEngine, opts: ExpressActorOptions = {}): ExpressAdapter.Middleware {
+  return async (req, _res, next) => {
+    // `next()` is synchronous, so the downstream chain starts inside the scope
+    // and every async continuation of it inherits the binding.
+    await withRequestActor(
+      auth,
+      { headers: toHeaders(req.headers) },
+      async () => {
+        next()
+      },
+      requestSecurity(auth, {
+        ...(opts.onHijack && { onHijack: opts.onHijack }),
+        ...(opts.getCaller && { caller: opts.getCaller(req) }),
+      }),
+    )
+  }
 }
 
 /**

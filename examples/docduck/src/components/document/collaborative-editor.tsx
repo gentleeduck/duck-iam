@@ -1,5 +1,6 @@
 'use client'
 
+import { withCollaboration } from '@blocknote/core/yjs'
 import { BlockNoteView } from '@blocknote/mantine'
 import { useCreateBlockNote } from '@blocknote/react'
 import type { HocuspocusProvider } from '@hocuspocus/provider'
@@ -138,20 +139,22 @@ function EditorContent({
   const [theme] = useAtom(themeAtom)
   const color = useRef(COLORS[Math.floor(Math.random() * COLORS.length)] ?? '#958DF1').current
 
-  const editor = useCreateBlockNote({
-    collaboration: {
-      // BlockNote's CollaborationOptions only reads `provider.awareness` (see
-      // @blocknote/core YCursorPlugin.ts). HocuspocusProvider types `awareness`
-      // as `Awareness | null`, while BlockNote expects `Awareness | undefined`,
-      // so pass a narrowed view instead of the provider instance itself.
-      provider: { awareness: provider.awareness ?? undefined },
-      fragment: ydoc.getXmlFragment('document-store'),
-      user: {
-        name: user.name,
-        color,
+  const editor = useCreateBlockNote(
+    withCollaboration({
+      collaboration: {
+        // BlockNote's CollaborationOptions only reads `provider.awareness` (see
+        // @blocknote/core YCursorPlugin.ts). HocuspocusProvider types `awareness`
+        // as `Awareness | null`, while BlockNote expects `Awareness | undefined`,
+        // so pass a narrowed view instead of the provider instance itself.
+        provider: { awareness: provider.awareness ?? undefined },
+        fragment: ydoc.getXmlFragment('document-store'),
+        user: {
+          name: user.name,
+          color,
+        },
       },
-    },
-  })
+    }),
+  )
 
   useEffect(() => {
     if (!onWordCountChange) return

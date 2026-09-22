@@ -21,8 +21,8 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
     const first = rejected[0]
     if (first && first.status === 'rejected') {
       expect(first.reason).toMatchObject({
-        code: 'AUTH_PROVIDER_FAILED',
-        meta: { detail: 'provider sub already linked to a different identity' },
+        code: 'AUTH_PROVIDER_TAKEN',
+        meta: { providerId: 'authGoogle' },
       })
     } else {
       throw new Error('expected one rejection')
@@ -54,26 +54,6 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
     expect(a.id).not.toBe(b.id)
   })
 
-  it('create with provider link that has undefined sub (magic-link-style) is allowed', async () => {
-    const adapter = new MemoryAdapter<{ email: string; username: string }>()
-    const a = await adapter.identities.create(
-      identityInput({
-        profile: { email: 'a@x.com', username: 'a@x.com' },
-        providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
-      }),
-    )
-    // Second create with the same providerId (no sub) - should succeed
-    // because the uniqueness invariant only applies when both sides
-    // carry a sub.
-    const b = await adapter.identities.create(
-      identityInput({
-        profile: { email: 'b@x.com', username: 'b@x.com' },
-        providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
-      }),
-    )
-    expect(a.id).not.toBe(b.id)
-  })
-
   it('after race, findByProviderSub returns exactly ONE identity', async () => {
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const link = { providerId: 'authGoogle', providerSub: 'race-X', addedAt: new Date() }
@@ -88,7 +68,7 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
         identityInput({ profile: { email: 'c@x.com', username: 'c@x.com' }, providers: [link] }),
       ),
     ])
-    const found = await adapter.identities.findByProviderSub('authGoogle', 'race-X')
+    const found = await adapter.identities.find({ providerId: 'authGoogle', providerSub: 'race-X' })
     expect(found).not.toBeNull()
     // Only one row should exist with this sub. Verify by counting.
     let count = 0

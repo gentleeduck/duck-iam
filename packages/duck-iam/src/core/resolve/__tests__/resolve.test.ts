@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { IamRequest } from '../../types'
-import { matchesAction, matchesResource, matchesResourceHierarchical, matchesScope, resolve } from '../resolve'
+import {
+  clearPathCache,
+  matchesAction,
+  matchesResource,
+  matchesResourceHierarchical,
+  matchesScope,
+  PATH_CACHE_MAX,
+  pathCache,
+  resolve,
+} from '../resolve'
 
 const baseRequest: IamRequest.IAccessRequest = {
   subject: {
@@ -126,8 +135,7 @@ describe('matchesResource()', () => {
   })
 
   it('bare pattern does NOT match sub-resources', () => {
-    // Breaking change vs prior behaviour: a bare "org" no longer implicitly
-    // grants on "org:project". Authors must opt in with "org:*".
+    // A bare "org" does not grant on "org:project"; authors opt in with "org:*".
     expect(matchesResource('org', 'org:project')).toBe(false)
     expect(matchesResource('org', 'org:project:doc')).toBe(false)
     expect(matchesResource('org', 'organization')).toBe(false)
@@ -147,9 +155,7 @@ describe('matchesResource()', () => {
     expect(matchesResource('org:billing:*', 'org:secrets:invoice')).toBe(false)
   })
 
-  // `matchesResource` is called directly by `policyApplies` /
-  // `policyTargetsMatch`, so dot-pattern targets must match dot-style
-  // request resources here. Colon-pattern behaviour is unchanged.
+  // `policyApplies` calls `matchesResource` directly, so dot-pattern targets must match dot-style resources here.
   it('dot wildcard: dashboard.* matches dot children', () => {
     expect(matchesResource('dashboard.*', 'dashboard.users')).toBe(true)
     expect(matchesResource('dashboard.*', 'dashboard.users.list')).toBe(true)
@@ -190,8 +196,7 @@ describe('matchesResourceHierarchical()', () => {
   })
 
   it('bare pattern does NOT match dot-children', () => {
-    // Breaking change vs prior behaviour - bare "dashboard" only matches
-    // the literal "dashboard". Authors must use "dashboard.*" for recursion.
+    // Bare "dashboard" only matches the literal; authors use "dashboard.*" for recursion.
     expect(matchesResourceHierarchical('dashboard', 'dashboard.users')).toBe(false)
     expect(matchesResourceHierarchical('dashboard', 'dashboard.users.settings')).toBe(false)
     expect(matchesResourceHierarchical('dashboard', 'dashboards')).toBe(false)
@@ -223,5 +228,45 @@ describe('matchesScope()', () => {
   it('specific pattern does not match missing scope', () => {
     expect(matchesScope('org-1', undefined)).toBe(false)
     expect(matchesScope('org-1', null)).toBe(false)
+  })
+})
+
+describe('path-segment cache', () => {
+  it('memoises into a supplied per-instance cache and leaves the global one untouched', () => {
+    const tenantCache = new Map<string, string[] | null>()
+    const path = 'subject.attributes.perInstanceProbe'
+    expect(resolve(baseRequest, path, { path: tenantCache })).toBeNull()
+    expect(tenantCache.get(path)).toEqual(['subject', 'attributes', 'perInstanceProbe'])
+    expect(pathCache.has(path)).toBe(false)
+  })
+
+  it('negative-caches rejected paths so a blocked segment stays blocked', () => {
+    const tenantCache = new Map<string, string[] | null>()
+    expect(resolve(baseRequest, 'subject.__proto__.polluted', { path: tenantCache })).toBeNull()
+    expect(tenantCache.get('subject.__proto__.polluted')).toBeNull()
+    expect(resolve(baseRequest, 'nope.id', { path: tenantCache })).toBeNull()
+    expect(tenantCache.get('nope.id')).toBeNull()
+    // A cached rejection must still resolve to null on the second call.
+    expect(resolve(baseRequest, 'subject.__proto__.polluted', { path: tenantCache })).toBeNull()
+  })
+
+  it('evicts to stay within PATH_CACHE_MAX and keeps resolving correctly after eviction', () => {
+    const tenantCache = new Map<string, string[] | null>()
+    for (let i = 0; i < PATH_CACHE_MAX + 50; i++) {
+      resolve(baseRequest, `subject.attributes.k${i}`, { path: tenantCache })
+    }
+    expect(tenantCache.size).toBeLessThanOrEqual(PATH_CACHE_MAX)
+    // The oldest entry was evicted, but re-resolving still works.
+    expect(resolve(baseRequest, 'subject.id', { path: tenantCache })).toBe('user-1')
+  })
+
+  it('clearPathCache empties the process-wide cache only', () => {
+    const tenantCache = new Map<string, string[] | null>()
+    resolve(baseRequest, 'subject.id')
+    resolve(baseRequest, 'resource.id', { path: tenantCache })
+    expect(pathCache.size).toBeGreaterThan(0)
+    clearPathCache()
+    expect(pathCache.size).toBe(0)
+    expect(tenantCache.has('resource.id')).toBe(true)
   })
 })

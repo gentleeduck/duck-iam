@@ -1,24 +1,15 @@
-/**
- * gRPC server adapter. gRPC is binary + bidirectional; the auth lib
- * exposes the AuthEngine flows over standard unary RPCs by wrapping the
- * service handlers in interceptors that:
- *   - extract a bearer token from the `authorization` metadata
- *   - resolve the session via auth.resolveSession
- *   - attach session + identity onto the call context for handler use
- *
- * The actual `@grpc/grpc-js` server is lazy-loaded as a peerDep; this
- * module ships the interceptor + handler factories only.
- */
+/** gRPC server adapter: interceptors that pull a bearer token off the `authorization` metadata, resolve the
+ *  session, and attach it and its identity to the call context. `@grpc/grpc-js` is never imported, only
+ *  structurally typed, so only the interceptor and handler factories ship here. */
 
+import { withResolvedActor } from '~/core/actor'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
+import { type CallerFingerprint, callerContext, requestSecurity } from '../generic'
 
 import type { GrpcAdapter } from './grpc.types'
-/**
- * Subset of gRPC status codes we map AuthError onto. Mirrors
- * `grpc.status.*` enum without forcing the peerDep on consumers that
- * just want the auth wrapper.
- */
+/** The gRPC status codes an AuthError maps onto, mirroring `grpc.status.*` so the package needs no
+ *  dependency on `@grpc/grpc-js`. */
 export const GRPC_STATUS = {
   OK: 0,
   CANCELLED: 1,
@@ -56,19 +47,13 @@ export function httpStatusToGrpc(status: number): number {
   return GRPC_STATUS.OK
 }
 
-/**
- * Wrap a unary handler with authentication. The wrapper:
- *   - reads `authorization: Bearer <token>` (or `bearer-token` /
- *     `x-api-key` per `headerName` config) from the call metadata
- *   - calls `auth.resolveSession` and attaches `call.session` +
- *     `call.identity`
- *   - when `required: true` (default) AND no session resolves, replies
- *     with UNAUTHENTICATED via the callback (handler not invoked)
- */
+/** Wrap a unary handler with authentication: read the token from the call metadata under `headerName`, resolve
+ *  it onto `call.session` and `call.identity`, and under the default `required: true` answer UNAUTHENTICATED
+ *  without invoking the handler when nothing resolves. */
 export function withGrpc<Req, Res>(
   auth: AuthEngine,
   handler: GrpcAdapter.UnaryHandler<Req, Res>,
-  opts: { required?: boolean; headerName?: string } = {},
+  opts: GrpcAdapter.WithGrpcOptions<Req> = {},
 ): GrpcAdapter.UnaryHandler<Req, Res> {
   const required = opts.required ?? true
   const headerName = opts.headerName ?? 'authorization'
@@ -76,7 +61,19 @@ export function withGrpc<Req, Res>(
     void (async () => {
       try {
         const headers = metadataToHeaders(call.metadata, headerName)
-        const resolved = await auth.resolveSession({ headers })
+        // The same opt-in the seven HTTP adapters take: without a `getCaller` no `caller` is passed at
+        // all and nothing is compared, so a deployment that does not ask keeps the behaviour it had. The
+        // key is omitted rather than set to `{}`, which would read as a caller who sent no fingerprint.
+        const security = requestSecurity(auth, {
+          ...(opts.onHijack && { onHijack: opts.onHijack }),
+          ...(opts.getCaller && { caller: opts.getCaller(call) }),
+        })
+        const resolved = await auth
+          .resolveSession(
+            { headers },
+            security.requestSnapshot ? { requestSnapshot: security.requestSnapshot } : undefined,
+          )
+          .orNull()
         if (!resolved) {
           if (required) {
             callback({
@@ -85,12 +82,23 @@ export function withGrpc<Req, Res>(
             })
             return
           }
-        } else {
-          call.session = resolved.session
-          // Adapter is profile-agnostic; store the resolved identity opaquely.
-          call.identity = resolved.identity as GrpcAdapter.UnaryCall['identity']
+          handler(call, callback)
+          return
         }
-        handler(call, callback)
+        call.session = resolved.session
+        // Adapter is profile-agnostic; store the resolved identity opaquely.
+        call.identity = resolved.identity as GrpcAdapter.UnaryCall['identity']
+        // Bound here rather than in a separate wrapper: the session is already
+        // resolved, and a write the handler drives records a `null` actor
+        // without it. The handler starts synchronously inside the scope, so its
+        // async continuations inherit the binding.
+        await withResolvedActor(
+          resolved.session,
+          async () => {
+            handler(call, callback)
+          },
+          security.onSession ? { onSession: security.onSession } : {},
+        )
       } catch (err) {
         if (err instanceof AuthError) {
           callback({
@@ -105,12 +113,15 @@ export function withGrpc<Req, Res>(
   }
 }
 
-/**
- * Translate a gRPC Metadata bag into a `Headers` object so
- * `auth.resolveSession` accepts it unchanged. Only the configured
- * `headerName` (and `cookie`, since some grpc-web bridges forward it)
- * are projected; metadata is otherwise small.
- */
+/** The request fingerprint gRPC carries. Only the user agent: `Metadata` holds no address, and the peer
+ *  is on the call object the runtime owns, so a host that resolves one passes its own `getCaller`. */
+export function grpcCaller(call: { metadata: GrpcAdapter.Metadata }): CallerFingerprint {
+  const [ua] = call.metadata.get('user-agent')
+  return callerContext({ userAgent: typeof ua === 'string' ? ua : ua?.toString('utf8') })
+}
+
+/** Project a gRPC Metadata bag into `Headers` so `auth.resolveSession` takes it unchanged. Only `headerName`
+ *  and `cookie` carry over, the latter because some grpc-web bridges forward it. */
 function metadataToHeaders(metadata: GrpcAdapter.Metadata, headerName: string): Headers {
   const out = new Headers()
   const auth = metadata.get(headerName)

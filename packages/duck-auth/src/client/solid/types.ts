@@ -4,10 +4,12 @@ import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities/identities.types'
 import type { VanillaClient } from '../vanilla'
 
+/** Solid provider props, primitive results and the vanilla types a consumer needs. */
 export namespace SolidClient {
   export type Context<Profile extends Identities.ProfileMetadataBase> = {
     client: VanillaClient.Client<Profile>
     state: () => VanillaClient.SessionResult<Profile>
+    /** `loading` until the first resolve settles, then `authed` or `guest`. */
     status: () => 'loading' | 'authed' | 'guest'
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }
@@ -22,6 +24,7 @@ export namespace SolidClient {
 
   export type UseSessionResult<Profile extends Identities.ProfileMetadataBase> = {
     data: () => VanillaClient.SessionResult<Profile>
+    /** `loading` until the first resolve settles, then `authed` or `guest`. */
     status: () => 'loading' | 'authed' | 'guest'
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }

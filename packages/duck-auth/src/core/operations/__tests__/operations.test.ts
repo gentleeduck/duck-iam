@@ -36,7 +36,7 @@ describe('OperationsFacet', () => {
       expect(handler).toHaveBeenCalledOnce()
     })
 
-    it('assertOperationsForRoute throws AUTH/MAINTENANCE when on', async () => {
+    it('assertOperationsForRoute throws AUTH_MAINTENANCE when on', async () => {
       await ops.maintenance(true, { message: 'm', retryAfterSec: 60 })
       expect(() => ops.assertOperationsForRoute('POST')).toThrow()
       try {
@@ -53,8 +53,8 @@ describe('OperationsFacet', () => {
 
     it('exempt routes pass through during maintenance', async () => {
       await ops.maintenance(true)
-      expect(() => ops.assertOperationsForRoute('GET', { healthz: true })).not.toThrow()
-      expect(() => ops.assertOperationsForRoute('GET', { session: true })).not.toThrow()
+      expect(() => ops.assertOperationsForRoute('GET', { maintenance: true })).not.toThrow()
+      expect(() => ops.assertOperationsForRoute('POST', { maintenance: true })).not.toThrow()
     })
   })
 
@@ -70,7 +70,7 @@ describe('OperationsFacet', () => {
       }
     })
 
-    it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('%s throws AUTH/READONLY_MODE in read-only', async (method) => {
+    it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('%s throws AUTH_READONLY_MODE in read-only', async (method) => {
       await ops.readOnly(true)
       try {
         ops.assertOperationsForRoute(method)

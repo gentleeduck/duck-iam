@@ -2,13 +2,10 @@
  * `AuthError.toJSON` is the last thing between an error's metadata and an HTTP
  * response body, and it had no tests. Its job is to strip secrets, so the way it
  * fails is by letting one through, which nothing else in the stack would notice.
- *
- * The cases below attack the redactor the way a real payload would arrive: keys
- * in unexpected case, secrets buried in nested objects and arrays, near-miss key
- * names, and shapes designed to make a recursive walker misbehave.
  */
 import { describe, expect, it } from 'vitest'
 import { AuthError, rethrowAuthError, throwAuthError } from '../errors'
+import { AUTH_ERRORS } from '../errors.codes'
 
 /** The response body an adapter would actually send. */
 const body = (err: AuthError) => err.toJSON()
@@ -37,6 +34,26 @@ describe('AuthError construction', () => {
     expect(new AuthError('AUTH_CSRF').meta).toEqual({})
   })
 })
+
+describe('the code map', () => {
+  it('keeps a declared status a plain number, which is what every reader of the map takes it for', () => {
+    expect(AUTH_ERRORS.AUTH_SESSION_EXPIRED).toBe(401)
+    expect(Object.values(AUTH_ERRORS).every((status) => typeof status === 'number')).toBe(true)
+  })
+
+  it('is where every code takes its status from, so there is no second table to fall out of step with', () => {
+    for (const [code, status] of Object.entries(AUTH_ERRORS)) {
+      // `as never`, not `as AuthError.Code`: a widened key declares no meta, which is what lets one line raise all of them.
+      expect(new AuthError(code as never).status).toBe(status)
+    }
+  })
+})
+
+// What the map states in types rather than at runtime: each line is the compile error a wrong change gets.
+// @ts-expect-error a code that carries something cannot be raised without it
+void new AuthError('AUTH_SESSION_EXPIRED')
+// @ts-expect-error nor with a shape other than the one it declared
+void new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: 'soon' })
 
 describe('toJSON strips secrets', () => {
   for (const key of [
@@ -102,11 +119,9 @@ describe('toJSON under shapes built to break a recursive walker', () => {
     expect(JSON.stringify(out)).toContain('[depth-cap]')
   })
 
-  it('FINDING: a secret buried deeper than the depth cap is not reached', () => {
-    // The cap protects against a cycle, but it also means the walker stops
-    // looking. Below the cap the value is replaced wholesale by '[depth-cap]',
-    // so the secret does not appear, and the string is what a reader sees
-    // instead. Pinned to record that depth is a truncation, not a scrub.
+  it('truncates past the depth cap rather than walking on', () => {
+    // The cap is what survives a cycle. Past it the value is replaced wholesale by '[depth-cap]',
+    // so a secret below the cap does not appear either; the marker is what a reader sees instead.
     let deep: Record<string, unknown> = { password: 'leak-me' }
     for (let i = 0; i < 20; i++) deep = { nested: deep }
     const serialised = JSON.stringify(body(new AuthError('AUTH_CSRF', deep as never)))
@@ -136,15 +151,14 @@ describe('toJSON under shapes built to break a recursive walker', () => {
   })
 })
 
-describe('FINDING: the sensitive list matches whole keys only', () => {
-  // Membership is exact, so a key that merely contains a sensitive word is kept.
-  // Deliberate and defensible, since a substring rule would strip innocent keys
-  // like `tokenCount`, but it means a caller inventing its own key name gets no
-  // protection. Recorded so the constraint is known rather than assumed.
+describe('the sensitive list matches a key that merely contains the word', () => {
+  // Exact membership kept `oldPassword` and `userSecret`, which are the names a caller invents.
+  // A substring rule also strips an innocent `tokenCount`, and losing a number is the cheaper way
+  // to be wrong.
   for (const key of ['userSecret', 'secret_key', 'mySecret', 'apiToken', 'passwordHint', 'oldPassword']) {
-    it(`keeps ${key}, because it is not in the list verbatim`, () => {
+    it(`drops ${key}`, () => {
       const out = body(new AuthError('AUTH_CSRF', { [key]: 'visible-value' } as never))
-      expect(JSON.stringify(out)).toContain('visible-value')
+      expect(JSON.stringify(out)).not.toContain('visible-value')
     })
   }
 })
