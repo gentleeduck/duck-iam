@@ -143,7 +143,7 @@ it declares by implementing `withClient`.
 
 | Package | Adapters that can join a transaction | Adapters that cannot |
 |---|---|---|
-| `@gentleduck/auth` | drizzle pg, mysql, sqlite, and any bridge built with `createSqlStores` | memory, redis, valkey |
+| `@gentleduck/auth` | drizzle pg, mysql, sqlite | memory, redis, valkey |
 | `@gentleduck/iam` | drizzle, prisma | memory, file, redis, http |
 
 An adapter that cannot join makes `withTransaction` throw, naming the store, rather than
