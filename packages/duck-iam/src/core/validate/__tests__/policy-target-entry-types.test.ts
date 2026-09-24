@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { createIam } from '../../config/config'
-import type { AccessControl } from '../../types'
 import { IamError, metaOf } from '../../errors'
+import type { AccessControl } from '../../types'
 import { validatePolicy } from '../validate'
 
 const NUL = String.fromCharCode(0)

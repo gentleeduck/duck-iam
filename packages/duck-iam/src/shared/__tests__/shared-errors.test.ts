@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { IamError, metaOf } from '../../core/errors'
-import { iamAssertAttributesParam } from '../attributes'
-import { iamAssertAssignableScope } from '../scope'
-import { iamAssertSavablePolicy, iamAssertSavableRole, iamUnreadablePolicy, iamUnreadableRole } from '../rows'
 import { iamAssertNoAssignOptions, iamAssertValidAssignWindow } from '../assign-options'
 import { iamUnknownRoleError } from '../assignment-target'
+import { iamAssertAttributesParam } from '../attributes'
+import { iamAssertSavablePolicy, iamAssertSavableRole, iamUnreadablePolicy, iamUnreadableRole } from '../rows'
+import { iamAssertAssignableScope } from '../scope'
 
 describe('iamAssertAssignableScope', () => {
   it('IAM_SCOPE_INVALID reason "empty" for an empty string', () => {
@@ -48,14 +48,17 @@ describe('iamAssertAttributesParam', () => {
     // An own `__proto__` property, as `JSON.parse` produces; the object-literal form (`{ __proto__: ... }`) sets the
     // prototype instead of creating an own key, so it would never reach `hasForbiddenAttributeKey`.
     const hostile: Record<string, unknown> = {}
-    Object.defineProperty(hostile, '__proto__', { configurable: true, enumerable: true, value: { x: 1 }, writable: true })
+    Object.defineProperty(hostile, '__proto__', {
+      configurable: true,
+      enumerable: true,
+      value: { x: 1 },
+      writable: true,
+    })
     try {
       iamAssertAttributesParam('memory', 'u1', hostile)
       expect.unreachable()
     } catch (err) {
-      expect(metaOf(err as IamError<'IAM_ATTRIBUTES_INVALID'>, 'IAM_ATTRIBUTES_INVALID').reason).toBe(
-        'forbidden-key',
-      )
+      expect(metaOf(err as IamError<'IAM_ATTRIBUTES_INVALID'>, 'IAM_ATTRIBUTES_INVALID').reason).toBe('forbidden-key')
     }
   })
 })
@@ -89,9 +92,9 @@ describe('iamAssertNoAssignOptions / iamAssertValidAssignWindow', () => {
       iamAssertNoAssignOptions('memory', { startsAt: new Date(), expiresAt: new Date() })
       expect.unreachable()
     } catch (err) {
-      expect(metaOf(err as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields).toEqual(
-        ['startsAt', 'expiresAt'],
-      )
+      expect(
+        metaOf(err as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields,
+      ).toEqual(['startsAt', 'expiresAt'])
     }
   })
 

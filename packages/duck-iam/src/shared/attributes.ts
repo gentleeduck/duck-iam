@@ -1,5 +1,5 @@
-import type { IamPrimitives } from '../core/types'
 import { throwIamError } from '../core/errors'
+import type { IamPrimitives } from '../core/types'
 
 /**
  * Adapter-boundary guard for `setSubjectAttributes`: refuses a non-object (a string would spread into per-character

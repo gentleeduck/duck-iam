@@ -1,5 +1,5 @@
-import type { IamAdapter } from '../core/types'
 import { throwIamError } from '../core/errors'
+import type { IamAdapter } from '../core/types'
 
 /**
  * The fields of {@link IamAdapter.IAssignOptions} an adapter has to store to honour.

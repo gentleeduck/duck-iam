@@ -1,13 +1,18 @@
+import { IamError, throwIamValidationFailed } from '../core/errors'
 import type { AccessControl } from '../core/types'
 import type { IamValidate } from '../core/validate'
 import { validatePolicy, validateRole } from '../core/validate'
-import { IamError, throwIamValidationFailed } from '../core/errors'
 
 /**
  * Throws on any error-level issue, so every adapter refuses a malformed row at write time.
  * NOTE: the read-path checks stay; they catch rows that reached the store another way (a migration, a hand edit).
  */
-function assertValid(adapter: string, kind: 'policy' | 'role', row: unknown, issues: readonly IamValidate.IIssue[]): void {
+function assertValid(
+  adapter: string,
+  kind: 'policy' | 'role',
+  row: unknown,
+  issues: readonly IamValidate.IIssue[],
+): void {
   void adapter // kept for signature compatibility with both call sites; no longer needed once the message is gone
   void row
   if (issues.some((issue) => issue.type === 'error')) throwIamValidationFailed(kind, issues)

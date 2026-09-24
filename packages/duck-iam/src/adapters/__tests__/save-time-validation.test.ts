@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { AccessControl } from '../../core/types'
 import { IamError, metaOf } from '../../core/errors'
+import type { AccessControl } from '../../core/types'
 import { iamAssertSavablePolicy, iamAssertSavableRole } from '../../shared/rows'
 import { IamMemoryAdapter } from '../memory'
 

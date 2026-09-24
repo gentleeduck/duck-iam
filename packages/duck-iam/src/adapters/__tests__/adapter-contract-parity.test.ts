@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { IamError, metaOf } from '../../core/errors'
 import { IamEngine } from '../../core/engine/engine'
+import { IamError, metaOf } from '../../core/errors'
 import { iamAssertNoAssignOptions, iamAssertValidAssignWindow } from '../../shared/assign-options'
 import { iamAssertAttributesParam } from '../../shared/attributes'
 import { iamAssertAssignableScope } from '../../shared/scope'
