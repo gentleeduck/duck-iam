@@ -1,5 +1,5 @@
-import type { Sessions } from '../sessions/sessions.types'
 import { type Brand, detail, fault } from '@gentleduck/errors'
+import type { Sessions } from '../sessions/sessions.types'
 
 export { detail, fault }
 export type Carries<M extends object> = Brand.Carries<M>
