@@ -93,9 +93,7 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
 
   it('throws when native data column holds an array', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: [1, 2, 3] }])
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-      /corrupted attributes for "user-1" \(not a JSON object\)/,
-    )
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     expect(onPolicyErrorMock).toHaveBeenCalled()
     const errArg = onPolicyErrorMock.mock.calls[0]?.[0] as Error | undefined
     expect(errArg).toBeInstanceOf(Error)
@@ -104,32 +102,24 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
 
   it('throws when native data column holds a number', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: 42 }])
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-      /corrupted attributes for "user-1" \(not a JSON object\)/,
-    )
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
   })
 
   it('throws when native data column holds a boolean', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: true }])
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-      /corrupted attributes for "user-1" \(not a JSON object\)/,
-    )
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
   })
 
   // SECURITY: `data` is `.notNull()`, so a `null` is a stored `'null'::jsonb` and must throw, not read as `{}`
   // and drop deny rules. A subject with no attributes has no row and still reads `{}`.
   it('throws when the data column holds a stored JSON null', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: null }])
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-      /corrupted attributes for "user-1" \(not a JSON object\)/,
-    )
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
   })
 
   it('throws when the data column is undefined', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: undefined }])
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-      /corrupted attributes for "user-1" \(not a JSON object\)/,
-    )
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
   })
 
   it('accepts a valid native object', async () => {
@@ -142,9 +132,7 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
 
   it('still validates the string-JSON path', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: '"a string, not an object"' }])
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-      /corrupted attributes for "user-1" \(not a JSON object\)/,
-    )
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
   })
 
   // Without `iamAssertAttributesParam`, a string would spread into per-character keys.

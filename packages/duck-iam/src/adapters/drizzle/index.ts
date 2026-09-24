@@ -4,6 +4,7 @@ import type { PgTableWithColumns } from 'drizzle-orm/pg-core/table'
 import type { SQLiteTableWithColumns } from 'drizzle-orm/sqlite-core/table'
 import { creditWrites } from '../../core/batch'
 import type { IamConfig } from '../../core/config'
+import { fail } from '../../core/errors'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertValidAssignWindow } from '../../shared/assign-options'
@@ -794,7 +795,7 @@ export class IamDrizzleAdapter<
         this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
         return {
           ok: false,
-          error: new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (JSON parse failed)`),
+          error: fail('IAM_ATTRIBUTES_CORRUPT', { adapter: 'drizzle', subjectId, reason: 'parse-failed' }),
         }
       }
       return this._narrowStoredAttributes(parsed, subjectId)
@@ -817,7 +818,7 @@ export class IamDrizzleAdapter<
       )
       return {
         ok: false,
-        error: new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (not a JSON object)`),
+        error: fail('IAM_ATTRIBUTES_CORRUPT', { adapter: 'drizzle', subjectId, reason: 'not-object' }),
       }
     }
     return { ok: true, attrs }

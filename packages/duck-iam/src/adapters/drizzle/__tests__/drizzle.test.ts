@@ -717,7 +717,7 @@ describe('IamDrizzleAdapter', () => {
 
     it('getSubjectAttributes throws on corrupt JSON string', async () => {
       mock.tables.attrs.push({ subjectId: 'corrupt', data: '{not-json' })
-      await expect(adapter.getSubjectAttributes('corrupt')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('corrupt')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     })
 
     it('setSubjectAttributes recovers from corrupt existing blob', async () => {

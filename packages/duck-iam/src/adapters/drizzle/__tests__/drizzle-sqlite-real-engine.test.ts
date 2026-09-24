@@ -321,7 +321,7 @@ describe('drizzle setSubjectAttributes when the read fails, against a real SQLit
   it('a row that parses but is not a flat bag is corruption too', async () => {
     const { adapter, raw } = seeded()
     raw.prepare('insert into iam_subject_attrs (subject_id, data) values (?, ?)').run('u1', '["not","a","bag"]')
-    await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+    await expect(adapter.getSubjectAttributes('u1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
 
     await adapter.setSubjectAttributes('u1', { tier: 'silver' })
     expect(JSON.parse(String(storedData(raw)?.data))).toEqual({ tier: 'silver' })
