@@ -24,7 +24,7 @@ describe('scrubMeta', () => {
   it('drops a secret-shaped top-level key', () => {
     const out = scrubMeta({ token: 'leak-me', roleId: 'r1' })
     expect(out).not.toHaveProperty('token')
-    expect(out.roleId).toBe('r1')
+    expect(out['roleId']).toBe('r1')
   })
 
   it('drops a secret nested inside an object', () => {
@@ -62,7 +62,7 @@ describe('scrubMeta', () => {
 
   it('survives a circular reference', () => {
     const cycle: Record<string, unknown> = { name: 'loop' }
-    cycle.self = cycle
+    cycle['self'] = cycle
     expect(() => scrubMeta(cycle)).not.toThrow()
   })
 
