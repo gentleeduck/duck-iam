@@ -430,7 +430,7 @@ suite('IamPrismaAdapter against real SQL', () => {
 
     it('an empty-string scope grant is refused, not stored', async () => {
       await reset()
-      await expect(adapter.assignRole('u1', 'editor', '')).rejects.toThrow(/empty string/)
+      await expect(adapter.assignRole('u1', 'editor', '')).rejects.toThrow('IAM_SCOPE_INVALID')
       expect(await assignmentCount()).toBe(0)
     })
 
@@ -580,14 +580,14 @@ suite('IamPrismaAdapter against real SQL', () => {
         `INSERT INTO access_policy (id, name, algorithm, rules) VALUES ('p1','Broken','deny-overrides','null'::jsonb)`,
       )
       // SECURITY: fail closed - read loosely this denies nothing, and `null` would look like a deleted policy.
-      await expect(adapter.getPolicy('p1')).rejects.toThrow(/cannot be read/)
-      await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+      await expect(adapter.getPolicy('p1')).rejects.toThrow('IAM_UNREADABLE_POLICY')
+      await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
     })
 
-    it('a role row whose permissions column is a JSON object is dropped', async () => {
+    it('a role row whose permissions column is a JSON object is refused', async () => {
       await reset()
       await pool.query(`INSERT INTO access_role (id, name, permissions) VALUES ('r1','Broken','{"action":"*"}'::jsonb)`)
-      expect(await adapter.getRole('r1')).toBeNull()
+      await expect(adapter.getRole('r1')).rejects.toThrow('IAM_UNREADABLE_ROLE')
     })
 
     it('a stored __proto__ attribute key makes the row unreadable rather than half-read', async () => {

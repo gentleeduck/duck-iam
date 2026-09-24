@@ -13,7 +13,7 @@ describe('IamHttpAdapter direct-call input shape', () => {
     })
     await expect(
       adapter.setSubjectAttributes('user-1', 'admin=true' as unknown as IamPrimitives.Attributes),
-    ).rejects.toThrow(/attributes for "user-1" must be a plain object \(got string\)/)
+    ).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
     expect(fetch).not.toHaveBeenCalled()
   })
 })

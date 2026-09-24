@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { IamError, metaOf } from '../../core/errors'
 import { resolveEffectiveRoles } from '../../core/rbac'
 import type { AccessControl, IamAdapter } from '../../core/types'
 import type { OptionalSupport } from './optional-support'
@@ -154,7 +155,7 @@ export function runAdapterCompliance(
         const a = await factory()
         // A variable, not a literal, so no excess-property check applies, as for a row parsed from JSON.
         const withExtra = { ...samplePolicy, wat: 'extra' }
-        await expect(a.savePolicy(withExtra)).rejects.toThrow(/Unknown field "wat"/)
+        await expect(a.savePolicy(withExtra)).rejects.toThrow('IAM_VALIDATION_FAILED')
         expect(await a.getPolicy(samplePolicy.id)).toBeNull()
       })
 
@@ -248,9 +249,7 @@ export function runAdapterCompliance(
       it('the unknown-role refusal reads the same on every adapter that owns its roles', async () => {
         if (opts.delegatesRoleExistence) return
         const a = await factory()
-        await expect(a.assignRole('user-1', 'no-such-role')).rejects.toThrow(
-          /^\[@gentleduck\/iam:[a-z]+\] cannot assign a role that is not stored; save the role before granting it$/,
-        )
+        await expect(a.assignRole('user-1', 'no-such-role')).rejects.toThrow('IAM_ROLE_NOT_FOUND')
       })
 
       it('the refusal never echoes the role id back', async () => {
@@ -309,8 +308,8 @@ export function runAdapterCompliance(
       // SECURITY: redis spells "no scope" as "", so an empty scope would be stored as a global grant.
       it('an empty-string scope is refused on assign and on revoke', async () => {
         const a = await seeded(factory)
-        await expect(a.assignRole('user-1', 'editor', '')).rejects.toThrow(/empty string/)
-        await expect(a.revokeRole('user-1', 'editor', '')).rejects.toThrow(/empty string/)
+        await expect(a.assignRole('user-1', 'editor', '')).rejects.toThrow('IAM_SCOPE_INVALID')
+        await expect(a.revokeRole('user-1', 'editor', '')).rejects.toThrow('IAM_SCOPE_INVALID')
       })
 
       // The third method that writes a scope. It used to take the two values the other two refuse, and answer
@@ -322,9 +321,7 @@ export function runAdapterCompliance(
           await a.assignRole('user-1', 'editor', 'org-1')
           const move = a.updateAssignmentScope
           if (!move) return
-          await expect(move.call(a, 'user-1', 'editor', 'org-1', bad)).rejects.toThrow(
-            bad === '' ? /empty string/ : /must not be "\*"/,
-          )
+          await expect(move.call(a, 'user-1', 'editor', 'org-1', bad)).rejects.toThrow('IAM_SCOPE_INVALID')
           expect(await requireScoped(a)('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
         }
       })
@@ -335,7 +332,7 @@ export function runAdapterCompliance(
         const a = await seeded(factory)
         const move = a.updateAssignmentScope
         if (!move) return
-        await expect(move.call(a, 'user-1', 'editor', '', 'org-1')).rejects.toThrow(/empty string/)
+        await expect(move.call(a, 'user-1', 'editor', '', 'org-1')).rejects.toThrow('IAM_SCOPE_INVALID')
         await expect(move.call(a, 'user-1', 'editor', '*', 'org-1')).resolves.toBe(false)
       })
 
@@ -363,7 +360,10 @@ export function runAdapterCompliance(
           (err: unknown) => String(err),
         )
         if (refusal !== null) {
-          expect(refusal).toMatch(/@gentleduck\/iam:/)
+          // Some guards on this path are retrofitted onto IamError (bare-code message), others still throw the
+          // older `[@gentleduck/iam:adapter] ...` Error — either is fine, a raw unlabeled crash is not.
+          // `String(err)` prefixes a plain Error's name ("Error: "), but never IamError's ("IamError: IAM_...").
+          expect(refusal).toMatch(/^(Error: )?\[@gentleduck\/iam:[a-z]+\]|^IamError: IAM_/)
           // The read may throw instead of returning `null` (http does), but must never return a row the write refused.
           const read = await a.getRole(id).catch(() => null)
           expect(read).toBeNull()
@@ -396,10 +396,13 @@ export function runAdapterCompliance(
         const past = new Date(Date.now() - 60_000)
         const refusal = await a.assignRole('user-1', 'editor', undefined, { expiresAt: past }).then(
           () => null,
-          (err: unknown) => String(err),
+          (err: unknown) => err,
         )
         if (refusal !== null) {
-          expect(refusal).toMatch(/expiresAt/)
+          expect(refusal).toBeInstanceOf(IamError)
+          expect(
+            metaOf(refusal as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields,
+          ).toContain('expiresAt')
           expect(await a.getSubjectRoles('user-1')).toEqual([])
           return
         }
@@ -411,9 +414,14 @@ export function runAdapterCompliance(
         const future = new Date(Date.now() + 3_600_000)
         const refusal = await a.assignRole('user-1', 'editor', undefined, { startsAt: future }).then(
           () => null,
-          (err: unknown) => String(err),
+          (err: unknown) => err,
         )
-        if (refusal !== null) expect(refusal).toMatch(/startsAt/)
+        if (refusal !== null) {
+          expect(refusal).toBeInstanceOf(IamError)
+          expect(
+            metaOf(refusal as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields,
+          ).toContain('startsAt')
+        }
         expect(await a.getSubjectRoles('user-1')).toEqual([])
       })
 
@@ -421,10 +429,13 @@ export function runAdapterCompliance(
         const a = await seeded(factory)
         const refusal = await a.assignRole('user-1', 'editor', undefined, { attributes: { tier: 'gold' } }).then(
           () => null,
-          (err: unknown) => String(err),
+          (err: unknown) => err,
         )
         if (refusal !== null) {
-          expect(refusal).toMatch(/attributes/)
+          expect(refusal).toBeInstanceOf(IamError)
+          expect(
+            metaOf(refusal as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields,
+          ).toContain('attributes')
           expect(await a.getSubjectRoles('user-1')).toEqual([])
           return
         }
@@ -440,7 +451,7 @@ export function runAdapterCompliance(
         ['a number', '7'],
       ])('refuses %s as an attributes payload', async (_label, json) => {
         const a = await factory()
-        await expect(a.setSubjectAttributes('user-1', fromJson(json))).rejects.toThrow(/must be a plain object/)
+        await expect(a.setSubjectAttributes('user-1', fromJson(json))).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
         expect(await a.getSubjectAttributes('user-1')).toEqual({})
       })
 
@@ -448,14 +459,14 @@ export function runAdapterCompliance(
       it('refuses to save a policy whose rules are not an array', async () => {
         const a = await factory()
         const malformed = fromJson(JSON.stringify({ ...samplePolicy, rules: 'nope' }))
-        await expect(a.savePolicy(malformed)).rejects.toThrow(/refusing to save invalid policy/)
+        await expect(a.savePolicy(malformed)).rejects.toThrow('IAM_VALIDATION_FAILED')
         expect(await a.getPolicy(samplePolicy.id)).toBeNull()
       })
 
       it('refuses to save a role whose permissions are not an array', async () => {
         const a = await factory()
         const malformed = fromJson(JSON.stringify({ ...sampleRole, permissions: 'nope' }))
-        await expect(a.saveRole(malformed)).rejects.toThrow(/refusing to save invalid role/)
+        await expect(a.saveRole(malformed)).rejects.toThrow('IAM_VALIDATION_FAILED')
         expect(await a.getRole(sampleRole.id)).toBeNull()
       })
     })

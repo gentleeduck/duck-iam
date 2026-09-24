@@ -28,18 +28,20 @@ describe('prisma names a role row it cannot read', () => {
     } as never)
   }
 
-  it('warns once per unreadable row in listRoles, and still returns the readable ones', async () => {
-    expect((await adapter([GOOD, BAD]).listRoles()).map((r) => r.id)).toEqual(['ok'])
+  it('warns once per unreadable row in listRoles, and refuses the read', async () => {
+    await expect(adapter([GOOD, BAD]).listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
-  it('warns on getRole too, and still answers null', async () => {
-    expect(await adapter([BAD]).getRole('broken')).toBeNull()
+  it('warns on getRole too, and refuses rather than answering null', async () => {
+    await expect(adapter([BAD]).getRole('broken')).rejects.toThrow('IAM_UNREADABLE_ROLE')
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
   it('names the row and the reason, the way the other adapters do', async () => {
-    await adapter([BAD]).getRole('broken')
+    await adapter([BAD])
+      .getRole('broken')
+      .catch(() => {})
     const message = String(warn.mock.calls[0]?.[0])
     expect(message).toContain('[@gentleduck/iam:prisma]')
     expect(message).toContain('unreadable role row "broken"')
@@ -53,14 +55,14 @@ describe('prisma names a role row it cannot read', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('still SKIPS the role rather than throwing - a policy is refused, a role is not', async () => {
-    // NOTE: the skip/refuse asymmetry is deliberate; see `_readPolicy`.
-    await expect(adapter([BAD]).listRoles()).resolves.toEqual([])
+  it('refuses the read rather than returning the readable half', async () => {
+    // Not `['ok']`: a deny selects on the role id, so the half that went missing may be the half that denied.
+    await expect(adapter([BAD, GOOD]).listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
   })
 
-  it('warns for each bad row when several are corrupt', async () => {
+  it('warns for the first bad row, then stops at it', async () => {
     const rows = [BAD, { ...BAD, id: 'broken-2' }, GOOD]
-    expect((await adapter(rows).listRoles()).map((r) => r.id)).toEqual(['ok'])
-    expect(warn).toHaveBeenCalledTimes(2)
+    await expect(adapter(rows).listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 })

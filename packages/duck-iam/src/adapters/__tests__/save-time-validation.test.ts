@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AccessControl } from '../../core/types'
+import { IamError, metaOf } from '../../core/errors'
 import { iamAssertSavablePolicy, iamAssertSavableRole } from '../../shared/rows'
 import { IamMemoryAdapter } from '../memory'
 
@@ -14,15 +15,20 @@ const MALFORMED_ROLE: unknown = { id: 'r1', name: 'R', permissions: 'nope' }
 
 describe('every adapter refuses to save a row its reads would drop', () => {
   it.each(ADAPTERS)('%s refuses a policy whose rules is not an array', (adapter) => {
-    expect(() => iamAssertSavablePolicy(adapter, MALFORMED_POLICY)).toThrow(/refusing to save invalid policy "p1"/)
+    expect(() => iamAssertSavablePolicy(adapter, MALFORMED_POLICY)).toThrow('IAM_VALIDATION_FAILED')
   })
 
   it.each(ADAPTERS)('%s refuses a role whose permissions is not an array', (adapter) => {
-    expect(() => iamAssertSavableRole(adapter, MALFORMED_ROLE)).toThrow(/refusing to save invalid role "r1"/)
+    expect(() => iamAssertSavableRole(adapter, MALFORMED_ROLE)).toThrow('IAM_VALIDATION_FAILED')
   })
 
-  it('names the adapter and carries the validator message', () => {
-    expect(() => iamAssertSavablePolicy('redis', MALFORMED_POLICY)).toThrow(/iam:redis/)
+  it('carries the validator issues, regardless of which adapter name is passed', () => {
+    try {
+      iamAssertSavablePolicy('redis', MALFORMED_POLICY)
+      expect.unreachable()
+    } catch (err) {
+      expect(metaOf(err as IamError<'IAM_VALIDATION_FAILED'>, 'IAM_VALIDATION_FAILED').kind).toBe('policy')
+    }
   })
 
   // Controls: a well-formed row saves, and a warning-level issue (an empty role) does not block the write.
@@ -51,7 +57,7 @@ describe('the memory adapter refuses the write instead of storing it', () => {
 
   it('refuses a policy the read path would drop, and stores nothing', async () => {
     const adapter = new IamMemoryAdapter({ roles: [] })
-    await expect(adapter.savePolicy(noActions)).rejects.toThrow(/refusing to save invalid policy "p1"/)
+    await expect(adapter.savePolicy(noActions)).rejects.toThrow('IAM_VALIDATION_FAILED')
     expect(await adapter.getPolicy('p1')).toBeNull()
     expect(await adapter.listPolicies()).toEqual([])
   })
@@ -59,7 +65,7 @@ describe('the memory adapter refuses the write instead of storing it', () => {
   it('refuses an invalid role the same way', async () => {
     const adapter = new IamMemoryAdapter({ roles: [] })
     const emptyScope: AccessControl.IRole = { id: 'r1', name: 'R', permissions: [], scope: '' }
-    await expect(adapter.saveRole(emptyScope)).rejects.toThrow(/refusing to save invalid role "r1"/)
+    await expect(adapter.saveRole(emptyScope)).rejects.toThrow('IAM_VALIDATION_FAILED')
     expect(await adapter.getRole('r1')).toBeNull()
   })
 

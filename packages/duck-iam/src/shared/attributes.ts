@@ -1,4 +1,5 @@
 import type { IamPrimitives } from '../core/types'
+import { throwIamError } from '../core/errors'
 
 /**
  * Adapter-boundary guard for `setSubjectAttributes`: refuses a non-object (a string would spread into per-character
@@ -11,12 +12,10 @@ export function iamAssertAttributesParam(
 ): asserts attrs is IamPrimitives.Attributes {
   if (typeof attrs !== 'object' || attrs === null || Array.isArray(attrs)) {
     const got = attrs === null ? 'null' : Array.isArray(attrs) ? 'array' : typeof attrs
-    throw new Error(`[@gentleduck/iam:${adapter}] attributes for "${subjectId}" must be a plain object (got ${got})`)
+    throwIamError('IAM_ATTRIBUTES_INVALID', { adapter, subjectId, reason: 'not-object', got })
   }
   if (hasForbiddenAttributeKey(attrs)) {
-    throw new Error(
-      `[@gentleduck/iam:${adapter}] attributes for "${subjectId}" must not contain a ${FORBIDDEN_ATTRIBUTE_KEY} key`,
-    )
+    throwIamError('IAM_ATTRIBUTES_INVALID', { adapter, subjectId, reason: 'forbidden-key' })
   }
 }
 

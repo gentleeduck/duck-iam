@@ -11,6 +11,7 @@ import {
   iamNormalizePolicy,
   iamRoleWithoutInherit,
   iamUnreadablePolicy,
+  iamUnreadableRole,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -326,6 +327,7 @@ export class IamFileAdapter<
               .issues.map((i) => i.message)
               .join('; ')
             this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
+            throw iamUnreadableRole('file', rowId, issues)
           }
         }
 

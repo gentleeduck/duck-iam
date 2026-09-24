@@ -26,7 +26,7 @@ const ACTIONS = ['read', 'write']
 const RESOURCES = ['post', 'comment']
 const SCOPES: (string | undefined)[] = [undefined, 'org-1', 'org-1.team-2']
 /** The adapter refuses this by design; anything else the loop swallows would make it vacuous. */
-const EXPECTED_REFUSAL = /cannot assign a role that is not stored/
+const EXPECTED_REFUSAL = /IAM_ROLE_NOT_FOUND/
 
 function role(id: string, perms: { action: string; resource: string }[], scope?: string): AccessControl.IRole {
   return { description: '', id, inherits: [], name: id, permissions: perms, ...(scope ? { scope } : {}) }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { IamError, metaOf } from '../../core/errors'
 import { IamEngine } from '../../core/engine/engine'
 import { iamAssertNoAssignOptions, iamAssertValidAssignWindow } from '../../shared/assign-options'
 import { iamAssertAttributesParam } from '../../shared/attributes'
@@ -19,13 +20,25 @@ describe('assignRole options are refused, not discarded', () => {
   // SECURITY: only drizzle stores a grant window; any adapter that dropped `expiresAt` would make the grant permanent.
   it.each(['startsAt', 'expiresAt', 'attributes'] as const)('refuses %s', (field) => {
     const opts = field === 'attributes' ? { attributes: { a: 1 } } : { [field]: new Date() }
-    expect(() => iamAssertNoAssignOptions('memory', opts)).toThrow(new RegExp(field))
+    try {
+      iamAssertNoAssignOptions('memory', opts)
+      expect.unreachable()
+    } catch (err) {
+      expect(
+        metaOf(err as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields,
+      ).toContain(field)
+    }
   })
 
   it('names every unsupported field it was given', () => {
-    expect(() => iamAssertNoAssignOptions('memory', { expiresAt: new Date(), startsAt: new Date() })).toThrow(
-      /startsAt, expiresAt/,
-    )
+    try {
+      iamAssertNoAssignOptions('memory', { expiresAt: new Date(), startsAt: new Date() })
+      expect.unreachable()
+    } catch (err) {
+      expect(
+        metaOf(err as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields,
+      ).toEqual(['startsAt', 'expiresAt'])
+    }
   })
 
   // Control: an absent options object, or one whose fields are all `undefined`, is the ordinary call.
@@ -37,7 +50,9 @@ describe('assignRole options are refused, not discarded', () => {
 
   it('reaches the caller through a real adapter', async () => {
     const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
-    await expect(adapter.assignRole('u1', 'admin', undefined, { expiresAt: new Date(0) })).rejects.toThrow(/expiresAt/)
+    await expect(adapter.assignRole('u1', 'admin', undefined, { expiresAt: new Date(0) })).rejects.toThrow(
+      'IAM_ASSIGN_OPTIONS_UNSUPPORTED',
+    )
     await expect(adapter.assignRole('u1', 'admin')).resolves.toBeUndefined()
     expect(await adapter.getSubjectRoles('u1')).toEqual(['admin'])
   })
@@ -52,7 +67,7 @@ describe('setSubjectAttributes rejects a non-object payload', () => {
     ['a number', 7],
   ])('rejects %s', (_label, value) => {
     for (const adapter of ['prisma', 'drizzle', 'memory', 'file', 'redis', 'http']) {
-      expect(() => iamAssertAttributesParam(adapter, 'u1', value)).toThrow(/must be a plain object/)
+      expect(() => iamAssertAttributesParam(adapter, 'u1', value)).toThrow('IAM_ATTRIBUTES_INVALID')
     }
   })
 
@@ -67,11 +82,16 @@ describe('an empty-string scope is refused by every adapter', () => {
   const ADAPTERS = ['memory', 'file', 'redis', 'prisma', 'drizzle', 'http'] as const
 
   it.each(ADAPTERS)('%s refuses it', (adapter) => {
-    expect(() => iamAssertAssignableScope(adapter, '')).toThrow(/must not be an empty string/)
+    expect(() => iamAssertAssignableScope(adapter, '')).toThrow('IAM_SCOPE_INVALID')
   })
 
-  it('names the adapter, so the message says which backend refused', () => {
-    expect(() => iamAssertAssignableScope('redis', '')).toThrow(/iam:redis/)
+  it('names the adapter, so the caller can tell which backend refused', () => {
+    try {
+      iamAssertAssignableScope('redis', '')
+      expect.unreachable()
+    } catch (err) {
+      expect(metaOf(err as IamError<'IAM_SCOPE_INVALID'>, 'IAM_SCOPE_INVALID').adapter).toBe('redis')
+    }
   })
 
   // Controls: `undefined` (global) and an ordinary scope pass, so the guard cannot be "throw on everything".
@@ -85,8 +105,8 @@ describe('an empty-string scope is refused by every adapter', () => {
 
   it('reaches the caller through a real adapter, on assign and on revoke', async () => {
     const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
-    await expect(adapter.assignRole('u1', 'admin', '')).rejects.toThrow(/must not be an empty string/)
-    await expect(adapter.revokeRole('u1', 'admin', '')).rejects.toThrow(/must not be an empty string/)
+    await expect(adapter.assignRole('u1', 'admin', '')).rejects.toThrow('IAM_SCOPE_INVALID')
+    await expect(adapter.revokeRole('u1', 'admin', '')).rejects.toThrow('IAM_SCOPE_INVALID')
     await expect(adapter.assignRole('u1', 'admin', 'org-1')).resolves.toBeUndefined()
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'admin', scope: 'org-1' }])
   })
@@ -105,12 +125,16 @@ describe('a "*" scope is refused on a grant and allowed on a lookup', () => {
   const ADAPTERS = ['memory', 'file', 'redis', 'prisma', 'drizzle', 'http'] as const
 
   it.each(ADAPTERS)('%s refuses it on a grant', (adapter) => {
-    expect(() => iamAssertAssignableScope(adapter, '*')).toThrow(/must not be "\*"/)
+    expect(() => iamAssertAssignableScope(adapter, '*')).toThrow('IAM_SCOPE_INVALID')
   })
 
-  it('says why, and what to write instead', () => {
-    expect(() => iamAssertAssignableScope('memory', '*')).toThrow(/scope is the string "\*"/)
-    expect(() => iamAssertAssignableScope('memory', '*')).toThrow(/Omit the scope/)
+  it('reason "wildcard-on-grant" replaces the old prose explanation', () => {
+    try {
+      iamAssertAssignableScope('memory', '*')
+      expect.unreachable()
+    } catch (err) {
+      expect(metaOf(err as IamError<'IAM_SCOPE_INVALID'>, 'IAM_SCOPE_INVALID').reason).toBe('wildcard-on-grant')
+    }
   })
 
   it('allows it on a lookup, so an existing row can be revoked', () => {
@@ -119,12 +143,12 @@ describe('a "*" scope is refused on a grant and allowed on a lookup', () => {
 
   // No legitimate row holds an empty scope, so there is nothing to look up.
   it('still refuses the empty string on a lookup', () => {
-    expect(() => iamAssertAssignableScope('memory', '', 'lookup')).toThrow(/must not be an empty string/)
+    expect(() => iamAssertAssignableScope('memory', '', 'lookup')).toThrow('IAM_SCOPE_INVALID')
   })
 
   it('reaches the caller through a real adapter, and leaves no grant behind', async () => {
     const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
-    await expect(adapter.assignRole('u1', 'admin', '*')).rejects.toThrow(/must not be "\*"/)
+    await expect(adapter.assignRole('u1', 'admin', '*')).rejects.toThrow('IAM_SCOPE_INVALID')
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
     expect(await adapter.getSubjectRoles('u1')).toEqual([])
   })
@@ -326,16 +350,17 @@ describe('the grant boundary is implemented exactly where the bounds are stored'
 
 // The window guard is drizzle-only for the same reason: no other adapter accepts a window.
 describe('an empty window is refused before it reaches any driver', () => {
-  it('names both fields and neither instant', () => {
+  it('throws IAM_ASSIGN_WINDOW_EMPTY, which echoes neither instant', () => {
     const startsAt = new Date('2030-01-01T00:00:00.000Z')
     try {
       iamAssertValidAssignWindow('drizzle', { expiresAt: new Date('2029-01-01T00:00:00.000Z'), startsAt })
       expect.unreachable('an empty window must not be accepted')
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      expect(message).toMatch(/startsAt >= expiresAt/)
-      expect(message, 'an authorization error must not echo its input').not.toContain(startsAt.toISOString())
-      expect(message).not.toContain('2029')
+      expect(err).toBeInstanceOf(IamError)
+      expect((err as IamError).code).toBe('IAM_ASSIGN_WINDOW_EMPTY')
+      const wire = JSON.stringify((err as IamError).toJSON())
+      expect(wire, 'an authorization error must not echo its input').not.toContain(startsAt.toISOString())
+      expect(wire).not.toContain('2029')
     }
   })
 
@@ -350,7 +375,21 @@ describe('an empty window is refused before it reaches any driver', () => {
   })
 
   it('refuses a bound that is not a usable Date', () => {
-    expect(() => iamAssertValidAssignWindow('drizzle', { startsAt: new Date('nope') })).toThrow(/startsAt/)
-    expect(() => iamAssertValidAssignWindow('drizzle', { expiresAt: new Date('nope') })).toThrow(/expiresAt/)
+    try {
+      iamAssertValidAssignWindow('drizzle', { startsAt: new Date('nope') })
+      expect.unreachable()
+    } catch (err) {
+      expect(metaOf(err as IamError<'IAM_ASSIGN_WINDOW_INVALID_DATE'>, 'IAM_ASSIGN_WINDOW_INVALID_DATE').field).toBe(
+        'startsAt',
+      )
+    }
+    try {
+      iamAssertValidAssignWindow('drizzle', { expiresAt: new Date('nope') })
+      expect.unreachable()
+    } catch (err) {
+      expect(metaOf(err as IamError<'IAM_ASSIGN_WINDOW_INVALID_DATE'>, 'IAM_ASSIGN_WINDOW_INVALID_DATE').field).toBe(
+        'expiresAt',
+      )
+    }
   })
 })

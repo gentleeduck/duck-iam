@@ -10,9 +10,7 @@ describe('the memory adapter seed agrees with the equivalent write', () => {
 
   describe('a seeded assignment naming a role that is not stored', () => {
     it('is refused, the way assignRole refuses it', () => {
-      expect(() => new IamMemoryAdapter({ assignments: { u1: ['ghost'] } })).toThrow(
-        /cannot assign a role that is not stored/,
-      )
+      expect(() => new IamMemoryAdapter({ assignments: { u1: ['ghost'] } })).toThrow('IAM_ROLE_NOT_FOUND')
     })
 
     it('is worded identically to the write-path refusal', async () => {

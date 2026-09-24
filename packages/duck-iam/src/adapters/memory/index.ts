@@ -61,6 +61,8 @@ export class IamMemoryAdapter<
   /** Creates a new in-memory adapter, optionally seeded with initial data. */
   constructor(init?: IamMemory.IInit<TAction, TResource, TRole, TScope>) {
     // NOTE: seeds use the same normaliser as `savePolicy`, so a seeded and a saved policy read back identically.
+    // They deliberately skip `iamAssertSavablePolicy`/`iamAssertSavableRole`: seeding a shape the write path
+    // refuses is how the suite reaches "a row that got into the store another way" and pins the read path on it.
     for (const p of init?.policies ?? []) this._policies.set(p.id, iamNormalizePolicy(p))
     for (const r of init?.roles ?? []) this._roles.set(r.id, iamCloneRow(r))
     // NOTE: seeds get the same unknown-role refusal as `assignRole`, so a fixture cannot reach a state the

@@ -1,3 +1,5 @@
+import { IamError } from '../core/errors'
+
 /**
  * Adapter-boundary guard for `assignRole`: a role with no stored definition throws, as drizzle's FK does.
  * SECURITY: the message never quotes the caller-controlled role id, since it reaches logs and error responses.
@@ -17,9 +19,10 @@ export function iamAssertRoleExists(adapter: string, exists: boolean): void {
  * @param adapter - Adapter name for the error message, e.g. `'drizzle'`.
  * @param cause - The driver error being translated, when there is one.
  */
-export function iamUnknownRoleError(adapter: string, cause?: unknown): Error {
-  const message = `[@gentleduck/iam:${adapter}] cannot assign a role that is not stored; save the role before granting it`
-  return cause === undefined ? new Error(message) : new Error(message, { cause })
+export function iamUnknownRoleError(adapter: string, cause?: unknown): IamError {
+  const err = new IamError('IAM_ROLE_NOT_FOUND', { adapter })
+  if (cause !== undefined) err.cause = cause
+  return err
 }
 
 /**

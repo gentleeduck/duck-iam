@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { createIam } from '../../config/config'
 import type { AccessControl } from '../../types'
+import { IamError, metaOf } from '../../errors'
 import { validatePolicy } from '../validate'
 
 const NUL = String.fromCharCode(0)
@@ -70,13 +71,16 @@ async function ask(targets: unknown, locked: boolean, mode: 'development' | 'pro
   }
 }
 
-/** What the write path now answers for the same row. */
+/** What the write path now answers for the same row: `IAM_VALIDATION_FAILED`'s issues (joined), or `'saved'`. */
 async function save(targets: unknown): Promise<string> {
   try {
     await new IamMemoryAdapter().savePolicy(policyWithTargets(targets) as never)
     return 'saved'
   } catch (err) {
-    return err instanceof Error ? err.message : String(err)
+    if (err instanceof IamError && err.code === 'IAM_VALIDATION_FAILED') {
+      return metaOf(err as IamError<'IAM_VALIDATION_FAILED'>, 'IAM_VALIDATION_FAILED').issues.join('; ')
+    }
+    throw err
   }
 }
 
@@ -115,12 +119,9 @@ describe('a non-string target entry is what the engine cannot survive', () => {
       numberRole: await save({ roles: [42] }),
       wellFormed: await save({ actions: ['read'] }),
     }).toEqual({
-      controlCharRole:
-        '[@gentleduck/iam:memory] refusing to save invalid policy "p-lock": targets.roles[0] must not contain control characters',
-      numberAction:
-        '[@gentleduck/iam:memory] refusing to save invalid policy "p-lock": targets.actions[0] must be a string',
-      numberRole:
-        '[@gentleduck/iam:memory] refusing to save invalid policy "p-lock": targets.roles[0] must be a string',
+      controlCharRole: expect.stringContaining('targets.roles[0] must not contain control characters'),
+      numberAction: expect.stringContaining('targets.actions[0] must be a string'),
+      numberRole: expect.stringContaining('targets.roles[0] must be a string'),
       wellFormed: 'saved',
     })
   })

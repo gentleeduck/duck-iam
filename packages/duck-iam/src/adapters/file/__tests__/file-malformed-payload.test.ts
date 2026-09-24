@@ -86,7 +86,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     const { adapter } = await makeAdapter({ assignments: {} })
     // The generic refuses `''`; this runtime guard is for data that bypassed a typed call site.
     const emptyScope: Scope = JSON.parse('""')
-    await expect(adapter.assignRole('u1', 'editor', emptyScope)).rejects.toThrow(/empty string/)
+    await expect(adapter.assignRole('u1', 'editor', emptyScope)).rejects.toThrow('IAM_SCOPE_INVALID')
   })
 
   it('refuses a row whose entry has a non-string role', async () => {

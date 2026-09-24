@@ -15,6 +15,7 @@ import {
   iamNormalizePolicy,
   iamRoleWithoutInherit,
   iamUnreadablePolicy,
+  iamUnreadableRole,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -353,7 +354,7 @@ export class IamDrizzleAdapter<
       metadata = row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : undefined
     } catch (err) {
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), row.id)
-      return null
+      throw iamUnreadableRole('drizzle', row.id, err instanceof Error ? err.message : String(err))
     }
 
     // Omit absent columns instead of writing `undefined`, so every adapter reads a role back with the same keys.
@@ -373,7 +374,7 @@ export class IamDrizzleAdapter<
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid role "${row.id}": ${issues}`), row.id)
-      return null
+      throw iamUnreadableRole('drizzle', row.id, issues)
     }
     return role
   }

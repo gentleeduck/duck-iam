@@ -155,7 +155,7 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     ['a number', '7'],
   ])('setSubjectAttributes rejects %s', async (_label, json) => {
     const adapter = buildAdapter([])
-    await expect(adapter.setSubjectAttributes('user-1', JSON.parse(json))).rejects.toThrow(/must be a plain object/)
+    await expect(adapter.setSubjectAttributes('user-1', JSON.parse(json))).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
   })
 
   // Control: the mock has no write path, so this still fails, but on the write rather than the guard.

@@ -9,6 +9,7 @@ import {
   iamNormalizePolicy,
   iamRoleWithoutInherit,
   iamUnreadablePolicy,
+  iamUnreadableRole,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -106,7 +107,7 @@ export class IamRedisAdapter<
   }
 
   /**
-   * Parses and validates a stored policy; on failure it reports, then throws (unlike `_safeParseRole`, which drops).
+   * Parses and validates a stored policy; on failure it reports, then throws, as `_safeParseRole` does.
    * SECURITY: an unreadable policy is refused, not skipped, because it may be the one that denies.
    */
   private _safeParsePolicy(raw: string, rowId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
@@ -135,7 +136,7 @@ export class IamRedisAdapter<
       parsed = JSON.parse(raw)
     } catch (err) {
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
-      return null
+      throw iamUnreadableRole('redis', rowId, err instanceof Error ? err.message : String(err))
     }
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(parsed)
     if (role === null) {
@@ -143,7 +144,7 @@ export class IamRedisAdapter<
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
-      return null
+      throw iamUnreadableRole('redis', rowId, issues)
     }
     return role
   }

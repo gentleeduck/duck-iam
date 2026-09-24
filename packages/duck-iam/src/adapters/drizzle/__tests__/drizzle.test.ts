@@ -600,7 +600,7 @@ describe('IamDrizzleAdapter', () => {
     it('revokeRole refuses an empty-string scope and leaves both grants standing', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
-      await expect(adapter.revokeRole('user-1', 'editor' as Ro, '' as S)).rejects.toThrow(/must not be an empty string/)
+      await expect(adapter.revokeRole('user-1', 'editor' as Ro, '' as S)).rejects.toThrow('IAM_SCOPE_INVALID')
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
       expect((await adapter.getSubjectScopedRoles('user-1')).map((r) => r.scope)).toEqual(['org-1'])
     })
@@ -646,7 +646,7 @@ describe('IamDrizzleAdapter', () => {
           { roleId: 'editor' as Ro, scope: '' as S, subjectId: 'user-1' },
           { roleId: 'editor' as Ro, subjectId: 'user-1' },
         ]),
-      ).rejects.toThrow(/must not be an empty string/)
+      ).rejects.toThrow('IAM_SCOPE_INVALID')
 
       // Nothing was applied: the guard runs before the first write.
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
@@ -728,8 +728,8 @@ describe('IamDrizzleAdapter', () => {
   })
 
   describe('malformed-row handling (P0)', () => {
-    // A malformed role row is dropped and reported: permissions are allow-only, so only a grant is lost.
-    // SECURITY: a malformed policy row is reported and throws, since it may be the deny. See `iamUnreadablePolicy`.
+    // SECURITY: a malformed row is reported and throws, policy or role. A role's permissions only grant, but a
+    // deny selects on the role *id*, so dropping the row retires that deny. See `iamUnreadableRole`.
     it('refuses a policy row whose rules column is unparseable', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
@@ -758,7 +758,7 @@ describe('IamDrizzleAdapter', () => {
       })
 
       // Not `['good']`: serving the readable half is the fail-open.
-      await expect(adapter.listPolicies()).rejects.toThrow(/policy "bad" cannot be read and will not be skipped/)
+      await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
       expect(errors[0]?.rowId).toBe('bad')
     })
 
@@ -779,11 +779,11 @@ describe('IamDrizzleAdapter', () => {
         rules: '[]',
         targets: null,
       })
-      await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+      await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
       expect(errors[0]?.rowId).toBe('bad-algo')
     })
 
-    it('drops a role row whose permissions column is unparseable', async () => {
+    it('refuses a role row whose permissions column is unparseable', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S>({
@@ -808,8 +808,7 @@ describe('IamDrizzleAdapter', () => {
         scope: null,
         metadata: null,
       })
-      const list = await adapter.listRoles()
-      expect(list.map((r) => r.id)).toEqual(['good'])
+      await expect(adapter.listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
       expect(errors[0]?.rowId).toBe('bad')
     })
 
@@ -830,7 +829,7 @@ describe('IamDrizzleAdapter', () => {
         targets: null,
       })
       // SECURITY: `null` means absent; a corrupt row must not impersonate a deleted one.
-      await expect(adapter.getPolicy('bad')).rejects.toThrow(/cannot be read/)
+      await expect(adapter.getPolicy('bad')).rejects.toThrow('IAM_UNREADABLE_POLICY')
       expect(errors[0]?.rowId).toBe('bad')
     })
   })

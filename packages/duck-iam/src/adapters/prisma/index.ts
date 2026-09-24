@@ -9,6 +9,7 @@ import {
   iamNormalizePolicy,
   iamRoleWithoutInherit,
   iamUnreadablePolicy,
+  iamUnreadableRole,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -230,11 +231,7 @@ export class IamPrismaAdapter<
     return out
   }
 
-  /**
-   * Parses one role row, or warns naming it and returns `null`; roles are skipped where policies are refused.
-   * The warning matters: a subject keeps holding a skipped role's id, which still matches a rule naming it while
-   * the roles it inherited are gone - the engine reports that side separately.
-   */
+  /** Parses one role row, or warns naming it and throws. See {@link iamUnreadableRole} for why it is not skipped. */
   private _readRole(row: IamPrisma.IRoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
     const candidate = toRole(row)
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(candidate)
@@ -243,7 +240,7 @@ export class IamPrismaAdapter<
       .issues.map((i) => i.message)
       .join('; ')
     console.warn(`[@gentleduck/iam:prisma] unreadable role row "${row.id}": ${issues}`)
-    return null
+    throw iamUnreadableRole('prisma', row.id, issues)
   }
 
   /** Fetches a role by ID, or `null` when absent or unreadable. */

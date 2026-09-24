@@ -7,6 +7,7 @@ import {
   iamAssertSavableRole,
   iamNormalizePolicy,
   iamUnreadablePolicy,
+  iamUnreadableRole,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -55,8 +56,9 @@ export namespace IamHttp {
     /** Specifies the base URL of the duck-iam API (e.g. `https://api.example.com/access`). */
     baseUrl: string
     /**
-     * Called when an API row fails validation: a bad role row is dropped, a bad policy row makes the read throw.
-     * SECURITY: policy rows fail closed because the dropped policy could be the one that denies.
+     * Called when an API row fails validation, just before the read throws.
+     * SECURITY: rows fail closed - a dropped policy could be the one that denies, and a dropped role is what a
+     * deny selects on, so neither is skipped.
      */
     onPolicyError?: IamAdapter.RowErrorHandler<'http'>
     /** Overrides the default `globalThis.fetch` implementation. */
@@ -420,7 +422,7 @@ export class IamHttpAdapter<
   }
 
   /**
-   * Narrows one API row to a policy; `_narrowRole` below drops a bad row instead.
+   * Narrows one API row to a policy.
    * SECURITY: a mismatch is reported and throws, never dropped or returned raw; see {@link iamUnreadablePolicy}.
    */
   private _narrowPolicy(row: unknown, fallbackId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
@@ -442,7 +444,7 @@ export class IamHttpAdapter<
       .issues.map((i) => i.message)
       .join('; ')
     this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
-    return null
+    throw iamUnreadableRole('http', rowId, issues)
   }
 
   /** A list endpoint must return an array; anything else is dropped wholesale and reported once. */

@@ -522,7 +522,7 @@ describe('IamHttpAdapter', () => {
     it('revokeRole DELETE refuses an empty-string scope', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
       const adapter = new IamHttpAdapter({ baseUrl: 'https://x', fetch })
-      await expect(adapter.revokeRole('user-1', 'editor', '')).rejects.toThrow(/must not be an empty string/)
+      await expect(adapter.revokeRole('user-1', 'editor', '')).rejects.toThrow('IAM_SCOPE_INVALID')
       expect(calls).toHaveLength(0)
     })
 

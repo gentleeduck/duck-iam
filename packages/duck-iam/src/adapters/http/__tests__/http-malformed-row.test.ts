@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamHttpAdapter } from '../index'
 
-// Pins that a bad role row from the untrusted API is dropped while a bad policy row throws, since the dropped
-// policy may be the deny. See `iamUnreadablePolicy`. A role is not allow-only either, but a dropped catalogue
-// row leaves any policy targeting it unresolvable, which `reportUnreachableRoleTargets` reports; a dropped
-// *grant* has no such witness, so `getSubjectRoles` throws instead (`http-subject-partial-row.test.ts`).
+// Pins that a bad row from the untrusted API is refused, policy or role, rather than skipped.
+// SECURITY: a dropped policy may be the deny (`iamUnreadablePolicy`); a dropped role is what a deny selects on
+// (`iamUnreadableRole`). The role side used to be skipped on the grounds that `reportUnreachableRoleTargets`
+// witnessed it, but that reporter sees `policy.targets.roles` only - a deny written as
+// `subject.roles contains "x"` in a rule condition went silently inapplicable. A dropped *grant* is refused by
+// `getSubjectRoles` for the same reason (`http-subject-partial-row.test.ts`).
 function makeJsonResponse(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -41,7 +43,7 @@ describe('IamHttpAdapter refuses malformed policy rows and drops malformed role 
     const onPolicyError = vi.fn()
     const adapter = buildAdapter(() => [good, noPriority], onPolicyError)
     // Not `['p-good']`: returning the readable half would fail open, with the deny missing and no sign of it.
-    await expect(adapter.listPolicies()).rejects.toThrow(/policy "p-bad" cannot be read and will not be skipped/)
+    await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
     expect(onPolicyError).toHaveBeenCalledTimes(1)
     expect(onPolicyError.mock.calls[0]?.[1]).toEqual({ adapter: 'http', rowId: 'p-bad' })
   })
@@ -50,7 +52,7 @@ describe('IamHttpAdapter refuses malformed policy rows and drops malformed role 
     const onPolicyError = vi.fn()
     const adapter = buildAdapter(() => noPriority, onPolicyError)
     // `null` would read as a 404, hiding a corrupt policy as a missing one.
-    await expect(adapter.getPolicy('p-bad')).rejects.toThrow(/cannot be read/)
+    await expect(adapter.getPolicy('p-bad')).rejects.toThrow('IAM_UNREADABLE_POLICY')
     expect(onPolicyError).toHaveBeenCalledTimes(1)
   })
 
@@ -66,8 +68,9 @@ describe('IamHttpAdapter refuses malformed policy rows and drops malformed role 
   it('listRoles / getRole: same treatment for roles', async () => {
     const onPolicyError = vi.fn()
     const adapter = buildAdapter((path) => (path === '/roles' ? [goodRole, badRole] : badRole), onPolicyError)
-    expect((await adapter.listRoles()).map((r) => r.id)).toEqual(['viewer'])
-    expect(await adapter.getRole('broken')).toBeNull()
+    // Not `['viewer']`: a deny selects on the role id, so the row that went missing may be the one that denied.
+    await expect(adapter.listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
+    await expect(adapter.getRole('broken')).rejects.toThrow('IAM_UNREADABLE_ROLE')
     expect(onPolicyError).toHaveBeenCalledTimes(2)
   })
 
@@ -75,7 +78,7 @@ describe('IamHttpAdapter refuses malformed policy rows and drops malformed role 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const adapter = buildAdapter(() => [noPriority])
-      await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+      await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
       // The row is still reported before the throw, so the operator knows which one to repair.
       expect(warn).toHaveBeenCalledTimes(1)
     } finally {

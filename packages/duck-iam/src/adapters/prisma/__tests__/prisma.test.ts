@@ -437,7 +437,7 @@ describe('IamPrismaAdapter', () => {
     it('revokeRole refuses an empty-string scope and leaves both grants standing', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
-      await expect(adapter.revokeRole('user-1', 'editor' as Ro, '' as S)).rejects.toThrow(/must not be an empty string/)
+      await expect(adapter.revokeRole('user-1', 'editor' as Ro, '' as S)).rejects.toThrow('IAM_SCOPE_INVALID')
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
       expect((await adapter.getSubjectScopedRoles('user-1')).map((r) => r.scope)).toEqual(['org-1'])
     })

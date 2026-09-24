@@ -142,7 +142,9 @@ describe('an inherited name is not an operator', () => {
 
   it('the write path already refused these, so only a seeded row could carry one', async () => {
     const adapter = new IamMemoryAdapter()
-    await expect(adapter.savePolicy(planted('w', 'constructor', 'allow', 'all'))).rejects.toThrow(/Invalid operator/)
+    await expect(adapter.savePolicy(planted('w', 'constructor', 'allow', 'all'))).rejects.toThrow(
+      'IAM_VALIDATION_FAILED',
+    )
   })
 
   // An inherited combiner name answers an object with no `effect`, so it denies either way. What the guard adds is

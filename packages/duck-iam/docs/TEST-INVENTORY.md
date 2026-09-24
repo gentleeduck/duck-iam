@@ -405,7 +405,8 @@ drift the way the hand-maintained version did.
 | `shared/__tests__/keys-canonical-image.test.ts` | 17 | iamParsePermissionKey rejects anything outside the builder image |
 | `shared/__tests__/keys.test.ts` | 28 | iamBuildPermissionKey() |
 | `shared/__tests__/permission-map-scope-blindness.test.ts` | 6 | allowedActions and hasAnyOn ignore scope and record id; can() does not |
-| **Subtotal** | **113** | |
+| `shared/__tests__/shared-errors.test.ts` | 13 | iamAssertAssignableScope |
+| **Subtotal** | **126** | |
 
 ---
 
@@ -450,7 +451,7 @@ drift the way the hand-maintained version did.
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
 | Server | 29 | 872 |
-| Shared | 6 | 113 |
+| Shared | 7 | 126 |
 | Package surface | 12 | 124 |
 | Other | 1 | 4 |
-| **Total** | **334** | **6354** |
+| **Total** | **335** | **6367** |

@@ -1,26 +1,16 @@
 import type { AccessControl } from '../core/types'
+import type { IamValidate } from '../core/validate'
 import { validatePolicy, validateRole } from '../core/validate'
+import { IamError, throwIamValidationFailed } from '../core/errors'
 
 /**
  * Throws on any error-level issue, so every adapter refuses a malformed row at write time.
  * NOTE: the read-path checks stay; they catch rows that reached the store another way (a migration, a hand edit).
  */
-function assertValid(
-  adapter: string,
-  kind: string,
-  row: unknown,
-  issues: readonly { type: string; message: string }[],
-): void {
-  const errors = issues.filter((i) => i.type === 'error')
-  if (errors.length === 0) return
-  const messages = errors.map((e) => e.message).join('; ')
-  throw new Error(`[@gentleduck/iam:${adapter}] refusing to save invalid ${kind} "${rowLabel(row)}": ${messages}`)
-}
-
-/** The row's own string `id` for the error message, or a stand-in when it has none. */
-function rowLabel(row: unknown): string {
-  if (typeof row !== 'object' || row === null || !('id' in row)) return '<no id>'
-  return typeof row.id === 'string' ? row.id : String(row.id)
+function assertValid(adapter: string, kind: 'policy' | 'role', row: unknown, issues: readonly IamValidate.IIssue[]): void {
+  void adapter // kept for signature compatibility with both call sites; no longer needed once the message is gone
+  void row
+  if (issues.some((issue) => issue.type === 'error')) throwIamValidationFailed(kind, issues)
 }
 
 /**
@@ -71,14 +61,23 @@ export function iamNormalizePolicy<TAction extends string, TResource extends str
 
 /**
  * The error every adapter raises for a policy row it cannot read; the row is never skipped.
- * SECURITY: fails closed; a dropped policy may be the deny. A dropped role row is reported instead, since the
- * grant that still names it is reported in its own right (`subject-holds-undefined-role.test.ts`).
+ * SECURITY: fails closed; a dropped policy may be the deny.
  */
-export function iamUnreadablePolicy(adapter: string, id: string, detail: string): Error {
-  return new Error(
-    `[@gentleduck/iam:${adapter}] policy "${id}" cannot be read and will not be skipped - a dropped policy may be ` +
-      `the one that denies. Repair or delete the row. (${detail})`,
-  )
+export function iamUnreadablePolicy(adapter: string, id: string, detail: string): IamError {
+  return new IamError('IAM_UNREADABLE_POLICY', { adapter, policyId: id, detail })
+}
+
+/**
+ * The same, for a role row. A role's `permissions` only grant, but the role *id* is also what a deny selects on -
+ * `policy.targets.roles`, and `subject.roles contains "x"` in a rule condition. Dropping the definition drops the
+ * id out of `resolveEffectiveRoles`, so those denies stop applying while grants from the subject's other roles
+ * stand: the verdict moves from deny to allow.
+ * SECURITY: the witnesses this used to rely on do not cover that. `reportUnreachableRoleTargets` sees
+ * `targets.roles` only, and `reportUndefinedAssignedRole` fires only when the subject holds the id *directly* -
+ * neither says anything when the id was reached through `inherits` and the deny is written as a condition.
+ */
+export function iamUnreadableRole(adapter: string, id: string, detail: string): IamError {
+  return new IamError('IAM_UNREADABLE_ROLE', { adapter, roleId: id, detail })
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { IamAdapter } from '../core/types'
+import { throwIamError } from '../core/errors'
 
 /**
  * The fields of {@link IamAdapter.IAssignOptions} an adapter has to store to honour.
@@ -14,11 +15,7 @@ export function iamAssertNoAssignOptions(adapter: string, opts?: IamAdapter.IAss
   if (opts === undefined) return
   const unsupported = ASSIGN_OPTION_FIELDS.filter((field) => opts[field] !== undefined)
   if (unsupported.length === 0) return
-  throw new Error(
-    `[@gentleduck/iam:${adapter}] assignRole options (${unsupported.join(', ')}) are not supported by this adapter, ` +
-      'and were previously discarded silently. Use the drizzle adapter for time-boxed or attributed grants, ' +
-      'or revoke the role explicitly when it should end.',
-  )
+  throwIamError('IAM_ASSIGN_OPTIONS_UNSUPPORTED', { adapter, fields: unsupported })
 }
 
 /**
@@ -31,11 +28,7 @@ export function iamAssertValidAssignWindow(adapter: string, opts?: IamAdapter.IA
   const expiresAt = readInstant(adapter, 'expiresAt', opts.expiresAt)
   if (startsAt === null || expiresAt === null) return
   if (startsAt < expiresAt) return
-  throw new Error(
-    `[@gentleduck/iam:${adapter}] assignRole was given startsAt >= expiresAt, which is an empty window: ` +
-      'the grant would be stored and never be active. Pass an expiresAt after the startsAt, ' +
-      'or omit one of them for an open-ended grant.',
-  )
+  throwIamError('IAM_ASSIGN_WINDOW_EMPTY', { adapter })
 }
 
 /**
@@ -46,9 +39,5 @@ function readInstant(adapter: string, field: 'startsAt' | 'expiresAt', value: un
   if (value === undefined || value === null) return null
   const time = value instanceof Date ? value.getTime() : Number.NaN
   if (Number.isFinite(time)) return time
-  throw new Error(
-    `[@gentleduck/iam:${adapter}] assignRole's ${field} is not a usable Date. ` +
-      'Pass a Date carrying a real instant - an Invalid Date, or a value parsed from JSON without reviving it, ' +
-      'would be stored as a bound nothing can compare against.',
-  )
+  throwIamError('IAM_ASSIGN_WINDOW_INVALID_DATE', { adapter, field })
 }

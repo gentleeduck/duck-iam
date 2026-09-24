@@ -317,7 +317,7 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
       console.error = capture
       console.warn = capture
       try {
-        await expect(adapter().listRoles()).rejects.toThrow(/role "r" cannot be read/)
+        await expect(adapter().listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
       } finally {
         console.error = realError
         console.warn = realWarn

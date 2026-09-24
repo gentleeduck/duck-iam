@@ -58,25 +58,25 @@ describe('IamPrismaAdapter malformed-row handling', () => {
   it('listPolicies refuses a row whose algorithm is not a combining algorithm', async () => {
     const adapter = makeMock([goodPolicy, { ...goodPolicy, algorithm: 'not-an-algorithm', id: 'bad' }])
     // SECURITY: not `['good']` - returning the readable half would drop a possible deny with no signal.
-    await expect(adapter.listPolicies()).rejects.toThrow(/policy "bad" cannot be read and will not be skipped/)
+    await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
   })
 
   it('listPolicies refuses a row whose rules column is not an array', async () => {
     const adapter = makeMock([goodPolicy, { ...goodPolicy, id: 'bad', rules: { not: 'an array' } }])
-    await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+    await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
   })
 
   it('listPolicies refuses a row whose rules column is a raw JSON string, not parsed JSON', async () => {
     // INFO: Prisma returns `Json` already parsed, so a string is corruption. Read loosely,
     // `'[]'` would be a policy with no rules that denies nothing.
     const adapter = makeMock([goodPolicy, { ...goodPolicy, id: 'bad', rules: '[]' }])
-    await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+    await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
   })
 
   it('getPolicy throws for a row that fails validation, rather than reading as absent', async () => {
     const adapter = makeMock([{ ...goodPolicy, algorithm: 'not-an-algorithm', id: 'bad' }])
     // SECURITY: `null` means "no such policy"; a corrupt row must not pass as a deleted one.
-    await expect(adapter.getPolicy('bad')).rejects.toThrow(/cannot be read/)
+    await expect(adapter.getPolicy('bad')).rejects.toThrow('IAM_UNREADABLE_POLICY')
   })
 
   it('listRoles keeps a well-formed row (control)', async () => {
@@ -84,18 +84,18 @@ describe('IamPrismaAdapter malformed-row handling', () => {
     expect((await adapter.listRoles()).map((r) => r.id)).toEqual(['good'])
   })
 
-  it('listRoles drops a row whose permissions column is not an array', async () => {
+  it('listRoles refuses a row whose permissions column is not an array', async () => {
     const adapter = makeMock([], [goodRole, { ...goodRole, id: 'bad', permissions: 'read:post' }])
-    expect((await adapter.listRoles()).map((r) => r.id)).toEqual(['good'])
+    await expect(adapter.listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
   })
 
-  it('listRoles drops a row whose inherits column holds a non-string entry', async () => {
+  it('listRoles refuses a row whose inherits column holds a non-string entry', async () => {
     const adapter = makeMock([], [goodRole, { ...goodRole, id: 'bad', inherits: [42] }])
-    expect((await adapter.listRoles()).map((r) => r.id)).toEqual(['good'])
+    await expect(adapter.listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
   })
 
-  it('getRole returns null for a row that fails validation', async () => {
+  it('getRole refuses a row that fails validation rather than reading it as absent', async () => {
     const adapter = makeMock([], [{ ...goodRole, id: 'bad', permissions: 'read:post' }])
-    expect(await adapter.getRole('bad')).toBeNull()
+    await expect(adapter.getRole('bad')).rejects.toThrow('IAM_UNREADABLE_ROLE')
   })
 })
