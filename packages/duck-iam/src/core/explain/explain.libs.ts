@@ -1,7 +1,8 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: index iteration guarded by length check. */
 
 import { evalConditionGroup, resolveConditionValue } from '../conditions/conditions'
-import { evalCondition, IamConditionGroupError } from '../conditions/conditions.libs'
+import { evalCondition } from '../conditions/conditions.libs'
+import { throwIamError } from '../errors'
 import {
   combiners,
   isRuleEffect,
@@ -53,7 +54,10 @@ function traceGroup(
   if (depth >= MAX_TRACE_DEPTH) {
     // SECURITY: same contract as `evalConditionGroup` - too deep is Indeterminate, not `false`. `traceRule` records
     // it as a `conditionError` so the trace casts the vote the decision path casts.
-    throw new IamConditionGroupError('depth', `condition nesting exceeds ${MAX_TRACE_DEPTH}`)
+    throwIamError('IAM_CONDITION_GROUP_INVALID', {
+      reason: 'depth',
+      detail: `condition nesting exceeds ${MAX_TRACE_DEPTH}`,
+    })
   }
 
   // `in` raises a bare TypeError on a non-object, so hand that case to the function that names it.

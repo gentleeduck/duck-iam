@@ -1,12 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { IamError, metaOf } from '../../errors'
 import { evaluate } from '../../evaluate/evaluate'
 import type { AccessControl, IamRequest } from '../../types'
-import {
-  evalCondition,
-  IamOperandTypeError,
-  IamPatternRefusedError,
-  IamUserSourcedPatternError,
-} from '../conditions.libs'
+import { evalCondition } from '../conditions.libs'
 
 // Pins the operand-type guard to every OPERAND_TYPES operator, `matches` included:
 // a wrong-typed operand throws (Indeterminate) instead of answering `false`.
@@ -31,13 +27,13 @@ describe('`matches` is bound by the operand-type guard', () => {
   ])('refuses %s pattern as Indeterminate, not false', (_label, value) => {
     expect(() =>
       evalCondition(request('curl/8.0'), { field: FIELD, operator: 'matches', value } as AccessControl.ICondition),
-    ).toThrow(IamOperandTypeError)
+    ).toThrow('IAM_CONDITION_OPERAND_TYPE')
   })
 
   it('refuses an absent `value` as Indeterminate, not false', () => {
     expect(() =>
       evalCondition(request('curl/8.0'), { field: FIELD, operator: 'matches' } as AccessControl.ICondition),
-    ).toThrow(IamOperandTypeError)
+    ).toThrow('IAM_CONDITION_OPERAND_TYPE')
   })
 
   it('names the field and the operator, so the bad row can be found', () => {
@@ -45,8 +41,9 @@ describe('`matches` is bound by the operand-type guard', () => {
       evalCondition(request('curl/8.0'), { field: FIELD, operator: 'matches', value: 42 } as AccessControl.ICondition)
       expect.unreachable('a non-string pattern must not be answerable')
     } catch (err) {
-      expect(err).toBeInstanceOf(IamOperandTypeError)
-      expect(err).toMatchObject({ field: FIELD, operator: 'matches' })
+      expect(err).toBeInstanceOf(IamError)
+      const meta = metaOf(err as IamError<'IAM_CONDITION_OPERAND_TYPE'>, 'IAM_CONDITION_OPERAND_TYPE')
+      expect(meta).toMatchObject({ field: FIELD, operator: 'matches' })
     }
   })
 
@@ -59,12 +56,12 @@ describe('`matches` is bound by the operand-type guard', () => {
   it('refuses a $-sourced pattern as Indeterminate', () => {
     expect(() =>
       evalCondition(request('curl/8.0'), { field: FIELD, operator: 'matches', value: '$subject.attributes.ua' }),
-    ).toThrow(IamUserSourcedPatternError)
+    ).toThrow('IAM_CONDITION_USER_SOURCED_PATTERN')
   })
 
   it('refuses an uncompilable pattern as Indeterminate', () => {
     expect(() => evalCondition(request('curl/8.0'), { field: FIELD, operator: 'matches', value: '(a+)+$' })).toThrow(
-      IamPatternRefusedError,
+      'IAM_CONDITION_PATTERN_REFUSED',
     )
   })
 })

@@ -1,12 +1,6 @@
+import { throwIamError } from '../errors'
 import type { AccessControl, IamPrimitives, IamRequest } from '../types'
-import {
-  evalCondition,
-  IamConditionGroupError,
-  isCondition,
-  MAX_CONDITION_DEPTH,
-  ops,
-  resolveValue,
-} from './conditions.libs'
+import { evalCondition, isCondition, MAX_CONDITION_DEPTH, ops, resolveValue } from './conditions.libs'
 
 /**
  * Applies one raw operator to two already-resolved operands, for linters and condition previews.
@@ -22,7 +16,7 @@ export function evaluateOperator(
   condValue: IamPrimitives.AttributeValue,
 ): boolean {
   if (!Object.hasOwn(ops, op)) {
-    throw new Error(`[@gentleduck/iam:conditions] unknown operator "${String(op)}"`)
+    throwIamError('IAM_CONDITION_OPERATOR_UNKNOWN', { operator: String(op) })
   }
   return ops[op](fieldValue, condValue)
 }
@@ -54,14 +48,14 @@ function assertItems(
   key: 'all' | 'any' | 'none',
 ): ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> {
   if (!Array.isArray(items)) {
-    throw new Error(`[@gentleduck/iam:conditions] condition group "${key}" must be an array`)
+    throwIamError('IAM_CONDITION_ITEMS_NOT_ARRAY', { key })
   }
   return items
 }
 
 /**
  * Evaluates an `all` (AND) / `any` (OR) / `none` (NOR) condition tree against the request.
- * SECURITY: too deep, a non-object, or unknown keys throw {@link IamConditionGroupError}; `false` would retire a
+ * SECURITY: too deep, a non-object, or unknown keys throw `IAM_CONDITION_GROUP_INVALID`; `false` would retire a
  * deny rule.
  * @param req - The access request providing field values.
  * @param group - The condition group to evaluate.
@@ -75,12 +69,18 @@ export function evalConditionGroup(
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
   if (depth >= MAX_CONDITION_DEPTH) {
-    throw new IamConditionGroupError('depth', `condition nesting exceeds ${MAX_CONDITION_DEPTH}`)
+    throwIamError('IAM_CONDITION_GROUP_INVALID', {
+      reason: 'depth',
+      detail: `condition nesting exceeds ${MAX_CONDITION_DEPTH}`,
+    })
   }
 
   // SECURITY: `in` throws a bare TypeError on a non-object, so the key tests below cannot report one. Indeterminate.
   if (group === null || typeof group !== 'object') {
-    throw new IamConditionGroupError('unknown-keys', `condition group is not an object (saw ${typeof group})`)
+    throwIamError('IAM_CONDITION_GROUP_INVALID', {
+      reason: 'unknown-keys',
+      detail: `condition group is not an object (saw ${typeof group})`,
+    })
   }
 
   if ('all' in group) {
@@ -100,7 +100,10 @@ export function evalConditionGroup(
   if (keys.length === 0) return true
 
   // Unknown keys (a typo, a hand-edited row): "no conditions" would grant and `false` would retire a deny, so throw.
-  throw new IamConditionGroupError('unknown-keys', `condition group has no recognised key (saw ${keys.join(', ')})`)
+  throwIamError('IAM_CONDITION_GROUP_INVALID', {
+    reason: 'unknown-keys',
+    detail: `condition group has no recognised key (saw ${keys.join(', ')})`,
+  })
 }
 
 /**

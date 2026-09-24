@@ -12,19 +12,24 @@ const UNPREFIXED_BACKLOG = [
   'RuleBuilder',
   'VALID_POLICY_COMBINES',
   'When',
+  'asIamError',
   'clearPathCache',
   'createIam',
   'definePolicy',
   'defineRole',
   'defineRule',
   'explainEvaluation',
+  'hasIamErrorCode',
   'matchesAction',
   'matchesResource',
   'matchesResourceHierarchical',
   'matchesScope',
+  'metaOf',
   'resolve',
   'resolveEffectiveRoles',
+  'rethrowIamError',
   'rolesToPolicy',
+  'throwIamError',
   'when',
 ]
 
@@ -53,7 +58,6 @@ const CONDITIONS_EXPORTS = [
   'IAM_MAX_REGEX_LENGTH',
   'IAM_MAX_UNBOUNDED_QUANTIFIERS',
   'IAM_REGEX_CACHE_MAX',
-  'IamRegexInputTooLargeError',
   'iamClearRegexCache',
   'iamDetectCatastrophicRegex',
   'iamEvalCondition',
@@ -72,8 +76,7 @@ describe('core/conditions exports', () => {
     expect(Object.hasOwn(Iam, name)).toBe(true)
   })
 
-  it('the regex-input error and its limit are both reachable', () => {
-    expect(typeof Iam.IamRegexInputTooLargeError).toBe('function')
+  it('the regex-input limit is reachable', () => {
     expect(Iam.IAM_MAX_REGEX_INPUT_LENGTH).toBeGreaterThan(0)
   })
 

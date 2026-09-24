@@ -145,8 +145,7 @@ describe('a condition reading a path that can never resolve is reported', () => 
     await engine.can('u1', 'delete', POST)
     // `evalCondition` reports it per evaluation and answers Indeterminate, which is the stronger signal of the two.
     expect(reported).toHaveLength(1)
-    expect(reported[0]).toMatch(/operand reference "\$owner\.id" resolved to nothing/)
-    expect(reported[0]).toMatch(/Indeterminate/)
+    expect(reported[0]).toBe('guard|IAM_CONDITION_OPERAND_TYPE')
   })
 
   it('reports once per policy, rule and path across invalidations', async () => {

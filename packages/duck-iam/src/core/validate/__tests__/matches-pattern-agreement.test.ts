@@ -108,7 +108,7 @@ describe('a `$`-sourced `matches` operand is refused rather than silently inert'
       // The operand would match the field, so `false` here would mean "will not answer", not "did not match".
       expect(() =>
         evalCondition(req, { field: 'resource.attributes.path', operator: 'matches', value: pattern }),
-      ).toThrow(/Indeterminate/)
+      ).toThrow('IAM_CONDITION_USER_SOURCED_PATTERN')
     })
   }
 

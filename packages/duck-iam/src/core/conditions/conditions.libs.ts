@@ -1,3 +1,4 @@
+import { throwIamError } from '../errors'
 import { resolve } from '../resolve'
 import type { AccessControl, IamPrimitives, IamRequest } from '../types'
 
@@ -9,93 +10,9 @@ export const MAX_REGEX_LENGTH = 128
 
 /**
  * Max `matches` input length in UTF-16 code units, the unit backtracking work scales with.
- * SECURITY: bounds backtracking a missed pattern can cause; longer input throws {@link IamRegexInputTooLargeError}.
+ * SECURITY: bounds backtracking a missed pattern can cause; longer input throws `IAM_CONDITION_REGEX_INPUT_TOO_LARGE`.
  */
 export const MAX_REGEX_INPUT_LENGTH = 2048
-
-/**
- * Thrown by `matches` when the input exceeds {@link MAX_REGEX_INPUT_LENGTH}.
- * SECURITY: Indeterminate via `onPolicyError`, not `false`, which would flip a deny-when-`matches` rule to allow.
- */
-export class IamRegexInputTooLargeError extends Error {
-  readonly name = 'IamRegexInputTooLargeError'
-  readonly tag = 'duck-iam/regex-input-too-large'
-  readonly field: string
-  readonly length: number
-  constructor(field: string, length: number) {
-    super(
-      `[@gentleduck/iam:conditions] matches input on field "${field}" is ${length} UTF-16 code units (> MAX_REGEX_INPUT_LENGTH=${MAX_REGEX_INPUT_LENGTH}); condition is Indeterminate.`,
-    )
-    this.field = field
-    this.length = length
-  }
-}
-
-/**
- * A condition group nested past {@link MAX_CONDITION_DEPTH}, or with no recognised key.
- * SECURITY: Indeterminate, not `false`, since `false` inside a `none` is negated into a grant.
- */
-export class IamConditionGroupError extends Error {
-  readonly name = 'IamConditionGroupError'
-  readonly tag = 'duck-iam/condition-group'
-  readonly reason: 'depth' | 'unknown-keys'
-  constructor(reason: 'depth' | 'unknown-keys', detail: string) {
-    super(`[@gentleduck/iam:conditions] ${detail}; condition is Indeterminate.`)
-    this.reason = reason
-  }
-}
-
-/**
- * An operand without the type its operator compares against. Checked on read: `loadPolicies` does not validate.
- * SECURITY: Indeterminate, not an answer, since `nin`/`not_contains` return `true` on a wrong-typed operand.
- */
-export class IamOperandTypeError extends Error {
-  readonly name = 'IamOperandTypeError'
-  readonly tag = 'duck-iam/operand-type'
-  readonly field: string
-  readonly operator: string
-  constructor(field: string, operator: string, detail: string) {
-    super(
-      `[@gentleduck/iam:conditions] operator "${operator}" on field "${field}" ${detail}; condition is Indeterminate.`,
-    )
-    this.field = field
-    this.operator = operator
-  }
-}
-
-/**
- * A `matches` pattern too long, ReDoS-shaped or invalid; `field` is `'<unknown>'` until `evalCondition` re-throws.
- * SECURITY: Indeterminate, not `false`, so a deny rule with a refused pattern still fails closed.
- */
-export class IamPatternRefusedError extends Error {
-  readonly name = 'IamPatternRefusedError'
-  readonly tag = 'duck-iam/pattern-refused'
-  readonly field: string
-  readonly reason: 'too-long' | 'uncompilable'
-  constructor(field: string, reason: 'too-long' | 'uncompilable', detail: string) {
-    super(`[@gentleduck/iam:conditions] matches pattern on field "${field}" ${detail}; condition is Indeterminate.`)
-    this.field = field
-    this.reason = reason
-  }
-}
-
-/**
- * A `matches` pattern given as a `$`-reference; the read-path twin of `validatePolicy`'s `ERR_REGEX_USER_SOURCED`.
- * SECURITY: a request-chosen pattern is a ReDoS primitive, so it is never compiled. Indeterminate, not `false`.
- */
-export class IamUserSourcedPatternError extends Error {
-  readonly name = 'IamUserSourcedPatternError'
-  readonly tag = 'duck-iam/user-sourced-pattern'
-  readonly field: string
-  readonly value: string
-  constructor(field: string, value: string) {
-    super(
-      `[@gentleduck/iam:conditions] matches pattern on field "${field}" is the request-sourced reference ${JSON.stringify(value)}, which is never compiled; condition is Indeterminate.`,
-    )
-    this.field = field
-    this.value = value
-  }
-}
 
 /** Operators that read only the field; an operand on them is meaningless. */
 export const VALUELESS_OPERATORS: ReadonlySet<string> = new Set(['exists', 'not_exists'])
@@ -660,56 +577,42 @@ export function evalCondition(
   cond: AccessControl.ICondition,
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
-  // SECURITY: a `$`-reference pattern is never compiled (ReDoS). Throw rather than return `false`,
-  // which would retire a deny rule, or grant inside a `none`.
   if (cond.operator === 'matches' && isUserSourcedValue(cond.value ?? null)) {
-    throw new IamUserSourcedPatternError(cond.field, String(cond.value))
+    throwIamError('IAM_CONDITION_USER_SOURCED_PATTERN', { field: cond.field, value: String(cond.value) })
   }
   const fieldVal = resolve(req, cond.field, caches)
   const condVal = resolveValue(req, cond.value ?? null, caches)
-  try {
-    // SECURITY: own properties only, as `resolve` does per path segment. `ops` is an object literal, so
-    // `constructor` and `toString` are inherited functions that answered truthy and fired the rule.
-    const op = Object.hasOwn(ops, cond.operator) ? ops[cond.operator] : undefined
-    // SECURITY: an unknown operator is Indeterminate; `false` would retire a deny rule.
-    if (typeof op !== 'function') {
-      throw new Error(
-        `[@gentleduck/iam:conditions] unknown operator "${String(cond.operator)}" on field "${cond.field}"`,
-      )
-    }
-    // SECURITY: wrong-typed operands are Indeterminate, checked before every operator (`matches` included):
-    // seeded or migrated rows skip the validator, and a `$`-reference only has a type once resolved.
-    if (!VALUELESS_OPERATORS.has(cond.operator)) {
-      if (cond.value === undefined) {
-        throw new IamOperandTypeError(cond.field, cond.operator, 'requires a "value" and the key is absent')
-      }
-      // SECURITY: a `$`-reference that resolved to `null` would let `eq` compare `null === null` and allow.
-      // A literal `value: null` is an explicit null test and still works.
-      if (isUserSourcedValue(cond.value) && condVal === null) {
-        throw new IamOperandTypeError(
-          cond.field,
-          cond.operator,
-          `operand reference ${JSON.stringify(cond.value)} resolved to nothing`,
-        )
-      }
-      const expected = OPERAND_TYPES.get(cond.operator)
-      if (expected !== undefined && !operandHasType(expected, condVal)) {
-        const wanted = expected === 'temporal' ? 'a number or ISO-8601 string' : `a ${expected}`
-        throw new IamOperandTypeError(cond.field, cond.operator, `expects ${wanted} operand, got ${typeof condVal}`)
-      }
-    }
-    // Per-Engine regex cache when supplied, module-global fallback.
-    if (cond.operator === 'matches') return evalMatchesOp(fieldVal, condVal, caches?.regex)
-    return op(fieldVal, condVal)
-  } catch (err) {
-    if (err instanceof IamRegexInputTooLargeError && err.field === '<unknown>') {
-      throw new IamRegexInputTooLargeError(cond.field, err.length)
-    }
-    if (err instanceof IamPatternRefusedError && err.field === '<unknown>') {
-      throw new IamPatternRefusedError(cond.field, err.reason, err.message.replace(/^.*?"<unknown>" /, ''))
-    }
-    throw err
+  const op = Object.hasOwn(ops, cond.operator) ? ops[cond.operator] : undefined
+  if (typeof op !== 'function') {
+    throwIamError('IAM_CONDITION_OPERATOR_UNKNOWN', { operator: String(cond.operator), field: cond.field })
   }
+  if (!VALUELESS_OPERATORS.has(cond.operator)) {
+    if (cond.value === undefined) {
+      throwIamError('IAM_CONDITION_OPERAND_TYPE', {
+        field: cond.field,
+        operator: cond.operator,
+        detail: 'requires a "value" and the key is absent',
+      })
+    }
+    if (isUserSourcedValue(cond.value) && condVal === null) {
+      throwIamError('IAM_CONDITION_OPERAND_TYPE', {
+        field: cond.field,
+        operator: cond.operator,
+        detail: `operand reference ${JSON.stringify(cond.value)} resolved to nothing`,
+      })
+    }
+    const expected = OPERAND_TYPES.get(cond.operator)
+    if (expected !== undefined && !operandHasType(expected, condVal)) {
+      const wanted = expected === 'temporal' ? 'a number or ISO-8601 string' : `a ${expected}`
+      throwIamError('IAM_CONDITION_OPERAND_TYPE', {
+        field: cond.field,
+        operator: cond.operator,
+        detail: `expects ${wanted} operand, got ${typeof condVal}`,
+      })
+    }
+  }
+  if (cond.operator === 'matches') return evalMatchesOp(fieldVal, condVal, caches?.regex, cond.field)
+  return op(fieldVal, condVal)
 }
 
 /** The `matches` operator with an optional per-Engine regex cache; `ops.matches` uses the process-wide one. */
@@ -717,24 +620,26 @@ export function evalMatchesOp(
   f: IamPrimitives.AttributeValue,
   v: IamPrimitives.AttributeValue,
   cache?: Map<string, RegExp>,
+  field = '<unknown>',
 ): boolean {
-  // NOTE: a non-string field is a miss, not a refusal; making it Indeterminate would change every rule on an
-  // absent attribute. `evalCondition` screens the operand against OPERAND_TYPES before this.
   if (typeof f !== 'string' || typeof v !== 'string') return false
   if (v.length > MAX_REGEX_LENGTH) {
-    throw new IamPatternRefusedError('<unknown>', 'too-long', `is ${v.length} characters (> ${MAX_REGEX_LENGTH})`)
+    throwIamError('IAM_CONDITION_PATTERN_REFUSED', {
+      field,
+      reason: 'too-long',
+      detail: `is ${v.length} characters (> ${MAX_REGEX_LENGTH})`,
+    })
   }
   if (f.length > MAX_REGEX_INPUT_LENGTH) {
-    throw new IamRegexInputTooLargeError('<unknown>', f.length)
+    throwIamError('IAM_CONDITION_REGEX_INPUT_TOO_LARGE', { field, length: f.length })
   }
   const re = getCachedRegex(v, cache ?? regexCache)
-  // SECURITY: a refused pattern is Indeterminate, like an oversized input; `false` would retire deny rules.
   if (!re) {
-    throw new IamPatternRefusedError(
-      '<unknown>',
-      'uncompilable',
-      'was refused by the catastrophic-backtracking detector or is not a valid regular expression',
-    )
+    throwIamError('IAM_CONDITION_PATTERN_REFUSED', {
+      field,
+      reason: 'uncompilable',
+      detail: 'was refused by the catastrophic-backtracking detector or is not a valid regular expression',
+    })
   }
   return re.test(f)
 }

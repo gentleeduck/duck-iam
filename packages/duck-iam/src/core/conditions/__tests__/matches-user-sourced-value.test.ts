@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
+import { IamError, metaOf } from '../../errors'
 import { evaluate, evaluateFast } from '../../evaluate/evaluate'
 import type { AccessControl, IamRequest } from '../../types'
 import { evalConditionGroup } from '../conditions'
-import { evalCondition, IamUserSourcedPatternError } from '../conditions.libs'
+import { evalCondition } from '../conditions.libs'
 
-// `matches` never compiles a `$`-resolved pattern (ReDoS) and throws `IamUserSourcedPatternError`.
+// `matches` never compiles a `$`-resolved pattern (ReDoS) and throws `IAM_CONDITION_USER_SOURCED_PATTERN`.
 // Indeterminate, not `false`, so a deny rule built on it still denies.
 function request(pattern: string, ua: string): IamRequest.IAccessRequest {
   return {
@@ -23,7 +24,9 @@ const USER_SOURCED: AccessControl.ICondition = {
 
 describe('`matches` refuses a $-resolved pattern', () => {
   it('refuses to answer even when the resolved pattern would have matched', () => {
-    expect(() => evalCondition(request('^curl', 'curl/8.0'), USER_SOURCED)).toThrow(IamUserSourcedPatternError)
+    expect(() => evalCondition(request('^curl', 'curl/8.0'), USER_SOURCED)).toThrow(
+      'IAM_CONDITION_USER_SOURCED_PATTERN',
+    )
   })
 
   // Without this, the refusal above would pass on any `matches` failure.
@@ -41,7 +44,7 @@ describe('`matches` refuses a $-resolved pattern', () => {
     const req = request('^curl', 'curl/8.0')
     // `none` negates a `false` leaf into a grant, so no verdict works here.
     for (const group of [{ all: [USER_SOURCED] }, { any: [USER_SOURCED] }, { none: [USER_SOURCED] }]) {
-      expect(() => evalConditionGroup(req, group, 0)).toThrow(IamUserSourcedPatternError)
+      expect(() => evalConditionGroup(req, group, 0)).toThrow('IAM_CONDITION_USER_SOURCED_PATTERN')
     }
   })
 
@@ -89,7 +92,9 @@ describe('`matches` refuses a $-resolved pattern', () => {
 
   // The guard stops it before `getCachedRegex`.
   it('never compiles an attacker-supplied catastrophic pattern', () => {
-    expect(() => evalCondition(request('(a+)+$', 'a'.repeat(40)), USER_SOURCED)).toThrow(IamUserSourcedPatternError)
+    expect(() => evalCondition(request('(a+)+$', 'a'.repeat(40)), USER_SOURCED)).toThrow(
+      'IAM_CONDITION_USER_SOURCED_PATTERN',
+    )
   })
 
   it.each(['$subject.attributes.pattern', '$resource.attributes.pattern', '$environment.pattern', '$nope'])(
@@ -97,7 +102,7 @@ describe('`matches` refuses a $-resolved pattern', () => {
     (value) => {
       expect(() =>
         evalCondition(request('^curl', 'curl/8.0'), { field: 'subject.attributes.ua', operator: 'matches', value }),
-      ).toThrow(IamUserSourcedPatternError)
+      ).toThrow('IAM_CONDITION_USER_SOURCED_PATTERN')
     },
   )
 
@@ -150,7 +155,8 @@ describe('`matches` refuses a $-resolved pattern', () => {
     }
     evaluate([policy], request('^curl', 'curl/8.0'), 'deny', 'and', onPolicyError)
     expect(onPolicyError).toHaveBeenCalled()
-    expect(String(onPolicyError.mock.calls[0]?.[0])).toContain('subject.attributes.ua')
+    const err = onPolicyError.mock.calls[0]?.[0] as IamError<'IAM_CONDITION_USER_SOURCED_PATTERN'>
+    expect(metaOf(err, 'IAM_CONDITION_USER_SOURCED_PATTERN').field).toBe('subject.attributes.ua')
   })
 
   // Only `matches` is refused: every other operator is allowed to read its

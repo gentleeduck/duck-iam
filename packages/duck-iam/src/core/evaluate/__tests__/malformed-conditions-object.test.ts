@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { evalConditionGroup } from '../../conditions/conditions'
-import { IamConditionGroupError } from '../../conditions/conditions.libs'
 import { IamEngine } from '../../engine'
+import { IamError, metaOf } from '../../errors'
 import { evaluatePolicy, evaluatePolicyFast } from '../evaluate'
 
 class Planted extends IamMemoryAdapter {
@@ -66,9 +66,17 @@ const RESOURCE = { attributes: {}, id: 'd1', type: 'doc' } as never
 describe('a condition group that is not an object', () => {
   describe('evalConditionGroup refuses it by name', () => {
     for (const [name, group] of NON_OBJECT) {
-      it(`${name} throws IamConditionGroupError, not a bare TypeError`, () => {
-        expect(() => evalConditionGroup(REQ, group as never)).toThrow(IamConditionGroupError)
-        expect(() => evalConditionGroup(REQ, group as never)).toThrow(/is not an object/)
+      it(`${name} throws IAM_CONDITION_GROUP_INVALID, not a bare TypeError`, () => {
+        expect(() => evalConditionGroup(REQ, group as never)).toThrow('IAM_CONDITION_GROUP_INVALID')
+        try {
+          evalConditionGroup(REQ, group as never)
+          expect.unreachable()
+        } catch (err) {
+          expect(err).toBeInstanceOf(IamError)
+          expect(metaOf(err as IamError<'IAM_CONDITION_GROUP_INVALID'>, 'IAM_CONDITION_GROUP_INVALID').detail).toMatch(
+            /is not an object/,
+          )
+        }
       })
     }
 
@@ -77,7 +85,14 @@ describe('a condition group that is not an object', () => {
     })
 
     it('CONTROL: an unknown key is still reported by name', () => {
-      expect(() => evalConditionGroup(REQ, { alll: [] } as never)).toThrow(/no recognised key \(saw alll\)/)
+      try {
+        evalConditionGroup(REQ, { alll: [] } as never)
+        expect.unreachable()
+      } catch (err) {
+        expect(metaOf(err as IamError<'IAM_CONDITION_GROUP_INVALID'>, 'IAM_CONDITION_GROUP_INVALID').detail).toMatch(
+          /no recognised key \(saw alll\)/,
+        )
+      }
     })
   })
 

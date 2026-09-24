@@ -138,6 +138,7 @@ drift the way the hand-maintained version did.
 | `core/conditions/__tests__/conditions-polynomial-redos.test.ts` | 19 | detectCatastrophicRegex: adjacent unbounded quantifiers |
 | `core/conditions/__tests__/conditions-scalar-narrowing.test.ts` | 16 | condition ops Scalar narrowing |
 | `core/conditions/__tests__/conditions-temporal.test.ts` | 8 | temporal operators: after / before |
+| `core/conditions/__tests__/conditions.errors.test.ts` | 9 | evalMatchesOp throws IamError with the real field the first time |
 | `core/conditions/__tests__/conditions.test.ts` | 57 | condition operators |
 | `core/conditions/__tests__/dangling-operand-reference.test.ts` | 9 | B-F1 a $-reference that resolves to nothing has no operand |
 | `core/conditions/__tests__/inherited-operator-names.test.ts` | 43 | an inherited name is not an operator |
@@ -227,6 +228,9 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/unvalidated-policy-operand.test.ts` | 12 | a policy that never passed the validator still cannot over-grant |
 | `core/engine/__tests__/verdict-differential.test.ts` | 2 | E2E verdict parity: compiled table vs interpreter over generated catalogs |
 | `core/engine/__tests__/write-that-lands-after-its-timeout.test.ts` | 12 | a write that lands after its own timeout |
+| `core/errors/__tests__/errors.codes.test.ts` | 4 | IAM_ERRORS |
+| `core/errors/__tests__/errors.scrub.test.ts` | 9 | isSecretKey |
+| `core/errors/__tests__/errors.test.ts` | 15 | IamError construction |
 | `core/evaluate/__tests__/algorithm-alias-precompute.test.ts` | 9 | precompute covers every algorithm that can be precomputed |
 | `core/evaluate/__tests__/error-hook-isolation.test.ts` | 6 | a throwing onPolicyError does not unwind the evaluation |
 | `core/evaluate/__tests__/evaluate-error-indeterminate.test.ts` | 15 | evaluate ('and') with a throwing deny policy |
@@ -298,7 +302,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2858** | |
+| **Subtotal** | **2895** | |
 
 ---
 
@@ -413,13 +417,13 @@ drift the way the hand-maintained version did.
 | `__tests__/evaluator-fail-open-gate.test.ts` | 12 | the evaluator applies the same fail-open opt-in as the engine |
 | `__tests__/log-prefix-convention.test.ts` | 3 | every log prefix names its module |
 | `__tests__/package-exports-parity.test.ts` | 7 | every built module is importable, and every import is built |
-| `__tests__/public-error-and-type-surface.test.ts` | 28 | every tagged condition error is reachable |
+| `__tests__/public-error-and-type-surface.test.ts` | 8 | every tagged condition error is reachable |
 | `__tests__/public-surface-internals.test.ts` | 7 | public surface: mutable internals stay internal |
 | `__tests__/public-surface-naming.test.ts` | 23 | package root naming |
 | `__tests__/shipped-docs-parity.test.ts` | 5 | the docs the README points at are the docs that ship |
 | `__tests__/test-command-partition.test.ts` | 5 | the two test commands partition every test file |
 | `__tests__/test-inventory-freshness.test.ts` | 5 | test inventory stays honest |
-| **Subtotal** | **145** | |
+| **Subtotal** | **125** | |
 
 ---
 
@@ -439,12 +443,12 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 11 | 153 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 175 | 2858 |
+| Core | 179 | 2895 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
 | Server | 29 | 872 |
 | Shared | 6 | 113 |
-| Package surface | 12 | 145 |
+| Package surface | 12 | 125 |
 | Other | 1 | 4 |
-| **Total** | **328** | **6328** |
+| **Total** | **332** | **6345** |
