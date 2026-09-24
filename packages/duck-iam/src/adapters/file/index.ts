@@ -541,10 +541,6 @@ export class IamFileAdapter<
   async assignRole(id: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('file', scope)
     iamAssertNoAssignOptions('file', opts)
-    // NOTE: the loader refuses an empty scope, so it is refused here too (as redis does) rather than persisted.
-    if (scope === '') {
-      throw new Error('[@gentleduck/iam:file] scope must not be an empty string; omit it for a global assignment')
-    }
     const s = await this._loadState()
     this._assertReadableAssignments(s, id)
     iamAssertRoleExists('file', Object.hasOwn(s.roles, roleId))
