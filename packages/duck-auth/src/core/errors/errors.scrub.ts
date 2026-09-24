@@ -24,19 +24,3 @@ export function redactSecrets(value: unknown, depth = 0): unknown {
   return out
 }
 
-/** Every secret-bearing key dropped, at any depth. Past the cap the subtree is truncated, not walked. */
-export function scrubMeta(meta: object, depth = 0): Record<string, unknown> {
-  const safe: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(meta)) {
-    if (!isSecretKey(key)) safe[key] = scrubValue(value, depth + 1)
-  }
-  return safe
-}
-
-function scrubValue(value: unknown, depth: number): unknown {
-  if (depth > DEPTH_CAP) return '[depth-cap]'
-  if (Array.isArray(value)) return value.map((item) => scrubValue(item, depth + 1))
-  if (value instanceof Date) return value
-  if (typeof value === 'object' && value !== null) return scrubMeta(value, depth)
-  return value
-}
