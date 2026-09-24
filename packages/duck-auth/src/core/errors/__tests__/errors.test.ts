@@ -155,7 +155,16 @@ describe('the sensitive list matches a key that merely contains the word', () =>
   // Exact membership kept `oldPassword` and `userSecret`, which are the names a caller invents.
   // A substring rule also strips an innocent `tokenCount`, and losing a number is the cheaper way
   // to be wrong.
-  for (const key of ['userSecret', 'secret_key', 'mySecret', 'apiToken', 'passwordHint', 'oldPassword']) {
+  for (const key of [
+    'userSecret',
+    'secret_key',
+    'mySecret',
+    'apiToken',
+    'passwordHint',
+    'oldPassword',
+    'otpCode',
+    'recoveryToken',
+  ]) {
     it(`drops ${key}`, () => {
       const out = body(new AuthError('AUTH_CSRF', { [key]: 'visible-value' } as never))
       expect(JSON.stringify(out)).not.toContain('visible-value')

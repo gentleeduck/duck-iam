@@ -1,16 +1,11 @@
-/** What may not reach the wire, by key name. */
-const SECRET_KEY =
-  /secret|password|passphrase|plaintext|token|hash|salt|signature|credential|private|otp|recovery|apikey|api_key/i
+import { isSecretKey } from '@gentleduck/errors'
+
+export { isSecretKey }
 
 const DEPTH_CAP = 8
 
-/** Whether a key name may not reach the wire. */
-export function isSecretKey(key: string): boolean {
-  return SECRET_KEY.test(key)
-}
-
 /**
- * Every secret-bearing key replaced by a marker, at any depth. The shape survives, the value does
+ * Every secret-bearing value replaced by a marker, at any depth. The shape survives, the value does
  * not, which is what a consumer reading someone else's payload shape needs. Past the cap the subtree
  * is truncated, not walked.
  */
