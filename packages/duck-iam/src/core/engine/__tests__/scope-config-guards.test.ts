@@ -44,16 +44,14 @@ describe('scopeMode and scopeCombine are checked at boot, like policyCombine', (
 
   it.each(['overide', 'OVERRIDE', '', 'or'])('refuses scopeCombine %o instead of widening to union', async (bad) => {
     await expect(engineWith({ scopeCombine: bad, scopeMode: 'hierarchical' })).rejects.toThrow(
-      /unknown scopeCombine .*Must be one of: union, override/,
+      'IAM_ENGINE_INVALID_CONFIG',
     )
   })
 
   it.each(['heirarchical', 'Hierarchical', '', 'nested'])(
     'refuses scopeMode %o instead of falling back to flat',
     async (bad) => {
-      await expect(engineWith({ scopeMode: bad })).rejects.toThrow(
-        /unknown scopeMode .*Must be one of: flat, hierarchical/,
-      )
+      await expect(engineWith({ scopeMode: bad })).rejects.toThrow('IAM_ENGINE_INVALID_CONFIG')
     },
   )
 

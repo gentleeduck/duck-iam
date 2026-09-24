@@ -17,6 +17,8 @@ describe('iamEngine factory', () => {
   })
 
   it('propagates constructor validation errors instead of swallowing them', () => {
-    expect(() => iamEngine({ adapter: new IamMemoryAdapter(), defaultEffect: 'allow' })).toThrow(/allowFailOpen/)
+    expect(() => iamEngine({ adapter: new IamMemoryAdapter(), defaultEffect: 'allow' })).toThrow(
+      'IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED',
+    )
   })
 })

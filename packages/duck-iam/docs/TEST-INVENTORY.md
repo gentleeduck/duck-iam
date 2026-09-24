@@ -173,6 +173,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/engine-admin-reads.test.ts` | 8 | engine.admin readers return what was written |
 | `core/engine/__tests__/engine-check-invalid-subject.test.ts` | 2 | engine.check() with an invalid subjectId |
 | `core/engine/__tests__/engine-compiled-table-ttl.test.ts` | 12 |  |
+| `core/engine/__tests__/engine-config-guards.test.ts` | 14 | single-field config guards throw IAM_ENGINE_INVALID_CONFIG |
 | `core/engine/__tests__/engine-cross-scope-inheritance.test.ts` | 6 | Engine.can() - cross-scope role inheritance |
 | `core/engine/__tests__/engine-eval-error-fails-closed.test.ts` | 10 |  |
 | `core/engine/__tests__/engine-hook-timeout.test.ts` | 16 | a hook whose promise never settles does not hold the call open |
@@ -304,7 +305,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2905** | |
+| **Subtotal** | **2919** | |
 
 ---
 
@@ -446,7 +447,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 11 | 153 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 181 | 2905 |
+| Core | 182 | 2919 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -454,4 +455,4 @@ drift the way the hand-maintained version did.
 | Shared | 7 | 126 |
 | Package surface | 12 | 124 |
 | Other | 1 | 4 |
-| **Total** | **335** | **6367** |
+| **Total** | **336** | **6381** |

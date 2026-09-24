@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { type IamError, metaOf } from '../../errors'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
@@ -40,11 +41,17 @@ function build(policyCombine: unknown): IamEngine<Action, ResourceType, RoleId, 
 
 describe('policyCombine validation', () => {
   it.each(['or', 'OR', 'GARBAGE', '', 'deny-overrides'])('rejects %o at construction', (value) => {
-    expect(() => build(value)).toThrow(/unknown policyCombine/)
+    expect(() => build(value)).toThrow('IAM_ENGINE_INVALID_CONFIG')
   })
 
-  it('names the accepted values in the message', () => {
-    expect(() => build('or')).toThrow(/and, allow-overrides, first-applicable/)
+  it('names the accepted values in the error', () => {
+    try {
+      build('or')
+      expect.unreachable()
+    } catch (err) {
+      const meta = metaOf(err as IamError<'IAM_ENGINE_INVALID_CONFIG'>, 'IAM_ENGINE_INVALID_CONFIG')
+      expect(meta.allowed).toEqual(['and', 'allow-overrides', 'first-applicable'])
+    }
   })
 
   // Controls: the real values construct and the deny still wins, so the rejections are not a refuse-everything engine.
@@ -65,7 +72,7 @@ describe('policyCombine validation', () => {
           cacheTTL: 0,
           policyCombine: 'first-applicable',
         }),
-    ).toThrow(/requires mode 'development'/)
+    ).toThrow('IAM_ENGINE_POLICY_COMBINE_INCOMPATIBLE')
   })
 
   it('control: the deny is still enforced under the default combine', async () => {

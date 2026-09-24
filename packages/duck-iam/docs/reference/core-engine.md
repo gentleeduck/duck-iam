@@ -103,18 +103,18 @@ config is a failed start rather than a surprise on the first request.
 
 | Condition | Throws |
 | --- | --- |
-| `mode` not in `VALID_MODES` | `Error: unknown mode …` |
-| `policyCombine` not in `VALID_POLICY_COMBINES` | `Error: unknown policyCombine …` |
-| `mode: 'production'` + `policyCombine: 'first-applicable'` | `Error: … requires mode 'development'` |
-| `defaultEffect: 'allow'` without `allowFailOpen: true` | `Error: … is a fail-open footgun` |
-| `maxPolicies` / `maxRoles` non-finite or `< 1` | `RangeError` |
-| `adapterTimeoutMs` non-finite or `< 0` | `RangeError` |
-| `hookTimeoutMs` non-finite or `< 0` | `RangeError` |
-| `maxConcurrentSubjectLoads` non-finite, or neither `0` nor `>= 1` | `RangeError` |
+| `mode` not in `VALID_MODES` | `IamError: IAM_ENGINE_INVALID_CONFIG` (`field: 'mode'`) |
+| `policyCombine` not in `VALID_POLICY_COMBINES` | `IamError: IAM_ENGINE_INVALID_CONFIG` (`field: 'policyCombine'`) |
+| `mode: 'production'` + `policyCombine: 'first-applicable'` | `IamError: IAM_ENGINE_POLICY_COMBINE_INCOMPATIBLE` |
+| `defaultEffect: 'allow'` without `allowFailOpen: true` | `IamError: IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED` |
+| `maxPolicies` / `maxRoles` non-finite or `< 1` | `IamError: IAM_ENGINE_INVALID_CONFIG` |
+| `adapterTimeoutMs` non-finite or `< 0` | `IamError: IAM_ENGINE_INVALID_CONFIG` |
+| `hookTimeoutMs` non-finite or `< 0` | `IamError: IAM_ENGINE_INVALID_CONFIG` |
+| `maxConcurrentSubjectLoads` non-finite, or neither `0` nor `>= 1` | `IamError: IAM_ENGINE_INVALID_CONFIG` |
 | `cacheTTL` non-finite or negative | `RangeError` from `IamLRUCache` (`ttlMs must be a finite number >= 0`) |
 | `maxCacheSize` non-finite or `< 1` | `RangeError` from `IamLRUCache` (`maxSize must be a finite number >= 1`) |
-| `scopeMode` not in `VALID_SCOPE_MODES` | `Error: unknown scopeMode …` |
-| `scopeCombine` not in `VALID_SCOPE_COMBINES` | `Error: unknown scopeCombine …` |
+| `scopeMode` not in `VALID_SCOPE_MODES` | `IamError: IAM_ENGINE_INVALID_CONFIG` (`field: 'scopeMode'`) |
+| `scopeCombine` not in `VALID_SCOPE_COMBINES` | `IamError: IAM_ENGINE_INVALID_CONFIG` (`field: 'scopeCombine'`) |
 
 The `policyCombine` guard exists because both evaluators branch on `'and'` and
 `'allow-overrides'` and fall through to `first-applicable` — the most permissive
