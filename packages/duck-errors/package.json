@@ -48,6 +48,14 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.9"
   },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
   "engines": {
     "node": ">=18.0.0"
   },

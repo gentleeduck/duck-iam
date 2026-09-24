@@ -260,6 +260,12 @@
         "typescript": "^7.0.2",
         "vitest": "^4.1.9",
       },
+      "peerDependencies": {
+        "typescript": ">=5.0.0",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
     },
     "packages/duck-iam": {
       "name": "@gentleduck/iam",
