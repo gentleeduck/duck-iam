@@ -26,11 +26,12 @@ export namespace ErrorKit {
    *  with no declared shape resolves `Meta` to `{}`, which would otherwise accept any object as meta since
    *  `{}` has no properties for excess-property checking to reject; gating on the registry value's own
    *  `Carries` brand catches that case before it reaches `Meta` at all. */
-  export type Args<R extends Registry, C extends Code<R>> = R[C] extends Carries<any>
-    ? [HasRequired<Meta<R, C>>] extends [never]
-      ? [meta?: Meta<R, C>]
-      : [meta: Meta<R, C>]
-    : []
+  export type Args<R extends Registry, C extends Code<R>> =
+    R[C] extends Carries<any>
+      ? [HasRequired<Meta<R, C>>] extends [never]
+        ? [meta?: Meta<R, C>]
+        : [meta: Meta<R, C>]
+      : []
 }
 
 /** The shape every kit's error instances have, independent of which kit built them. */
