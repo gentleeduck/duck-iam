@@ -284,8 +284,10 @@ export function iamNestAccessGuard<
 
       // `isAuthorizeMeta` proved these are strings, not members of the erased union, so they widen through the named
       // helpers the other adapters use.
+      // SECURITY: an undeclared action falls back to the method, as `createIamNextMiddleware` does. Defaulting to
+      // 'read' would let `@IamAuthorize({ resource })` on a DELETE route pass on read permission alone.
       const action = iamAsActionLiteral<TAction>(
-        meta.infer ? iamActionForMethod(request.method) : (meta.action ?? 'read'),
+        meta.infer || meta.action === undefined ? iamActionForMethod(request.method) : meta.action,
       )
       const resource = iamAsResourceLiteral<TResource>(
         meta.infer ? inferResource(request) : (meta.resource ?? 'unknown'),
