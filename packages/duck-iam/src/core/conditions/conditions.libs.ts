@@ -577,15 +577,22 @@ export function evalCondition(
   cond: AccessControl.ICondition,
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
+  // SECURITY: a `$`-reference pattern is never compiled (ReDoS). Throw rather than return `false`,
+  // which would retire a deny rule, or grant inside a `none`.
   if (cond.operator === 'matches' && isUserSourcedValue(cond.value ?? null)) {
     throwIamError('IAM_CONDITION_USER_SOURCED_PATTERN', { field: cond.field, value: String(cond.value) })
   }
   const fieldVal = resolve(req, cond.field, caches)
   const condVal = resolveValue(req, cond.value ?? null, caches)
+  // SECURITY: own properties only, as `resolve` does per path segment. `ops` is an object literal, so
+  // `constructor` and `toString` are inherited functions that answered truthy and fired the rule.
   const op = Object.hasOwn(ops, cond.operator) ? ops[cond.operator] : undefined
+  // SECURITY: an unknown operator is Indeterminate; `false` would retire a deny rule.
   if (typeof op !== 'function') {
     throwIamError('IAM_CONDITION_OPERATOR_UNKNOWN', { operator: String(cond.operator), field: cond.field })
   }
+  // SECURITY: wrong-typed operands are Indeterminate, checked before every operator (`matches` included):
+  // seeded or migrated rows skip the validator, and a `$`-reference only has a type once resolved.
   if (!VALUELESS_OPERATORS.has(cond.operator)) {
     if (cond.value === undefined) {
       throwIamError('IAM_CONDITION_OPERAND_TYPE', {
@@ -594,6 +601,8 @@ export function evalCondition(
         detail: 'requires a "value" and the key is absent',
       })
     }
+    // SECURITY: a `$`-reference that resolved to `null` would let `eq` compare `null === null` and allow.
+    // A literal `value: null` is an explicit null test and still works.
     if (isUserSourcedValue(cond.value) && condVal === null) {
       throwIamError('IAM_CONDITION_OPERAND_TYPE', {
         field: cond.field,
@@ -634,6 +643,7 @@ export function evalMatchesOp(
     throwIamError('IAM_CONDITION_REGEX_INPUT_TOO_LARGE', { field, length: f.length })
   }
   const re = getCachedRegex(v, cache ?? regexCache)
+  // SECURITY: a refused pattern is Indeterminate, like an oversized input; `false` would retire deny rules.
   if (!re) {
     throwIamError('IAM_CONDITION_PATTERN_REFUSED', {
       field,
