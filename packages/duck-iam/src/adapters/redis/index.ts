@@ -296,7 +296,7 @@ export class IamRedisAdapter<
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const value = await this._client.hget(this._policiesKey(), id)
-    return value ? this._safeParsePolicy(value, id) : null
+    return value === null ? null : this._safeParsePolicy(value, id)
   }
 
   /** Stores or overwrites a policy under its id. */
@@ -327,7 +327,7 @@ export class IamRedisAdapter<
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const value = await this._client.hget(this._rolesKey(), id)
-    return value ? this._safeParseRole(value, id) : null
+    return value === null ? null : this._safeParseRole(value, id)
   }
 
   /** Stores or overwrites a role under its id. */
@@ -452,7 +452,7 @@ export class IamRedisAdapter<
   /** Reads the subject's attributes, or `{}` when none are stored; throws on a corrupt blob. */
   async getSubjectAttributes(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     const value = await this._client.get(this._attrsKey(subjectId))
-    if (!value) return {}
+    if (value === null) return {}
     let parsed: unknown
     try {
       parsed = JSON.parse(value)

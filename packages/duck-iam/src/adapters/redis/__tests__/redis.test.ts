@@ -473,6 +473,27 @@ describe('IamRedisAdapter', () => {
       }
       expect(warnings.some((w) => /\[@gentleduck\/iam:redis\]/.test(w) && /bad/.test(w))).toBe(true)
     })
+
+    // `hget`/`get` return `string | null`; a truthiness check on the value reads a stored "" the same as a
+    // missing key. "" is never written by a legitimate save, so it can only mean corruption - which must throw,
+    // not read as absent, for the same reason a malformed row above must throw rather than drop.
+    it('getPolicy throws on a stored empty string rather than reading it as absent', async () => {
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: redis })
+      await redis.hset('policies', 'empty', '')
+      await expect(adapter.getPolicy('empty')).rejects.toThrow('IAM_UNREADABLE_POLICY')
+    })
+
+    it('getRole throws on a stored empty string rather than reading it as absent', async () => {
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: redis })
+      await redis.hset('roles', 'empty', '')
+      await expect(adapter.getRole('empty')).rejects.toThrow('IAM_UNREADABLE_ROLE')
+    })
+
+    it('getSubjectAttributes throws on a stored empty string rather than reading it as {}', async () => {
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: redis })
+      await redis.set('attrs:user-1', '')
+      await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
+    })
   })
 
   describe('NUL byte guard on role/scope', () => {
