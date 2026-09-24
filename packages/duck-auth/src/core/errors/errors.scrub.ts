@@ -23,4 +23,3 @@ export function redactSecrets(value: unknown, depth = 0): unknown {
   }
   return out
 }
-
