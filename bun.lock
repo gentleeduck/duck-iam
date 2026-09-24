@@ -248,6 +248,19 @@
         "web-push",
       ],
     },
+    "packages/duck-errors": {
+      "name": "@gentleduck/errors",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@gentleduck/tsdown-config": "workspace:*",
+        "@gentleduck/typescript-config": "workspace:*",
+        "@gentleduck/vitest-config": "workspace:*",
+        "@types/node": "^26.1.0",
+        "tsdown": "^0.22.3",
+        "typescript": "^7.0.2",
+        "vitest": "^4.1.9",
+      },
+    },
     "packages/duck-iam": {
       "name": "@gentleduck/iam",
       "version": "5.10.0",
@@ -294,19 +307,6 @@
         "lucide-react",
         "react",
       ],
-    },
-    "packages/errors": {
-      "name": "@gentleduck/errors",
-      "version": "0.1.0",
-      "devDependencies": {
-        "@gentleduck/tsdown-config": "workspace:*",
-        "@gentleduck/typescript-config": "workspace:*",
-        "@gentleduck/vitest-config": "workspace:*",
-        "@types/node": "^26.1.0",
-        "tsdown": "^0.22.3",
-        "typescript": "^7.0.2",
-        "vitest": "^4.1.9",
-      },
     },
     "tooling/bash": {
       "name": "bash",
@@ -763,7 +763,7 @@
 
     "@gentleduck/duck-auth-demo": ["@gentleduck/duck-auth-demo@workspace:apps/duck-auth-demo"],
 
-    "@gentleduck/errors": ["@gentleduck/errors@workspace:packages/errors"],
+    "@gentleduck/errors": ["@gentleduck/errors@workspace:packages/duck-errors"],
 
     "@gentleduck/example-oidc-op": ["@gentleduck/example-oidc-op@workspace:examples/oidc-op"],
 
