@@ -44,6 +44,16 @@ export class IamLRUCache<V> {
   }
 
   /**
+   * The value under `key`, or `undefined` when absent or lapsed. Moves neither LRU order nor stats.
+   * NOTE: for internal reads a request did not ask for; `get` would record a hit or miss that skews `cacheHitRate`.
+   */
+  peek(key: string): V | undefined {
+    const entry = this._map.get(key)
+    if (!entry) return undefined
+    return Date.now() >= entry.expiresAt ? undefined : entry.value
+  }
+
+  /**
    * Epoch ms the entry under `key` expires at, or `undefined` when absent or lapsed. Moves neither LRU order nor stats.
    * NOTE: lets a derived cache inherit its source's expiry via {@link IamLRUCache.set}'s `notAfter` instead of a fresh full TTL.
    */
