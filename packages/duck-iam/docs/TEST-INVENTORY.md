@@ -51,8 +51,8 @@ drift the way the hand-maintained version did.
 | `adapters/drizzle/__tests__/drizzle-actor-provenance.test.ts` | 11 | assignRole records who made the grant |
 | `adapters/drizzle/__tests__/drizzle-assignment-expiry-attributes.test.ts` | 54 | IamDrizzleAdapter assignment expiry |
 | `adapters/drizzle/__tests__/drizzle-native-attr-shape.test.ts` | 13 | IamDrizzleAdapter native JSONB shape validation |
-| `adapters/drizzle/__tests__/drizzle-sqlite-real-engine.test.ts` | 9 | drizzle sqlite dialect, against a real SQLite engine |
-| `adapters/drizzle/__tests__/drizzle-update-assignment-scope.test.ts` | 6 | IamDrizzleAdapter.updateAssignmentScope |
+| `adapters/drizzle/__tests__/drizzle-sqlite-real-engine.test.ts` | 13 | drizzle sqlite dialect, against a real SQLite engine |
+| `adapters/drizzle/__tests__/drizzle-update-assignment-scope.test.ts` | 7 | IamDrizzleAdapter.updateAssignmentScope |
 | `adapters/drizzle/__tests__/drizzle.test.ts` | 230 | IamDrizzleAdapter |
 | `adapters/drizzle/__tests__/ops-wiring-types.test.ts` | 3 | drizzle-orm operators satisfy the adapter ops bundle as-is |
 | `adapters/drizzle/__tests__/schema-parity.test.ts` | 33 | the dialect-only allow-list stays honest |
@@ -95,8 +95,8 @@ drift the way the hand-maintained version did.
 | `adapters/redis/__tests__/redis-io-failure.test.ts` | 8 | IamRedisAdapter connection failure |
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
-| `adapters/redis/__tests__/redis.test.ts` | 127 | IamRedisAdapter |
-| **Subtotal** | **1680** | |
+| `adapters/redis/__tests__/redis.test.ts` | 130 | IamRedisAdapter |
+| **Subtotal** | **1688** | |
 
 ---
 
@@ -231,7 +231,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/verdict-differential.test.ts` | 2 | E2E verdict parity: compiled table vs interpreter over generated catalogs |
 | `core/engine/__tests__/write-that-lands-after-its-timeout.test.ts` | 12 | a write that lands after its own timeout |
 | `core/errors/__tests__/errors.codes.test.ts` | 4 | IAM_ERRORS |
-| `core/errors/__tests__/errors.scrub.test.ts` | 13 | isSecretKey |
+| `core/errors/__tests__/errors.kit-wiring.test.ts` | 1 | IamError is both the class and a code-parameterized type |
 | `core/errors/__tests__/errors.test.ts` | 15 | IamError construction |
 | `core/errors/__tests__/errors.validation.test.ts` | 4 | throwIamValidationFailed |
 | `core/evaluate/__tests__/algorithm-alias-precompute.test.ts` | 9 | precompute covers every algorithm that can be precomputed |
@@ -305,7 +305,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2924** | |
+| **Subtotal** | **2912** | |
 
 ---
 
@@ -445,9 +445,9 @@ drift the way the hand-maintained version did.
 | Area | Files | Tests |
 |---|---|---|
 | Core / compiled engine | 11 | 153 |
-| Adapters | 57 | 1680 |
+| Adapters | 57 | 1688 |
 | Clients | 11 | 136 |
-| Core | 182 | 2924 |
+| Core | 182 | 2912 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -455,4 +455,4 @@ drift the way the hand-maintained version did.
 | Shared | 7 | 126 |
 | Package surface | 12 | 125 |
 | Other | 1 | 4 |
-| **Total** | **336** | **6390** |
+| **Total** | **336** | **6386** |

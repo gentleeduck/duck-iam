@@ -1,12 +1,11 @@
-declare const CARRIES: unique symbol
-declare const FAULT: unique symbol
-
 /** A status that also says what its code hands back. The brand is required rather than optional: an optional
- *  one is satisfied structurally by any plain `number`, and every code would then look like it carried something. */
-export type Carries<M extends object> = number & { readonly [CARRIES]: M }
+ *  one is satisfied structurally by any plain `number`, and every code would then look like it carried something.
+ *  A plain property key, not `unique symbol`: a symbol brand cannot be named in a consuming package's own
+ *  declaration output (TS4023) once that package builds a type — like a registry — out of this one. */
+export type Carries<M extends object> = number & { readonly __carries: M }
 
 /** A status whose code a store/adapter can answer with, rather than one only flow or validation logic raises. */
-export type Fault = number & { readonly [FAULT]: true }
+export type Fault = number & { readonly __fault: true }
 
 /** What a status says its code hands back. A plain status says nothing, which is a meta with no keys. */
 export type MetaOf<S> = S extends Carries<infer M> ? M : Record<never, never>

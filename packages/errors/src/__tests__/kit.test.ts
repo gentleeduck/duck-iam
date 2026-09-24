@@ -43,7 +43,7 @@ void new TestError('TEST_DETAIL')
 void new TestError('TEST_DETAIL', { field: 1 })
 
 describe('class identity across two kits', () => {
-  it('never satisfies the other kit\'s instanceof', () => {
+  it("never satisfies the other kit's instanceof", () => {
     const otherKit = createErrorKit('OtherError', { OTHER_BARE: 500 } as const)
     const OtherError = otherKit.ErrorClass
     const mine = new TestError('TEST_BARE')

@@ -310,6 +310,7 @@
     "clean": "rimraf dist .cache .turbo node_modules"
   },
   "dependencies": {
+    "@gentleduck/errors": "workspace:*",
     "uuid": "^14.0.2"
   },
   "peerDependencies": {

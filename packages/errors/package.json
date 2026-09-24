@@ -23,7 +23,13 @@
       }
     }
   },
-  "files": ["dist", "src", "CHANGELOG.md", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "src",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
@@ -55,5 +61,9 @@
     "type": "git",
     "url": "git+https://github.com/gentleeduck/duck-iam.git"
   },
-  "keywords": ["errors", "error-handling", "typescript"]
+  "keywords": [
+    "errors",
+    "error-handling",
+    "typescript"
+  ]
 }

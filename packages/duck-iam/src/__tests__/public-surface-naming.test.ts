@@ -19,6 +19,7 @@ const UNPREFIXED_BACKLOG = [
   'defineRole',
   'defineRule',
   'explainEvaluation',
+  'fail',
   'hasIamErrorCode',
   'matchesAction',
   'matchesResource',
