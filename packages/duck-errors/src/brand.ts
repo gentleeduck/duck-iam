@@ -12,7 +12,6 @@ export function detail<M extends object = never>(status: number): Carries<M> {
   return status as Carries<M>
 }
 
-/** The same declaration for a code a store/adapter can answer with itself. */
 export function fault(status: number): Fault
 export function fault<M extends object>(status: number): Carries<M> & Fault
 export function fault<M extends object>(status: number): Carries<M> & Fault {

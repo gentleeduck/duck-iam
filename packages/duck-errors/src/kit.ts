@@ -4,16 +4,13 @@ import { scrubMeta } from './scrub'
 export namespace ErrorKit {
   export type Registry = Record<string, number>
 
-  /** Every code in a registry, as a string union. */
   export type Code<R extends Registry> = keyof R & string
 
-  /** Extra fields for a given code: everything the code itself does not say. */
   export type Meta<R extends Registry, C extends Code<R>> = MetaOf<R[C]>
 
   /** True when T has at least one non-optional key. */
   export type HasRequired<T> = { [K in keyof T]-?: undefined extends T[K] ? never : K }[keyof T]
 
-  /** The codes a store/adapter answers with itself. */
   export type Faults<R extends Registry> = { [C in Code<R>]: R[C] extends Fault ? C : never }[Code<R>]
 
   /** A code that needs nothing beyond itself. */
@@ -41,7 +38,7 @@ export interface KitError<R extends ErrorKit.Registry, C extends ErrorKit.Code<R
 }
 
 export interface ErrorKit<R extends ErrorKit.Registry> {
-  /** A fresh class, distinct from every other kit's — never shared, so `instanceof` never crosses kits. */
+  /** For instanceof checks or subclassing — see createErrorKit for why it's never shared across kits. */
   readonly ErrorClass: new <C extends ErrorKit.Code<R> = ErrorKit.Code<R>>(
     code: C,
     ...args: ErrorKit.Args<R, C>
