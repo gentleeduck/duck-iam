@@ -268,7 +268,8 @@ export function createIamAccessControl<
       return run.fn().then(
         (perms: IamClient.PartialPermissionMap<TAction, TResource, TScope>) => {
           if (stale()) return
-          setPermissions(perms)
+          // `fetchFn` is a trust boundary: a JSON `null` body would reach `iamPermissionGranted` and throw.
+          setPermissions(Object.freeze({ ...perms }))
           setLoading(false)
         },
         (err: unknown) => {
