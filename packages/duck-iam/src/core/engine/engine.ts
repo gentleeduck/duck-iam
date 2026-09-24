@@ -262,7 +262,11 @@ export class IamEngine<
     // SECURITY: `scopeCombine` defaults to the *wider* branch, so `'overide'` hands a subject every ancestor
     // scope's roles instead of the most specific level's.
     if (!VALID_SCOPE_MODES.includes(this._scopeMode)) {
-      throwIamError('IAM_ENGINE_INVALID_CONFIG', { field: 'scopeMode', got: this._scopeMode, allowed: VALID_SCOPE_MODES })
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'scopeMode',
+        got: this._scopeMode,
+        allowed: VALID_SCOPE_MODES,
+      })
     }
     if (!VALID_SCOPE_COMBINES.includes(this._scopeCombine)) {
       throwIamError('IAM_ENGINE_INVALID_CONFIG', {
@@ -311,7 +315,11 @@ export class IamEngine<
       })
     }
     if (!Number.isFinite(this._maxRoles) || this._maxRoles < 1) {
-      throwIamError('IAM_ENGINE_INVALID_CONFIG', { field: 'maxRoles', got: this._maxRoles, constraint: 'finite number >= 1' })
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'maxRoles',
+        got: this._maxRoles,
+        constraint: 'finite number >= 1',
+      })
     }
     if (!Number.isFinite(this._adapterTimeoutMs) || this._adapterTimeoutMs < 0) {
       throwIamError('IAM_ENGINE_INVALID_CONFIG', {
