@@ -742,7 +742,7 @@
     "react": "^19.2.7",
     "tsdown": "^0.22.3",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=22.0.0"
