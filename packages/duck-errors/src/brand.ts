@@ -1,7 +1,4 @@
-/** A status that also says what its code hands back. The brand is required rather than optional: an optional
- *  one is satisfied structurally by any plain `number`, and every code would then look like it carried something.
- *  A plain property key, not `unique symbol`: a symbol brand cannot be named in a consuming package's own
- *  declaration output (TS4023) once that package builds a type — like a registry — out of this one. */
+/** Required, not optional — optional is satisfied by any plain number; plain key, not unique symbol, to avoid TS4023 in a consumer's own build. */
 export type Carries<M extends object> = number & { readonly __carries: M }
 
 /** A status whose code a store/adapter can answer with, rather than one only flow or validation logic raises. */
@@ -10,10 +7,7 @@ export type Fault = number & { readonly __fault: true }
 /** What a status says its code hands back. A plain status says nothing, which is a meta with no keys. */
 export type MetaOf<S> = S extends Carries<infer M> ? M : Record<never, never>
 
-/** A code's status and what it hands back with it, in one declaration. It is the status and nothing else at
- *  runtime, so a registry built from it stays a plain `Record<string, number>`. `M` has no way to be inferred
- *  (it never appears in a parameter), so a caller who forgets it must fail closed: the default is `never`, not
- *  `object` (which has no properties for excess-property checking to reject, reopening the hole `Args` closes). */
+/** M can't be inferred (no parameter uses it), so it defaults to never, not object — object would silently accept any meta shape. */
 export function detail<M extends object = never>(status: number): Carries<M> {
   return status as Carries<M>
 }

@@ -21,11 +21,7 @@ export namespace ErrorKit {
     [C in Code<R>]: [HasRequired<Meta<R, C>>] extends [never] ? C : never
   }[Code<R>]
 
-  /** Conditional rest args: no argument at all for a code with no declared shape (a plain number or a
-   *  bare `fault()`), optional when its declared shape has no required fields, required otherwise. A code
-   *  with no declared shape resolves `Meta` to `{}`, which would otherwise accept any object as meta since
-   *  `{}` has no properties for excess-property checking to reject; gating on the registry value's own
-   *  `Carries` brand catches that case before it reaches `Meta` at all. */
+  /** No args for a bare code, else optional/required per Meta's required keys — gated on the value's own Carries brand, not on Meta, since a bare code's Meta resolves to `{}` which anything would satisfy. */
   export type Args<R extends Registry, C extends Code<R>> =
     R[C] extends Carries<any>
       ? [HasRequired<Meta<R, C>>] extends [never]
@@ -44,7 +40,7 @@ export interface KitError<R extends ErrorKit.Registry, C extends ErrorKit.Code<R
   toJSON(): { ok: false; error: { code: C; status: number } & Record<string, unknown> }
 }
 
-export interface ErrorKit<R extends ErrorKit.Registry, Name extends string> {
+export interface ErrorKit<R extends ErrorKit.Registry> {
   /** A fresh class, distinct from every other kit's — never shared, so `instanceof` never crosses kits. */
   readonly ErrorClass: new <C extends ErrorKit.Code<R> = ErrorKit.Code<R>>(
     code: C,
@@ -52,31 +48,22 @@ export interface ErrorKit<R extends ErrorKit.Registry, Name extends string> {
   ) => KitError<R, C>
   /** Constructs and returns (never throws) a typed instance. */
   fail<C extends ErrorKit.Code<R>>(code: C, ...args: ErrorKit.Args<R, C>): KitError<R, C>
-  /** Throws a typed instance. */
   throwError<C extends ErrorKit.Code<R>>(code: C, ...args: ErrorKit.Args<R, C>): never
   /** An already-typed error as it stands; anything else wrapped under the fallback code with the original on `cause`. */
   asError<C extends ErrorKit.Code<R>>(error: unknown, code: C, ...args: ErrorKit.Args<R, C>): KitError<R>
   /** {@link ErrorKit.asError}, thrown rather than returned. */
   rethrowError<C extends ErrorKit.Code<R>>(error: unknown, code: C, ...args: ErrorKit.Args<R, C>): never
-  /** True when `err` carries `code` and a `meta`, checked by property rather than `instanceof` — matches an
-   *  instance built by a duplicated copy of this package too (hoisting, or a dependency installed separately
-   *  from its consumer). Both properties are checked: matching `code` alone would narrow to a `meta` the
-   *  object might not actually have. */
+  /** Checked by property, not instanceof, so a duplicated copy of this package still matches; meta is checked too, since code alone could narrow to a meta that isn't actually there. */
   hasErrorCode<C extends ErrorKit.Code<R>>(err: unknown, code: C): err is Error & { readonly meta: ErrorKit.Meta<R, C> }
   /** Reads `err.meta` at the shape `code` declares. Safe once the caller has confirmed `err.code === code`. */
   metaOf<C extends ErrorKit.Code<R>>(err: KitError<R>, code: C): ErrorKit.Meta<R, C>
 }
 
-/**
- * Builds a fresh, registry-typed error class plus its construct/throw helpers. Each call declares its own
- * `class` — never a shared generic one — so two kits' instances never satisfy each other's `instanceof`, the
- * same way two hand-written classes wouldn't. `name` becomes both the class's runtime `.name` and the identity
- * a consumer sees in a stack trace.
- */
+/** Each call declares its own class (never shared), so two kits' instances never satisfy each other's instanceof; name becomes both the runtime `.name` and the stack-trace identity. */
 export function createErrorKit<const R extends ErrorKit.Registry, Name extends string>(
   name: Name,
   registry: R,
-): ErrorKit<R, Name> {
+): ErrorKit<R> {
   class KitErrorImpl<C extends ErrorKit.Code<R> = ErrorKit.Code<R>> extends Error {
     readonly code: C
     readonly status: number
@@ -87,9 +74,7 @@ export function createErrorKit<const R extends ErrorKit.Registry, Name extends s
       super(code)
       this.name = name
       this.code = code
-      // `code` is `ErrorKit.Code<R>`, a subset of `keyof R`, so the lookup is total in fact;
-      // `noUncheckedIndexedAccess` cannot see that through a generic `R`, only through a concrete
-      // `const` object (which is what every real registry actually is at its own call site).
+      // Total in fact (code is keyof R), but noUncheckedIndexedAccess can't see that through a generic R.
       this.status = registry[code] as number
       this.statusCode = this.status
       const [meta] = args
@@ -127,6 +112,7 @@ export function createErrorKit<const R extends ErrorKit.Registry, Name extends s
     return err instanceof Error && 'code' in err && err.code === code && 'meta' in err
   }
 
+  // biome-ignore lint/correctness/noUnusedFunctionParameters: code pins C so the call site infers Meta<R, C>
   function metaOf<C extends ErrorKit.Code<R>>(err: KitError<R>, code: C): ErrorKit.Meta<R, C> {
     return err.meta as ErrorKit.Meta<R, C>
   }
