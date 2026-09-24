@@ -431,7 +431,7 @@ export class IamHttpAdapter<
    * Narrows one API row to a policy.
    * SECURITY: a mismatch is reported and throws, never dropped or returned raw; see {@link iamUnreadablePolicy}.
    */
-  private _narrowPolicy(row: unknown, fallbackId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  private _narrowPolicy(row: unknown, fallbackId: string): AccessControl.IPolicy<TAction, TResource, TRole> {
     const policy = parsePolicyRow<TAction, TResource, TRole>(row)
     if (policy !== null) return policy
     const rowId = rowIdOf(row, fallbackId)
@@ -442,7 +442,7 @@ export class IamHttpAdapter<
     throw iamUnreadablePolicy('http', rowId, issues)
   }
 
-  private _narrowRole(row: unknown, fallbackId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  private _narrowRole(row: unknown, fallbackId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> {
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(row)
     if (role !== null) return role
     const rowId = rowIdOf(row, fallbackId)
@@ -454,7 +454,7 @@ export class IamHttpAdapter<
   }
 
   /** A list endpoint must return an array; anything else is reported and rejected, never read as an empty list. */
-  private _narrowList<T>(body: unknown, path: string, narrow: (row: unknown, fallbackId: string) => T | null): T[] {
+  private _narrowList<T>(body: unknown, path: string, narrow: (row: unknown, fallbackId: string) => T): T[] {
     if (!Array.isArray(body)) {
       const got = body === null ? 'null' : typeof body
       const err = new Error(
@@ -465,10 +465,7 @@ export class IamHttpAdapter<
       throw err
     }
     const out: T[] = []
-    for (const [i, row] of body.entries()) {
-      const v = narrow(row, `${path}[${i}]`)
-      if (v !== null) out.push(v)
-    }
+    for (const [i, row] of body.entries()) out.push(narrow(row, `${path}[${i}]`))
     return out
   }
 

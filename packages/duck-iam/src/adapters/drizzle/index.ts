@@ -307,7 +307,7 @@ export class IamDrizzleAdapter<
    * SECURITY: throws instead of returning `null`, since a dropped policy may be the deny.
    * See {@link iamUnreadablePolicy}.
    */
-  private _safeParsePolicy(row: IamDrizzle.PolicyRow): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  private _safeParsePolicy(row: IamDrizzle.PolicyRow): AccessControl.IPolicy<TAction, TResource, TRole> {
     let parsedRules: unknown
     let parsedTargets: unknown
     try {
@@ -344,7 +344,7 @@ export class IamDrizzleAdapter<
     return policy
   }
 
-  private _safeParseRole(row: IamDrizzle.RoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  private _safeParseRole(row: IamDrizzle.RoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> {
     let permissions: unknown
     let inherits: unknown
     let metadata: unknown
@@ -448,10 +448,7 @@ export class IamDrizzleAdapter<
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const rows = await this._selectAll<IamDrizzle.PolicyRow>(this._t.policies)
     const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
-    for (const row of rows) {
-      const parsed = this._safeParsePolicy(row)
-      if (parsed) out.push(parsed)
-    }
+    for (const row of rows) out.push(this._safeParsePolicy(row))
     return out
   }
 
@@ -483,18 +480,15 @@ export class IamDrizzleAdapter<
     await this._db.delete(this._t.policies).where(this._eq(this._t.policies.id, id))
   }
 
-  /** Lists every readable role; unreadable rows are reported and skipped. */
+  /** Lists every role; throws if any role row is unreadable. */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this._selectAll<IamDrizzle.RoleRow>(this._t.roles)
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
-    for (const row of rows) {
-      const parsed = this._safeParseRole(row)
-      if (parsed) out.push(parsed)
-    }
+    for (const row of rows) out.push(this._safeParseRole(row))
     return out
   }
 
-  /** Fetches a role by ID, or `null` when absent or unreadable. */
+  /** Fetches a role by ID, or `null` when absent. Throws (via {@link iamUnreadableRole}) when the row is unreadable. */
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
@@ -522,7 +516,6 @@ export class IamDrizzleAdapter<
     await this._db.delete(this._t.roles).where(this._eq(this._t.roles.id, id))
     for (const row of await this._selectAll<IamDrizzle.RoleRow>(this._t.roles)) {
       const role = this._safeParseRole(row)
-      if (role === null) continue
       const stripped = iamRoleWithoutInherit(role, id)
       if (stripped === null) continue
       await this._db

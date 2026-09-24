@@ -301,7 +301,7 @@ export class IamFileAdapter<
         }
         const parsed = parsedRaw
 
-        // Validate rows: a bad policy throws, a bad role is dropped. Null-proto dicts block prototype pollution.
+        // Validate rows: a bad policy or role throws. Null-proto dicts block prototype pollution.
         const policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>> = Object.create(null)
         const policiesRaw = this._rootField(parsed, 'policies')
         for (const [rowId, p] of Object.entries(policiesRaw)) {

@@ -98,7 +98,7 @@ export class IamRedisAdapter<
    * Parses and validates a stored policy; on failure it reports, then throws, as `_safeParseRole` does.
    * SECURITY: an unreadable policy is refused, not skipped, because it may be the one that denies.
    */
-  private _safeParsePolicy(raw: string, rowId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  private _safeParsePolicy(raw: string, rowId: string): AccessControl.IPolicy<TAction, TResource, TRole> {
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
@@ -118,7 +118,7 @@ export class IamRedisAdapter<
     return policy
   }
 
-  private _safeParseRole(raw: string, rowId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  private _safeParseRole(raw: string, rowId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> {
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
@@ -283,10 +283,7 @@ export class IamRedisAdapter<
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const entries = await this._client.hgetall(this._policiesKey())
     const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
-    for (const [rowId, raw] of Object.entries(entries)) {
-      const parsed = this._safeParsePolicy(raw, rowId)
-      if (parsed) out.push(parsed)
-    }
+    for (const [rowId, raw] of Object.entries(entries)) out.push(this._safeParsePolicy(raw, rowId))
     return out
   }
 
@@ -310,18 +307,15 @@ export class IamRedisAdapter<
     await this._client.hdel(this._policiesKey(), id)
   }
 
-  /** Lists every stored role, dropping (and reporting) unreadable rows. */
+  /** Lists every stored role; throws if any row is unreadable. */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const entries = await this._client.hgetall(this._rolesKey())
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
-    for (const [rowId, raw] of Object.entries(entries)) {
-      const parsed = this._safeParseRole(raw, rowId)
-      if (parsed) out.push(parsed)
-    }
+    for (const [rowId, raw] of Object.entries(entries)) out.push(this._safeParseRole(raw, rowId))
     return out
   }
 
-  /** Fetches a role by id, or `null` when absent or unreadable. */
+  /** Fetches a role by id, or `null` when absent. Throws (via {@link iamUnreadableRole}) when the row is unreadable. */
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
@@ -351,7 +345,6 @@ export class IamRedisAdapter<
     const entries = await this._client.hgetall(this._rolesKey())
     for (const [rowId, raw] of Object.entries(entries)) {
       const role = this._safeParseRole(raw, rowId)
-      if (role === null) continue
       const stripped = iamRoleWithoutInherit(role, deletedId)
       if (stripped !== null) await this._client.hset(this._rolesKey(), rowId, JSON.stringify(stripped))
     }
