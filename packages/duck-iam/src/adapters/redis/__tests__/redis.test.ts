@@ -326,7 +326,7 @@ describe('IamRedisAdapter', () => {
 
     it('throws on corrupted attributes JSON instead of returning {}', async () => {
       await redis.set('attrs:user-1', '{not-valid-json')
-      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     })
 
     it('setSubjectAttributes recovers from corrupt existing blob', async () => {
@@ -338,7 +338,7 @@ describe('IamRedisAdapter', () => {
 
     it('throws on non-object attributes JSON', async () => {
       await redis.set('attrs:user-1', '"a-string"')
-      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     })
 
     it('keys are isolated per subject', async () => {

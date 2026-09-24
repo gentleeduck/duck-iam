@@ -141,7 +141,7 @@ describe('IamRedisAdapter connection failure', () => {
       client,
       onPolicyError: (err) => reported.push(err.message),
     })
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     expect(reported).toHaveLength(1)
   })
 })

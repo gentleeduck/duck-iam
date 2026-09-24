@@ -1,3 +1,4 @@
+import { hasIamErrorCode, throwIamError } from '../../core/errors'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
@@ -56,19 +57,6 @@ export namespace IamRedis {
      */
     migrateLegacyAssignments?: boolean
   }
-}
-
-/**
- * Stored attributes that exist but cannot be read, as distinct from a failed `GET`.
- * SECURITY: `setSubjectAttributes` overwrites only this case; merging after a failed read would wipe unseen attributes.
- */
-class IamRedisCorruptAttributesError extends Error {
-  override readonly name = 'IamRedisCorruptAttributesError'
-}
-
-/** Matches {@link IamRedisCorruptAttributesError} by name, not `instanceof`, so a duplicated package copy matches. */
-function isCorruptAttributes(err: unknown): err is Error {
-  return err instanceof Error && err.name === 'IamRedisCorruptAttributesError'
 }
 
 /**
@@ -471,9 +459,7 @@ export class IamRedisAdapter<
     } catch (err) {
       // SECURITY: corrupt is not empty; returning {} would strip the subject's attributes from every decision.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-      throw new IamRedisCorruptAttributesError(
-        `[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (JSON parse failed)`,
-      )
+      throwIamError('IAM_ATTRIBUTES_CORRUPT', { adapter: 'redis', subjectId, reason: 'parse-failed' })
     }
     const attrs = iamNarrowAttributes(parsed)
     if (attrs === null) {
@@ -481,9 +467,7 @@ export class IamRedisAdapter<
         new Error(`Attributes for "${subjectId}" must be a JSON object of scalar values`),
         subjectId,
       )
-      throw new IamRedisCorruptAttributesError(
-        `[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (not a JSON object)`,
-      )
+      throwIamError('IAM_ATTRIBUTES_CORRUPT', { adapter: 'redis', subjectId, reason: 'not-object' })
     }
     return attrs
   }
@@ -491,13 +475,14 @@ export class IamRedisAdapter<
   /** Shallow-merges `attrs` into the subject's stored attributes. */
   async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
     iamAssertAttributesParam('redis', subjectId, attrs)
-    // SECURITY: only a corrupt blob merges as `{}`, so an operator can overwrite it. Any other read failure throws,
-    // since merging into a bag nobody read would replace it. See {@link IamRedisCorruptAttributesError}.
+    // SECURITY: only a corrupt blob (`IAM_ATTRIBUTES_CORRUPT`) merges as `{}`, so an operator can overwrite it.
+    // Any other read failure throws, since merging into a bag nobody read would replace it. Matched by code, not
+    // `instanceof`, so a duplicated package copy of IamError still matches.
     let existing: IamPrimitives.Attributes
     try {
       existing = await this.getSubjectAttributes(subjectId)
     } catch (err) {
-      if (!isCorruptAttributes(err)) throw err
+      if (!hasIamErrorCode(err, 'IAM_ATTRIBUTES_CORRUPT')) throw err
       this._reportPolicyError(err, subjectId)
       existing = {}
     }
