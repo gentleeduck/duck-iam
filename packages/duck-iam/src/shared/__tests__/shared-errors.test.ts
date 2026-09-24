@@ -127,5 +127,9 @@ describe('iamUnknownRoleError preserves an optional cause', () => {
     const err = iamUnknownRoleError('drizzle', driverErr) as IamError
     expect(err.cause).toBe(driverErr)
     expect(JSON.stringify(err.toJSON())).not.toContain('23503')
+    // An Error's message/.stack are non-enumerable, so JSON.stringify(driverErr) is always '{}' - the assertion
+    // above would still pass even if toJSON() started spreading `cause` in next to code/status. Assert the key
+    // itself is absent, not just that its text didn't happen to appear.
+    expect(err.toJSON().error).not.toHaveProperty('cause')
   })
 })

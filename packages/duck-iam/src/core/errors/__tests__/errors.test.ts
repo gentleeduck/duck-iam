@@ -63,7 +63,10 @@ describe('toJSON strips secrets and always reports ok: false', () => {
     const err = asIamError(new Error('driver exploded: postgres://user:pw@host/db'), 'IAM_ROLE_NOT_FOUND', {
       adapter: 'drizzle',
     })
-    expect(JSON.stringify(body(err))).not.toContain('postgres://')
+    // JSON.stringify(err.cause) alone is always '{}' (Error.prototype.message/.stack are non-enumerable), so it
+    // can never prove the leak is absent - only that the leaked value's own text didn't happen to appear. Assert
+    // the key itself is absent from the wire body.
+    expect(body(err).error).not.toHaveProperty('cause')
     expect(err.cause).toBeInstanceOf(Error)
   })
 })
@@ -79,9 +82,9 @@ describe('hasIamErrorCode', () => {
   })
 
   it('is false for a real IamError of a different code', () => {
-    expect(hasIamErrorCode(new IamError('IAM_ROLE_NOT_FOUND', { adapter: 'x' }), 'IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED')).toBe(
-      false,
-    )
+    expect(
+      hasIamErrorCode(new IamError('IAM_ROLE_NOT_FOUND', { adapter: 'x' }), 'IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED'),
+    ).toBe(false)
   })
 
   it('narrows to typed meta, so no separate metaOf call is needed', () => {
