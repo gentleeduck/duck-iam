@@ -243,7 +243,7 @@ export class IamPrismaAdapter<
     throw iamUnreadableRole('prisma', row.id, issues)
   }
 
-  /** Fetches a role by ID, or `null` when absent or unreadable. */
+  /** Fetches a role by ID, or `null` when absent. Throws (via {@link iamUnreadableRole}) when the row is unreadable. */
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,

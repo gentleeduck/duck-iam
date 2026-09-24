@@ -48,7 +48,7 @@ const REQUEST: IamRequest.IAccessRequest = {
   subject: { attributes: { lvl: 9 }, id: 'u', roles: ['admin'] },
 }
 
-/** A `$`-reference whose resolved operand is a string, so `gte` throws IamOperandTypeError. */
+/** A `$`-reference whose resolved operand is a string, so `gte` throws IamError with code IAM_CONDITION_OPERAND_TYPE. */
 const THROWING_CONDITION: AccessControl.IConditionGroup = {
   all: [{ field: 'subject.attributes.lvl', operator: 'gte', value: '$resource.attributes.min' }],
 }
