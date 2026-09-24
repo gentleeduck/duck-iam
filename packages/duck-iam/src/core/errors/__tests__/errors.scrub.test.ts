@@ -13,6 +13,14 @@ describe('isSecretKey', () => {
       expect(isSecretKey(key)).toBe(false)
     }
   })
+
+  it('is deliberately a substring match, so it over-redacts rather than under-redacts', () => {
+    // A word-boundary-anchored rewrite (`\btoken\b`) would miss this: there is no boundary between the
+    // lowercase 'i' and the uppercase 'T' of "Token" mid-identifier, so `apiTokenValue`-shaped keys would
+    // stop matching and leak.
+    expect(isSecretKey('tokenCount')).toBe(true)
+    expect(isSecretKey('email')).toBe(false)
+  })
 })
 
 describe('scrubMeta', () => {
@@ -40,6 +48,26 @@ describe('scrubMeta', () => {
     expect(JSON.stringify(out)).not.toContain('leak-me')
   })
 
+  it('still walks and drops a secret right up to the cap, rather than truncating too early', () => {
+    // Distinct from the test above: a `DEPTH_CAP` set too low would also make that test pass (the secret
+    // would still be gone, just for the wrong reason), by truncating legitimate structure - here, the six
+    // levels of `nested` wrapping - before it was ever walked.
+    let shallow: Record<string, unknown> = { password: 'leak-me', ok: 1 }
+    for (let i = 0; i < 6; i++) shallow = { nested: shallow }
+    const out = scrubMeta(shallow)
+    expect(JSON.stringify(out)).not.toContain('[depth-cap]')
+    expect(JSON.stringify(out)).not.toContain('leak-me')
+    expect(JSON.stringify(out)).not.toContain('password')
+    expect(JSON.stringify(out)).toContain('"ok":1')
+  })
+
+  it('keeps a Date whole rather than walking it into an empty object', () => {
+    // `Object.entries` on a Date yields no own enumerable properties, so losing this check turns any
+    // `Date`-valued meta field into `{}` silently.
+    const at = new Date('2026-01-02T03:04:05.000Z')
+    expect(scrubMeta({ at })).toEqual({ at })
+  })
+
   it('survives a circular reference', () => {
     const cycle: Record<string, unknown> = { name: 'loop' }
     cycle.self = cycle
@@ -57,5 +85,12 @@ describe('redactSecrets', () => {
     const out = redactSecrets({ token: 'leak-me', roleId: 'r1' }) as Record<string, unknown>
     expect(out.token).toBe('[redacted]')
     expect(out.roleId).toBe('r1')
+  })
+
+  it('keeps a Date whole rather than walking it into an empty object', () => {
+    // `redactSecrets` carries its own `instanceof Date` check, separate from `scrubMeta`'s - a regression
+    // in one does not imply a regression in the other.
+    const at = new Date('2026-01-02T03:04:05.000Z')
+    expect(redactSecrets({ at })).toEqual({ at })
   })
 })
