@@ -18,7 +18,7 @@ export const AUTH_ERRORS = {
   AUTH_AAL_INSUFFICIENT: detail<{ required: Sessions.AAL; have: Sessions.AAL }>(401),
   AUTH_STEP_UP_REQUIRED: detail<{ challenge: unknown }>(401),
   AUTH_MFA_REQUIRED: detail<{ methods: string[] }>(401),
-  AUTH_INVALID_CREDENTIALS: 401,
+  AUTH_INVALID_CREDENTIALS: detail<{ detail?: string }>(401),
   AUTH_PASSKEY_MISMATCH: 401,
   AUTH_EMAIL_NOT_VERIFIED: 403,
   AUTH_RATE_LIMITED: detail<{ retryAfter: number }>(429),

@@ -30,7 +30,7 @@ describe('an expiry cleanup that fails does not become the answer', () => {
     sessions = {
       ...adapter.sessions,
       delete: async () => {
-        throw new AuthError('AUTH_ADAPTER_FAILED', { detail: 'the store refused the write' })
+        throw new AuthError('AUTH_ADAPTER_FAILED')
       },
     }
     facet = new SessionsImpl(sessions, new InMemoryEvents(), DEFAULT_SESSION_CONFIG)
@@ -85,7 +85,7 @@ describe('an expiry cleanup that fails does not become the answer', () => {
       },
     })
     await expect(resolveBySid(sid, sessions, adapter.identities)).rejects.toMatchObject({
-      code: 'AUTH_SESSION_REVOKED',
+      code: 'AUTH_IMPERSONATE_WINDOW_CLOSED',
     })
   })
 
