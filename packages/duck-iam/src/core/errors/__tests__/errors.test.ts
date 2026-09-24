@@ -50,7 +50,7 @@ describe('metaOf', () => {
 
 describe('toJSON strips secrets and always reports ok: false', () => {
   it('strips a secret meta key', () => {
-    const out = body(new IamError('IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED', undefined))
+    const out = body(new IamError('IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED'))
     expect(out.ok).toBe(false)
   })
 
