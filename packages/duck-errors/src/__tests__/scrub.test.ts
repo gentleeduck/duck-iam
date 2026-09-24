@@ -18,6 +18,12 @@ describe('isSecretKey', () => {
     expect(isSecretKey('tokenCount')).toBe(true)
     expect(isSecretKey('email')).toBe(false)
   })
+
+  it('matches otp and recovery, which duck-auth needs and this pattern lacked', () => {
+    for (const key of ['otp', 'otpCode', 'recovery', 'recoveryToken']) {
+      expect(isSecretKey(key)).toBe(true)
+    }
+  })
 })
 
 describe('scrubMeta', () => {

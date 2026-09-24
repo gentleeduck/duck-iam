@@ -1,5 +1,6 @@
 /** What may not reach the wire, by key name. */
-const SECRET_KEY = /secret|password|passphrase|plaintext|token|hash|salt|signature|credential|private|apikey|api_key/i
+const SECRET_KEY =
+  /secret|password|passphrase|plaintext|token|hash|salt|signature|credential|private|otp|recovery|apikey|api_key/i
 
 const DEPTH_CAP = 8
 
