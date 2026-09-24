@@ -35,7 +35,7 @@
     "react-dom": "^19.2.7",
     "sonner": "2.0.8",
     "yjs": "^13.6.27",
-    "zod": "4.4.3"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
