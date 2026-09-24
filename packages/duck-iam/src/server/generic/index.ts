@@ -11,7 +11,7 @@ export namespace IamAdminAudit {
   /** Categorical action describing what changed. */
   export type Action = 'create' | 'update' | 'delete' | 'replace'
   /** Categorical target describing what kind of object was changed. */
-  export type Target = 'policy' | 'role' | 'assignment' | 'role-assignment' | 'attributes'
+  export type Target = 'policy' | 'role' | 'role-assignment'
 
   /** A single admin mutation event. */
   export interface IEvent {
