@@ -41,6 +41,8 @@ describe('construction', () => {
 void new TestError('TEST_DETAIL')
 // @ts-expect-error nor with a shape other than the one it declared
 void new TestError('TEST_DETAIL', { field: 1 })
+// @ts-expect-error a bare code declares no shape, so it cannot be given one at the call site
+void new TestError('TEST_BARE', { whatever: true })
 
 describe('class identity across two kits', () => {
   it("never satisfies the other kit's instanceof", () => {

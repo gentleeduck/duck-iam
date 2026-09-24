@@ -33,8 +33,8 @@ const { fail, throwError, asError, hasErrorCode, metaOf } = createErrorKit('User
 // Construct without throwing.
 const err = fail('USER_NOT_FOUND', { id: 'u_123' })
 
-// Throw directly. A code's required fields are enforced at the call site: USER_NOT_FOUND's
-// `id` can't be omitted, while a bare code like VALIDATION_FAILED needs no meta at all.
+// Throw directly. A code's declared shape is enforced at the call site: USER_NOT_FOUND's
+// `id` can't be omitted, while a bare code like VALIDATION_FAILED takes no meta argument at all.
 throwError('USER_EMAIL_TAKEN', { email: 'a@b.com' })
 
 // Wrap an unknown catch value. Already-typed instances pass through unchanged;
@@ -68,6 +68,9 @@ if (hasErrorCode(err, 'USER_NOT_FOUND')) {
   exported standalone if you need the same redaction elsewhere.
 - **`.status`** and **`.statusCode`** (an alias, under the name Nest's base exception filter reads)
   come straight from the registry.
+- **A bare code takes no meta argument at all** — not `{}`, not `undefined`, nothing — so
+  `fail('SOME_BARE_CODE', { anything })` is a compile error rather than a silently-accepted value
+  that never reaches `.meta`.
 
 ## Design notes
 
