@@ -619,7 +619,7 @@ flowchart TD
     end
 
     subgraph WRITE["Write path (throws)"]
-        SP["engine.admin.savePolicy()"] -->|validatePolicy| T2["IamValidationError"]
+        SP["engine.admin.savePolicy()"] -->|validatePolicy| T2["IamError (IAM_VALIDATION_FAILED)"]
         SR["engine.admin.saveRole()"] -->|validateRole| T2
         IMP["engine.admin.import()"] -->|both, whole snapshot first| T2
         ADW["adapter.savePolicy / saveRole<br/>(all six adapters)"] -->|iamAssertSavable*| T3["throw"]
@@ -628,7 +628,7 @@ flowchart TD
     subgraph READ["Read path (per adapter)"]
         RD["drizzle / prisma / redis / file / http<br/>listPolicies, getPolicy, listRoles, getRole"]
         RD -->|parsePolicyRow null| PX["throw iamUnreadablePolicy"]
-        RD -->|parseRoleRow null| RX["report the row, then drop it"]
+        RD -->|parseRoleRow null| RX["warn, then throw iamUnreadableRole"]
     end
 
     subgraph NONE["No validation at all"]
@@ -649,14 +649,14 @@ flowchart TD
 | `PolicyBuilder.build()` (`builder/policy.ts:233`) | `validatePolicy` | throws `[@gentleduck/iam:builder] PolicyBuilder.build("id") rejected by validator - CODE at "path": message; …` |
 | `RoleBuilder.build()` (`builder/role.ts:380`) | `validateRole` | throws `[@gentleduck/iam:builder] RoleBuilder.build(): role rejected by validator - CODE at "path"; …`. Same prefix, but unlike the policy message it names neither the role id nor the issue text — read the id off the object you passed |
 | `RuleBuilder.build()` (`builder/rule.ts:373`) | `validateRuleShape` only — the rule in isolation, so no policy-level or target check | throws |
-| `engine.admin.savePolicy()` (`engine.libs.ts:539`) | `validatePolicy` | throws `IamValidationError` with `kind: 'policy'`, `issues: string[]`, `status` |
-| `engine.admin.saveRole()` (`engine.libs.ts:559`) | `validateRole` | throws `IamValidationError` with `kind: 'role'` |
+| `engine.admin.savePolicy()` (`engine.libs.ts:539`) | `validatePolicy` | throws `IamError` with code `IAM_VALIDATION_FAILED`, `kind: 'policy'`, `issues: string[]`, `status` |
+| `engine.admin.saveRole()` (`engine.libs.ts:559`) | `validateRole` | throws `IamError` with code `IAM_VALIDATION_FAILED`, `kind: 'role'` |
 | `engine.admin.import()` (`engine.libs.ts:735`) | `validatePolicy` on **every** policy and `validateRole` on every role, **before touching the adapter** | throws before any write. Interleaving used to leave the store half-applied — in `replace` mode the deletions had already landed, so deny policies could be gone with nothing written back |
 | `adapter.savePolicy()` / `adapter.saveRole()`, all six adapters | `iamAssertSavablePolicy` / `iamAssertSavableRole` (`shared/rows.ts`) | throws `[@gentleduck/iam:<adapter>] refusing to save invalid <kind> "<id>": <messages>` |
 | `createIam(...).validateRoles(roles)` | `validateRoles` **plus** the declared-vocabulary pass | returns `IResult` |
 | `createIam(...).validatePolicy(policy)` | `validatePolicy` **plus** the declared-vocabulary pass | returns `IResult` |
 | drizzle / prisma / redis / file / http **read** of a policy | `parsePolicyRow`, then `validatePolicy` for the messages | reports the row, then **throws** `iamUnreadablePolicy` — one bad policy row denies every request until it is repaired. Reported through `onPolicyError` on drizzle / redis / file / http; prisma's constructor takes no options object, so it reports through `console.warn` (`prisma/index.ts:262`) |
-| the same five, reading a role | `parseRoleRow`, then `validateRole` | reports the row the same way and **drops it** |
+| the same five, reading a role | `parseRoleRow`, then `validateRole` | warns naming the row, then **throws** `iamUnreadableRole` — one bad role row denies every request until it is repaired |
 | `engine.can()` / `authorize()` / `permissions()` / `explain()` | **nothing** | — |
 | `loadPolicies()` / `loadRoles()` (`engine.loaders.ts:64`, `:101`) | **nothing** — the only gate is a `maxPolicies` / `maxRoles` count guard on the returned array (`engine.loaders.ts:80`, `:117`) | throws naming the count and the limit when the adapter returns more rows than the cap; otherwise the rows go to the cache exactly as the adapter handed them over |
 | `IamMemoryAdapter` reads | **nothing** — it hands back what it holds | — |
@@ -704,9 +704,11 @@ The consequences you can actually hit:
 
 What closes the gap is not more validation on the read path but **the evaluator
 refusing to answer**. `evalCondition` applies the same `OPERAND_TYPES` table
-itself and throws `IamOperandTypeError`; an uncompilable or `$`-sourced
-`matches` pattern throws `IamPatternRefusedError`; a group past
-`MAX_CONDITION_DEPTH` refuses instead of returning `false`. All three become
+itself and throws `IamError` with code `IAM_CONDITION_OPERAND_TYPE`; an
+uncompilable `matches` pattern throws `IAM_CONDITION_PATTERN_REFUSED`, and a
+`$`-sourced one throws `IAM_CONDITION_USER_SOURCED_PATTERN` before it is ever
+compiled; a group past `MAX_CONDITION_DEPTH` throws `IAM_CONDITION_GROUP_INVALID`
+instead of returning `false`. All of these become
 Indeterminate, and the engine fails closed on Indeterminate. The validator's job
 is to make that path rare, not to be the only line.
 

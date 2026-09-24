@@ -331,7 +331,7 @@ export function iamBindAdminRouter<
   router.put(
     '/policies',
     mutate('replace', 'policy', undefined, async (c, setTargetId, who) => {
-      // Shape-checked by `savePolicy`, whose validator throws `IamValidationError`, answered here as 400.
+      // Shape-checked by `savePolicy`, whose validator throws `IamError` with code `IAM_VALIDATION_FAILED`, answered here as 400.
       const body = (await iamReadJsonBody(() => c.req.json())) as AccessControl.IPolicy<TAction, TResource, TRole>
       setTargetId(iamAuditIdOf(body))
       await engine.admin.savePolicy(body, who)

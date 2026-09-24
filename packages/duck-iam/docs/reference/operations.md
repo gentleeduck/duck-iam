@@ -809,12 +809,12 @@ hit on the raw one (`keys-canonical-image.test.ts`).
 ### Internal
 
 These are used across adapters and server integrations, and are **not reachable
-from any export subpath** — including `IamValidationError`, whose own docblock
-recommends `iamIsValidationError` for the duplicated-package case.
+from any export subpath** under their own names — including `reserved.ts`'s
+`IAM_RESERVED_REFUSAL` and `iamIsReservedRefusal`, which only leave this module
+renamed, as `IAM_UNKNOWN_ACTION` / `IAM_UNKNOWN_RESOURCE` from `server/generic`.
 
 | Module | Provides | Purpose |
 | --- | --- | --- |
-| `errors.ts` | `IamValidationError`, `iamIsValidationError` | The one error meaning "the caller sent something invalid". Carries `kind`, `issues`, and both `status` and `statusCode` = 400 — `statusCode` because Nest's base filter duck-types that name and answered 500 otherwise. |
 | `reserved.ts` | `IAM_RESERVED_REFUSAL`, `iamIsReservedRefusal` | The token adapters emit for an unmappable method or path. Refused by `authorize`/`permissions` *before* any policy is consulted, because `'*'` matches every string and a wildcard admin rule turned the refusal back into an allow. Re-exported as `IAM_UNKNOWN_ACTION` / `IAM_UNKNOWN_RESOURCE` from `server/generic`. |
 | `assign-options.ts` | `iamAssertNoAssignOptions`, `iamAssertValidAssignWindow` | Five of six adapters cannot store `startsAt`/`expiresAt`/`attributes` and used to drop them while reporting `ok: true, applied: 1`. Also refuses `startsAt >= expiresAt` and `Invalid Date`. |
 | `assignment-target.ts` | `iamAssertRoleExists`, `iamUnknownRoleError`, `iamIsForeignKeyViolation` | Granting a role that does not exist throws on every adapter, worded identically. The FK detector walks the `cause` chain, because drizzle buries the constraint error under `Failed query: …`. |

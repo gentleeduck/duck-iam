@@ -28,7 +28,6 @@ linked, not repeated.
 | `compiled/compiled.compile.ts` | 326 | `compileTable()` — the bake |
 | `compiled/compiled.lookup.ts` | 260 | `lookup()`, `abacFlatVote`, `rbacVote`, `evaluateDynamicCell` — request time |
 | `compiled/compiled.types.ts` | 101 | `CompiledTable`, `CellKind`, `DynamicPolicyGroup`, `RbacRuleGroup` |
-| `compiled/compiled.errors.ts` | 64 | `IamRoleLimitExceededError`, `IamPolicyCompileError` |
 
 The public barrel (`src/core/engine/index.ts`) exports exactly five names:
 
@@ -523,7 +522,7 @@ configuration mistake throws.
 | A rule's condition reads a path that can never resolve | **not a deny** — `resolve` answers `null` for every request, so the rule never matches | `onPolicyError` once per policy, rule and path, else one `console.warn` |
 | A rule is unreachable from its own contents (empty `actions`/`resources`, an empty `any`, `in` against an empty list) | **not a deny** — no request can reach the rule | `onPolicyError` once per policy and rule, else one `console.warn` |
 | A subject holds a role nothing defines | **not a deny** — the id stays an effective role, but its `inherits` are unwalkable, so a deny targeting a role it conferred retires | `onPolicyError` once per role id, else one `console.warn` |
-| The compiled table cannot be built (malformed policy) | `false` for every request until fixed | `onPolicyError` for `IamPolicyCompileError`; one `console.error` otherwise |
+| The compiled table cannot be built (malformed policy) | `false` for every request until fixed | `onPolicyError` for `IAM_POLICY_COMPILE_FAILED`; one `console.error` otherwise |
 | Development table/interpreter disagreement | `false` + `console.error` | `onError` |
 | Role count exceeds 32 | **not a deny** — falls back to the interpreter, one `console.warn`, reported on `healthCheck()` | none |
 
@@ -990,10 +989,12 @@ private async _getCompiledTable(): Promise<CompiledTable | null> {
   if (this._policyCombine === 'first-applicable') return null
   const table = this._compiledTable
   if (table !== null && !this._compiledTableExpired()) return table
+  const genAtStart = this._compiledTableGen
   try {
     return await this._rebuildCompiledTable()
   } catch (err) {
-    if (!(err instanceof IamRoleLimitExceededError)) throw err
+    if (!(err instanceof IamError && err.code === 'IAM_ROLE_LIMIT_EXCEEDED')) throw err
+    if (this._compiledTableGen !== genAtStart) return null // invalidated mid-build; stale count, don't latch
     …fall back to the interpreter, warn once
   }
 }
@@ -1012,13 +1013,21 @@ interpreter:
   first-applicable; the whole combine is handed to it.
 - **More than 32 roles.** The `allow` mask is a `Uint32Array` and JS wraps shift
   amounts mod 32, so a 33rd role would silently alias role 0's bit.
-  `compileTable` throws `IamRoleLimitExceededError`; the engine catches *that
-  error specifically*, sets `_roleLimitExceeded`, warns **once** (guarded
-  separately from the short-circuit, because concurrent cold callers all reach
-  the catch), and drops to the interpreter. `healthCheck()` then reports it —
-  see §10.
+  `compileTable` throws `IamError` with code `IAM_ROLE_LIMIT_EXCEEDED`; the
+  engine catches *that error specifically*, sets `_roleLimitExceeded`, warns
+  **once** (guarded separately from the short-circuit, because concurrent cold
+  callers all reach the catch), and drops to the interpreter. `healthCheck()`
+  then reports it — see §10.
 
-  The latch is not permanent. `_clearRoleLimitLatch()` (`engine.ts:1398`) resets
+  Before latching, the catch re-checks `_compiledTableGen` against the
+  generation it captured before the (possibly-parked, single-flight) rebuild
+  started: an invalidation landing while this build was in flight may have
+  already changed the role count, so latching on a now-stale count would pin
+  the engine to the interpreter and report a role count the store no longer
+  holds. When the generation moved, the catch returns `null` for this call
+  without latching, and a fresh call re-derives the table on the current state.
+
+  The latch itself is not permanent. `_clearRoleLimitLatch()` (`engine.ts:1354`) resets
   `_roleLimitExceeded`, `_roleLimitDetail` and the one-shot warning flag, and it
   runs from exactly the paths that can change the role set:
 
@@ -1061,7 +1070,7 @@ a bug, and answering it with a slower correct path would hide it.
 `cache.invalidateSubject()` does **not** trigger one.
 
 The rebuild is single-flighted **per generation** (`_rebuildCompiledTable`,
-`engine.ts:702`). An in-flight build is reused only while `_compiledTableGen`
+`engine.ts:725`). An in-flight build is reused only while `_compiledTableGen`
 has not moved since it started; a caller arriving after an invalidation bumped
 the generation starts or joins a fresh build instead, "matching what a caller
 would get with no single-flighting at all." A build that finishes under a stale
@@ -1097,7 +1106,9 @@ in tests, not in production.
 ```ts
 function assertCompilablePolicy(policy: AccessControl.IPolicy): void {
   const policyId = typeof policy.id === 'string' ? policy.id : '<unnamed>'
-  if (!Array.isArray(policy.rules)) throw new IamPolicyCompileError(policyId, '`rules` is missing or not an array')
+  if (!Array.isArray(policy.rules)) {
+    throwIamError('IAM_POLICY_COMPILE_FAILED', { policyId, detail: '`rules` is missing or not an array' })
+  }
   …per rule: not an object, `actions` not an array, `resources` not an array
 }
 ```
@@ -1109,12 +1120,12 @@ policy threw from wherever the walk happened to touch it first, with a message
 like `policy.rules is not iterable` and no hint as to which of the tenant's
 policies was broken.
 
-`_compileOrReport` (`engine.ts:632`) then routes the three cases apart:
+`_compileOrReport` (`engine.ts:672`) then routes the three cases apart:
 
 | Error | Reported how | Verdict |
 | --- | --- | --- |
-| `IamRoleLimitExceededError` | rethrown untouched — its own one-time warning fires upstream | interpreter fallback, no deny |
-| `IamPolicyCompileError` | forwarded to `hooks.onPolicyError(err, err.policyId)`, then rethrown | total deny until fixed |
+| `IamError` code `IAM_ROLE_LIMIT_EXCEEDED` | rethrown untouched — its own one-time warning fires upstream | interpreter fallback, no deny |
+| `IamError` code `IAM_POLICY_COMPILE_FAILED` | forwarded to `hooks.onPolicyError(err, metaOf(err, 'IAM_POLICY_COMPILE_FAILED').policyId)`, then rethrown | total deny until fixed |
 | Anything else | one `console.error`: "the compiled table could not be built; every request will be denied until this is fixed", then rethrown | total deny until fixed |
 
 A throwing `onPolicyError` hook cannot replace the compile error — the forward
@@ -1514,8 +1525,8 @@ Warms `mergedPolicyCache` and builds the compiled table concurrently. Roughly
 through it.
 
 An over-limit role count does **not** make `preload()` throw — `_getCompiledTable`
-catches `IamRoleLimitExceededError` and returns `null`, because the interpreter
-can serve. Any other compile failure does propagate.
+catches the `IAM_ROLE_LIMIT_EXCEEDED` `IamError` and returns `null`, because the
+interpreter can serve. Any other compile failure does propagate.
 
 #### `{ validator: true }` — the only check on rows the write path never saw
 

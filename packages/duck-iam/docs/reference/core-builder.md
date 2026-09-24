@@ -592,8 +592,8 @@ message carries the codes, the paths and the fix.
 
 `ERR_REGEX_USER_SOURCED` is from `8a2f5146`. A `$`-sourced `matches` operand is
 never compiled — a caller-supplied pattern is a ReDoS vector — so `evalCondition`
-refuses it before it resolves anything, throwing `IamUserSourcedPatternError`
-(`conditions.libs.ts:893`). That is Indeterminate, not `false`: the policy denies
+refuses it before it resolves anything, throwing `IamError` with code
+`IAM_CONDITION_USER_SOURCED_PATTERN` (`conditions.libs.ts:583`). That is Indeterminate, not `false`: the policy denies
 if it carries any deny rule and otherwise casts `defaultEffect`, and
 `onPolicyError` fires. Answering `false` was the original behaviour and was the
 bug — a deny-when-matches rule validated clean, stored clean, and never fired.

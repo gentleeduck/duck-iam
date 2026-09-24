@@ -407,15 +407,15 @@ A rule's `conditions` is an `AccessControl.IConditionGroup`: exactly one of
 `ICondition`s or nested groups.
 
 ```ts
-// conditions.ts:95
+// conditions.ts:65
 export function evalConditionGroup(req, group, depth = 0, caches?): boolean {
-  if (depth >= MAX_CONDITION_DEPTH) throw new IamConditionGroupError('depth', ...)
-  if (group === null || typeof group !== 'object') throw new IamConditionGroupError('unknown-keys', ...)
+  if (depth >= MAX_CONDITION_DEPTH) throwIamError('IAM_CONDITION_GROUP_INVALID', { reason: 'depth', ... })
+  if (group === null || typeof group !== 'object') throwIamError('IAM_CONDITION_GROUP_INVALID', { reason: 'unknown-keys', ... })
   if ('all' in group)  return assertItems(group.all,  'all' ).every((i) => evalItem(req, i, depth + 1, caches))
   if ('any' in group)  return assertItems(group.any,  'any' ).some ((i) => evalItem(req, i, depth + 1, caches))
   if ('none' in group) return !assertItems(group.none,'none').some ((i) => evalItem(req, i, depth + 1, caches))
   if (Object.keys(group).length === 0) return true
-  throw new IamConditionGroupError('unknown-keys', ...)
+  throwIamError('IAM_CONDITION_GROUP_INVALID', { reason: 'unknown-keys', ... })
 }
 ```
 
@@ -433,9 +433,10 @@ Behaviours that follow from that shape:
   conditions outside the generated policy must start there too.
 - **An array as a group** is read structurally: `[]` has no recognised key and
   no keys at all, so it returns `true`; a non-empty array throws
-  `IamConditionGroupError('unknown-keys')` naming its numeric indices.
+  `IAM_CONDITION_GROUP_INVALID` with `reason: 'unknown-keys'`, naming its
+  numeric indices.
 - **`null`, `undefined`, a primitive or a function throw
-  `IamConditionGroupError('unknown-keys')`** naming the `typeof` it saw. The
+  `IAM_CONDITION_GROUP_INVALID` with `reason: 'unknown-keys'`**, naming the
   non-object test runs before the key tests because `'all' in undefined` raises
   a bare `TypeError`, which is Indeterminate to a caller but unreportable — the
   arm written to describe a non-object could never be reached.
@@ -517,10 +518,13 @@ per operator; the operators that answer `true` on an absent field are
 `$`-reference:
 
 ```ts
-// conditions.libs.ts:945
+// conditions.libs.ts:606
 if (isUserSourcedValue(cond.value) && condVal === null) {
-  throw new IamOperandTypeError(cond.field, cond.operator,
-    `operand reference ${JSON.stringify(cond.value)} resolved to nothing`)
+  throwIamError('IAM_CONDITION_OPERAND_TYPE', {
+    field: cond.field,
+    operator: cond.operator,
+    detail: `operand reference ${JSON.stringify(cond.value)} resolved to nothing`,
+  })
 }
 ```
 
@@ -534,7 +538,7 @@ The engine injects `environment.now = Date.now()` (`ensureEnvNow`,
 `engine.libs.ts:26`) after `beforeEvaluate`, so a hook-pinned clock survives. A
 request built by hand and passed straight to `iamEvaluate` gets no such
 injection — a temporal rule against `$environment.now` on such a request throws
-`IamOperandTypeError` by the rule above.
+`IAM_CONDITION_OPERAND_TYPE` by the rule above.
 
 ### Caches
 
@@ -555,17 +559,20 @@ The governing rule, stated once:
 > the deny, and inside a `none` the negation turns it into a grant. So anything
 > the evaluator cannot answer **throws**, and the caller decides the vote.
 
-Every refusal in `src/core/conditions` is a tagged error class, all five
-exported from the package root so a consumer can route them through
-`onPolicyError` without string-matching `err.name`.
+Every refusal in `src/core/conditions` is the same `IamError` class, distinguished
+by `code` and exported once from the package root, so a consumer routes them
+through `onPolicyError` by checking `err.code` (or `hasIamErrorCode(err, code)`),
+never by string-matching `err.name`.
 
-| Error | `tag` | Thrown when |
-|---|---|---|
-| `IamOperandTypeError` | `duck-iam/operand-type` | operand absent, wrongly typed, or a `$`-reference that resolved to nothing |
-| `IamConditionGroupError` | `duck-iam/condition-group` | group nested past `MAX_CONDITION_DEPTH`, not an object, or carrying no recognised key |
-| `IamRegexInputTooLargeError` | `duck-iam/regex-input-too-large` | `matches` field exceeds `MAX_REGEX_INPUT_LENGTH` (2048 UTF-16 code units) |
-| `IamPatternRefusedError` | `duck-iam/pattern-refused` | `matches` pattern over `MAX_REGEX_LENGTH` (128), refused by the ReDoS detector, or uncompilable |
-| `IamUserSourcedPatternError` | `duck-iam/user-sourced-pattern` | `matches` pattern is a `$`-reference |
+| Code | Thrown when |
+|---|---|
+| `IAM_CONDITION_OPERAND_TYPE` | operand absent, wrongly typed, or a `$`-reference that resolved to nothing |
+| `IAM_CONDITION_GROUP_INVALID` | group nested past `MAX_CONDITION_DEPTH`, not an object, or carrying no recognised key |
+| `IAM_CONDITION_ITEMS_NOT_ARRAY` | `all` / `any` / `none`'s value is not an array |
+| `IAM_CONDITION_OPERATOR_UNKNOWN` | the operator is not one of `ops`' own keys — an unknown name or a typo |
+| `IAM_CONDITION_REGEX_INPUT_TOO_LARGE` | `matches` field exceeds `MAX_REGEX_INPUT_LENGTH` (2048 UTF-16 code units) |
+| `IAM_CONDITION_PATTERN_REFUSED` | `matches` pattern over `MAX_REGEX_LENGTH` (128), refused by the ReDoS detector, or uncompilable |
+| `IAM_CONDITION_USER_SOURCED_PATTERN` | `matches` pattern is a `$`-reference |
 
 ### What a throw becomes
 
@@ -681,8 +688,8 @@ Two column conventions below: **absent field** means `resolve` returned `null`
 (unknown path, missing key, explicit null, or a value outside
 `AttributeValue`); **wrong-typed field** means it resolved to something the
 operator cannot compare. The operand column is what `OPERAND_TYPES` demands —
-anything else throws `IamOperandTypeError` *before* the operator runs, so the
-operator never sees it.
+anything else throws `IAM_CONDITION_OPERAND_TYPE` *before* the operator runs, so
+the operator never sees it.
 
 | Operator | Operand type required | Semantics | Absent field | Wrong-typed field |
 |---|---|---|---|---|
@@ -760,24 +767,24 @@ retire every `eq` deny rule in both evaluation modes.
 
 ## 9. The operand-type guard, and commit `366e3b49`
 
-`evalCondition` (`conditions.libs.ts:879`) runs four checks before it dispatches
+`evalCondition` (`conditions.libs.ts:575`) runs four checks before it dispatches
 to an operator.
 
 ```mermaid
 flowchart TD
   A["evalCondition(req, cond)"] --> B{"operator === 'matches'<br/>AND value is a $-string?"}
-  B -->|yes| E1["throw IamUserSourcedPatternError"]
+  B -->|yes| E1["throw IAM_CONDITION_USER_SOURCED_PATTERN"]
   B -->|no| C["fieldVal = resolve(req, cond.field)<br/>condVal = resolveValue(req, cond.value ?? null)"]
   C --> D{"ops[operator] is a function?"}
-  D -->|no| E2["throw Error: unknown operator"]
+  D -->|no| E2["throw IAM_CONDITION_OPERATOR_UNKNOWN"]
   D -->|yes| F{"operator is valueless?"}
   F -->|yes| J["dispatch"]
   F -->|no| G{"cond.value === undefined?"}
-  G -->|yes| E3["throw IamOperandTypeError — key absent"]
+  G -->|yes| E3["throw IAM_CONDITION_OPERAND_TYPE — key absent"]
   G -->|no| H{"$-reference that resolved to null?"}
-  H -->|yes| E4["throw IamOperandTypeError — resolved to nothing"]
+  H -->|yes| E4["throw IAM_CONDITION_OPERAND_TYPE — resolved to nothing"]
   H -->|no| I{"operandHasType(OPERAND_TYPES.get(op), condVal)?"}
-  I -->|no| E5["throw IamOperandTypeError — wrong type"]
+  I -->|no| E5["throw IAM_CONDITION_OPERAND_TYPE — wrong type"]
   I -->|yes| J
   J --> K{"operator === 'matches'?"}
   K -->|yes| L["evalMatchesOp(fieldVal, condVal, caches?.regex)"]
@@ -822,18 +829,18 @@ A seeded `deny` rule therefore read as "condition not met" and never denied.
 | `matches` operand | Result |
 |---|---|
 | a literal string | compiles and answers `true`/`false` |
-| `42`, `true`, `null`, `['^curl']` | `IamOperandTypeError`, naming `field` and `operator` |
-| key absent entirely | `IamOperandTypeError` — "requires a `value` and the key is absent" |
-| a `$`-reference | `IamUserSourcedPatternError` — refused before resolution, never compiled |
-| over 128 characters | `IamPatternRefusedError('too-long')` |
-| refused by `detectCatastrophicRegex`, or not a valid regex | `IamPatternRefusedError('uncompilable')` |
+| `42`, `true`, `null`, `['^curl']` | `IAM_CONDITION_OPERAND_TYPE`, naming `field` and `operator` |
+| key absent entirely | `IAM_CONDITION_OPERAND_TYPE` — "requires a `value` and the key is absent" |
+| a `$`-reference | `IAM_CONDITION_USER_SOURCED_PATTERN` — refused before resolution, never compiled |
+| over 128 characters | `IAM_CONDITION_PATTERN_REFUSED`, `reason: 'too-long'` |
+| refused by `detectCatastrophicRegex`, or not a valid regex | `IAM_CONDITION_PATTERN_REFUSED`, `reason: 'uncompilable'` |
 
 The commit message says the pattern-sourced and uncompilable refusals "stay a
 plain `false`". That is no longer true — later work moved both to Indeterminate
 for the same reason the operand guard exists, and the tests in that same file
-now assert `toThrow(IamUserSourcedPatternError)` and
-`toThrow(IamPatternRefusedError)`. Read the source, not the commit body, for
-those two.
+now assert `toThrow('IAM_CONDITION_USER_SOURCED_PATTERN')` and
+`toThrow('IAM_CONDITION_PATTERN_REFUSED')` — `IamError#message` is the bare
+code. Read the source, not the commit body, for those two.
 
 The end-to-end statement is the second describe block of that test: a seeded
 deny rule with `value: 42` under `defaultEffect: 'allow'` now denies and calls
@@ -1099,24 +1106,24 @@ controls, which no catalog validator ever sees.
    `ruleTargetsMatch` → `true` (`*`/`*`). `ruleApplies` → `evalConditionGroup` →
    `all` → `evalCondition`.
 4. `evalCondition`: the pattern `'curl'` is a literal string, so no
-   `IamUserSourcedPatternError`; the operand guard passes
-   (`OPERAND_TYPES.get('matches') === 'string'`); dispatch to `evalMatchesOp`.
+   `IAM_CONDITION_USER_SOURCED_PATTERN`; the operand guard passes
+   (`OPERAND_TYPES.get('matches') === 'string'`); dispatch to `evalMatchesOp`,
+   passing `cond.field` (`'environment.userAgent'`) as its `field` argument.
 5. `evalMatchesOp`: both sides are strings; the pattern is under 128 characters;
-   `f.length === 2052 > MAX_REGEX_INPUT_LENGTH` → throws
-   `IamRegexInputTooLargeError('<unknown>', 2052)`. The regex is never
-   compiled — the cache is untouched.
-6. `evalCondition`'s catch re-throws it with the real field attached:
-   `IamRegexInputTooLargeError('environment.userAgent', 2052)`.
-7. `evaluatePolicy` does not absorb it — `rulesAbstainOnThrow` is false, since
+   `f.length === 2052 > MAX_REGEX_INPUT_LENGTH` → throws `IamError` with code
+   `IAM_CONDITION_REGEX_INPUT_TOO_LARGE`, `{ field: 'environment.userAgent',
+   length: 2052 }` — the real field is already in hand, no separate rethrow
+   step. The regex is never compiled — the cache is untouched.
+6. `evaluatePolicy` does not absorb it — `rulesAbstainOnThrow` is false, since
    `p-deny-bots` is not `__rbac__` and carries a deny — so it propagates.
-8. `safeEval` catches, calls `safeErrorReport(onPolicyError, err, policy)`, sees
+7. `safeEval` catches, calls `safeErrorReport(onPolicyError, err, policy)`, sees
    `policyHasDenyRule(policy) === true`, and returns
    `{ allowed: false, effect: 'deny', reason: 'Policy evaluation error - denied (indeterminate)' }`.
-9. Final verdict: **deny**, under every `combine`, and under
+8. Final verdict: **deny**, under every `combine`, and under
    `defaultEffect: 'allow'` as well. The padded header cost the attacker the
    request instead of buying one.
 
-Had the rule been an allow instead, step 8 would have taken the other arm and
+Had the rule been an allow instead, step 7 would have taken the other arm and
 cast `defaultEffect` — still applicable, still not skippable.
 
 ---
@@ -1179,7 +1186,7 @@ cast `defaultEffect` — still applicable, still not skippable.
   trace built on it reports a condition as satisfied that the engine refused.
 - **`environment.now` is engine-injected.** A hand-built request passed straight
   to `iamEvaluate` has none, and `after`/`before` against `$environment.now`
-  then throws `IamOperandTypeError` (a `$`-reference that resolved to nothing) —
+  then throws `IAM_CONDITION_OPERAND_TYPE` (a `$`-reference that resolved to nothing) —
   Indeterminate, not `false`.
 - **Negated operators are permissive on absent fields.** `neq`, `nin`,
   `not_contains`, `not_exists`. Guard them with `exists` in the same `all`.
