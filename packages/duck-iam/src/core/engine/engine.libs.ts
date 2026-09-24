@@ -891,8 +891,10 @@ export function createAdmin<
     async setAttributes(subjectId: string, attrs: IamPrimitives.Attributes, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('subjectId', subjectId)
       assertAttributesParam(attrs)
-      await run(() => adapter.setSubjectAttributes(subjectId, attrs, opts), 'admin.setSubjectAttributes')
-      engine.cache.invalidateSubject(subjectId)
+      await writeThenInvalidate(
+        () => run(() => adapter.setSubjectAttributes(subjectId, attrs, opts), 'admin.setSubjectAttributes'),
+        () => engine.cache.invalidateSubject(subjectId),
+      )
       // SECURITY: key names only, so the event cannot carry personal data into a durable log.
       await emit?.({ type: 'attributes.set', at: Date.now(), subjectId, keys: Object.keys(attrs), ...actorOf(opts) })
     },
@@ -940,39 +942,45 @@ export function createAdmin<
       // Emitted only after every write lands, so a failed import records no partial history.
       const imported: IamEngineTypes.IMutationEvent<TRole, TScope>[] = []
       const at = Date.now()
-      if (mode === 'replace') {
-        const [existingPolicies, existingRoles] = await Promise.all([
-          run((o) => adapter.listPolicies(o), 'admin.listPolicies'),
-          run((o) => adapter.listRoles(o), 'admin.listRoles'),
-        ])
-        const incomingPolicyIds = new Set(snapshot.policies.map((p) => p.id))
-        const incomingRoleIds = new Set(snapshot.roles.map((r) => r.id))
-        for (const p of existingPolicies) {
-          if (!incomingPolicyIds.has(p.id)) {
-            await run(() => adapter.deletePolicy(p.id), 'admin.deletePolicy')
-            policiesDeleted++
-            if (emit) imported.push({ type: 'policy.deleted', at, policyId: p.id, ...actorOf(opts) })
+      try {
+        if (mode === 'replace') {
+          const [existingPolicies, existingRoles] = await Promise.all([
+            run((o) => adapter.listPolicies(o), 'admin.listPolicies'),
+            run((o) => adapter.listRoles(o), 'admin.listRoles'),
+          ])
+          const incomingPolicyIds = new Set(snapshot.policies.map((p) => p.id))
+          const incomingRoleIds = new Set(snapshot.roles.map((r) => r.id))
+          for (const p of existingPolicies) {
+            if (!incomingPolicyIds.has(p.id)) {
+              await run(() => adapter.deletePolicy(p.id), 'admin.deletePolicy')
+              policiesDeleted++
+              if (emit) imported.push({ type: 'policy.deleted', at, policyId: p.id, ...actorOf(opts) })
+            }
+          }
+          for (const r of existingRoles) {
+            if (!incomingRoleIds.has(r.id)) {
+              await run(() => adapter.deleteRole(r.id), 'admin.deleteRole')
+              rolesDeleted++
+              if (emit) imported.push({ type: 'role.deleted', at, roleId: r.id, ...actorOf(opts) })
+            }
           }
         }
-        for (const r of existingRoles) {
-          if (!incomingRoleIds.has(r.id)) {
-            await run(() => adapter.deleteRole(r.id), 'admin.deleteRole')
-            rolesDeleted++
-            if (emit) imported.push({ type: 'role.deleted', at, roleId: r.id, ...actorOf(opts) })
-          }
+        for (const p of snapshot.policies) {
+          await run(() => adapter.savePolicy(p, opts), 'admin.savePolicy')
+          if (emit) imported.push({ type: 'policy.saved', at, policyId: p.id, ...actorOf(opts) })
         }
+        for (const r of snapshot.roles) {
+          await run(() => adapter.saveRole(r, opts), 'admin.saveRole')
+          if (emit) imported.push({ type: 'role.saved', at, roleId: r.id, ...actorOf(opts) })
+        }
+      } finally {
+        // Bulk write touched every cache; invalidate once instead of per-row.
+        // SECURITY: in the `finally`, because rows that landed before a failure (or before a timeout that still
+        // landed) are in the store, and a cache kept over them serves the pre-import model. `replace` mode has
+        // already run its deletes by then, so the caches can disagree in both directions.
+        engine.cache.invalidatePolicies()
+        engine.cache.invalidateRoles()
       }
-      for (const p of snapshot.policies) {
-        await run(() => adapter.savePolicy(p, opts), 'admin.savePolicy')
-        if (emit) imported.push({ type: 'policy.saved', at, policyId: p.id, ...actorOf(opts) })
-      }
-      for (const r of snapshot.roles) {
-        await run(() => adapter.saveRole(r, opts), 'admin.saveRole')
-        if (emit) imported.push({ type: 'role.saved', at, roleId: r.id, ...actorOf(opts) })
-      }
-      // Bulk write touched every cache; invalidate once instead of per-row.
-      engine.cache.invalidatePolicies()
-      engine.cache.invalidateRoles()
       if (emit) for (const event of imported) await emit(event)
       return {
         policiesAdded: snapshot.policies.length,
