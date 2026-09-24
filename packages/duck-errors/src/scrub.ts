@@ -3,7 +3,6 @@ const SECRET_KEY = /secret|password|passphrase|plaintext|token|hash|salt|signatu
 
 const DEPTH_CAP = 8
 
-/** Whether a key name may not reach the wire. */
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY.test(key)
 }
