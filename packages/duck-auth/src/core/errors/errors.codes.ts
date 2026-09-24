@@ -1,34 +1,10 @@
 import type { Sessions } from '../sessions/sessions.types'
+import { type Brand, detail, fault } from '@gentleduck/errors'
 
-declare const CARRIES: unique symbol
-declare const FAULT: unique symbol
-
-/**
- * A status that also says what its code hands back. The brand is required rather than optional: an optional one is
- * satisfied structurally by any plain `number`, and every code would then look like it carried something.
- */
-export type Carries<M extends object> = number & { readonly [CARRIES]: M }
-
-/** A status whose code an adapter can answer with, rather than one only a flow raises. */
-export type Fault = number & { readonly [FAULT]: true }
-
-/** What a status says its code hands back. A plain status says nothing, which is a meta with no keys. */
-export type MetaOf<S> = S extends Carries<infer M> ? M : Record<never, never>
-
-/**
- * A code's status and what it hands back with it, in one declaration. It is the status and nothing else at runtime,
- * so `AUTH_ERRORS[code]` stays the number every reader of the map wants.
- */
-export function detail<M extends object>(status: number): Carries<M> {
-  return status as Carries<M>
-}
-
-/** The same declaration for a code an adapter answers with, so the range a store draws from is read off this map. */
-export function fault(status: number): Fault
-export function fault<M extends object>(status: number): Carries<M> & Fault
-export function fault<M extends object>(status: number): Carries<M> & Fault {
-  return status as Carries<M> & Fault
-}
+export { detail, fault }
+export type Carries<M extends object> = Brand.Carries<M>
+export type Fault = Brand.Fault
+export type MetaOf<S> = Brand.MetaOf<S>
 
 /** Every code this package raises, at its HTTP status, carrying what the code itself cannot say. */
 export const AUTH_ERRORS = {

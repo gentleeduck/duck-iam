@@ -194,6 +194,7 @@
         "duck-auth": "./dist/cli/index.js",
       },
       "dependencies": {
+        "@gentleduck/errors": "workspace:*",
         "@types/node": "^26.1.0",
       },
       "devDependencies": {
