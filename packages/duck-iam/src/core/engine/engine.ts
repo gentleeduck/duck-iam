@@ -3,12 +3,12 @@ import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamIsReservedRefusal } from '../../shared/reserved'
 import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import { clearRegexCache } from '../conditions/conditions.libs'
+import { IamError, metaOf } from '../errors'
 import { VALID_POLICY_COMBINES } from '../evaluate'
 import { evaluate } from '../evaluate/evaluate'
 import type { Explain } from '../explain'
 import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamClient, IamRequest } from '../types'
-import { IamPolicyCompileError, IamRoleLimitExceededError } from './compiled/compiled.errors'
 import { lookup } from './compiled/compiled.lookup'
 import type { CompiledTable } from './compiled/compiled.types'
 import { type Bound, buildBoundEngine } from './engine.bound'
@@ -548,12 +548,18 @@ export class IamEngine<
     if (this._policyCombine === 'first-applicable') return null
     const table = this._compiledTable
     if (table !== null && !this._compiledTableExpired()) return table
+    const genAtStart = this._compiledTableGen
     try {
       return await this._rebuildCompiledTable()
     } catch (err) {
-      if (!(err instanceof IamRoleLimitExceededError)) throw err
+      if (!(err instanceof IamError && err.code === 'IAM_ROLE_LIMIT_EXCEEDED')) throw err
+      // The same generation guard `_rebuildCompiledTable` puts on the table write: an invalidation that landed
+      // while this build was parked already retired its role count, so latching on it would pin the engine to the
+      // interpreter and report a count the store no longer holds.
+      if (this._compiledTableGen !== genAtStart) return null
       this._roleLimitExceeded = true
-      this._roleLimitDetail = { limit: err.limit, roleCount: err.roleCount }
+      const meta = metaOf(err, 'IAM_ROLE_LIMIT_EXCEEDED')
+      this._roleLimitDetail = { limit: meta.limit, roleCount: meta.roleCount }
       if (!this._roleLimitReported) {
         this._roleLimitReported = true
         // Once, not per request, so the slower path is never silent.
@@ -643,7 +649,7 @@ export class IamEngine<
 
   /**
    * Compiles, logging the first failure once, since every request then denies. Every failure is rethrown.
-   * Not logged: {@link IamRoleLimitExceededError} (it falls back) and {@link IamPolicyCompileError} (`onPolicyError`).
+   * Not logged: `IAM_ROLE_LIMIT_EXCEEDED` (it falls back) and `IAM_POLICY_COMPILE_FAILED` (`onPolicyError`).
    */
   private _compileOrReport(
     compileTable: (
@@ -658,11 +664,11 @@ export class IamEngine<
     try {
       return compileTable(roles, policies, this._policyCombine, this._scopeMode)
     } catch (err) {
-      if (err instanceof IamRoleLimitExceededError) throw err
-      if (err instanceof IamPolicyCompileError) {
+      if (err instanceof IamError && err.code === 'IAM_ROLE_LIMIT_EXCEEDED') throw err
+      if (err instanceof IamError && err.code === 'IAM_POLICY_COMPILE_FAILED') {
         // Sync, so not `_safeHookCall`; a throwing hook must not replace the compile error.
         try {
-          this._hooks.onPolicyError?.(err, err.policyId)
+          this._hooks.onPolicyError?.(err, metaOf(err, 'IAM_POLICY_COMPILE_FAILED').policyId)
         } catch {}
         throw err
       }

@@ -37,7 +37,7 @@ const suite = URL ? describe : describe.skip
 const TABLES = { assignments: iamAssignments, attrs: iamSubjectAttrs, policies: iamPolicies, roles: iamRoles }
 const OPS = { and, eq, or }
 
-const ROLE_LIMIT_WARNING = 'exceeds the 32-role limit'
+const ROLE_LIMIT_WARNING = 'IAM_ROLE_LIMIT_EXCEEDED'
 const DISAGREE_MARKER = 'compiled table and interpreter disagree'
 
 suite('E2E compiled-table fallback and TTL on real Postgres', () => {
@@ -151,8 +151,9 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
 
       const limitWarnings = warnings.filter((w) => w.includes(ROLE_LIMIT_WARNING))
       // One engine, one warning - across 12 requests each. Two engines here, so two lines.
+      // The count/limit no longer ride the bare-code message; `healthCheck reports the table unavailable`
+      // below pins those via structured meta instead.
       expect(limitWarnings).toHaveLength(2)
-      expect(limitWarnings[0]).toContain(`${count} roles exceeds the 32-role limit`)
       production.dispose()
       development.dispose()
     })
@@ -298,7 +299,7 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
       expect(v.production, 'the agreed verdict itself').toBe(true)
     })
 
-    it('the condition-depth divergence is contained at the store: drizzle drops the row', async () => {
+    it('the condition-depth divergence is contained at the store: drizzle refuses the row', async () => {
       // `validateRole` rejects nesting at MAX_CONDITION_DEPTH, and this adapter re-validates on read.
       // WARN: relaxing read-time validation would let a hand-written over-deep row reach the engine.
       let conditions: AccessControl.IConditionGroup = {
@@ -315,19 +316,17 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
       const capture = (...args: unknown[]) => reported.push(args.map((a) => String(a)).join(' '))
       console.error = capture
       console.warn = capture
-      let loaded: Awaited<ReturnType<ReturnType<typeof adapter>['listRoles']>>
       try {
-        loaded = await adapter().listRoles()
+        await expect(adapter().listRoles()).rejects.toThrow(/role "r" cannot be read/)
       } finally {
         console.error = realError
         console.warn = realWarn
       }
-      expect(loaded).toEqual([])
-      expect(reported.join(' '), 'the drop must be reported, not silent').toContain(
+      expect(reported.join(' '), 'the refusal must name the row, not just fail').toContain(
         'Condition nesting exceeds MAX_CONDITION_DEPTH',
       )
 
-      // And with the role dropped, both modes agree - on deny.
+      // And with the read refused, both modes agree - on deny.
       const v = await bothModes({ action: 'read', resource: 'doc', subjectId: 'u1' })
       expect(v.disagreements).toEqual([])
       expect(v.production).toBe(false)

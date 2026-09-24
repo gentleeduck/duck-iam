@@ -159,6 +159,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/admin.batch.test.ts` | 9 | IAdmin batch writes |
 | `core/engine/__tests__/broken-adapter-fail-closed.test.ts` | 5 | a broken store read |
 | `core/engine/__tests__/compile-failure-is-reported.test.ts` | 12 | a role count past the compiled table capacity falls back and says so |
+| `core/engine/__tests__/compiled.errors.test.ts` | 6 | compileTable throws IAM_ROLE_LIMIT_EXCEEDED past the role cap |
 | `core/engine/__tests__/condition-path-dead-on-arrival.test.ts` | 11 | a condition reading a path that can never resolve is reported |
 | `core/engine/__tests__/decision-failure-discriminant.test.ts` | 6 | IDecision distinguishes a policy deny from a broken engine |
 | `core/engine/__tests__/development-mode-announces-itself.test.ts` | 6 | development mode announces itself |
@@ -302,7 +303,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2895** | |
+| **Subtotal** | **2901** | |
 
 ---
 
@@ -419,11 +420,11 @@ drift the way the hand-maintained version did.
 | `__tests__/package-exports-parity.test.ts` | 7 | every built module is importable, and every import is built |
 | `__tests__/public-error-and-type-surface.test.ts` | 8 | every tagged condition error is reachable |
 | `__tests__/public-surface-internals.test.ts` | 7 | public surface: mutable internals stay internal |
-| `__tests__/public-surface-naming.test.ts` | 23 | package root naming |
+| `__tests__/public-surface-naming.test.ts` | 22 | package root naming |
 | `__tests__/shipped-docs-parity.test.ts` | 5 | the docs the README points at are the docs that ship |
 | `__tests__/test-command-partition.test.ts` | 5 | the two test commands partition every test file |
 | `__tests__/test-inventory-freshness.test.ts` | 5 | test inventory stays honest |
-| **Subtotal** | **125** | |
+| **Subtotal** | **124** | |
 
 ---
 
@@ -443,12 +444,12 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 11 | 153 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 179 | 2895 |
+| Core | 180 | 2901 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
 | Server | 29 | 872 |
 | Shared | 6 | 113 |
-| Package surface | 12 | 125 |
+| Package surface | 12 | 124 |
 | Other | 1 | 4 |
-| **Total** | **332** | **6345** |
+| **Total** | **333** | **6350** |
