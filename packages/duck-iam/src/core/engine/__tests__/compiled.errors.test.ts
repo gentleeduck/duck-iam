@@ -64,7 +64,7 @@ describe('compileTable throws IAM_POLICY_COMPILE_FAILED for a shape it cannot wa
 })
 
 describe('IamEngine: the role-limit fallback respects the compiled-table generation guard', () => {
-  it('a build parked past the limit, invalidated mid-flight, returns null rather than latching a stale count', async () => {
+  it('genuinely over the limit: falls back to the interpreter and healthCheck reports the degradation', async () => {
     const roles: AccessControl.IRole[] = Array.from({ length: 33 }, (_, i) => ({
       id: `role-${i}`,
       name: `Role ${i}`,
@@ -82,6 +82,82 @@ describe('IamEngine: the role-limit fallback respects the compiled-table generat
     // healthCheck reports the degradation via IAM_ROLE_LIMIT_EXCEEDED's carried limit/roleCount, not a thrown error.
     const health = await engine.healthCheck()
     expect(health.compiledTable).toMatchObject({ available: false, limit: 32, reason: 'role-limit-exceeded' })
+  })
+
+  it('a stale over-limit snapshot resolving after invalidation does not latch the interpreter fallback', async () => {
+    // The *current* state, 32 roles - under the limit - once the invalidation below has landed.
+    const currentRoles: AccessControl.IRole[] = Array.from({ length: 32 }, (_, i) => ({
+      id: `role-${i}`,
+      name: `Role ${i}`,
+      permissions: i === 0 ? [{ action: 'read', resource: 'doc' }] : [],
+    }))
+    // A stale snapshot the store had already started answering with before role-32 (never assigned to anyone,
+    // so invalidating it below cannot evict `holder`'s cached subject data) was added.
+    const staleRoles: AccessControl.IRole[] = [...currentRoles, { id: 'role-32', name: 'Role 32', permissions: [] }]
+    const realAdapter = new IamMemoryAdapter({
+      roles: currentRoles,
+      policies: [],
+      assignments: { holder: ['role-0'] },
+      attributes: { holder: {} },
+    })
+
+    let listRolesCalls = 0
+    let armed = false
+    let armedCalls = 0
+    let releaseGate!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+    let signalArmedCallStarted!: () => void
+    const armedCallStarted = new Promise<void>((resolve) => {
+      signalArmedCallStarted = resolve
+    })
+    // Passes every call through to the real adapter except the first one made once armed, which parks on the
+    // gate and then hands back the stale, over-limit snapshot.
+    const adapter = new Proxy(realAdapter, {
+      get(target, prop, receiver) {
+        if (prop !== 'listRoles') return Reflect.get(target, prop, receiver)
+        return async (opts?: unknown) => {
+          listRolesCalls++
+          if (armed) {
+            armedCalls++
+            if (armedCalls === 1) {
+              signalArmedCallStarted()
+              await gate
+              return staleRoles
+            }
+          }
+          return (Reflect.get(target, prop, receiver) as typeof target.listRoles).call(target, opts as never)
+        }
+      },
+    })
+    const engine = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' })
+
+    // Warms the compiled table, the role cache and `holder`'s subject cache, all at generation 0.
+    expect(await engine.can('holder', 'read', { type: 'doc', attributes: {} })).toBe(true)
+
+    // Invalidates a role nothing is assigned to: clears the role cache and bumps the generation, but
+    // `holder`'s cached roles don't reach role-31, so its subject-cache entry survives - the next can() call
+    // resolves its subject from cache and goes straight to a compiled-table rebuild.
+    engine.cache.invalidateRoles('role-31')
+
+    armed = true
+    // This rebuild's listRoles() call is the one that gets gated; it captures genAtStart before parking.
+    const secondCheck = engine.can('holder', 'read', { type: 'doc', attributes: {} })
+    await armedCallStarted
+    // Lands while that build is still parked: bumps the generation the parked build started under.
+    engine.cache.invalidateRoles()
+    // Only now does the parked call resolve, with data the invalidation above already superseded.
+    releaseGate()
+    // The interpreter still answers the in-flight request while the stale build fails behind it.
+    expect(await secondCheck).toBe(true)
+
+    // A fresh build, current generation: the real, 32-role snapshot, under the limit, compiles cleanly.
+    const health = await engine.healthCheck()
+    // Guarded: the stale throw never latched. Without the generation guard this would instead be
+    // `{ available: false, limit: 32, reason: 'role-limit-exceeded', roleCount: 33 }` forever after, since only
+    // another role invalidation clears the latch, and a successful rebuild does not.
+    expect(health.compiledTable).toBeUndefined()
   })
 })
 
