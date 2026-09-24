@@ -1,4 +1,4 @@
-import { IAM_ERRORS, type Fault, type MetaOf } from './errors.codes'
+import { type Fault, IAM_ERRORS, type MetaOf } from './errors.codes'
 import { scrubMeta } from './errors.scrub'
 
 export class IamError<C extends IamError.Code = IamError.Code> extends Error {
@@ -56,11 +56,7 @@ export function throwIamError<C extends IamError.Code>(code: C, ...args: IamErro
 
 /** An already-typed error as it stands, anything else under the fallback code with what actually failed on
  *  `cause`. The one place an unknown failure becomes a typed one. */
-export function asIamError<C extends IamError.Code>(
-  error: unknown,
-  code: C,
-  ...args: IamError.Args<C>
-): IamError {
+export function asIamError<C extends IamError.Code>(error: unknown, code: C, ...args: IamError.Args<C>): IamError {
   if (error instanceof IamError) return error
   const typed = new IamError(code, ...args)
   typed.cause = error

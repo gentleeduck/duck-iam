@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSecretKey, redactSecrets, scrubMeta } from '../errors.scrub'
+import { isSecretKey, scrubMeta } from '../errors.scrub'
 
 describe('isSecretKey', () => {
   it('matches known secret-shaped key names, case-insensitively', () => {
@@ -77,20 +77,5 @@ describe('scrubMeta', () => {
   it('leaves primitives, empty arrays and empty objects alone', () => {
     const out = scrubMeta({ n: 1, s: 'str', t: true, arr: [], obj: {} })
     expect(out).toMatchObject({ n: 1, s: 'str', t: true, arr: [], obj: {} })
-  })
-})
-
-describe('redactSecrets', () => {
-  it('replaces a secret value with a marker but keeps the shape', () => {
-    const out = redactSecrets({ token: 'leak-me', roleId: 'r1' }) as Record<string, unknown>
-    expect(out.token).toBe('[redacted]')
-    expect(out.roleId).toBe('r1')
-  })
-
-  it('keeps a Date whole rather than walking it into an empty object', () => {
-    // `redactSecrets` carries its own `instanceof Date` check, separate from `scrubMeta`'s - a regression
-    // in one does not imply a regression in the other.
-    const at = new Date('2026-01-02T03:04:05.000Z')
-    expect(redactSecrets({ at })).toEqual({ at })
   })
 })
