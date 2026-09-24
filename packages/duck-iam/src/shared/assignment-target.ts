@@ -1,4 +1,4 @@
-import { fail, IamError } from '../core/errors'
+import { fail, type IamError } from '../core/errors'
 
 /**
  * Adapter-boundary guard for `assignRole`: a role with no stored definition throws, as drizzle's FK does.

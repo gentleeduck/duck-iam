@@ -1,4 +1,4 @@
-import { fail, IamError, throwIamValidationFailed } from '../core/errors'
+import { fail, type IamError, throwIamValidationFailed } from '../core/errors'
 import type { AccessControl } from '../core/types'
 import type { IamValidate } from '../core/validate'
 import { validatePolicy, validateRole } from '../core/validate'

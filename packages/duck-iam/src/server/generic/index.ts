@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import { fail, IamError, throwIamError } from '../../core/errors'
+import { fail, type IamError, throwIamError } from '../../core/errors'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
 import { IAM_RESERVED_REFUSAL } from '../../shared/reserved'
 
