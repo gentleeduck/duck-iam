@@ -58,8 +58,10 @@ export interface ErrorKit<R extends ErrorKit.Registry, Name extends string> {
   asError<C extends ErrorKit.Code<R>>(error: unknown, code: C, ...args: ErrorKit.Args<R, C>): KitError<R>
   /** {@link ErrorKit.asError}, thrown rather than returned. */
   rethrowError<C extends ErrorKit.Code<R>>(error: unknown, code: C, ...args: ErrorKit.Args<R, C>): never
-  /** True when `err` carries `code`, checked by property rather than `instanceof` — matches an instance built by a
-   *  duplicated copy of this package too (hoisting, or a dependency installed separately from its consumer). */
+  /** True when `err` carries `code` and a `meta`, checked by property rather than `instanceof` — matches an
+   *  instance built by a duplicated copy of this package too (hoisting, or a dependency installed separately
+   *  from its consumer). Both properties are checked: matching `code` alone would narrow to a `meta` the
+   *  object might not actually have. */
   hasErrorCode<C extends ErrorKit.Code<R>>(err: unknown, code: C): err is Error & { readonly meta: ErrorKit.Meta<R, C> }
   /** Reads `err.meta` at the shape `code` declares. Safe once the caller has confirmed `err.code === code`. */
   metaOf<C extends ErrorKit.Code<R>>(err: KitError<R>, code: C): ErrorKit.Meta<R, C>
@@ -85,9 +87,9 @@ export function createErrorKit<const R extends ErrorKit.Registry, Name extends s
       super(code)
       this.name = name
       this.code = code
-      // The one cast this kit needs: `code` is `ErrorKit.Code<R>`, a subset of `keyof R`, so the lookup is
-      // total in fact; `noUncheckedIndexedAccess` cannot see that through a generic `R`, only through a
-      // concrete `const` object (which is what every real registry actually is at its own call site).
+      // `code` is `ErrorKit.Code<R>`, a subset of `keyof R`, so the lookup is total in fact;
+      // `noUncheckedIndexedAccess` cannot see that through a generic `R`, only through a concrete
+      // `const` object (which is what every real registry actually is at its own call site).
       this.status = registry[code] as number
       this.statusCode = this.status
       const [meta] = args
@@ -122,7 +124,7 @@ export function createErrorKit<const R extends ErrorKit.Registry, Name extends s
     err: unknown,
     code: C,
   ): err is Error & { readonly meta: ErrorKit.Meta<R, C> } {
-    return err instanceof Error && 'code' in err && err.code === code
+    return err instanceof Error && 'code' in err && err.code === code && 'meta' in err
   }
 
   function metaOf<C extends ErrorKit.Code<R>>(err: KitError<R>, code: C): ErrorKit.Meta<R, C> {

@@ -108,6 +108,13 @@ describe('fail, throwError, asError, rethrowError, hasErrorCode, metaOf', () => 
     expect(kit.hasErrorCode({ code: 'TEST_FAULT' }, 'TEST_FAULT')).toBe(false)
   })
 
+  it('rejects a matching code with no meta property, so metaOf can trust the narrowed type', () => {
+    class Impostor extends Error {
+      code = 'TEST_FAULT'
+    }
+    expect(kit.hasErrorCode(new Impostor(), 'TEST_FAULT')).toBe(false)
+  })
+
   it('metaOf reads meta at the shape the code declares', () => {
     const err = kit.fail('TEST_FAULT', { adapter: 'drizzle' })
     expect(kit.metaOf(err, 'TEST_FAULT').adapter).toBe('drizzle')
