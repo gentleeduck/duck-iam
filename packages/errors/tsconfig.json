@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": ["@types/node"]
+  },
+  "exclude": ["node_modules", "dist"],
+  "extends": "@gentleduck/typescript-config/internal-package.json",
+  "include": ["src/**/*"]
+}
