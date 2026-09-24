@@ -1,4 +1,4 @@
-import { IamError } from '../core/errors'
+import { fail, IamError } from '../core/errors'
 
 /**
  * Adapter-boundary guard for `assignRole`: a role with no stored definition throws, as drizzle's FK does.
@@ -20,7 +20,7 @@ export function iamAssertRoleExists(adapter: string, exists: boolean): void {
  * @param cause - The driver error being translated, when there is one.
  */
 export function iamUnknownRoleError(adapter: string, cause?: unknown): IamError {
-  const err = new IamError('IAM_ROLE_NOT_FOUND', { adapter })
+  const err = fail('IAM_ROLE_NOT_FOUND', { adapter })
   if (cause !== undefined) err.cause = cause
   return err
 }

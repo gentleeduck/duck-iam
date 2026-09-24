@@ -1,4 +1,4 @@
-import { IamError, throwIamValidationFailed } from '../core/errors'
+import { fail, IamError, throwIamValidationFailed } from '../core/errors'
 import type { AccessControl } from '../core/types'
 import type { IamValidate } from '../core/validate'
 import { validatePolicy, validateRole } from '../core/validate'
@@ -69,7 +69,7 @@ export function iamNormalizePolicy<TAction extends string, TResource extends str
  * SECURITY: fails closed; a dropped policy may be the deny.
  */
 export function iamUnreadablePolicy(adapter: string, id: string, detail: string): IamError {
-  return new IamError('IAM_UNREADABLE_POLICY', { adapter, policyId: id, detail })
+  return fail('IAM_UNREADABLE_POLICY', { adapter, policyId: id, detail })
 }
 
 /**
@@ -82,7 +82,7 @@ export function iamUnreadablePolicy(adapter: string, id: string, detail: string)
  * neither says anything when the id was reached through `inherits` and the deny is written as a condition.
  */
 export function iamUnreadableRole(adapter: string, id: string, detail: string): IamError {
-  return new IamError('IAM_UNREADABLE_ROLE', { adapter, roleId: id, detail })
+  return fail('IAM_UNREADABLE_ROLE', { adapter, roleId: id, detail })
 }
 
 /**

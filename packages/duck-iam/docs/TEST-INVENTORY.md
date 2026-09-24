@@ -383,6 +383,7 @@ drift the way the hand-maintained version did.
 | `server/generic/__tests__/extract-environment-xff.test.ts` | 20 | iamExtractEnvironment XFF normalization under trustProxy |
 | `server/generic/__tests__/generic.test.ts` | 22 | generateIamPermissionMap() |
 | `server/generic/__tests__/http-boundary-refusal.test.ts` | 52 | the unknown-action and unknown-resource sentinels are real refusals |
+| `server/generic/__tests__/iam-read-json-body.test.ts` | 3 | iamReadJsonBody |
 | `server/generic/__tests__/method-action-and-path.test.ts` | 19 | iamActionForMethod |
 | `server/hono/__tests__/hono.test.ts` | 33 | iamAccessMiddleware (hono) |
 | `server/nest/__tests__/nest-authorize-meta-validation.test.ts` | 22 | a handler decorated with unreadable metadata is denied, not allowed |
@@ -392,7 +393,7 @@ drift the way the hand-maintained version did.
 | `server/next/__tests__/next-middleware-environment.test.ts` | 8 | createIamNextMiddleware environment |
 | `server/next/__tests__/next-middleware-rule-matching.test.ts` | 4 | next middleware: a string rule pattern matches as a prefix |
 | `server/next/__tests__/next.test.ts` | 31 | withIamAccess |
-| **Subtotal** | **872** | |
+| **Subtotal** | **875** | |
 
 ---
 
@@ -451,8 +452,8 @@ drift the way the hand-maintained version did.
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
-| Server | 29 | 872 |
+| Server | 30 | 875 |
 | Shared | 7 | 126 |
 | Package surface | 12 | 125 |
 | Other | 1 | 4 |
-| **Total** | **336** | **6386** |
+| **Total** | **337** | **6389** |

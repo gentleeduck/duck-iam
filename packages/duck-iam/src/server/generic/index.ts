@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import { IamError } from '../../core/errors'
+import { fail, IamError, throwIamError } from '../../core/errors'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
 import { IAM_RESERVED_REFUSAL } from '../../shared/reserved'
 
@@ -744,7 +744,7 @@ function assertFieldString(value: unknown, field: string, hint?: string): string
  */
 function fieldError(code: string, field: string, detail: string, hint?: string): IamError {
   const tail = hint === undefined ? '' : `; ${hint}`
-  return new IamError('IAM_VALIDATION_FAILED', {
+  return fail('IAM_VALIDATION_FAILED', {
     kind: 'request',
     issues: [`${code} at "${field}": ${detail}${tail}`],
   })
@@ -761,7 +761,7 @@ export async function iamReadJsonBody(read: () => Promise<unknown>): Promise<unk
     return await read()
   } catch {
     // SECURITY: the parser's message quotes caller-controlled bytes, so it stays out of operator logs.
-    throw new IamError('IAM_VALIDATION_FAILED', { kind: 'request', issues: ['MALFORMED_JSON'] })
+    throwIamError('IAM_VALIDATION_FAILED', { kind: 'request', issues: ['MALFORMED_JSON'] })
   }
 }
 
