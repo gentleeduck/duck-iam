@@ -353,13 +353,16 @@ export function reportDeadConditionPaths(
 }
 
 /**
- * Whether any concrete action/resource string could match both patterns. Patterns are `*`, a literal, or a
- * `prefix:*` / `prefix.*` form, so two of them intersect unless their fixed parts diverge.
+ * Whether any concrete action/resource string could match both patterns.
+ * NOTE: `dimension` decides what counts as a prefix, because the matchers differ: `matchesResource` honours both
+ * `:*` and `.*`, `matchesAction` honours only `:*` and reads `.*` as a literal. Reading `post.*` as a prefix here
+ * would call a dead `targets.actions` live and report nothing.
  */
-function patternsCanIntersect(a: string, b: string): boolean {
+function patternsCanIntersect(a: string, b: string, dimension: 'actions' | 'resources'): boolean {
   if (a === '*' || b === '*') return true
-  const aPrefix = a.endsWith(':*') || a.endsWith('.*') ? a.slice(0, -1) : null
-  const bPrefix = b.endsWith(':*') || b.endsWith('.*') ? b.slice(0, -1) : null
+  const isPrefix = (p: string) => p.endsWith(':*') || (dimension === 'resources' && p.endsWith('.*'))
+  const aPrefix = isPrefix(a) ? a.slice(0, -1) : null
+  const bPrefix = isPrefix(b) ? b.slice(0, -1) : null
   if (aPrefix === null && bPrefix === null) return a === b
   if (aPrefix === null) return bPrefix !== null && a.startsWith(bPrefix)
   if (bPrefix === null) return b.startsWith(aPrefix)
@@ -376,7 +379,7 @@ function ruleMatchesTargets(
   if (!Array.isArray(patterns)) return true
   for (const pattern of patterns) {
     if (typeof pattern !== 'string') continue
-    if (targeted.some((t) => typeof t === 'string' && patternsCanIntersect(t, pattern))) return true
+    if (targeted.some((t) => typeof t === 'string' && patternsCanIntersect(t, pattern, dimension))) return true
   }
   return false
 }
