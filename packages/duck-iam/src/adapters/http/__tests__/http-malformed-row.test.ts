@@ -56,12 +56,12 @@ describe('IamHttpAdapter refuses malformed policy rows and drops malformed role 
     expect(onPolicyError).toHaveBeenCalledTimes(1)
   })
 
-  // A drop, not a throw: this is the list envelope, not a row, and the resulting empty policy set denies
-  // under every combine mode.
-  it('listPolicies: a non-array body is dropped wholesale and reported', async () => {
+  // A throw, not a drop: an empty policy set does NOT deny, because `loadAllPolicies` merges the RBAC policy
+  // read from `/roles`, so the role grants survive and only the explicit denies go missing.
+  it('listPolicies: a non-array body is reported and then rejects', async () => {
     const onPolicyError = vi.fn()
     const adapter = buildAdapter(() => ({ policies: [good] }), onPolicyError)
-    expect(await adapter.listPolicies()).toEqual([])
+    await expect(adapter.listPolicies()).rejects.toThrow(/expected an array from \/policies/)
     expect(onPolicyError).toHaveBeenCalledTimes(1)
   })
 
