@@ -345,6 +345,14 @@ export function createIamNextMiddleware<
     getScope,
   } = opts
 
+  // SECURITY: a caller's /g or /y RegExp keeps `lastIndex` between calls, so every second request would match no
+  // rule and pass unchecked. Strip the stateful flags once, here.
+  const rules = opts.rules.map((r) =>
+    r.pattern instanceof RegExp && (r.pattern.global || r.pattern.sticky)
+      ? { ...r, pattern: new RegExp(r.pattern.source, r.pattern.flags.replace(/[gy]/g, '')) }
+      : r,
+  )
+
   return async (req: Request): Promise<Response | null> => {
     const url = new URL(req.url)
     // SECURITY: refused before canonicalising: `/admin/..%2fpublic` would match a `/public` rule while next
@@ -362,7 +370,7 @@ export function createIamNextMiddleware<
       return onDenied(req)
     }
 
-    const matchedRule = opts.rules.find((r) => {
+    const matchedRule = rules.find((r) => {
       if (typeof r.pattern === 'string') {
         return path.startsWith(r.pattern)
       }
