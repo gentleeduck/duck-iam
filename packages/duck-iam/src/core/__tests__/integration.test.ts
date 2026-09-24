@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../adapters/memory'
 import { createIam } from '../config'
+import { type IamError, metaOf } from '../errors'
 
 describe('Integration: config -> engine -> evaluate', () => {
   const access = createIam({
@@ -153,14 +154,12 @@ describe('Integration: config -> engine -> evaluate', () => {
           algorithm: 'evil' as never,
           rules: [],
         } as never),
-      ).rejects.toThrow(/policy rejected by validator/)
+      ).rejects.toThrow('IAM_VALIDATION_FAILED')
     })
 
     it('saveRole throws when validateRole reports errors', async () => {
       const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
-      await expect(engine.admin.saveRole({ id: '', permissions: [] } as never)).rejects.toThrow(
-        /role rejected by validator/,
-      )
+      await expect(engine.admin.saveRole({ id: '', permissions: [] } as never)).rejects.toThrow('IAM_VALIDATION_FAILED')
     })
 
     it('import throws on the first invalid policy and stops bulk write', async () => {
@@ -181,7 +180,7 @@ describe('Integration: config -> engine -> evaluate', () => {
           policies: [good, bad],
           roles: [],
         }),
-      ).rejects.toThrow(/policy rejected by validator/)
+      ).rejects.toThrow('IAM_VALIDATION_FAILED')
     })
 
     it('throw text contains validator code + path, not attacker-controlled value', async () => {
@@ -196,7 +195,7 @@ describe('Integration: config -> engine -> evaluate', () => {
         } as never)
         throw new Error('should have thrown')
       } catch (err) {
-        const msg = (err as Error).message
+        const msg = metaOf(err as IamError<'IAM_VALIDATION_FAILED'>, 'IAM_VALIDATION_FAILED').issues.join('; ')
         expect(msg).toContain('INVALID_ALGORITHM')
         expect(msg).toContain('algorithm')
         expect(msg).not.toContain(hostileValue)

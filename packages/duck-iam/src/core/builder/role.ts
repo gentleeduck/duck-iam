@@ -1,3 +1,4 @@
+import { throwIamValidationFailed } from '../errors'
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 import { validateRole } from '../validate'
 import { iamChosenWhen, When } from './when'
@@ -243,12 +244,7 @@ export class RoleBuilder<
     }
     // Validate here too, so a role handed straight to an adapter fails where the bug was written.
     const result = validateRole(role)
-    if (!result.valid) {
-      const errs = result.issues
-        .filter((i) => i.type === 'error')
-        .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
-      throw new Error(`[@gentleduck/iam:builder] RoleBuilder.build(): role rejected by validator - ${errs.join('; ')}`)
-    }
+    if (!result.valid) throwIamValidationFailed('role', result.issues)
     return role
   }
 }

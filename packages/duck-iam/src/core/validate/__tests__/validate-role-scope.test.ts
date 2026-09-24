@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../engine/engine'
+import { type IamError, metaOf } from '../../errors'
 import type { AccessControl } from '../../types'
 import { validateRole } from '../validate'
 
@@ -38,7 +39,9 @@ describe('the validated write API refuses a role with an empty scope', () => {
     const adapter = new IamMemoryAdapter({ roles: [] })
     const engine = new IamEngine({ adapter, cacheTTL: 0 })
     const role = JSON.parse('{"id":"r","name":"R","scope":"","permissions":[{"action":"read","resource":"post"}]}')
-    await expect(engine.admin.saveRole(role)).rejects.toThrow(/scope/)
+    const err = await engine.admin.saveRole(role).catch((e: unknown) => e)
+    const meta = metaOf(err as IamError<'IAM_VALIDATION_FAILED'>, 'IAM_VALIDATION_FAILED')
+    expect(meta.issues.some((issue) => issue.includes('scope'))).toBe(true)
     expect(await adapter.listRoles()).toHaveLength(0)
   })
 })

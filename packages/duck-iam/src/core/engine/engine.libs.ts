@@ -1,10 +1,10 @@
-import { IamValidationError } from '../../shared/errors'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import type { Batch } from '../batch'
 import { appliedRows, batchResult, loopFallback } from '../batch'
 import { matchesUnconditionally } from '../conditions/conditions'
 import { MAX_CONDITION_DEPTH } from '../conditions/conditions.libs'
+import { throwIamValidationFailed } from '../errors'
 import { matchesScope } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
 import { isResolvablePath } from '../validate/validate.libs'
@@ -97,13 +97,13 @@ export function runSingleFlightKeyed<K, T>(
 /** Throw if the validate result has any `error`-type issue. */
 function assertValidOrThrow(kind: 'policy' | 'role', result: IamValidate.IResult): void {
   if (result.valid) return
-  const errs = result.issues
-    .filter((i) => i.type === 'error')
-    .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
-  throw new IamValidationError(
+  // SECURITY: this guards the live admin write API (every server adapter's savePolicy/saveRole reaches here),
+  // and some validator messages echo the caller's own submitted value (e.g. an invalid enum choice) — strip
+  // each issue's message so that value never round-trips into the 400 response's `issues` array. The builders'
+  // equivalent guards keep the message: they validate developer-authored config, not live request bodies.
+  throwIamValidationFailed(
     kind,
-    errs,
-    `[@gentleduck/iam:engine] ${kind} rejected by validator - ${errs.join('; ')}`,
+    result.issues.map((issue) => ({ ...issue, message: '' })),
   )
 }
 

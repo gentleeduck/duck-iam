@@ -3,8 +3,8 @@
  */
 
 import type { IamEngine } from '../../core'
+import { hasIamErrorCode } from '../../core/errors'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
-import { iamIsValidationError } from '../../shared/errors'
 import { iamAsActionLiteral, iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
   type IamAdminActor,
@@ -537,8 +537,8 @@ export function createIamAdminHandlers<
         )
       } catch (err) {
         // A body the validator rejected is the caller's mistake, not ours.
-        if (iamIsValidationError(err)) {
-          return Response.json({ error: `Invalid ${err.kind}`, issues: err.issues }, { status: 400 })
+        if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) {
+          return Response.json({ error: `Invalid ${err.meta.kind}`, issues: err.meta.issues }, { status: 400 })
         }
         return onError(err instanceof Error ? err : new Error(String(err)), req)
       }

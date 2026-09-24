@@ -232,6 +232,7 @@ drift the way the hand-maintained version did.
 | `core/errors/__tests__/errors.codes.test.ts` | 4 | IAM_ERRORS |
 | `core/errors/__tests__/errors.scrub.test.ts` | 9 | isSecretKey |
 | `core/errors/__tests__/errors.test.ts` | 15 | IamError construction |
+| `core/errors/__tests__/errors.validation.test.ts` | 4 | throwIamValidationFailed |
 | `core/evaluate/__tests__/algorithm-alias-precompute.test.ts` | 9 | precompute covers every algorithm that can be precomputed |
 | `core/evaluate/__tests__/error-hook-isolation.test.ts` | 6 | a throwing onPolicyError does not unwind the evaluation |
 | `core/evaluate/__tests__/evaluate-error-indeterminate.test.ts` | 15 | evaluate ('and') with a throwing deny policy |
@@ -303,7 +304,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2901** | |
+| **Subtotal** | **2905** | |
 
 ---
 
@@ -375,7 +376,7 @@ drift the way the hand-maintained version did.
 | `server/express/__tests__/express.test.ts` | 51 | iamAccessMiddleware (express) |
 | `server/generic/__tests__/admin-audit-target-id.test.ts` | 9 | admin audit targetId is read, not asserted |
 | `server/generic/__tests__/admin-authorize-actor-typing.test.ts` | 6 | an admin authorize may return the actor, in the type as well as at runtime |
-| `server/generic/__tests__/admin-body-status.test.ts` | 18 | IamValidationError |
+| `server/generic/__tests__/admin-body-status.test.ts` | 18 | IamError for a validation failure |
 | `server/generic/__tests__/admin-shared.test.ts` | 29 | iamDefaultCsrfCheck |
 | `server/generic/__tests__/extract-environment-ua-cap.test.ts` | 2 | iamExtractEnvironment user-agent cap |
 | `server/generic/__tests__/extract-environment-xff.test.ts` | 20 | iamExtractEnvironment XFF normalization under trustProxy |
@@ -444,7 +445,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 11 | 153 |
 | Adapters | 57 | 1677 |
 | Clients | 11 | 136 |
-| Core | 180 | 2901 |
+| Core | 181 | 2905 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -452,4 +453,4 @@ drift the way the hand-maintained version did.
 | Shared | 6 | 113 |
 | Package surface | 12 | 124 |
 | Other | 1 | 4 |
-| **Total** | **333** | **6350** |
+| **Total** | **334** | **6354** |

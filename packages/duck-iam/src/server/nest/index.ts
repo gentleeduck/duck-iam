@@ -1,6 +1,6 @@
 import type { IamEngine } from '../../core'
+import { hasIamErrorCode } from '../../core/errors'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
-import { iamIsValidationError } from '../../shared/errors'
 import {
   iamAsActionLiteral,
   iamAsResourceLiteral,
@@ -419,8 +419,8 @@ export function createIamAdminOperations<
    * return; anything else goes through `onError`.
    */
   const asThrowable = (err: unknown, req: NestRequest): Error => {
-    if (iamIsValidationError(err)) {
-      return Object.assign(adminHttpError(`Invalid ${err.kind}`, 400), { cause: err, issues: err.issues })
+    if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) {
+      return Object.assign(adminHttpError(`Invalid ${err.meta.kind}`, 400), { cause: err, issues: err.meta.issues })
     }
     return onError(err instanceof Error ? err : new Error(String(err)), req)
   }

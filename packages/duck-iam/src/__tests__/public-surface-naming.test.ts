@@ -30,6 +30,7 @@ const UNPREFIXED_BACKLOG = [
   'rethrowIamError',
   'rolesToPolicy',
   'throwIamError',
+  'throwIamValidationFailed',
   'when',
 ]
 
