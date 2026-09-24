@@ -71,6 +71,9 @@ if (hasErrorCode(err, 'USER_NOT_FOUND')) {
 - **A bare code takes no meta argument at all** — not `{}`, not `undefined`, nothing — so
   `fail('SOME_BARE_CODE', { anything })` is a compile error rather than a silently-accepted value
   that never reaches `.meta`.
+- **A `detail(status)` that forgot its `<M>` fails the same way** — not `object`, nothing — so a
+  registry entry declared without the type argument can't be given meta either, rather than
+  silently accepting any shape at all.
 
 ## Design notes
 

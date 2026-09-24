@@ -11,8 +11,10 @@ export type Fault = number & { readonly __fault: true }
 export type MetaOf<S> = S extends Carries<infer M> ? M : Record<never, never>
 
 /** A code's status and what it hands back with it, in one declaration. It is the status and nothing else at
- *  runtime, so a registry built from it stays a plain `Record<string, number>`. */
-export function detail<M extends object>(status: number): Carries<M> {
+ *  runtime, so a registry built from it stays a plain `Record<string, number>`. `M` has no way to be inferred
+ *  (it never appears in a parameter), so a caller who forgets it must fail closed: the default is `never`, not
+ *  `object` (which has no properties for excess-property checking to reject, reopening the hole `Args` closes). */
+export function detail<M extends object = never>(status: number): Carries<M> {
   return status as Carries<M>
 }
 

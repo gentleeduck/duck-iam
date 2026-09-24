@@ -5,6 +5,7 @@ import { createErrorKit } from '../kit'
 const TEST_ERRORS = {
   TEST_BARE: 500,
   TEST_DETAIL: detail<{ field: string }>(400),
+  TEST_DETAIL_NO_ARG: detail(400),
   TEST_FAULT: fault<{ adapter: string }>(500),
 } as const satisfies Record<string, number>
 
@@ -32,6 +33,10 @@ describe('construction', () => {
     expect(new TestError('TEST_BARE').meta).toEqual({})
   })
 
+  it('a detail() call missing its <M> behaves like a bare code, not an unchecked one', () => {
+    expect(new TestError('TEST_DETAIL_NO_ARG').meta).toEqual({})
+  })
+
   it('names the class as given', () => {
     expect(new TestError('TEST_BARE').name).toBe('TestError')
   })
@@ -43,6 +48,8 @@ void new TestError('TEST_DETAIL')
 void new TestError('TEST_DETAIL', { field: 1 })
 // @ts-expect-error a bare code declares no shape, so it cannot be given one at the call site
 void new TestError('TEST_BARE', { whatever: true })
+// @ts-expect-error a detail() missing its <M> must fail closed to no meta, never fall open to any meta
+void new TestError('TEST_DETAIL_NO_ARG', { whatever: true })
 
 describe('class identity across two kits', () => {
   it("never satisfies the other kit's instanceof", () => {
