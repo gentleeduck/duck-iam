@@ -418,6 +418,25 @@ export class IamDrizzleAdapter<
   }
 
   /**
+   * The one assignment row at `(subjectId, roleId, scope)`, or `undefined`.
+   * NOTE: scoped in JS, not SQL - `ops.isNull` may be absent and this path (unlike updateAssignmentScope) has no
+   * fallback to lean on, so it can't require the op.
+   */
+  private async _findAssignment(
+    subjectId: string,
+    roleId: string,
+    scope: string | undefined,
+  ): Promise<IamDrizzle.AssignmentRow | undefined> {
+    const rows: IamDrizzle.AssignmentRow[] = await this._db
+      .select()
+      .from(this._t.assignments)
+      .where(
+        this._and(this._eq(this._t.assignments.subjectId, subjectId), this._eq(this._t.assignments.roleId, roleId)),
+      )
+    return rows.find((r) => (r.scope ?? undefined) === scope)
+  }
+
+  /**
    * Parses an assignment's `attributes` column.
    * A corrupt value is reported and dropped, not thrown, so one bad field does not fail the whole role list.
    */
@@ -565,12 +584,17 @@ export class IamDrizzleAdapter<
     return out
   }
 
-  /** Grants a role, optionally scoped, time-bounded and attributed; a duplicate `(subject, role, scope)` is a no-op. */
+  /** Grants a role, optionally scoped, time-bounded and attributed. An active duplicate `(subject, role, scope)` is
+   * a no-op; an elapsed one is cleared first, so the grant is not silently blocked by its own expired predecessor. */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('drizzle', scope)
     iamAssertValidAssignWindow('drizzle', opts)
-    await this._refusingUnknownRole(() =>
-      this._insertOrSkip(this._t.assignments, {
+    await this._refusingUnknownRole(async () => {
+      const existing = await this._findAssignment(subjectId, roleId, scope)
+      if (existing && !this._isActive(existing, Date.now())) {
+        await this._db.delete(this._t.assignments).where(this._eq(this._t.assignments.id, existing.id))
+      }
+      return this._insertOrSkip(this._t.assignments, {
         subjectId,
         roleId,
         scope: scope ?? null,
@@ -579,8 +603,8 @@ export class IamDrizzleAdapter<
         attributes: opts?.attributes ? encodeJson(opts.attributes, this._json) : null,
         // Spread rather than written as null, so a table without the column is untouched unless an actor is named.
         ...(opts?.actor !== undefined && { createdBy: opts.actor }),
-      }),
-    )
+      })
+    })
   }
 
   /**
@@ -608,7 +632,8 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Grants every row in one multi-row insert, skipping existing grants like {@link IamDrizzleAdapter.assignRole}.
+   * Grants every row in one multi-row insert; an active duplicate is skipped and an elapsed one is cleared first,
+   * like {@link IamDrizzleAdapter.assignRole}.
    * @returns Indices of rows this call inserted (read via `RETURNING`), or `null` on MySQL.
    */
   async assignRoleMany(rows: readonly IamAdapter.IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null> {
@@ -617,6 +642,13 @@ export class IamDrizzleAdapter<
       iamAssertValidAssignWindow('drizzle', r.opts)
     }
     if (rows.length === 0) return []
+    const now = Date.now()
+    for (const r of rows) {
+      const existing = await this._findAssignment(r.subjectId, r.roleId, r.scope)
+      if (existing && !this._isActive(existing, now)) {
+        await this._db.delete(this._t.assignments).where(this._eq(this._t.assignments.id, existing.id))
+      }
+    }
     // A multi-row insert takes its column list from the value objects, so if any row names an actor, every row
     // carries `createdBy` (null where it has none).
     const anyActor = rows.some((r) => r.opts?.actor !== undefined)
@@ -683,7 +715,8 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Moves `(subjectId, roleId, fromScope)` to `toScope` in place; if `toScope` is already held, drops the source row.
+   * Moves `(subjectId, roleId, fromScope)` to `toScope` in place; if `toScope` is already actively held, drops the
+   * source row instead. If that hold has elapsed, it is cleared and the source row moves into its place.
    * Returns `false` without `ops.isNull` (unscoped needs `IS NULL`) or when nothing matches, so the engine
    * falls back to revoke + assign.
    */
@@ -716,10 +749,14 @@ export class IamDrizzleAdapter<
       scopeCondition(toScope),
     )
     const conflict = await this._db.select().from(this._t.assignments).where(toCondition).limit(1)
-    if (conflict[0]) {
-      // Target scope is already granted; drop the source row rather than collide with it.
+    if (conflict[0] && this._isActive(conflict[0], Date.now())) {
+      // Target scope is already actively granted; drop the source row rather than collide with it.
       await this._db.delete(this._t.assignments).where(fromCondition)
       return true
+    }
+    if (conflict[0]) {
+      // Target scope's existing grant has elapsed; clear it so the source row can move into its place instead.
+      await this._db.delete(this._t.assignments).where(toCondition)
     }
 
     await this._db
