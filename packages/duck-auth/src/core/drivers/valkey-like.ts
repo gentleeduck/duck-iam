@@ -24,18 +24,19 @@ export namespace ValkeyClient {
     srem(key: string, ...members: string[]): Promise<number>
     /** Every member of a set. */
     smembers(key: string): Promise<string[]>
+    /** Runs a Lua script. Optional so a hand-rolled client is not forced to declare one it never runs;
+     *  ioredis and iovalkey both have it, and the adapter forwards it when it is there. */
+    eval?(script: string, numkeys: number, ...args: (string | number)[]): Promise<any>
     /** Removes members from a sorted set, answering how many were there. */
     zrem(key: string, ...members: string[]): Promise<number>
 
     /**
-     * `set`/`scan`/`eval`/`zadd`/`zrangebyscore` are declared loosely on purpose:
+     * `set`/`zadd`/`zrangebyscore` are declared loosely on purpose:
      * ioredis's long overload lists aren't assignable to any single variadic
      * signature, so pinning one here would make a real ioredis client fail to
      * type-check against its own adapter.
      */
     set(key: string, value: string, ...args: any[]): Promise<any>
-    scan(cursor: string | number, ...args: any[]): Promise<any>
-    eval(script: string, numKeys: number, ...args: any[]): Promise<any>
     zadd(key: string, ...args: any[]): Promise<any>
     zrangebyscore(key: string, min: number | string, max: number | string, ...args: any[]): Promise<any>
   }
@@ -59,15 +60,17 @@ export function valkeyAdapter(client: ValkeyClient.Me): RedisLike.Client {
       return client.set(key, value, ...args)
     },
 
+    // ioredis counts its keys positionally where `RedisLike` takes them as an array. Spread in rather
+    // than declared, so a client without `eval` is reported as not having one instead of failing on the
+    // first script.
+    ...(client.eval && {
+      eval: (script: string, keys: string[], args: (string | number)[]) =>
+        // biome-ignore lint/style/noNonNullAssertion: guarded by the spread condition one line above.
+        client.eval!(script, keys.length, ...keys, ...args),
+    }),
+
     del: (...keys) => client.del(...keys),
     expire: (key, seconds) => client.expire(key, seconds),
-
-    scan: async (cursor, opts) => {
-      const args: (string | number)[] = []
-      if (opts?.match) args.push('MATCH', opts.match)
-      if (opts?.count) args.push('COUNT', opts.count)
-      return client.scan(cursor, ...args)
-    },
 
     incr: (key) => client.incr(key),
     incrby: (key, by) => client.incrby(key, by),
@@ -85,9 +88,6 @@ export function valkeyAdapter(client: ValkeyClient.Me): RedisLike.Client {
       if (opts?.limit) args.push('LIMIT', opts.limit.offset, opts.limit.count)
       return client.zrangebyscore(key, min, max, ...args)
     },
-
-    // ioredis takes the key count positionally, then keys, then args.
-    eval: (script, opts) => client.eval(script, opts.keys.length, ...opts.keys, ...opts.args),
   }
 }
 

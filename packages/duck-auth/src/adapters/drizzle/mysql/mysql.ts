@@ -622,14 +622,51 @@ export class DrizzleMysqlAdapter<
           .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx?.tenantId))),
       ),
 
-    update: (id, patch) =>
+    update: (id, patch, expectedUpdatedAt) =>
       this.run(async () => {
         // A patch with nothing to say is a no-op, not a failure: `{ csrfHash: maybeToken }` is how a caller
         // says "leave it alone", and `set({})` would reach the driver as a syntax error.
         // `id` is the sid hash the caller's cookie carries: a patch naming it is dropped, never a move.
         const { id: _pinnedId, ...movable } = patch
         const set = stripUndefined(movable)
-        if (Object.keys(set).length > 0) await this._db.update(authSessions).set(set).where(eq(authSessions.id, id))
+        // `$onUpdate` stamps `new Date()`, which is the same value for two writes inside one millisecond -
+        // and a guard comparing equal to a read taken before the first of them then lands on top of it. The
+        // database computes the next value instead, so the token is strictly increasing however the two
+        // writers interleave and whether or not either passed a guard.
+        const writeSet = {
+          ...set,
+          updatedAt: sql`GREATEST(${authSessions.updatedAt} + INTERVAL 1000 MICROSECOND, CURRENT_TIMESTAMP(3))`,
+        }
+        // The guard rides in the WHERE so the database enforces it, and is read once first so a refusal can
+        // name which of the two things went wrong: AUTH_SESSION_REVOKED is in the reader's absent set, so
+        // answering it for a lost race would let `orNull()` read the refusal back as "no session".
+        const guard = expectedUpdatedAt === undefined ? undefined : eq(authSessions.updatedAt, expectedUpdatedAt)
+        if (expectedUpdatedAt !== undefined) {
+          const [cur] = await this._db
+            .select({ updatedAt: authSessions.updatedAt })
+            .from(authSessions)
+            .where(eq(authSessions.id, id))
+            .limit(1)
+          if (!cur) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+          if (cur.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+            throw new AuthError('AUTH_STALE_WRITE', {
+              actual: cur.updatedAt.getTime(),
+              expected: expectedUpdatedAt.getTime(),
+            })
+          }
+        }
+        if (Object.keys(set).length > 0) {
+          const [written] = await this._db
+            .update(authSessions)
+            .set(writeSet)
+            .where(and(eq(authSessions.id, id), guard))
+          // The pre-read agreed and the write still matched nothing, so a racer moved `updatedAt` between
+          // them. MySQL counts rows it changed, so a write of identical values lands here too - which is
+          // the same-millisecond case the interface documents, and a retry rather than a silent loss.
+          if (written.affectedRows === 0 && expectedUpdatedAt !== undefined) {
+            throw new AuthError('AUTH_STALE_WRITE', { expected: expectedUpdatedAt.getTime() })
+          }
+        }
 
         const [row] = await this._db.select(sessionColumns).from(authSessions).where(eq(authSessions.id, id)).limit(1)
         if (!row) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })

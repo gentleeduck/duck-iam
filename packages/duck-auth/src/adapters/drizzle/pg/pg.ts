@@ -3,7 +3,7 @@ import { and, desc, eq, getTableColumns, gte, inArray, isNull, lt, or, type SQL,
 import type { NodePgDatabase, NodePgQueryResultHKT } from 'drizzle-orm/node-postgres'
 import { alias, type PgDatabase, type PgUpdateSetSource, type WithSubqueryWithSelection } from 'drizzle-orm/pg-core'
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
-import { inTenant, rowsWithLinks } from '~/adapters/drizzle/drizzle.rows'
+import { inTenant, rowsWithLinks, rowWithLinks } from '~/adapters/drizzle/drizzle.rows'
 import { actorId } from '~/core/actor'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { authUuidV7 } from '~/core/crypto'
@@ -158,7 +158,7 @@ export class DrizzlePgAdapter<
           const [row] = await insert
           if (!row) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
-          return { ...row, providers: [] as Identities.ProviderLink[] } as Identities.Me<Profile>
+          return rowWithLinks<Profile>(row)
         }
 
         // SECURITY: the unique on (provider_id, provider_sub) is what refuses a login another row already
@@ -641,7 +641,7 @@ export class DrizzlePgAdapter<
           .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, context?.tenantId))),
       ),
 
-    update: (id, patch) =>
+    update: (id, patch, expectedUpdatedAt) =>
       this.run(async () => {
         const db = this._db
         // A patch with nothing to say is a no-op, not a failure: `{ csrfHash: maybeToken }` is how a caller
@@ -649,11 +649,50 @@ export class DrizzlePgAdapter<
         // `id` is the sid hash the caller's cookie carries: a patch naming it is dropped, never a move.
         const { id: _pinnedId, ...movable } = patch
         const set = stripUndefined(movable)
+        // The database computes the next `updatedAt`, not `$onUpdate`: two writes inside one millisecond
+        // stamp the same `new Date()`, and the token `expectedUpdatedAt` compares has to be increasing.
+        // `date_trunc` because `timestamptz` keeps microseconds a JS `Date` does not - an untruncated
+        // `now()` reads back rounded, and every guarded write after the first would then miss.
+        const writeSet = {
+          ...set,
+          updatedAt: sql`date_trunc('milliseconds', GREATEST(${authSessions.updatedAt} + interval '1 millisecond', now()))`,
+        }
+        // The guard rides in the WHERE so the database enforces it, and is read once first so a refusal can
+        // name which of the two things went wrong: AUTH_SESSION_REVOKED is in the reader's absent set, so
+        // answering it for a lost race would let `orNull()` read the refusal back as "no session".
+        const guard = expectedUpdatedAt === undefined ? undefined : eq(authSessions.updatedAt, expectedUpdatedAt)
+        if (expectedUpdatedAt !== undefined) {
+          const [cur] = await db
+            .select({ updatedAt: authSessions.updatedAt })
+            .from(authSessions)
+            .where(eq(authSessions.id, id))
+            .limit(1)
+          if (!cur) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+          if (cur.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+            throw new AuthError('AUTH_STALE_WRITE', {
+              actual: cur.updatedAt.getTime(),
+              expected: expectedUpdatedAt.getTime(),
+            })
+          }
+        }
         const [row] =
           Object.keys(set).length === 0
-            ? await db.select(sessionColumns).from(authSessions).where(eq(authSessions.id, id))
-            : await db.update(authSessions).set(set).where(eq(authSessions.id, id)).returning(sessionColumns)
-        if (!row) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+            ? await db
+                .select(sessionColumns)
+                .from(authSessions)
+                .where(and(eq(authSessions.id, id), guard))
+            : await db
+                .update(authSessions)
+                .set(writeSet)
+                .where(and(eq(authSessions.id, id), guard))
+                .returning(sessionColumns)
+        if (!row) {
+          // The pre-read agreed and the write still matched nothing, so a racer moved `updatedAt` between them.
+          if (expectedUpdatedAt !== undefined) {
+            throw new AuthError('AUTH_STALE_WRITE', { expected: expectedUpdatedAt.getTime() })
+          }
+          throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+        }
 
         return row
       }),

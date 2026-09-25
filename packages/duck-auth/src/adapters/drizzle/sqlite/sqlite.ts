@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { and, desc, eq, getTableColumns, gte, inArray, isNull, lt, or, type SQL, sql } from 'drizzle-orm'
 import { alias, type BaseSQLiteDatabase, type SQLiteUpdateSetSource } from 'drizzle-orm/sqlite-core'
 import { type Adapter, AdapterStore } from '~/adapters/adapter'
-import { inTenant, jsonMerged, rowsWithLinks } from '~/adapters/drizzle/drizzle.rows'
+import { inTenant, jsonMerged, rowsWithLinks, rowWithLinks } from '~/adapters/drizzle/drizzle.rows'
 import { actorId } from '~/core/actor'
 import { authUuidV7 } from '~/core/crypto'
 import { AuthError, type SqlFault, STORE_RAISES } from '~/core/errors'
@@ -212,8 +212,7 @@ export class DrizzleSqliteAdapter<
             .values({ ...columns, createdBy: actorId(), deletedAt: null, deletedBy: null, updatedBy: actorId() })
             .returning()
           if (!created) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
-          if (providers.length === 0)
-            return { ...created, providers: [] as Identities.ProviderLink[] } as Identities.Me<Profile>
+          if (providers.length === 0) return rowWithLinks<Profile>(created)
 
           // SECURITY: the unique on (provider_id, provider_sub) is what refuses a login another row already
           // holds. No check runs first, so there is no window between deciding and writing.
@@ -222,7 +221,7 @@ export class DrizzleSqliteAdapter<
             .values(providers.map((link) => ({ ...link, addedBy: actorId(), identityId: created.id })))
             .returning(linkFields)
 
-          return { ...created, providers: written } as Identities.Me<Profile>
+          return rowWithLinks<Profile>(created, written)
         }),
       ),
 
@@ -233,7 +232,7 @@ export class DrizzleSqliteAdapter<
         const [row] = await this._db.delete(authIdentities).where(eq(authIdentities.id, id)).returning()
         if (!row) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
-        return { ...row, providers } as Identities.Me<Profile>
+        return rowWithLinks<Profile>(row, providers)
       }),
 
     /** {@link DrizzleSqliteAdapter.erase} over the set: an id with no row is simply absent from the answer, which is the only
@@ -243,7 +242,7 @@ export class DrizzleSqliteAdapter<
         const links = await this._linksFor(ids)
         const gone = await this._db.delete(authIdentities).where(inArray(authIdentities.id, ids)).returning()
 
-        return gone.map((row) => ({ ...row, providers: links.get(row.id) ?? [] }) as Identities.Me<Profile>)
+        return gone.map((row) => rowWithLinks<Profile>(row, links.get(row.id) ?? []))
       }),
 
     /** What makes a soft delete a delete: a window that has closed is past restoring, so the row goes for
@@ -302,7 +301,7 @@ export class DrizzleSqliteAdapter<
             .returning()
           if (!linked) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
-          return { ...linked, providers: await this._links(identityId, tx) } as Identities.Me<Profile>
+          return rowWithLinks<Profile>(linked, await this._links(identityId, tx))
         }),
       ),
 
@@ -313,7 +312,7 @@ export class DrizzleSqliteAdapter<
           .set({ deletedAt: null, deletedBy: null, version: sql`${authIdentities.version} + 1` })
           .where(and(eq(authIdentities.id, id), gte(authIdentities.deletedAt, new Date())))
           .returning()
-        if (restored) return { ...restored, providers: await this._links(id) } as Identities.Me<Profile>
+        if (restored) return rowWithLinks<Profile>(restored, await this._links(id))
 
         // Nothing matched: the row is not there, it is live already, or its window has closed, and only
         // this read sees a hidden row, which is the one thing `find` will not answer with.
@@ -358,7 +357,7 @@ export class DrizzleSqliteAdapter<
           .returning()
         const links = await this._linksFor(hidden.map((row) => row.id))
 
-        return hidden.map((row) => ({ ...row, providers: links.get(row.id) ?? [] }) as Identities.Me<Profile>)
+        return hidden.map((row) => rowWithLinks<Profile>(row, links.get(row.id) ?? []))
       }),
 
     /** SECURITY: one transaction. The delete lands before the gated bump, so a `softDelete` arriving between
@@ -379,7 +378,7 @@ export class DrizzleSqliteAdapter<
             .returning()
           if (!row) throw new AuthError('AUTH_IDENTITY_NOT_FOUND')
 
-          return { ...row, providers: await this._links(identityId, tx) } as Identities.Me<Profile>
+          return rowWithLinks<Profile>(row, await this._links(identityId, tx))
         }),
       ),
 
@@ -403,7 +402,7 @@ export class DrizzleSqliteAdapter<
           .returning()
         if (!row) throw new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: expectedVersion })
 
-        return { ...row, providers: await this._links(id) } as Identities.Me<Profile>
+        return rowWithLinks<Profile>(row, await this._links(id))
       }),
   }
 
@@ -628,18 +627,54 @@ export class DrizzleSqliteAdapter<
           .where(and(eq(authSessions.identityId, identityId), inTenant(authSessions.tenantId, ctx?.tenantId))),
       ),
 
-    update: (id, patch) =>
+    update: (id, patch, expectedUpdatedAt) =>
       this.run(async () => {
         // A patch with nothing to say is a no-op, not a failure: `{ csrfHash: maybeToken }` is how a caller
         // says "leave it alone", and `set({})` would reach the driver as a syntax error.
         // `id` is the sid hash the caller's cookie carries: a patch naming it is dropped, never a move.
         const { id: _pinnedId, ...movable } = patch
         const set = stripUndefined(movable)
+        // `$onUpdate` stamps `new Date()`, which is the same value for two writes inside one millisecond -
+        // and a guard comparing equal to a read taken before the first of them then lands on top of it. The
+        // database computes the next value instead, so the token is strictly increasing however the two
+        // writers interleave and whether or not either passed a guard.
+        const writeSet = { ...set, updatedAt: sql`max(${authSessions.updatedAt} + 1, ${Date.now()})` }
+        // The guard rides in the WHERE so the database enforces it, and is read once first so a refusal can
+        // name which of the two things went wrong: AUTH_SESSION_REVOKED is in the reader's absent set, so
+        // answering it for a lost race would let `orNull()` read the refusal back as "no session".
+        const guard = expectedUpdatedAt === undefined ? undefined : eq(authSessions.updatedAt, expectedUpdatedAt)
+        if (expectedUpdatedAt !== undefined) {
+          const [cur] = await this._db
+            .select({ updatedAt: authSessions.updatedAt })
+            .from(authSessions)
+            .where(eq(authSessions.id, id))
+            .limit(1)
+          if (!cur) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+          if (cur.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+            throw new AuthError('AUTH_STALE_WRITE', {
+              actual: cur.updatedAt.getTime(),
+              expected: expectedUpdatedAt.getTime(),
+            })
+          }
+        }
         const [row] =
           Object.keys(set).length === 0
-            ? await this._db.select(sessionColumns).from(authSessions).where(eq(authSessions.id, id))
-            : await this._db.update(authSessions).set(set).where(eq(authSessions.id, id)).returning(sessionColumns)
-        if (!row) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+            ? await this._db
+                .select(sessionColumns)
+                .from(authSessions)
+                .where(and(eq(authSessions.id, id), guard))
+            : await this._db
+                .update(authSessions)
+                .set(writeSet)
+                .where(and(eq(authSessions.id, id), guard))
+                .returning(sessionColumns)
+        if (!row) {
+          // The pre-read agreed and the write still matched nothing, so a racer moved `updatedAt` between them.
+          if (expectedUpdatedAt !== undefined) {
+            throw new AuthError('AUTH_STALE_WRITE', { expected: expectedUpdatedAt.getTime() })
+          }
+          throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+        }
 
         return row
       }),
