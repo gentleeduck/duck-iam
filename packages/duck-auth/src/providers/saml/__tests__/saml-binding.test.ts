@@ -42,6 +42,7 @@ function makeProvider(over: Partial<Saml.Options<MyProfile>> = {}, client = make
   const provider = saml<MyProfile>({
     // The suite's default is the unsolicited flow, so every test that is not about the binding can
     // keep calling `complete` with a bare response.
+    allowReplay: true,
     allowUnsolicited: true,
     callbackUrl: 'https://app.test/auth/saml/acs',
     client,
@@ -478,7 +479,7 @@ describe('what a failed attempt tells the caller', () => {
     expect(new Set([tooBig, badSig, badProfile])).toEqual(new Set(['SAMLResponse rejected']))
   })
 
-  it('wraps a failure inside the provisioning hook, and keeps its text on the bus', async () => {
+  it('wraps a failure inside the provisioning hook, and keeps its text off the bus', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const events = new InMemoryEvents()
     const seen: Array<{ reason: string }> = []
@@ -494,7 +495,8 @@ describe('what a failed attempt tells the caller', () => {
       code: 'AUTH_PROVIDER_FAILED',
       meta: { detail: 'SAMLResponse rejected' },
     })
-    expect(seen[0]?.reason).toContain('identity store unreachable')
+    // `onSignIn` is the host's callback: its message is free text, and the reason is a metric attribute.
+    expect(seen[0]?.reason).toBe('onSignIn threw')
   })
 
   it('reports a missing relayState or host as a bad request, not as a misconfiguration', async () => {

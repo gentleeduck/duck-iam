@@ -48,6 +48,7 @@ describe('samlProvider - input caps', () => {
     it('rejects oversize relayState (>256 chars)', async () => {
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -62,6 +63,7 @@ describe('samlProvider - input caps', () => {
     it('accepts relayState at the cap (256 chars)', async () => {
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -74,6 +76,7 @@ describe('samlProvider - input caps', () => {
     it('rejects empty relayState', async () => {
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -87,6 +90,7 @@ describe('samlProvider - input caps', () => {
     it('rejects oversize host (>253 chars)', async () => {
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -101,6 +105,7 @@ describe('samlProvider - input caps', () => {
     it('rejects empty host', async () => {
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -114,6 +119,7 @@ describe('samlProvider - input caps', () => {
     it('rejects non-string relayState without crashing', async () => {
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -130,6 +136,7 @@ describe('samlProvider - input caps', () => {
     it('rejects oversize SAMLResponse (>1 MiB) BEFORE calling validatePostResponseAsync', async () => {
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -150,6 +157,7 @@ describe('samlProvider - input caps', () => {
       )
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -164,6 +172,7 @@ describe('samlProvider - input caps', () => {
     it('rejects empty SAMLResponse', async () => {
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -179,6 +188,7 @@ describe('samlProvider - input caps', () => {
     it('rejects non-string SAMLResponse without crashing', async () => {
       const client = makeClient()
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -201,6 +211,7 @@ describe('samlProvider - input caps', () => {
         }),
       })
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -232,6 +243,7 @@ describe('samlProvider - input caps', () => {
         }),
       })
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -259,6 +271,7 @@ describe('samlProvider - input caps', () => {
         }),
       })
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -285,7 +298,13 @@ describe('samlProvider - input caps', () => {
         })),
       })
       const onSignIn = vi.fn(async () => ({ identityId: 'x' }))
-      const provider = saml({ allowUnsolicited: true, client, callbackUrl: 'https://app/acs', onSignIn })
+      const provider = saml({
+        allowReplay: true,
+        allowUnsolicited: true,
+        client,
+        callbackUrl: 'https://app/acs',
+        onSignIn,
+      })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '<SAMLResponse/>' })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'SAMLResponse rejected' },
@@ -304,7 +323,13 @@ describe('samlProvider - input caps', () => {
         })),
       })
       const onSignIn = vi.fn(async () => ({ identityId: 'x' }))
-      const provider = saml({ allowUnsolicited: true, client, callbackUrl: 'https://app/acs', onSignIn })
+      const provider = saml({
+        allowReplay: true,
+        allowUnsolicited: true,
+        client,
+        callbackUrl: 'https://app/acs',
+        onSignIn,
+      })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '<SAMLResponse/>' })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'SAMLResponse rejected' },
@@ -325,6 +350,7 @@ describe('samlProvider - input caps', () => {
         })),
       })
       const provider = saml({
+        allowReplay: true,
         allowUnsolicited: true,
         client,
         callbackUrl: 'https://app/acs',
@@ -348,7 +374,13 @@ describe('samlProvider - input caps', () => {
         })),
       })
       const onSignIn = vi.fn(async () => ({ identityId: ident.id }))
-      const provider = saml({ allowUnsolicited: true, client, callbackUrl: 'https://app/acs', onSignIn })
+      const provider = saml({
+        allowReplay: true,
+        allowUnsolicited: true,
+        client,
+        callbackUrl: 'https://app/acs',
+        onSignIn,
+      })
       const intents = await provider.complete(ctxFor(adapterInner), { SAMLResponse: '<SAMLResponse/>' })
       expect(intents[0]!.type).toBe('startSession')
       expect(onSignIn).toHaveBeenCalledOnce()
