@@ -410,14 +410,14 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('subject attributes that are a JSON array throw rather than reading as empty', async () => {
       await reset()
       await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','[1,2]'::jsonb)`)
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
     })
 
     it('subject attributes that are JSON null throw rather than reading as empty', async () => {
       await reset()
       await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','null'::jsonb)`)
       // SECURITY: `{}` here would retire every deny rule that tests an attribute.
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
     })
 
     it('a stored __proto__ attribute key makes the row unreadable rather than half-read', async () => {
@@ -427,7 +427,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
       )
       // SECURITY: assigning the key sets the prototype, and owning it hides the value a deny rule tests,
       // so the bag is refused and the operator gets a row to repair.
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
     })
 
     it('a __proto__ attribute written through the adapter is refused at the write', async () => {
