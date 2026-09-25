@@ -47,13 +47,13 @@ describe('every knob the config type accepts reaches the engine', () => {
     // listeners registered on the original.
     const events = new InMemoryEvents()
     const seen: unknown[] = []
-    events.on('maintenance.off', (p) => {
+    events.on('authz.revoked', (p) => {
       seen.push(p)
     })
     const auth = createAuth({ ...base(), events })
 
     expect(auth.events).not.toBe(events)
-    await auth.events.emit('maintenance.off', {})
+    await auth.events.emit('authz.revoked', { at: 0, identityId: 'u' })
     expect(seen).toHaveLength(1)
   })
 
@@ -90,21 +90,21 @@ describe('every knob the config type accepts reaches the engine', () => {
     expect(auth.providers.list()).toHaveLength(1)
   })
 
-  it('resolves a provider thunk against the constructed engine and the channels bundle', () => {
-    const seen: Array<{ channels: unknown; sameEngine: boolean }> = []
-    const channels = { email: { id: 'email', send: async () => undefined } as never }
+  it('resolves a provider thunk against the constructed engine and the host deliver', () => {
+    const seen: Array<{ deliver: unknown; sameEngine: boolean }> = []
+    const deliver = async (): Promise<void> => {}
     const auth = createAuth({
       ...base(),
-      channels,
+      deliver,
       providers: [
-        (engine, chans) => {
-          seen.push({ channels: chans, sameEngine: engine instanceof Object })
+        (engine, send) => {
+          seen.push({ deliver: send, sameEngine: engine instanceof Object })
           return passwords({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) })
         },
       ],
     })
     expect(auth.providers.has('password')).toBe(true)
-    expect(seen[0]?.channels).toBe(channels)
+    expect(seen[0]?.deliver).toBe(deliver)
   })
 
   it('refuses a plugins array rather than accepting one it cannot install', () => {

@@ -27,7 +27,7 @@ for (const file of globSync('src/**/*.ts', { cwd: ROOT })) {
 
 describe('packages loaded by dynamic import', () => {
   it('finds them, so a parse that matched nothing cannot read as a clean sweep', () => {
-    expect(specifiers.size).toBeGreaterThan(5)
+    expect(specifiers.size).toBeGreaterThan(2)
     expect(specifiers.has('@simplewebauthn/server')).toBe(true)
   })
 

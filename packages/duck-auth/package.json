@@ -152,66 +152,6 @@
         "default": "./dist/adapters/drizzle/sqlite/index.cjs"
       }
     },
-    "./channels/console": {
-      "import": {
-        "types": "./dist/channels/console/index.d.ts",
-        "default": "./dist/channels/console/index.js"
-      },
-      "require": {
-        "types": "./dist/channels/console/index.d.cts",
-        "default": "./dist/channels/console/index.cjs"
-      }
-    },
-    "./channels/smtp": {
-      "import": {
-        "types": "./dist/channels/smtp/index.d.ts",
-        "default": "./dist/channels/smtp/index.js"
-      },
-      "require": {
-        "types": "./dist/channels/smtp/index.d.cts",
-        "default": "./dist/channels/smtp/index.cjs"
-      }
-    },
-    "./channels/resend": {
-      "import": {
-        "types": "./dist/channels/resend/index.d.ts",
-        "default": "./dist/channels/resend/index.js"
-      },
-      "require": {
-        "types": "./dist/channels/resend/index.d.cts",
-        "default": "./dist/channels/resend/index.cjs"
-      }
-    },
-    "./channels/twilio": {
-      "import": {
-        "types": "./dist/channels/twilio/index.d.ts",
-        "default": "./dist/channels/twilio/index.js"
-      },
-      "require": {
-        "types": "./dist/channels/twilio/index.d.cts",
-        "default": "./dist/channels/twilio/index.cjs"
-      }
-    },
-    "./channels/webpush": {
-      "import": {
-        "types": "./dist/channels/webpush/index.d.ts",
-        "default": "./dist/channels/webpush/index.js"
-      },
-      "require": {
-        "types": "./dist/channels/webpush/index.d.cts",
-        "default": "./dist/channels/webpush/index.cjs"
-      }
-    },
-    "./channels/ses": {
-      "import": {
-        "types": "./dist/channels/ses/index.d.ts",
-        "default": "./dist/channels/ses/index.js"
-      },
-      "require": {
-        "types": "./dist/channels/ses/index.d.cts",
-        "default": "./dist/channels/ses/index.cjs"
-      }
-    },
     "./limiters/memory": {
       "import": {
         "types": "./dist/limiters/memory/index.d.ts",
@@ -532,16 +472,6 @@
         "default": "./dist/client/solid/index.cjs"
       }
     },
-    "./openapi": {
-      "import": {
-        "types": "./dist/openapi/index.d.ts",
-        "default": "./dist/openapi/index.js"
-      },
-      "require": {
-        "types": "./dist/openapi/index.d.cts",
-        "default": "./dist/openapi/index.cjs"
-      }
-    },
     "./oidc": {
       "import": {
         "types": "./dist/oidc/index.d.ts",
@@ -592,16 +522,6 @@
         "default": "./dist/oidc/op/drizzle/mysql.cjs"
       }
     },
-    "./telemetry/otel": {
-      "import": {
-        "types": "./dist/telemetry/otel/index.d.ts",
-        "default": "./dist/telemetry/otel/index.js"
-      },
-      "require": {
-        "types": "./dist/telemetry/otel/index.d.cts",
-        "default": "./dist/telemetry/otel/index.cjs"
-      }
-    },
     "./test": {
       "import": {
         "types": "./dist/test/index.d.ts",
@@ -643,26 +563,18 @@
   },
   "peerDependencies": {
     "@aws-sdk/client-kms": ">=3 <4",
-    "@aws-sdk/client-ses": ">=3 <4",
     "@gentleduck/iam": "workspace:^",
     "@nestjs/common": ">=10 <12",
     "@node-rs/argon2": ">=2 <3",
-    "@opentelemetry/api": ">=1 <2",
     "@simplewebauthn/server": "^13.3.1",
     "drizzle-orm": "^0.45.2",
     "react": "^18 || ^19",
-    "resend": ">=3",
     "solid-js": "^1.9.13",
     "svelte": "^4 || ^5",
-    "twilio": ">=4",
-    "vue": "^3",
-    "web-push": ">=3"
+    "vue": "^3"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-kms": {
-      "optional": true
-    },
-    "@aws-sdk/client-ses": {
       "optional": true
     },
     "@gentleduck/iam": {
@@ -674,9 +586,6 @@
     "@node-rs/argon2": {
       "optional": true
     },
-    "@opentelemetry/api": {
-      "optional": true
-    },
     "@simplewebauthn/server": {
       "optional": true
     },
@@ -686,22 +595,13 @@
     "react": {
       "optional": true
     },
-    "resend": {
-      "optional": true
-    },
     "solid-js": {
       "optional": true
     },
     "svelte": {
       "optional": true
     },
-    "twilio": {
-      "optional": true
-    },
     "vue": {
-      "optional": true
-    },
-    "web-push": {
       "optional": true
     }
   },

@@ -101,7 +101,7 @@ describe('idempotency is configured the way the limiter is', () => {
 
 describe('anomaly thresholds are reachable from the config', () => {
   it('a configured reaction reaches the facet', async () => {
-    const auth = createAuth({ ...base(), anomaly: { reactions: { 'new-device': 'deny' } } })
+    const auth = createAuth({ ...base(), anomaly: { reactions: { '*': { 'new-device': 'deny' } } } })
     expect(auth.anomaly.decide([{ evidence: {}, kind: 'new-device', score: 0.01 }])).toBe('deny')
   })
 
@@ -148,24 +148,6 @@ describe('every config-position class has a factory beside it', () => {
     const mod = await import('~/core/anomaly')
     expect(typeof mod.deviceFingerprintDetector).toBe('function')
     expect(typeof mod.authImpossibleTravelDetector).toBe('function')
-  })
-
-  it('the channels barrel exposes every channel, and imports at runtime', async () => {
-    // It used to re-export only the `Channel` type namespace, and to do it as a
-    // value, so importing the barrel threw before a consumer reached a channel
-    // that was not there to reach.
-    const mod = await import('~/channels')
-    for (const name of [
-      'authConsoleChannel',
-      'authNoopChannel',
-      'authResendChannel',
-      'authSesChannel',
-      'authSmtpChannel',
-      'authTwilioChannel',
-      'authWebPushChannel',
-    ]) {
-      expect(typeof (mod as Record<string, unknown>)[name], name).toBe('function')
-    }
   })
 })
 

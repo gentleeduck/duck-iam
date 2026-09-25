@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { AuthTestChannel } from '~/channels/console'
 import type { Credential } from '~/core/credentials'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -14,8 +14,10 @@ interface MyProfile extends Identities.ProfileMetadataBase {
 
 function build(opts: { credentials?: (base: Credential.Store) => Credential.Store } = {}) {
   const adapter = new MemoryAdapter<MyProfile>()
+  const channel = authTestDeliver()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
+    deliver: channel.deliver,
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
@@ -25,20 +27,19 @@ function build(opts: { credentials?: (base: Credential.Store) => Credential.Stor
     limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
-  return { auth, adapter }
+  return { adapter, auth, channel }
 }
 
 describe('FlowsImpl - account deletion', () => {
   let auth: AuthEngine<MyProfile>
   let adapter: MemoryAdapter<MyProfile>
   let identityId: string
-  let channel: AuthTestChannel
+  let channel: ReturnType<typeof build>['channel']
 
   beforeEach(async () => {
-    ;({ auth, adapter } = build())
+    ;({ adapter, auth, channel } = build())
     const ident = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
     identityId = ident.id
-    channel = new AuthTestChannel()
   })
 
   it('request -> complete soft-deletes the identity + revokes sessions + returns restorableUntil', async () => {
@@ -53,11 +54,10 @@ describe('FlowsImpl - account deletion', () => {
 
     await auth.flows.requestAccountDeletion({
       identityId,
-      channels: { email: channel },
       reason: 'user request',
     })
     expect(channel.outbox).toHaveLength(1)
-    expect(channel.outbox[0]!.templateId).toBe('account-deletion')
+    expect(channel.outbox[0]!.kind).toBe('account-deletion')
     const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
 
     const result = await auth.flows.completeAccountDeletion({ token })
@@ -79,7 +79,6 @@ describe('FlowsImpl - account deletion', () => {
   it('cancel within grace restores the identity', async () => {
     await auth.flows.requestAccountDeletion({
       identityId,
-      channels: { email: channel },
     })
     const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
@@ -95,7 +94,7 @@ describe('FlowsImpl - account deletion', () => {
     // The whole gate. Before this, the function checked that `identityId` was a
     // plausible string and restored the account - anyone who could reach it
     // un-deleted any account by id.
-    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId })
+    await auth.flows.requestAccountDeletion({ identityId })
     const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
 
@@ -106,7 +105,7 @@ describe('FlowsImpl - account deletion', () => {
   })
 
   it('cancel asks authorize() about the identity it is being asked to restore', async () => {
-    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId })
+    await auth.flows.requestAccountDeletion({ identityId })
     const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
     const seen: string[] = []
@@ -125,7 +124,7 @@ describe('FlowsImpl - account deletion', () => {
   it('cancel refuses before reading or writing anything, not after', async () => {
     // A denial must not be observable as a restore-then-undo, and must not cost
     // a store round-trip an attacker can time.
-    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId })
+    await auth.flows.requestAccountDeletion({ identityId })
     const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
     const restore = vi.spyOn(adapter.identities, 'restore')
@@ -167,7 +166,7 @@ describe('FlowsImpl - account deletion', () => {
   })
 
   it('complete is single-use: replay fails', async () => {
-    await auth.flows.requestAccountDeletion({ identityId, channels: { email: channel } })
+    await auth.flows.requestAccountDeletion({ identityId })
     const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
     await expect(auth.flows.completeAccountDeletion({ token })).rejects.toMatchObject({
@@ -184,7 +183,11 @@ describe('FlowsImpl - account deletion', () => {
     const held = new Promise<void>((resolve) => {
       release = resolve
     })
-    const { adapter: ad, auth: engine } = build({
+    const {
+      adapter: ad,
+      auth: engine,
+      channel: ch,
+    } = build({
       credentials: (base) => ({
         ...base,
         delete: async (id, ctx) => {
@@ -197,19 +200,18 @@ describe('FlowsImpl - account deletion', () => {
       }),
     })
     const ident = await engine.identities.create({ profile: { username: 'b@x.com', email: 'b@x.com' } })
-    const ch = new AuthTestChannel()
-    await engine.flows.requestAccountDeletion({ channels: { email: ch }, identityId: ident.id })
+    await engine.flows.requestAccountDeletion({ identityId: ident.id })
     const token = new URL((ch.outbox[0]?.vars as { url: string }).url).searchParams.get('token') as string
     const [row] = await ad.credentials.listByIdentity(ident.id, 'recovery', {})
     gatedId = row?.id ?? null
     const softDeletes = vi.spyOn(ad.identities, 'softDelete')
 
-    const winner = engine.flows.completeAccountDeletion({ channels: { email: ch }, token })
+    const winner = engine.flows.completeAccountDeletion({ token })
     await vi.waitFor(() => {
       if (calls === 0) throw new Error('the winner has not claimed the row yet')
     })
 
-    await expect(engine.flows.completeAccountDeletion({ channels: { email: ch }, token })).rejects.toMatchObject({
+    await expect(engine.flows.completeAccountDeletion({ token })).rejects.toMatchObject({
       code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
     release()
@@ -225,9 +227,9 @@ describe('FlowsImpl - account deletion', () => {
   })
 
   it('resend wipes the prior token; only latest verifies', async () => {
-    await auth.flows.requestAccountDeletion({ identityId, channels: { email: channel } })
+    await auth.flows.requestAccountDeletion({ identityId })
     const t1 = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
-    await auth.flows.requestAccountDeletion({ identityId, channels: { email: channel } })
+    await auth.flows.requestAccountDeletion({ identityId })
     const t2 = new URL((channel.outbox[1]!.vars as { url: string }).url).searchParams.get('token')!
     expect(t1).not.toBe(t2)
     await expect(auth.flows.completeAccountDeletion({ token: t1 })).rejects.toMatchObject({
@@ -240,28 +242,15 @@ describe('FlowsImpl - account deletion', () => {
     await expect(
       auth.flows.requestAccountDeletion({
         identityId: 'does-not-exist',
-        channels: { email: channel },
       }),
     ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
   })
 
-  it('rejects request when configured channel is missing', async () => {
-    await expect(
-      auth.flows.requestAccountDeletion({
-        identityId,
-        channel: 'sms',
-        channels: { email: channel },
-      }),
-    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
-  })
-
   it('rate-limit enforced (max 5 within window)', async () => {
     for (let i = 0; i < 5; i++) {
-      await auth.flows.requestAccountDeletion({ identityId, channels: { email: channel } })
+      await auth.flows.requestAccountDeletion({ identityId })
     }
-    await expect(auth.flows.requestAccountDeletion({ identityId, channels: { email: channel } })).rejects.toMatchObject(
-      { code: 'AUTH_RATE_LIMITED' },
-    )
+    await expect(auth.flows.requestAccountDeletion({ identityId })).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
   })
 
   it('rejects oversize reason (>1024 chars)', async () => {
@@ -269,7 +258,6 @@ describe('FlowsImpl - account deletion', () => {
     await expect(
       auth.flows.requestAccountDeletion({
         identityId,
-        channels: { email: channel },
         reason: big,
       }),
     ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
@@ -279,7 +267,6 @@ describe('FlowsImpl - account deletion', () => {
     const sized = 'A'.repeat(1024)
     const r = await auth.flows.requestAccountDeletion({
       identityId,
-      channels: { email: channel },
       reason: sized,
     })
     expect(r).toEqual({ ok: true })
@@ -289,7 +276,6 @@ describe('FlowsImpl - account deletion', () => {
     await expect(
       auth.flows.requestAccountDeletion({
         identityId,
-        channels: { email: channel },
         reason: 42 as unknown as string,
       }),
     ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })

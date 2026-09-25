@@ -1,5 +1,5 @@
 import { orNull } from '~/core/answer'
-import { isCredentialExpired, toCredentialCreate } from '~/core/credentials/credentials'
+import { burnCredential, isCredentialExpired, toCredentialCreate } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import { canonicalEmail, type Identities } from '~/core/identities'
@@ -33,27 +33,18 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
     this.callbackPath = opts.callbackPath ?? DEFAULT_MAGIC_LINK_CONFIG.callbackPath
   }
 
-  /** Mints a single-use link and sends it over the requested channel. */
+  /** Mints a single-use link and hands it to the host's `deliver`. */
   async begin(ctx: Provider.Context<Profile>, input: MagicLink.BeginInput): Promise<Provider.Intent[]> {
     const { email } = input
-    const requestedChannel = input.channel ?? 'email'
-    // An allowlist, so a hostile caller cannot echo arbitrary strings back through the
-    // AUTH_MISCONFIGURED detail.
-    const channelKind: 'email' | 'sms' | 'webpush' =
-      requestedChannel === 'email' || requestedChannel === 'sms' || requestedChannel === 'webpush'
-        ? requestedChannel
-        : 'email'
     // RFC 5321's 254-char cap, which bounds the limiter store and the lookups below.
     if (typeof email !== 'string' || email.length === 0 || email.length > 254) {
       // The shape of the address, not whether it belongs to anyone: an unknown address resolves, so a 401
       // here says the caller failed to authenticate when it only handed over something unusable.
       throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'magic-link: email must be a 1-254 char string' })
     }
-    const channel = this.opts.channels[channelKind]
-    if (!channel) {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `magic-link: channel "${channelKind}" not configured`,
-      })
+    const send = this.opts.deliver
+    if (!send) {
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'magic-link: no `deliver` configured' })
     }
 
     // Trimmed and lowercased, so the rate limit, the identity lookup and the stored credential metadata
@@ -91,7 +82,7 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
           identityId,
           kind: 'magic-link',
           secret: tokenHash,
-          metadata: { email: emailCanonical, channel: channelKind } satisfies MagicLink.CredentialMetadata,
+          metadata: { email: emailCanonical } satisfies MagicLink.CredentialMetadata,
           expiresAt: new Date(Date.now() + this.ttlMs),
         }),
         ctx.tenant,
@@ -116,29 +107,17 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
       }
       return [{ type: 'json', status: 200, body: { ok: true } }]
     }
-    void channel
-      .send({
-        identity: identityRow,
-        templateId: 'magic-link',
-        vars: { url, ttlMin: Math.round(this.ttlMs / 60_000) },
-        tenant: ctx.tenant,
-      })
-      .then(async (result) => {
-        if (!result.ok) {
-          // The channel's error metadata is not forwarded: it can carry the rendered body, and with it the
-          // token URL.
-          await ctx.events.emit('signin.failed', {
-            providerId: 'magic-link',
-            reason: 'channel.send rejected delivery',
-          })
-        }
-      })
-      .catch(async (err) => {
-        await ctx.events.emit('signin.failed', {
-          providerId: 'magic-link',
-          reason: `channel.send threw: ${err instanceof Error ? err.message : String(err)}`,
-        })
-      })
+    void send({
+      identity: identityRow,
+      kind: 'magic-link',
+      tenant: ctx.tenant,
+      vars: { ttlMin: Math.round(this.ttlMs / 60_000), url },
+    }).catch(async () => {
+      // The thrown error's text is not forwarded, and this is the flow where it matters most: `vars.url`
+      // is the sign-in link itself, so a mailer that throws quoting what it tried to send would put a live
+      // token into the audit log.
+      await ctx.events.emit('signin.failed', { providerId: 'magic-link', reason: 'deliver threw' })
+    })
     return [{ type: 'json', status: 200, body: { ok: true } }]
   }
 
@@ -160,19 +139,7 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
       void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
       throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
     }
-    // A CAS claim that also burns the token, so concurrent requests carrying one token produce one
-    // session and the losers see AUTH_RECOVERY_TOKEN_INVALID. Rotating to `row.secret` would claim the
-    // version while leaving the row findable by `hash` and unrevoked until the revoke below, which is a
-    // window a second redemption reads in and wins its own CAS.
-    const burnt = ctx.crypto.authSha256(ctx.crypto.authRandomToken(32))
-    try {
-      await ctx.stores.credentials.rotate(row.id, burnt, row.version, ctx.tenant)
-    } catch (err) {
-      if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') {
-        throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
-      }
-      throw err
-    }
+    await burnCredential(ctx, row)
     await ctx.stores.credentials.revoke(row.id, ctx.tenant)
     return [
       {

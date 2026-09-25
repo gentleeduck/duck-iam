@@ -4,7 +4,6 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
-import { AuthTestChannel } from '~/channels/console'
 import { orNull } from '~/core/answer'
 import { getCredentialPurpose } from '~/core/credentials/credentials'
 import { AuthEngine } from '~/core/engine'
@@ -14,6 +13,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { RedisLimiter } from '~/limiters/redis'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 import { applyPgSchema, databaseUrl, dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 
 const PG_URL = databaseUrl()
@@ -30,13 +30,14 @@ suite('E2E token flows on real Postgres + Redis', () => {
   let prefix: string
   let auth: AuthEngine<Profile>
   let stores: DrizzlePgAdapter
+  const channel = authTestDeliver()
   const planted: string[] = []
 
   const cookie = (sid: string) => ({ headers: new Headers({ cookie: `duck-sid=${sid}` }) })
 
   /** Pull the `token` query param out of whatever the channel was handed. */
-  function tokenFrom(channel: AuthTestChannel, index = 0): string {
-    const entry = channel.outbox[index]
+  function tokenFrom(index = -1): string {
+    const entry = channel.outbox.at(index)
     if (!entry) throw new Error('channel received nothing')
     const url = (entry.vars as { url?: string }).url
     if (!url) throw new Error(`no url on the message: ${JSON.stringify(entry.vars)}`)
@@ -55,14 +56,9 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
   const findByEmail = async (email: string) => orNull(stores.identities.find({ email }))
 
-  async function requestReset(email: string): Promise<{ channel: AuthTestChannel; token: string }> {
-    const channel = new AuthTestChannel()
-    await auth.flows.requestPasswordReset({
-      channels: { email: channel },
-      findIdentityByEmail: findByEmail,
-      input: { email },
-    })
-    return { channel, token: tokenFrom(channel) }
+  async function requestReset(email: string): Promise<{ token: string }> {
+    await auth.flows.requestPasswordReset({ findIdentityByEmail: findByEmail, input: { email } })
+    return { token: tokenFrom() }
   }
 
   async function signIn(email: string) {
@@ -79,6 +75,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
+      deliver: channel.deliver,
       idempotency: redisIdempotency({ prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me) }),
       limiter: new RedisLimiter({
         max: 500,
@@ -198,14 +195,13 @@ suite('E2E token flows on real Postgres + Redis', () => {
     it('says nothing about whether an address is registered', async () => {
       // Enumeration: the response for an unknown address must look like the
       // response for a known one.
-      const channel = new AuthTestChannel()
+      const before = channel.outbox.length
       const result = await auth.flows.requestPasswordReset({
-        channels: { email: channel },
         findIdentityByEmail: findByEmail,
         input: { email: `nobody-${e2ePrefix()}@test.local` },
       })
       expect(result).toEqual({ ok: true })
-      expect(channel.outbox).toHaveLength(0)
+      expect(channel.outbox).toHaveLength(before)
     })
 
     it('issues a distinct token each time it is asked', async () => {
@@ -219,12 +215,10 @@ suite('E2E token flows on real Postgres + Redis', () => {
   describe('email verification', () => {
     it('marks the address verified and refuses the token afterwards', async () => {
       const user = await newUser('verify')
-      const channel = new AuthTestChannel()
       await auth.flows.requestEmailVerification({
-        channels: { email: channel },
         identityId: user.id,
       })
-      const token = tokenFrom(channel)
+      const token = tokenFrom()
 
       const done = await auth.flows.completeEmailVerification({ token })
       expect(done.identityId).toBe(user.id)
@@ -243,9 +237,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
       // merges a caller's patch unfiltered, so a flag in the profile is one the subject of the
       // decision can set on themselves.
       const user = await newUser('verify-column')
-      const channel = new AuthTestChannel()
-      await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: user.id })
-      await auth.flows.completeEmailVerification({ token: tokenFrom(channel) })
+      await auth.flows.requestEmailVerification({ identityId: user.id })
+      await auth.flows.completeEmailVerification({ token: tokenFrom() })
 
       const row = await stores.identities.find({ id: user.id })
       expect(row?.emailVerified).toBe(true)
@@ -262,9 +255,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
       // way into the stronger one. The code is the same one a token that never existed gets, deliberately:
       // telling the two apart would confirm the token is real to whoever is holding it.
       const user = await newUser('verify-crosskind')
-      const channel = new AuthTestChannel()
-      await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: user.id })
-      const token = tokenFrom(channel)
+      await auth.flows.requestEmailVerification({ identityId: user.id })
+      const token = tokenFrom()
 
       await expect(auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_INVALID',
@@ -283,9 +275,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
   describe('account deletion and its grace period', () => {
     it('hides the account on completion and restores it on cancel', async () => {
       const user = await newUser('delete-restore')
-      const channel = new AuthTestChannel()
-      await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: user.id })
-      const token = tokenFrom(channel)
+      await auth.flows.requestAccountDeletion({ identityId: user.id })
+      const token = tokenFrom()
 
       await auth.flows.completeAccountDeletion({ token })
       await expect(stores.identities.find({ id: user.id })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
@@ -296,9 +287,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
     it('refuses the deletion token a second time', async () => {
       const user = await newUser('delete-replay')
-      const channel = new AuthTestChannel()
-      await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: user.id })
-      const token = tokenFrom(channel)
+      await auth.flows.requestAccountDeletion({ identityId: user.id })
+      const token = tokenFrom()
 
       await auth.flows.completeAccountDeletion({ token })
       await expect(auth.flows.completeAccountDeletion({ token })).rejects.toMatchObject({
@@ -310,9 +300,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
     it('a deleted account cannot sign in, and can again once restored', async () => {
       const user = await newUser('delete-signin')
-      const channel = new AuthTestChannel()
-      await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: user.id })
-      await auth.flows.completeAccountDeletion({ token: tokenFrom(channel) })
+      await auth.flows.requestAccountDeletion({ identityId: user.id })
+      await auth.flows.completeAccountDeletion({ token: tokenFrom() })
 
       await expect(signIn(user.email)).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
 
@@ -325,9 +314,8 @@ suite('E2E token flows on real Postgres + Redis', () => {
       // A partial index would free it the moment the delete landed, and cancelling would then restore an
       // account whose address someone else had already taken and verified.
       const user = await newUser('delete-keeps')
-      const channel = new AuthTestChannel()
-      await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: user.id })
-      await auth.flows.completeAccountDeletion({ token: tokenFrom(channel) })
+      await auth.flows.requestAccountDeletion({ identityId: user.id })
+      await auth.flows.completeAccountDeletion({ token: tokenFrom() })
 
       await expect(
         auth.identities.create({ profile: { email: user.email, username: `${user.email}-again` } }),
@@ -383,7 +371,6 @@ suite('E2E token flows on real Postgres + Redis', () => {
       planted.push(flow.identityId)
 
       await auth.flows.requestEmailVerification({
-        channels: { email: new AuthTestChannel() },
         identityId: flow.identityId,
       })
 
@@ -412,6 +399,9 @@ suite('E2E token flows on real Postgres + Redis', () => {
 
       const released = await auth.flows.releaseImpersonation(started.sid)
       expect(released.session?.identityId).toBe(admin.id)
+      // Null only on the erased-operator branch, which this is not.
+      expect(released.sid).not.toBeNull()
+      if (released.sid === null) throw new Error('unreachable: release returned no sid')
       // The sid it answers with resolves against the real store, and the one it
       // replaced does not.
       expect((await auth.resolveSession(cookie(released.sid))).session.identityId).toBe(admin.id)

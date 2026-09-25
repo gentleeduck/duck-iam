@@ -1,8 +1,8 @@
-/** Every flow that mails a link reads the result of the send it made. */
+/** Every flow that mails a link reports a `deliver` that refused, and reports it without its text. */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import type { Channel } from '~/channels/channels.types'
 import { AuthEngine } from '~/core/engine'
+import type { Deliver } from '~/core/flows/flows.delivery'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -12,29 +12,24 @@ interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
-const refusing: Channel.Channel = {
-  id: 'refusing',
-  kind: 'email',
-  send: async () => ({ error: 'connection refused', ok: false, retryable: true }),
-}
-
-const throwing: Channel.Channel = {
-  id: 'throwing',
-  kind: 'email',
-  send: async () => {
-    throw new Error('transport exploded')
-  },
-}
-
-describe('a flow that mails a link reads what the channel answered', () => {
+describe('a flow that mails a link reads what deliver answered', () => {
   let auth: AuthEngine<MyProfile>
   let identityId: string
   let failures: string[]
+  let urls: string[]
+  let refuse: boolean
 
   beforeEach(async () => {
     const adapter = new MemoryAdapter<MyProfile>()
+    urls = []
+    refuse = true
+    const deliver: Deliver = async (message) => {
+      urls.push((message.vars as { url?: string }).url ?? '')
+      if (refuse) throw new Error('transport exploded')
+    }
     auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
+      deliver,
       limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
       providers: [passwords({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) })],
       stores: {
@@ -52,48 +47,24 @@ describe('a flow that mails a link reads what the channel answered', () => {
     })
   })
 
-  it('email verification says so when the channel refused', async () => {
-    await auth.flows.requestEmailVerification({ channels: { email: refusing }, identityId })
-    expect(failures).toEqual(['email-verification:channel.send rejected delivery'])
+  it('email verification says so, and does not quote what deliver threw', async () => {
+    await auth.flows.requestEmailVerification({ identityId })
+    // The thrown text names the recipient and quotes the body it rendered, token URL and all.
+    expect(failures).toEqual(['email-verification:deliver threw'])
   })
 
-  it('a deletion request says so when the channel refused', async () => {
-    await auth.flows.requestAccountDeletion({ channels: { email: refusing }, identityId })
-    expect(failures).toEqual(['account-deletion:channel.send rejected delivery'])
+  it('a deletion request says so when deliver refused', async () => {
+    await auth.flows.requestAccountDeletion({ identityId })
+    expect(failures).toEqual(['account-deletion:deliver threw'])
   })
 
-  it('the cancellation mail that follows a confirmed deletion says so too', async () => {
-    await auth.flows.requestAccountDeletion({ channels: { email: refusing }, identityId })
-    const token = new URL(await pendingUrl(auth, identityId)).searchParams.get('token')
+  it('the undo link that follows a confirmed deletion says so too', async () => {
+    refuse = false
+    await auth.flows.requestAccountDeletion({ identityId })
+    const token = new URL(urls[0] ?? '').searchParams.get('token')
     failures = []
-    await auth.flows.completeAccountDeletion({ channels: { email: refusing }, token: token! })
-    expect(failures).toEqual(['account-deletion-cancel:channel.send rejected delivery'])
-  })
-
-  it('a channel that throws is reported with its text rather than escaping the flow', async () => {
-    await auth.flows.requestEmailVerification({ channels: { email: throwing }, identityId })
-    expect(failures[0]).toContain('transport exploded')
+    refuse = true
+    await auth.flows.completeAccountDeletion({ sendUndoLink: true, token: token! })
+    expect(failures).toEqual(['account-deletion-cancel:deliver threw'])
   })
 })
-
-/** The verification mail is the only place the token appears, so the test reads it back from one. */
-async function pendingUrl<P extends Identities.ProfileMetadataBase>(
-  auth: AuthEngine<P>,
-  identityId: string,
-): Promise<string> {
-  let seen = ''
-  await auth.flows.requestAccountDeletion({
-    channels: {
-      email: {
-        id: 'capture',
-        kind: 'email',
-        send: async (input) => {
-          seen = (input.vars as { url: string }).url
-          return { ok: true }
-        },
-      },
-    },
-    identityId,
-  })
-  return seen
-}

@@ -5,6 +5,7 @@ import type { PasswordsImpl } from '~/providers/passwords'
 import type { Identities, IdentitiesImpl } from '../identities'
 import type { Sessions, SessionsImpl } from '../sessions'
 import type { Transport } from '../transport'
+import type { Deliver } from './flows.delivery'
 
 /** Inputs and results for the sign-in, sign-up, link, step-up and recovery flows. */
 export namespace Flows {
@@ -20,6 +21,8 @@ export namespace Flows {
     requirePasswords: () => PasswordsImpl
     /** Resolves the mfa facet at call time, throwing when the provider is absent. */
     requireMfa: () => MfaFacet
+    /** How the host sends an outbound token. Absent means the library mints tokens it cannot deliver. */
+    deliver?: Deliver
     cfg: Flows.Cfg
   }
 
@@ -65,8 +68,6 @@ export namespace Flows {
 
   export type PasswordResetRequestInput = {
     email: string
-    /** Default 'email'. */
-    channel?: 'email' | 'sms' | 'webpush'
     /** Path on the app that handles the reset; the library appends `?token=`. */
     callbackPath?: string
     /** Default 30 minutes. */
@@ -116,6 +117,7 @@ export namespace Flows {
     session: Sessions.Me
     /** For the new `actingAs` session, separate from the real one. */
     sid: string
+    /** The answer to send back. WARN: the CSRF token reaches the client only in these. */
     intents: Provider.Intent[]
   }
 
@@ -161,10 +163,6 @@ export namespace Flows {
   export type EmailVerificationRequestInput = {
     /** Identity to verify. */
     identityId: string
-    /** Keyed by kind. */
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
-    /** Default 'email'. */
-    channel?: 'email' | 'sms' | 'webpush'
     /** Default 30 minutes. */
     ttlMs?: number
     /** The library appends `?token=`. Default `/auth/verify-email`. */
@@ -180,10 +178,6 @@ export namespace Flows {
 
   export type AccountDeletionRequestInput = {
     identityId: string
-    /** One channel per delivery method; the request goes out over each one named. */
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
-    /** Default `'email'`. */
-    channel?: 'email' | 'sms' | 'webpush'
     /** Default 30 minutes. */
     ttlMs?: number
     /** Path on the app that handles the confirmation. Default `/auth/delete-account`. */
@@ -196,11 +190,9 @@ export namespace Flows {
   export type AccountDeletionCompleteInput = {
     /** Token from the confirmation link. */
     token: string
-    /** Where to send the undo link, when the library is to send it. Omit it and `cancellationToken` comes
-     *  back in the result for the host to deliver, or to drop, which is how undo is turned off. */
-    channels?: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
-    /** Used when `channels` is given. Default `'email'`. */
-    channel?: 'email' | 'sms' | 'webpush'
+    /** Whether the library sends the undo link itself. Leave it false and `cancellationToken` comes back
+     *  in the result for the host to deliver, or to drop, which is how undo is turned off. */
+    sendUndoLink?: boolean
     /** Path on the app that handles the undo. Default `/auth/cancel-deletion`. */
     callbackPath?: string
     tenantId?: string

@@ -1,4 +1,4 @@
-import type { Channel } from '~/channels/channels.types'
+import type { Deliver } from '~/core/flows/flows.delivery'
 import type { AuthEngine, Engine } from '../engine'
 import type { Identities } from '../identities/identities.types'
 import type { PluginRegistry } from '../plugin'
@@ -9,8 +9,8 @@ import type { Transport } from '../transport/transport.types'
 export namespace AuthDefine {
   /**
    * Skipped-or-included provider entry. Falsy values silently dropped.
-   * Thunks receive the constructed `AuthEngine` and the resolved channel bundle
-   * so magic-link / OTP providers can bind both without repeating config.
+   * Thunks receive the constructed `AuthEngine` and the host's `deliver`, so magic-link and OTP can bind
+   * both without repeating config.
    */
   export type IProviderEntry<
     Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
@@ -24,7 +24,7 @@ export namespace AuthDefine {
     | ''
     | ((
         auth: AuthEngine<Profile, Tenant, OrgMeta>,
-        channels: IChannels | undefined,
+        deliver: Deliver | undefined,
       ) => Provider.Capability | false | null | undefined | '')
 
   /** Skipped-or-included plugin entry — same falsy-drop rules as providers. */
@@ -33,13 +33,6 @@ export namespace AuthDefine {
     Tenant = string,
     OrgMeta = unknown,
   > = PluginRegistry.Plugin<Profile, Tenant, OrgMeta> | false | null | undefined | ''
-
-  /** Channel bundle keyed by channel kind. Passed to provider thunks as second arg. */
-  export interface IChannels {
-    email?: Channel.Channel
-    sms?: Channel.Channel
-    webpush?: Channel.Channel
-  }
 
   /**
    * Input shape for `createAuth`. Flat, ergonomic alternative to constructing
@@ -55,8 +48,6 @@ export namespace AuthDefine {
     OrgMeta = unknown,
   > extends Omit<Engine.Cfg<Profile, Tenant, OrgMeta>, 'providers' | 'transport'> {
     transport?: Transport.ITransport
-    /** Channel bundle forwarded to provider thunks as second argument. */
-    channels?: IChannels
     /** oauth-wide defaults. `stateSigningSecret` used for state HMAC across all oauth providers. */
     oauth?: { stateSigningSecret?: string }
     /** Provider array — falsy entries silently skipped. */
