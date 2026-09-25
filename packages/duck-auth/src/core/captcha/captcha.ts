@@ -23,7 +23,7 @@ export class AuthTurnstileVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'turnstile'
   private readonly _cfg: ResolvedCaptchaCfg
 
-  constructor(cfg: AuthCaptcha.ICfgBase) {
+  constructor(cfg: AuthCaptcha.ICfgBase & { expectedAction?: string }) {
     this._cfg = resolveCaptchaCfg(cfg, 'AuthTurnstileVerifier', TURNSTILE_ENDPOINT)
   }
 
@@ -41,11 +41,23 @@ export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
   private readonly _cfg: ResolvedCaptchaCfg
 
   constructor(cfg: AuthCaptcha.ICfgBase) {
+    // hCaptcha's siteverify carries no `action`, so expecting one refuses every call. The type omits
+    // it; this catches an object widened before it was passed.
+    if (Reflect.get(cfg, 'expectedAction') !== undefined) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'AuthHCaptchaVerifier takes no expectedAction; hCaptcha does not return one',
+      })
+    }
     this._cfg = resolveCaptchaCfg(cfg, 'AuthHCaptchaVerifier', HCAPTCHA_ENDPOINT)
   }
 
   /** Never throws: a network fault or a provider rejection both come back as `success: false`. */
   async verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
+    // The per-call one is on the shared input type and cannot be typed away, so it is named for what
+    // it is rather than reported as a mismatch that never happened.
+    if (input.expectedAction !== undefined) {
+      return { errorCodes: ['expected-action-unsupported'], success: false }
+    }
     const outcome = await siteVerify(this._cfg, input, parseSiteVerifyBasic)
     if (!outcome.ok) return outcome.result
     return toResult(outcome.parsed, outcome.parsed.success)
@@ -57,7 +69,6 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
   readonly id = 'recaptcha-v3'
   private readonly _cfg: ResolvedCaptchaCfg
   private readonly _minScore: number
-  private readonly _expectedAction: string | undefined
 
   constructor(cfg: AuthCaptcha.ICfgBase & { minScore?: number; expectedAction?: string }) {
     this._cfg = resolveCaptchaCfg(cfg, 'AuthRecaptchaV3Verifier', RECAPTCHA_ENDPOINT)
@@ -71,10 +82,10 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
       })
     }
     this._minScore = minScore
-    this._expectedAction = cfg.expectedAction
   }
 
-  /** Refuses an absent score, one under the configured minimum, or an action that does not match. */
+  /** Refuses an absent score or one under the configured minimum; the action check is shared with the
+   *  other providers that echo one. */
   async verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     const outcome = await siteVerify(this._cfg, input, parseSiteVerifyRecaptchaV3)
     if (!outcome.ok) return outcome.result
@@ -86,11 +97,7 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
       return { ...toResult(parsed, false), errorCodes: [...(parsed.errorCodes ?? []), 'missing-score'] }
     }
     const scoreOk = (parsed.score ?? 0) >= this._minScore
-    const expectedAction = input.expectedAction ?? this._expectedAction
-    const actionOk = expectedAction === undefined || parsed.action === expectedAction
-
-    const out = toResult(parsed, parsed.success && scoreOk && actionOk)
-    if (!actionOk) out.errorCodes = [...(out.errorCodes ?? []), 'action-mismatch']
+    const out = toResult(parsed, parsed.success && scoreOk)
     if (parsed.success && !scoreOk) out.errorCodes = [...(out.errorCodes ?? []), 'score-too-low']
     return out
   }

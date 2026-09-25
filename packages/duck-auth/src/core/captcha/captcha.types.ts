@@ -9,9 +9,10 @@ export namespace AuthCaptcha {
     token: string
     remoteIp?: string
     /**
-     * Caller-declared expected action; reCAPTCHA v3 returns the action the client tag emitted and
-     * the verifier asserts equality. Overrides the verifier's own `expectedAction` when both are
-     * set, so one wiring can still distinguish sign-in from sign-up.
+     * Expected action, asserted against the one Turnstile and reCAPTCHA v3 echo back. Overrides the
+     * verifier's own when both are set, so one wiring distinguishes sign-in from sign-up.
+     *
+     * WARN: hCaptcha answers with no `action`, so asking for one there refuses every call.
      */
     expectedAction?: string
     /** Overrides the verifier's `expectedHostname` for this one call. */
@@ -42,7 +43,8 @@ export namespace AuthCaptcha {
     expectedHostname?: string | string[]
     /** Ceiling on `challenge_ts` age. Default 5 minutes; 0 disables the check. */
     maxChallengeAgeMs?: number
-    /** Dev-only: permit a plaintext or loopback `endpoint`. */
+    /** Dev-only: permit a plaintext `http:` `endpoint`. A loopback or private host stays refused
+     *  either way — the SSRF guard does not read this flag. */
     allowInsecureEndpoint?: boolean
   }
 }
