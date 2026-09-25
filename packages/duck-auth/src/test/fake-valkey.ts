@@ -63,17 +63,6 @@ export class FakeValkey implements ValkeyClient.Me {
     })
   }
 
-  /** `SCAN cursor [MATCH pattern] [COUNT n]`. */
-  scan(cursor: string | number, ...args: unknown[]): Promise<[string, string[]]> {
-    const tokens = args.map(String)
-    const match = tokens.findIndex((t) => t.toUpperCase() === 'MATCH')
-    const count = tokens.findIndex((t) => t.toUpperCase() === 'COUNT')
-    return this.redis.scan(String(cursor), {
-      ...(match >= 0 ? { match: tokens[match + 1] } : {}),
-      ...(count >= 0 ? { count: Number(tokens[count + 1]) } : {}),
-    })
-  }
-
   /** `ZADD key score member`. */
   zadd(key: string, ...args: unknown[]): Promise<number> {
     return this.redis.zadd(key, Number(args[0]), String(args[1]))
@@ -88,11 +77,10 @@ export class FakeValkey implements ValkeyClient.Me {
     })
   }
 
-  /** `ValkeyClient.Me` declares it and no valkey-backed store calls it; FakeRedis runs no Lua.
-   *  Loud rather than a stub returning null, which would let a store that started using it pass. */
-  async eval(): Promise<never> {
-    throw new Error('FakeValkey runs no Lua; give the store a real client to exercise EVAL')
-  }
+  // No `eval`: it is optional on `ValkeyClient.Me`, this fake runs no Lua, and declaring one it cannot
+  // honour makes the adapter forward it and the store take a path nothing here can serve. Absent, the
+  // store takes its documented fallback, as it does with `FakeRedis`, and the script itself is
+  // exercised against a real server by the e2e suite.
 }
 
 /**

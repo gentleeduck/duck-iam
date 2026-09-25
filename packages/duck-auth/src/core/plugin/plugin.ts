@@ -1,4 +1,5 @@
 import { AuthError } from '~/core/errors'
+import { isEventName } from '~/core/events/events.constants'
 import type { Events } from '~/core/events/events.types'
 import type { Provider } from '~/core/provider/provider.types'
 import type { AuthEngine } from '../engine'
@@ -37,7 +38,16 @@ export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tena
       if (plugin.events) {
         for (const [event, handler] of Object.entries(plugin.events)) {
           if (handler === undefined) continue
-          unsubs.push(auth.events.on(event as keyof Events.EventMap, handler as (p: unknown) => void | Promise<void>))
+          // SECURITY: this name used to be cast straight through. `on` makes a handler set for whatever
+          // string it is given and nothing ever emits that name, so a plugin subscribing to a mistyped or
+          // renamed event installed clean, reported installed, and its handler could not fire - an audit
+          // or alerting plugin listening for `suspicious` is a control the deployment believes it has.
+          if (!isEventName(event)) {
+            throw new AuthError('AUTH_MISCONFIGURED', {
+              detail: `@gentleduck/auth: plugin "${plugin.id}" subscribes to unknown event "${event}"`,
+            })
+          }
+          unsubs.push(auth.events.on(event, handler as (p: unknown) => void | Promise<void>))
         }
       }
       if (plugin.facet !== undefined) {

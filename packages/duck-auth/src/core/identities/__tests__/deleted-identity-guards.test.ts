@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import type { Channel } from '~/channels/channels.types'
 import { orNull } from '~/core/answer'
 import { AuthEngine } from '~/core/engine'
+import type { Deliver } from '~/core/flows/flows.delivery'
 import type { Identities } from '~/core/identities'
 import { M2MImpl } from '~/core/m2m/m2m'
 import { JwtTransport } from '~/core/transport/jwt.transport'
@@ -19,17 +19,14 @@ import { passwords, ScryptHasher } from '~/providers/passwords'
  */
 interface P extends Identities.ProfileMetadataBase {}
 
-function fakeChannel(): Channel.Channel & { sent: Array<{ url: string }> } {
+function fakeChannel(): Deliver & { sent: Array<{ url: string }> } {
   const sent: Array<{ url: string }> = []
-  return {
-    id: 'fake',
-    kind: 'email',
-    async send(input) {
-      sent.push({ url: (input.vars as { url?: string }).url ?? '' })
-      return { ok: true }
+  return Object.assign(
+    async (message: Parameters<Deliver>[0]): Promise<void> => {
+      sent.push({ url: (message.vars as { url?: string }).url ?? '' })
     },
-    sent,
-  }
+    { sent },
+  )
 }
 
 function build() {
@@ -37,6 +34,7 @@ function build() {
   const channel = fakeChannel()
   const auth = new AuthEngine<P>({
     baseUrl: 'https://app.test',
+    deliver: channel,
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [apiKeyProvider(), passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
@@ -51,7 +49,7 @@ function build() {
     magicLink<P>({
       autoCreateIdentity: true,
       autoCreateProfile: (email) => ({ email, username: email }),
-      channels: { email: channel },
+      deliver: channel,
       findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
       ttlMs: 60_000,
     }),
@@ -133,7 +131,6 @@ describe('a deleted identity cannot be authenticated', () => {
     const ident = await auth.identities.create({ profile: { email: 'r@x.com', username: 'r' } })
 
     await auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: async () => ({ id: ident.id }),
       input: { email: 'r@x.com' },
     })
@@ -153,7 +150,7 @@ describe('a deleted identity cannot be authenticated', () => {
     const { adapter, auth, channel } = build()
     const ident = await auth.identities.create({ profile: { email: 'del@x.com', username: 'del' } })
 
-    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: ident.id })
+    await auth.flows.requestAccountDeletion({ identityId: ident.id })
     const token = new URL(channel.sent.at(-1)?.url ?? '').searchParams.get('token') ?? ''
 
     await adapter.identities.erase(ident.id)
@@ -170,7 +167,7 @@ describe('a deleted identity cannot be authenticated', () => {
     const { auth, channel } = build()
     const ident = await auth.identities.create({ profile: { email: 'del2@x.com', username: 'del2' } })
 
-    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: ident.id })
+    await auth.flows.requestAccountDeletion({ identityId: ident.id })
     const token = new URL(channel.sent.at(-1)?.url ?? '').searchParams.get('token') ?? ''
 
     // Without this the refusal above would also pass against a deletion flow
@@ -184,7 +181,6 @@ describe('a deleted identity cannot be authenticated', () => {
     const ident = await auth.identities.create({ profile: { email: 'live@x.com', username: 'live' } })
 
     await auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: async () => ({ id: ident.id }),
       input: { email: 'live@x.com' },
     })

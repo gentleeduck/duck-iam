@@ -838,10 +838,12 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
         }),
       )
       const before = await store.getByHash(sid('touch-1'))
-      await new Promise((r) => setTimeout(r, 25))
 
       // Exposed but frozen would be worse than absent: a caller reading it to find the last write would
       // be told every session was untouched since it was minted.
+      // No sleep: `updatedAt` is the token `update`'s optimistic guard compares, so it has to move on
+      // every write and not merely on one the clock happened to outrun. This used to wait 25ms, which is
+      // what hid that two writes in one millisecond stamped the same value.
       const after = await store.update(sid('touch-1'), { fresh: false })
       expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime())
     })

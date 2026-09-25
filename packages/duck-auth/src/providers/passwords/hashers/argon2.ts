@@ -131,13 +131,9 @@ export class Argon2idHasher implements Hasher.Me {
   /** Constant time, and `false` rather than a throw on malformed input. */
   async verify(plaintext: string, encoded: string): Promise<boolean> {
     if (!encoded.startsWith('$argon2id$')) return false
-    // SECURITY: the load sits outside the catch and the verify is awaited inside it, and both halves
-    // were wrong. `return argon.verify(...)` settles after the try block has exited, so the catch never
-    // saw a rejection: a malformed PHC string threw out of a method documented to answer `false`, which
-    // also made a corrupted row tell itself apart from a wrong password - the one difference the uniform
-    // sign-in answer exists to hide. And `loadArgon2` builds the single error carrying the install
-    // command; catching it reported "wrong password" to every user and nothing to the operator, on the
-    // hasher `DEFAULT_PASSWORDS_CONFIG` selects behind an optional peer dependency.
+    // SECURITY: the load sits outside the catch, the verify is awaited inside it. Unawaited, the catch
+    // never saw a rejection and a corrupt row threw where `false` is documented - telling itself apart
+    // from a wrong password. Caught, `loadArgon2`'s install hint reached the user as "wrong password".
     const argon = await loadArgon2()
     try {
       return await argon.verify(encoded, plaintext)

@@ -132,13 +132,9 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
       return { ok: false }
     }
     const rows = await credentials.listByIdentity(identityId, 'password', ctx)
-    // SECURITY: `expiresAt` is a column on every credential and a documented option on `createApiKey`,
-    // and `ApiKeyImpl.verify` refuses an elapsed one as it does a revoked one. This gate read `revokedAt`
-    // alone, so a password carrying a rotation deadline signed in for ever after it passed - measured,
-    // `complete` answered a full `startSession` intent on a lapsed row. `isStandingFactor`, which both
-    // lockout guards use to count the ways back into an account, already calls that same row no factor
-    // at all: the engine refused to unlink the last provider on the grounds the account was unreachable
-    // through a password that was, at that moment, minting sessions.
+    // SECURITY: `expiresAt` beside `revokedAt`. It is a column on every credential and `ApiKeysFacet`
+    // already refuses an elapsed one, so a password carrying a rotation deadline signed in for ever past
+    // it, while `isStandingFactor` counted that same row as no way into the account at all.
     const row = rows.find((c) => !isRevoked(c) && !isCredentialExpired(c)) ?? null
     // A real reference hash here, so both branches pay the full hasher cost and neither can be told
     // from the other by timing.
