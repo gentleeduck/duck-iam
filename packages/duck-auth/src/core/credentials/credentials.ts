@@ -1,4 +1,7 @@
+import { AuthError } from '../errors'
 import { isExpiredAt } from '../predicates/predicates'
+import type { Provider } from '../provider/provider.types'
+import type { TenantContext } from '../tenant/tenant.types'
 import { PUBLIC_METADATA_KEYS } from './credentials.constants'
 import type { Credential } from './credentials.types'
 
@@ -49,5 +52,22 @@ export function toCredentialCreate(
     expiresAt: null,
     revokedAt: null,
     ...input,
+  }
+}
+
+/** Claims a single-use token by rotating its secret to one nobody holds, so the claim and the burn are one
+ *  write and every loser of the race sees `AUTH_RECOVERY_TOKEN_INVALID`.
+ *  SECURITY: never rotate to `row.secret` - that takes the version while leaving the row findable by hash
+ *  until the caller's delete or revoke, and a read landing in that window wins its own CAS. */
+export async function burnCredential(
+  ctx: { crypto: Provider.Crypto; stores: { credentials: Credential.Store }; tenant: TenantContext },
+  row: Pick<Credential.Me, 'id' | 'version'>,
+): Promise<void> {
+  const burnt = ctx.crypto.authSha256(ctx.crypto.authRandomToken(32))
+  try {
+    await ctx.stores.credentials.rotate(row.id, burnt, row.version, ctx.tenant)
+  } catch (err) {
+    if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
+    throw err
   }
 }

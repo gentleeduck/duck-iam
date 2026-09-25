@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { type IamError, metaOf } from '../../errors'
 import type { DotPath } from '../../types'
 import { definePolicy, defineRole, defineRule, PolicyBuilder, RoleBuilder, RuleBuilder, When, when } from '..'
 
@@ -480,16 +481,17 @@ describe('RuleBuilder (uncovered paths)', () => {
 
 describe('PolicyBuilder (validator gate)', () => {
   it('build() throws when the validator rejects the policy', () => {
-    expect(() => new PolicyBuilder('').build()).toThrow(/PolicyBuilder\.build\(""\) rejected by validator/)
+    expect(() => new PolicyBuilder('').build()).toThrow('IAM_VALIDATION_FAILED')
   })
 
-  it('the thrown message names the failing validator codes and paths', () => {
-    let message = ''
+  it('the thrown issues name the failing validator codes and paths', () => {
+    let issues: readonly string[] = []
     try {
       new PolicyBuilder('').build()
     } catch (e) {
-      message = e instanceof Error ? e.message : String(e)
+      issues = metaOf(e as IamError<'IAM_VALIDATION_FAILED'>, 'IAM_VALIDATION_FAILED').issues
     }
+    const message = issues.join('; ')
     expect(message).toContain('MISSING_FIELD')
     expect(message).toContain('at "id"')
   })
@@ -505,7 +507,7 @@ describe('PolicyBuilder (validator gate)', () => {
 
 describe('RoleBuilder (uncovered paths)', () => {
   it('build() throws when the validator rejects the role', () => {
-    expect(() => new RoleBuilder('').build()).toThrow(/RoleBuilder\.build\(\): role rejected by validator/)
+    expect(() => new RoleBuilder('').build()).toThrow('IAM_VALIDATION_FAILED')
   })
 
   it('grant() with a third argument records a scoped permission', () => {

@@ -7,20 +7,18 @@ import type { Events } from './events.types'
  */
 const EVERY_EVENT_KEYED: Record<Events.EventName, true> = {
   'authz.revoked': true,
+  'identity.impersonation.ended': true,
   'identity.impersonated': true,
   'identity.linked': true,
   'identity.unlinked': true,
   lockout: true,
-  'maintenance.off': true,
-  'maintenance.on': true,
-  'readonly.off': true,
-  'readonly.on': true,
   'mfa.enrolled': true,
   'mfa.removed': true,
   'recovery.mfa.escalated': true,
   'recovery.password.completed': true,
   'recovery.password.requested': true,
   'session.created': true,
+  'session.expired': true,
   'session.revoked': true,
   'session.rotated': true,
   'signin.failed': true,
@@ -31,3 +29,9 @@ const EVERY_EVENT_KEYED: Record<Events.EventName, true> = {
 
 /** Every name in `Events.EventMap`, for materialising a `'*'` subscription. */
 export const EVERY_EVENT = Object.keys(EVERY_EVENT_KEYED) as Events.EventName[]
+
+/** Whether a string names an event the bus actually carries. `Object.hasOwn`, not a truthy index, so
+ *  `constructor` and `toString` are answered no rather than yes by the prototype. */
+export function isEventName(name: string): name is Events.EventName {
+  return Object.hasOwn(EVERY_EVENT_KEYED, name)
+}

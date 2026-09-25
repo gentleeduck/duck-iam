@@ -1,6 +1,6 @@
 // Pins the operand type each operator accepts; the evaluator applies the same table on read and throws.
 import { describe, expect, it } from 'vitest'
-import { evalCondition, IamOperandTypeError } from '../../conditions/conditions.libs'
+import { evalCondition } from '../../conditions/conditions.libs'
 import type { IamRequest } from '../../types'
 import { validatePolicy } from '../validate'
 import { VALID_OPERATORS } from '../validate.libs'
@@ -127,7 +127,7 @@ describe('the verdicts a malformed operand would produce', () => {
   it('`nin` with a non-array operand throws rather than admitting everyone', () => {
     // SECURITY: Indeterminate, not a `true` that admits every denylisted subject; the caller fails closed on it.
     expect(() => evalCondition(req, { field: 'subject.attributes.tier', operator: 'nin', value: 'gold' })).toThrow(
-      IamOperandTypeError,
+      'IAM_CONDITION_OPERAND_TYPE',
     )
     expect(accepts('nin', 'gold')).toBe(false)
   })
@@ -135,7 +135,7 @@ describe('the verdicts a malformed operand would produce', () => {
   it('`eq` with a missing operand throws rather than matching every absent attribute', () => {
     // `JSON.stringify` drops `undefined`, and a `null` operand would equal any absent attribute.
     expect(() => evalCondition(req, { field: 'subject.attributes.absent', operator: 'eq' })).toThrow(
-      IamOperandTypeError,
+      'IAM_CONDITION_OPERAND_TYPE',
     )
     expect(accepts('eq', MISSING)).toBe(false)
   })

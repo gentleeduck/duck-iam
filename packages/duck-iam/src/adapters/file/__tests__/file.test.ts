@@ -201,11 +201,11 @@ describe('IamFileAdapter', () => {
         fs,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
-      await expect(adapter.listPolicies()).rejects.toThrow(/policy "bad" cannot be read and will not be skipped/)
+      await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
       expect(errors[0]?.rowId).toBe('bad')
     })
 
-    it('drops a role entry that fails validation', async () => {
+    it('refuses a role entry that fails validation', async () => {
       const seeded = JSON.stringify({
         policies: {},
         roles: {
@@ -222,8 +222,7 @@ describe('IamFileAdapter', () => {
         fs,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
-      const list = await adapter.listRoles()
-      expect(list.map((r) => r.id)).toEqual(['good'])
+      await expect(adapter.listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
       expect(errors[0]?.rowId).toBe('bad')
     })
 

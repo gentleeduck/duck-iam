@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { type IamError, metaOf } from '../../errors'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
@@ -29,8 +30,7 @@ describe('a role count past the compiled table capacity falls back and says so',
       // role-0 really grants read/post; the fallback answers rather than denying every request.
       expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' })).toBe(true)
       expect(warn).toHaveBeenCalledOnce()
-      expect(String(warn.mock.calls[0]?.[0])).toMatch(/32-role limit/)
-      expect(String(warn.mock.calls[0]?.[0])).toMatch(/falls back to the interpreter/)
+      expect(String(warn.mock.calls[0]?.[0])).toBe('IAM_ROLE_LIMIT_EXCEEDED')
     } finally {
       warn.mockRestore()
     }
@@ -92,7 +92,9 @@ describe('a role count past the compiled table capacity falls back and says so',
       const decision = await engine.check('u1', 'read', { attributes: {}, type: 'post' })
       expect(decision.allowed).toBe(true)
       // Named, not counted: development mode warns about itself too, and a count would pin the wrong thing.
-      const fallback = warn.mock.calls.map((args) => args.map(String).join(' ')).filter((m) => m.includes('role'))
+      const fallback = warn.mock.calls
+        .map((args) => args.map(String).join(' '))
+        .filter((m) => m.includes('IAM_ROLE_LIMIT_EXCEEDED'))
       expect(fallback).toHaveLength(1)
     } finally {
       warn.mockRestore()
@@ -139,15 +141,17 @@ describe('every other compile failure still fails closed and is still reported',
 
   it('names the offending policy through onPolicyError', async () => {
     const error = spyError()
-    const seen: Array<{ id: string; msg: string }> = []
+    const seen: Array<{ id: string; err: Error }> = []
     try {
-      await brokenEngine({ onPolicyError: (err, id) => seen.push({ id, msg: err.message }) }).can('u1', 'read', {
+      await brokenEngine({ onPolicyError: (err, id) => seen.push({ id, err }) }).can('u1', 'read', {
         attributes: {},
         type: 'post',
       })
       expect(seen).toHaveLength(1)
       expect(seen[0]?.id).toBe('bad')
-      expect(seen[0]?.msg).toMatch(/`rules` is missing or not an array/)
+      expect(metaOf(seen[0]?.err as IamError<'IAM_POLICY_COMPILE_FAILED'>, 'IAM_POLICY_COMPILE_FAILED').detail).toBe(
+        '`rules` is missing or not an array',
+      )
     } finally {
       error.mockRestore()
     }
@@ -157,17 +161,17 @@ describe('every other compile failure still fails closed and is still reported',
     [
       'a rule with no `actions`',
       { conditions: { all: [] }, effect: 'allow', id: 'r1', priority: 0, resources: ['post'] },
-      /rule "r1": `actions` is not an array/,
+      'rule "r1": `actions` is not an array',
     ],
     [
       'a rule with no `resources`',
       { actions: ['read'], conditions: { all: [] }, effect: 'allow', id: 'r1', priority: 0 },
-      /rule "r1": `resources` is not an array/,
+      'rule "r1": `resources` is not an array',
     ],
-    ['a rule that is not an object at all', null, /rule at index 0 is not an object/],
+    ['a rule that is not an object at all', null, 'rule at index 0 is not an object'],
   ])('names the policy and the rule for %s', async (_label, rule, expected) => {
     const error = spyError()
-    const seen: Array<{ id: string; msg: string }> = []
+    const seen: Array<{ id: string; err: Error }> = []
     try {
       const engine = new IamEngine({
         adapter: new IamMemoryAdapter({
@@ -179,14 +183,16 @@ describe('every other compile failure still fails closed and is still reported',
         }),
         hooks: {
           onPolicyError: (err, id) => {
-            seen.push({ id, msg: err.message })
+            seen.push({ id, err })
           },
         },
         mode: 'production',
       })
       expect(await engine.can('u1', 'read', { attributes: {}, type: 'post' })).toBe(false)
       expect(seen[0]?.id).toBe('bad')
-      expect(seen[0]?.msg).toMatch(expected)
+      expect(metaOf(seen[0]?.err as IamError<'IAM_POLICY_COMPILE_FAILED'>, 'IAM_POLICY_COMPILE_FAILED').detail).toBe(
+        expected,
+      )
     } finally {
       error.mockRestore()
     }

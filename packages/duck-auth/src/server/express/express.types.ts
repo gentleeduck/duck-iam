@@ -23,6 +23,6 @@ export namespace ExpressAdapter {
   /** Express handler signature `(req, res) => Promise<void>`. */
   export type Handler = (req: Request, res: Response) => Promise<void>
 
-  /** Express middleware. Skipping `next()` halts the chain. */
-  export type Middleware = (req: Request, res: Response, next: () => void) => Promise<void>
+  /** Express middleware. Skipping `next()` halts the chain; `next(err)` refuses with it. */
+  export type Middleware = (req: Request, res: Response, next: (err?: unknown) => void) => Promise<void>
 }

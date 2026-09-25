@@ -1,7 +1,7 @@
 /**
  * `refuseRateLimited` is where a spent bucket becomes a refusal, and its docstring says every limiter
- * guard goes through it. Two did not: this provider and `ChannelGuard.spend` each built the 429 by hand,
- * with the bare `resetAt.getTime()` the shared helper carries a SECURITY note about avoiding.
+ * guard goes through it. This provider did not: it built the 429 by hand, with the bare
+ * `resetAt.getTime()` the shared helper carries a SECURITY note about avoiding.
  */
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'

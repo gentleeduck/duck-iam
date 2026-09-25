@@ -56,6 +56,12 @@ function crossSite(path: string): MountHono.HonoCtx {
   }
 }
 
+/** The one POST that must not be CSRF-guarded. `response_mode=form_post` means the IdP's own form submits
+ *  this callback, so it is cross-site by construction and an origin check refuses every real Apple sign-in.
+ *  What authenticates it instead is the signed `state` plus the digest of the pre-auth cookie carried inside
+ *  it, which is the same proof the GET callback rests on and does not depend on the request's origin. */
+const CSRF_EXEMPT = '/auth/providers/:provider/callback'
+
 describe('mountHono - CSRF covers every mutating route', () => {
   it('registers the routes this test is meant to cover', () => {
     const paths = postRoutes(buildAuth()).map(([p]) => p)
@@ -64,11 +70,17 @@ describe('mountHono - CSRF covers every mutating route', () => {
     expect(paths.length).toBeGreaterThanOrEqual(10)
   })
 
-  it('every POST route refuses a cross-site request with AUTH_CSRF', async () => {
+  it('every POST route refuses a cross-site request with AUTH_CSRF, bar the one exemption', async () => {
     const auth = buildAuth()
     for (const [path, handler] of postRoutes(auth)) {
       const res = await handler(crossSite(path))
       const body: unknown = await res.json()
+      if (path === CSRF_EXEMPT) {
+        // Refused here too, but on the provider name the recorder does not supply rather than on the
+        // origin - the point of the branch is that the exemption is this path and no other.
+        expect(JSON.stringify(body), `${path} accepted a forged callback`).not.toContain('"ok":true')
+        continue
+      }
       // An unguarded route runs its handler instead and answers with some other code entirely.
       expect(JSON.stringify(body), `${path} is not CSRF-guarded`).toContain('AUTH_CSRF')
     }

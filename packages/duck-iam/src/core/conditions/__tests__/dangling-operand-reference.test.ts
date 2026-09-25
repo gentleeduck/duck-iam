@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { evaluate } from '../../evaluate/evaluate'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../types'
 import { validatePolicy } from '../../validate'
-import { evalCondition, IamOperandTypeError } from '../conditions.libs'
+import { evalCondition } from '../conditions.libs'
 
 // Two shapes `validatePolicy` accepts: a `$`-reference resolving to `null` must not satisfy `eq` (`null === null`),
 // and a non-scalar `not_contains` operand must not answer `true`.
@@ -72,7 +72,7 @@ describe('B-F1 a $-reference that resolves to nothing has no operand', () => {
         operator: 'eq',
         value: '$resource.attributes.tenant',
       }),
-    ).toThrow(IamOperandTypeError)
+    ).toThrow('IAM_CONDITION_OPERAND_TYPE')
   })
 })
 
@@ -85,13 +85,13 @@ describe('B-F2 not_contains takes a scalar operand', () => {
   it('an array operand no longer short-circuits true', () => {
     expect(() =>
       evalCondition(request, { field: 'subject.attributes.groups', operator: 'not_contains', value: ['banned'] }),
-    ).toThrow(IamOperandTypeError)
+    ).toThrow('IAM_CONDITION_OPERAND_TYPE')
   })
 
   it('contains refuses the same operand, so the two cannot be bypassed in opposite directions', () => {
     expect(() =>
       evalCondition(request, { field: 'subject.attributes.groups', operator: 'contains', value: ['banned'] }),
-    ).toThrow(IamOperandTypeError)
+    ).toThrow('IAM_CONDITION_OPERAND_TYPE')
   })
 
   it('a scalar operand still answers both ways', () => {

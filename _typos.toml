@@ -1,0 +1,6 @@
+# `_als` is the AsyncLocalStorage handle behind `withActor` and `withTenant`, not "also".
+[default.extend-identifiers]
+_als = "_als"
+
+[default.extend-words]
+als = "als"

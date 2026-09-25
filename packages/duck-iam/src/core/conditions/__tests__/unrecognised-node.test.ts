@@ -22,7 +22,7 @@ describe('an unrecognised condition node does not read as "no conditions"', () =
     ['typo in any', { anyy: [] }],
     ['unrelated key', { foo: 1 }],
   ])('%s is indeterminate, not false', (_label, node) => {
-    expect(() => evalConditionGroup(req, group(node))).toThrow(/no recognised key/)
+    expect(() => evalConditionGroup(req, group(node))).toThrow('IAM_CONDITION_GROUP_INVALID')
   })
 
   it('the recognised keys still work', () => {
@@ -37,7 +37,7 @@ describe('an unknown operator is indeterminate, not false', () => {
   it('throws rather than quietly failing to match', () => {
     expect(() =>
       evalConditionGroup(req, group({ all: [{ field: 'subject.id', operator: 'equals', value: 'u1' }] })),
-    ).toThrow(/unknown operator "equals"/)
+    ).toThrow('IAM_CONDITION_OPERATOR_UNKNOWN')
   })
 })
 
@@ -47,6 +47,6 @@ describe('a malformed group key is indeterminate, not an empty list', () => {
     ['string any', { any: 'nope' }],
     ['object none', { none: {} }],
   ])('%s throws', (_label, node) => {
-    expect(() => evalConditionGroup(req, group(node))).toThrow(/must be an array/)
+    expect(() => evalConditionGroup(req, group(node))).toThrow('IAM_CONDITION_ITEMS_NOT_ARRAY')
   })
 })

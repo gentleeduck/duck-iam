@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { IamError, metaOf } from '../../../core/errors'
 import type { IamRedis } from '../index'
 import { IamRedisAdapter } from '../index'
 
@@ -260,13 +261,19 @@ describe('M-5: writes to one key stay serialised', () => {
   })
 })
 
-// An emptied `catch` falls through to the shape-check throw, so these assert the parse-failure branch by message.
-describe('M-6: corrupted attributes throw from the parse branch', () => {
+// An emptied `catch` falls through to the shape-check throw; both now share IAM_ATTRIBUTES_CORRUPT, so these
+// assert the parse-failure branch by meta.reason instead of by message substring.
+describe('M-6: corrupted attributes carry the reason the parse branch saw, not the shape-check one', () => {
   it('names the JSON parse failure, not the shape check', async () => {
     const client = new FakeRedis()
     client.strings.set('attrs:u1', '{not json')
     const adapter = new IamRedisAdapter<string, string, string, string>({ client })
-    await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/JSON parse failed/)
+    try {
+      await adapter.getSubjectAttributes('u1')
+      expect.unreachable()
+    } catch (err) {
+      expect(metaOf(err as IamError<'IAM_ATTRIBUTES_CORRUPT'>, 'IAM_ATTRIBUTES_CORRUPT').reason).toBe('parse-failed')
+    }
   })
 
   it('reports the underlying SyntaxError to onPolicyError', async () => {
@@ -279,11 +286,16 @@ describe('M-6: corrupted attributes throw from the parse branch', () => {
     expect(onPolicyError.mock.calls[0]?.[0]).toBeInstanceOf(SyntaxError)
   })
 
-  // Control: the shape-check branch, so the two throws are told apart by more than their shared prefix.
+  // Control: the shape-check branch, so the two throws are told apart by more than their shared code.
   it('control: valid JSON of the wrong shape names the shape check', async () => {
     const client = new FakeRedis()
     client.strings.set('attrs:u1', '[1,2]')
     const adapter = new IamRedisAdapter<string, string, string, string>({ client })
-    await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/not a JSON object/)
+    try {
+      await adapter.getSubjectAttributes('u1')
+      expect.unreachable()
+    } catch (err) {
+      expect(metaOf(err as IamError<'IAM_ATTRIBUTES_CORRUPT'>, 'IAM_ATTRIBUTES_CORRUPT').reason).toBe('not-object')
+    }
   })
 })

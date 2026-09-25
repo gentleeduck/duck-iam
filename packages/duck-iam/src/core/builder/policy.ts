@@ -1,3 +1,4 @@
+import { throwIamValidationFailed } from '../errors'
 import type { AccessControl, DotPath } from '../types'
 import { validatePolicy } from '../validate'
 import { RuleBuilder } from './rule'
@@ -162,15 +163,7 @@ export class PolicyBuilder<
     }
     // Validate here too: saving straight to an adapter skips `engine.admin.savePolicy`'s validator.
     const result = validatePolicy(policy)
-    if (!result.valid) {
-      // Include each message (it carries the fix) and the id, since policies are often built side by side.
-      const errs = result.issues
-        .filter((i) => i.type === 'error')
-        .map((i) => `${i.code}${i.path ? ` at "${i.path}"` : ''}: ${i.message}`)
-      throw new Error(
-        `[@gentleduck/iam:builder] PolicyBuilder.build("${this._id}") rejected by validator - ${errs.join('; ')}`,
-      )
-    }
+    if (!result.valid) throwIamValidationFailed('policy', result.issues)
     return policy
   }
 }

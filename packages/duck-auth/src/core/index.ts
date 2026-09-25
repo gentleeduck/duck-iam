@@ -6,9 +6,18 @@ export {
   RememberMeFacet,
   rememberMeFacet,
 } from '~/providers/mfa'
-export type { ActorContext } from './actor'
+export type { Actor } from './actor'
 export { actorId, currentActor, resolveActor, setDefaultActorResolver, withActor } from './actor'
-export type { Anomaly, AuthDeviceFingerprint } from './anomaly'
+export type { Anomaly, AuthDeviceFingerprint, AuthImpossibleTravel } from './anomaly'
+export {
+  AnomalyFacet,
+  AuthMemoryDeviceFingerprintStore,
+  anomalyFacet,
+  authImpossibleTravelDetector,
+  authMemoryDeviceFingerprintStore,
+  DEFAULT_ANOMALY_CONFIG,
+  deviceFingerprintDetector,
+} from './anomaly'
 export { ABSENT, type Answer, answer, orNull } from './answer'
 export type { AuthCaptcha } from './captcha'
 export {
@@ -42,13 +51,11 @@ export type { Envelope } from './errors'
 export { AuthError } from './errors'
 export type { Events } from './events'
 export { InMemoryEvents, inMemoryEvents as AuthInMemoryEvents, RedisEvents as AuthRedisEvents } from './events'
-export type { Flows } from './flows'
+export type { Deliver, DeliveryKind, Flows } from './flows'
 export type { Hijack } from './hijack'
 export type { Identities } from './identities'
 export type { M2m } from './m2m'
 export { DEFAULT_M2M_CONFIG, M2MImpl, m2m } from './m2m'
-export type { Operations } from './operations'
-export { OperationsImpl, operations } from './operations'
 export type { Org } from './orgs'
 export type { Pending } from './pending'
 export type { Provider } from './provider'

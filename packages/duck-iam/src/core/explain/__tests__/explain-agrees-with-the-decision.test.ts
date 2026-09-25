@@ -177,7 +177,7 @@ describe('explain() agrees with the decision path', () => {
       const trace = result.policies.find((p) => p.policyId === 'p1')
       const errors = trace?.rules.map((r) => r.conditionError).filter(Boolean) ?? []
       expect(errors).toHaveLength(1)
-      expect(errors[0]).toMatch(/condition group is not an object \(saw object\)/)
+      expect(errors[0]).toBe('IAM_CONDITION_GROUP_INVALID')
       expect(result.decision.allowed).toBe(false)
     })
   })

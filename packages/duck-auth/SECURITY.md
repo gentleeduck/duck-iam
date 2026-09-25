@@ -53,11 +53,9 @@ In scope:
 - All shipped server adapters: generic, express, hono, next, fastify, koa,
   elysia, nestjs, grpc.
 - All shipped clients: vanilla, react, vue, solid, svelte.
-- All shipped channels: console, smtp, resend, ses, twilio, webpush.
 - The CSRF middleware, idempotency store, anomaly detectors, and compliance
   presets.
-- The OpenAPI generator, OIDC discovery, OpenTelemetry wiring, and i18n
-  catalog (information-disclosure surface).
+- OIDC discovery (information-disclosure surface).
 
 Out of scope:
 
@@ -94,8 +92,8 @@ Pay extra attention to:
   at rest, not rate-limited.
 - **Idempotency-key collision**: cross-tenant key reads, missing TTL,
   cached response replayed to a different identity.
-- **Channel disclosure**: PII (email body, SMS body) reaching telemetry or
-  events bus payloads.
+- **Delivery disclosure**: PII (email body, SMS body) or a live token
+  reaching the events bus payloads a webhook forwards.
 - **Anomaly-detector poisoning**: device-fingerprint store corruption that
   marks every new device as "known".
 - **Rate-limiter starvation**: a single tenant exhausting the global token
@@ -165,10 +163,9 @@ when an app needs both. `strict()` rejects `secure: false` in production.
 ### 3. JWT signing-key rotation
 
 `JwtTransport` accepts `signKey` (current signer) plus `verifyKeys` (signer
-+ retired keys still valid for in-flight tokens). Rotate every 90 days
-using `duck-auth keys rotate hs256` - it emits a new secret plus a config
-snippet that adds the new kid as the signer and keeps the prior kid on
-`verifyKeys`. Once the longest issued-JWT TTL has elapsed (cap +
++ retired keys still valid for in-flight tokens). Rotate every 90 days:
+mint a new secret, add it as the signer under a new kid, and keep the prior
+kid on `verifyKeys`. Once the longest issued-JWT TTL has elapsed (cap +
 buffer), drop the previous kid. Never use a single non-rotated key in
 production.
 
@@ -202,13 +199,17 @@ install `@node-rs/argon2` and switch to `Argon2idHasher`. Never roll your
 own. `passwords.autoRehash` (on by default) upgrades hashes as users sign
 in, so a parameter bump rolls out gradually.
 
-### 8. Magic-link / recovery-token channel
+### 8. Magic-link / recovery-token delivery
 
-Magic-link and recovery tokens are *bearer credentials*. The bundled
-console channel is dev-only. Production must use a real channel
-(`Resend`, `SES`, `SMTP`, `Twilio`). Tokens are hashed at rest with
-sha-256 and consumed single-use; the channel only sees the plaintext for
-the one delivery.
+Magic-link and recovery tokens are *bearer credentials*. They reach the
+host through the `deliver` callback on the engine config and nowhere else -
+never the events bus, which a webhook forwards to external endpoints.
+Tokens are hashed at rest with sha-256 and consumed single-use; `deliver`
+sees the plaintext for the one delivery. The recipient address is whatever
+the identity row holds, so a host that accepts an address from user input
+validates it before storing it: the library does not parse it for CR/LF
+before handing it over, and a mail transport that interpolates it into a
+header would otherwise carry an injection.
 
 ### 9. OAuth refresh-token rotation (RFC 6749 §10.4)
 
@@ -272,10 +273,28 @@ password change, and impersonation all warrant step-up.
 
 ### 12. Impersonation (DESIGN section 38)
 
-Operators acting as a tenant inherit *only* the explicit `actingAs.scopes`
-list. Never grant `*` here. Every impersonation start emits
-`session.impersonate-start` - wire an audit log listener; SOC2 / HIPAA
-require this.
+There is no scope list - `actingAs` carries `realIdentityId`, `startedAt`,
+`reason` and `expiresAt` only, so an impersonating session holds the
+target's full authority until its window closes. The window *is* the
+control: pass the shortest `ttlMs` the task needs, capped at 60min. The
+row's own expiry is shortened to match, so it dies with the window rather
+than lingering in the target's device list. Nesting is refused.
+
+Wire both events to the audit sink; the pair is what an incident review
+needs, not just the start: `identity.impersonated`, whose `audit.actorId`
+names the operator, and `identity.impersonation.ended`, whose `endedBy` is
+`release`, `revoke` or `expiry`. SOC2 / HIPAA require this.
+
+**Known race, low.** Neither `releaseImpersonation` nor `impersonate` is
+single-use against its input sid: two concurrent releases both succeed, and
+a release racing a start spends the sid twice. Both read the session before
+the rotation deletes it, with no compare-and-delete between. The result is
+extra operator sessions, not extra authority - an operator can already sign
+in N times - so this is durability for a stolen cookie rather than new
+capability. Closing it needs `deleteIfPresent(id): Promise<boolean>` on the
+session store contract, which every adapter would have to implement; that
+break is not worth it at this severity. Revoke by identity rather than by
+sid if you count operator sessions.
 
 ### 13. Anomaly detectors
 
@@ -288,9 +307,9 @@ Redis so a fresh device is not "first-sight" on every node.
 ### 14. PII in events / telemetry
 
 The events bus payloads carry session + identity IDs but never plaintext
-secrets. Custom event listeners must respect this. OpenTelemetry wiring
-(`src/telemetry/otel`) auto-redacts known PII keys; if you add custom
-spans, scrub user input from attributes.
+secrets. Custom event listeners must respect this. This package ships no
+telemetry exporter, so whatever you subscribe to the bus - traces, metrics
+or logs - is the layer that has to scrub user input from its attributes.
 
 ### 15. SECURITY.md release cadence
 

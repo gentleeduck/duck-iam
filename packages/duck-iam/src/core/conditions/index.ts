@@ -11,13 +11,6 @@ export {
   detectCatastrophicRegex as iamDetectCatastrophicRegex,
   evalCondition as iamEvalCondition,
   getCachedRegex as iamGetCachedRegex,
-  // Every tagged condition error, so consumers can `instanceof` them.
-  // `public-error-and-type-surface.test.ts` derives this list from source.
-  IamConditionGroupError,
-  IamOperandTypeError,
-  IamPatternRefusedError,
-  IamRegexInputTooLargeError,
-  IamUserSourcedPatternError,
   isCondition as iamIsCondition,
   isUserSourcedValue as iamIsUserSourcedValue,
   // The limits the evaluator enforces, for pre-flighting patterns. `./core/validate` keeps its unprefixed exports.

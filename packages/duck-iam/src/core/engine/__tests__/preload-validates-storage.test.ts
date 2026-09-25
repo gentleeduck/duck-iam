@@ -59,7 +59,7 @@ const engineOn = (adapter: Planted) => new IamEngine({ adapter, cacheTTL: 0, mod
 
 describe('preload is the only check on rows the write path never saw', () => {
   it('the write path refuses the invalid policy outright', async () => {
-    await expect(new Planted().savePolicy(INVALID)).rejects.toThrow(/invalid/i)
+    await expect(new Planted().savePolicy(INVALID)).rejects.toThrow('IAM_VALIDATION_FAILED')
   })
 
   it('CONTROL: without the newline the same deny fires', async () => {

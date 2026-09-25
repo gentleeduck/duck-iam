@@ -259,7 +259,7 @@ describe('compileTable: role count limit', () => {
       name: `Role ${i}`,
       permissions: [],
     }))
-    expect(() => compileTable(tooManyRoles, [], 'and')).toThrow(/32/)
+    expect(() => compileTable(tooManyRoles, [], 'and')).toThrow('IAM_ROLE_LIMIT_EXCEEDED')
   })
 
   it('accepts exactly 32 roles', () => {

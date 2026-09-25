@@ -85,6 +85,17 @@ describe('IamHttpAdapter', () => {
       )
     })
 
+    it('rejects a bare trailing `?` or `#` that `URL` parses back to an empty search/hash', () => {
+      // `new URL('https://h/iam?').search` is `''`, so checking only the parsed URL lets a trailing bare `?`
+      // or `#` - what a URL builder emits for empty params - through.
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?' })).toThrow(
+        /query string or fragment/,
+      )
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#' })).toThrow(
+        /query string or fragment/,
+      )
+    })
+
     it('rejects malformed baseUrl', () => {
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'not a url' })).toThrow(/invalid baseUrl/)
     })
@@ -115,6 +126,15 @@ describe('IamHttpAdapter', () => {
       )
       // Fully expanded form.
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[0:0:0:0:0:ffff:7f00:1]/iam' })).toThrow(
+        /private\/loopback/,
+      )
+    })
+
+    it('rejects deprecated IPv4-compatible IPv6 loopback (`::a.b.c.d`)', () => {
+      // Node normalises `http://[::127.0.0.1]` to the hex tail `[::7f00:1]` before this ever sees it, so the
+      // hex form is what actually needs catching; the textual form is exercised too since it costs nothing.
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::7f00:1]/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::127.0.0.1]/iam' })).toThrow(
         /private\/loopback/,
       )
     })
@@ -510,6 +530,17 @@ describe('IamHttpAdapter', () => {
       expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ roleId: 'editor', scope: 'org-1' })
     })
 
+    it('assignRole rejects a roleId the read path could never fetch back', async () => {
+      // roleId travels in the body here but in the URL path on revokeRole (`segment`, which rejects `/`); an
+      // id with a slash would assign cleanly and then fail every revokeRole. Reject it symmetrically, up front.
+      const { fetch } = makeFetch(() => jsonResponse({ ok: true }))
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      await expect(adapter.assignRole('user-1', 'editor/admin' as Ro, 'org-1')).rejects.toThrow(
+        /role id cannot contain a path separator/,
+      )
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
     it('revokeRole DELETE without scope', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
@@ -522,7 +553,7 @@ describe('IamHttpAdapter', () => {
     it('revokeRole DELETE refuses an empty-string scope', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
       const adapter = new IamHttpAdapter({ baseUrl: 'https://x', fetch })
-      await expect(adapter.revokeRole('user-1', 'editor', '')).rejects.toThrow(/must not be an empty string/)
+      await expect(adapter.revokeRole('user-1', 'editor', '')).rejects.toThrow('IAM_SCOPE_INVALID')
       expect(calls).toHaveLength(0)
     })
 

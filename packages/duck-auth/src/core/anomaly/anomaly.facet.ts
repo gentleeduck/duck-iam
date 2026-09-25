@@ -7,7 +7,7 @@ import {
   combineScores,
   DEFAULT_ANOMALY_CONFIG,
   DETECTOR_TIMEOUT_MAX_MS,
-  REACTION_SCOPE,
+  REACTION_ANY_DETECTOR,
 } from './anomaly.constants'
 import type { Anomaly } from './anomaly.types'
 
@@ -16,14 +16,21 @@ function freezeSnapshot(req: Anomaly.RequestSnapshot): Readonly<Anomaly.RequestS
   return Object.freeze({ ...req, ...(req.geo && { geo: Object.freeze({ ...req.geo }) }) })
 }
 
-/** Structural guard for `Anomaly.Signal`, so a misbehaving detector's malformed signal is skipped
- *  before `decide()` reads `.score` off it. */
-function isValidSignal(raw: unknown): raw is Anomaly.Signal {
+/** What a detector is allowed to hand back: a `Signal` whose `evidence` may be absent, which
+ *  {@link AnomalyFacet.evaluate} fills in. */
+type RawSignal = Omit<Anomaly.Signal, 'evidence'> & { evidence?: Record<string, unknown> }
+
+/** Structural guard, so a misbehaving detector's malformed signal is skipped before `decide()` reads
+ *  `.score` off it. */
+function isValidSignal(raw: unknown): raw is RawSignal {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false
   // `kind` is checked as a string, never against the union: a plugin may define new kinds.
   if (!('kind' in raw) || typeof raw.kind !== 'string' || raw.kind.length === 0) return false
   if (!('score' in raw) || typeof raw.score !== 'number') return false
-  // `evidence` is required by the type but missing reads as `{}`; the signal is still useful.
+  // Absent is fine and reads as `{}`. Anything that is not a record is not: the type promises one, and
+  // every sink of `suspicious` - and every `Object.keys` in an audit view - believes it.
+  if ('evidence' in raw && (typeof raw.evidence !== 'object' || raw.evidence === null || Array.isArray(raw.evidence)))
+    return false
   return true
 }
 
@@ -39,16 +46,30 @@ export class AnomalyFacet {
     cfg: Partial<Anomaly.Cfg> = {},
   ) {
     this._cfg = { ...DEFAULT_ANOMALY_CONFIG, ...cfg }
-    // SECURITY: both detectors in this module refuse a number that is not one, and the facet that runs
-    // them took four on trust. Every way they can be wrong fails open: `score >= NaN` is false, so a
-    // threshold that is not a number never denies and never steps up, and `setTimeout` floors a
-    // non-finite, negative or oversized delay, which abandons every detector before it answers and leaves
-    // `evaluate` reporting no signals at all - anomaly detection off, and nothing said.
+    // SECURITY: every way these four can be wrong fails open. `score >= NaN` is false, so a threshold
+    // that is not a number never denies and never steps up, and `setTimeout` floors a non-finite or
+    // oversized delay, abandoning every detector before it answers - detection off, and nothing said.
     for (const key of ['threshold', 'stepUpAt', 'denyAt'] as const) {
       if (!Number.isFinite(this._cfg[key]) || this._cfg[key] < 0 || this._cfg[key] > 1) {
         throw new AuthError('AUTH_MISCONFIGURED', {
           detail: `anomalyFacet: ${key} must be a number between 0 and 1 (got ${this._cfg[key]})`,
         })
+      }
+    }
+    // A misspelled decision used to do nothing at all: `severity['denied']` is undefined and every
+    // comparison against it is false, so the override the operator wrote never applied and never said so.
+    for (const [detectorId, table] of Object.entries(this._cfg.reactions ?? {})) {
+      if (typeof table !== 'object' || table === null || Array.isArray(table)) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `anomalyFacet: reactions['${detectorId}'] must be an object of kind -> decision`,
+        })
+      }
+      for (const [kind, decision] of Object.entries(table)) {
+        if (decision !== 'allow' && decision !== 'step-up' && decision !== 'deny') {
+          throw new AuthError('AUTH_MISCONFIGURED', {
+            detail: `anomalyFacet: reactions['${detectorId}']['${kind}'] must be 'allow', 'step-up' or 'deny' (got ${String(decision)})`,
+          })
+        }
       }
     }
     const timeout = this._cfg.detectorTimeoutMs
@@ -62,6 +83,11 @@ export class AnomalyFacet {
   /** Register a detector; order does not affect the aggregate. An id already registered is refused
    *  rather than appended, or a module loaded twice would double that detector's weight. */
   register(detector: Anomaly.Detector): void {
+    if (detector.id === REACTION_ANY_DETECTOR) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `anomaly detector id '${REACTION_ANY_DETECTOR}' is reserved for the reactions wildcard`,
+      })
+    }
     if (this._detectors.some((d) => d.id === detector.id)) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `anomaly detector "${detector.id}" is already registered; unregister it before registering again`,
@@ -79,7 +105,7 @@ export class AnomalyFacet {
     return true
   }
 
-  /** The ids of the registered detectors, in the order they run. */
+  /** The ids of the registered detectors, in registration order; `evaluate` runs them concurrently. */
   list(): string[] {
     return this._detectors.map((d) => d.id)
   }
@@ -99,14 +125,21 @@ export class AnomalyFacet {
 
     const { decision, score } = this._aggregate(signals)
     if (decision !== 'allow' || (score >= this._cfg.threshold && signals.length > 0)) {
-      await this._events.emit('suspicious', {
-        // Always present, empty string included: guarding the spread on truthiness produced a
-        // suspicious record with no subject rather than one naming the id it actually saw.
-        identityId: input.identity.id,
-        meta: { decision, signals },
-        score,
-        signal: signals.map((s) => s.kind).join('+'),
-      })
+      // SECURITY: the verdict is already decided and the emit cannot improve it, so a bus that rejects
+      // is logged rather than thrown. `resolveSession` answers a throw from here by dropping the result,
+      // and the emit only runs on the requests that scored - the ones the verdict is for.
+      try {
+        await this._events.emit('suspicious', {
+          // Always present, empty string included: guarding the spread on truthiness produced a
+          // suspicious record with no subject rather than one naming the id it actually saw.
+          identityId: input.identity.id,
+          meta: { decision, signals },
+          score,
+          signal: signals.map((s) => s.kind).join('+'),
+        })
+      } catch (err) {
+        console.error('[@gentleduck/auth] anomaly could not emit "suspicious":', err)
+      }
     }
     return { decision, score, signals }
   }
@@ -138,7 +171,12 @@ export class AnomalyFacet {
         }
         // `source` is stamped here, never read from the detector: it is what lets an operator scope
         // a reaction to the detector that earned it.
-        accepted.push({ ...raw, score: Number.isFinite(raw.score) ? clampScore(raw.score) : raw.score, source: d.id })
+        accepted.push({
+          ...raw,
+          evidence: raw.evidence ?? {},
+          score: Number.isFinite(raw.score) ? clampScore(raw.score) : raw.score,
+          source: d.id,
+        })
       }
       return accepted
     } catch (err) {
@@ -167,10 +205,9 @@ export class AnomalyFacet {
     const reactions = this._cfg.reactions
     const scored = signals.filter((s) => this._reactionFor(s) !== 'allow')
     const finite = scored.filter((s) => Number.isFinite(s.score))
-    // SECURITY: clamped here and not only in `_runDetector`, because `decide` is the other intake and
-    // it takes its signals from the caller. Noisy-or is defined over 0..1: above 1, `1 - score` goes
-    // negative and two of them multiply back to a positive, so the aggregate *fell* as evidence was
-    // added - two signals that each denied alone came out a step-up together.
+    // SECURITY: clamped here too, because `decide` is the other intake and takes its signals from the
+    // caller. Noisy-or is defined over 0..1: above 1 two scores multiply back to a positive, so the
+    // aggregate *fell* as evidence was added.
     const score = combineScores(finite.map((s) => clampScore(s.score)))
     // Checked explicitly, because a NaN or an Infinity collapses every comparison below and would
     // otherwise reach the final `allow`. The score still reports what the other detectors found, so
@@ -191,14 +228,22 @@ export class AnomalyFacet {
     return { decision: 'allow', score }
   }
 
-  /** The scoped key wins, so a plugin cannot claim an override written for another detector. */
+  /** The detector's own table wins over the `'*'` one, so a plugin cannot claim an override written for
+   *  another detector. `Object.hasOwn` at both levels: a detector id or kind spelling a prototype member
+   *  is answered no rather than handed `Object.prototype`'s. */
   private _reactionFor(signal: Anomaly.Signal): Anomaly.Decision | undefined {
     const reactions = this._cfg.reactions
     if (!reactions) return undefined
-    return reactions[`${signal.source}${REACTION_SCOPE}${signal.kind}`] ?? reactions[signal.kind]
+    for (const scope of [signal.source, REACTION_ANY_DETECTOR]) {
+      if (scope === undefined || !Object.hasOwn(reactions, scope)) continue
+      const table = reactions[scope]
+      if (table && Object.hasOwn(table, signal.kind)) return table[signal.kind]
+    }
+    return undefined
   }
 }
 
+/** Constructs {@link AnomalyFacet}, for a caller wiring one outside `createAuth`. */
 export function anomalyFacet(events: Events.IBus, cfg: Partial<Anomaly.Cfg> = {}): AnomalyFacet {
   return new AnomalyFacet(events, cfg)
 }

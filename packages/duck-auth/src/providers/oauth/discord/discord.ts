@@ -24,7 +24,7 @@ export function discord<Profile extends Identities.ProfileMetadataBase = Identit
     clientSecret: opts.clientSecret,
     endpoints: DISCORD_ENDPOINTS,
     scopes: opts.scopes ?? ['identify', 'email'],
-    ...(opts.fetch !== undefined && { fetch: opts.fetch }),
+    fetch: opts.fetch,
   })
   return oProvider<Profile>({
     providerId: 'authDiscord',
@@ -32,11 +32,12 @@ export function discord<Profile extends Identities.ProfileMetadataBase = Identit
     endpoints: DISCORD_ENDPOINTS,
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
-    ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
-    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
-    ...(opts.profileToIdentityProfile !== undefined && {
-      profileToIdentityProfile: opts.profileToIdentityProfile,
-    }),
+    nonceStore: opts.nonceStore,
+    allowStateReplay: opts.allowStateReplay,
+    stateCookie: opts.stateCookie,
+    onSignIn: opts.onSignIn,
+    onFederationConflict: opts.onFederationConflict,
+    profileToIdentityProfile: opts.profileToIdentityProfile,
     async fetchProfile(tokens, c) {
       const info = await c.userinfo(tokens.access_token)
       // Discord user ids are stringified snowflakes, so the shape is verified rather than asserted.

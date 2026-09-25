@@ -9,26 +9,19 @@ import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type ActorOptions,
   type CallerFingerprint,
   callerContext,
-  errorToHttp,
+  errorResponse,
   executeIntents,
   isValidProviderId,
+  jsonResponse,
   parseProviderBeginBody,
   parseSignInBody,
-  type RequestSecurityOptions,
   requestSecurity,
 } from '../generic'
 
 import type { ElysiaAdapter } from './elysia.types'
-
-function handleError(err: unknown): Response {
-  const { status, body } = errorToHttp(err)
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
-  })
-}
 
 /** Elysia handler for the sign-in route. CSRF-guarded. */
 export function elysiaSignIn(auth: AuthEngine): ElysiaAdapter.Handler {
@@ -45,7 +38,7 @@ export function elysiaSignIn(auth: AuthEngine): ElysiaAdapter.Handler {
       })
       return executeIntents(result.intents)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -60,7 +53,7 @@ export function elysiaSignOut(auth: AuthEngine): ElysiaAdapter.Handler {
       const { intents } = await auth.flows.signOut(sid)
       return executeIntents(intents)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -73,12 +66,9 @@ export function elysiaSession(auth: AuthEngine): ElysiaAdapter.Handler {
       // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
       const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
       const body = resolved ? { session, identity: resolved.identity } : { session: null, identity: null }
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
-      })
+      return jsonResponse(200, body)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -99,7 +89,7 @@ export function elysiaProviderBegin(auth: AuthEngine): ElysiaAdapter.Handler {
       const intents = await auth.flows.beginProvider(id, body)
       return executeIntents(intents)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -109,20 +99,10 @@ export function elysiaCaller(ctx: ElysiaAdapter.Context): CallerFingerprint {
   return callerContext({ ip: ctx.ip, userAgent: ctx.request.headers.get('user-agent') ?? undefined })
 }
 
-/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
- *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
- *  with the session's, running the anomaly detectors and the hijack policy.
- *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
-export type ElysiaActorOptions = {
-  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
-  getCaller?: (ctx: ElysiaAdapter.Context) => CallerFingerprint
-  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
-  onHijack?: RequestSecurityOptions['onHijack']
-}
+export type ElysiaActorOptions = ActorOptions<ElysiaAdapter.Context>
 
-/** Wrap one handler so its writes carry the request's actor. Per-handler rather than middleware,
- *  since Elysia composes no `next`. Anonymous and unresolvable sessions run unbound, which is the
- *  honest `null`; while impersonating the actor is the operator behind `actingAs`. */
+/** Wrap one handler so its writes carry the request's actor; per-handler, since Elysia composes no
+ *  `next`. See `core/actor/README.md` for what runs unbound and what raises. */
 export function elysiaWithActor(
   auth: AuthEngine,
   handler: ElysiaAdapter.Handler,
@@ -133,10 +113,7 @@ export function elysiaWithActor(
       auth,
       { headers: ctx.request.headers },
       () => handler(ctx),
-      requestSecurity(auth, {
-        ...(opts.onHijack && { onHijack: opts.onHijack }),
-        ...(opts.getCaller && { caller: opts.getCaller(ctx) }),
-      }),
+      requestSecurity(auth, { caller: opts.getCaller?.(ctx), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
     )
 }
 
@@ -147,7 +124,7 @@ export function elysiaCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): Elys
       await csrfGuard(auth, ctx.request, opts)
       return undefined
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }

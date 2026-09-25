@@ -109,7 +109,7 @@ export namespace Storybook {
   export type State<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     status?: 'loading' | 'authed' | 'guest'
     identity?: Partial<Identities.Me<Profile>> | null
-    session?: Partial<Sessions.Me> | null
+    session?: Partial<Sessions.Public> | null
     /** Use a real client pointed at `baseUrl` instead of the mock. */
     live?: boolean
     /** Backend root for live mode. Defaults to `http://localhost:8787/auth`. */

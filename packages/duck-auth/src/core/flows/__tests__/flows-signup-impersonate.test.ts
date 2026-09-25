@@ -374,10 +374,11 @@ describe('FlowsImpl - impersonation', () => {
       ...row,
       actingAs: { ...row.actingAs, expiresAt: new Date(Date.now() - 1) },
     })
-    // Re-fetch via resolveSession: should delete the row and refuse the token.
+    // Re-fetch via resolveSession: should delete the row and refuse the token, naming the window rather
+    // than the generic revocation - the operator's signal is the whole point of the separate code.
     await expect(
       auth.resolveSession({ headers: new Headers({ cookie: `duck-sid=${out.sid}` }) }),
-    ).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    ).rejects.toMatchObject({ code: 'AUTH_IMPERSONATE_WINDOW_CLOSED' })
     // Row should be gone.
     await expect(auth.sessions.getBySid(out.sid)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })

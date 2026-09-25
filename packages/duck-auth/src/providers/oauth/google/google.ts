@@ -22,7 +22,7 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
     clientSecret: opts.clientSecret,
     endpoints: GOOGLE_ENDPOINTS,
     scopes: opts.scopes ?? ['openid', 'email', 'profile'],
-    ...(opts.fetch !== undefined && { fetch: opts.fetch }),
+    fetch: opts.fetch,
   })
   return oProvider<Profile>({
     providerId: 'authGoogle',
@@ -30,9 +30,12 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
     endpoints: GOOGLE_ENDPOINTS,
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
-    ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
-    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
-    ...(opts.profileToIdentityProfile !== undefined && { profileToIdentityProfile: opts.profileToIdentityProfile }),
+    nonceStore: opts.nonceStore,
+    allowStateReplay: opts.allowStateReplay,
+    stateCookie: opts.stateCookie,
+    onSignIn: opts.onSignIn,
+    onFederationConflict: opts.onFederationConflict,
+    profileToIdentityProfile: opts.profileToIdentityProfile,
     async fetchProfile(tokens, c) {
       const info = await c.userinfo(tokens.access_token)
       // Checked, not asserted: a non-string `sub` would otherwise reach the provider-sub lookup.

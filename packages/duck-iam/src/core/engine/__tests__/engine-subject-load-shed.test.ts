@@ -46,19 +46,19 @@ describe('IamEngine constructor: maxConcurrentSubjectLoads validation', () => {
 
   it('rejects a negative cap', () => {
     expect(() => new IamEngine<A, R, Ro, S>({ adapter: makeAdapter(), maxConcurrentSubjectLoads: -1 })).toThrow(
-      /maxConcurrentSubjectLoads must be 0 \(unbounded\) or a finite number >= 1/,
+      'IAM_ENGINE_INVALID_CONFIG',
     )
   })
 
   it('rejects a fractional cap between 0 and 1', () => {
     expect(() => new IamEngine<A, R, Ro, S>({ adapter: makeAdapter(), maxConcurrentSubjectLoads: 0.5 })).toThrow(
-      /maxConcurrentSubjectLoads/,
+      'IAM_ENGINE_INVALID_CONFIG',
     )
   })
 
   it('rejects NaN', () => {
     expect(() => new IamEngine<A, R, Ro, S>({ adapter: makeAdapter(), maxConcurrentSubjectLoads: Number.NaN })).toThrow(
-      /maxConcurrentSubjectLoads/,
+      'IAM_ENGINE_INVALID_CONFIG',
     )
   })
 })

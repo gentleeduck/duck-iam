@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { AuthTestChannel } from '~/channels/console'
 import type { Credential } from '~/core/credentials'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -15,8 +15,10 @@ interface MyProfile extends Identities.ProfileMetadataBase {
 
 function build(opts: { credentials?: (base: Credential.Store) => Credential.Store } = {}) {
   const adapter = new MemoryAdapter<MyProfile>()
+  const channel = authTestDeliver()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
+    deliver: channel.deliver,
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
@@ -26,31 +28,29 @@ function build(opts: { credentials?: (base: Credential.Store) => Credential.Stor
     limiter: new MemoryLimiter({ max: 3, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
-  return { auth, adapter }
+  return { adapter, auth, channel }
 }
 
 describe('FlowsImpl - email verification', () => {
   let auth: AuthEngine<MyProfile>
   let adapter: MemoryAdapter<MyProfile>
   let identityId: string
-  let channel: AuthTestChannel
+  let channel: ReturnType<typeof build>['channel']
 
   beforeEach(async () => {
-    ;({ auth, adapter } = build())
+    ;({ adapter, auth, channel } = build())
     const ident = await auth.identities.create({
       profile: { username: 'a@x.com', email: 'a@x.com' },
     })
     identityId = ident.id
-    channel = new AuthTestChannel()
   })
 
   it('request -> complete round-trips: the emailVerified column flips to true', async () => {
     await auth.flows.requestEmailVerification({
       identityId,
-      channels: { email: channel },
     })
     expect(channel.outbox).toHaveLength(1)
-    expect(channel.outbox[0]!.templateId).toBe('email-verification')
+    expect(channel.outbox[0]!.kind).toBe('email-verification')
     const url = (channel.outbox[0]!.vars as { url: string }).url
     const token = new URL(url).searchParams.get('token')
     expect(token).toBeTruthy()
@@ -67,7 +67,6 @@ describe('FlowsImpl - email verification', () => {
     await adapter.identities.update(identityId, { emailVerified: true }, 1)
     const result = await auth.flows.requestEmailVerification({
       identityId,
-      channels: { email: channel },
     })
     expect(result).toEqual({ ok: true })
     expect(channel.outbox).toHaveLength(0)
@@ -86,7 +85,7 @@ describe('FlowsImpl - email verification', () => {
   })
 
   it('complete is single-use: replay fails', async () => {
-    await auth.flows.requestEmailVerification({ identityId, channels: { email: channel } })
+    await auth.flows.requestEmailVerification({ identityId })
     const url = (channel.outbox[0]!.vars as { url: string }).url
     const token = new URL(url).searchParams.get('token')!
     await auth.flows.completeEmailVerification({ token })
@@ -104,7 +103,11 @@ describe('FlowsImpl - email verification', () => {
     const held = new Promise<void>((resolve) => {
       release = resolve
     })
-    const { adapter: ad, auth: engine } = build({
+    const {
+      adapter: ad,
+      auth: engine,
+      channel: ch,
+    } = build({
       credentials: (base) => ({
         ...base,
         delete: async (id, ctx) => {
@@ -117,8 +120,7 @@ describe('FlowsImpl - email verification', () => {
       }),
     })
     const ident = await engine.identities.create({ profile: { username: 'b@x.com', email: 'b@x.com' } })
-    const ch = new AuthTestChannel()
-    await engine.flows.requestEmailVerification({ channels: { email: ch }, identityId: ident.id })
+    await engine.flows.requestEmailVerification({ identityId: ident.id })
     const token = new URL((ch.outbox[0]?.vars as { url: string }).url).searchParams.get('token') as string
     const [row] = await ad.credentials.listByIdentity(ident.id, 'recovery', {})
     gatedId = row?.id ?? null
@@ -137,36 +139,25 @@ describe('FlowsImpl - email verification', () => {
 
   it('rate-limit enforced (max 3 within window)', async () => {
     for (let i = 0; i < 3; i++) {
-      await auth.flows.requestEmailVerification({ identityId, channels: { email: channel } })
+      await auth.flows.requestEmailVerification({ identityId })
     }
-    await expect(
-      auth.flows.requestEmailVerification({ identityId, channels: { email: channel } }),
-    ).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
+    await expect(auth.flows.requestEmailVerification({ identityId })).rejects.toMatchObject({
+      code: 'AUTH_RATE_LIMITED',
+    })
   })
 
   it('rejects request for unknown identity', async () => {
     await expect(
       auth.flows.requestEmailVerification({
         identityId: 'does-not-exist',
-        channels: { email: channel },
       }),
     ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
   })
 
-  it('rejects request when configured channel is not supplied', async () => {
-    await expect(
-      auth.flows.requestEmailVerification({
-        identityId,
-        channel: 'sms',
-        channels: { email: channel },
-      }),
-    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
-  })
-
   it('resend replaces the prior token (only the latest verifies)', async () => {
-    await auth.flows.requestEmailVerification({ identityId, channels: { email: channel } })
+    await auth.flows.requestEmailVerification({ identityId })
     const firstToken = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
-    await auth.flows.requestEmailVerification({ identityId, channels: { email: channel } })
+    await auth.flows.requestEmailVerification({ identityId })
     const secondToken = new URL((channel.outbox[1]!.vars as { url: string }).url).searchParams.get('token')!
     expect(firstToken).not.toBe(secondToken)
     await expect(auth.flows.completeEmailVerification({ token: firstToken })).rejects.toMatchObject({

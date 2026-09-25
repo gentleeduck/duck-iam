@@ -117,6 +117,9 @@ audit-auth/
 # Superpowers plans/specs - local working docs, never committed (all packages)
 **/docs/superpowers/
 
+# Superpowers execution workspace: per-plan ledgers, briefs, review packages - scratch, never committed
+.superpowers/
+
 # local test credentials (never committed)
 .env.test
 **/.env.test

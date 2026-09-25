@@ -30,6 +30,14 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
   if (!real?.identityId) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
+  // SECURITY: `realSid` is documented as the real subject's, and an impersonating session's subject is the
+  // target. Nesting took `actingAs.realIdentityId` from `real.identityId`, so hop two named the previous
+  // target as the accountable human and `releaseImpersonation` then handed out a session as them with
+  // `actingAs: null` and the full session lifetime - a sixty-minute audited impersonation laundered into an
+  // unmarked week-long one, with `identity.impersonated` recording the wrong operator on the way through.
+  if (real.actingAs) {
+    throw new AuthError('AUTH_IMPERSONATE_FORBIDDEN', { reason: 'cannot impersonate from an impersonated session' })
+  }
   if (real.identityId === opts.targetIdentityId) {
     throw new AuthError('AUTH_IMPERSONATE_FORBIDDEN', { reason: 'cannot impersonate self' })
   }
@@ -57,6 +65,8 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
     aal: 1,
     factors: [],
     ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
+    // The row's own deadlines, not just the marker's, so the row dies with the window.
+    ttlMs,
     actingAs: {
       realIdentityId: real.identityId,
       startedAt: nowDate,
@@ -65,6 +75,8 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
     },
   })
   await deps.events.emit('identity.impersonated', {
+    // Set here: this emits outside any request scope, so the automatic stamper has nothing to read.
+    audit: { actorId: real.identityId },
     realIdentityId: real.identityId,
     targetIdentityId: opts.targetIdentityId,
     reason: opts.reason,
@@ -78,7 +90,7 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
 export async function releaseImpersonation<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   impersonationSid: string,
-): Promise<{ session: Sessions.Me | null; sid: string; intents: Provider.Intent[] }> {
+): Promise<{ session: Sessions.Me | null; sid: string | null; intents: Provider.Intent[] }> {
   const session = await deps.sessions.getBySid(impersonationSid).orNull()
   if (!session?.actingAs) {
     throw new AuthError('AUTH_IMPERSONATE_EXPIRED')
@@ -89,7 +101,8 @@ export async function releaseImpersonation<Profile extends Identities.ProfileMet
     // The operator's own account went away while they were impersonating: deleted, erased or merged.
     // There is no session to return them to, so the impersonation ends revoked with the bearer cleared.
     await deps.sessions.revoke(impersonationSid).orNull()
-    return { intents: deps.transport.revoke(), session: null, sid: '' }
+    // `null`, not `''`: a type promising a string invites the `session` check to be skipped.
+    return { intents: deps.transport.revoke(), session: null, sid: null }
   }
   const {
     session: restored,
@@ -104,6 +117,13 @@ export async function releaseImpersonation<Profile extends Identities.ProfileMet
     aal: 1,
     factors: [],
     ...(session.tenantId !== null && { tenantId: session.tenantId }),
+  })
+  await deps.events.emit('identity.impersonation.ended', {
+    audit: { actorId: realIdentityId },
+    endedBy: 'release',
+    realIdentityId,
+    sessionId: session.id,
+    targetIdentityId: session.identityId,
   })
   const intents = deps.transport.issue(sid, restored, { fresh: true, absolute: false, csrfToken })
   return { session: restored, sid, intents }

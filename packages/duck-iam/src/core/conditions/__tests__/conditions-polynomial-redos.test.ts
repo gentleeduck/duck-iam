@@ -41,7 +41,7 @@ describe('the `matches` operator refuses the polynomial pattern', () => {
   it('refuses a worst-case input quickly, without compiling', () => {
     const input = 'a'.repeat(MAX_REGEX_INPUT_LENGTH - 1) + '!'
     const started = Date.now()
-    expect(() => ops.matches(input, '^a+a+a+a+$')).toThrow(/Indeterminate/)
+    expect(() => ops.matches(input, '^a+a+a+a+$')).toThrow('IAM_CONDITION_PATTERN_REFUSED')
     expect(Date.now() - started).toBeLessThan(1000)
   })
 

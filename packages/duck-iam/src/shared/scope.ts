@@ -1,3 +1,5 @@
+import { throwIamError } from '../core/errors'
+
 /**
  * Adapter-boundary guard for every scope an adapter writes: `assignRole`, `revokeRole`, `updateAssignmentScope`
  * (both ends) and drizzle's `assignRoleMany` / `revokeRoleMany`. Omit the scope for a global grant.
@@ -10,14 +12,6 @@
  * @throws When `scope` is the empty string, or `'*'` on a `'grant'`.
  */
 export function iamAssertAssignableScope(adapter: string, scope: unknown, intent: 'grant' | 'lookup' = 'grant'): void {
-  if (scope === '') {
-    throw new Error(`[@gentleduck/iam:${adapter}] scope must not be an empty string; omit it for a global assignment`)
-  }
-  if (scope === '*' && intent === 'grant') {
-    throw new Error(
-      `[@gentleduck/iam:${adapter}] scope must not be "*"; a scoped assignment is matched literally, so this grant ` +
-        'would be stored and answer only a request whose own scope is the string "*". Omit the scope for a global ' +
-        'assignment.',
-    )
-  }
+  if (scope === '') throwIamError('IAM_SCOPE_INVALID', { adapter, reason: 'empty' })
+  if (scope === '*' && intent === 'grant') throwIamError('IAM_SCOPE_INVALID', { adapter, reason: 'wildcard-on-grant' })
 }

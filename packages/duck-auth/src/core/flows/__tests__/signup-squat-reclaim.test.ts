@@ -2,7 +2,6 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { AuthTestChannel } from '~/channels/console'
 import { getCredentialPurpose } from '~/core/credentials/credentials'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
@@ -10,6 +9,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -17,14 +17,16 @@ interface MyProfile extends Identities.ProfileMetadataBase {
 
 function build() {
   const adapter = new MemoryAdapter<MyProfile>()
+  const channel = authTestDeliver()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
+    deliver: channel.deliver,
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
     transport: new CookieTransport({ name: 'duck-sid', secure: false }),
   })
-  return { adapter, auth }
+  return { adapter, auth, channel }
 }
 
 describe('D1 - a squat is reclaimed', () => {
@@ -81,9 +83,10 @@ describe('D1 - a squat is reclaimed', () => {
 describe('D1 - an account is not a squat', () => {
   let auth: AuthEngine<MyProfile>
   let adapter: MemoryAdapter<MyProfile>
+  let channel: ReturnType<typeof build>['channel']
 
   beforeEach(() => {
-    ;({ adapter, auth } = build())
+    ;({ adapter, auth, channel } = build())
   })
 
   it('a password makes the row untouchable, even unverified', async () => {
@@ -120,8 +123,7 @@ describe('D1 - an account is not a squat', () => {
 
   it('a verified address makes the row untouchable even with nothing else on it', async () => {
     const ident = await auth.identities.create({ profile: { email: 'sam@x.com', username: 'sam' } })
-    const channel = new AuthTestChannel()
-    await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: ident.id })
+    await auth.flows.requestEmailVerification({ identityId: ident.id })
     const url = (channel.outbox.at(-1)?.vars as { url: string }).url
     await auth.flows.completeEmailVerification({ token: new URL(url).searchParams.get('token') ?? '' })
 

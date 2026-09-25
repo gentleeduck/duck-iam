@@ -13,7 +13,10 @@ describe('the orgs store raises on a miss', () => {
 
   it('removeMember and setRoles raise for someone who never joined', async () => {
     const a = new MemoryAdapter()
-    await a.orgs.addMember({ identityId: 'u1', invitedAt: null, leftAt: null, orgId: 'org-1', roles: [] }, {})
+    await a.orgs.addMember(
+      { identityId: 'u1', invitedAt: null, leftAt: null, orgId: 'org-1', roles: [], tenantId: null },
+      {},
+    )
 
     for (const call of [
       () => a.orgs.removeMember('org-1', 'stranger', {}),

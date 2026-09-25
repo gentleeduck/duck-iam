@@ -9,6 +9,7 @@ import {
   iamNormalizePolicy,
   iamRoleWithoutInherit,
   iamUnreadablePolicy,
+  iamUnreadableRole,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -219,23 +220,16 @@ export class IamPrismaAdapter<
     await this._prisma.accessPolicy.deleteMany({ where: { id } })
   }
 
-  /** Lists every readable role; unreadable rows are warned about and skipped. */
+  /** Lists every role; throws if any role row is unreadable. */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this._prisma.accessRole.findMany()
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
-    for (const row of rows) {
-      const role = this._readRole(row)
-      if (role !== null) out.push(role)
-    }
+    for (const row of rows) out.push(this._readRole(row))
     return out
   }
 
-  /**
-   * Parses one role row, or warns naming it and returns `null`; roles are skipped where policies are refused.
-   * The warning matters: a subject keeps holding a skipped role's id, which still matches a rule naming it while
-   * the roles it inherited are gone - the engine reports that side separately.
-   */
-  private _readRole(row: IamPrisma.IRoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  /** Parses one role row, or warns naming it and throws. See {@link iamUnreadableRole} for why it is not skipped. */
+  private _readRole(row: IamPrisma.IRoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> {
     const candidate = toRole(row)
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(candidate)
     if (role !== null) return role
@@ -243,10 +237,10 @@ export class IamPrismaAdapter<
       .issues.map((i) => i.message)
       .join('; ')
     console.warn(`[@gentleduck/iam:prisma] unreadable role row "${row.id}": ${issues}`)
-    return null
+    throw iamUnreadableRole('prisma', row.id, issues)
   }
 
-  /** Fetches a role by ID, or `null` when absent or unreadable. */
+  /** Fetches a role by ID, or `null` when absent. Throws (via {@link iamUnreadableRole}) when the row is unreadable. */
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
@@ -278,7 +272,6 @@ export class IamPrismaAdapter<
     await this._prisma.accessRole.deleteMany({ where: { id } })
     for (const row of await this._prisma.accessRole.findMany()) {
       const role = this._readRole(row)
-      if (role === null) continue
       const stripped = iamRoleWithoutInherit(role, id)
       if (stripped === null) continue
       const data = fromRole(stripped)

@@ -2,9 +2,9 @@
  *  enumeration-safe, `completePasswordReset` verifies it, swaps the password, sweeps every other
  *  session and enforces a step-up when the identity has TOTP enrolled. */
 
-import type { Channel } from '~/channels/channels.types'
 import { orNull } from '~/core/answer'
 import {
+  burnCredential,
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
@@ -36,16 +36,10 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
   opts: {
     input: Flows.PasswordResetRequestInput
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    channels: Partial<Record<'email' | 'sms' | 'webpush', Channel.Channel>>
     tenantId?: string
   },
 ): Promise<{ ok: true }> {
   const { email } = opts.input
-  const requestedChannel = opts.input.channel ?? 'email'
-  const channelKind: 'email' | 'sms' | 'webpush' =
-    requestedChannel === 'email' || requestedChannel === 'sms' || requestedChannel === 'webpush'
-      ? requestedChannel
-      : 'email'
   const ttlMs = opts.input.ttlMs ?? 30 * 60 * 1000
   const callbackPath = isSafeCallbackPath(opts.input.callbackPath) ? opts.input.callbackPath : '/auth/reset-password'
   const ctx = deps.ctxFactory(opts.tenantId)
@@ -61,13 +55,11 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
   if (!limited.ok) await refuseRateLimited(ctx.events, limited, null)
 
   // Hoisted above the identity lookup on purpose. Below it, this throw fires only for an address that
-  // exists and answers `{ok:true}` for one that does not, so a misconfigured channel turns the endpoint
-  // into a plain-language oracle.
-  const channel = opts.channels[channelKind]
-  if (!channel) {
-    throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `password-reset: channel "${channelKind}" not configured`,
-    })
+  // exists and answers `{ok:true}` for one that does not, so missing wiring turns the endpoint into a
+  // plain-language oracle.
+  const send = deps.deliver
+  if (!send) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'password-reset: no `deliver` configured' })
   }
 
   // Through `orNull`, so a host wiring `auth.identities.getByEmail` straight in keeps the silent branch
@@ -117,27 +109,17 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
   if (!identity || !identityRow) {
     return { ok: true }
   }
-  void channel
-    .send({
-      identity: identityRow,
-      templateId: 'password-reset',
-      vars: { url, ttlMin: Math.round(ttlMs / 60_000), requiresMfa },
-      tenant: ctx.tenant,
-    })
-    .then(async (result) => {
-      if (!result.ok) {
-        await deps.events.emit('signin.failed', {
-          providerId: 'password-reset',
-          reason: 'channel.send rejected delivery',
-        })
-      }
-    })
-    .catch(async (err) => {
-      await deps.events.emit('signin.failed', {
-        providerId: 'password-reset',
-        reason: `channel.send threw: ${err instanceof Error ? err.message : String(err)}`,
-      })
-    })
+  // Not awaited: the answer is the same either way, and waiting on the host's mailer would time the
+  // response by whether the address exists.
+  void send({
+    identity: identityRow,
+    kind: 'password-reset',
+    tenant: ctx.tenant,
+    vars: { requiresMfa, ttlMin: Math.round(ttlMs / 60_000), url },
+  }).catch(async () => {
+    // Fixed text: the thrown error carries whatever the host's mailer put in the message, reset URL included.
+    await deps.events.emit('signin.failed', { providerId: 'password-reset', reason: 'deliver threw' })
+  })
   await deps.events.emit('recovery.password.requested', { identityId: identity.id })
   return { ok: true }
 }
@@ -180,6 +162,7 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   const callerSession = currentSession?.identityId === row.identityId ? currentSession : null
 
   if (await optionalMfa(deps)?.hasTotp(row.identityId, ctx.tenant)) {
+    // INVARIANT: never gate on `fresh` alone; a restored operator session is `fresh: true` at `aal: 1`.
     if (!callerSession || callerSession.aal < 2 || !callerSession.fresh) {
       // Bounded, then burnt. A failed gate cannot consume the token outright, since being refused here,
       // stepping up and calling again is the documented flow, so the limiter is what tells that caller
@@ -193,19 +176,7 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
     }
   }
 
-  // The CAS claim burns the token in the same write. Rotating to `row.secret` would claim the version
-  // while leaving the row findable by `hash` and unrevoked until the revoke below, and a second reset
-  // reading in that window wins its own CAS - taking the password with it, after this one has already
-  // swept the sessions.
-  const burnt = ctx.crypto.authSha256(ctx.crypto.authRandomToken(32))
-  try {
-    await ctx.stores.credentials.rotate(row.id, burnt, row.version, ctx.tenant)
-  } catch (err) {
-    if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') {
-      throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
-    }
-    throw err
-  }
+  await burnCredential(ctx, row)
   await ctx.stores.credentials.revoke(row.id, ctx.tenant)
 
   // SECURITY: sessions first, password second. The other order leaves the new password live with the

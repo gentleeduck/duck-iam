@@ -17,8 +17,8 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
 
   it('two concurrent addMember calls: exactly one resolves, the other rejects with the expected code', async () => {
     const results = await Promise.allSettled([
-      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['admin'] }),
-      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['viewer'] }),
+      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['admin'] }, {}),
+      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['viewer'] }, {}),
     ])
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
     const rejected = results.filter((r) => r.status === 'rejected')
@@ -37,14 +37,14 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
 
   it('persisted membership reflects the WINNING addMember (not a silent last-write overwrite)', async () => {
     const [a, b] = await Promise.allSettled([
-      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['admin'] }),
-      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['viewer'] }),
+      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['admin'] }, {}),
+      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['viewer'] }, {}),
     ])
     const winner = a.status === 'fulfilled' ? a.value : b.status === 'fulfilled' ? b.value : null
     expect(winner).not.toBeNull()
     // The persisted state must equal the winner's roles, NOT a silent
     // mix or the loser's overwrite.
-    const resolved = await facet.resolveMembership('org-1', 'u')
+    const resolved = await facet.resolveMembership('org-1', 'u', {})
     // Only `winner` needs narrowing: it comes off `allSettled` and is null when both calls rejected.
     if (winner && typeof winner === 'object' && 'roles' in winner) {
       expect(resolved.roles).toEqual(winner.roles)
@@ -56,7 +56,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
   it('many concurrent addMember calls: exactly one succeeds', async () => {
     const N = 20
     const calls = Array.from({ length: N }, (_, i) =>
-      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: [`role-${i}`] }),
+      facet.addMember({ orgId: 'org-1', identityId: 'u', roles: [`role-${i}`] }, {}),
     )
     const results = await Promise.allSettled(calls)
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
@@ -73,12 +73,12 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
   })
 
   it('rejoin after removeMember still works (re-add overwrites leftAt entry)', async () => {
-    await facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['member'] })
-    await facet.removeMember('org-1', 'u')
-    const back = await facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['returned'] })
+    await facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['member'] }, {})
+    await facet.removeMember('org-1', 'u', {})
+    const back = await facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['returned'] }, {})
     expect(back.roles).toEqual(['returned'])
     // leftAt cleared on the new joinedAt row.
-    const resolved = await facet.resolveMembership('org-1', 'u')
+    const resolved = await facet.resolveMembership('org-1', 'u', {})
     expect(resolved.roles).toEqual(['returned'])
     expect(resolved.leftAt).toBeNull()
   })
@@ -86,9 +86,15 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
   it('store-level guard fires even when called directly (bypassing the facet)', async () => {
     // Caller that uses the store directly (some apps do this for bulk
     // admin operations). The store must guard atomically too.
-    await adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [], invitedAt: null, leftAt: null }, {})
+    await adapter.orgs.addMember(
+      { orgId: 'org-1', identityId: 'u', roles: [], invitedAt: null, leftAt: null, tenantId: null },
+      {},
+    )
     await expect(
-      adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [], invitedAt: null, leftAt: null }, {}),
+      adapter.orgs.addMember(
+        { orgId: 'org-1', identityId: 'u', roles: [], invitedAt: null, leftAt: null, tenantId: null },
+        {},
+      ),
     ).rejects.toMatchObject({
       code: 'AUTH_ALREADY_EXISTS',
       meta: { detail: 'identity already a member of this org' },

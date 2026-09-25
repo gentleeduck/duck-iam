@@ -2,9 +2,9 @@
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
-import type { Channel } from '~/channels/channels.types'
 import { orNull } from '~/core/answer'
 import { AuthEngine } from '~/core/engine'
+import type { Deliver } from '~/core/flows/flows.delivery'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { applyPgSchema, databaseUrl, e2ePrefix } from '~/test/e2e-env'
@@ -16,17 +16,14 @@ const suite = PG_URL ? describe : describe.skip
 type Profile = { username: string; email: string }
 
 /** Captures the link so a test can play the part of the mail client. */
-function capturingChannel(): Channel.Channel & { links: string[] } {
+function capturingChannel(): Deliver & { links: string[] } {
   const links: string[] = []
-  return {
-    id: 'capture',
-    kind: 'email',
-    links,
-    async send(input) {
-      links.push((input.vars as { url?: string }).url ?? '')
-      return { ok: true }
+  return Object.assign(
+    async (message: Parameters<Deliver>[0]): Promise<void> => {
+      links.push((message.vars as { url?: string }).url ?? '')
     },
-  }
+    { links },
+  )
 }
 
 suite('E2E magic links on real Postgres', () => {
@@ -68,7 +65,7 @@ suite('E2E magic links on real Postgres', () => {
     })
     auth.providers.register(
       magicLink<Profile>({
-        channels: { email: channel },
+        deliver: channel,
         findIdentityByEmail: async (email) => orNull(stores.identities.find({ email })),
       }),
     )
@@ -238,7 +235,7 @@ suite('E2E magic links on real Postgres', () => {
         expect(() =>
           magicLink<Profile>({
             callbackPath,
-            channels: { email: channel },
+            deliver: channel,
             findIdentityByEmail: async () => null,
           }),
         ).toThrow(/AUTH_MISCONFIGURED/)
@@ -249,7 +246,7 @@ suite('E2E magic links on real Postgres', () => {
       expect(() =>
         magicLink<Profile>({
           callbackPath: '/auth/magic',
-          channels: { email: channel },
+          deliver: channel,
           findIdentityByEmail: async () => null,
         }),
       ).not.toThrow()

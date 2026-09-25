@@ -15,14 +15,18 @@ export namespace RedisLike {
     /** MGET key... -> one value per key in order, null per miss. Optional: a client without it is
      *  served by concurrent `get`s, which costs one round trip per key instead of one for all. */
     mget?(...keys: string[]): Promise<(string | null)[]>
+    /**
+     * EVAL script numkeys=KEYS.length KEYS ARGV -> whatever the script returns.
+     * Optional: a client without it leaves `RedisSessionImpl.update` on a read-compare-write, where two
+     * clients can both read, both pass the compare and both write. See that class's doc.
+     */
+    eval?(script: string, keys: string[], args: (string | number)[]): Promise<unknown>
     /** SET key value [EX seconds] [NX] -> 'OK' | null (null = NX failed) */
     set(key: string, value: string, opts?: { ex?: number; nx?: boolean }): Promise<'OK' | null>
     /** DEL key... -> count */
     del(...keys: string[]): Promise<number>
     /** EXPIRE key seconds -> 1 | 0 */
     expire(key: string, seconds: number): Promise<number>
-    /** SCAN cursor MATCH pattern COUNT n -> [nextCursor, keys] */
-    scan(cursor: string, opts?: { match?: string; count?: number }): Promise<[string, string[]]>
     /** INCR key -> new value (creates key=1 if missing) */
     incr(key: string): Promise<number>
     /** INCRBY key n -> new value. Optional: a client without it is served by repeated `incr`. */
@@ -47,8 +51,6 @@ export namespace RedisLike {
       max: number | string,
       opts?: { limit?: { offset: number; count: number } },
     ): Promise<string[]>
-    /** EVAL script numKeys keys... args... -> result */
-    eval?(script: string, opts: { keys: string[]; args: string[] }): Promise<unknown>
   }
 }
 
@@ -129,25 +131,6 @@ export class FakeRedis implements RedisLike.Client {
     if (!this._data.has(key) && !this._sets.has(key) && !this._zsets.has(key)) return 0
     this._expiresAt.set(key, Date.now() + seconds * 1000)
     return 1
-  }
-
-  /** Walks strings, sets and sorted sets alike, since real Redis SCAN is type-agnostic. */
-  async scan(cursor: string, opts: { match?: string; count?: number } = {}): Promise<[string, string[]]> {
-    const all = [...new Set<string>([...this._data.keys(), ...this._sets.keys(), ...this._zsets.keys()])]
-    const start = Number(cursor) || 0
-    const count = opts.count ?? 100
-    const matched: string[] = []
-    let i = start
-    for (; i < all.length && matched.length < count; i++) {
-      const key = all[i]
-      if (!key) continue
-      this._maybeExpire(key)
-      if (!this._data.has(key) && !this._sets.has(key) && !this._zsets.has(key)) continue
-      if (opts.match && !matchGlob(key, opts.match)) continue
-      matched.push(key)
-    }
-    const nextCursor = i >= all.length ? '0' : String(i)
-    return [nextCursor, matched]
   }
 
   /** Adds one, treating a missing key as zero. */
@@ -276,38 +259,6 @@ export class FakeRedis implements RedisLike.Client {
       if (set && set.size === 0) this._channels.delete(channel)
     }
   }
-}
-
-/** Redis MATCH semantics, `*` only. Two-pointer rather than a constructed regex, which was both
- *  ReDoS-prone on `a*a*a*a*a*X` and crash-prone on an unescaped `?`. O(n*m) worst case, and anything
- *  else is a literal. */
-const MATCH_GLOB_INPUT_MAX = 4096
-const MATCH_GLOB_PATTERN_MAX = 256
-function matchGlob(input: string, pattern: string): boolean {
-  if (input.length > MATCH_GLOB_INPUT_MAX) return false
-  if (pattern.length > MATCH_GLOB_PATTERN_MAX) return false
-  let i = 0
-  let p = 0
-  let starIdx = -1
-  let matchIdx = 0
-  while (i < input.length) {
-    if (p < pattern.length && pattern[p] === '*') {
-      starIdx = p
-      matchIdx = i
-      p++
-    } else if (p < pattern.length && pattern[p] === input[i]) {
-      i++
-      p++
-    } else if (starIdx !== -1) {
-      p = starIdx + 1
-      matchIdx++
-      i = matchIdx
-    } else {
-      return false
-    }
-  }
-  while (p < pattern.length && pattern[p] === '*') p++
-  return p === pattern.length
 }
 
 /** In-process fake implementing {@link RedisLike.Client}, for tests. */

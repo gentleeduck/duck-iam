@@ -141,7 +141,7 @@ describe('fail-skip matrix - path A: every group at an ABAC DYNAMIC cell throws 
     expect(await production.can('user-1', 'read', resource)).toBe(
       (await development.check('user-1', 'read', resource)).allowed,
     )
-    expect(reported?.message).toMatch(/MAX_REGEX_INPUT_LENGTH/)
+    expect(reported?.message).toBe('IAM_CONDITION_REGEX_INPUT_TOO_LARGE')
   })
 
   it("unrelated-vote-present, defaultEffect 'allow': still decided by the RBAC grant, not the fallback", async () => {
@@ -243,7 +243,7 @@ describe('fail-skip matrix - path B: the rbacResidual policy throws (rbacVote ca
     expect(await production.can('user-1', 'read', resource)).toBe(
       (await development.check('user-1', 'read', resource)).allowed,
     )
-    expect(reported?.message).toMatch(/MAX_REGEX_INPUT_LENGTH/)
+    expect(reported?.message).toBe('IAM_CONDITION_REGEX_INPUT_TOO_LARGE')
   })
 
   it("unrelated-vote-present, defaultEffect 'allow', unrelated vote via a flat CONST_ALLOW policy", async () => {
@@ -333,7 +333,7 @@ describe("fail-closed matrix - path C: lookup()'s own residual-policy loop throw
     expect(await production.can('user-1', 'read', resource)).toBe(
       (await development.check('user-1', 'read', resource)).allowed,
     )
-    expect(reported?.message).toMatch(/MAX_REGEX_INPUT_LENGTH/)
+    expect(reported?.message).toBe('IAM_CONDITION_REGEX_INPUT_TOO_LARGE')
   })
 
   it("unrelated-vote-present, defaultEffect 'allow': fail-open does not rescue a throwing deny", async () => {

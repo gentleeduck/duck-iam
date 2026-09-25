@@ -190,8 +190,7 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
    *  `reason` is the caller's to log: the library does not own the shape of a compliance envelope. */
   erase(id: string, opts: { reason: string; operatorId?: string }): Answer.Me<Identities.Me<Profile>> {
     // Bound only when there is an actor: `withActor(undefined)` is a fence that clears the scope.
-    // `async`, because `withActor` is typed to hand back either the value or a promise of it.
-    return answer(async () =>
+    return answer(
       opts.operatorId === undefined ? this._store.erase(id) : withActor(opts.operatorId, () => this._store.erase(id)),
     )
   }
@@ -253,13 +252,9 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     const identity = await orNull(this._store.find({ id }))
     if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
     const creds = await credentials.listByIdentity(id, null, ctx)
-    // SECURITY: scoped like the credentials read a line above, which is the `ctx` this method already
-    // took and then dropped here. Identities are global, so the unfiltered list was the one the store
-    // contract warns about in so many words: tenant A's right-to-access blob named every session
-    // tenant B had issued the same person, carrying that `tenantId`, the ip, the user-agent and the
-    // fingerprint of each. `sessions-tenant-scope.test.ts` proved the store and `listForIdentity`
-    // honour the filter; this caller was the one that never asked for it. An unscoped `ctx` matches
-    // every row, so a single-tenant export answers exactly what it did before.
+    // SECURITY: scoped by the `ctx` this method already took, like the credentials read above.
+    // Identities are global, so an unfiltered list put every session another tenant had issued the same
+    // person - `tenantId`, ip, user-agent and fingerprint - into this tenant's right-to-access blob.
     const sessions = opts.sessions ? await opts.sessions.listByIdentity(id, ctx) : []
     return {
       identity,

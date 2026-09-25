@@ -833,12 +833,16 @@ describe('allowFailOpen enforcement (P0)', () => {
   // The `allowFailOpen` opt-in is enforced in every mode, not only production.
   it("refuses defaultEffect: 'allow' in development without allowFailOpen", () => {
     const adapter = new IamMemoryAdapter()
-    expect(() => new IamEngine({ adapter, mode: 'development', defaultEffect: 'allow' })).toThrow(/fail-open/i)
+    expect(() => new IamEngine({ adapter, mode: 'development', defaultEffect: 'allow' })).toThrow(
+      'IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED',
+    )
   })
 
   it("refuses defaultEffect: 'allow' in production without allowFailOpen", () => {
     const adapter = new IamMemoryAdapter()
-    expect(() => new IamEngine({ adapter, defaultEffect: 'allow', mode: 'production' })).toThrow(/fail-open/i)
+    expect(() => new IamEngine({ adapter, defaultEffect: 'allow', mode: 'production' })).toThrow(
+      'IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED',
+    )
   })
 
   it("accepts defaultEffect: 'allow' in any mode with allowFailOpen: true", () => {

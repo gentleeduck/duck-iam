@@ -7,7 +7,6 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
-import { AuthTestChannel } from '~/channels/console'
 import { orNull } from '~/core/answer'
 import { randomToken, sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
@@ -17,6 +16,7 @@ import { RedisLimiter } from '~/limiters/redis'
 import { ApiKeysFacet } from '~/providers/api-key'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 import { applyPgSchema, databaseUrl, dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 
 const PG_URL = databaseUrl()
@@ -58,6 +58,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
   let auth: AuthEngine<Profile>
   let stores: DrizzlePgAdapter
   let keys: ApiKeysFacet
+  const channel = authTestDeliver()
   const planted: string[] = []
 
   async function newUser(label: string): Promise<{ id: string; email: string }> {
@@ -69,9 +70,8 @@ suite('E2E token quality on real Postgres + Redis', () => {
     return { email, id: identity.id }
   }
 
-  async function resetToken(email: string, channel = new AuthTestChannel()): Promise<string> {
+  async function resetToken(email: string): Promise<string> {
     await auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: async (e) => orNull(stores.identities.find({ email: e })),
       input: { email },
     })
@@ -89,6 +89,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
     stores = new DrizzlePgAdapter(PG_URL as string)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
+      deliver: channel.deliver,
       limiter: new RedisLimiter({
         max: 2000,
         prefix,
@@ -232,17 +233,15 @@ suite('E2E token quality on real Postgres + Redis', () => {
 
     it('never repeat across a hundred requests', async () => {
       const user = await newUser('reset-unique')
-      const channel = new AuthTestChannel()
       const tokens: string[] = []
-      for (let i = 0; i < 100; i++) tokens.push(await resetToken(user.email, channel))
+      for (let i = 0; i < 100; i++) tokens.push(await resetToken(user.email))
       expect(new Set(tokens).size).toBe(100)
     })
 
     it('spread evenly over the alphabet', async () => {
       const user = await newUser('reset-spread')
-      const channel = new AuthTestChannel()
       const tokens: string[] = []
-      for (let i = 0; i < 120; i++) tokens.push(await resetToken(user.email, channel))
+      for (let i = 0; i < 120; i++) tokens.push(await resetToken(user.email))
       expect(bitsPerChar(tokens)).toBeGreaterThan(5.8)
     })
 
@@ -257,9 +256,8 @@ suite('E2E token quality on real Postgres + Redis', () => {
       // Otherwise ten requests leave ten working keys to the account sitting in ten inboxes, and an
       // old message forwarded, archived or leaked stays a way in.
       const user = await newUser('reset-accumulate')
-      const channel = new AuthTestChannel()
       const tokens: string[] = []
-      for (let i = 0; i < 10; i++) tokens.push(await resetToken(user.email, channel))
+      for (let i = 0; i < 10; i++) tokens.push(await resetToken(user.email))
 
       await expect(
         auth.flows.completePasswordReset({ newPassword: 'a-brand-new-password', token: tokens[0] as string }),
@@ -271,8 +269,10 @@ suite('E2E token quality on real Postgres + Redis', () => {
     })
 
     it('is rate limited per address, so it cannot be used to send mail forever', async () => {
+      const rlChannel = authTestDeliver()
       const limited = new AuthEngine<Profile>({
         baseUrl: 'https://app.test',
+        deliver: rlChannel.deliver,
         limiter: new RedisLimiter({
           max: 3,
           prefix: `${prefix}:rl`,
@@ -287,39 +287,35 @@ suite('E2E token quality on real Postgres + Redis', () => {
       limited.providers.register(typeof m === 'function' ? m(limited as never) : m)
 
       const user = await newUser('reset-rl')
-      const channel = new AuthTestChannel()
       for (let i = 0; i < 10; i++) {
         await limited.flows
           .requestPasswordReset({
-            channels: { email: channel },
             findIdentityByEmail: async (e) => orNull(stores.identities.find({ email: e })),
             input: { email: user.email },
           })
           .catch(() => undefined)
       }
-      expect(channel.outbox.length).toBeLessThan(10)
+      expect(rlChannel.outbox.length).toBeLessThan(10)
     })
   })
 
   describe('responses that must not reveal whether an account exists', () => {
     it('answers a reset for an unknown address exactly as for a known one', async () => {
       const user = await newUser('enum-known')
-      const knownChannel = new AuthTestChannel()
-      const unknownChannel = new AuthTestChannel()
 
       const known = await auth.flows.requestPasswordReset({
-        channels: { email: knownChannel },
         findIdentityByEmail: async (e) => orNull(stores.identities.find({ email: e })),
         input: { email: user.email },
       })
+      const sentForKnown = channel.outbox.length
       const unknown = await auth.flows.requestPasswordReset({
-        channels: { email: unknownChannel },
         findIdentityByEmail: async (e) => orNull(stores.identities.find({ email: e })),
         input: { email: `ghost-${e2ePrefix()}@test.local` },
       })
 
       expect(known).toEqual(unknown)
-      expect(unknownChannel.outbox).toHaveLength(0)
+      // The known address got a mail and the ghost got none, which is the whole difference.
+      expect(channel.outbox).toHaveLength(sentForKnown)
     })
 
     it('takes a comparable amount of time for a known and an unknown account', async () => {

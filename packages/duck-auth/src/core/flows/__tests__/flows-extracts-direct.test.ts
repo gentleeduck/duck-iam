@@ -2,13 +2,13 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { AuthTestChannel } from '~/channels/console'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../account-deletion.flow'
 import { completeEmailVerification, requestEmailVerification } from '../email-verification.flow'
 import { impersonate, releaseImpersonation } from '../impersonate.flow'
@@ -29,14 +29,16 @@ interface MyProfile extends Identities.ProfileMetadataBase {
 
 function build() {
   const adapter = new MemoryAdapter<MyProfile>()
+  const channel = authTestDeliver()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
+    deliver: channel.deliver,
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
   })
-  return { auth, adapter }
+  return { adapter, auth, channel }
 }
 
 describe('flows/password-reset.ts - direct exports', () => {
@@ -52,11 +54,9 @@ describe('flows/password-reset.ts - direct exports', () => {
   })
 
   it('requestPasswordReset called directly produces an enumeration-safe ok-true', async () => {
-    const channel = new AuthTestChannel()
     const out = await requestPasswordReset(auth.flows.deps, {
       input: { email: 'never-exists@x.com' },
       findIdentityByEmail: async () => null,
-      channels: { email: channel },
     })
     expect(out.ok).toBe(true)
   })
@@ -68,16 +68,13 @@ describe('flows/password-reset.ts - direct exports', () => {
   })
 
   it('direct call matches class-method call (no extra side effects)', async () => {
-    const channel = new AuthTestChannel()
     const directOut = await requestPasswordReset(auth.flows.deps, {
       input: { email: 'a@x.com' },
       findIdentityByEmail: async () => null,
-      channels: { email: channel },
     })
     const classOut = await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
       findIdentityByEmail: async () => null,
-      channels: { email: channel },
     })
     expect(directOut).toEqual(classOut)
     // unused adapter to silence linter

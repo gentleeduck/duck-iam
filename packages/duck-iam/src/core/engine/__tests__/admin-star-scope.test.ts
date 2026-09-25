@@ -14,7 +14,7 @@ function engineWith() {
 describe('admin refuses a "*" scope on a grant', () => {
   it('rejects the single-row assign', async () => {
     const { adapter, engine } = engineWith()
-    await expect(engine.admin.assignRole('u1', 'reader', '*')).rejects.toThrow(/must not be "\*"/)
+    await expect(engine.admin.assignRole('u1', 'reader', '*')).rejects.toThrow('IAM_SCOPE_INVALID')
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
   })
 
@@ -25,7 +25,7 @@ describe('admin refuses a "*" scope on a grant', () => {
         { roleId: 'reader', scope: 'org-1', subjectId: 'u1' },
         { roleId: 'reader', scope: '*', subjectId: 'u2' },
       ]),
-    ).rejects.toThrow(/must not be "\*"/)
+    ).rejects.toThrow('IAM_SCOPE_INVALID')
     // The good row before the bad one has not landed, so retrying the fixed batch cannot double-apply it.
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
     expect(await adapter.getSubjectScopedRoles('u2')).toEqual([])
@@ -33,7 +33,7 @@ describe('admin refuses a "*" scope on a grant', () => {
 
   it('rejects a "*" destination on updateAssignmentScope', async () => {
     const { engine } = engineWith()
-    await expect(engine.admin.updateAssignmentScope('u1', 'reader', 'org-1', '*')).rejects.toThrow(/must not be "\*"/)
+    await expect(engine.admin.updateAssignmentScope('u1', 'reader', 'org-1', '*')).rejects.toThrow('IAM_SCOPE_INVALID')
   })
 
   // Controls, and the directions that must stay open.

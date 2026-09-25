@@ -10,6 +10,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
+import { memoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
 import { afterOAuthBegin } from '~/test/oauth-browser'
 import type { OAuth } from '../../core/oauth.types'
 import { github } from '../github'
@@ -65,6 +66,7 @@ function build(
         },
         redirectUri: 'https://app/cb',
         stateSigningSecret: 'super-secret-signing-key',
+        nonceStore: memoryDPoPNonceStore(),
         ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
       }),
     ],

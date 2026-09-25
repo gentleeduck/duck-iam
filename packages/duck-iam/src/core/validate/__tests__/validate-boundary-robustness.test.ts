@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { MAX_CONDITION_DEPTH } from '../../conditions/conditions.libs'
 import { IamEngine } from '../../engine/engine'
+import { IamError, metaOf } from '../../errors'
 import { evaluatePolicy } from '../../evaluate/evaluate'
 import { rolesToPolicy } from '../../rbac/rbac'
 import type { AccessControl } from '../../types'
@@ -135,7 +136,9 @@ describe('residual: a throwing role permission no longer splits the two modes', 
     expect(decision.allowed).toBe(true)
     expect(decision.rule?.id).toBe('__rbac__#1')
     expect(seen).toHaveLength(1)
-    expect(seen[0]?.message).toContain('BOGUS')
+    expect(
+      metaOf(seen[0] as IamError<'IAM_CONDITION_OPERATOR_UNKNOWN'>, 'IAM_CONDITION_OPERATOR_UNKNOWN').operator,
+    ).toBe('BOGUS')
   })
 })
 

@@ -1,6 +1,6 @@
 import type { IamEngine } from '../../core'
+import { hasIamErrorCode, type IamError } from '../../core/errors'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
-import { type IamValidationError, iamIsValidationError } from '../../shared/errors'
 import {
   iamAsActionLiteral,
   iamAsRoleLiteral,
@@ -324,8 +324,8 @@ export function iamAdminRouter<
   const onUnauthorized = opts.onUnauthorized ?? ((_, res) => res.status(401).json({ error: 'Unauthorized' }))
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
   const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
-  const onBadRequest = (res: Res, err: IamValidationError) =>
-    res.status(400).json({ error: `Invalid ${err.kind}`, issues: err.issues })
+  const onBadRequest = (res: Res, err: Error & { meta: IamError.Meta<'IAM_VALIDATION_FAILED'> }) =>
+    res.status(400).json({ error: `Invalid ${err.meta.kind}`, issues: err.meta.issues })
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
@@ -378,7 +378,7 @@ export function iamAdminRouter<
         )
       } catch (err) {
         // A rejected body is the caller's mistake: answer 400, since a 500 invites retrying what can never succeed.
-        if (iamIsValidationError(err)) return onBadRequest(res, err)
+        if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) return onBadRequest(res, err)
         onError(err instanceof Error ? err : new Error(String(err)), req, res)
       }
     }

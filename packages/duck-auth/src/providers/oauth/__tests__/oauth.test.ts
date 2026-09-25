@@ -5,6 +5,7 @@ import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
+import { memoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { afterOAuthBegin } from '~/test/oauth-browser'
@@ -313,6 +314,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
         },
         redirectUri: 'https://app/cb',
         stateSigningSecret: 'super-secret',
+        nonceStore: memoryDPoPNonceStore(),
         async fetchProfile(tokens, c) {
           const info = (await c.userinfo(tokens.access_token)) as {
             sub: string
@@ -545,6 +547,7 @@ describe('oProvider - redirectUri construction guard', () => {
       userinfoEndpoint: 'https://idp/userinfo',
     },
     stateSigningSecret: 'sec',
+    allowStateReplay: true,
     async fetchProfile() {
       return { sub: 's' }
     },

@@ -31,10 +31,16 @@ export interface ResolvedCaptchaCfg {
   endpoint: string
   timeoutMs: number
   expectedHostnames: string[] | null
+  expectedAction: string | undefined
   maxChallengeAgeMs: number
 }
 
-export function resolveCaptchaCfg(cfg: AuthCaptcha.ICfgBase, verifier: string, endpoint: string): ResolvedCaptchaCfg {
+/** `expectedAction` is not on `ICfgBase`: only the providers that echo an action accept one. */
+export function resolveCaptchaCfg(
+  cfg: AuthCaptcha.ICfgBase & { expectedAction?: string },
+  verifier: string,
+  endpoint: string,
+): ResolvedCaptchaCfg {
   if (!cfg.secret) {
     throw new AuthError('AUTH_MISCONFIGURED', { detail: `${verifier} requires a \`secret\`` })
   }
@@ -61,8 +67,12 @@ export function resolveCaptchaCfg(cfg: AuthCaptcha.ICfgBase, verifier: string, e
       detail: `${verifier} expectedHostname must be a non-empty host or list of hosts`,
     })
   }
+  if (cfg.expectedAction !== undefined && (typeof cfg.expectedAction !== 'string' || cfg.expectedAction.length === 0)) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: `${verifier} expectedAction must be a non-empty string` })
+  }
   return {
     endpoint: resolvedEndpoint,
+    expectedAction: cfg.expectedAction,
     expectedHostnames: hosts,
     fetch: cfg.fetch ?? globalThis.fetch,
     maxChallengeAgeMs,
@@ -89,13 +99,13 @@ export async function siteVerify(
     response: input.token,
     ...(input.remoteIp !== undefined && { remoteip: input.remoteIp }),
   })
-  // Captcha fronts sign-in, so a provider that accepts the connection and never answers parks the
-  // whole login path until something upstream gives up.
+  // Captcha fronts sign-in, so a provider that never answers parks the login path. `fetch` settles on
+  // the headers, so the deadline stays armed over the body read too.
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), cfg.timeoutMs)
-  let res: Response
+  let raw: unknown
   try {
-    res = await cfg.fetch(cfg.endpoint, {
+    const res = await cfg.fetch(cfg.endpoint, {
       method: 'POST',
       body: body.toString(),
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -104,28 +114,45 @@ export async function siteVerify(
       redirect: 'error',
       signal: abort.signal,
     })
+    // A five hundred, a four twenty-nine, or a captive portal that happens to serialise
+    // `{"success":true}` is not a solved challenge, however well its body parses.
+    if (!res.ok) return fail([`provider-http-${res.status}`])
+    raw = await readJsonSafe(res)
   } catch (err) {
     if (abort.signal.aborted) return fail(['timeout'])
     return fail(['network-error', err instanceof Error ? err.message : String(err)])
   } finally {
     clearTimeout(timer)
   }
+  // `readJsonSafe` swallows the aborted read into `null`, which would read as a malformed body.
+  if (abort.signal.aborted) return fail(['timeout'])
 
-  // A five hundred, a four twenty-nine, or a captive portal that happens to serialise
-  // `{"success":true}` is not a solved challenge, however well its body parses.
-  if (!res.ok) return fail([`provider-http-${res.status}`])
-
-  const parsed = parse(await readJsonSafe(res))
+  const parsed = parse(raw)
   if (!parsed) return fail(['malformed-response'])
 
   const carried: AuthCaptcha.IVerifyResult = { success: false }
   if (parsed.hostname !== undefined) carried.hostname = parsed.hostname
   if (parsed.challengeTs !== undefined) carried.challengeTs = parsed.challengeTs
   if (parsed.errorCodes !== undefined) carried.errorCodes = parsed.errorCodes
+  if (parsed.action !== undefined) carried.action = parsed.action
+  if (parsed.score !== undefined) carried.score = parsed.score
 
-  const expected = input.expectedHostname !== undefined ? [input.expectedHostname] : cfg.expectedHostnames
+  // SECURITY: `''` matches the empty string a response without a hostname falls back to, so an
+  // override the constructor would have refused turns the check off instead of tightening it.
+  const host = input.expectedHostname
+  if (host !== undefined && (typeof host !== 'string' || host.length === 0)) {
+    const codes = [...(carried.errorCodes ?? []), 'invalid-expected-hostname']
+    return { ok: false, result: { ...carried, errorCodes: codes } }
+  }
+  const expected = host !== undefined ? [host] : cfg.expectedHostnames
   if (expected !== null && !expected.includes(parsed.hostname ?? '')) {
     return { ok: false, result: { ...carried, errorCodes: [...(carried.errorCodes ?? []), 'hostname-mismatch'] } }
+  }
+  // Turnstile and reCAPTCHA v3 both echo the action their widget was mounted with, so the check sits
+  // here rather than in either. A response carrying the wrong action, or none, fails it.
+  const action = input.expectedAction ?? cfg.expectedAction
+  if (action !== undefined && parsed.action !== action) {
+    return { ok: false, result: { ...carried, errorCodes: [...(carried.errorCodes ?? []), 'action-mismatch'] } }
   }
   const aged = isChallengeTooOld(parsed.challengeTs, cfg.maxChallengeAgeMs)
   if (aged !== null) {
@@ -189,6 +216,10 @@ export function parseSiteVerifyBasic(raw: unknown): SiteVerifyResponse | null {
     if (typeof raw.challenge_ts !== 'string') return null
     out.challengeTs = raw.challenge_ts
   }
+  if (raw.action !== undefined) {
+    if (typeof raw.action !== 'string') return null
+    out.action = raw.action
+  }
   return out
 }
 
@@ -198,10 +229,6 @@ export function parseSiteVerifyRecaptchaV3(raw: unknown): SiteVerifyResponse | n
   if (raw.score !== undefined) {
     if (typeof raw.score !== 'number' || !Number.isFinite(raw.score)) return null
     base.score = raw.score
-  }
-  if (raw.action !== undefined) {
-    if (typeof raw.action !== 'string') return null
-    base.action = raw.action
   }
   return base
 }

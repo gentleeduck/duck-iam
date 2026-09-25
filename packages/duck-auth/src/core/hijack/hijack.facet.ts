@@ -63,7 +63,7 @@ export class HijackFacet {
 
     if (drifts.length === 0) return { ok: true }
 
-    // Capped before emit, so a multi-KB header cannot bloat an OpenTelemetry or webhook payload.
+    // Capped before emit, so a multi-KB header cannot bloat a webhook or metrics payload.
     for (const d of drifts) {
       await this._events.emit('suspicious', {
         ...(session.identityId && { identityId: session.identityId }),

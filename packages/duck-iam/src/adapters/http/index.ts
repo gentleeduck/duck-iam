@@ -7,6 +7,7 @@ import {
   iamAssertSavableRole,
   iamNormalizePolicy,
   iamUnreadablePolicy,
+  iamUnreadableRole,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -55,8 +56,9 @@ export namespace IamHttp {
     /** Specifies the base URL of the duck-iam API (e.g. `https://api.example.com/access`). */
     baseUrl: string
     /**
-     * Called when an API row fails validation: a bad role row is dropped, a bad policy row makes the read throw.
-     * SECURITY: policy rows fail closed because the dropped policy could be the one that denies.
+     * Called when an API row fails validation, just before the read throws.
+     * SECURITY: rows fail closed - a dropped policy could be the one that denies, and a dropped role is what a
+     * deny selects on, so neither is skipped.
      */
     onPolicyError?: IamAdapter.RowErrorHandler<'http'>
     /** Overrides the default `globalThis.fetch` implementation. */
@@ -149,10 +151,14 @@ function _isPrivateHost(hostname: string): boolean {
       if (dotted) return _isPrivateHost(dotted)
       return false
     }
-    // IPv4-compatible `::a.b.c.d` (deprecated, RFC 4291 2.5.5.1); Node emits hex, but cover the textual form.
-    if (lower.startsWith('::') && lower.includes('.')) {
+    // IPv4-compatible `::a.b.c.d` (deprecated, RFC 4291 2.5.5.1). Node normalises this to the hex tail
+    // (`http://[::127.0.0.1]` arrives as `[::7f00:1]`), so the hex form is the one that actually reaches here;
+    // the textual form is covered too, as the mapped, 6to4 and NAT64 branches beside it do.
+    if (lower.startsWith('::')) {
       const tail = lower.slice(2)
       if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(tail)) return _isPrivateHost(tail)
+      const dotted = _hexTailToDottedQuad(tail)
+      if (dotted) return _isPrivateHost(dotted)
     }
     // 6to4 `2002::/16` embeds an IPv4 in the next two groups: `2002:7f00:1::` carries `127.0.0.1`.
     if (lower.startsWith('2002:')) {
@@ -338,7 +344,9 @@ export class IamHttpAdapter<
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error(`[@gentleduck/iam:http] baseUrl scheme must be http: or https:, got ${parsed.protocol}`)
     }
-    if (parsed.search || parsed.hash) {
+    // Tested on the raw string too: `new URL('https://h/iam?').search` is `''`, so a trailing bare `?` -
+    // what a URL builder emits for empty search params - would otherwise pass this guard.
+    if (parsed.search || parsed.hash || config.baseUrl.includes('?') || config.baseUrl.includes('#')) {
       throw new Error('[@gentleduck/iam:http] baseUrl must not contain a query string or fragment')
     }
     if (config.allowedHosts && config.allowedHosts.length > 0) {
@@ -420,10 +428,10 @@ export class IamHttpAdapter<
   }
 
   /**
-   * Narrows one API row to a policy; `_narrowRole` below drops a bad row instead.
+   * Narrows one API row to a policy.
    * SECURITY: a mismatch is reported and throws, never dropped or returned raw; see {@link iamUnreadablePolicy}.
    */
-  private _narrowPolicy(row: unknown, fallbackId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  private _narrowPolicy(row: unknown, fallbackId: string): AccessControl.IPolicy<TAction, TResource, TRole> {
     const policy = parsePolicyRow<TAction, TResource, TRole>(row)
     if (policy !== null) return policy
     const rowId = rowIdOf(row, fallbackId)
@@ -434,7 +442,7 @@ export class IamHttpAdapter<
     throw iamUnreadablePolicy('http', rowId, issues)
   }
 
-  private _narrowRole(row: unknown, fallbackId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  private _narrowRole(row: unknown, fallbackId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> {
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(row)
     if (role !== null) return role
     const rowId = rowIdOf(row, fallbackId)
@@ -442,21 +450,22 @@ export class IamHttpAdapter<
       .issues.map((i) => i.message)
       .join('; ')
     this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
-    return null
+    throw iamUnreadableRole('http', rowId, issues)
   }
 
-  /** A list endpoint must return an array; anything else is dropped wholesale and reported once. */
-  private _narrowList<T>(body: unknown, path: string, narrow: (row: unknown, fallbackId: string) => T | null): T[] {
+  /** A list endpoint must return an array; anything else is reported and rejected, never read as an empty list. */
+  private _narrowList<T>(body: unknown, path: string, narrow: (row: unknown, fallbackId: string) => T): T[] {
     if (!Array.isArray(body)) {
       const got = body === null ? 'null' : typeof body
-      this._reportPolicyError(new Error(`Expected an array from ${path}, got ${got}`), path)
-      return []
+      const err = new Error(
+        `[@gentleduck/iam:http] expected an array from ${path}, got ${got}; refusing to read it as an empty list ` +
+          'because the list that went missing may be the one that denies.',
+      )
+      this._reportPolicyError(err, path)
+      throw err
     }
     const out: T[] = []
-    for (const [i, row] of body.entries()) {
-      const v = narrow(row, `${path}[${i}]`)
-      if (v !== null) out.push(v)
-    }
+    for (const [i, row] of body.entries()) out.push(narrow(row, `${path}[${i}]`))
     return out
   }
 
@@ -638,6 +647,9 @@ export class IamHttpAdapter<
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('http', scope)
     iamAssertNoAssignOptions('http', opts)
+    // The id travels in the body here and in the path on revoke, so only `segment` used to see it: an id
+    // holding `/` assigned cleanly and then failed every `revokeRole`. Reads and writes share the invariant.
+    assertReadableId(roleId, 'role id')
     await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles`, {
       method: 'POST',
       body: JSON.stringify({ roleId, scope }),

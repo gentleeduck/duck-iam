@@ -17,6 +17,7 @@ function makeClient(options?: Record<string, unknown>): Saml.Client {
 
 function build(options?: Record<string, unknown>) {
   return saml({
+    allowReplay: true,
     allowUnsolicited: true,
     callbackUrl: 'https://app/acs',
     client: makeClient(options),

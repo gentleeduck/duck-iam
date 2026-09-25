@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { type IamError, metaOf } from '../../errors'
 import { evaluate } from '../../evaluate/evaluate'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../types'
 import { definePolicy } from '../policy'
@@ -78,19 +79,22 @@ describe('RuleBuilder: repeated condition groups', () => {
 
 describe('RuleBuilder.build() validates', () => {
   it('rejects a rule with an empty id', () => {
-    expect(() => defineRule('').allow().on('read').of('post').build()).toThrow(/rejected by validator/)
+    expect(() => defineRule('').allow().on('read').of('post').build()).toThrow('IAM_VALIDATION_FAILED')
   })
 
   it('rejects a non-finite priority', () => {
     expect(() => defineRule('r').allow().priority(Number.NaN).on('read').of('post').build()).toThrow(
-      /rejected by validator/,
+      'IAM_VALIDATION_FAILED',
     )
   })
 
-  it('names the builder module and the rule id in the message', () => {
-    expect(() => defineRule('bad-rule').allow().priority(Number.NaN).build()).toThrow(
-      /\[@gentleduck\/iam:builder\] RuleBuilder\.build\("bad-rule"\)/,
-    )
+  it('reports kind "rule", so a caller can tell a rule build failed from a policy or role build', () => {
+    try {
+      defineRule('bad-rule').allow().priority(Number.NaN).build()
+      expect.unreachable()
+    } catch (err) {
+      expect(metaOf(err as IamError<'IAM_VALIDATION_FAILED'>, 'IAM_VALIDATION_FAILED').kind).toBe('rule')
+    }
   })
 
   // Control: the ordinary path still builds.
@@ -102,11 +106,11 @@ describe('RuleBuilder.build() validates', () => {
 // An empty scope must reach the validator, not widen into a global permission.
 describe('RoleBuilder.grant with an empty scope', () => {
   it('does not silently produce a global permission', () => {
-    expect(() => defineRole('r').grant('read', 'post', '').build()).toThrow(/rejected by validator/)
+    expect(() => defineRole('r').grant('read', 'post', '').build()).toThrow('IAM_VALIDATION_FAILED')
   })
 
   it('matches grantScoped, which already threw', () => {
-    expect(() => defineRole('r').grantScoped('', 'read', 'post').build()).toThrow(/rejected by validator/)
+    expect(() => defineRole('r').grantScoped('', 'read', 'post').build()).toThrow('IAM_VALIDATION_FAILED')
   })
 
   // Control: an omitted scope is still a global permission.

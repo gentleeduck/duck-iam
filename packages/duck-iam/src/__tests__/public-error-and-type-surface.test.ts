@@ -1,67 +1,42 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as Core from '../core'
-import * as Conditions from '../core/conditions'
-import { IamRegexInputTooLargeError } from '../core/conditions'
+import { IAM_ERRORS, IamError } from '../core/errors'
 import * as Iam from '../index'
 import type * as ExpressAdapter from '../server/express'
 import type * as HonoAdapter from '../server/hono'
 import type * as NestAdapter from '../server/nest'
 import type * as NextAdapter from '../server/next'
 
-// Tagged condition errors exist for `instanceof` routing, which needs an exported class. The list is read from
-// `conditions.libs.ts`, so a new `Iam...Error` missing from a barrel fails here.
-const DECLARED_ERRORS: string[] = [
-  ...readFileSync(join(__dirname, '../core/conditions/conditions.libs.ts'), 'utf8').matchAll(
-    /^export class (Iam\w+Error) extends Error/gm,
-  ),
-].map((m) => m[1] as string)
-
-describe('every tagged condition error is reachable', () => {
-  it('finds the classes it is meant to be checking', () => {
-    // Without this the loops below are satisfied by an empty list.
-    expect(DECLARED_ERRORS.length).toBeGreaterThanOrEqual(5)
-    expect(DECLARED_ERRORS).toContain('IamRegexInputTooLargeError')
+describe('IamError construction', () => {
+  it('uses the code as the message', () => {
+    expect(new IamError('IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED').message).toBe('IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED')
   })
 
-  it.each(DECLARED_ERRORS)('%s is exported from the conditions barrel', (name) => {
-    expect(Object.hasOwn(Conditions, name)).toBe(true)
+  it('is an Error, so existing catch blocks and instanceof still work', () => {
+    expect(new IamError('IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED')).toBeInstanceOf(Error)
+  })
+})
+
+describe('the code map', () => {
+  it('is where every code takes its status from', () => {
+    for (const [code, status] of Object.entries(IAM_ERRORS)) {
+      expect(new IamError(code as never).status).toBe(status)
+    }
+  })
+})
+
+// @ts-expect-error a code that carries something cannot be raised without it
+void new IamError('IAM_ROLE_NOT_FOUND')
+
+describe('IamError, IAM_ERRORS and errors.validation are reachable from the package root', () => {
+  it('IamError and IAM_ERRORS are exported from the core barrel', () => {
+    expect(Object.hasOwn(Core, 'IamError')).toBe(true)
+    expect(Object.hasOwn(Core, 'IAM_ERRORS')).toBe(true)
   })
 
-  it.each(DECLARED_ERRORS)('%s is exported from the core barrel', (name) => {
-    expect(Object.hasOwn(Core, name)).toBe(true)
-  })
-
-  it.each(DECLARED_ERRORS)('%s is exported from the package root', (name) => {
-    expect(Object.hasOwn(Iam, name)).toBe(true)
-  })
-
-  it.each(DECLARED_ERRORS)('%s carries a duck-iam/ tag distinct from every other', (name) => {
-    const tags = DECLARED_ERRORS.map((n) => {
-      const ctor = Reflect.get(Conditions, n)
-      // Every one of these takes (field, ...rest) with string-ish arguments.
-      return typeof ctor === 'function' ? Reflect.get(new ctor('f', 'x', 'y'), 'tag') : undefined
-    })
-    const own = tags[DECLARED_ERRORS.indexOf(name)]
-    expect(String(own)).toMatch(/^duck-iam\//)
-    expect(tags.filter((t) => t === own)).toHaveLength(1)
-  })
-
-  it('is a constructible Error subclass', () => {
-    const err = new IamRegexInputTooLargeError('subject.id', 10_000)
-    expect(err).toBeInstanceOf(Error)
-    expect(err.field).toBe('subject.id')
-    expect(err.length).toBe(10_000)
-  })
-
-  it('keeps its stable tag', () => {
-    expect(new IamRegexInputTooLargeError('f', 1).tag).toBe('duck-iam/regex-input-too-large')
-  })
-
-  it('is the class the evaluator actually throws', async () => {
-    const { evalMatchesOp, MAX_REGEX_INPUT_LENGTH } = await import('../core/conditions/conditions.libs')
-    expect(() => evalMatchesOp('a'.repeat(MAX_REGEX_INPUT_LENGTH + 1), '^a')).toThrow(IamRegexInputTooLargeError)
+  it('IamError and IAM_ERRORS are exported from the package root', () => {
+    expect(Object.hasOwn(Iam, 'IamError')).toBe(true)
+    expect(Object.hasOwn(Iam, 'IAM_ERRORS')).toBe(true)
   })
 })
 

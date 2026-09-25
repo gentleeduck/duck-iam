@@ -20,27 +20,27 @@ export class OrgsImpl<OrgMeta = unknown> {
   ) {}
 
   /** The org with this id. */
-  get(id: string, ctx: TenantContext = {}): Answer.Me<Org.Me<OrgMeta>> {
-    return answer(this._store.getOrg(id, ctx))
+  get(id: string, ctx: TenantContext): Answer.Me<Org.Me<OrgMeta>> {
+    return answer(async () => inScope(await this._store.getOrg(id, ctx), ctx))
   }
 
   /** Every org this identity is a member of. */
-  async listForIdentity(identityId: string, ctx: TenantContext = {}): Promise<Org.Me<OrgMeta>[]> {
-    return this._store.listOrgsForIdentity(identityId, ctx)
+  async listForIdentity(identityId: string, ctx: TenantContext): Promise<Org.Me<OrgMeta>[]> {
+    return (await this._store.listOrgsForIdentity(identityId, ctx)).map((org) => inScope(org, ctx))
   }
 
   /** Every membership in this org. */
-  async listMembers(orgId: string, ctx: TenantContext = {}): Promise<Org.Membership[]> {
-    return this._store.listMembers(orgId, ctx)
+  async listMembers(orgId: string, ctx: TenantContext): Promise<Org.Membership[]> {
+    return (await this._store.listMembers(orgId, ctx)).map((m) => inScope(m, ctx))
   }
 
   /** Re-adding an identity whose previous membership is marked `leftAt` is allowed; a live one is a
    *  conflict on (org, identity). */
   async addMember(
     input: { orgId: string; identityId: string; roles?: string[] },
-    ctx: TenantContext = {},
+    ctx: TenantContext,
   ): Promise<Org.Membership> {
-    const existing = await this._store.listMembers(input.orgId, ctx)
+    const existing = (await this._store.listMembers(input.orgId, ctx)).map((m) => inScope(m, ctx))
     const live = existing.find((m) => m.identityId === input.identityId && !m.leftAt)
     if (live) {
       throw new AuthError('AUTH_ALREADY_EXISTS', { detail: 'identity already a member of this org' })
@@ -52,30 +52,31 @@ export class OrgsImpl<OrgMeta = unknown> {
         roles: sanitizeRoles(input.roles),
         invitedAt: null,
         leftAt: null,
+        tenantId: ctx.tenantId ?? null,
       },
       ctx,
     )
-    return m
+    return inScope(m, ctx)
   }
 
   /** Marks `leftAt`, answering the membership as it stands left. An identity that was not a member
    *  rejects; `orNull()` is how an idempotent caller reads that as having done nothing. */
-  removeMember(orgId: string, identityId: string, ctx: TenantContext = {}): Answer.Me<Org.Membership> {
-    return answer(this._store.removeMember(orgId, identityId, ctx))
+  removeMember(orgId: string, identityId: string, ctx: TenantContext): Answer.Me<Org.Membership> {
+    return answer(async () => inScope(await this._store.removeMember(orgId, identityId, ctx), ctx))
   }
 
   /** Answers the membership carrying the sanitized set actually stored, not the one passed in.
    *  NOTE: the store decides whether a membership marked `leftAt` can still be given roles. The
    *  shipped memory store allows it, and the write is unreadable - `listMembers` and
    *  `resolveMembership` skip left rows, and re-adding overwrites the roles wholesale. */
-  setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext = {}): Answer.Me<Org.Membership> {
-    return answer(this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx))
+  setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext): Answer.Me<Org.Membership> {
+    return answer(async () => inScope(await this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx), ctx))
   }
 
   /** Rejects `AUTH_MEMBERSHIP_NOT_FOUND` when the identity is not a live member. */
-  resolveMembership(orgId: string, identityId: string, ctx: TenantContext = {}): Answer.Me<Org.Membership> {
+  resolveMembership(orgId: string, identityId: string, ctx: TenantContext): Answer.Me<Org.Membership> {
     return answer(async () => {
-      const members = await this._store.listMembers(orgId, ctx)
+      const members = (await this._store.listMembers(orgId, ctx)).map((m) => inScope(m, ctx))
       const live = members.find((m) => m.identityId === identityId && !m.leftAt)
       if (!live) {
         throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
@@ -84,6 +85,15 @@ export class OrgsImpl<OrgMeta = unknown> {
       return live
     })
   }
+}
+
+/** SECURITY: a row from another tenant is refused rather than answered. `Org.Store` is the host's own
+ *  read interface, so the scoping is theirs to perform - this is the library checking they did, which is
+ *  what the context could not be audited for while the rows carried no tenant. A `ctx` naming no tenant
+ *  asks for everything and accepts everything, exactly as `_inTenant` does. */
+function inScope<T extends { tenantId: string | null }>(row: T, ctx: TenantContext): T {
+  if (ctx.tenantId === undefined || row.tenantId === ctx.tenantId) return row
+  throw new AuthError('AUTH_TENANT_SCOPE_VIOLATION', { asked: ctx.tenantId, got: row.tenantId })
 }
 
 function sanitizeRoles(raw: unknown): string[] {

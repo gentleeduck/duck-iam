@@ -233,7 +233,14 @@ describe('Auth responses are not cacheable', () => {
     const http = handlers.filter((f) => !f.path.startsWith('server/grpc/'))
     expect(http.length).toBeGreaterThanOrEqual(8)
     for (const f of http) {
-      expect(linesContaining(f, /no-store/).length, `${f.path} never sets cache-control: no-store`).toBeGreaterThan(0)
+      // `generic` is where the header lives for the fetch-native adapters, so it has to carry the literal;
+      // an adapter answering through its `jsonResponse`/`errorResponse` inherits it.
+      const delegated =
+        f.path !== 'server/generic/index.ts' && linesContaining(f, /\b(jsonResponse|errorResponse)\(/).length > 0
+      expect(
+        linesContaining(f, /no-store/).length > 0 || delegated,
+        `${f.path} neither sets cache-control: no-store nor answers through generic's jsonResponse`,
+      ).toBe(true)
     }
   })
 })

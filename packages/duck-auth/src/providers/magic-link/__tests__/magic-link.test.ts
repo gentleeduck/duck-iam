@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import type { Channel } from '~/channels/channels.types'
 import { orNull } from '~/core/answer'
 import type { Credential } from '~/core/credentials'
 import { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
+import type { Deliver } from '~/core/flows/flows.delivery'
 import { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -12,35 +12,32 @@ import { magicLink } from '../index'
 
 interface MyProfile extends Identities.ProfileMetadataBase {}
 
-function fakeChannel(): Channel.Channel & { sent: Array<{ to: string; url: string }> } {
+function fakeChannel(): Deliver & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
-  return {
-    kind: 'email',
-    id: 'fake',
-    sent,
-    async send(input) {
-      const url = (input.vars as { url?: string }).url ?? ''
-      const email = (input.identity.profile as { email?: string } | undefined)?.email ?? ''
+  return Object.assign(
+    async (message: Parameters<Deliver>[0]): Promise<void> => {
+      const url = (message.vars as { url?: string }).url ?? ''
+      const email = (message.identity.profile as { email?: string } | undefined)?.email ?? ''
       sent.push({ to: email, url })
-      return { ok: true }
     },
-  }
+    { sent },
+  )
 }
 
 function buildAuth(
   opts: {
     autoCreate?: boolean
-    channel?: Channel.Channel
+    channel?: Deliver & { sent: Array<{ to: string; url: string }> }
     credentials?: (base: Credential.Store) => Credential.Store
     lookup?: (email: string, tenantId?: string) => Promise<{ id: string } | null>
   } = {},
 ): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
-  channel: Channel.Channel & { sent: Array<{ to: string; url: string }> }
+  channel: Deliver & { sent: Array<{ to: string; url: string }> }
 } {
   const adapter = new MemoryAdapter<MyProfile>()
-  const channel = (opts.channel as Channel.Channel & { sent: Array<{ to: string; url: string }> }) ?? fakeChannel()
+  const channel = opts.channel ?? fakeChannel()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
@@ -53,7 +50,7 @@ function buildAuth(
   })
   auth.providers.register(
     magicLink<MyProfile>({
-      channels: { email: channel },
+      deliver: channel,
       findIdentityByEmail: opts.lookup ?? ((email) => orNull(adapter.identities.find({ email }))),
       autoCreateIdentity: opts.autoCreate ?? false,
       autoCreateProfile: (email) => ({ username: email, email }),
@@ -128,14 +125,13 @@ describe('magic-link provider', () => {
       })
     })
 
-    it('channel send failure does NOT surface to the caller; emits signin.failed for operator visibility', async () => {
-      const broken: Channel.Channel = {
-        kind: 'email',
-        id: 'broken',
-        async send() {
-          return { ok: false, error: 'smtp down' }
+    it('a deliver that throws does NOT surface to the caller; emits signin.failed for operator visibility', async () => {
+      const broken = Object.assign(
+        async (): Promise<void> => {
+          throw new Error('smtp down')
         },
-      }
+        { sent: [] },
+      )
       const { auth } = buildAuth({ channel: broken })
       const seen: string[] = []
       auth.events.on('signin.failed', (payload) => {
@@ -147,17 +143,24 @@ describe('magic-link provider', () => {
       const intents = await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
       expect(intents).toEqual([{ type: 'json', status: 200, body: { ok: true } }])
       // The failure surfaces on the events bus so operators can detect
-      // channel outages without the requester learning anything.
+      // delivery outages without the requester learning anything.
       // `signin.failed` is emitted asynchronously by the fire-and-forget
       // path; yield to the microtask queue so the assertion sees it.
       await new Promise((r) => setImmediate(r))
-      expect(seen).toEqual(['channel.send rejected delivery'])
+      expect(seen).toEqual(['deliver threw'])
     })
 
-    it('missing channel surfaces AUTH_MISCONFIGURED', async () => {
-      const { auth } = buildAuth()
+    it('a provider with no deliver surfaces AUTH_MISCONFIGURED', async () => {
+      const adapter = new MemoryAdapter<MyProfile>()
+      const auth = new AuthEngine<MyProfile>({
+        baseUrl: 'https://app.example.com',
+        limiter: new MemoryLimiter({ max: 3, windowMs: 60_000 }),
+        providers: [magicLink<MyProfile>({ findIdentityByEmail: async () => null })],
+        stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+        transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+      })
       await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
-      await expect(auth.flows.beginProvider('magic-link', { email: 'a@x.com', channel: 'sms' })).rejects.toMatchObject({
+      await expect(auth.flows.beginProvider('magic-link', { email: 'a@x.com' })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
     })
@@ -167,7 +170,7 @@ describe('magic-link provider', () => {
     it('throws AUTH_MISCONFIGURED at construction when callbackPath is protocol-relative `//evil.com`', () => {
       expect(() =>
         magicLink<MyProfile>({
-          channels: { email: fakeChannel() },
+          deliver: fakeChannel(),
           findIdentityByEmail: async () => null,
           callbackPath: '//evil.com',
         }),
@@ -177,7 +180,7 @@ describe('magic-link provider', () => {
     it('throws on `/\\evil.com` (Windows-style escape)', () => {
       expect(() =>
         magicLink<MyProfile>({
-          channels: { email: fakeChannel() },
+          deliver: fakeChannel(),
           findIdentityByEmail: async () => null,
           callbackPath: '/\\evil.com',
         }),
@@ -187,7 +190,7 @@ describe('magic-link provider', () => {
     it('throws when callbackPath does not start with `/`', () => {
       expect(() =>
         magicLink<MyProfile>({
-          channels: { email: fakeChannel() },
+          deliver: fakeChannel(),
           findIdentityByEmail: async () => null,
           callbackPath: 'https://evil.com',
         }),
@@ -197,7 +200,7 @@ describe('magic-link provider', () => {
     it('accepts a safe same-origin callback path', () => {
       expect(() =>
         magicLink<MyProfile>({
-          channels: { email: fakeChannel() },
+          deliver: fakeChannel(),
           findIdentityByEmail: async () => null,
           callbackPath: '/login/finish',
         }),

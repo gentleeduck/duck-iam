@@ -1,6 +1,7 @@
 // `starts_at`/`expires_at` bound when an assignment is active; `attributes` carries per-grant data onto `IScopedRole`.
 // All three are opt-in: a row with them NULL is an unbounded grant with no attributes.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { IamError, metaOf } from '../../../core/errors'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 import { fakeSql } from './fake-sql'
 
@@ -541,7 +542,7 @@ describe('IamDrizzleAdapter refuses a window it could never honour', () => {
         expiresAt: new Date(NOW),
         startsAt: new Date(NOW + HOUR),
       }),
-    ).rejects.toThrow(/startsAt.*expiresAt/)
+    ).rejects.toThrow('IAM_ASSIGN_WINDOW_EMPTY')
     expect(mock.assignments).toEqual([])
   })
 
@@ -550,16 +551,21 @@ describe('IamDrizzleAdapter refuses a window it could never honour', () => {
     const adapter = new IamDrizzleAdapter<A, R, Ro, S>(mock.config)
     await expect(
       adapter.assignRole('sub-1', 'editor', undefined, { expiresAt: new Date(NOW), startsAt: new Date(NOW) }),
-    ).rejects.toThrow(/startsAt.*expiresAt/)
+    ).rejects.toThrow('IAM_ASSIGN_WINDOW_EMPTY')
     expect(mock.assignments).toEqual([])
   })
 
   it.each(['startsAt', 'expiresAt'] as const)('refuses an Invalid Date in %s', async (field) => {
     const mock = makeMock()
     const adapter = new IamDrizzleAdapter<A, R, Ro, S>(mock.config)
-    await expect(adapter.assignRole('sub-1', 'editor', undefined, { [field]: new Date('nope') })).rejects.toThrow(
-      new RegExp(field),
-    )
+    try {
+      await adapter.assignRole('sub-1', 'editor', undefined, { [field]: new Date('nope') })
+      expect.unreachable()
+    } catch (err) {
+      expect(metaOf(err as IamError<'IAM_ASSIGN_WINDOW_INVALID_DATE'>, 'IAM_ASSIGN_WINDOW_INVALID_DATE').field).toBe(
+        field,
+      )
+    }
     expect(mock.assignments).toEqual([])
   })
 
@@ -605,7 +611,7 @@ describe('IamDrizzleAdapter refuses a window it could never honour', () => {
           subjectId: 'sub-2',
         },
       ]),
-    ).rejects.toThrow(/startsAt.*expiresAt/)
+    ).rejects.toThrow('IAM_ASSIGN_WINDOW_EMPTY')
     expect(mock.assignments, 'a refused batch must not land its good rows either').toEqual([])
   })
 })

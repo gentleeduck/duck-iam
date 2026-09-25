@@ -5,14 +5,18 @@
  * wiring real identity, session and credential stores beside `adapter.orgs` passed the production gate with
  * its membership rows and role grants living in one process.
  *
- * `orgs` is refused rather than left open, unlike the challenge and DPoP nonce stores: `Org.Store` is
- * documented as a read interface over the host's own tables, so a production host is meant to have one
- * already, and the memory store is the dev stand-in for it.
+ * `orgs` is refused rather than left open: `Org.Store` is documented as a read interface over the host's
+ * own tables, so a production host is meant to have one already, and the memory store is the dev stand-in
+ * for it. The challenge and DPoP nonce stores were the two exceptions to that and no longer are - the
+ * first is refused through the provider's brand, the second refuses itself, `strict()` having no handle
+ * on a verifier built outside the engine.
  *
  * The list is now taken from the stores bag itself, so a fifth slot cannot be added past the sweep.
  */
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { InMemoryEvents } from '~/core/events'
+import type { Events } from '~/core/events/events.types'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
 import type { Org } from '~/core/orgs/orgs.types'
 import type { Limiter } from '~/limiters'
@@ -48,10 +52,21 @@ function foreignStores(): Engine.Stores {
   }
 }
 
+/** A bus carrying no in-process brand, which is what a fleet-safe one looks like to `strict()`. It
+ *  keeps `listenerCount`, or the `lockout` check would be skipped rather than satisfied. */
+function foreignEvents(): Events.IBus & { listenerCount(event: Events.EventName): number } {
+  const bus = new InMemoryEvents()
+  return {
+    emit: (event, payload) => bus.emit(event, payload),
+    listenerCount: (event) => bus.listenerCount(event),
+    on: (event, handler) => bus.on(event, handler),
+  }
+}
 /** Production-clean but for the stores handed in. */
 function makeAuth(stores: Engine.Stores) {
   const auth = new AuthEngine({
     baseUrl: 'https://app.example.com',
+    events: foreignEvents(),
     idempotency: foreignIdempotency,
     limiter: foreignLimiter,
     stores,

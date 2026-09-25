@@ -481,18 +481,6 @@
       "proves": "The preset resolver takes the stricter side of every numeric field and the brand validator refuses anything that is not a known preset. Pins the gap between what a preset declares and what is enforced: nothing in the library reads the brand a config was stamped with, minAal is resolved and consumed by nothing, and seven of the nine names in requiredStrictChecks are never asserted. Also that the no-preset path hands back the module's own default object, aliased inside two presets."
     },
     {
-      "file": "src/core/operations/__tests__/operations-gating.test.ts",
-      "cases": 25,
-      "backing": [
-        "memory"
-      ],
-      "derivedFrom": [
-        "internal-audit",
-        "hostile-input"
-      ],
-      "proves": "Maintenance outranks read-only, the snapshot is a copy, and the four mutating methods are blocked case-insensitively. Pins that the exemption flag skips both modes rather than only maintenance, that read-only classifies by HTTP method so a mutating GET callback still writes, that any method outside the four known ones reads as safe, and that read-only emits no event so it never leaves the instance it was set on."
-    },
-    {
       "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
       "cases": 32,
       "backing": [

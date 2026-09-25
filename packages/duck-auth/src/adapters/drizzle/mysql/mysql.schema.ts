@@ -24,7 +24,7 @@ import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.type
  * Timestamps are timezone-naive DATETIME(3); store UTC and convert at the edges. WARN: MySQL cannot index a
  * JSON path, so the generated columns below carry the uniqueness pg and sqlite index off the column directly.
  */
-const nowMs = sql`CURRENT_TIMESTAMP(3)`
+export const nowMs = sql`CURRENT_TIMESTAMP(3)`
 
 /** SECURITY: opaque keys need a binary collation: the server default folds case and accents, so a
  *  lookup pg and sqlite answer byte-for-byte matched a value it was never given. */

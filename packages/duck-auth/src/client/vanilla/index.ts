@@ -35,7 +35,8 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
   }
   const headers = { 'content-type': 'application/json', ...(cfg.headers ?? {}) }
   const observers = new Set<(state: VanillaClient.SessionResult<Profile>) => void>()
-  let lastState: VanillaClient.SessionResult<Profile> = { session: null, identity: null }
+  // `null` until something has actually been read; see `onChange`.
+  let lastState: VanillaClient.SessionResult<Profile> | null = null
 
   function notify(state: VanillaClient.SessionResult<Profile>): void {
     lastState = state
@@ -136,7 +137,12 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
     },
     onChange(handler) {
       observers.add(handler)
-      if (cfg.notifyImmediately !== false) handler(lastState)
+      // Only a state the client actually holds. This used to replay an empty one before any fetch had
+      // happened, and all four framework bindings read "no identity" as `status: 'guest'` - so a signed-in
+      // user was reported signed out on subscribe, and the `'loading'` status those bindings declare could
+      // never be observed at all. An app gating on it flashed, or redirected to, its sign-in screen on
+      // every load. A signed-out state that was actually read is a state, and is still replayed.
+      if (cfg.notifyImmediately !== false && lastState) handler(lastState)
       return () => observers.delete(handler)
     },
     async refresh() {

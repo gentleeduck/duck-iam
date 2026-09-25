@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { IamError, metaOf } from '../../core/errors'
 import { iamAssertRoleExists, iamIsForeignKeyViolation, iamUnknownRoleError } from '../assignment-target'
 
 // No MySQL or SQLite suite exists, so these real driver strings are the only coverage for those dialects.
@@ -67,13 +68,15 @@ describe('iamIsForeignKeyViolation recognises every dialect its docblock claims'
   })
 })
 
-describe('the unknown-role refusal is worded identically on every adapter', () => {
-  const EXPECTED = 'cannot assign a role that is not stored; save the role before granting it'
-
-  it('carries the shared wording and the adapter name', () => {
-    // The conformance suite only asserts `rejects.toThrow()`, so the wording is pinned here.
-    expect(iamUnknownRoleError('drizzle').message).toBe(`[@gentleduck/iam:drizzle] ${EXPECTED}`)
-    expect(iamUnknownRoleError('memory').message).toBe(`[@gentleduck/iam:memory] ${EXPECTED}`)
+describe('the unknown-role refusal is the same code on every adapter, with the adapter recorded in meta', () => {
+  it('carries the same code regardless of adapter, with the adapter name in meta', () => {
+    // The conformance suite only asserts `rejects.toThrow('IAM_ROLE_NOT_FOUND')`, so per-adapter meta is pinned here.
+    const drizzle = iamUnknownRoleError('drizzle')
+    const memory = iamUnknownRoleError('memory')
+    expect(drizzle.code).toBe('IAM_ROLE_NOT_FOUND')
+    expect(memory.code).toBe('IAM_ROLE_NOT_FOUND')
+    expect(metaOf(drizzle as IamError<'IAM_ROLE_NOT_FOUND'>, 'IAM_ROLE_NOT_FOUND').adapter).toBe('drizzle')
+    expect(metaOf(memory as IamError<'IAM_ROLE_NOT_FOUND'>, 'IAM_ROLE_NOT_FOUND').adapter).toBe('memory')
   })
 
   it('keeps the driver error as the cause when there is one', () => {
@@ -84,6 +87,6 @@ describe('the unknown-role refusal is worded identically on every adapter', () =
 
   it('iamAssertRoleExists throws that same error and only when absent', () => {
     expect(() => iamAssertRoleExists('memory', true)).not.toThrow()
-    expect(() => iamAssertRoleExists('memory', false)).toThrow(EXPECTED)
+    expect(() => iamAssertRoleExists('memory', false)).toThrow('IAM_ROLE_NOT_FOUND')
   })
 })

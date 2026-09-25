@@ -3,8 +3,8 @@
  */
 
 import type { IamEngine } from '../../core'
+import { hasIamErrorCode } from '../../core/errors'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
-import { iamIsValidationError } from '../../shared/errors'
 import { iamAsActionLiteral, iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
   type IamAdminActor,
@@ -345,6 +345,14 @@ export function createIamNextMiddleware<
     getScope,
   } = opts
 
+  // SECURITY: a caller's /g or /y RegExp keeps `lastIndex` between calls, so every second request would match no
+  // rule and pass unchecked. Strip the stateful flags once, here.
+  const rules = opts.rules.map((r) =>
+    r.pattern instanceof RegExp && (r.pattern.global || r.pattern.sticky)
+      ? { ...r, pattern: new RegExp(r.pattern.source, r.pattern.flags.replace(/[gy]/g, '')) }
+      : r,
+  )
+
   return async (req: Request): Promise<Response | null> => {
     const url = new URL(req.url)
     // SECURITY: refused before canonicalising: `/admin/..%2fpublic` would match a `/public` rule while next
@@ -362,7 +370,7 @@ export function createIamNextMiddleware<
       return onDenied(req)
     }
 
-    const matchedRule = opts.rules.find((r) => {
+    const matchedRule = rules.find((r) => {
       if (typeof r.pattern === 'string') {
         return path.startsWith(r.pattern)
       }
@@ -537,8 +545,8 @@ export function createIamAdminHandlers<
         )
       } catch (err) {
         // A body the validator rejected is the caller's mistake, not ours.
-        if (iamIsValidationError(err)) {
-          return Response.json({ error: `Invalid ${err.kind}`, issues: err.issues }, { status: 400 })
+        if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) {
+          return Response.json({ error: `Invalid ${err.meta.kind}`, issues: err.meta.issues }, { status: 400 })
         }
         return onError(err instanceof Error ? err : new Error(String(err)), req)
       }

@@ -50,7 +50,7 @@ export function github<Profile extends Identities.ProfileMetadataBase = Identiti
     clientSecret: opts.clientSecret,
     endpoints: GITHUB_ENDPOINTS,
     scopes: opts.scopes ?? ['read:user', 'user:email'],
-    ...(opts.fetch !== undefined && { fetch: opts.fetch }),
+    fetch: opts.fetch,
   })
   return oProvider<Profile>({
     providerId: 'authGithub',
@@ -58,11 +58,12 @@ export function github<Profile extends Identities.ProfileMetadataBase = Identiti
     endpoints: GITHUB_ENDPOINTS,
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
-    ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
-    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
-    ...(opts.profileToIdentityProfile !== undefined && {
-      profileToIdentityProfile: opts.profileToIdentityProfile,
-    }),
+    nonceStore: opts.nonceStore,
+    allowStateReplay: opts.allowStateReplay,
+    stateCookie: opts.stateCookie,
+    onSignIn: opts.onSignIn,
+    onFederationConflict: opts.onFederationConflict,
+    profileToIdentityProfile: opts.profileToIdentityProfile,
     async fetchProfile(tokens, c) {
       const info = await c.userinfo(tokens.access_token)
       // `String(info.id)` on a null id would collide every bad id onto the one sub `'null'`.

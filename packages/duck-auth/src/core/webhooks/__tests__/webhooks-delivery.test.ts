@@ -95,7 +95,7 @@ describe('the ssrf guard is a deny-list over the written form of the host', () =
       maxAttempts: 1,
       resolveHost: async () => ['127.0.0.1'],
     })
-    const [outcome] = await deliverer.deliverOne('maintenance.on', {})
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(0)
     expect(outcome?.delivered).toBe(false)
     expect(outcome?.lastError).toMatch(/SSRF guard/)
@@ -103,7 +103,7 @@ describe('the ssrf guard is a deny-list over the written form of the host', () =
 
   it('delivers to a name that resolves outward', async () => {
     const { deliverer, calls } = makeDeliverer({ resolveHost: async () => ['93.184.216.34'] })
-    const [outcome] = await deliverer.deliverOne('maintenance.on', {})
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(1)
     expect(outcome?.delivered).toBe(true)
   })
@@ -192,7 +192,7 @@ describe('delivery runs inside the emit, so its latency is the caller’s', () =
     )
     deliverer.attach(bus)
 
-    await bus.emit('maintenance.on', {})
+    await bus.emit('authz.revoked', { at: 0, identityId: 'u' })
     expect(sunk).toBe(false)
     await deliverer.drain()
     expect(sunk).toBe(true)
@@ -203,7 +203,7 @@ describe('delivery runs inside the emit, so its latency is the caller’s', () =
     const { deliverer, calls } = makeDeliverer()
     const off = deliverer.attach(bus)
     off()
-    await bus.emit('maintenance.off', {})
+    await bus.emit('lockout', { identityId: 'u', until: 0 })
     expect(calls).toHaveLength(0)
   })
 
@@ -214,12 +214,12 @@ describe('delivery runs inside the emit, so its latency is the caller’s', () =
     const second = deliverer.attach(bus)
     expect(second).toBe(first)
 
-    await bus.emit('maintenance.off', {})
+    await bus.emit('lockout', { identityId: 'u', until: 0 })
     await deliverer.drain()
     expect(calls).toHaveLength(1)
 
     first()
-    await bus.emit('maintenance.off', {})
+    await bus.emit('lockout', { identityId: 'u', until: 0 })
     await deliverer.drain()
     expect(calls).toHaveLength(1)
   })
@@ -235,7 +235,7 @@ describe('delivery runs inside the emit, so its latency is the caller’s', () =
     await deliverer.drain()
     expect(calls).toHaveLength(1)
 
-    await bus.emit('maintenance.off', {})
+    await bus.emit('lockout', { identityId: 'u', until: 0 })
     await deliverer.drain()
     expect(calls).toHaveLength(2)
   })
@@ -243,11 +243,11 @@ describe('delivery runs inside the emit, so its latency is the caller’s', () =
   it('an endpoint naming a subset receives only that subset', async () => {
     const bus = new InMemoryEvents()
     const { deliverer, calls } = makeDeliverer({
-      endpoints: [{ events: ['maintenance.on'], secret: SECRET, url: URL_OK }],
+      endpoints: [{ events: ['authz.revoked'], secret: SECRET, url: URL_OK }],
     })
     deliverer.attach(bus)
-    await bus.emit('maintenance.off', {})
-    await bus.emit('maintenance.on', {})
+    await bus.emit('lockout', { identityId: 'u', until: 0 })
+    await bus.emit('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(1)
   })
 
@@ -255,7 +255,7 @@ describe('delivery runs inside the emit, so its latency is the caller’s', () =
     const bus = new InMemoryEvents()
     const { deliverer, calls } = makeDeliverer({ endpoints: [{ events: [], secret: SECRET, url: URL_OK }] })
     deliverer.attach(bus)
-    await bus.emit('maintenance.on', {})
+    await bus.emit('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(0)
   })
 })
@@ -263,28 +263,28 @@ describe('delivery runs inside the emit, so its latency is the caller’s', () =
 describe('the retry loop cannot tell a transient failure from a permanent one', () => {
   it('stops after one attempt on a 4xx, which answers the same however often it is asked', async () => {
     const { deliverer, calls } = makeDeliverer({ maxAttempts: 5 }, () => new Response('', { status: 400 }))
-    const [outcome] = await deliverer.deliverOne('maintenance.on', {})
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(1)
     expect(outcome).toMatchObject({ delivered: false, lastError: 'non-2xx response (400)' })
   })
 
   it('stops after one attempt on a 410 Gone', async () => {
     const { deliverer, calls } = makeDeliverer({ maxAttempts: 3 }, () => new Response('', { status: 410 }))
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(1)
   })
 
   it('still spends the full ladder on the two 4xx codes that mean "later"', async () => {
     for (const status of [408, 429]) {
       const { deliverer, calls } = makeDeliverer({ maxAttempts: 3 }, () => new Response('', { status }))
-      await deliverer.deliverOne('maintenance.on', {})
+      await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
       expect(calls).toHaveLength(3)
     }
   })
 
   it('still retries a 5xx, which is the failure that does clear', async () => {
     const { deliverer, calls } = makeDeliverer({ maxAttempts: 4 }, () => new Response('', { status: 503 }))
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(4)
   })
 
@@ -318,7 +318,7 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const { deliverer, calls } = makeDeliverer()
     const emoji = '🐤'.repeat(300_000) // 600k code units, 1.2 MB of utf-8.
-    await deliverer.deliverOne('maintenance.on', { message: emoji })
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: emoji })
 
     expect(calls).toHaveLength(0)
     spy.mockRestore()
@@ -328,13 +328,13 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
     const { deliverer, calls } = makeDeliverer({ maxAttempts: 5 }, (n) =>
       n < 3 ? new Response('', { status: 500 }) : new Response('', { status: 200 }),
     )
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(3)
   })
 
   it('treats a 204 as delivered', async () => {
     const { deliverer, calls } = makeDeliverer({ maxAttempts: 3 }, () => new Response(null, { status: 204 }))
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls).toHaveLength(1)
   })
 
@@ -353,7 +353,7 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
         throw new Error('econnrefused')
       },
     )
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(entries[0]).toMatchObject({ attempts: 2, lastError: 'econnrefused' })
   })
 
@@ -371,7 +371,7 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
     )
     // The sink's own failure stays swallowed - but the delivery failure it was
     // handed does not: the caller is still told the event never landed.
-    const [outcome] = await deliverer.deliverOne('maintenance.on', {})
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(outcome).toMatchObject({ delivered: false, lastError: 'non-2xx response (500)' })
   })
 
@@ -383,7 +383,7 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const { deliverer } = makeDeliverer({ maxAttempts: 1 }, () => new Response('', { status: 500 }))
 
-    const outcomes = await deliverer.deliverOne('maintenance.on', {})
+    const outcomes = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
 
     expect(outcomes).toEqual([
       { attempts: 1, delivered: false, endpointId: expect.any(String), lastError: 'non-2xx response (500)' },
@@ -401,14 +401,14 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
       return new Response('', { status: calls === 1 ? 500 : 200 })
     })
 
-    const outcomes = await deliverer.deliverOne('maintenance.on', {})
+    const outcomes = await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
 
     expect(outcomes).toEqual([{ attempts: 2, delivered: true, endpointId: expect.any(String) }])
   })
 
   it('clamps the attempt count into one through twenty', async () => {
     const zero = makeDeliverer({ maxAttempts: 0 }, () => new Response('', { status: 500 }))
-    await zero.deliverer.deliverOne('maintenance.on', {})
+    await zero.deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(zero.calls).toHaveLength(1)
   })
 
@@ -450,7 +450,7 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
         return new Response('', { status: 200 })
       }) as never,
     })
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(seen).toHaveLength(2)
   })
 
@@ -469,7 +469,7 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
       }) as never,
       maxAttempts: 1,
     })
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(ok).toEqual(['https://b.example.com/h'])
   })
 })
@@ -477,13 +477,13 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
 describe('what actually goes on the wire', () => {
   it('refuses to follow a redirect, so the guarded host stays the host', async () => {
     const { deliverer, calls } = makeDeliverer()
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(calls[0]?.init.redirect).toBe('error')
   })
 
   it('sends the signature and the timestamp it was computed over', async () => {
     const { deliverer, calls } = makeDeliverer()
-    await deliverer.deliverOne('maintenance.on', { message: 'hi' })
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'hi' })
 
     const headers = calls[0]?.init.headers as Record<string, string>
     const body = calls[0]?.init.body as string
@@ -529,7 +529,7 @@ describe('what actually goes on the wire', () => {
 
   it('takes a caller-supplied redactor in place of the default', async () => {
     const { deliverer, calls } = makeDeliverer({ redact: () => ({ only: 'this' }) })
-    await deliverer.deliverOne('maintenance.on', { secret: 'x' } as never)
+    await deliverer.deliverOne('authz.revoked', { secret: 'x' } as never)
     expect(JSON.parse(calls[0]?.init.body as string).payload).toEqual({ only: 'this' })
   })
 
@@ -549,7 +549,7 @@ describe('what actually goes on the wire', () => {
     // A BigInt rather than a cycle: redaction truncates at its depth cap, so a cycle no longer
     // survives into the body (see the case below). A value `JSON.stringify` refuses outright still
     // does, which is the property this case is here for.
-    const [outcome] = await deliverer.deliverOne('maintenance.on', { n: 1n } as never)
+    const [outcome] = await deliverer.deliverOne('authz.revoked', { n: 1n } as never)
     expect(calls).toHaveLength(0)
     expect(outcome).toMatchObject({ attempts: 0, delivered: false })
     expect(entries[0]).toMatchObject({ attempts: 0 })
@@ -564,7 +564,7 @@ describe('what actually goes on the wire', () => {
     const circular: Record<string, unknown> = {}
     circular.self = circular
 
-    const [outcome] = await deliverer.deliverOne('maintenance.on', circular as never)
+    const [outcome] = await deliverer.deliverOne('authz.revoked', circular as never)
     expect(outcome).toMatchObject({ delivered: true })
     expect(JSON.parse(calls[0]?.init.body as string).payload).toBeDefined()
   })
@@ -579,7 +579,7 @@ describe('what actually goes on the wire', () => {
       },
       maxAttempts: 2,
     })
-    await deliverer.deliverOne('maintenance.on', { message: 1n } as never)
+    await deliverer.deliverOne('authz.revoked', { message: 1n } as never)
     expect(calls).toHaveLength(0)
     expect(entries).toHaveLength(1)
     expect(entries[0]?.attempts).toBe(0)
@@ -589,7 +589,7 @@ describe('what actually goes on the wire', () => {
     const { deliverer, calls } = makeDeliverer({
       endpoints: [{ secret: SECRET, signatureHeader: 'X-Custom', url: URL_OK }],
     })
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect((calls[0]?.init.headers as Record<string, string>)['X-Custom']).toMatch(/^authSha256=/)
   })
 
@@ -625,14 +625,14 @@ describe('what actually goes on the wire', () => {
       fetch: (async () => new Response('', { status: 500 })) as never,
       maxAttempts: 1,
     })
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     expect(entries[0]?.endpointUrl).toBe('https://hooks.example.com/h')
     expect(entries[0]?.endpointId).toBe('https://hooks.example.com/h')
   })
 })
 
 describe('signature verification', () => {
-  const BODY = '{"event":"maintenance.on"}'
+  const BODY = '{"event":"authz.revoked"}'
 
   it('round-trips and rejects a tampered body', () => {
     const sig = signWebhookBody(SECRET, BODY)
@@ -709,8 +709,8 @@ describe('signature verification', () => {
       { maxAttempts: 2 },
       (n) => new Response('', { status: n === 1 ? 500 : 200 }),
     )
-    await deliverer.deliverOne('maintenance.on', {})
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
 
     const ids = calls.map((c) => (c.init.headers as Record<string, string>)['x-duck-delivery-id'])
     // The two attempts at the same delivery share an id; a second delivery gets its own.
@@ -721,7 +721,7 @@ describe('signature verification', () => {
 
   it('signs the timestamp it sends, so neither the header nor the body can be swapped', async () => {
     const { deliverer, calls } = makeDeliverer()
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     const header = Number((calls[0]?.init.headers as Record<string, string>)['x-duck-timestamp'])
     const body = calls[0]?.init.body as string
 
@@ -760,7 +760,7 @@ describe('signature verification', () => {
       maxAttempts: 5,
       random: () => 0,
     })
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
 
     // The live control: the ladder really did outrun the tolerance, so an unchanged stamp would have
     // failed here rather than the whole run finishing inside 100ms.
@@ -770,7 +770,7 @@ describe('signature verification', () => {
 
   it('keeps the body byte-identical across a retry, so idempotency still keys on one delivery', async () => {
     const { calls, deliverer } = makeDeliverer({ maxAttempts: 3 }, () => new Response('nope', { status: 500 }))
-    await deliverer.deliverOne('maintenance.on', {})
+    await deliverer.deliverOne('authz.revoked', { at: 0, identityId: 'u' })
     const bodies = calls.map((c) => c.init.body as string)
     expect(bodies).toHaveLength(3)
     expect(new Set(bodies).size).toBe(1)

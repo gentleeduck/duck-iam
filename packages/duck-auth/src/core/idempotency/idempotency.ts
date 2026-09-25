@@ -34,8 +34,8 @@ export class IdempotencyImpl {
   }
 
   /** `executor` runs once, and every repeat of `key` within `ttlMs` is answered from the cached response.
-   *  An executor that throws caches nothing and releases the key, so the retry the client makes with that
-   *  same key runs for real. */
+   *  An executor that fails - by throwing, or by answering 5xx - caches nothing and releases the key, so
+   *  the retry the client makes with that same key runs for real. */
   async handle(
     key: string,
     ctx: TenantContext,
@@ -61,17 +61,20 @@ export class IdempotencyImpl {
       try {
         response = await executor()
       } catch (err) {
-        // SECURITY: the claim is a lock on an executor that is no longer running, and it used to be left
-        // to `ttlMs` - a whole day by default, since that is how long a *response* stays replayable. There
-        // was no response: `put` never ran, so every retry of the key read a miss, lost the claim, polled
-        // out and was told 409 idempotency-conflict, for 24 hours, with the executor never running again.
-        // That is the one situation an Idempotency-Key exists for - a client retrying the same key after
-        // an error - and it was the situation the key could not survive. The 409 below names the case a
-        // release cannot cover, a process that died mid-execution; this one is alive and can let go.
-        // A failed release is not worth losing the executor's error over, which is what the caller needs;
-        // the claim then expires on its TTL as before.
+        // SECURITY: the claim is a lock on an executor that is no longer running, so it is released here
+        // rather than left to `ttlMs` - a day by default - which stranded every retry of the key on a 409,
+        // the one case an Idempotency-Key exists for. The 409 below covers what a release cannot: a
+        // process that died mid-execution. A failed release must not cost the caller the executor's error.
         await this._store.delete(scopedKey, ctx).catch(() => {})
         throw err
+      }
+      // SECURITY: a 5xx is not an outcome, it is the absence of one, and pinning it to the key leaves the
+      // client no way to ever complete that operation - the same defect the throw above was fixed for, since
+      // whether a failing executor throws or catches its own error and answers 500 is its own style. 4xx is
+      // cached deliberately: a 422 is a decision about the request, and replaying it is both cheap and right.
+      if (response.status >= 500) {
+        await this._store.delete(scopedKey, ctx).catch(() => {})
+        return response
       }
       await this._store.put(scopedKey, response, this._cfg.ttlMs, ctx)
       return response
@@ -88,7 +91,7 @@ export class IdempotencyImpl {
       delay = Math.min(delay * 2, 250)
     }
     // The originator's process died mid-execution, or the store is unreachable. A 409 beats executing
-    // twice. An executor that merely threw has already released the key above, so it is not this.
+    // twice. An executor that merely failed has already released the key above, so it is not this.
     return { status: 409, body: { error: 'idempotency-conflict' }, createdAt: new Date() }
   }
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { IamError, metaOf } from '../../errors'
 import type { AccessControl, IamRequest } from '../../types'
 import { evalConditionGroup } from '../conditions'
 
@@ -198,13 +199,13 @@ describe('condition operators', () => {
       ).toBe(false)
     })
 
-    // Refusals, not misses: Indeterminate, since `false` would retire a deny rule. See `IamPatternRefusedError`.
+    // Refusals, not misses: Indeterminate, since `false` would retire a deny rule. See `IAM_CONDITION_PATTERN_REFUSED`.
     it('refuses an invalid regex as Indeterminate', () => {
       expect(() =>
         evalConditionGroup(req, {
           all: [{ field: 'subject.attributes.department', operator: 'matches', value: '[invalid' }],
         }),
-      ).toThrow(/Indeterminate/)
+      ).toThrow('IAM_CONDITION_PATTERN_REFUSED')
     })
 
     it('refuses overly long patterns as Indeterminate (ReDoS protection)', () => {
@@ -213,7 +214,7 @@ describe('condition operators', () => {
         evalConditionGroup(req, {
           all: [{ field: 'subject.attributes.department', operator: 'matches', value: longPattern }],
         }),
-      ).toThrow(/Indeterminate/)
+      ).toThrow('IAM_CONDITION_PATTERN_REFUSED')
     })
   })
 
@@ -395,7 +396,7 @@ describe('matches operator safety (C2)', () => {
     const group: AccessControl.IConditionGroup = {
       all: [{ field: 'subject.id', operator: 'matches', value: '$subject.attributes.pattern' }],
     }
-    expect(() => evalConditionGroup(req, group)).toThrow(/Indeterminate/)
+    expect(() => evalConditionGroup(req, group)).toThrow('IAM_CONDITION_USER_SOURCED_PATTERN')
   })
 
   it('accepts literal patterns', () => {
@@ -416,7 +417,7 @@ describe('matches operator safety (C2)', () => {
       all: [{ field: 'subject.id', operator: 'matches', value: '$subject.attributes.p' }],
     }
     // The elapsed time checks that it is refused without compiling.
-    expect(() => evalConditionGroup(req, group)).toThrow(/Indeterminate/)
+    expect(() => evalConditionGroup(req, group)).toThrow('IAM_CONDITION_USER_SOURCED_PATTERN')
     expect(performance.now() - start).toBeLessThan(50)
   })
 })
@@ -438,7 +439,7 @@ describe('regex cache LRU (M1)', () => {
 
 describe('matches operator ReDoS hardening (P1)', () => {
   it('evaluates a catastrophic pattern + adversarial-length input under 50ms', async () => {
-    const { regexCache, IamRegexInputTooLargeError } = await import('../conditions.libs')
+    const { regexCache } = await import('../conditions.libs')
     regexCache.clear()
     const big = `${'a'.repeat(3000)}!`
     const req = makeReq({ subject: { id: big, roles: [], attributes: {} } })
@@ -453,14 +454,15 @@ describe('matches operator ReDoS hardening (P1)', () => {
       caught = e
     }
     const elapsed = performance.now() - start
-    expect(caught).toBeInstanceOf(IamRegexInputTooLargeError)
+    expect(caught).toBeInstanceOf(IamError)
+    expect((caught as IamError<'IAM_CONDITION_REGEX_INPUT_TOO_LARGE'>).code).toBe('IAM_CONDITION_REGEX_INPUT_TOO_LARGE')
     expect(elapsed).toBeLessThan(50)
   })
 
-  it('throws IamRegexInputTooLargeError on inputs longer than MAX_REGEX_INPUT_LENGTH instead of returning false', async () => {
-    const { MAX_REGEX_INPUT_LENGTH, IamRegexInputTooLargeError, regexCache } = await import('../conditions.libs')
+  it('throws IAM_CONDITION_REGEX_INPUT_TOO_LARGE on inputs longer than MAX_REGEX_INPUT_LENGTH instead of returning false', async () => {
+    const { MAX_REGEX_INPUT_LENGTH, regexCache } = await import('../conditions.libs')
     regexCache.clear()
-    // SECURITY: `false` would flip deny-when-`matches` to allow; the tagged throw makes the policy Indeterminate.
+    // SECURITY: `false` would flip deny-when-`matches` to allow; the coded throw makes the policy Indeterminate.
     const big = 'a'.repeat(10_000)
     expect(big.length).toBeGreaterThan(MAX_REGEX_INPUT_LENGTH)
     const req = makeReq({ subject: { id: big, roles: [], attributes: {} } })
@@ -474,10 +476,13 @@ describe('matches operator ReDoS hardening (P1)', () => {
     } catch (e) {
       caught = e
     }
-    expect(caught).toBeInstanceOf(IamRegexInputTooLargeError)
-    expect((caught as InstanceType<typeof IamRegexInputTooLargeError>).field).toBe('subject.id')
-    expect((caught as InstanceType<typeof IamRegexInputTooLargeError>).length).toBe(10_000)
-    expect((caught as InstanceType<typeof IamRegexInputTooLargeError>).tag).toBe('duck-iam/regex-input-too-large')
+    expect(caught).toBeInstanceOf(IamError)
+    const meta = metaOf(
+      caught as IamError<'IAM_CONDITION_REGEX_INPUT_TOO_LARGE'>,
+      'IAM_CONDITION_REGEX_INPUT_TOO_LARGE',
+    )
+    expect(meta.field).toBe('subject.id')
+    expect(meta.length).toBe(10_000)
     // The operator throws before compiling the regex.
     expect(regexCache.has(pattern)).toBe(false)
   })
@@ -517,7 +522,7 @@ describe('matches operator ReDoS hardening (P1)', () => {
     // onPolicyError was invoked with the tagged error.
     expect(errors).toHaveLength(1)
     expect(errors[0]?.policyId).toBe('deny-evil')
-    expect(errors[0]?.msg).toMatch(/MAX_REGEX_INPUT_LENGTH|matches input/)
+    expect(errors[0]?.msg).toBe('IAM_CONDITION_REGEX_INPUT_TOO_LARGE')
   })
 
   it('exposes MAX_REGEX_LENGTH tightened to 128', async () => {
@@ -545,7 +550,7 @@ describe('nesting depth is indeterminate past the bound (MAX_CONDITION_DEPTH)', 
   it('refuses a tree deeper than the bound even though every leaf is true', async () => {
     const { MAX_CONDITION_DEPTH } = await import('../conditions.libs')
     expect(() => evalConditionGroup(makeReq(), nest(MAX_CONDITION_DEPTH + 1, truthy))).toThrow(
-      /condition nesting exceeds/,
+      'IAM_CONDITION_GROUP_INVALID',
     )
   })
 
@@ -555,7 +560,7 @@ describe('nesting depth is indeterminate past the bound (MAX_CONDITION_DEPTH)', 
     const { MAX_CONDITION_DEPTH } = await import('../conditions.libs')
     let group: AccessControl.IConditionGroup = { none: [truthy] }
     for (let i = 1; i < MAX_CONDITION_DEPTH + 1; i++) group = { none: [group] }
-    expect(() => evalConditionGroup(makeReq(), group)).toThrow(/condition nesting exceeds/)
+    expect(() => evalConditionGroup(makeReq(), group)).toThrow('IAM_CONDITION_GROUP_INVALID')
   })
 })
 
@@ -612,7 +617,7 @@ describe('per-instance regex cache isolation', () => {
     const cache = new Map<string, RegExp>()
     const longPattern = `^${'a'.repeat(MAX_REGEX_LENGTH)}`
     // An over-long PATTERN is a refusal to evaluate, like an over-long input.
-    expect(() => evalMatchesOp('aaa', longPattern, cache)).toThrow(/Indeterminate/)
+    expect(() => evalMatchesOp('aaa', longPattern, cache)).toThrow('IAM_CONDITION_PATTERN_REFUSED')
     expect(cache.size).toBe(0)
     // A non-string field is a miss; a non-string operand is stopped earlier by `evalCondition`'s OPERAND_TYPES screen.
     expect(evalMatchesOp(42, '^4', cache)).toBe(false)
@@ -621,9 +626,11 @@ describe('per-instance regex cache isolation', () => {
   })
 
   it('evalMatchesOp throws on over-length input instead of returning false', async () => {
-    const { evalMatchesOp, MAX_REGEX_INPUT_LENGTH, IamRegexInputTooLargeError } = await import('../conditions.libs')
+    const { evalMatchesOp, MAX_REGEX_INPUT_LENGTH } = await import('../conditions.libs')
     const cache = new Map<string, RegExp>()
-    expect(() => evalMatchesOp('a'.repeat(MAX_REGEX_INPUT_LENGTH + 1), '^a', cache)).toThrow(IamRegexInputTooLargeError)
+    expect(() => evalMatchesOp('a'.repeat(MAX_REGEX_INPUT_LENGTH + 1), '^a', cache)).toThrow(
+      'IAM_CONDITION_REGEX_INPUT_TOO_LARGE',
+    )
   })
 
   it('clearRegexCache empties the process-wide cache only', async () => {

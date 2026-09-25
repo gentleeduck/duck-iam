@@ -1,6 +1,6 @@
 import type { IamEngine } from '../../core'
+import { hasIamErrorCode } from '../../core/errors'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
-import { iamIsValidationError } from '../../shared/errors'
 import {
   iamAsActionLiteral,
   iamAsRoleLiteral,
@@ -313,8 +313,8 @@ export function iamBindAdminRouter<
         )
       } catch (err) {
         // A body the validator rejected is the caller's mistake, not ours.
-        if (iamIsValidationError(err)) {
-          return c.json({ error: `Invalid ${err.kind}`, issues: err.issues }, 400)
+        if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) {
+          return c.json({ error: `Invalid ${err.meta.kind}`, issues: err.meta.issues }, 400)
         }
         return onError(err instanceof Error ? err : new Error(String(err)), c)
       }
@@ -331,7 +331,7 @@ export function iamBindAdminRouter<
   router.put(
     '/policies',
     mutate('replace', 'policy', undefined, async (c, setTargetId, who) => {
-      // Shape-checked by `savePolicy`, whose validator throws `IamValidationError`, answered here as 400.
+      // Shape-checked by `savePolicy`, whose validator throws `IamError` with code `IAM_VALIDATION_FAILED`, answered here as 400.
       const body = (await iamReadJsonBody(() => c.req.json())) as AccessControl.IPolicy<TAction, TResource, TRole>
       setTargetId(iamAuditIdOf(body))
       await engine.admin.savePolicy(body, who)

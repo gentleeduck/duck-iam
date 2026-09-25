@@ -40,15 +40,6 @@ describe('valkeyAdapter translation', () => {
     expect(await client.get('k')).toBe('v')
   })
 
-  it('carries MATCH and COUNT through to scan', async () => {
-    const client = valkeyAdapter(new FakeValkey())
-    await client.set('keep:1', 'a')
-    await client.set('drop:1', 'b')
-
-    const [, keys] = await client.scan('0', { match: 'keep:*' })
-    expect(keys).toEqual(['keep:1'])
-  })
-
   it('carries the LIMIT pair through to zrangebyscore', async () => {
     const client = valkeyAdapter(new FakeValkey())
     await client.zadd('z', 1, 'one')

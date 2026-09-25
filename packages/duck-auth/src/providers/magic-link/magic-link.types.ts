@@ -1,10 +1,10 @@
-import type { Channel } from '~/channels/channels.types'
+import type { Deliver } from '~/core/flows/flows.delivery'
 
-/** Magic-link options: the channel it sends over, and the token's lifetime. */
+/** Magic-link options: how the link is sent, and the token's lifetime. */
 export namespace MagicLink {
   export interface Options<Profile = unknown> {
-    /** Keyed by their `kind`. */
-    channels: { email?: Channel.Channel; sms?: Channel.Channel; webpush?: Channel.Channel }
+    /** How the host sends the link. `createAuth` forwards `cfg.deliver` to a provider thunk. */
+    deliver?: Deliver
     /** How the library finds an identity from an email. Returning `null` and rejecting with an absence
      *  code both read as "no such address", so `auth.identities.getByEmail` wires straight in. */
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
@@ -22,8 +22,6 @@ export namespace MagicLink {
 
   export interface BeginInput {
     email: string
-    /** Which channel sends the link; it must be one the engine was configured with. */
-    channel?: 'email' | 'sms' | 'webpush'
   }
 
   export interface CompleteInput {
@@ -33,7 +31,5 @@ export namespace MagicLink {
   /** Shape stored in `Credential.metadata` for magic-link credentials. */
   export interface CredentialMetadata {
     email: string
-    /** The channel the link went out over, recorded on the row. */
-    channel: 'email' | 'sms' | 'webpush'
   }
 }

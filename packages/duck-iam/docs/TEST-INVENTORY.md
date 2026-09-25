@@ -51,8 +51,8 @@ drift the way the hand-maintained version did.
 | `adapters/drizzle/__tests__/drizzle-actor-provenance.test.ts` | 11 | assignRole records who made the grant |
 | `adapters/drizzle/__tests__/drizzle-assignment-expiry-attributes.test.ts` | 54 | IamDrizzleAdapter assignment expiry |
 | `adapters/drizzle/__tests__/drizzle-native-attr-shape.test.ts` | 13 | IamDrizzleAdapter native JSONB shape validation |
-| `adapters/drizzle/__tests__/drizzle-sqlite-real-engine.test.ts` | 9 | drizzle sqlite dialect, against a real SQLite engine |
-| `adapters/drizzle/__tests__/drizzle-update-assignment-scope.test.ts` | 6 | IamDrizzleAdapter.updateAssignmentScope |
+| `adapters/drizzle/__tests__/drizzle-sqlite-real-engine.test.ts` | 13 | drizzle sqlite dialect, against a real SQLite engine |
+| `adapters/drizzle/__tests__/drizzle-update-assignment-scope.test.ts` | 7 | IamDrizzleAdapter.updateAssignmentScope |
 | `adapters/drizzle/__tests__/drizzle.test.ts` | 230 | IamDrizzleAdapter |
 | `adapters/drizzle/__tests__/ops-wiring-types.test.ts` | 3 | drizzle-orm operators satisfy the adapter ops bundle as-is |
 | `adapters/drizzle/__tests__/schema-parity.test.ts` | 33 | the dialect-only allow-list stays honest |
@@ -78,7 +78,7 @@ drift the way the hand-maintained version did.
 | `adapters/http/__tests__/http-subject-partial-row.test.ts` | 8 | a partial subject grant list does not silently retire the denies it carries |
 | `adapters/http/__tests__/http-subject-shape.test.ts` | 18 | IamHttpAdapter subject-data shape validation |
 | `adapters/http/__tests__/http-timeout-timer.test.ts` | 2 | IamHttpAdapter per-request timeout timer |
-| `adapters/http/__tests__/http.test.ts` | 61 | IamHttpAdapter |
+| `adapters/http/__tests__/http.test.ts` | 64 | IamHttpAdapter |
 | `adapters/memory/__tests__/memory-input-shape.test.ts` | 8 | IamMemoryAdapter direct-call input shape |
 | `adapters/memory/__tests__/memory-seed-parity.test.ts` | 11 | the memory adapter seed agrees with the equivalent write |
 | `adapters/memory/__tests__/memory.test.ts` | 107 | IamMemoryAdapter |
@@ -95,8 +95,8 @@ drift the way the hand-maintained version did.
 | `adapters/redis/__tests__/redis-io-failure.test.ts` | 8 | IamRedisAdapter connection failure |
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
-| `adapters/redis/__tests__/redis.test.ts` | 127 | IamRedisAdapter |
-| **Subtotal** | **1677** | |
+| `adapters/redis/__tests__/redis.test.ts` | 130 | IamRedisAdapter |
+| **Subtotal** | **1688** | |
 
 ---
 
@@ -138,6 +138,7 @@ drift the way the hand-maintained version did.
 | `core/conditions/__tests__/conditions-polynomial-redos.test.ts` | 19 | detectCatastrophicRegex: adjacent unbounded quantifiers |
 | `core/conditions/__tests__/conditions-scalar-narrowing.test.ts` | 16 | condition ops Scalar narrowing |
 | `core/conditions/__tests__/conditions-temporal.test.ts` | 8 | temporal operators: after / before |
+| `core/conditions/__tests__/conditions.errors.test.ts` | 9 | evalMatchesOp throws IamError with the real field the first time |
 | `core/conditions/__tests__/conditions.test.ts` | 57 | condition operators |
 | `core/conditions/__tests__/dangling-operand-reference.test.ts` | 9 | B-F1 a $-reference that resolves to nothing has no operand |
 | `core/conditions/__tests__/inherited-operator-names.test.ts` | 43 | an inherited name is not an operator |
@@ -158,6 +159,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/admin.batch.test.ts` | 9 | IAdmin batch writes |
 | `core/engine/__tests__/broken-adapter-fail-closed.test.ts` | 5 | a broken store read |
 | `core/engine/__tests__/compile-failure-is-reported.test.ts` | 12 | a role count past the compiled table capacity falls back and says so |
+| `core/engine/__tests__/compiled.errors.test.ts` | 7 | compileTable throws IAM_ROLE_LIMIT_EXCEEDED past the role cap |
 | `core/engine/__tests__/condition-path-dead-on-arrival.test.ts` | 11 | a condition reading a path that can never resolve is reported |
 | `core/engine/__tests__/decision-failure-discriminant.test.ts` | 6 | IDecision distinguishes a policy deny from a broken engine |
 | `core/engine/__tests__/development-mode-announces-itself.test.ts` | 6 | development mode announces itself |
@@ -171,6 +173,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/engine-admin-reads.test.ts` | 8 | engine.admin readers return what was written |
 | `core/engine/__tests__/engine-check-invalid-subject.test.ts` | 2 | engine.check() with an invalid subjectId |
 | `core/engine/__tests__/engine-compiled-table-ttl.test.ts` | 12 |  |
+| `core/engine/__tests__/engine-config-guards.test.ts` | 14 | single-field config guards throw IAM_ENGINE_INVALID_CONFIG |
 | `core/engine/__tests__/engine-cross-scope-inheritance.test.ts` | 6 | Engine.can() - cross-scope role inheritance |
 | `core/engine/__tests__/engine-eval-error-fails-closed.test.ts` | 10 |  |
 | `core/engine/__tests__/engine-hook-timeout.test.ts` | 16 | a hook whose promise never settles does not hold the call open |
@@ -227,6 +230,10 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/unvalidated-policy-operand.test.ts` | 12 | a policy that never passed the validator still cannot over-grant |
 | `core/engine/__tests__/verdict-differential.test.ts` | 2 | E2E verdict parity: compiled table vs interpreter over generated catalogs |
 | `core/engine/__tests__/write-that-lands-after-its-timeout.test.ts` | 12 | a write that lands after its own timeout |
+| `core/errors/__tests__/errors.codes.test.ts` | 4 | IAM_ERRORS |
+| `core/errors/__tests__/errors.kit-wiring.test.ts` | 1 | IamError is both the class and a code-parameterized type |
+| `core/errors/__tests__/errors.test.ts` | 15 | IamError construction |
+| `core/errors/__tests__/errors.validation.test.ts` | 4 | throwIamValidationFailed |
 | `core/evaluate/__tests__/algorithm-alias-precompute.test.ts` | 9 | precompute covers every algorithm that can be precomputed |
 | `core/evaluate/__tests__/error-hook-isolation.test.ts` | 6 | a throwing onPolicyError does not unwind the evaluation |
 | `core/evaluate/__tests__/evaluate-error-indeterminate.test.ts` | 15 | evaluate ('and') with a throwing deny policy |
@@ -298,7 +305,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2858** | |
+| **Subtotal** | **2912** | |
 
 ---
 
@@ -370,12 +377,13 @@ drift the way the hand-maintained version did.
 | `server/express/__tests__/express.test.ts` | 51 | iamAccessMiddleware (express) |
 | `server/generic/__tests__/admin-audit-target-id.test.ts` | 9 | admin audit targetId is read, not asserted |
 | `server/generic/__tests__/admin-authorize-actor-typing.test.ts` | 6 | an admin authorize may return the actor, in the type as well as at runtime |
-| `server/generic/__tests__/admin-body-status.test.ts` | 18 | IamValidationError |
+| `server/generic/__tests__/admin-body-status.test.ts` | 18 | IamError for a validation failure |
 | `server/generic/__tests__/admin-shared.test.ts` | 29 | iamDefaultCsrfCheck |
 | `server/generic/__tests__/extract-environment-ua-cap.test.ts` | 2 | iamExtractEnvironment user-agent cap |
 | `server/generic/__tests__/extract-environment-xff.test.ts` | 20 | iamExtractEnvironment XFF normalization under trustProxy |
 | `server/generic/__tests__/generic.test.ts` | 22 | generateIamPermissionMap() |
 | `server/generic/__tests__/http-boundary-refusal.test.ts` | 52 | the unknown-action and unknown-resource sentinels are real refusals |
+| `server/generic/__tests__/iam-read-json-body.test.ts` | 3 | iamReadJsonBody |
 | `server/generic/__tests__/method-action-and-path.test.ts` | 19 | iamActionForMethod |
 | `server/hono/__tests__/hono.test.ts` | 33 | iamAccessMiddleware (hono) |
 | `server/nest/__tests__/nest-authorize-meta-validation.test.ts` | 22 | a handler decorated with unreadable metadata is denied, not allowed |
@@ -385,7 +393,7 @@ drift the way the hand-maintained version did.
 | `server/next/__tests__/next-middleware-environment.test.ts` | 8 | createIamNextMiddleware environment |
 | `server/next/__tests__/next-middleware-rule-matching.test.ts` | 4 | next middleware: a string rule pattern matches as a prefix |
 | `server/next/__tests__/next.test.ts` | 31 | withIamAccess |
-| **Subtotal** | **872** | |
+| **Subtotal** | **875** | |
 
 ---
 
@@ -399,7 +407,8 @@ drift the way the hand-maintained version did.
 | `shared/__tests__/keys-canonical-image.test.ts` | 17 | iamParsePermissionKey rejects anything outside the builder image |
 | `shared/__tests__/keys.test.ts` | 28 | iamBuildPermissionKey() |
 | `shared/__tests__/permission-map-scope-blindness.test.ts` | 6 | allowedActions and hasAnyOn ignore scope and record id; can() does not |
-| **Subtotal** | **113** | |
+| `shared/__tests__/shared-errors.test.ts` | 13 | iamAssertAssignableScope |
+| **Subtotal** | **126** | |
 
 ---
 
@@ -413,13 +422,13 @@ drift the way the hand-maintained version did.
 | `__tests__/evaluator-fail-open-gate.test.ts` | 12 | the evaluator applies the same fail-open opt-in as the engine |
 | `__tests__/log-prefix-convention.test.ts` | 3 | every log prefix names its module |
 | `__tests__/package-exports-parity.test.ts` | 7 | every built module is importable, and every import is built |
-| `__tests__/public-error-and-type-surface.test.ts` | 28 | every tagged condition error is reachable |
+| `__tests__/public-error-and-type-surface.test.ts` | 9 | IamError construction |
 | `__tests__/public-surface-internals.test.ts` | 7 | public surface: mutable internals stay internal |
-| `__tests__/public-surface-naming.test.ts` | 23 | package root naming |
+| `__tests__/public-surface-naming.test.ts` | 22 | package root naming |
 | `__tests__/shipped-docs-parity.test.ts` | 5 | the docs the README points at are the docs that ship |
 | `__tests__/test-command-partition.test.ts` | 5 | the two test commands partition every test file |
 | `__tests__/test-inventory-freshness.test.ts` | 5 | test inventory stays honest |
-| **Subtotal** | **145** | |
+| **Subtotal** | **125** | |
 
 ---
 
@@ -437,14 +446,14 @@ drift the way the hand-maintained version did.
 | Area | Files | Tests |
 |---|---|---|
 | Core / compiled engine | 11 | 153 |
-| Adapters | 57 | 1677 |
+| Adapters | 57 | 1688 |
 | Clients | 11 | 136 |
-| Core | 175 | 2858 |
+| Core | 182 | 2912 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
-| Server | 29 | 872 |
-| Shared | 6 | 113 |
-| Package surface | 12 | 145 |
+| Server | 30 | 875 |
+| Shared | 7 | 126 |
+| Package surface | 12 | 125 |
 | Other | 1 | 4 |
-| **Total** | **328** | **6328** |
+| **Total** | **337** | **6389** |

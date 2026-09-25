@@ -6,6 +6,7 @@ export { FakeRedis, fakeRedis } from '../core/drivers/redis-like'
 
 import { MemoryAdapter } from '../adapters/memory'
 import { AuthEngine, type Engine } from '../core/engine'
+import type { Deliver, DeliveryKind } from '../core/flows/flows.delivery'
 import type { Identities } from '../core/identities/identities.types'
 import { BearerTransport } from '../core/transport/bearer.transport'
 import { MemoryLimiter } from '../limiters/memory'
@@ -62,3 +63,23 @@ export function createTest<Profile extends Identities.ProfileMetadataBase = Iden
   return new AuthEngine<Profile, Tenant, OrgMeta>(cfg)
 }
 
+
+/** Records every message instead of sending it. The successor to the channel doubles: `deliver` goes on
+ *  the engine config, `outbox` is what it captured. */
+export function authTestDeliver(): {
+  deliver: Deliver
+  outbox: Array<{ kind: DeliveryKind; identityId: string; tenantId: string | null; vars: Record<string, unknown> }>
+} {
+  const outbox: Array<{
+    kind: DeliveryKind
+    identityId: string
+    tenantId: string | null
+    vars: Record<string, unknown>
+  }> = []
+  return {
+    deliver: async ({ identity, kind, tenant, vars }) => {
+      outbox.push({ identityId: identity.id, kind, tenantId: tenant.tenantId ?? null, vars })
+    },
+    outbox,
+  }
+}

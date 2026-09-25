@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine/engine'
-import { IamValidationError, iamIsValidationError } from '../../../shared/errors'
+import { hasIamErrorCode, IamError } from '../../../core/errors'
 import { iamAdminRouter } from '../../express'
 import { iamBindAdminRouter } from '../../hono'
 import { createIamAdminHandlers } from '../../next'
@@ -44,45 +44,50 @@ const MALFORMED_ROLE = { id: 'r1', name: 'R' }
 const VALID_POLICY = { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }
 const VALID_ROLE = { id: 'r1', name: 'R', permissions: [] }
 
-describe('IamValidationError', () => {
+describe('IamError for a validation failure', () => {
   it('is an Error, so every existing instanceof Error check still holds', () => {
-    const err = new IamValidationError('policy', ['E_X at "rules"'], 'boom')
+    const err = new IamError('IAM_VALIDATION_FAILED', { kind: 'policy', issues: ['E_X at "rules"'] })
     expect(err).toBeInstanceOf(Error)
-    expect(err.message).toBe('boom')
+    expect(err.message).toBe('IAM_VALIDATION_FAILED')
   })
 
   it('carries which document failed and why', () => {
-    const err = new IamValidationError('role', ['E_A', 'E_B'], 'boom')
-    expect(err.kind).toBe('role')
-    expect(err.issues).toEqual(['E_A', 'E_B'])
+    const err = new IamError('IAM_VALIDATION_FAILED', { kind: 'role', issues: ['E_A', 'E_B'] })
+    if (!hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) return expect.unreachable()
+    expect(err.meta.kind).toBe('role')
+    expect(err.meta.issues).toEqual(['E_A', 'E_B'])
   })
 
-  it('is recognised by name, not only by identity', () => {
-    // A duplicated copy of the package has a distinct class, so `instanceof` fails where the name check does not.
-    const impostor = new Error('boom')
-    impostor.name = 'IamValidationError'
-    expect(iamIsValidationError(impostor)).toBe(true)
-    expect(iamIsValidationError(new Error('boom'))).toBe(false)
-    expect(iamIsValidationError('IamValidationError')).toBe(false)
-    expect(iamIsValidationError(null)).toBe(false)
+  it('is recognised by code even across a duplicated copy of the class', () => {
+    // A duplicated copy of the package has a distinct class, so `instanceof` fails where the code check does not.
+    class Impostor extends Error {
+      code = 'IAM_VALIDATION_FAILED'
+      meta = { kind: 'policy', issues: ['E_X'] }
+    }
+    expect(hasIamErrorCode(new Impostor(), 'IAM_VALIDATION_FAILED')).toBe(true)
+    expect(hasIamErrorCode(new Error('boom'), 'IAM_VALIDATION_FAILED')).toBe(false)
+    expect(hasIamErrorCode('IAM_VALIDATION_FAILED', 'IAM_VALIDATION_FAILED')).toBe(false)
+    expect(hasIamErrorCode(null, 'IAM_VALIDATION_FAILED')).toBe(false)
   })
 })
 
 describe('the engine rejects a malformed document with a typed error', () => {
   it('savePolicy', async () => {
     const engine = makeEngine()
-    await expect(engine.admin.savePolicy(MALFORMED_POLICY as never)).rejects.toSatisfy(iamIsValidationError)
+    const err = await engine.admin.savePolicy(MALFORMED_POLICY as never).catch((e: unknown) => e)
+    expect(hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')).toBe(true)
   })
 
   it('saveRole', async () => {
     const engine = makeEngine()
-    await expect(engine.admin.saveRole(MALFORMED_ROLE as never)).rejects.toSatisfy(iamIsValidationError)
+    const err = await engine.admin.saveRole(MALFORMED_ROLE as never).catch((e: unknown) => e)
+    expect(hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')).toBe(true)
   })
 
   it('names the kind so a router can say which document was wrong', async () => {
     const engine = makeEngine()
     const err = await engine.admin.savePolicy(MALFORMED_POLICY as never).catch((e: unknown) => e)
-    expect(iamIsValidationError(err) && err.kind).toBe('policy')
+    expect(hasIamErrorCode(err, 'IAM_VALIDATION_FAILED') && err.meta.kind).toBe('policy')
   })
 })
 

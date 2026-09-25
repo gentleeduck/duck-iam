@@ -273,26 +273,26 @@ suite('IamRedisAdapter against a real server', () => {
       reset()
       await client.set(`${prefix}attrs:u1`, 'null')
       // SECURITY: `{}` here would retire every deny rule that tests an attribute.
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
     })
 
     it('an attributes blob holding a JSON array throws', async () => {
       reset()
       await client.set(`${prefix}attrs:u1`, '[1,2]')
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
     })
 
     it('an attributes blob that is not JSON at all throws', async () => {
       reset()
       await client.set(`${prefix}attrs:u1`, 'not json')
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
     })
 
     it('a stored __proto__ attribute key is refused, not read past', async () => {
       reset()
       await client.set(`${prefix}attrs:u1`, JSON.stringify(JSON.parse('{"__proto__":{"tier":"gold"},"team":"A"}')))
       // SECURITY: a `__proto__` key means corruption or an attack, so the whole bag is refused, not read in part.
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
       expect(({} as Record<string, unknown>).tier, 'Object.prototype was polluted by the read').toBeUndefined()
     })
 

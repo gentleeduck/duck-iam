@@ -2,6 +2,16 @@ import { type Column, eq, type GetColumnData, type SQL, sql } from 'drizzle-orm'
 import type { Identities } from '~/core/identities/identities.types'
 import { patchOrNone } from '~/core/patch'
 
+/** An identity row read whole, with its logins attached. Drizzle types the `profile` column by the
+ *  schema and nothing at runtime can prove an arbitrary `Profile`, so this is the one place in the
+ *  adapters where that is taken at its word. */
+export function rowWithLinks<Profile extends Identities.ProfileMetadataBase>(
+  row: Omit<Identities.Me, 'providers'>,
+  providers: Identities.ProviderLink[] = [],
+): Identities.Me<Profile> {
+  return { ...row, providers } as Identities.Me<Profile>
+}
+
 /** A join repeats the identity once per login, so the rows fold by id and the logins gather under each.
  *  A caller that read one row destructures the first. Order is the join's; a caller matching its input
  *  back against the answer goes by id. */
@@ -11,7 +21,7 @@ export function rowsWithLinks<Profile extends Identities.ProfileMetadataBase>(
   const byId = new Map<string, Identities.Me<Profile>>()
   for (const row of rows) {
     const seen = byId.get(row.identity.id)
-    const me = seen ?? ({ ...row.identity, providers: [] as Identities.ProviderLink[] } as Identities.Me<Profile>)
+    const me = seen ?? rowWithLinks<Profile>(row.identity)
     if (!seen) byId.set(row.identity.id, me)
     if (row.link) me.providers.push(row.link)
   }

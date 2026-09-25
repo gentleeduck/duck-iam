@@ -12,6 +12,11 @@ import { MemoryPasskeyChallengeStore } from './internal/challenge-store'
 import { DEFAULT_PASSKEY_CONFIG } from './passkey.constants'
 import type { Passkey } from './passkey.types'
 
+/** The `challengeStore` default for the two registration helpers. Shared, because `begin` and
+ *  `complete` are separate calls: one store per call writes the challenge where the other will not
+ *  look, so the documented in-memory default could not complete a registration at all. */
+const DEFAULT_CHALLENGE_STORE = new MemoryPasskeyChallengeStore()
+
 let _webauthnModule: Passkey.SimpleWebAuthnServerModule | null = null
 async function loadWebAuthn(
   override?: Passkey.SimpleWebAuthnServerModule,
@@ -63,6 +68,9 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
   /** Read by `strict()` for the `webauthnAttestationDirect` compliance check, which otherwise has only
    *  the operator's word for it. A boolean the holder computed; it carries nothing else. */
   readonly __requestsDirectAttestation: boolean
+  /** Read by `strict()`, which holds the provider and never the store. A boolean the holder computed;
+   *  a foreign `ChallengeStore` publishes no brand and is not judged. */
+  readonly __inProcessChallengeStore: boolean
 
   constructor(private readonly opts: Passkey.Options) {
     this.challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
@@ -70,6 +78,7 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
     this.uv = opts.userVerification ?? DEFAULT_PASSKEY_CONFIG.userVerification
     this.prefix = opts.limiterKeyPrefix ?? DEFAULT_PASSKEY_CONFIG.limiterKeyPrefix
     this.__requestsDirectAttestation = (opts.attestationType ?? DEFAULT_PASSKEY_CONFIG.attestationType) === 'direct'
+    this.__inProcessChallengeStore = Reflect.get(this.challengeStore, '__isInProcessChallengeStore') === true
   }
 
   private async _resolveAllowList(
@@ -143,10 +152,9 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
       throw new AuthError('AUTH_PASSKEY_MISMATCH')
     }
     const cred = await orNull(ctx.stores.credentials.findByHashedSecret(credentialId, 'passkey', ctx.tenant))
-    // `isRevoked` fails closed, as on the offer path above: a `revokedAt: 0` from a store that keeps
-    // timestamps as epoch ints is falsy, and this is the branch that mints the session.
-    // SECURITY: and `isCredentialExpired`, which this branch omitted. An elapsed `expiresAt` is what
-    // `ApiKeyImpl.verify` treats as revocation, so a passkey outlived the deadline written on it here.
+    // SECURITY: both predicates, as on the offer path above. `isRevoked` fails closed on a `revokedAt: 0`
+    // that a store keeping epoch ints makes falsy, and `isCredentialExpired` - omitted here - is what let
+    // a passkey outlive the deadline written on it. This is the branch that mints the session.
     if (cred?.kind !== 'passkey' || isRevoked(cred) || isCredentialExpired(cred)) {
       throw new AuthError('AUTH_PASSKEY_MISMATCH')
     }
@@ -263,7 +271,7 @@ export async function beginPasskeyRegistration(
     tenant: { tenantId?: string }
   },
 ): Promise<Passkey.RegistrationOptions> {
-  const challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
+  const challengeStore = opts.challengeStore ?? DEFAULT_CHALLENGE_STORE
   const challengeTtlMs = opts.challengeTtlMs ?? DEFAULT_PASSKEY_CONFIG.challengeTtlMs
   const webauthn = await loadWebAuthn(opts.webauthnModule)
   // A revoked passkey is one the user asked to be rid of, so it is not excluded: re-enrolling the same
@@ -299,7 +307,7 @@ export async function completePasskeyRegistration(
     tenant: { tenantId?: string }
   },
 ): Promise<string> {
-  const challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
+  const challengeStore = opts.challengeStore ?? DEFAULT_CHALLENGE_STORE
   const expectedChallenge = await orNull(challengeStore.take(`reg:${input.sessionId}`))
   if (!expectedChallenge) {
     throw new AuthError('AUTH_PASSKEY_MISMATCH')

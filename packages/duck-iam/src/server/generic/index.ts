@@ -1,6 +1,6 @@
 import type { IamEngine } from '../../core'
+import { fail, type IamError, throwIamError } from '../../core/errors'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
-import { IamValidationError } from '../../shared/errors'
 import { IAM_RESERVED_REFUSAL } from '../../shared/reserved'
 
 /**
@@ -11,7 +11,7 @@ export namespace IamAdminAudit {
   /** Categorical action describing what changed. */
   export type Action = 'create' | 'update' | 'delete' | 'replace'
   /** Categorical target describing what kind of object was changed. */
-  export type Target = 'policy' | 'role' | 'assignment' | 'role-assignment' | 'attributes'
+  export type Target = 'policy' | 'role' | 'role-assignment'
 
   /** A single admin mutation event. */
   export interface IEvent {
@@ -742,31 +742,26 @@ function assertFieldString(value: unknown, field: string, hint?: string): string
  * Builds the refusal for one bad request field.
  * NOTE: `issues` repeats the full explanation because it is the only part the adapters put in the response body.
  */
-function fieldError(code: string, field: string, detail: string, hint?: string): IamValidationError {
+function fieldError(code: string, field: string, detail: string, hint?: string): IamError {
   const tail = hint === undefined ? '' : `; ${hint}`
-  return new IamValidationError(
-    'request',
-    [`${code} at "${field}": ${detail}${tail}`],
-    `[@gentleduck/iam:generic] "${field}" ${detail}${tail}`,
-  )
+  return fail('IAM_VALIDATION_FAILED', {
+    kind: 'request',
+    issues: [`${code} at "${field}": ${detail}${tail}`],
+  })
 }
 
 /**
  * Parses an admin request body, turning malformed JSON into a 400 as the express and nest hosts already do.
  *
  * @param read - The framework's own parse call, e.g. `() => c.req.json()`.
- * @throws {IamValidationError} When the body is not valid JSON.
+ * @throws {IamError} When the body is not valid JSON.
  */
 export async function iamReadJsonBody(read: () => Promise<unknown>): Promise<unknown> {
   try {
     return await read()
   } catch {
     // SECURITY: the parser's message quotes caller-controlled bytes, so it stays out of operator logs.
-    throw new IamValidationError(
-      'request',
-      ['MALFORMED_JSON'],
-      '[@gentleduck/iam:generic] request body is not valid JSON',
-    )
+    throwIamError('IAM_VALIDATION_FAILED', { kind: 'request', issues: ['MALFORMED_JSON'] })
   }
 }
 
@@ -774,7 +769,7 @@ export async function iamReadJsonBody(read: () => Promise<unknown>): Promise<unk
  * Reads a required string field from an admin request body, checked at the edge with a message naming the field.
  *
  * @returns The field's value, guaranteed a non-blank string.
- * @throws {IamValidationError} If the body is not an object, or the field is missing, not a string, blank, or too long.
+ * @throws {IamError} If the body is not an object, or the field is missing, not a string, blank, or too long.
  */
 export function iamRequireStringField(source: unknown, field: string): string {
   assertJsonObjectBody(source, field)
@@ -786,7 +781,7 @@ export function iamRequireStringField(source: unknown, field: string): string {
  * SECURITY: an explicit `null` is refused, not read as absent, since a `null` grant scope would widen to global.
  *
  * @returns The value, or `undefined` when the field is absent.
- * @throws {IamValidationError} If the body is not an object, or the field is present and not a valid string.
+ * @throws {IamError} If the body is not an object, or the field is present and not a valid string.
  */
 export function iamOptionalStringField(source: unknown, field: string): string | undefined {
   assertJsonObjectBody(source, field)
@@ -800,7 +795,7 @@ export function iamOptionalStringField(source: unknown, field: string): string |
  *
  * @param value - The raw parameter, as the framework hands it over.
  * @param name - The parameter's name, for the error message.
- * @throws {IamValidationError} If it is absent, blank, or too long.
+ * @throws {IamError} If it is absent, blank, or too long.
  */
 export function iamRequirePathParam(value: unknown, name: string): string {
   if (typeof value !== 'string' || value.length === 0) {

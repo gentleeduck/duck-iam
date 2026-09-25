@@ -7,13 +7,13 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { AuthTestChannel } from '~/channels/console'
 import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -25,11 +25,11 @@ describe('account deletion - the undo token', () => {
   let auth: AuthEngine<MyProfile>
   let adapter: MemoryAdapter<MyProfile>
   let identityId: string
-  let channel: AuthTestChannel
+  let channel: ReturnType<typeof authTestDeliver>
 
   /** request -> complete, returning what `completeAccountDeletion` answered. */
   async function deleteAccount(completeOpts: Record<string, unknown> = {}) {
-    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId })
+    await auth.flows.requestAccountDeletion({ identityId })
     const url = (channel.outbox.at(-1)!.vars as { url: string }).url
     const token = new URL(url).searchParams.get('token')!
     return auth.flows.completeAccountDeletion({ token, ...completeOpts })
@@ -37,8 +37,10 @@ describe('account deletion - the undo token', () => {
 
   beforeEach(async () => {
     adapter = new MemoryAdapter<MyProfile>()
+    channel = authTestDeliver()
     auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
+      deliver: channel.deliver,
       transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
       limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
@@ -46,7 +48,6 @@ describe('account deletion - the undo token', () => {
     })
     const ident = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
     identityId = ident.id
-    channel = new AuthTestChannel()
   })
 
   describe('minting', () => {
@@ -82,23 +83,23 @@ describe('account deletion - the undo token', () => {
       expect(await adapter.credentials.listByIdentity(identityId, 'recovery', {})).toEqual([])
     })
 
-    it('the undo mail is only sent when channels are supplied', async () => {
+    it('the undo mail is only sent when the caller asks for it', async () => {
       await deleteAccount()
-      // One mail: the deletion confirmation. No undo mail without `channels`.
-      expect(channel.outbox.map((m) => m.templateId)).toEqual(['account-deletion'])
+      // One mail: the deletion confirmation. No undo mail without `sendUndoLink`.
+      expect(channel.outbox.map((m) => m.kind)).toEqual(['account-deletion'])
     })
 
-    it('with channels, the undo link is mailed and carries the token', async () => {
-      const { cancellationToken } = await deleteAccount({ channels: { email: channel } })
+    it('with sendUndoLink, the undo link is mailed and carries the token', async () => {
+      const { cancellationToken } = await deleteAccount({ sendUndoLink: true })
       const last = channel.outbox.at(-1)!
-      expect(last.templateId).toBe('account-deletion-cancel')
+      expect(last.kind).toBe('account-deletion-cancel')
       const url = new URL((last.vars as { url: string }).url)
       expect(url.pathname).toBe('/auth/cancel-deletion')
       expect(url.searchParams.get('token')).toBe(cancellationToken)
     })
 
     it('an unsafe callbackPath falls back to the default rather than being used', async () => {
-      await deleteAccount({ callbackPath: 'https://evil.example/steal', channels: { email: channel } })
+      await deleteAccount({ callbackPath: 'https://evil.example/steal', sendUndoLink: true })
       const url = new URL((channel.outbox.at(-1)!.vars as { url: string }).url)
       expect(url.origin).toBe('https://app')
       expect(url.pathname).toBe('/auth/cancel-deletion')
@@ -138,8 +139,10 @@ describe('account deletion - the undo token', () => {
         release = resolve
       })
       const ad = new MemoryAdapter<MyProfile>()
+      const ch = authTestDeliver()
       const engine = new AuthEngine<MyProfile>({
         baseUrl: 'https://app',
+        deliver: ch.deliver,
         limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
         providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
         stores: {
@@ -159,8 +162,7 @@ describe('account deletion - the undo token', () => {
         transport: new CookieTransport({ name: 'duck-sid', secure: false }),
       })
       const ident = await engine.identities.create({ profile: { email: 'c@x.com', username: 'c@x.com' } })
-      const ch = new AuthTestChannel()
-      await engine.flows.requestAccountDeletion({ channels: { email: ch }, identityId: ident.id })
+      await engine.flows.requestAccountDeletion({ identityId: ident.id })
       const reqToken = new URL((ch.outbox.at(-1)!.vars as { url: string }).url).searchParams.get('token')!
       const { cancellationToken } = await engine.flows.completeAccountDeletion({ token: reqToken })
       const [undo] = await ad.credentials.listByIdentity(ident.id, 'recovery', {})
@@ -202,7 +204,7 @@ describe('account deletion - the undo token', () => {
 
     it('the deletion token is not an undo token', async () => {
       // Both are `kind: 'recovery'`; only `metadata.purpose` separates them.
-      await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId })
+      await auth.flows.requestAccountDeletion({ identityId })
       const deletionToken = new URL((channel.outbox.at(-1)!.vars as { url: string }).url).searchParams.get('token')!
       await auth.flows.completeAccountDeletion({ token: deletionToken })
 

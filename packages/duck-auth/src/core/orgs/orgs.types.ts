@@ -8,6 +8,9 @@ export namespace Org {
     domain: string | null
     metadata: Meta | null
     createdAt: Date
+    /** The tenant this row belongs to, `null` for a global one. Required so the facet can check the row
+     *  it got back against the scope it asked for; without it `ctx` was a promise no caller could audit. */
+    tenantId: string | null
   }
 
   export type Membership = {
@@ -18,8 +21,13 @@ export namespace Org {
     invitedAt: Date | null
     joinedAt: Date
     leftAt: Date | null
+    /** As {@link Org.Me.tenantId}. */
+    tenantId: string | null
   }
 
+  /** Every method takes the context and every row answers with the tenant it was read under, so the
+   *  facet refuses a row from another one rather than trusting the store filtered. A single-tenant host
+   *  passes `{}` and writes `tenantId: null`. */
   export type Store<Meta = unknown> = {
     getOrg(id: string, ctx: TenantContext): Promise<Me<Meta>>
     listOrgsForIdentity(identityId: string, ctx: TenantContext): Promise<Me<Meta>[]>

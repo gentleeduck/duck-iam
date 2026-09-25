@@ -326,7 +326,7 @@ describe('IamRedisAdapter', () => {
 
     it('throws on corrupted attributes JSON instead of returning {}', async () => {
       await redis.set('attrs:user-1', '{not-valid-json')
-      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     })
 
     it('setSubjectAttributes recovers from corrupt existing blob', async () => {
@@ -338,7 +338,7 @@ describe('IamRedisAdapter', () => {
 
     it('throws on non-object attributes JSON', async () => {
       await redis.set('attrs:user-1', '"a-string"')
-      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     })
 
     it('keys are isolated per subject', async () => {
@@ -395,8 +395,8 @@ describe('IamRedisAdapter', () => {
   })
 
   describe('malformed-row handling (P0)', () => {
-    // A bad role row is dropped, since roles only grant; a bad policy row is reported and thrown, since it may be
-    // the deny. See `iamUnreadablePolicy`.
+    // SECURITY: a bad row is reported and thrown, policy or role. A policy row may be the deny; a role row is
+    // what a deny selects on. See `iamUnreadablePolicy` and `iamUnreadableRole`.
     it('listPolicies refuses a row whose JSON cannot be parsed', async () => {
       const errors: Array<{ msg: string; ctx: { adapter: string; rowId: string } }> = []
       const adapter = new IamRedisAdapter<A, R, Ro, S>({
@@ -417,7 +417,7 @@ describe('IamRedisAdapter', () => {
       await redis.hset('policies', 'bad', '{not valid json')
 
       // Not `['good']`: returning the readable half could drop a deny without a trace.
-      await expect(adapter.listPolicies()).rejects.toThrow(/policy "bad" cannot be read and will not be skipped/)
+      await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
       expect(errors).toHaveLength(1)
       expect(errors[0]?.ctx.rowId).toBe('bad')
     })
@@ -431,7 +431,7 @@ describe('IamRedisAdapter', () => {
       // Missing required fields (no `rules`, no `algorithm`).
       await redis.hset('policies', 'shape-bad', JSON.stringify({ id: 'shape-bad', name: 'x' }))
 
-      await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+      await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
       expect(errors[0]?.rowId).toBe('shape-bad')
     })
 
@@ -443,11 +443,11 @@ describe('IamRedisAdapter', () => {
       })
       await redis.hset('policies', 'bad', 'definitely not json')
       // `null` means "no such policy", so a corrupt row must not return it.
-      await expect(adapter.getPolicy('bad')).rejects.toThrow(/cannot be read/)
+      await expect(adapter.getPolicy('bad')).rejects.toThrow('IAM_UNREADABLE_POLICY')
       expect(errors[0]?.rowId).toBe('bad')
     })
 
-    it('listRoles drops malformed rows and continues', async () => {
+    it('listRoles refuses a malformed row rather than continuing past it', async () => {
       const errors: Array<{ rowId: string }> = []
       const adapter = new IamRedisAdapter<A, R, Ro, S>({
         client: redis,
@@ -455,8 +455,7 @@ describe('IamRedisAdapter', () => {
       })
       await redis.hset('roles', 'good', JSON.stringify({ id: 'good', name: 'g', permissions: [] }))
       await redis.hset('roles', 'bad', JSON.stringify({ name: 'no id' }))
-      const list = await adapter.listRoles()
-      expect(list.map((r) => r.id)).toEqual(['good'])
+      await expect(adapter.listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
       expect(errors[0]?.rowId).toBe('bad')
     })
 
@@ -468,11 +467,32 @@ describe('IamRedisAdapter', () => {
       console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(' '))
       try {
         // Refusing the read is not a reason to stop naming the row to repair.
-        await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+        await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
       } finally {
         console.warn = orig
       }
       expect(warnings.some((w) => /\[@gentleduck\/iam:redis\]/.test(w) && /bad/.test(w))).toBe(true)
+    })
+
+    // `hget`/`get` return `string | null`; a truthiness check on the value reads a stored "" the same as a
+    // missing key. "" is never written by a legitimate save, so it can only mean corruption - which must throw,
+    // not read as absent, for the same reason a malformed row above must throw rather than drop.
+    it('getPolicy throws on a stored empty string rather than reading it as absent', async () => {
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: redis })
+      await redis.hset('policies', 'empty', '')
+      await expect(adapter.getPolicy('empty')).rejects.toThrow('IAM_UNREADABLE_POLICY')
+    })
+
+    it('getRole throws on a stored empty string rather than reading it as absent', async () => {
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: redis })
+      await redis.hset('roles', 'empty', '')
+      await expect(adapter.getRole('empty')).rejects.toThrow('IAM_UNREADABLE_ROLE')
+    })
+
+    it('getSubjectAttributes throws on a stored empty string rather than reading it as {}', async () => {
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: redis })
+      await redis.set('attrs:user-1', '')
+      await expect(adapter.getSubjectAttributes('user-1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     })
   })
 

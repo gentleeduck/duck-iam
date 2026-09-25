@@ -1,3 +1,4 @@
+import { throwIamValidationFailed } from '../errors'
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 import type { IamValidate } from '../validate'
 import { validateRuleShape } from '../validate/validate.libs'
@@ -258,14 +259,7 @@ export class RuleBuilder<
     // Validate here too, so a rule handed straight to an adapter fails where the bug was written.
     const issues: IamValidate.IIssue[] = []
     validateRuleShape(rule, 'rule', issues)
-    const errs = issues
-      .filter((i) => i.type === 'error')
-      .map((i) => `${i.code}${i.path ? ` at "${i.path}"` : ''}: ${i.message}`)
-    if (errs.length > 0) {
-      throw new Error(
-        `[@gentleduck/iam:builder] RuleBuilder.build("${this._id}") rejected by validator - ${errs.join('; ')}`,
-      )
-    }
+    if (issues.some((issue) => issue.type === 'error')) throwIamValidationFailed('rule', issues)
     return rule
   }
 }

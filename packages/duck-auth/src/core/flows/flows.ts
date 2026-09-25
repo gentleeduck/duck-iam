@@ -21,6 +21,7 @@ import {
   requestEmailVerification as requestEmailVerificationImpl,
 } from './email-verification.flow'
 import { DEFAULT_FLOWS_CONFIG } from './flows.constants'
+import type { Deliver } from './flows.delivery'
 import type { Flows } from './flows.types'
 import { impersonate as impersonateImpl, releaseImpersonation as releaseImpersonationImpl } from './impersonate.flow'
 import {
@@ -47,9 +48,21 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     ctxFactory: (tenantId?: string) => Provider.Context<Profile>,
     requirePasswords: () => PasswordsImpl,
     requireMfa: () => MfaFacet,
+    deliver?: Deliver,
     cfg: Flows.Cfg = DEFAULT_FLOWS_CONFIG,
   ) {
-    this._deps = { sessions, identities, providers, transport, events, ctxFactory, requirePasswords, requireMfa, cfg }
+    this._deps = {
+      cfg,
+      ctxFactory,
+      deliver,
+      events,
+      identities,
+      providers,
+      requireMfa,
+      requirePasswords,
+      sessions,
+      transport,
+    }
   }
 
   /** Expose deps for testing extracted flow functions directly. */
@@ -162,6 +175,7 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     const methods = requirement.methods ?? ['totp']
     const freshness = requirement.freshness
 
+    // INVARIANT: never gate on `fresh` alone; a restored operator session is `fresh: true` at `aal: 1`.
     if (session.aal >= requiredAal && session.fresh) {
       // Fail-closed: a non-finite rotatedAt would slip the freshness gate, and so would a future one -
       // `now - rotatedAt` goes negative and no window is ever exceeded. Bounded both ways.
@@ -242,12 +256,11 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
   }
 
   /** Request a password reset. Always answers successfully, so it enumerates nothing; a single-use
-   *  token is minted, hashed at rest and dispatched when the identity exists. `channels` and
-   *  `findIdentityByEmail` are supplied by the host, which owns that wiring. */
+   *  token is minted, hashed at rest and dispatched when the identity exists. `findIdentityByEmail` is
+   *  supplied by the host, which owns that wiring. */
   async requestPasswordReset(opts: {
     input: Flows.PasswordResetRequestInput
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
     tenantId?: string
   }): Promise<{ ok: true }> {
     return requestPasswordResetImpl(this._deps, opts)
@@ -290,7 +303,7 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
   }
 
   /** Soft-deletes the identity, revokes its sessions, and mints the single-use undo token
-   *  `cancelAccountDeletion` accepts, handed back as plaintext once and mailed for you given `channels`. */
+   *  `cancelAccountDeletion` accepts, handed back as plaintext once and mailed for you given `sendUndoLink`. */
   async completeAccountDeletion(input: Flows.AccountDeletionCompleteInput): Promise<{
     identity: Identities.Me<Profile>
     identityId: string
@@ -385,9 +398,11 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
 
   /** Ends the impersonation and mints the operator a session of their own. `session` and `sid` are null
    *  and empty only when the operator's identity is gone, and the bearer is cleared instead. */
+  /** `session` and `sid` are both null when the operator's own account went away mid-impersonation:
+   *  there is no session to return them to, so the window ends revoked with the bearer cleared. */
   async releaseImpersonation(
     impersonationSid: string,
-  ): Promise<{ session: Sessions.Me | null; sid: string; intents: Provider.Intent[] }> {
+  ): Promise<{ session: Sessions.Me | null; sid: string | null; intents: Provider.Intent[] }> {
     return releaseImpersonationImpl(this._deps, impersonationSid)
   }
 }
@@ -401,6 +416,7 @@ export function flows<Profile extends Identities.ProfileMetadataBase = Identitie
   ctxFactory: (tenantId?: string) => Provider.Context<Profile>,
   requirePasswords: () => PasswordsImpl,
   requireMfa: () => MfaFacet,
+  deliver?: Deliver,
   cfg?: Flows.Cfg,
 ): FlowsImpl<Profile> {
   return new FlowsImpl(
@@ -412,6 +428,7 @@ export function flows<Profile extends Identities.ProfileMetadataBase = Identitie
     ctxFactory,
     requirePasswords,
     requireMfa,
+    deliver,
     cfg,
   )
 }

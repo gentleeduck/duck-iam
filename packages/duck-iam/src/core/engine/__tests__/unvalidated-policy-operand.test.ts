@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
-import { IamOperandTypeError } from '../../conditions/conditions.libs'
+import { IamError, metaOf } from '../../errors'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../index'
 
@@ -77,9 +77,11 @@ describe('a policy that never passed the validator still cannot over-grant', () 
     await engine.can('banned', 'read', { attributes: {}, type: 'post' })
     expect(onPolicyError).toHaveBeenCalled()
     const [err, policyId] = onPolicyError.mock.calls[0] ?? []
-    expect(err).toBeInstanceOf(IamOperandTypeError)
+    expect(err).toBeInstanceOf(IamError)
     expect(policyId).toBe('p-denylist')
-    expect(String(err)).toContain('subject.attributes.tier')
+    expect(metaOf(err as IamError<'IAM_CONDITION_OPERAND_TYPE'>, 'IAM_CONDITION_OPERAND_TYPE').field).toBe(
+      'subject.attributes.tier',
+    )
   })
 
   it('control: the same denylist authored correctly still allows and still denies', async () => {

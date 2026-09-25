@@ -38,6 +38,7 @@ function complete(opts: { allowed?: readonly string[]; profile: Saml.Profile }) 
     validatePostResponseAsync: vi.fn(async () => ({ loggedOut: false, profile: opts.profile })),
   }
   const provider = saml({
+    allowReplay: true,
     allowUnsolicited: true,
     callbackUrl: 'https://app/acs',
     client,

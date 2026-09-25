@@ -65,7 +65,7 @@ describe('MfaFacet - TOTP', () => {
     })
   })
 
-  describe('authVerifyTotp', () => {
+  describe('verifyTotp', () => {
     it('verifies the current code against a confirmed enrollment', async () => {
       const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
       const step = Math.floor(Date.now() / 1000 / 30)
@@ -163,7 +163,7 @@ describe('MfaFacet - TOTP', () => {
     })
 
     describe('revoked credential gating', () => {
-      it('authVerifyTotp ignores a TOTP enrollment with revokedAt === 0 (legitimate epoch number, previously slipped past `!r.revokedAt`)', async () => {
+      it('verifyTotp ignores a TOTP enrollment with revokedAt === 0 (legitimate epoch number, previously slipped past `!r.revokedAt`)', async () => {
         const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
         const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
         await facet.confirmTotpEnrollment('user-1', code)
@@ -179,7 +179,7 @@ describe('MfaFacet - TOTP', () => {
         expect(await facet.hasTotp('user-1')).toBe(false)
       })
 
-      it('authVerifyTotp ignores a TOTP enrollment with non-numeric revokedAt', async () => {
+      it('verifyTotp ignores a TOTP enrollment with non-numeric revokedAt', async () => {
         const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
         const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
         await facet.confirmTotpEnrollment('user-1', code)

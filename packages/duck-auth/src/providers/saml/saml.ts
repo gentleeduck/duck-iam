@@ -77,6 +77,15 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
           'samlProvider requires `verifyRelayState`, or `allowUnsolicited: true` to accept IdP-initiated responses with no request to bind to',
       })
     }
+    // The same rule as the relay state above, applied to the one replay protection this wrapper has:
+    // it cannot be absent by accident. `complete` still branches on the store, because opting out is
+    // now a thing the operator said rather than a key they forgot.
+    if (!cfg.replayStore && cfg.allowReplay !== true) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail:
+          'samlProvider requires `replayStore`, or `allowReplay: true` to accept assertions with no replay protection',
+      })
+    }
     this.id = cfg.providerId ?? DEFAULT_SAML_CONFIG.providerId
     this._allowedNameIdFormats = cfg.allowedNameIdFormats ?? [DEFAULT_SAML_CONFIG.nameIdFormat]
     this._mfaAuthnContexts = new Set(cfg.mfaAuthnContexts ?? SAML_MFA_AUTHN_CONTEXTS)
@@ -169,11 +178,10 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
         profile: scoped,
         ...(ctx.tenant.tenantId !== undefined && { tenantId: ctx.tenant.tenantId }),
       }))
-    } catch (err) {
-      await ctx.events.emit('signin.failed', {
-        providerId: this.id,
-        reason: `onSignIn threw: ${err instanceof Error ? err.message : String(err)}`,
-      })
+    } catch {
+      // `onSignIn` is the host's own callback and its message is free text - the profile it was handed, a
+      // database error quoting the row. Audited and recorded as a metric attribute, so it stays out.
+      await ctx.events.emit('signin.failed', { providerId: this.id, reason: 'onSignIn threw' })
       throw new AuthError('AUTH_PROVIDER_FAILED', { detail: SAML_REFUSED, providerId: this.id })
     }
 

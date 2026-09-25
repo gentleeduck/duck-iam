@@ -69,6 +69,10 @@ export namespace Saml {
      *  neither configured nor mandatory here, so without this one captured POST body mints a fresh session
      *  per repeat. */
     replayStore?: { consume: (assertionId: string) => Promise<boolean> }
+    /** Accepts responses with no replay protection at all. Default false: without a store one captured
+     *  POST body mints a fresh session on every repeat, for as long as the assertion's own
+     *  `NotOnOrAfter` window lasts, which node-saml's `acceptedClockSkewMs` widens. */
+    allowReplay?: boolean
     /**
      * NameID formats the SP accepts. Defaults to the one `DEFAULT_SAML_CONFIG` asks for. A transient
      * nameID changes on every login, so provisioning keyed on it creates a new account each time.

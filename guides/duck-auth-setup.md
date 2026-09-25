@@ -11,7 +11,7 @@ bun add @gentleduck/auth
 # optional peer deps based on what you use
 bun add drizzle-orm pg          # drizzle-pg adapter
 bun add ioredis                 # redis adapter / limiter
-bun add resend                  # resend email channel
+bun add resend                  # whatever your `deliver` callback mails with
 bun add argon2                  # argon2id hasher (prod)
 ```
 
@@ -28,7 +28,6 @@ import { authDrizzlePgStorage } from '@gentleduck/auth/adapters/drizzle/pg'
 import { AuthRedisLimiter } from '@gentleduck/auth/adapters/redis'
 import { AuthArgon2idHasher } from '@gentleduck/auth/core/password/argon2'
 import { AuthCookieTransport } from '@gentleduck/auth/core/transport'
-import { AuthResendChannel } from '@gentleduck/auth/channels/resend'
 import { authPassword } from '@gentleduck/auth/providers/password'
 import { authMagicLink } from '@gentleduck/auth/providers/magic-link'
 import { authGoogle } from '@gentleduck/auth/providers/oauth/google'
@@ -36,6 +35,16 @@ import { authGithub } from '@gentleduck/auth/providers/oauth/github'
 import { db } from './db'         // your drizzle db instance
 import { redis } from './redis'   // your ioredis instance
 import { Resend } from 'resend'
+
+const resend = new Resend(process.env.RESEND_API_KEY!)
+
+const SUBJECTS = {
+  'account-deletion': 'Confirm account deletion',
+  'account-deletion-cancel': 'Undo account deletion',
+  'email-verification': 'Confirm your address',
+  'magic-link': 'Your sign-in link',
+  'password-reset': 'Reset your password',
+}
 
 interface Profile {
   email: string
@@ -58,12 +67,18 @@ export const auth = createAuth<Profile>({
   hasher: new AuthArgon2idHasher(),
   limiter: new AuthRedisLimiter({ redis, max: 10, windowMs: 60_000 }),
 
-  // --- delivery channels ---
-  channels: {
-    email: new AuthResendChannel({
-      client: new Resend(process.env.RESEND_API_KEY!),
+  // --- delivery ---
+  // One callback for every outbound token: magic links, email verification, password resets,
+  // account deletion and its undo link. The URL is already signed; you pick the transport and
+  // write the template. Throw to report a failure - the flow answers its caller the same either
+  // way and reports the refusal as a `signin.failed` event, never the text you threw.
+  deliver: async ({ kind, identity, vars }) => {
+    await resend.emails.send({
       from: 'auth@example.com',
-    }),
+      to: identity.profile.email,
+      subject: SUBJECTS[kind],
+      text: `${vars.url}`,
+    })
   },
 
   // --- providers ---
@@ -251,7 +266,7 @@ authMagicLink<Profile>({
 })
 ```
 
-Requires `channels.email` to be configured in `createAuth`.
+Requires `deliver` to be configured in `createAuth`; `strict({ env: 'production' })` refuses the pair without it.
 
 ### OAuth — Google / GitHub / Discord / Microsoft / Apple / LinkedIn
 

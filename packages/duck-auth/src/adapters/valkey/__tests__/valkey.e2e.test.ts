@@ -69,22 +69,6 @@ suite('E2E valkeyAdapter (real server)', () => {
       await new Promise((r) => setTimeout(r, 1300))
       expect(await client.get(k)).toBeNull()
     })
-
-    it('scan passes MATCH through rather than returning the whole keyspace', async () => {
-      await client.set(key('scan:a'), '1')
-      await client.set(key('scan:b'), '1')
-      await client.set(key('other:c'), '1')
-
-      const seen: string[] = []
-      let cursor = '0'
-      do {
-        const [next, keys] = await client.scan(cursor, { count: 100, match: `${prefix}:scan:*` })
-        cursor = next
-        seen.push(...keys)
-      } while (cursor !== '0')
-
-      expect(seen.sort()).toEqual([key('scan:a'), key('scan:b')])
-    })
   })
 
   describe('the rest of the surface', () => {
@@ -119,16 +103,6 @@ suite('E2E valkeyAdapter (real server)', () => {
       expect(await client.srem(k, 'b')).toBe(1)
       expect((await client.smembers(k)).sort()).toEqual(['a', 'c'])
       expect(await client.smembers(key('set-absent'))).toEqual([])
-    })
-
-    it('eval hands the server the key count in the right position', async () => {
-      // ioredis takes numKeys positionally; the object form does not. Getting this
-      // wrong makes the server read a key as an argument, or the reverse.
-      const result = await client.eval?.('return {KEYS[1], ARGV[1]}', {
-        args: ['arg-value'],
-        keys: [key('eval')],
-      })
-      expect(result).toEqual([key('eval'), 'arg-value'])
     })
   })
 

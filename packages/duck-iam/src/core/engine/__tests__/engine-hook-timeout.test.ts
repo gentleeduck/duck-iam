@@ -186,6 +186,8 @@ describe('hookTimeoutMs', () => {
   })
 
   it.each([Number.NaN, -1, Number.POSITIVE_INFINITY])('rejects %s', (hookTimeoutMs) => {
-    expect(() => new IamEngine<Action, Res, Role>({ adapter: adapter(), hookTimeoutMs })).toThrow(/hookTimeoutMs/)
+    expect(() => new IamEngine<Action, Res, Role>({ adapter: adapter(), hookTimeoutMs })).toThrow(
+      'IAM_ENGINE_INVALID_CONFIG',
+    )
   })
 })

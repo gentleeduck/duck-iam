@@ -40,7 +40,7 @@ function satisfying(preset: Compliance.Preset, missing?: Compliance.Check): Part
 describe('what a preset declares against what is enforced', () => {
   it('strict() reads the preset the config was branded with', () => {
     // `readCompliancePreset` was documented as the hook `AuthEngine.strict()` uses to "auto-invoke
-    // authAssertComplianceStrict so operators do not have to remember the second call", and no
+    // assertComplianceStrict so operators do not have to remember the second call", and no
     // caller existed - so branding a config and calling strict() ran none of the compliance
     // assertions and said nothing about having skipped them.
     const { cfg } = baseCfg()

@@ -1,5 +1,5 @@
 /**
- * `AUTH_SESSION_EXPIRED` is declared with a `{ expiredAt }` meta, translated in `i18n`, exported in the
+ * `AUTH_SESSION_EXPIRED` is declared with a `{ expiredAt }` meta and exported in the
  * public union — and was raised by nothing. Every deadline in the package threw `AUTH_SESSION_REVOKED`
  * instead, whose meta is a free-text `reason` and which is also what a store answers for a row that is
  * absent, corrupt or another tenant's. A caller could not tell "your session timed out, sign in again"
@@ -170,10 +170,10 @@ describe('a JWT past its exp is the same answer', () => {
     expect(reported).toBeLessThanOrEqual(Date.now())
   })
 
-  it('a token that will not verify at all is still the revocation code, not expiry', async () => {
+  it('a token that will not verify at all is its own code, neither expiry nor revocation', async () => {
     const t = new JwtTransport(cfg)
 
-    await expect(t.verify('not.a.jwt')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify('not.a.jwt')).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 
   it('a live token verifies', async () => {

@@ -5,15 +5,15 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import type { Channel } from '~/channels/channels.types'
-import { AuthTestChannel } from '~/channels/console'
 import { getCredentialPurpose } from '~/core/credentials/credentials'
 import { AuthEngine } from '~/core/engine'
+import type { Deliver } from '~/core/flows/flows.delivery'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -21,15 +21,17 @@ interface MyProfile extends Identities.ProfileMetadataBase {
 
 function build(opts: { limit?: number; profileMaxBytes?: number } = {}) {
   const adapter = new MemoryAdapter<MyProfile>()
+  const channel = authTestDeliver()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
+    deliver: channel.deliver,
     ...(opts.profileMaxBytes !== undefined && { identities: { profileMaxBytes: opts.profileMaxBytes } }),
     limiter: new MemoryLimiter({ max: opts.limit ?? 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
     transport: new CookieTransport({ name: 'duck-sid', secure: false }),
   })
-  return { adapter, auth }
+  return { adapter, auth, channel }
 }
 
 const ALLOW_LINK = async () => true
@@ -39,7 +41,7 @@ async function enrollTotp(auth: AuthEngine<MyProfile>, identityId: string, email
   await auth.mfa.confirmTotpEnrollment(identityId, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)))
 }
 
-function tokenFrom(channel: AuthTestChannel): string {
+function tokenFrom(channel: ReturnType<typeof authTestDeliver>): string {
   const url = (channel.outbox.at(-1)?.vars as { url: string }).url
   return new URL(url).searchParams.get('token') ?? ''
 }
@@ -92,7 +94,9 @@ describe('F14 / F15 - impersonation neither carries nor returns assurance', () =
 
     expect(released.session?.identityId).toBe(adminId)
     expect(released.session?.actingAs).toBeNull()
-    expect(released.sid).not.toBe('')
+    // Was `not.toBe('')`: the erased-operator branch now answers `null`, so that is what this rules out.
+    expect(released.sid).not.toBeNull()
+    if (released.sid === null) throw new Error('unreachable: release returned no sid')
     // A `transport.revoke()` intent carries no cookie value; an `issue` does.
     expect(released.intents.some((i) => i.type === 'setCookie' && i.value !== '')).toBe(true)
     // And the returned sid actually resolves.
@@ -117,7 +121,8 @@ describe('F14 / F15 - impersonation neither carries nor returns assurance', () =
     await auth.identities.erase(adminId, { reason: 'gdpr' })
     const released = await auth.flows.releaseImpersonation(out.sid)
     expect(released.session).toBeNull()
-    expect(released.sid).toBe('')
+    // `null` since the type says so: `sid: ''` claimed a session the caller does not have.
+    expect(released.sid).toBeNull()
     await expect(auth.sessions.getBySid(out.sid)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })
@@ -348,46 +353,40 @@ describe('F23 / F24 / F25 / F26 - signup', () => {
 
 describe('F10 / F11 / F26 - email verification', () => {
   it('F10 - an unknown identity does not spend the limiter', async () => {
-    const { auth } = build({ limit: 2 })
-    const channel = new AuthTestChannel()
+    const { auth, channel } = build({ limit: 2 })
     for (let i = 0; i < 5; i++) {
-      await expect(
-        auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: 'no-such-id' }),
-      ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+      await expect(auth.flows.requestEmailVerification({ identityId: 'no-such-id' })).rejects.toMatchObject({
+        code: 'AUTH_UNAUTHENTICATED',
+      })
     }
   })
 
   it('F10 - an already-verified address does not spend the limiter either', async () => {
-    const { adapter, auth } = build({ limit: 2 })
-    const channel = new AuthTestChannel()
+    const { adapter, auth, channel } = build({ limit: 2 })
     const ident = await auth.identities.create({
       emailVerified: true,
       profile: { email: 'v@x.com', username: 'v@x.com' },
     })
     for (let i = 0; i < 5; i++) {
-      await expect(
-        auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: ident.id }),
-      ).resolves.toEqual({ ok: true })
+      await expect(auth.flows.requestEmailVerification({ identityId: ident.id })).resolves.toEqual({ ok: true })
     }
     expect(channel.outbox).toHaveLength(0)
     expect(await adapter.credentials.listByIdentity(ident.id, 'recovery', {})).toEqual([])
   })
 
   it('F26 - verification writes the column through the facet and answers with the verified row', async () => {
-    const { auth } = build()
-    const channel = new AuthTestChannel()
+    const { auth, channel } = build()
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
-    await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: ident.id })
+    await auth.flows.requestEmailVerification({ identityId: ident.id })
     const out = await auth.flows.completeEmailVerification({ token: tokenFrom(channel) })
     expect(out.identity.emailVerified).toBe(true)
     expect((await auth.identities.getById(ident.id)).emailVerified).toBe(true)
   })
 
   it('F11 - a profile write landing mid-verification is absorbed, not surfaced', async () => {
-    const { adapter, auth } = build()
-    const channel = new AuthTestChannel()
+    const { adapter, auth, channel } = build()
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
-    await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: ident.id })
+    await auth.flows.requestEmailVerification({ identityId: ident.id })
 
     // Bump the row's version between the facet's read and its write, exactly
     // once - the shape of a concurrent profile update. The token is already
@@ -417,19 +416,17 @@ describe('F10 / F11 / F26 - email verification', () => {
 describe('F2 / F6 / F7 / F28 - password reset', () => {
   let auth: AuthEngine<MyProfile>
   let adapter: MemoryAdapter<MyProfile>
-  let channel: AuthTestChannel
+  let channel: ReturnType<typeof build>['channel']
   let identityId: string
 
   const request = () =>
     auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'a@x.com' },
     })
 
   beforeEach(async () => {
-    ;({ adapter, auth } = build())
-    channel = new AuthTestChannel()
+    ;({ adapter, auth, channel } = build())
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
     identityId = ident.id
     await auth.passwords.set(identityId, 'old-password-9', adapter.credentials)
@@ -486,8 +483,7 @@ describe('F2 / F6 / F7 / F28 - password reset', () => {
 
   it('F6 - grinding the MFA gate runs out of attempts and burns the token', async () => {
     const limit = 3
-    ;({ adapter, auth } = build({ limit }))
-    channel = new AuthTestChannel()
+    ;({ adapter, auth, channel } = build({ limit }))
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' } })
     identityId = ident.id
     await auth.passwords.set(identityId, 'old-password-9', adapter.credentials)

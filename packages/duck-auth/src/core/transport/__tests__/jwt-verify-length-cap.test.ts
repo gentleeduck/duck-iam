@@ -15,7 +15,7 @@ describe('AuthJwtTransport.verify - length cap', () => {
   it('returns null on a multi-MB token without doing any base64 / JSON / crypto work', async () => {
     const oversize = 'A'.repeat(10 * 1024 * 1024) // 10 MiB
     const start = performance.now()
-    await expect(t.verify(oversize)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(oversize)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
     const elapsed = performance.now() - start
     // Without the cap: base64decode + JSON.parse + crypto on 10 MB
     // would be hundreds of milliseconds. With the cap: O(1). Allow
@@ -24,7 +24,7 @@ describe('AuthJwtTransport.verify - length cap', () => {
   })
 
   it('returns null on a token exactly 4097 chars (just over the cap)', async () => {
-    await expect(t.verify('B'.repeat(4097))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify('B'.repeat(4097))).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 
   it('processes a 4096-char token through the normal parse path (cap boundary)', async () => {
@@ -34,17 +34,17 @@ describe('AuthJwtTransport.verify - length cap', () => {
     const sized = 'C'.repeat(4096)
     // Verify reaches the normal parse path and returns null on the
     // signature mismatch - NOT on the cap.
-    await expect(t.verify(sized)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(sized)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 
   it('rejects non-string input without crashing', async () => {
-    await expect(t.verify(null as unknown as string)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
-    await expect(t.verify(undefined as unknown as string)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
-    await expect(t.verify(42 as unknown as string)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(null as unknown as string)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
+    await expect(t.verify(undefined as unknown as string)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
+    await expect(t.verify(42 as unknown as string)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 
   it('rejects empty token', async () => {
-    await expect(t.verify('')).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify('')).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 })
 

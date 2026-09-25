@@ -269,7 +269,7 @@ suite('E2E scope: cross-scope inheritance on real Postgres', () => {
       await seedRole({ id: 'admin', permissions: [{ action: 'read', resource: 'doc' }] })
       const engine = makeEngine()
 
-      await expect(engine.admin.assignRole('u1', 'admin', '*')).rejects.toThrow(/must not be "\*"/)
+      await expect(engine.admin.assignRole('u1', 'admin', '*')).rejects.toThrow('IAM_SCOPE_INVALID')
       // Refused, not half-written: nothing landed for u1.
       expect(await engine.getEffectiveRoles('u1', '*')).toEqual([])
 

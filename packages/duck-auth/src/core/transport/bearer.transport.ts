@@ -66,7 +66,7 @@ export class BearerTransport implements Transport.ITransport {
 
   /** Nothing to clear on the client beyond the token itself, so this only acknowledges. */
   revoke(): Provider.Intent[] {
-    // Revocation is server-side through `Session.IStore.delete`; the client only drops the token.
+    // Revocation is server-side through `Sessions.Store.delete`; the client only drops the token.
     return [{ type: 'json', status: 200, body: { revoked: true } }]
   }
 }

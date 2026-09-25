@@ -279,6 +279,15 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   }
   const instanceId = generateInstanceId()
   const handlers = new Set<(event: IamEngineTypes.IInvalidateEvent<TRole>) => void>()
+  // SECURITY: refuse an empty key rather than sign with it. `createHmac('sha256', '')` is legal, so the documented
+  // `secret: process.env.IAM_INVALIDATE_SECRET` wiring would run "signed" with a key anyone can guess whenever the
+  // variable is set but empty - and the unsigned-channel warning would stay silent because a secret was present.
+  if (config.secret !== undefined && config.secret !== null && config.secret.length === 0) {
+    throw new Error(
+      '[@gentleduck/iam:invalidator:redis] secret must not be empty; anyone can sign with an empty key. ' +
+        'Omit it to run the channel unsigned, or pass a real key.',
+    )
+  }
   const secret = config.secret ?? null
   const acceptLegacyUnbound = config.acceptLegacyUnboundEnvelopes === true
 
@@ -359,6 +368,8 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   let subscribed = false
   let subscribing = false
   let lastAttemptAt = 0
+  /** Bumped by every teardown, so a subscribe still in flight cannot latch state onto the torn-down subscription. */
+  let subscribeGen = 0
   const ensureSubscribed = (opportunistic: boolean) => {
     if (subscribed || subscribing) return
     const now = Date.now()
@@ -368,6 +379,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
     }
     lastAttemptAt = now
     subscribing = true
+    const gen = ++subscribeGen
     try {
       void Promise.resolve(
         config.client.subscribe(channel, (message) => {
@@ -392,11 +404,11 @@ export function createIamRedisInvalidator<TRole extends string = string>(
         }),
       )
         .then(() => {
-          subscribed = true
+          if (gen === subscribeGen) subscribed = true
         })
         .catch(reportSubscribeFailure)
         .finally(() => {
-          subscribing = false
+          if (gen === subscribeGen) subscribing = false
         })
     } catch (err) {
       // A client that throws synchronously never produces a promise.
@@ -451,6 +463,10 @@ export function createIamRedisInvalidator<TRole extends string = string>(
         handlers.delete(handler)
         if (handlers.size === 0) {
           subscribed = false
+          // A subscribe still in flight would otherwise latch `subscribed` back on and leave `subscribing` set,
+          // so the next `subscribe()` returns early and never re-registers with the client.
+          subscribing = false
+          subscribeGen++
           // Catch an async rejection, as in `publish`. A failed teardown only warns; there is no hook for it.
           const unsubscribed = config.client.unsubscribe?.(channel)
           if (isThenable(unsubscribed)) {

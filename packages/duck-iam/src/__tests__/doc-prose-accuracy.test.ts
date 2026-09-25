@@ -144,13 +144,10 @@ describe('counts and cross-references stay true', () => {
 
   // Undocumented helpers get hand-rolled, and a hand-rolled `getAction` / `getResource` is bypassable.
   it('every request-derivation helper is documented', () => {
-    const mdx = read('apps/duck-iam-docs/content/docs/integrations/server.mdx')
-    // A prose mention is not documentation: each helper needs a reference-table row and a place in an import block.
-    const tableRows = new Set([...mdx.matchAll(/^\| `([A-Za-z_][\w]*)` \|/gm)].map((m) => m[1]))
-    // Any `server/generic` import block on the page will do, as long as one shows the whole set.
-    const importBlocks = [...mdx.matchAll(/import \{([^}]*)\} from '@gentleduck\/iam\/server\/generic'/g)].map(
-      (m) => m[1] ?? '',
-    )
+    // apps/duck-iam-docs was retired before this test existed; docs/reference/server.md is
+    // the real, current source a developer integrating a new framework actually reads.
+    const docs = read('packages/duck-iam/docs/reference/server.md')
+    const mentioned = new Set([...docs.matchAll(/`([A-Za-z_][\w]*)`/g)].map((m) => m[1]))
     for (const name of [
       'IAM_UNKNOWN_ACTION',
       'IAM_UNKNOWN_RESOURCE',
@@ -158,11 +155,7 @@ describe('counts and cross-references stay true', () => {
       'iamDefaultResource',
       'iamNormalizePathname',
     ]) {
-      expect(tableRows, `${name} has no reference-table row`).toContain(name)
-      expect(
-        importBlocks.some((b) => b.includes(name)),
-        `${name} appears in no server/generic import block`,
-      ).toBe(true)
+      expect(mentioned, `${name} is not documented in docs/reference/server.md`).toContain(name)
     }
     // Checked on the imported values, not source text: the constants read their value from `shared/reserved.ts`.
     expect(IAM_UNKNOWN_ACTION).toBe('unknown')
@@ -203,9 +196,15 @@ describe('the engine reference keeps up with the config type', () => {
   it('every option the constructor range-checks is listed among what it refuses', () => {
     const engine = readFileSync(join(PKG, 'src/core/engine/engine.ts'), 'utf8')
     const docs = read('packages/duck-iam/docs/reference/core-engine.md')
-    const ranged = [...engine.matchAll(/RangeError\('\[@gentleduck\/iam:engine\] (\w+) /g)].flatMap((m) =>
-      m[1] === undefined ? [] : [m[1]],
-    )
+    // A numeric-bound guard carries `constraint:`; an enum-membership guard carries `allowed:` instead —
+    // that's what distinguishes a "range-checked" option from the rest of IAM_ENGINE_INVALID_CONFIG's callers.
+    const ranged = [...engine.matchAll(/throwIamError\('IAM_ENGINE_INVALID_CONFIG',\s*\{([^}]*)\}\)/g)]
+      .map((m) => m[1] ?? '')
+      .filter((body) => body.includes('constraint:'))
+      .flatMap((body) => {
+        const field = body.match(/field: '(\w+)'/)
+        return field?.[1] === undefined ? [] : [field[1]]
+      })
     // The table words some rows as a pair (`maxPolicies` / `maxRoles`), so the name is what must appear in it.
     const table = docs.slice(docs.indexOf('| Condition | Throws |'))
     const refusals = table.slice(0, table.indexOf('\n\n'))

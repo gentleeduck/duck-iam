@@ -19,15 +19,18 @@ describe('AuthError construction', () => {
     expect(new AuthError('AUTH_UNAUTHENTICATED').status).toBe(401)
     expect(new AuthError('AUTH_CSRF').status).toBe(403)
     expect(new AuthError('AUTH_RATE_LIMITED', { retryAfter: 60 }).status).toBe(429)
-    expect(new AuthError('AUTH_LOCKED', { reason: 'brute force', until: Date.now() }).status).toBe(423)
     expect(new AuthError('AUTH_MISCONFIGURED', { detail: 'x' }).status).toBe(500)
-    expect(new AuthError('AUTH_MAINTENANCE', { retryAfter: 60 }).status).toBe(503)
+    expect(new AuthError('AUTH_ADAPTER_UNAVAILABLE').status).toBe(503)
   })
 
   it('is an Error, so existing catch blocks and instanceof still work', () => {
     const err = new AuthError('AUTH_CSRF')
     expect(err).toBeInstanceOf(Error)
     expect(err).toBeInstanceOf(AuthError)
+  })
+
+  it('names itself AuthError, not the historical AuthError.IAuthError', () => {
+    expect(new AuthError('AUTH_CSRF').name).toBe('AuthError')
   })
 
   it('defaults meta to an empty object rather than undefined', () => {
@@ -54,6 +57,8 @@ describe('the code map', () => {
 void new AuthError('AUTH_SESSION_EXPIRED')
 // @ts-expect-error nor with a shape other than the one it declared
 void new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: 'soon' })
+// @ts-expect-error a third argument no longer exists — Origin was dropped entirely
+void new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: Date.now() }, { providerId: 'x' })
 
 describe('toJSON strips secrets', () => {
   for (const key of [
@@ -72,30 +77,30 @@ describe('toJSON strips secrets', () => {
     'tokenHash',
   ]) {
     it(`removes ${key}`, () => {
-      const out = body(new AuthError('AUTH_CSRF', { [key]: 'super-secret-value' } as never))
+      const out = body(new AuthError('AUTH_RATE_LIMITED', { [key]: 'super-secret-value' } as never))
       expect(JSON.stringify(out)).not.toContain('super-secret-value')
     })
   }
 
   it('matches the key regardless of case', () => {
     for (const key of ['SECRET', 'Secret', 'sEcReT', 'PASSWORD', 'TokenHash']) {
-      const out = body(new AuthError('AUTH_CSRF', { [key]: 'leak-me' } as never))
+      const out = body(new AuthError('AUTH_RATE_LIMITED', { [key]: 'leak-me' } as never))
       expect(JSON.stringify(out)).not.toContain('leak-me')
     }
   })
 
   it('strips a secret nested inside an object', () => {
-    const out = body(new AuthError('AUTH_CSRF', { detail: { inner: { password: 'leak-me' } } } as never))
+    const out = body(new AuthError('AUTH_RATE_LIMITED', { detail: { inner: { password: 'leak-me' } } } as never))
     expect(JSON.stringify(out)).not.toContain('leak-me')
   })
 
   it('strips a secret inside an array of objects', () => {
-    const out = body(new AuthError('AUTH_CSRF', { items: [{ ok: 1 }, { token: 'leak-me' }] } as never))
+    const out = body(new AuthError('AUTH_RATE_LIMITED', { items: [{ ok: 1 }, { token: 'leak-me' }] } as never))
     expect(JSON.stringify(out)).not.toContain('leak-me')
   })
 
   it('strips a secret several levels down', () => {
-    const out = body(new AuthError('AUTH_CSRF', { a: { b: { c: { d: { secret: 'leak-me' } } } } } as never))
+    const out = body(new AuthError('AUTH_RATE_LIMITED', { a: { b: { c: { d: { secret: 'leak-me' } } } } } as never))
     expect(JSON.stringify(out)).not.toContain('leak-me')
   })
 
@@ -115,7 +120,7 @@ describe('toJSON under shapes built to break a recursive walker', () => {
   it('caps depth rather than recursing forever', () => {
     let deep: Record<string, unknown> = { secret: 'leak-me' }
     for (let i = 0; i < 50; i++) deep = { nested: deep }
-    const out = body(new AuthError('AUTH_CSRF', deep as never))
+    const out = body(new AuthError('AUTH_RATE_LIMITED', deep as never))
     expect(JSON.stringify(out)).toContain('[depth-cap]')
   })
 
@@ -124,7 +129,7 @@ describe('toJSON under shapes built to break a recursive walker', () => {
     // so a secret below the cap does not appear either; the marker is what a reader sees instead.
     let deep: Record<string, unknown> = { password: 'leak-me' }
     for (let i = 0; i < 20; i++) deep = { nested: deep }
-    const serialised = JSON.stringify(body(new AuthError('AUTH_CSRF', deep as never)))
+    const serialised = JSON.stringify(body(new AuthError('AUTH_RATE_LIMITED', deep as never)))
     expect(serialised).not.toContain('leak-me')
     expect(serialised).toContain('[depth-cap]')
   })
@@ -132,21 +137,21 @@ describe('toJSON under shapes built to break a recursive walker', () => {
   it('survives a circular reference', () => {
     const cycle: Record<string, unknown> = { name: 'loop' }
     cycle.self = cycle
-    expect(() => body(new AuthError('AUTH_CSRF', cycle as never))).not.toThrow()
+    expect(() => body(new AuthError('AUTH_RATE_LIMITED', cycle as never))).not.toThrow()
   })
 
   it('passes null and undefined through without crashing', () => {
-    const out = body(new AuthError('AUTH_CSRF', { a: null, b: undefined } as never))
+    const out = body(new AuthError('AUTH_RATE_LIMITED', { a: null, b: undefined } as never))
     expect(out.error).toHaveProperty('a', null)
   })
 
   it('leaves primitives alone', () => {
-    const out = body(new AuthError('AUTH_CSRF', { n: 1, s: 'str', t: true } as never))
+    const out = body(new AuthError('AUTH_RATE_LIMITED', { n: 1, s: 'str', t: true } as never))
     expect(out.error).toMatchObject({ n: 1, s: 'str', t: true })
   })
 
   it('handles an empty array and an empty object', () => {
-    const out = body(new AuthError('AUTH_CSRF', { arr: [], obj: {} } as never))
+    const out = body(new AuthError('AUTH_RATE_LIMITED', { arr: [], obj: {} } as never))
     expect(out.error).toMatchObject({ arr: [], obj: {} })
   })
 })
@@ -155,9 +160,18 @@ describe('the sensitive list matches a key that merely contains the word', () =>
   // Exact membership kept `oldPassword` and `userSecret`, which are the names a caller invents.
   // A substring rule also strips an innocent `tokenCount`, and losing a number is the cheaper way
   // to be wrong.
-  for (const key of ['userSecret', 'secret_key', 'mySecret', 'apiToken', 'passwordHint', 'oldPassword']) {
+  for (const key of [
+    'userSecret',
+    'secret_key',
+    'mySecret',
+    'apiToken',
+    'passwordHint',
+    'oldPassword',
+    'otpCode',
+    'recoveryToken',
+  ]) {
     it(`drops ${key}`, () => {
-      const out = body(new AuthError('AUTH_CSRF', { [key]: 'visible-value' } as never))
+      const out = body(new AuthError('AUTH_RATE_LIMITED', { [key]: 'visible-value' } as never))
       expect(JSON.stringify(out)).not.toContain('visible-value')
     })
   }
@@ -174,12 +188,12 @@ describe('throwAuthError and rethrowAuthError', () => {
   })
 
   it('rethrowAuthError passes an existing AuthError through unchanged', () => {
-    const original = new AuthError('AUTH_CSRF', { detail: 'original' })
+    const original = new AuthError('AUTH_RATE_LIMITED', { retryAfter: 60 })
     try {
       rethrowAuthError(original, 'AUTH_MISCONFIGURED', { detail: 'fallback' })
     } catch (err) {
       expect(err).toBe(original)
-      expect((err as AuthError).code).toBe('AUTH_CSRF')
+      expect((err as AuthError).code).toBe('AUTH_RATE_LIMITED')
     }
   })
 

@@ -386,7 +386,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
 
       await expect(auth.resolveSession(cookie(impersonation.sid))).rejects.toMatchObject({
-        code: 'AUTH_SESSION_REVOKED',
+        code: 'AUTH_IMPERSONATE_WINDOW_CLOSED',
       })
     })
 

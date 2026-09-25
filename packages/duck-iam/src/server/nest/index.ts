@@ -1,6 +1,6 @@
 import type { IamEngine } from '../../core'
+import { hasIamErrorCode } from '../../core/errors'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
-import { iamIsValidationError } from '../../shared/errors'
 import {
   iamAsActionLiteral,
   iamAsResourceLiteral,
@@ -284,8 +284,10 @@ export function iamNestAccessGuard<
 
       // `isAuthorizeMeta` proved these are strings, not members of the erased union, so they widen through the named
       // helpers the other adapters use.
+      // SECURITY: an undeclared action falls back to the method, as `createIamNextMiddleware` does. Defaulting to
+      // 'read' would let `@IamAuthorize({ resource })` on a DELETE route pass on read permission alone.
       const action = iamAsActionLiteral<TAction>(
-        meta.infer ? iamActionForMethod(request.method) : (meta.action ?? 'read'),
+        meta.infer || meta.action === undefined ? iamActionForMethod(request.method) : meta.action,
       )
       const resource = iamAsResourceLiteral<TResource>(
         meta.infer ? inferResource(request) : (meta.resource ?? 'unknown'),
@@ -419,8 +421,8 @@ export function createIamAdminOperations<
    * return; anything else goes through `onError`.
    */
   const asThrowable = (err: unknown, req: NestRequest): Error => {
-    if (iamIsValidationError(err)) {
-      return Object.assign(adminHttpError(`Invalid ${err.kind}`, 400), { cause: err, issues: err.issues })
+    if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) {
+      return Object.assign(adminHttpError(`Invalid ${err.meta.kind}`, 400), { cause: err, issues: err.meta.issues })
     }
     return onError(err instanceof Error ? err : new Error(String(err)), req)
   }

@@ -3,10 +3,24 @@ import type { Events } from '~/core/events/events.types'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Identities } from '../identities/identities.types'
-import { isExpiredAt, isFiniteNumber } from '../predicates/predicates'
+import { isFiniteNumber } from '../predicates/predicates'
 import type { TenantContext } from '../tenant/tenant.types'
 import { DEFAULT_SESSION_CONFIG, SESSION_COLUMN_CAPS } from './sessions.constants'
-import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from './sessions.types'
+import { isFactorMethod, type Sessions } from './sessions.types'
+
+/** Which rotations carry an open impersonation window across. Keyed by purpose, so a new one is a build
+ *  error until someone decides. */
+const ACTING_AS_SURVIVES_ROTATION: Record<Sessions.RotateInput['purpose'], boolean> = {
+  'credential-change': true,
+  'guest-promotion': false,
+  'impersonate-release': false,
+  'impersonate-start': false,
+  're-auth': false,
+  'sign-up': false,
+  signin: false,
+  'step-down': true,
+  'step-up': true,
+}
 
 /** Every privilege-changing transition routes through {@link SessionsImpl.rotateOrCreate}, so the
  *  fixation discipline lives in one place. */
@@ -22,11 +36,21 @@ export class SessionsImpl {
       ttlMs: this.cfg?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
       absoluteTtlMs: this.cfg?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
       freshnessMs: this.cfg?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
+      // Spread rather than defaulted: unset has to stay unset, because the field's absence is what means
+      // "no cap" and any number here would be a cap nobody asked for.
+      ...(this.cfg?.maxSessionsPerIdentity !== undefined && {
+        maxSessionsPerIdentity: this.cfg.maxSessionsPerIdentity,
+      }),
     }
   }
 
   /** `session.id` is the hashed row key, `sid` the plaintext for `Transport.issue()`; only the sha-256
-   *  of it is ever stored, and the same holds for `csrfToken`. */
+   *  of it is ever stored, and the same holds for `csrfToken`.
+   *  Raises `AUTH_STALE_WRITE` when the identity's sessions were revoked wholesale while this one was
+   *  being minted. Not retried here: the point of the refusal is that a revoke stops a sign-in already
+   *  in flight, and re-stamping the clock to get past it would undo exactly that. Whether to attempt
+   *  the sign-in again is the caller's. `createdAt` is read from the clock below, so the re-mint
+   *  `rotateOrCreate` does straight after its own sweep is never the one refused. */
   async create(input: Sessions.MintInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
     // Real flows mint 1 to 3; the cap is so a buggy caller cannot bloat the JSON column.
     if (!Array.isArray(input.factors) || input.factors.length > 16) {
@@ -40,8 +64,8 @@ export class SessionsImpl {
       if (
         typeof f !== 'object' ||
         f === null ||
-        !AUTH_SESSION_FACTOR_METHODS.includes((f as Sessions.Factor).method) ||
-        !((f as Sessions.Factor).completedAt instanceof Date)
+        !('method' in f && isFactorMethod(f.method)) ||
+        !('completedAt' in f && f.completedAt instanceof Date)
       ) {
         throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'sessions.create: each factor must be { method: FactorMethod, completedAt: Date }',
@@ -62,6 +86,9 @@ export class SessionsImpl {
     const csrfToken = randomToken(32)
     const now = Date.now()
     const nowDate = new Date(now)
+    // Both only ever shorten; the configured TTLs stay the ceiling.
+    const capMs = isFiniteNumber(input.ttlMs) && input.ttlMs > 0 ? now + input.ttlMs : Number.POSITIVE_INFINITY
+    const maxExpiresAtMs = input.maxExpiresAt === undefined ? Number.POSITIVE_INFINITY : input.maxExpiresAt.getTime()
     const session: Sessions.Me = {
       id: sha256(sid),
       identityId: input.identityId,
@@ -84,23 +111,44 @@ export class SessionsImpl {
       createdAt: nowDate,
       updatedAt: nowDate,
       rotatedAt: nowDate,
-      expiresAt: new Date(
-        input.maxExpiresAt === undefined
-          ? now + this._cfg.ttlMs
-          : Math.min(now + this._cfg.ttlMs, input.maxExpiresAt.getTime()),
-      ),
-      absoluteExpiresAt: new Date(now + this._cfg.absoluteTtlMs),
+      expiresAt: new Date(Math.min(now + this._cfg.ttlMs, maxExpiresAtMs, capMs)),
+      absoluteExpiresAt: new Date(Math.min(now + this._cfg.absoluteTtlMs, capMs)),
       fresh: true,
     }
 
     await this._store.create(session)
     await this._events.emit('session.created', { session, identity: input.identity ?? null })
+    // After the write, never before it: evicting first would drop a live session and then, if this
+    // create failed, leave the person with fewer than they started with and no replacement.
+    const cap = this._cfg.maxSessionsPerIdentity
+    if (cap !== undefined && input.identityId) {
+      const all = await this._store.listByIdentity(input.identityId)
+      const excess = all.length - cap
+      if (excess > 0) {
+        // Oldest first by `createdAt`, and the one just minted is the newest, so it is never its own
+        // victim however low the cap is set.
+        const doomed = [...all].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).slice(0, excess)
+        await this.revokeByHashes(doomed.map((s) => s.id))
+      }
+    }
     return { session, sid, csrfToken }
   }
 
   /** One code path for every transition that changes a session's identity, AAL or privilege, so
    *  fixation is structurally impossible to forget. */
   async rotateOrCreate(input: Sessions.RotateInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
+    // Read before any branch sweeps it: `credential-change` deletes the row below and its marker is the
+    // only copy of the window. Inheriting never extends, since the window's own `expiresAt` comes with it.
+    const previousSid = input.previousSid
+    const prevHash =
+      typeof previousSid === 'string' && previousSid.length > 0 && previousSid.length <= 4096
+        ? sha256(previousSid)
+        : null
+    const prev = prevHash === null ? null : await orNull(this._store.getByHash(prevHash))
+    const minted =
+      input.actingAs === undefined && prev?.actingAs && ACTING_AS_SURVIVES_ROTATION[input.purpose]
+        ? { ...input, actingAs: prev.actingAs }
+        : input
     if (input.purpose === 'credential-change') {
       if (input.identityId) {
         const identityId = input.identityId
@@ -109,7 +157,7 @@ export class SessionsImpl {
         await Promise.all(doomed.map((s) => this._events.emit('session.revoked', { sessionId: s.id, identityId })))
       }
       // A guest has no identity to sweep; it still mints and rotates.
-      const fresh = await this.create(input)
+      const fresh = await this.create(minted)
       await this._events.emit('session.rotated', {
         session: fresh.session,
         ...(input.previousSid !== undefined && { previousSessionId: sha256(input.previousSid) }),
@@ -117,14 +165,8 @@ export class SessionsImpl {
       return fresh
     }
 
-    const fresh = await this.create(input)
-    if (
-      input.previousSid !== undefined &&
-      typeof input.previousSid === 'string' &&
-      input.previousSid.length > 0 &&
-      input.previousSid.length <= 4096
-    ) {
-      const prevHash = sha256(input.previousSid)
+    const fresh = await this.create(minted)
+    if (prevHash !== null) {
       switch (input.purpose) {
         case 'signin':
         case 're-auth':
@@ -140,8 +182,7 @@ export class SessionsImpl {
           break
         case 'step-up': {
           // Downgraded, not deleted, so long-lived tabs keep working at the prior AAL with
-          // `fresh: false`. A privileged op has to step up again.
-          const prev = await orNull(this._store.getByHash(prevHash))
+          // `fresh: false`. A privileged op has to step up again. Reuses the row read above.
           if (prev) {
             await this._store.update(prev.id, { aal: prev.aal, fresh: false })
           }
@@ -187,6 +228,14 @@ export class SessionsImpl {
     const s = await this._store.getByHash(hash)
     await this._store.delete(s.id)
     await this._events.emit('session.revoked', { sessionId: s.id, identityId: s.identityId })
+    if (s.actingAs) {
+      await this._events.emit('identity.impersonation.ended', {
+        endedBy: 'revoke',
+        realIdentityId: s.actingAs.realIdentityId,
+        sessionId: s.id,
+        targetIdentityId: s.identityId,
+      })
+    }
 
     return s
   }
@@ -215,46 +264,112 @@ export class SessionsImpl {
         // Awaited bare, a failed delete threw AUTH_ADAPTER_FAILED in its place — and that code is not in
         // `ABSENT`, so `resolveSession().orNull()` rethrew it and an expired session read as a 500.
         await this._store.delete(session.id).catch(() => {})
+        await this._events.emit('session.expired', {
+          identityId: session.identityId,
+          reason: expiredReason(session, now),
+          sessionId: session.id,
+        })
         throw new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: expiredAtMs(session, now) })
+      }
+      // Every caller of this is a privilege gate, and the window was enforced only in `resolveBySid`.
+      if (session.actingAs && isImpersonationWindowClosed(session.actingAs, now)) {
+        await this._store.delete(session.id).catch(() => {})
+        await this._events.emit('session.expired', {
+          identityId: session.identityId,
+          reason: 'impersonation',
+          sessionId: session.id,
+        })
+        await this._events.emit('identity.impersonation.ended', {
+          endedBy: 'expiry',
+          realIdentityId: session.actingAs.realIdentityId,
+          sessionId: session.id,
+          targetIdentityId: session.identityId,
+        })
+        throw new AuthError('AUTH_IMPERSONATE_WINDOW_CLOSED', { closedAt: windowClosedAtMs(session.actingAs, now) })
       }
 
       return { ...session, fresh: isSessionFresh(session, now, this._cfg.freshnessMs) }
     })
   }
 
-  /** Extends `expiresAt` without rotating the SID; `fresh` still decays from `rotatedAt`. */
+  /** Extends `expiresAt` without rotating the SID; `fresh` still decays from `rotatedAt`.
+   *  SECURITY: guarded, because almost every authenticated request issues one of these and `fresh` is the
+   *  flag a sensitive operation re-authenticates on. Unguarded, a `touch` reading just before a
+   *  credential-change wrote `fresh: false` put `true` back on top of it, so the password change that was
+   *  meant to force a re-auth was undone by the next request the browser made. Retried once; a second
+   *  conflict is genuine contention and is the caller's to see. */
   touch(sid: string): Answer.Me<Sessions.Me> {
     return answer(async () => {
       assertSid(sid)
-      const s = await this._store.getByHash(sha256(sid))
-      const now = Date.now()
-      // Fail closed on either deadline, so `touch` cannot revive what `resolveBySid` would reject.
-      if (isSessionExpired(s, now)) {
-        // Cleanup, not the gate, as in `getBySid`.
-        await this._store.delete(s.id).catch(() => {})
-        throw new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: expiredAtMs(s, now) })
-      }
-      // The guard above rejected everything else, so the cap below is a real number and never `NaN`.
-      const absoluteExpiresAtMs = deadlineMs(s.absoluteExpiresAt)
-      const newExpiresAt = new Date(Math.min(absoluteExpiresAtMs, now + this._cfg.ttlMs))
+      for (let attempt = 0; ; attempt++) {
+        const s = await this._store.getByHash(sha256(sid))
+        const now = Date.now()
+        // Fail closed on either deadline, so `touch` cannot revive what `resolveBySid` would reject.
+        if (isSessionExpired(s, now)) {
+          // Cleanup, not the gate, as in `getBySid`.
+          await this._store.delete(s.id).catch(() => {})
+          await this._events.emit('session.expired', {
+            identityId: s.identityId,
+            reason: expiredReason(s, now),
+            sessionId: s.id,
+          })
+          throw new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: expiredAtMs(s, now) })
+        }
+        if (s.actingAs && isImpersonationWindowClosed(s.actingAs, now)) {
+          await this._store.delete(s.id).catch(() => {})
+          await this._events.emit('session.expired', {
+            identityId: s.identityId,
+            reason: 'impersonation',
+            sessionId: s.id,
+          })
+          await this._events.emit('identity.impersonation.ended', {
+            endedBy: 'expiry',
+            realIdentityId: s.actingAs.realIdentityId,
+            sessionId: s.id,
+            targetIdentityId: s.identityId,
+          })
+          throw new AuthError('AUTH_IMPERSONATE_WINDOW_CLOSED', { closedAt: windowClosedAtMs(s.actingAs, now) })
+        }
+        // The guard above rejected everything else, so the cap below is a real number and never `NaN`.
+        const absoluteExpiresAtMs = deadlineMs(s.absoluteExpiresAt)
+        // Not redundant given the mint-time cap: `create` is public and takes `actingAs` with no `ttlMs`.
+        const windowMs = s.actingAs ? deadlineMs(s.actingAs.expiresAt) : Number.POSITIVE_INFINITY
+        const newExpiresAt = new Date(Math.min(absoluteExpiresAtMs, now + this._cfg.ttlMs, windowMs))
 
-      return this._store.update(s.id, {
-        expiresAt: newExpiresAt,
-        fresh: isSessionFresh(s, now, this._cfg.freshnessMs),
-      })
+        try {
+          return await this._store.update(
+            s.id,
+            { expiresAt: newExpiresAt, fresh: isSessionFresh(s, now, this._cfg.freshnessMs) },
+            s.updatedAt,
+          )
+        } catch (err) {
+          if (attempt > 0 || !(err instanceof AuthError) || err.code !== 'AUTH_STALE_WRITE') throw err
+        }
+      }
     })
   }
 
-  /** Every live session for an identity, for an "active devices" view.
+  /** Every session the store holds for an identity, for an "active devices" view.
+   *  WARN: not filtered by deadline — an outright-expired row still appears here until `gc` sweeps it.
+   *  An impersonation no longer does, because its row now dies with its window.
+   *  `csrfHash` is stripped, as it is at every `/session` endpoint and in the GDPR export: this row is
+   *  built to be handed to the person it belongs to, and the browser holds the plaintext in its cookie
+   *  and never needs the hash. The store's `listByIdentity` still answers whole rows, which is what the
+   *  revoke and concurrency paths read.
    *  WARN: pass a `ctx` in a multi-tenant deployment. Identities are global, so an unscoped call shows
    *  tenant A the same person's tenant B sessions, IP and user-agent included. */
-  async listForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
-    return this._store.listByIdentity(identityId, ctx)
+  async listForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Public[]> {
+    const rows = await this._store.listByIdentity(identityId, ctx)
+    return rows.map(({ csrfHash: _csrfHash, ...view }) => view)
   }
 
   /** The caller schedules it, under a leader lock in a distributed deployment. */
   async gc(): Promise<{ deleted: number }> {
-    return this._store.gc(Date.now())
+    const result = await this._store.gc(Date.now())
+    // One aggregate emit: the store answers a count, not the rows, so there are no ids to name. Silent
+    // when it took nothing, or a gauge keyed on this would see a stream of zero-sized sweeps.
+    if (result.deleted > 0) await this._events.emit('session.expired', { count: result.deleted, reason: 'gc' })
+    return result
   }
 
   /** Mints a session carrying no identity, for a caller who has not signed in yet. */
@@ -313,6 +428,25 @@ export class SessionsImpl {
     return gone
   }
 
+  /**
+   * Every session for the identity except the one `keepSid` names - "log out all other devices".
+   *
+   * SECURITY: an unrecognised `keepSid` revokes everything. Failing closed, because the alternative is
+   * silently keeping a session the caller did not mean to keep, and a typo would then read as success.
+   * Pass a `ctx` in a multi-tenant deployment, for the reason {@link SessionsImpl.listForIdentity} gives.
+   */
+  async revokeAllExcept(identityId: string, keepSid: string, ctx?: TenantContext): Promise<{ revoked: number }> {
+    // Not `assertSid`: a malformed sid here is a caller mistake, and throwing would leave every other
+    // device signed in, which is the wrong way to be wrong for this particular button.
+    const keepHash =
+      typeof keepSid === 'string' && keepSid.length > 0 && keepSid.length <= 4096 ? sha256(keepSid) : null
+    const all = await this._store.listByIdentity(identityId, ctx)
+    const gone = await this.revokeByHashes(all.filter((s) => s.id !== keepHash).map((s) => s.id))
+    // What the store actually removed, not what was asked for: a row that expired in between was not
+    // revoked by this call and should not be counted as though it were.
+    return { revoked: gone.length }
+  }
+
   /** {@link SessionsImpl.revokeAllForIdentities} keyed by session id rather than identity. */
   async revokeByHashes(ids: string[]): Promise<Sessions.Revoked[]> {
     if (ids.length === 0) return []
@@ -350,10 +484,30 @@ export function isSessionExpired(session: Pick<Sessions.Me, 'expiresAt' | 'absol
   return isDeadlinePast(session.expiresAt, now) || isDeadlinePast(session.absoluteExpiresAt, now)
 }
 
+/** A window that has closed, or that carries a date nothing can read. */
+function isImpersonationWindowClosed(actingAs: Sessions.ActingAs, now: number): boolean {
+  return isDeadlinePast(actingAs.expiresAt, now)
+}
+
+/** The instant the window closed. `now` stands in for a date nothing can read. */
+function windowClosedAtMs(actingAs: Sessions.ActingAs, now: number): number {
+  const ms = deadlineMs(actingAs.expiresAt)
+  return Number.isFinite(ms) ? ms : now
+}
+
 /** The deadline the session fell past, for `AUTH_SESSION_EXPIRED` to name. `now` is the floor, so a
  *  deadline nothing can read — which {@link isSessionExpired} counts as past — still answers an instant. */
 function expiredAtMs(session: Pick<Sessions.Me, 'expiresAt' | 'absoluteExpiresAt'>, now: number): number {
   return Math.min(...[session.expiresAt, session.absoluteExpiresAt].map(deadlineMs).filter(Number.isFinite), now)
+}
+
+/** Which of the two deadlines it fell past, for `session.expired` to name. The absolute cap wins a tie,
+ *  because it is the one a renewal cannot move. */
+function expiredReason(
+  session: Pick<Sessions.Me, 'expiresAt' | 'absoluteExpiresAt'>,
+  now: number,
+): 'sliding' | 'absolute' {
+  return isDeadlinePast(session.absoluteExpiresAt, now) ? 'absolute' : 'sliding'
 }
 
 /**
@@ -381,10 +535,10 @@ export function isSessionFresh(
 
 /**
  * Resolve a plaintext SID to (session, identity) for `AuthEngine.resolveSession`. An unknown SID, a foreign
- * tenant and an elapsed impersonation window reject `AUTH_SESSION_REVOKED`, each with its own `reason`;
- * either deadline rejects `AUTH_SESSION_EXPIRED`, which names the instant instead. Both codes are in the
- * absent set, so the facet's `orNull()` reads every one of them back as null. An expired row is deleted on
- * the way past.
+ * tenant reject `AUTH_SESSION_REVOKED`, each with its own `reason`; either deadline rejects
+ * `AUTH_SESSION_EXPIRED` and an elapsed impersonation window `AUTH_IMPERSONATE_WINDOW_CLOSED`, which name
+ * the instant instead. All three are in the absent set, so the facet's `orNull()` reads every one of them
+ * back as null. An expired row is deleted on the way past.
  *
  * @throws {AuthError} `AUTH_SESSION_IDENTITY_ERASED` when the row is live but its `identityId` no longer
  * resolves. SECURITY: that code is deliberately outside the absent set, so a caller reading this through
@@ -394,7 +548,18 @@ export async function resolveBySid<Profile extends Identities.ProfileMetadataBas
   sid: string,
   sessions: Sessions.Store,
   identities: Identities.Store<Profile>,
-  opts: { expectedTenantId?: string; freshnessMs?: number } = {},
+  opts: {
+    expectedTenantId?: string
+    freshnessMs?: number
+    /** Called when a row is refused for age, so the caller can emit `session.expired` from a bus this
+     *  function has no business holding. It must not throw: it runs between the delete and the refusal,
+     *  and anything it raises replaces `AUTH_SESSION_EXPIRED` with itself. */
+    onExpired?: (info: {
+      sessionId: string
+      identityId: string | null
+      reason: 'sliding' | 'absolute' | 'impersonation'
+    }) => void
+  } = {},
 ): Promise<{ session: Sessions.Me; identity: Identities.Me<Profile> | null }> {
   const hash = sha256(sid)
   const session = await orNull(sessions.getByHash(hash))
@@ -407,12 +572,18 @@ export async function resolveBySid<Profile extends Identities.ProfileMetadataBas
   if (isSessionExpired(session, now)) {
     // Cleanup, not the gate, as in `getBySid`.
     await sessions.delete(session.id).catch(() => {})
+    opts.onExpired?.({
+      identityId: session.identityId,
+      reason: expiredReason(session, now),
+      sessionId: session.id,
+    })
     throw new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: expiredAtMs(session, now) })
   }
-  if (session.actingAs?.expiresAt !== undefined && isExpiredAt(session.actingAs.expiresAt, now)) {
+  if (session.actingAs && isImpersonationWindowClosed(session.actingAs, now)) {
     // Cleanup, not the gate, as in `getBySid`.
     await sessions.delete(session.id).catch(() => {})
-    throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'the impersonation window has closed' })
+    opts.onExpired?.({ identityId: session.identityId, reason: 'impersonation', sessionId: session.id })
+    throw new AuthError('AUTH_IMPERSONATE_WINDOW_CLOSED', { closedAt: windowClosedAtMs(session.actingAs, now) })
   }
   const identity = session.identityId ? await orNull(identities.find({ id: session.identityId })) : null
   if (session.identityId && !identity) {

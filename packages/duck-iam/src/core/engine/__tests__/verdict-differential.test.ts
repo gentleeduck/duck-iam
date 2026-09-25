@@ -702,6 +702,6 @@ describe('E2E verdict parity: compiled table vs interpreter over generated catal
           mode: 'production',
           policyCombine: 'first-applicable',
         }),
-    ).toThrow(/first-applicable/)
+    ).toThrow('IAM_ENGINE_POLICY_COMBINE_INCOMPATIBLE')
   })
 })

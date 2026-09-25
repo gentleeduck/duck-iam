@@ -153,7 +153,7 @@ describe('a transport verdict survives the store fallthrough', () => {
       extract: () => 'a-token',
       issue: () => [],
       revoke: () => [],
-      verify: () => Promise.reject(new AuthError('AUTH_ADAPTER_FAILED', { detail: 'the JWKS fetch failed' })),
+      verify: () => Promise.reject(new AuthError('AUTH_ADAPTER_FAILED')),
     }
     const { auth } = build(broken)
 

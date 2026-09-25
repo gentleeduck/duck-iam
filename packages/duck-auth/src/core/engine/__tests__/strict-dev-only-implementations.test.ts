@@ -10,8 +10,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { AuthConsoleChannel, AuthNoopChannel, AuthTestChannel } from '~/channels/console'
 import { AuthNullCaptchaVerifier, AuthUnconfiguredCaptchaVerifier } from '~/core/captcha'
+import { InMemoryEvents } from '~/core/events'
+import type { Events } from '~/core/events/events.types'
 import { memoryIdempotency } from '~/core/idempotency'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
 import type { Limiter } from '~/limiters'
@@ -51,10 +52,21 @@ function foreignStores() {
   }
 }
 
+/** A bus carrying no in-process brand, which is what a fleet-safe one looks like to `strict()`. It
+ *  keeps `listenerCount`, or the `lockout` check would be skipped rather than satisfied. */
+function foreignEvents(): Events.IBus & { listenerCount(event: Events.EventName): number } {
+  const bus = new InMemoryEvents()
+  return {
+    emit: (event, payload) => bus.emit(event, payload),
+    listenerCount: (event) => bus.listenerCount(event),
+    on: (event, handler) => bus.on(event, handler),
+  }
+}
 /** Production-clean but for whatever the case under test wires in. */
 function makeAuth(over: Partial<Engine.Cfg> = {}) {
   const auth = new AuthEngine({
     baseUrl: 'https://app.example.com',
+    events: foreignEvents(),
     idempotency: foreignIdempotency,
     limiter: foreignLimiter,
     stores: foreignStores(),
@@ -140,63 +152,35 @@ describe('strict() rejects a dev-only implementation NODE_ENV did not catch', ()
 })
 
 /**
- * The same two notions of production, for the three channels that deliver nothing. Each refuses itself in
- * its constructor on `NODE_ENV`, exactly as `MemoryIdempotency` and `AuthNullCaptchaVerifier` do, and
- * those two carry a brand as well precisely because that check does not fire where `NODE_ENV` is unset.
+ * The successor to the non-delivering-channel gate. Magic-link is the one provider whose whole flow is a
+ * message: with no `deliver` it mints a token, stores it, answers `{ ok: true }` and sends nothing, and the
+ * `AUTH_MISCONFIGURED` it raises instead only lands once a user has already asked for a link.
  */
-describe('strict() rejects a channel that delivers nothing', () => {
-  /** A real channel is a plain object with a `send`; nothing here goes by constructor name. */
-  const realChannel = { id: 'ses', kind: 'email' as const, send: async () => ({ ok: true as const }) }
+describe('strict() rejects magic-link wired with no deliver', () => {
+  const magic = {
+    async begin() {
+      return []
+    },
+    async complete() {
+      return []
+    },
+    id: 'magic-link',
+    kind: 'magic-link',
+  } as const
 
-  it('is the only thing standing: no constructor refused under this NODE_ENV', () => {
-    expect(process.env.NODE_ENV).not.toBe('production')
-    expect(() => new AuthConsoleChannel()).not.toThrow()
-    expect(() => new AuthNoopChannel()).not.toThrow()
-    expect(() => new AuthTestChannel()).not.toThrow()
+  it('refuses the provider when the config carries no deliver', () => {
+    const auth = makeAuth()
+    auth.providers.register(magic)
+    rejects(auth, /magic-link provider is registered with no `deliver`/)
   })
 
-  it.each([
-    ['AuthConsoleChannel', () => new AuthConsoleChannel()],
-    ['AuthNoopChannel', () => new AuthNoopChannel()],
-    ['AuthTestChannel', () => new AuthTestChannel()],
-  ])('rejects %s on the email slot, where the reset link goes', (_label, build) => {
-    rejects(makeAuth({ channels: { email: build() } }), /the email channel .* delivers nothing/)
+  it('accepts it once a deliver is wired, so the gate is on the pair and not on the provider', () => {
+    const auth = makeAuth({ deliver: async () => {} })
+    auth.providers.register(magic)
+    expect(() => auth.strict({ env: 'production' })).not.toThrow()
   })
 
-  it('reads the bag rather than the email slot, so the sms and webpush slots are covered too', () => {
-    rejects(
-      makeAuth({ channels: { sms: new AuthNoopChannel({ kind: 'sms' }) } }),
-      /the sms channel .* delivers nothing/,
-    )
-    rejects(
-      makeAuth({ channels: { webpush: new AuthNoopChannel({ kind: 'webpush' }) } }),
-      /the webpush channel .* delivers nothing/,
-    )
-  })
-
-  it('names the channel id, so an operator knows which slot to change', () => {
-    rejects(makeAuth({ channels: { email: new AuthConsoleChannel({ id: 'dev-log' }) } }), /'dev-log'/)
-  })
-
-  it('accepts a real channel, so the check is on the brand and not on having one at all', () => {
-    expect(() => makeAuth({ channels: { email: realChannel } }).strict({ env: 'production' })).not.toThrow()
-  })
-
-  it('accepts a deployment wiring no channels at all', () => {
-    expect(() => makeAuth({ channels: {} }).strict({ env: 'production' })).not.toThrow()
+  it('leaves a deployment with no magic-link alone, deliver or not', () => {
     expect(() => makeAuth().strict({ env: 'production' })).not.toThrow()
-  })
-
-  it('leaves a real channel alone while refusing the dev one beside it', () => {
-    rejects(
-      makeAuth({ channels: { email: realChannel, sms: new AuthTestChannel({ kind: 'sms' }) } }),
-      /the sms channel .* delivers nothing/,
-    )
-  })
-
-  it('stays a no-op outside production, where these channels are the point', () => {
-    const auth = makeAuth({ channels: { email: new AuthConsoleChannel() } })
-    expect(() => auth.strict({ env: 'development' })).not.toThrow()
-    expect(() => auth.strict({ env: 'test' })).not.toThrow()
   })
 })

@@ -3,7 +3,7 @@
 
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
-import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from '~/core/sessions/sessions.types'
+import { isFactorMethod, type Sessions } from '~/core/sessions/sessions.types'
 
 /** ISO string, epoch number or `Date` in, a usable `Date` or `null` out. Unparseable is `null`, not the
  *  `Invalid Date` that `new Date(value)` gives, which every guard accepts and every comparison rejects. */
@@ -33,7 +33,7 @@ export function isProviderLink(value: unknown): value is StoredProviderLink {
 export function isFactor(value: unknown): value is StoredFactor {
   if (typeof value !== 'object' || value === null) return false
   if (!('method' in value)) return false
-  return AUTH_SESSION_FACTOR_METHODS.some((method) => method === value.method)
+  return isFactorMethod(value.method)
 }
 
 /** A date the column cannot be read back as one. The entry stays, since dropping it would remove a way into

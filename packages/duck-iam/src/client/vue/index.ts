@@ -155,7 +155,8 @@ export function createIamVueAccess<
       return fetchFn().then(
         (perms) => {
           if (run !== latestRun) return
-          permissions.value = perms
+          // `fetchFn` is a trust boundary: a JSON `null` body would reach `iamPermissionGranted` and throw.
+          permissions.value = Object.freeze({ ...perms })
           loading.value = false
         },
         (err: unknown) => {

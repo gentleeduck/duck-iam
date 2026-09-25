@@ -101,7 +101,7 @@ export function apple<Profile extends Identities.ProfileMetadataBase = Identitie
     clientSecret: '', // ignored; the client uses the dynamic secret hook below
     endpoints: APPLE_ENDPOINTS,
     scopes: opts.scopes ?? ['name', 'email'],
-    ...(opts.fetch !== undefined && { fetch: opts.fetch }),
+    fetch: opts.fetch,
     // Replaces the standard client_secret param on every token exchange.
     dynamicClientSecret: () =>
       generateClientSecret({
@@ -115,13 +115,17 @@ export function apple<Profile extends Identities.ProfileMetadataBase = Identitie
     providerId: 'authApple',
     client,
     endpoints: APPLE_ENDPOINTS,
+    // Apple switches to a form post as soon as any scope is requested, and the default scopes are
+    // `['name', 'email']`. Without this the callback never arrives in the shape the flow expects.
+    responseMode: 'form_post',
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
-    ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
-    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
-    ...(opts.profileToIdentityProfile !== undefined && {
-      profileToIdentityProfile: opts.profileToIdentityProfile,
-    }),
+    nonceStore: opts.nonceStore,
+    allowStateReplay: opts.allowStateReplay,
+    stateCookie: opts.stateCookie,
+    onSignIn: opts.onSignIn,
+    onFederationConflict: opts.onFederationConflict,
+    profileToIdentityProfile: opts.profileToIdentityProfile,
     async fetchProfile(tokens) {
       // Apple has no userinfo endpoint; everything is in id_token.
       if (!tokens.id_token) {

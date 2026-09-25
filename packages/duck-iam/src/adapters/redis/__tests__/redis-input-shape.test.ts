@@ -32,7 +32,7 @@ describe('IamRedisAdapter direct-call input shape', () => {
     const adapter = new IamRedisAdapter<string, string, string, string>({ client: fakeRedis() })
     await expect(
       adapter.setSubjectAttributes('user-1', 'admin=true' as unknown as IamPrimitives.Attributes),
-    ).rejects.toThrow(/attributes for "user-1" must be a plain object \(got string\)/)
+    ).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
   })
 
   it('does not corrupt existing attributes on a rejected call', async () => {
@@ -82,7 +82,7 @@ describe('an empty scope is refused rather than stored as a global assignment', 
   it('assignRole with scope "" throws instead of granting globally', async () => {
     const adapter = new IamRedisAdapter<string, string, string, string>({ client: setRedis() })
     await adapter.saveRole({ id: 'editor', name: 'Editor', permissions: [] })
-    await expect(adapter.assignRole('user-1', 'editor', '')).rejects.toThrow(/must not be an empty string/)
+    await expect(adapter.assignRole('user-1', 'editor', '')).rejects.toThrow('IAM_SCOPE_INVALID')
   })
 
   it('an omitted scope is still a global assignment', async () => {

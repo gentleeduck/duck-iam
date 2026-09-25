@@ -42,7 +42,6 @@ Optional peer dependencies (install only what you wire):
 | `@node-rs/argon2` | Argon2id password hashing (FIPS / HIPAA presets) |
 | `@simplewebauthn/server` | Passkey / WebAuthn-MFA |
 | `ioredis` or `@upstash/redis` | Redis-backed session / idempotency / limiter / events / DPoP-nonce stores |
-| `nodemailer` (or compatible) | SMTP channel |
 | `drizzle-orm` + driver | Drizzle adapter (pg / mysql / sqlite) |
 | `@prisma/client` | Prisma adapter |
 | `node-saml` | SAML 2.0 SP |
@@ -76,16 +75,6 @@ const result = await auth.flows.signIn({
 
 `createAuth` is the factory that wires the 14 facets, picks sane defaults (CookieTransport, AuthScryptHasher, AuthInMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
 
-## Or scaffold it via the CLI
-
-```bash
-bunx @gentleduck/auth init src/auth                # quickstart
-bunx @gentleduck/auth init src/auth --production   # Redis + JWT + Argon2id
-bunx @gentleduck/auth doctor                       # run AuthEngine.strict()
-bunx @gentleduck/auth keys generate hs256          # mint a JWT signing secret
-bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP)
-```
-
 ## Architecture
 
 `AuthEngine` is the 14-facet root: every state-changing operation lives behind one named facet so adapters, transports, and providers compose without back-channel coupling.
@@ -107,7 +96,7 @@ bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP
 | `anomaly` | pluggable detectors (impossible-travel, device-fingerprint), composition + decision ladder |
 | `orgs` | org + membership CRUD, role sanitisation, multi-tenant guard |
 
-Plus `m2m` (`client_credentials` OAuth2 grant), `compliance` (FIPS / HIPAA / SOC2 presets), `plugin` (named install + facet extension), and `audit` (admin-mutation hook with redaction).
+Plus `m2m` (`client_credentials` OAuth2 grant), `compliance` (GDPR / HIPAA / SOC2 / FIPS presets), `plugin` (named install + facet extension), and `audit` (admin-mutation hook with redaction).
 
 ## Providers
 
@@ -228,7 +217,7 @@ draining it.
 | `mfa`, `apiKeys`, `passwords` credential writes | yes | undone |
 | `orgs` | interface ready; no shipped SQL adapter | n/a |
 | events | buffered in `pending` | never published |
-| channel sends (verification / reset mail) | **no - sent immediately** | mail already delivered |
+| `deliver` calls (verification / reset mail) | **no - sent immediately** | mail already delivered |
 | `limiter` counters | **no** | token stays consumed |
 | `idempotency` records | **no** | record stands |
 | `hijack` / `anomaly` scoring | **no** | scores stand |
@@ -281,13 +270,11 @@ const ended = await auth.sessions.revokeAllForIdentity(id)
 | `mfa` | `removeTotp`, `removeWebauthnMfa` | `{ removed }` - the count, not the rows, which carry the secret |
 | `orgs` | `removeMember`, `setRoles` | the membership, with the **sanitized** role set actually stored |
 | `flows` | `completeAccountDeletion`, `cancelAccountDeletion`, `completeEmailVerification`, `linkProvider`, `unlinkProvider` | `identity`, alongside the fields they already returned |
-| `operations` | `maintenance`, `readOnly` | the resulting `State` |
 | `webhooks` | `deliverOne` | one `Delivery` per eligible endpoint |
 | `pending` | `flush`, `discard` | `{ published }` / `{ discarded }` |
 | `anomaly` | `unregister` | whether it removed anything |
 
-Assertions (`apiKeys.requireScopes`, `operations.assertOperationsForRoute`,
-`hijack.applyReaction`), registrations (`anomaly.register`, `providers.register`) and
+Assertions (`apiKeys.requireScopes`, `hijack.applyReaction`), registrations (`anomaly.register`, `providers.register`) and
 `plugins.dispose` stay `void`: they throw or they do not, and a return value would be noise.
 
 ### Batch writes
@@ -339,16 +326,24 @@ import { withGrpc } from '@gentleduck/auth/server/grpc'
 import { executeIntents, parseSignInBody } from '@gentleduck/auth/server/generic'
 ```
 
-## Channels
+## Delivery
 
-| Path | What |
-|---|---|
-| `@gentleduck/auth/channels/console` | Console / Noop / Test channels (dev + test) |
-| `@gentleduck/auth/channels/smtp` | Nodemailer-compatible SMTP relay |
-| `@gentleduck/auth/channels/resend` | Resend HTTP API |
-| `@gentleduck/auth/channels/twilio` | Twilio SMS |
-| `@gentleduck/auth/channels/webpush` | Web Push (`web-push`) |
-| `@gentleduck/auth/channels/ses` | AWS SES (`@aws-sdk/client-sesv2`) |
+Every outbound token - magic link, email verification, password reset, account deletion and its undo
+link - goes to one `deliver` callback on the engine config. The library signs the URL and hands over the
+recipient's identity, the template vars and the tenant; the host picks the transport and writes the
+template. Throw from it to report a failure: the flow answers the caller the same either way and reports
+the refusal as a `signin.failed` event, never the thrown text.
+
+```typescript
+const auth = createAuth({
+  baseUrl: 'https://app.example.com',
+  deliver: async ({ identity, kind, vars }) => {
+    if (kind === 'magic-link') return mailer.send(identity.profile.email, signInTemplate(vars.url))
+    await mailer.send(identity.profile.email, genericTemplate(kind, vars))
+  },
+  // ...
+})
+```
 
 ## Client libraries
 
@@ -379,21 +374,17 @@ import {
 
 | Path | What |
 |---|---|
-| `@gentleduck/auth/cli` | `duck-auth init` / `doctor` / `keys generate` |
-| `@gentleduck/auth/openapi` | `buildOpenApiSpec` + `renderOpenApiYaml` for the auth surface |
 | `@gentleduck/auth/oidc` | OIDC discovery-doc + JWKS helper |
 | `@gentleduck/auth/oidc/op` | Full OAuth2/OIDC OP: `/authorize` (code + S256 PKCE), `/token` (auth_code + refresh, family-rotated), `/userinfo`, `/introspect`, `/revoke`, `/register` (RFC 7591 Dynamic Client Registration) |
 | `@gentleduck/auth/oidc/op/drizzle/pg` | Postgres Drizzle stores for the OIDC OP (5 tables, GC helper) |
 | `@gentleduck/auth/oidc/op/drizzle/sqlite` | SQLite Drizzle stores for the OIDC OP |
 | `@gentleduck/auth/oidc/op/drizzle/mysql` | MySQL Drizzle stores for the OIDC OP |
-| `@gentleduck/auth/i18n` | Message catalogue + Lingui adapter |
-| `@gentleduck/auth/telemetry` | OpenTelemetry metrics instrumentation |
 
 ## Production primitives
 
 - **`AuthEngine.strict({ env: 'production' })`** - boot-time validation: rejects `secure: false` cookie transport, `NoopLimiter`, memory stores, missing `lockout` listener, non-HTTPS `baseUrl`
 - **`JwtTransport.rotateSignKey()` + `retireVerifyKey(kid)`** - zero-downtime JWKS rotation with overlap window
-- **`auth.compliance.applyPreset('soc2' | 'hipaa' | 'fips')`** - tightens password / session / MFA / data-at-rest settings to the named regulatory floor
+- **`applyCompliancePreset(cfg, 'gdpr' | 'hipaa' | 'soc2' | 'fips')`** - a free function over the config, not an engine method: it ratchets the three session TTLs down to the named floor. The password, MFA and api-key floors are provider-level - pass the same preset to `passwords({ compliance })` and its siblings - and `strict()` enforces the rest, including data-at-rest
 - **`auth.webhooks`** - HMAC body + timestamp + freshness tolerance, exponential backoff, dead-letter sink, SSRF guard on endpoint URLs, `redirect: 'error'` on dispatch
 - **`auth.hijack` + `auth.anomaly`** - drift detection, decision ladder (allow / step-up / deny), pluggable signals
 - **`auth.idempotency`** - per-(identity, key) tombstone + poll for replay-safe mutating routes
@@ -417,8 +408,6 @@ See [`SECURITY.md`](./SECURITY.md) for the STRIDE / OWASP ASVS mapping of every 
 | Each adapter | 2 - 9 KB |
 | Each server middleware | 2 - 4 KB |
 | Each client library | 1.5 - 2.5 KB |
-| Each channel | 1 - 3 KB |
-| CLI | 12 KB (binary, not imported by app) |
 
 Real deployments importing only what they wire end up at 25 - 60 KB total. The "import everything" worst case (`import * from '@gentleduck/auth'`) is not the intended usage.
 

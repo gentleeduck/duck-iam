@@ -1,8 +1,10 @@
 import { AuthError, asAuthError } from './errors'
 import { declares, errorMap, type RangeOf } from './errors.map'
 
-/** A code, or a code and the meta it cannot be raised without. */
-type Means = AuthError.Bare | readonly [code: AuthError.Code, meta: object]
+/** A code, or a code and the meta it cannot be raised without. The tuple form names its one carrying
+ *  code literally (rather than the wider `AuthError.Code`) so narrowing on element 0 also narrows
+ *  element 1 — needed to construct the error without a cast. */
+type Means = AuthError.Bare | readonly ['AUTH_MISCONFIGURED', AuthError.Meta<'AUTH_MISCONFIGURED'>]
 
 const DENIED = ['AUTH_MISCONFIGURED', { detail: 'the database refused the configured role' }] as const
 const SCHEMA = ['AUTH_MISCONFIGURED', { detail: 'the database is missing the auth schema' }] as const
@@ -135,11 +137,13 @@ export const sqlError = errorMap(
     if (means === undefined) return asAuthError(err, 'AUTH_ADAPTER_FAILED')
 
     const code = codeOf(means)
-    // Read this way and not as `means[1]`: a bare entry is a string, and `'AUTH_X'[1]` is a character.
-    const carried = typeof means === 'string' ? undefined : means[1]
     // Postgres is the only one that says which provider was taken, and it says it in `detail`.
     const provider = code === 'AUTH_PROVIDER_TAKEN' ? keyValue(said.detail) : undefined
-    const typed = new AuthError(code, provider ? { providerId: provider } : carried)
+    const typed = provider
+      ? new AuthError('AUTH_PROVIDER_TAKEN', { providerId: provider })
+      : typeof means === 'string'
+        ? new AuthError(means)
+        : new AuthError(means[0], means[1])
     typed.cause = err
 
     return typed

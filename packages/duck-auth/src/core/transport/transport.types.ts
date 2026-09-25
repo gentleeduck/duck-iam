@@ -38,7 +38,7 @@ export namespace Transport {
     issue(sid: string, session: Sessions.Me, opts: IssueOpts): Provider.Intent[]
     /** The response Intent that revokes any persisted bearer. */
     revoke(): Provider.Intent[]
-    /**  has no `verify` at all and leaves the caller to the `Session.IStore` lookup. */
+    /** `CookieTransport` has no `verify` at all and leaves the caller to the `Sessions.Store` lookup. */
     verify?(token: string): Promise<Sessions.Me>
     /** The longest token this transport accepts. A composite takes the largest its members declare rather than
      *  carrying its own constant, which silently clamped any member with a wider ceiling. */

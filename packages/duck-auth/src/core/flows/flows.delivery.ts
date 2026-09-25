@@ -1,25 +1,36 @@
-import type { Channel } from '~/channels/channels.types'
+import type { TenantContext } from '~/core'
 import type { Events } from '~/core/events'
+import type { Identities } from '~/core/identities'
 
-/** A send whose result is read. */
+/** Every outbound token the library mints. The host's {@link Deliver} switches on it. */
+export type DeliveryKind =
+  | 'account-deletion'
+  | 'account-deletion-cancel'
+  | 'email-verification'
+  | 'magic-link'
+  | 'password-reset'
+
+/** What the host is handed for one outbound message: the recipient's whole identity, the vars with the
+ *  URL already signed, and the tenant. Throw to report a failure; the thrown value is never read. */
+export type Deliver = (message: {
+  kind: DeliveryKind
+  identity: Identities.Me
+  vars: Record<string, unknown>
+  tenant: TenantContext
+}) => Promise<void>
+
+/** Calls the host's `deliver` and turns a refusal into an event rather than an exception. */
 export async function deliver(
   events: Pick<Events.IBus, 'emit'>,
-  flow: string,
-  channel: Channel.Channel,
-  input: Channel.SendInput,
-): Promise<Channel.SendResult> {
+  kind: DeliveryKind,
+  send: Deliver,
+  message: { identity: Identities.Me; vars: Record<string, unknown>; tenant: TenantContext },
+): Promise<void> {
   try {
-    const result = await channel.send(input)
-    if (!result.ok) {
-      // Not the channel's own error text: it can carry the rendered body, and with it the token URL.
-      await events.emit('signin.failed', { providerId: flow, reason: 'channel.send rejected delivery' })
-    }
-    return result
-  } catch (err) {
-    await events.emit('signin.failed', {
-      providerId: flow,
-      reason: `channel.send threw: ${err instanceof Error ? err.message : String(err)}`,
-    })
-    return { error: 'channel.send threw', ok: false, retryable: true }
+    await send({ kind, ...message })
+  } catch {
+    // Not the thrown error's text: it carries whatever the host's mailer put in the message, which is the
+    // recipient and the rendered body with the token URL in it. Fixed text, audited, never the error's.
+    await events.emit('signin.failed', { providerId: kind, reason: 'deliver threw' })
   }
 }

@@ -910,7 +910,7 @@ describe('Engine - construction guards', () => {
           mode: 'production',
           policyCombine: 'first-applicable',
         }),
-    ).toThrow(/first-applicable/)
+    ).toThrow('IAM_ENGINE_POLICY_COMBINE_INCOMPATIBLE')
   })
 
   it("accepts mode='production' with policyCombine='and' (default)", () => {
@@ -945,7 +945,7 @@ describe('Engine - construction guards', () => {
           mode: 'production',
           defaultEffect: 'allow',
         }),
-    ).toThrow(/fail-open/i)
+    ).toThrow('IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED')
   })
 
   it("accepts defaultEffect='allow' in production with allowFailOpen: true", () => {
@@ -965,7 +965,7 @@ describe('Engine - construction guards', () => {
     // SECURITY: fail-open needs the same opt-in in every mode; allow-by-default hides corrupt policies.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(() => new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow' })).toThrow(
-      /fail-open/i,
+      'IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED',
     )
   })
 

@@ -141,7 +141,7 @@ describe('the event and the decision are computed separately', () => {
   })
 
   it('records a deny that came from a reaction override rather than from the score', async () => {
-    const { facet, emitted } = makeFacet({ reactions: { 'new-device': 'deny' } })
+    const { facet, emitted } = makeFacet({ reactions: { '*': { 'new-device': 'deny' } } })
     facet.register(detectorOf('a', [signalOf('new-device', 0.01)]))
 
     expect((await run(facet)).decision).toBe('deny')
@@ -166,7 +166,7 @@ describe('the event and the decision are computed separately', () => {
 
 describe('per-kind reactions can raise but not lower', () => {
   it('an allow override mutes that signal, and only that signal', async () => {
-    const { facet } = makeFacet({ reactions: { 'new-device': 'allow' }, stepUpAt: 0.7 })
+    const { facet } = makeFacet({ reactions: { '*': { 'new-device': 'allow' } }, stepUpAt: 0.7 })
     facet.register(detectorOf('a', [signalOf('new-device', 0.8)]))
     const muted = await run(facet)
     expect(muted.score).toBe(0)
@@ -178,40 +178,40 @@ describe('per-kind reactions can raise but not lower', () => {
   })
 
   it('a step-up override fires on a signal far below stepUpAt', async () => {
-    const { facet } = makeFacet({ reactions: { 'impossible-travel': 'step-up' }, stepUpAt: 0.7 })
+    const { facet } = makeFacet({ reactions: { '*': { 'impossible-travel': 'step-up' } }, stepUpAt: 0.7 })
     facet.register(detectorOf('a', [signalOf('impossible-travel', 0.01)]))
     expect((await run(facet)).decision).toBe('step-up')
   })
 
   it('a score at denyAt outranks a step-up override', async () => {
-    const { facet } = makeFacet({ denyAt: 0.95, reactions: { 'new-device': 'step-up' } })
+    const { facet } = makeFacet({ denyAt: 0.95, reactions: { '*': { 'new-device': 'step-up' } } })
     facet.register(detectorOf('a', [signalOf('new-device', 0.99)]))
     expect((await run(facet)).decision).toBe('deny')
   })
 
   it('the strongest override across present kinds wins', async () => {
-    const { facet } = makeFacet({ reactions: { 'new-device': 'step-up', 'off-hours': 'deny' } })
+    const { facet } = makeFacet({ reactions: { '*': { 'new-device': 'step-up', 'off-hours': 'deny' } } })
     facet.register(detectorOf('a', [signalOf('new-device', 0.01), signalOf('off-hours', 0.01)]))
     expect((await run(facet)).decision).toBe('deny')
   })
 
   it('an override for a kind that did not fire is ignored', async () => {
-    const { facet } = makeFacet({ reactions: { 'impossible-travel': 'deny' } })
+    const { facet } = makeFacet({ reactions: { '*': { 'impossible-travel': 'deny' } } })
     facet.register(detectorOf('a', [signalOf('new-device', 0.01)]))
     expect((await run(facet)).decision).toBe('allow')
   })
 
   it('a reaction can be scoped to the detector that earned it, so a plugin cannot claim it', async () => {
-    // `isValidSignal` deliberately accepts kinds outside the union so plugins can extend it, and a
-    // bare key still applies to whoever names that kind. The scoped key is the remedy.
+    // `isValidSignal` deliberately accepts kinds outside the union so plugins can extend it, and the
+    // `'*'` table still applies to whoever names that kind. The detector's own table is the remedy.
     const impostor = () =>
       detectorOf('impostor', [{ evidence: {}, kind: 'impossible-travel', score: 0 } as Anomaly.Signal])
 
-    const bare = makeFacet({ reactions: { 'impossible-travel': 'deny' } })
+    const bare = makeFacet({ reactions: { '*': { 'impossible-travel': 'deny' } } })
     bare.facet.register(impostor())
     expect((await run(bare.facet)).decision).toBe('deny')
 
-    const scoped = makeFacet({ reactions: { 'travel.detector#impossible-travel': 'deny' } })
+    const scoped = makeFacet({ reactions: { 'travel.detector': { 'impossible-travel': 'deny' } } })
     scoped.facet.register(impostor())
     expect((await run(scoped.facet)).decision).toBe('allow')
 

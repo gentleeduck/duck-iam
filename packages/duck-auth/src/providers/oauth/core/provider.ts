@@ -7,10 +7,10 @@ import type { Provider } from '~/core/provider/provider.types'
 import { parseCookie } from '~/core/transport'
 import type { OAuth } from './oauth.types'
 import { generatePkce } from './pkce'
-import { authBuildState, authVerifyState, signState } from './state'
+import { authBuildState, authVerifyState, OAUTH_STATE_MAX_AGE_MS, signState } from './state'
 
-/** Must not outlive the state's own max age, or the cookie expires mid-flow and the callback fails. */
-const STATE_COOKIE_MAX_AGE_SEC = 600
+/** Derived, not 600: a cookie that outlives the state expires mid-flow and the callback fails. */
+const STATE_COOKIE_MAX_AGE_SEC = OAUTH_STATE_MAX_AGE_MS / 1000
 
 /** The generic oauth provider. Each provider module pre-fills endpoints, scopes and `fetchProfile`, then
  *  re-exports this. */
@@ -21,6 +21,8 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
   readonly kind = 'oauth' as const
   /** Read by `strict()`, which enforces the production floor. A boolean, never the secret. */
   readonly __weakStateSecret: boolean
+  /** Also read by `strict()`: the operator declined state-replay protection. */
+  readonly __stateReplayAllowed: boolean
   private readonly _cookieName: string
   private readonly _cookieOptions: Provider.CookieOptions
 
@@ -35,18 +37,37 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
     }
     // RFC 7518 section 3.2: an HMAC-SHA256 key must be at least as long as the hash it feeds.
     this.__weakStateSecret = Buffer.byteLength(opts.stateSigningSecret, 'utf8') < 32
+    // The rule `samlProvider` applies to its replay store: a control this shape cannot be absent by
+    // accident. `complete` still branches on the store, because opting out is now a thing the operator
+    // said rather than a key they forgot.
+    if (!opts.nonceStore && opts.allowStateReplay !== true) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `oauth requires \`nonceStore\`, or \`allowStateReplay: true\` to accept a state nothing burns (provider ${opts.providerId})`,
+      })
+    }
+    this.__stateReplayAllowed = !opts.nonceStore
     const cookie = opts.stateCookie ?? {}
     this._cookieName = cookie.name ?? (cookie.domain === undefined ? '__Host-duck-oauth' : 'duck-oauth')
     const secure = cookie.secure ?? true
+    const formPost = opts.responseMode === 'form_post'
     this._cookieOptions = {
       httpOnly: true,
       // The callback is a top-level GET the IdP navigates to. 'lax' sends the cookie on that and
-      // 'strict' does not, which would refuse every real sign-in.
-      sameSite: 'lax',
+      // 'strict' does not, which would refuse every real sign-in. Under `form_post` the callback is a
+      // cross-site POST instead, which 'lax' withholds the cookie on, so every Apple sign-in failed the
+      // binding check. Scoped to the provider that asked for it: the other five keep 'lax'.
+      sameSite: formPost ? 'none' : 'lax',
       secure,
       path: '/',
       maxAge: STATE_COOKIE_MAX_AGE_SEC,
       ...(cookie.domain !== undefined && { domain: cookie.domain }),
+    }
+    // `SameSite=None` without `Secure` is dropped by every current browser, which would be the same
+    // silent failure this flag exists to fix, one layer down.
+    if (formPost && !secure) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `oauth.stateCookie: ${opts.providerId} posts its callback cross-site and needs secure:true`,
+      })
     }
     // Browsers drop a `__Host-` cookie that breaks either rule without saying so, and a silently
     // dropped cookie here is every sign-in failing at the callback.
@@ -79,6 +100,7 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
       redirectUri: this.opts.redirectUri,
       state,
       codeChallenge: pkce.challenge,
+      ...(this.opts.responseMode === 'form_post' && { extraParams: { response_mode: 'form_post' } }),
     })
     return [
       { type: 'setCookie', name: this._cookieName, value: binding, options: this._cookieOptions },
@@ -107,122 +129,141 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
     if (presented === null || !timingSafeEqual(sha256(presented), verified.binding)) {
       throw new AuthError('AUTH_OAUTH_STATE_MISMATCH')
     }
+    // Burned once the state is proven ours and proven to have reached the browser that began the flow,
+    // and before the code is spent, so a replayed callback never reaches the IdP. A transient exchange
+    // failure therefore costs the flow rather than leaving the state live for a second attempt.
+    if (this.opts.nonceStore && !(await this.opts.nonceStore.recordSeen(verified.nonce, OAUTH_STATE_MAX_AGE_MS))) {
+      throw new AuthError('AUTH_OAUTH_NONCE_REPLAY')
+    }
 
     const tokens = await this.opts.client.exchangeCode({
       code: input.code,
       redirectUri: this.opts.redirectUri,
       codeVerifier: verified.verifier,
     })
-    const profile = await this.opts.fetchProfile(tokens, this.opts.client)
-    if (!profile.sub || profile.sub.length === 0) {
-      throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: this.id,
-        detail: 'oauth profile missing sub',
-      })
-    }
+    // Every refusal below is a refusal *after* the code was spent, so these tokens are live at the IdP for
+    // a sign-in that is not happening. They used to be dropped on the floor, working, until they expired -
+    // and the default `onFederationConflict` is `'reject'`, so that is the common path, not a corner.
+    try {
+      const profile = await this.opts.fetchProfile(tokens, this.opts.client)
+      if (!profile.sub || profile.sub.length === 0) {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
+          providerId: this.id,
+          detail: 'oauth profile missing sub',
+        })
+      }
 
-    let identityId: string | null = null
-    if (this.opts.onSignIn) {
-      const r = await this.opts.onSignIn({
-        profile,
-        findByProviderSub: (sub) => orNull(ctx.stores.identities.find({ providerId: this.id, providerSub: sub })),
-        findByEmail: (email) => orNull(ctx.stores.identities.find({ email })),
-        createIdentity: async (p) => {
+      let identityId: string | null = null
+      if (this.opts.onSignIn) {
+        const r = await this.opts.onSignIn({
+          profile,
+          findByProviderSub: (sub) => orNull(ctx.stores.identities.find({ providerId: this.id, providerSub: sub })),
+          findByEmail: (email) => orNull(ctx.stores.identities.find({ email })),
+          createIdentity: async (p) => {
+            const created = await ctx.stores.identities.create({
+              profile: p,
+              providers: [{ providerId: this.id, providerSub: profile.sub }],
+              emailVerified: false,
+            })
+            return { id: created.id }
+          },
+          linkProvider: async (id, sub) => {
+            await ctx.stores.identities.link(id, {
+              providerId: this.id,
+              providerSub: sub,
+            })
+          },
+        })
+        if (!r) {
+          throw new AuthError('AUTH_PROVIDER_FAILED', {
+            providerId: this.id,
+            detail: 'sign-in refused by onSignIn callback',
+          })
+        }
+        identityId = r.identityId
+      } else {
+        const bySub = await orNull(ctx.stores.identities.find({ providerId: this.id, providerSub: profile.sub }))
+        if (bySub) {
+          identityId = bySub.id
+        } else if (profile.email) {
+          const byEmail = await orNull(ctx.stores.identities.find({ email: profile.email }))
+          if (byEmail) {
+            // Email matches but no sub link; silent auto-link is ATO bait.
+            const policy = this.opts.onFederationConflict ?? 'reject'
+            const verdict = await resolveFederationConflict(policy, {
+              existingIdentityId: byEmail.id,
+              profile,
+              providerId: this.id,
+            })
+            if (verdict === 'reject') {
+              throw new AuthError('AUTH_PROVIDER_FAILED', {
+                providerId: this.id,
+                detail:
+                  'federation-conflict: an existing identity owns this email; provider-sub link refused under the configured policy',
+              })
+            }
+            await ctx.stores.identities.link(byEmail.id, {
+              providerId: this.id,
+              providerSub: profile.sub,
+            })
+            identityId = byEmail.id
+          }
+        }
+        if (!identityId) {
+          const projected = this.opts.profileToIdentityProfile?.(profile)
+          if (!projected) {
+            throw new AuthError('AUTH_PROVIDER_FAILED', {
+              providerId: this.id,
+              detail: 'profileToIdentityProfile rejected the profile',
+            })
+          }
           const created = await ctx.stores.identities.create({
-            profile: p,
+            profile: projected,
             providers: [{ providerId: this.id, providerSub: profile.sub }],
             emailVerified: false,
           })
-          return { id: created.id }
-        },
-        linkProvider: async (id, sub) => {
-          await ctx.stores.identities.link(id, {
-            providerId: this.id,
-            providerSub: sub,
-          })
-        },
-      })
-      if (!r) {
-        throw new AuthError('AUTH_PROVIDER_FAILED', {
-          providerId: this.id,
-          detail: 'sign-in refused by onSignIn callback',
-        })
-      }
-      identityId = r.identityId
-    } else {
-      const bySub = await orNull(ctx.stores.identities.find({ providerId: this.id, providerSub: profile.sub }))
-      if (bySub) {
-        identityId = bySub.id
-      } else if (profile.email) {
-        const byEmail = await orNull(ctx.stores.identities.find({ email: profile.email }))
-        if (byEmail) {
-          // Email matches but no sub link; silent auto-link is ATO bait.
-          const policy = this.opts.onFederationConflict ?? 'reject'
-          const verdict = await resolveFederationConflict(policy, {
-            existingIdentityId: byEmail.id,
-            profile,
-            providerId: this.id,
-          })
-          if (verdict === 'reject') {
-            throw new AuthError('AUTH_PROVIDER_FAILED', {
-              providerId: this.id,
-              detail:
-                'federation-conflict: an existing identity owns this email; provider-sub link refused under the configured policy',
-            })
-          }
-          await ctx.stores.identities.link(byEmail.id, {
-            providerId: this.id,
-            providerSub: profile.sub,
-          })
-          identityId = byEmail.id
+          identityId = created.id
         }
       }
-      if (!identityId) {
-        const projected = this.opts.profileToIdentityProfile?.(profile)
-        if (!projected) {
-          throw new AuthError('AUTH_PROVIDER_FAILED', {
-            providerId: this.id,
-            detail: 'profileToIdentityProfile rejected the profile',
-          })
-        }
-        const created = await ctx.stores.identities.create({
-          profile: projected,
-          providers: [{ providerId: this.id, providerSub: profile.sub }],
-          emailVerified: false,
-        })
-        identityId = created.id
-      }
-    }
 
-    if (tokens.refresh_token) {
-      const familyId = `${this.id}:${profile.sub}:${sha256(input.code).slice(0, 16)}`
-      await ctx.stores.credentials.create(
-        toCredentialCreate({
+      if (tokens.refresh_token) {
+        const familyId = `${this.id}:${profile.sub}:${sha256(input.code).slice(0, 16)}`
+        await ctx.stores.credentials.create(
+          toCredentialCreate({
+            identityId,
+            kind: 'oauth',
+            secret: sha256(tokens.refresh_token),
+            metadata: {
+              provider: this.id,
+              sub: profile.sub,
+              familyId,
+              generation: 1,
+            } satisfies OAuth.CredentialMetadata,
+          }),
+          ctx.tenant,
+        )
+      }
+
+      return [
+        // Spent. The state stays verifiable until it ages out, so leaving the cookie behind leaves a
+        // callback URL that still works if it is recovered from history or a referrer.
+        { type: 'clearCookie', name: this._cookieName, options: { ...this._cookieOptions, maxAge: 0 } },
+        {
+          type: 'startSession',
           identityId,
-          kind: 'oauth',
-          secret: sha256(tokens.refresh_token),
-          metadata: {
-            provider: this.id,
-            sub: profile.sub,
-            familyId,
-            generation: 1,
-          } satisfies OAuth.CredentialMetadata,
-        }),
-        ctx.tenant,
-      )
+          factors: [{ method: 'oauth', completedAt: new Date() }],
+          aal: 1,
+        },
+      ]
+    } catch (err) {
+      // Best-effort, both kinds: a provider that exposes no revocation endpoint, or one that is down, must
+      // not turn the refusal the caller needs to see into a different error.
+      if (tokens.refresh_token) {
+        await this.opts.client.revoke(tokens.refresh_token, { tokenTypeHint: 'refresh_token' }).catch(() => {})
+      }
+      await this.opts.client.revoke(tokens.access_token, { tokenTypeHint: 'access_token' }).catch(() => {})
+      throw err
     }
-
-    return [
-      // Spent. The state stays verifiable until it ages out, so leaving the cookie behind leaves a
-      // callback URL that still works if it is recovered from history or a referrer.
-      { type: 'clearCookie', name: this._cookieName, options: { ...this._cookieOptions, maxAge: 0 } },
-      {
-        type: 'startSession',
-        identityId,
-        factors: [{ method: 'oauth', completedAt: new Date() }],
-        aal: 1,
-      },
-    ]
   }
 }
 

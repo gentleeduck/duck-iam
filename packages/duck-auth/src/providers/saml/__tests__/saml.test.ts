@@ -67,6 +67,7 @@ describe('samlProvider - begin', () => {
   it('returns redirect intent with IdP URL', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowReplay: true,
       allowUnsolicited: true,
       client: makeClient(),
       callbackUrl: 'https://app/acs',
@@ -85,6 +86,7 @@ describe('samlProvider - begin', () => {
   it('begin missing relayState rejects INVALID_PARAMETERS', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowReplay: true,
       allowUnsolicited: true,
       client: makeClient(),
       callbackUrl: 'https://app/acs',
@@ -101,6 +103,7 @@ describe('samlProvider - complete', () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const onSignIn = vi.fn(async () => ({ identityId: 'ident-7' }))
     const provider = saml<MyProfile>({
+      allowReplay: true,
       allowUnsolicited: true,
       client: makeClient({
         validatePostResponseAsync: async () => ({
@@ -129,6 +132,7 @@ describe('samlProvider - complete', () => {
   it('mints aal 1 when the IdP asserts only a password', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowReplay: true,
       allowUnsolicited: true,
       client: makeClient(),
       callbackUrl: 'https://app/acs',
@@ -142,6 +146,7 @@ describe('samlProvider - complete', () => {
   it('rejects empty SAMLResponse with PROVIDER_FAILED', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowReplay: true,
       allowUnsolicited: true,
       client: makeClient(),
       callbackUrl: 'https://app/acs',
@@ -155,6 +160,7 @@ describe('samlProvider - complete', () => {
   it('rejects when IdP returns loggedOut response', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowReplay: true,
       allowUnsolicited: true,
       client: makeClient({
         validatePostResponseAsync: async () => ({ profile: null, loggedOut: true }),
@@ -170,6 +176,7 @@ describe('samlProvider - complete', () => {
   it('client throw surfaces as PROVIDER_FAILED + detail', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const provider = saml<MyProfile>({
+      allowReplay: true,
       allowUnsolicited: true,
       client: makeClient({
         validatePostResponseAsync: async () => {

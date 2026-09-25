@@ -1,5 +1,6 @@
 import { orNull } from '~/core/answer'
 import {
+  burnCredential,
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
@@ -35,12 +36,8 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
   const limited = await ctx.limiter.consume(`account-delete:${opts.identityId}`)
   if (!limited.ok) await refuseRateLimited(ctx.events, limited, identity.id)
 
-  const channelKind = resolveChannelKind(opts.channel)
-  const channelImpl = opts.channels[channelKind]
-  if (!channelImpl) {
-    throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `account-deletion: channel "${channelKind}" not configured`,
-    })
+  if (!deps.deliver) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'account-deletion: no `deliver` configured' })
   }
 
   // By purpose, the way `requestEmailVerification` does it, and for the same
@@ -69,9 +66,8 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
   )
 
   const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-  await deliver(ctx.events, 'account-deletion', channelImpl, {
+  await deliver(ctx.events, 'account-deletion', deps.deliver, {
     identity,
-    templateId: 'account-deletion',
     vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
     tenant: ctx.tenant,
   })
@@ -105,18 +101,7 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
     throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
   }
 
-  // The CAS claim burns the token in the same write, so the claim alone refuses a second completion
-  // reading between here and the delete below. Until now that was caught one line later instead, by
-  // `softDelete` reporting an already-hidden row as a miss - a guard in another file, for another reason.
-  const burnt = ctx.crypto.authSha256(ctx.crypto.authRandomToken(32))
-  try {
-    await ctx.stores.credentials.rotate(row.id, burnt, row.version, ctx.tenant)
-  } catch (err) {
-    if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') {
-      throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
-    }
-    throw err
-  }
+  await burnCredential(ctx, row)
   const identityId = row.identityId
   const identity = await deps.identities.softDelete(identityId).orNull()
   // A valid token whose identity was erased has nothing left to delete, and reporting success would
@@ -140,14 +125,11 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
     ctx.tenant,
   )
 
-  const channelKind = resolveChannelKind(input.channel)
-  const channelImpl = input.channels?.[channelKind]
-  if (channelImpl) {
+  if (input.sendUndoLink && deps.deliver) {
     const callbackPath = isSafeCallbackPath(input.callbackPath) ? input.callbackPath : '/auth/cancel-deletion'
     const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(cancellationToken)}`
-    await deliver(ctx.events, 'account-deletion-cancel', channelImpl, {
+    await deliver(ctx.events, 'account-deletion-cancel', deps.deliver, {
       identity,
-      templateId: 'account-deletion-cancel',
       vars: { url, restorableUntil, ttlMin: Math.max(0, Math.round((restorableUntil - Date.now()) / 60_000)) },
       tenant: ctx.tenant,
     })
@@ -238,9 +220,4 @@ async function cancelByToken<Profile extends Identities.ProfileMetadataBase>(
   // token is already gone and the lookup above answered "invalid".
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
   return { identity, identityId }
-}
-
-/** `email` unless the caller named another configured kind. */
-function resolveChannelKind(requested: 'email' | 'sms' | 'webpush' | undefined): 'email' | 'sms' | 'webpush' {
-  return requested === 'sms' || requested === 'webpush' ? requested : 'email'
 }

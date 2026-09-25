@@ -9,13 +9,14 @@ export namespace RedisIdempotency {
   export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
     /** An ioredis, @upstash/redis or FakeRedis client. */
     redis: TRedis
-    /** Default `auth:idem`, composing `${prefix}:{tenantId | _default}:{idempotencyKey}`. */
+    /** Default `auth:idem`, composing `${prefix}:{uriEncodedTenantId}:{idempotencyKey}`; the tenant
+     *  segment is empty when there is none. */
     prefix?: string
   }
 }
 
-/** `SET NX EX` makes the claim atomic across processes, and the per-tenant key prefix means two
- *  tenants sending one Idempotency-Key cannot collide. */
+/** `SET NX EX` makes the claim atomic across processes, and the encoded per-tenant key segment means two
+ *  tenants sending one Idempotency-Key cannot collide however the host spells its tenant ids. */
 export class RedisIdempotency<TRedis extends RedisLike.Client = RedisLike.Client> implements Idempotency.Store {
   private readonly _redis: TRedis
   private readonly _prefix: string
@@ -26,7 +27,9 @@ export class RedisIdempotency<TRedis extends RedisLike.Client = RedisLike.Client
   }
 
   private _k(key: string, ctx: TenantContext): string {
-    return `${this._prefix}:${ctx.tenantId ?? '_default'}:${key}`
+    // See `MemoryIdempotency._k`: the tenant segment is encoded so it cannot span the delimiter, and
+    // absence is the empty segment rather than `_default`, which a tenant could be named.
+    return `${this._prefix}:${encodeURIComponent(ctx.tenantId ?? '')}:${key}`
   }
 
   /** `AUTH_IDEMPOTENCY_MISS` on a miss, on TTL expiry, on a row that no longer parses, and while the claim

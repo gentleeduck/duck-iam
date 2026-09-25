@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import type { IamRedis } from '../index'
 import { IamRedisAdapter } from '../index'
 
@@ -70,7 +71,7 @@ describe('redis setSubjectAttributes distinguishes corruption from a failed read
     expect(errors.length).toBeGreaterThan(0)
   })
 
-  it('the corruption signal is matched by name, so a duplicated package copy still matches', async () => {
+  it('the corruption signal is matched by code, not the wrapped class, so a duplicated package copy still matches', async () => {
     const { adapter, client, key } = await seeded()
     client.strings.set(key, '["not an object"]')
     const err = await adapter.getSubjectAttributes('u1').then(
@@ -78,6 +79,6 @@ describe('redis setSubjectAttributes distinguishes corruption from a failed read
       (e: unknown) => e,
     )
     expect(err).toBeInstanceOf(Error)
-    expect((err as Error).name).toBe('IamRedisCorruptAttributesError')
+    expect(hasIamErrorCode(err, 'IAM_ATTRIBUTES_CORRUPT')).toBe(true)
   })
 })

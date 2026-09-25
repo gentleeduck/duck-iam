@@ -88,6 +88,8 @@ function makeMock() {
   return { config, assignments }
 }
 
+const HOUR = 60 * 60 * 1000
+
 describe('IamDrizzleAdapter.updateAssignmentScope', () => {
   let mock: ReturnType<typeof makeMock>
 
@@ -123,6 +125,20 @@ describe('IamDrizzleAdapter.updateAssignmentScope', () => {
     const moved = await adapter.updateAssignmentScope('sub-1', 'editor', 'org-1', 'org-2')
     expect(moved).toBe(true)
     expect(mock.assignments).toEqual([{ id: 'a2', subjectId: 'sub-1', roleId: 'editor', scope: 'org-2' }])
+  })
+
+  it('clears a stale (elapsed) target row and moves the source into its place, rather than dropping the live source', async () => {
+    mock.assignments.push({
+      id: 'a2',
+      subjectId: 'sub-1',
+      roleId: 'editor',
+      scope: 'org-2',
+      expiresAt: new Date(Date.now() - HOUR),
+    })
+    const adapter = new IamDrizzleAdapter<A, R, Ro, S>(mock.config)
+    const moved = await adapter.updateAssignmentScope('sub-1', 'editor', 'org-1', 'org-2')
+    expect(moved).toBe(true)
+    expect(mock.assignments).toEqual([{ id: 'a1', subjectId: 'sub-1', roleId: 'editor', scope: 'org-2' }])
   })
 
   it('returns false when no assignment matches the source scope', async () => {

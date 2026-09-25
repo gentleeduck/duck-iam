@@ -22,7 +22,7 @@ export namespace CookieTransport {
 }
 
 /** An opaque session id in an HttpOnly cookie, the default for web apps. `verify` is unset, so the
- *  caller resolves the id through `Session.IStore.getByHash()`. */
+ *  caller resolves the id through `Sessions.Store.getByHash()`. */
 export class CookieTransport implements Transport.ITransport {
   private readonly _name: string
   private readonly _options: Transport.CookieOptions
@@ -78,15 +78,10 @@ export class CookieTransport implements Transport.ITransport {
         })
       }
     }
-    // SECURITY: the companion is scoped to the session cookie rather than to a fixed shape, and every one
-    // of these attributes was hardcoded. Measured: `{ domain: '.example.com' }` - the option that exists
-    // for cross-subdomain deployments, and the one the checks above validate - emitted the session cookie
-    // for the whole domain and a `__Host-` CSRF cookie for the issuing host alone, so a page on a sibling
-    // subdomain could not read the token, could not put it on `x-csrf-token`, and had every state-changing
-    // request refused `AUTH_CSRF` with nothing said. `sameSite: 'none'` sent the session cookie cross-site
-    // and held the companion back; `path: '/app'` scoped the session down and left the token readable at
-    // `/`. The prefix goes exactly when its three conditions do, which is also what had a `secure: false`
-    // dev deployment dropping the cookie rather than renaming it.
+    // SECURITY: the companion follows the session cookie's own attributes rather than a fixed shape.
+    // Hardcoding them left a CSRF cookie the page could not read on every cross-subdomain, cross-site or
+    // scoped deployment, and refused every state-changing request `AUTH_CSRF` with nothing said. The
+    // `__Host-` prefix goes exactly when its three conditions do.
     const hostPrefixOk = this._options.secure === true && this._options.path === '/' && !hasDomain
     this._csrfName = hostPrefixOk ? '__Host-duck-csrf' : 'duck-csrf'
     this._csrfOptions = { ...this._options, httpOnly: false }

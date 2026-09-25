@@ -161,7 +161,8 @@ export function invalidateRoles<TRole extends string>(
     roleId = undefined
   }
   // Read before the clear below: the sweep needs the inheritance edges the cached closures were built from.
-  const graph = bag.roleCache.get('all')
+  // `peek`, not `get`: no request asked for this, so it must not move the counters `cacheHitRate` publishes.
+  const graph = bag.roleCache.peek('all')
   bag.roleCache.clear()
   bag.rbacPolicyCache.clear()
   bag.inFlight.roles.value = null

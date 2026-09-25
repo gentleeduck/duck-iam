@@ -3,14 +3,15 @@ import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type ActorOptions,
   type CallerFingerprint,
   callerContext,
-  errorToHttp,
+  errorResponse,
   executeIntents,
   isValidProviderId,
+  jsonResponse,
   parseProviderBeginBody,
   parseSignInBody,
-  type RequestSecurityOptions,
   requestSecurity,
 } from '../generic'
 
@@ -29,7 +30,7 @@ export function nextSignIn(auth: AuthEngine): NextAdapter.Handler {
       })
       return executeIntents(result.intents)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -44,7 +45,7 @@ export function nextSignOut(auth: AuthEngine): NextAdapter.Handler {
       const { intents } = await auth.flows.signOut(sid)
       return executeIntents(intents)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -57,9 +58,9 @@ export function nextSession(auth: AuthEngine): NextAdapter.Handler {
       // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
       const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
       const body = resolved ? { session, identity: resolved.identity } : { session: null, identity: null }
-      return Response.json(body, { headers: { 'cache-control': 'no-store' } })
+      return jsonResponse(200, body)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -82,7 +83,7 @@ export function nextProviderBegin(auth: AuthEngine, providerId: string): NextAda
       const intents = await auth.flows.beginProvider(providerId, body)
       return executeIntents(intents)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -132,11 +133,6 @@ export function mountNext(
   }
 }
 
-function handleError(err: unknown): Response {
-  const { status, body } = errorToHttp(err)
-  return Response.json(body, { headers: { 'cache-control': 'no-store' }, status })
-}
-
 /**
  * CSRF guard for your own routes. A wrapper rather than middleware because the
  * App Router gives the adapter no chain to hook:
@@ -151,7 +147,7 @@ export function withNextCsrf(
     try {
       await csrfGuard(auth, { headers: req.headers, method: req.method }, opts)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
     return handler(req)
   }
@@ -167,16 +163,10 @@ export function nextCaller(req: Request): CallerFingerprint {
 }
 
 /** Options for the actor-context wrapper. */
-export type NextActorOptions = {
-  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
-  getCaller?: (req: Request) => CallerFingerprint
-  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
-  onHijack?: RequestSecurityOptions['onHijack']
-}
+export type NextActorOptions = ActorOptions<Request>
 
-/** Wrap one handler so its writes carry the request's actor. Per-handler rather than middleware,
- *  since a route handler composes no `next`. Anonymous and unresolvable sessions run unbound, which is the
- *  honest `null`; while impersonating the actor is the operator behind `actingAs`. */
+/** Wrap one handler so its writes carry the request's actor; per-handler, since a route handler composes no
+ *  `next`. See `core/actor/README.md` for what runs unbound and what raises. */
 export function nextWithActor(
   auth: AuthEngine,
   handler: NextAdapter.Handler,
@@ -187,10 +177,7 @@ export function nextWithActor(
       auth,
       { headers: req.headers },
       () => handler(req),
-      requestSecurity(auth, {
-        ...(opts.onHijack && { onHijack: opts.onHijack }),
-        ...(opts.getCaller && { caller: opts.getCaller(req) }),
-      }),
+      requestSecurity(auth, { caller: opts.getCaller?.(req), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
     )
 }
 

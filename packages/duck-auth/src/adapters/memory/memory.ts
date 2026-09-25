@@ -117,6 +117,9 @@ export class MemoryAdapter<
 
   private _identities = new Map<string, Identities.Me<Profile>>()
   private _sessions = new Map<string, Sessions.Me>()
+  /** When each identity's sessions were last swept wholesale; read by `sessions.create`. One number per
+   *  identity ever revoked, which is bounded by `_identities` in a store that holds everything anyway. */
+  private _sessionRevokedAt = new Map<string, number>()
   private _credentials = new Map<string, Credential.Me>()
   private _orgs = new Map<string, Org.Me<OrgMeta>>()
   private _memberships = new Map<string, Org.Membership>()
@@ -125,6 +128,16 @@ export class MemoryAdapter<
    *  global (`tenantId: null`) row is invisible to it, exactly as `eq(tenant_id, $1)` is in SQL. */
   private _inTenant(row: { tenantId: string | null }, ctx: TenantContext | undefined): boolean {
     return ctx?.tenantId === undefined || row.tenantId === ctx.tenantId
+  }
+
+  /** Org ids are the host's own and two tenants may use the same one, so the tenant is part of the key.
+   *  JSON, not a joined string: an id carrying the separator would otherwise collide with another pair. */
+  private _orgKey(tenantId: string | null, orgId: string): string {
+    return JSON.stringify([tenantId, orgId])
+  }
+
+  private _memberKey(tenantId: string | null, orgId: string, identityId: string): string {
+    return JSON.stringify([tenantId, orgId, identityId])
   }
 
   readonly identities: Memory<Adapter.Me<Profile>['identities']> = {
@@ -390,6 +403,13 @@ export class MemoryAdapter<
         // update. Every dialect's primary key refuses it; overwriting would hand the old token the new row.
         if (this._sessions.has(s.id)) throw new AuthError('AUTH_ALREADY_EXISTS')
         assertSessionAllowed(s)
+        // SECURITY: a session minted before this identity's last revoke does not survive it, as in
+        // redis. `AUTH_STALE_WRITE` rather than `AUTH_SESSION_REVOKED`, which the reader's absent set
+        // would swallow as "no session" instead of the lost race it is.
+        const revokedAt = s.identityId ? this._sessionRevokedAt.get(s.identityId) : undefined
+        if (revokedAt !== undefined && s.createdAt.getTime() < revokedAt) {
+          throw new AuthError('AUTH_STALE_WRITE', { actual: revokedAt, expected: s.createdAt.getTime() })
+        }
 
         // Fill the nullable columns the caller omitted, so the store holds a complete row.
         put(this._sessions, s.id, {
@@ -422,6 +442,8 @@ export class MemoryAdapter<
     deleteAllForIdentities: (identityIds) =>
       this.run(async () => {
         const wanted = new Set(identityIds)
+        const now = Date.now()
+        for (const identityId of wanted) this._sessionRevokedAt.set(identityId, now)
         const gone: Sessions.Revoked[] = []
         for (const s of this._sessions.values()) {
           if (s.identityId === null || !wanted.has(s.identityId)) continue
@@ -434,6 +456,9 @@ export class MemoryAdapter<
 
     deleteAllForIdentity: (identityId, ctx?) =>
       this.run(async () => {
+        // Identity-wide even on a scoped sweep, as in redis: the racing create is refused and retried
+        // rather than being let through because it named a different tenant.
+        this._sessionRevokedAt.set(identityId, Date.now())
         for (const s of this._sessions.values()) {
           if (s.identityId === identityId && this._inTenant(s, ctx)) this._sessions.delete(s.id)
         }
@@ -484,17 +509,29 @@ export class MemoryAdapter<
         [...this._sessions.values()].filter((s) => s.identityId === identityId && this._inTenant(s, ctx)).map(copy),
       ),
 
-    update: (id, patch) =>
+    update: (id, patch, expectedUpdatedAt) =>
       this.run(async () => {
         const cur = this._sessions.get(id)
         // Redis and SQL both surface a missing row as AUTH_SESSION_REVOKED; keep memory in step.
         if (!cur) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+        if (expectedUpdatedAt !== undefined && cur.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+          throw new AuthError('AUTH_STALE_WRITE', {
+            actual: cur.updatedAt.getTime(),
+            expected: expectedUpdatedAt.getTime(),
+          })
+        }
 
-        // No implicit `rotatedAt` stamp: moving it on every patch would mask an expired gate. `id` is pinned
-        // because the key is the sid hash the cookie carries.
-        // Stamped here rather than taken from the patch, so it tracks the write the way `$onUpdate` does
-        // in SQL and a caller cannot backdate it.
-        const next: Sessions.Me = { ...cur, ...stripUndefined(patch), id: cur.id, updatedAt: new Date() }
+        // No implicit `rotatedAt` stamp: moving it on every patch would mask an expired gate. `id` is
+        // pinned because the key is the sid hash the cookie carries.
+        // `updatedAt` is stamped here rather than taken from the patch, as `$onUpdate` does in SQL, and is
+        // strictly increasing: it is the token `expectedUpdatedAt` compares, and `Date` resolves to the
+        // millisecond, so two writes inside one would stamp equal and the second land on top of the first.
+        const next: Sessions.Me = {
+          ...cur,
+          ...stripUndefined(patch),
+          id: cur.id,
+          updatedAt: new Date(Math.max(Date.now(), cur.updatedAt.getTime() + 1)),
+        }
         assertSessionAllowed(next)
 
         return put(this._sessions, id, next)
@@ -682,57 +719,84 @@ export class MemoryAdapter<
   readonly orgs: Memory<Org.Store<OrgMeta>> = {
     __isMemoryStore: true,
 
-    addMember: (m, _ctx?) =>
+    addMember: (m, ctx) =>
       this.run(async () => {
-        const key = `${m.orgId}:${m.identityId}`
+        // The row carries its own tenant and the context names one, so the two can disagree. The facet
+        // stamps it from the context and cannot, but the store is called directly for bulk admin work -
+        // which is the path `orgs-toctou-add-member.test.ts` exists for - and there the write would land
+        // in whichever tenant the row named.
+        // Written out rather than through `_inTenant`, so `asked` narrows to a string without a cast.
+        if (ctx.tenantId !== undefined && m.tenantId !== ctx.tenantId) {
+          throw new AuthError('AUTH_TENANT_SCOPE_VIOLATION', { asked: ctx.tenantId, got: m.tenantId })
+        }
+        const key = this._memberKey(m.tenantId, m.orgId, m.identityId)
         const cur = this._memberships.get(key)
         if (cur && cur.leftAt === null) {
           throw new AuthError('AUTH_ALREADY_EXISTS', { detail: 'identity already a member of this org' })
         }
         // A stub on first membership, so the reads stay consistent with the writes.
-        if (!this._orgs.has(m.orgId)) {
-          this._orgs.set(m.orgId, { createdAt: new Date(), domain: null, id: m.orgId, metadata: null, name: m.orgId })
+        const orgKey = this._orgKey(m.tenantId, m.orgId)
+        if (!this._orgs.has(orgKey)) {
+          this._orgs.set(orgKey, {
+            createdAt: new Date(),
+            domain: null,
+            id: m.orgId,
+            metadata: null,
+            name: m.orgId,
+            tenantId: m.tenantId,
+          })
         }
 
         return put(this._memberships, key, { ...m, invitedAt: m.invitedAt ?? null, joinedAt: new Date(), leftAt: null })
       }),
 
-    getOrg: (id, _ctx?) =>
+    getOrg: (id, ctx) =>
       this.run(async () => {
-        const org = this._orgs.get(id)
+        // Scanned rather than keyed, because a ctx naming no tenant sees every row and a keyed lookup
+        // would need the tenant it is not being told.
+        const org = [...this._orgs.values()].find((o) => o.id === id && this._inTenant(o, ctx))
         if (!org) throw new AuthError('AUTH_ORG_NOT_FOUND')
 
         return copy(org)
       }),
 
-    listMembers: (orgId, _ctx?) =>
-      this.run(async () => [...this._memberships.values()].filter((m) => m.orgId === orgId && !m.leftAt).map(copy)),
+    listMembers: (orgId, ctx) =>
+      this.run(async () =>
+        [...this._memberships.values()]
+          .filter((m) => m.orgId === orgId && !m.leftAt && this._inTenant(m, ctx))
+          .map(copy),
+      ),
 
-    listOrgsForIdentity: (identityId, _ctx?) =>
+    listOrgsForIdentity: (identityId, ctx) =>
       this.run(async () => {
-        const orgIds = new Set<string>()
-        for (const m of this._memberships.values()) if (m.identityId === identityId && !m.leftAt) orgIds.add(m.orgId)
+        const seen = new Set<string>()
+        const out: Org.Me<OrgMeta>[] = []
+        for (const m of this._memberships.values()) {
+          if (m.identityId !== identityId || m.leftAt || !this._inTenant(m, ctx)) continue
+          const key = this._orgKey(m.tenantId, m.orgId)
+          if (seen.has(key)) continue
+          seen.add(key)
+          const org = this._orgs.get(key)
+          if (org) out.push(copy(org))
+        }
 
-        return [...orgIds]
-          .map((id) => this._orgs.get(id))
-          .filter((org): org is Org.Me<OrgMeta> => Boolean(org))
-          .map(copy)
+        return out
       }),
 
-    removeMember: (orgId, identityId, _ctx?) =>
+    removeMember: (orgId, identityId, ctx) =>
       this.run(async () => {
-        const key = `${orgId}:${identityId}`
+        const key = this._memberKey(ctx.tenantId ?? null, orgId, identityId)
         const cur = this._memberships.get(key)
-        if (!cur) throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
+        if (!cur || !this._inTenant(cur, ctx)) throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
 
         return put(this._memberships, key, { ...cur, leftAt: cur.leftAt ?? new Date() })
       }),
 
-    setRoles: (orgId, identityId, roles, _ctx?) =>
+    setRoles: (orgId, identityId, roles, ctx) =>
       this.run(async () => {
-        const key = `${orgId}:${identityId}`
+        const key = this._memberKey(ctx.tenantId ?? null, orgId, identityId)
         const cur = this._memberships.get(key)
-        if (!cur) throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
+        if (!cur || !this._inTenant(cur, ctx)) throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
 
         return put(this._memberships, key, { ...cur, roles: [...roles] })
       }),
@@ -741,7 +805,7 @@ export class MemoryAdapter<
   /** Register an org row so `getOrg` and `listOrgsForIdentity` answer. NOTE: `Org.Store` is a read
    *  interface over the host app's own tables, so there is no `createOrg` to call. */
   seedOrg(org: Org.Me<OrgMeta>): Org.Me<OrgMeta> {
-    return put(this._orgs, org.id, org)
+    return put(this._orgs, this._orgKey(org.tenantId, org.id), org)
   }
 
   /** The stored rows themselves, for tests only. NOTE: copying on the way in and out removes the only way

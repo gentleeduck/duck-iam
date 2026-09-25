@@ -172,7 +172,7 @@ describe('IamPrismaAdapter rejects a non-object attribute payload', () => {
     ['a number', '7'],
   ])('rejects %s without writing', async (_label, json) => {
     const { adapter, attrs } = makePrismaWithAttrs(undefined)
-    await expect(adapter.setSubjectAttributes('user-1', JSON.parse(json))).rejects.toThrow(/must be a plain object/)
+    await expect(adapter.setSubjectAttributes('user-1', JSON.parse(json))).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
     expect(attrs.size).toBe(0)
   })
 

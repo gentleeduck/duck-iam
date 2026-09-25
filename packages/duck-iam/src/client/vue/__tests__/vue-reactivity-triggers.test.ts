@@ -63,7 +63,8 @@ describe('every vue state change the client makes is one a real ref would notify
     const { usePermissions } = createIamVueAccess<A, R, S>(vue)
     const state = usePermissions(() => Promise.resolve(MAP))
     await state.refetch()
-    expect(state.permissions.value).toBe(MAP)
+    // Value, not identity: `usePermissions` copies the fetched map so a JSON `null` body cannot reach `can()`.
+    expect(state.permissions.value).toEqual(MAP)
     expect(state.can('read', 'post')).toBe(true)
     expect(triggersOf(state.permissions)).toBe(1)
     expect(triggersOf(state.loading)).toBe(1)
@@ -94,7 +95,7 @@ describe('every vue state change the client makes is one a real ref would notify
     expect(state.permissions.value).toEqual({})
     expect(triggersOf(state.permissions)).toBe(2)
     await pending
-    expect(state.permissions.value).toBe(OTHER)
+    expect(state.permissions.value).toEqual(OTHER)
     expect(triggersOf(state.permissions)).toBe(3)
   })
 

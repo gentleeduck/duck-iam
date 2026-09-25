@@ -54,7 +54,7 @@ describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
     expect(await facet.hasTotp(identityId)).toBe(false)
   })
 
-  it('authVerifyTotp returns false for non-string row.secret (corrupt adapter row)', async () => {
+  it('verifyTotp returns false for non-string row.secret (corrupt adapter row)', async () => {
     // Plant a confirmed:true row but with a non-string secret (typo:
     // 12345 instead of 'JBSWY...'). The TOTP module would crash on
     // decodeBase32; the early-out keeps the request safe.

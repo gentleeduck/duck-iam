@@ -1,3 +1,4 @@
+import { hasIamErrorCode, throwIamError } from '../../core/errors'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
@@ -9,6 +10,7 @@ import {
   iamNormalizePolicy,
   iamRoleWithoutInherit,
   iamUnreadablePolicy,
+  iamUnreadableRole,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -58,19 +60,6 @@ export namespace IamRedis {
 }
 
 /**
- * Stored attributes that exist but cannot be read, as distinct from a failed `GET`.
- * SECURITY: `setSubjectAttributes` overwrites only this case; merging after a failed read would wipe unseen attributes.
- */
-class IamRedisCorruptAttributesError extends Error {
-  override readonly name = 'IamRedisCorruptAttributesError'
-}
-
-/** Matches {@link IamRedisCorruptAttributesError} by name, not `instanceof`, so a duplicated package copy matches. */
-function isCorruptAttributes(err: unknown): err is Error {
-  return err instanceof Error && err.name === 'IamRedisCorruptAttributesError'
-}
-
-/**
  * Redis-backed adapter using hashes and sets.
  * INFO: keys are `${p}policies` (hash), `${p}roles` (hash), `${p}assignments:${id}` (set of `roleId\x00scope`)
  * and `${p}attrs:${id}` (JSON string), where `p` is `keyPrefix`.
@@ -106,10 +95,10 @@ export class IamRedisAdapter<
   }
 
   /**
-   * Parses and validates a stored policy; on failure it reports, then throws (unlike `_safeParseRole`, which drops).
+   * Parses and validates a stored policy; on failure it reports, then throws, as `_safeParseRole` does.
    * SECURITY: an unreadable policy is refused, not skipped, because it may be the one that denies.
    */
-  private _safeParsePolicy(raw: string, rowId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  private _safeParsePolicy(raw: string, rowId: string): AccessControl.IPolicy<TAction, TResource, TRole> {
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
@@ -129,13 +118,13 @@ export class IamRedisAdapter<
     return policy
   }
 
-  private _safeParseRole(raw: string, rowId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  private _safeParseRole(raw: string, rowId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> {
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
     } catch (err) {
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
-      return null
+      throw iamUnreadableRole('redis', rowId, err instanceof Error ? err.message : String(err))
     }
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(parsed)
     if (role === null) {
@@ -143,7 +132,7 @@ export class IamRedisAdapter<
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
-      return null
+      throw iamUnreadableRole('redis', rowId, issues)
     }
     return role
   }
@@ -294,10 +283,7 @@ export class IamRedisAdapter<
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const entries = await this._client.hgetall(this._policiesKey())
     const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
-    for (const [rowId, raw] of Object.entries(entries)) {
-      const parsed = this._safeParsePolicy(raw, rowId)
-      if (parsed) out.push(parsed)
-    }
+    for (const [rowId, raw] of Object.entries(entries)) out.push(this._safeParsePolicy(raw, rowId))
     return out
   }
 
@@ -307,7 +293,7 @@ export class IamRedisAdapter<
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const value = await this._client.hget(this._policiesKey(), id)
-    return value ? this._safeParsePolicy(value, id) : null
+    return value === null ? null : this._safeParsePolicy(value, id)
   }
 
   /** Stores or overwrites a policy under its id. */
@@ -321,24 +307,21 @@ export class IamRedisAdapter<
     await this._client.hdel(this._policiesKey(), id)
   }
 
-  /** Lists every stored role, dropping (and reporting) unreadable rows. */
+  /** Lists every stored role; throws if any row is unreadable. */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const entries = await this._client.hgetall(this._rolesKey())
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
-    for (const [rowId, raw] of Object.entries(entries)) {
-      const parsed = this._safeParseRole(raw, rowId)
-      if (parsed) out.push(parsed)
-    }
+    for (const [rowId, raw] of Object.entries(entries)) out.push(this._safeParseRole(raw, rowId))
     return out
   }
 
-  /** Fetches a role by id, or `null` when absent or unreadable. */
+  /** Fetches a role by id, or `null` when absent. Throws (via {@link iamUnreadableRole}) when the row is unreadable. */
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const value = await this._client.hget(this._rolesKey(), id)
-    return value ? this._safeParseRole(value, id) : null
+    return value === null ? null : this._safeParseRole(value, id)
   }
 
   /** Stores or overwrites a role under its id. */
@@ -362,7 +345,6 @@ export class IamRedisAdapter<
     const entries = await this._client.hgetall(this._rolesKey())
     for (const [rowId, raw] of Object.entries(entries)) {
       const role = this._safeParseRole(raw, rowId)
-      if (role === null) continue
       const stripped = iamRoleWithoutInherit(role, deletedId)
       if (stripped !== null) await this._client.hset(this._rolesKey(), rowId, JSON.stringify(stripped))
     }
@@ -463,16 +445,14 @@ export class IamRedisAdapter<
   /** Reads the subject's attributes, or `{}` when none are stored; throws on a corrupt blob. */
   async getSubjectAttributes(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     const value = await this._client.get(this._attrsKey(subjectId))
-    if (!value) return {}
+    if (value === null) return {}
     let parsed: unknown
     try {
       parsed = JSON.parse(value)
     } catch (err) {
       // SECURITY: corrupt is not empty; returning {} would strip the subject's attributes from every decision.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-      throw new IamRedisCorruptAttributesError(
-        `[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (JSON parse failed)`,
-      )
+      throwIamError('IAM_ATTRIBUTES_CORRUPT', { adapter: 'redis', subjectId, reason: 'parse-failed' })
     }
     const attrs = iamNarrowAttributes(parsed)
     if (attrs === null) {
@@ -480,9 +460,7 @@ export class IamRedisAdapter<
         new Error(`Attributes for "${subjectId}" must be a JSON object of scalar values`),
         subjectId,
       )
-      throw new IamRedisCorruptAttributesError(
-        `[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (not a JSON object)`,
-      )
+      throwIamError('IAM_ATTRIBUTES_CORRUPT', { adapter: 'redis', subjectId, reason: 'not-object' })
     }
     return attrs
   }
@@ -490,13 +468,14 @@ export class IamRedisAdapter<
   /** Shallow-merges `attrs` into the subject's stored attributes. */
   async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
     iamAssertAttributesParam('redis', subjectId, attrs)
-    // SECURITY: only a corrupt blob merges as `{}`, so an operator can overwrite it. Any other read failure throws,
-    // since merging into a bag nobody read would replace it. See {@link IamRedisCorruptAttributesError}.
+    // SECURITY: only a corrupt blob (`IAM_ATTRIBUTES_CORRUPT`) merges as `{}`, so an operator can overwrite it.
+    // Any other read failure throws, since merging into a bag nobody read would replace it. Matched by code, not
+    // `instanceof`, so a duplicated package copy of IamError still matches.
     let existing: IamPrimitives.Attributes
     try {
       existing = await this.getSubjectAttributes(subjectId)
     } catch (err) {
-      if (!isCorruptAttributes(err)) throw err
+      if (!hasIamErrorCode(err, 'IAM_ATTRIBUTES_CORRUPT')) throw err
       this._reportPolicyError(err, subjectId)
       existing = {}
     }

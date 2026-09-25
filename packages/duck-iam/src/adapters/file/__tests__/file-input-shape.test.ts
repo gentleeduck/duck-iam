@@ -25,13 +25,13 @@ describe('IamFileAdapter direct-call input shape', () => {
   it('rejects a string attrs value (the spread-to-chars class)', async () => {
     await expect(
       makeAdapter().setSubjectAttributes('user-1', 'admin=true' as unknown as IamPrimitives.Attributes),
-    ).rejects.toThrow(/attributes for "user-1" must be a plain object \(got string\)/)
+    ).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
   })
 
   it('rejects an array attrs value', async () => {
     await expect(
       makeAdapter().setSubjectAttributes('user-1', [1, 2] as unknown as IamPrimitives.Attributes),
-    ).rejects.toThrow(/\(got array\)/)
+    ).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
   })
 
   it('does not corrupt existing attributes on a rejected call', async () => {

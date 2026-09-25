@@ -168,13 +168,13 @@ position is `1 << index`, JS bitwise operators coerce to 32-bit and wrap the
 shift amount mod 32, so role 32 would alias role 0's bit.
 
 **What happens at role 33.** Nothing denies and nothing throws to the caller.
-`compileTable` throws `IamRoleLimitExceededError`
-(`src/core/engine/compiled/compiled.compile.ts:119`), the engine catches *that
-error specifically* (`src/core/engine/engine.ts:466`), `console.warn`s once, and
+`compileTable` throws `IamError` with code `IAM_ROLE_LIMIT_EXCEEDED`
+(`src/core/engine/compiled/compiled.compile.ts:105`), the engine catches *that
+error specifically* (`src/core/engine/engine.ts:573`), `console.warn`s once, and
 returns `null` from `_getCompiledTable` — so **both** production and development
 drop to the interpreter for every subsequent request. Verdicts are unchanged;
 throughput is not. `healthCheck()` reports it explicitly
-(`src/core/engine/engine.ts:1464`):
+(`src/core/engine/engine.ts:1387`):
 
 ```typescript
 const health = await engine.healthCheck()
@@ -189,10 +189,10 @@ catalog past 32 roles mid-suite and asserts every scoped answer is identical on
 both sides of the cliff, so crossing it is safe for correctness. Second, the
 `_roleLimitExceeded` flag latches so the compile is not re-attempted (and
 re-thrown) on every request, but it is **cleared whenever the role set changes**
-by `_clearRoleLimitLatch()` (`engine.ts:1398`). Three paths call it: a local
-`cache.invalidate()` (`engine.ts:1365`), a local `cache.invalidateRoles()`
-(`engine.ts:1409`), and a received cross-instance invalidate event of kind
-`'all'` or `'roles'` (`engine.ts:340`) — so a replica drops the latch too rather
+by `_clearRoleLimitLatch()` (`engine.ts:1354`). Three paths call it: a local
+`cache.invalidate()` (`engine.ts:1335`), a local `cache.invalidateRoles()`
+(`engine.ts:1365`), and a received cross-instance invalidate event of kind
+`'all'` or `'roles'` (`engine.ts:426`) — so a replica drops the latch too rather
 than staying stuck while the deleting instance recovers. Deleting roles back
 under 32 and invalidating roles restores the compiled table on the next request;
 no engine restart is needed. `_roleLimitReported` is reset alongside it, so a

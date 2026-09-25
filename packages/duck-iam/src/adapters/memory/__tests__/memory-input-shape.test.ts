@@ -7,34 +7,34 @@ describe('IamMemoryAdapter direct-call input shape', () => {
     const adapter = new IamMemoryAdapter<string, string, string, string>()
     await expect(
       adapter.setSubjectAttributes('user-1', 'admin=true' as unknown as IamPrimitives.Attributes),
-    ).rejects.toThrow(/attributes for "user-1" must be a plain object \(got string\)/)
+    ).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
   })
 
   it('rejects an array attrs value', async () => {
     const adapter = new IamMemoryAdapter<string, string, string, string>()
     await expect(
       adapter.setSubjectAttributes('user-1', [1, 2, 3] as unknown as IamPrimitives.Attributes),
-    ).rejects.toThrow(/attributes for "user-1" must be a plain object \(got array\)/)
+    ).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
   })
 
   it('rejects a null attrs value', async () => {
     const adapter = new IamMemoryAdapter<string, string, string, string>()
     await expect(adapter.setSubjectAttributes('user-1', null as unknown as IamPrimitives.Attributes)).rejects.toThrow(
-      /attributes for "user-1" must be a plain object \(got null\)/,
+      'IAM_ATTRIBUTES_INVALID',
     )
   })
 
   it('rejects a number attrs value', async () => {
     const adapter = new IamMemoryAdapter<string, string, string, string>()
     await expect(adapter.setSubjectAttributes('user-1', 42 as unknown as IamPrimitives.Attributes)).rejects.toThrow(
-      /attributes for "user-1" must be a plain object \(got number\)/,
+      'IAM_ATTRIBUTES_INVALID',
     )
   })
 
   it('rejects a boolean attrs value', async () => {
     const adapter = new IamMemoryAdapter<string, string, string, string>()
     await expect(adapter.setSubjectAttributes('user-1', true as unknown as IamPrimitives.Attributes)).rejects.toThrow(
-      /attributes for "user-1" must be a plain object \(got boolean\)/,
+      'IAM_ATTRIBUTES_INVALID',
     )
   })
 

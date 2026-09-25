@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { type IamError, metaOf } from '../../errors'
 import { VALID_MODES } from '../engine.libs'
 import { IamEngine } from '../index'
 
@@ -64,13 +65,19 @@ describe('mode is checked at boot, like policyCombine', () => {
     'refuses mode %o instead of silently running development',
     async (bad) => {
       const adapter = await seeded()
-      expect(build(adapter, { mode: bad })).toThrow(/unknown mode .*Must be one of: development, production/)
+      expect(build(adapter, { mode: bad })).toThrow('IAM_ENGINE_INVALID_CONFIG')
     },
   )
 
   it('names the offending value verbatim, so whitespace is visible', async () => {
     const adapter = await seeded()
-    expect(build(adapter, { mode: ' production' })).toThrow('unknown mode " production"')
+    try {
+      build(adapter, { mode: ' production' })()
+      expect.unreachable()
+    } catch (err) {
+      const meta = metaOf(err as IamError<'IAM_ENGINE_INVALID_CONFIG'>, 'IAM_ENGINE_INVALID_CONFIG')
+      expect(meta.got).toBe(' production')
+    }
   })
 
   it.each(VALID_MODES)('accepts mode %s', async (mode) => {
@@ -87,13 +94,15 @@ describe('mode is checked at boot, like policyCombine', () => {
 
   it('closes the first-applicable bypass: a mistyped production mode no longer accepts it', async () => {
     const adapter = await seeded()
-    expect(build(adapter, { mode: 'prodution', policyCombine: 'first-applicable' })).toThrow(/unknown mode/)
+    expect(build(adapter, { mode: 'prodution', policyCombine: 'first-applicable' })).toThrow(
+      'IAM_ENGINE_INVALID_CONFIG',
+    )
   })
 
   it('still refuses first-applicable under a correctly spelled production', async () => {
     const adapter = await seeded()
     expect(build(adapter, { mode: 'production', policyCombine: 'first-applicable' })).toThrow(
-      /requires mode 'development'/,
+      'IAM_ENGINE_POLICY_COMBINE_INCOMPATIBLE',
     )
   })
 
@@ -107,7 +116,7 @@ describe('mode is checked at boot, like policyCombine', () => {
     let engine: unknown
     expect(() => {
       engine = build(adapter, { mode: 'prodution' })()
-    }).toThrow(/unknown mode/)
+    }).toThrow('IAM_ENGINE_INVALID_CONFIG')
     expect(engine).toBeUndefined()
   })
 })

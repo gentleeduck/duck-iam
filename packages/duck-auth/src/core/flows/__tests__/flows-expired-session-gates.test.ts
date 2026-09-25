@@ -8,9 +8,9 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import type { Channel } from '~/channels/channels.types'
 import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
+import type { Deliver } from '~/core/flows/flows.delivery'
 import type { Identities } from '~/core/identities/identities.types'
 import { DEFAULT_SESSION_CONFIG } from '~/core/sessions/sessions.constants'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -22,30 +22,28 @@ interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
-function fakeChannel(): Channel.Channel & { sent: Array<{ to: string; url: string }> } {
+function fakeChannel(): Deliver & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
-  return {
-    id: 'fake',
-    kind: 'email',
-    async send(input) {
-      const url = (input.vars as { url?: string }).url ?? ''
-      const email = (input.identity.profile as { email?: string } | undefined)?.email ?? ''
+  return Object.assign(
+    async (message: Parameters<Deliver>[0]): Promise<void> => {
+      const url = (message.vars as { url?: string }).url ?? ''
+      const email = (message.identity.profile as { email?: string } | undefined)?.email ?? ''
       sent.push({ to: email, url })
-      return { ok: true }
     },
-    sent,
-  }
+    { sent },
+  )
 }
 
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
-  channel: Channel.Channel & { sent: Array<{ to: string; url: string }> }
+  channel: Deliver & { sent: Array<{ to: string; url: string }> }
 } {
   const adapter = new MemoryAdapter<MyProfile>()
   const channel = fakeChannel()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
+    deliver: channel,
     limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }), mfaProvider()],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
@@ -119,7 +117,6 @@ describe('expired sessions are refused at every privileged gate', () => {
     const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
     await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)))
     await auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'a@x.com' },
     })
@@ -152,7 +149,6 @@ describe('expired sessions are refused at every privileged gate', () => {
     const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
     await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)))
     await auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'a@x.com' },
     })
@@ -188,7 +184,6 @@ describe('expired sessions are refused at every privileged gate', () => {
     const ch = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
     await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(ch.secret, Math.floor(Date.now() / 1000 / 30)))
     await auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'a@x.com' },
     })

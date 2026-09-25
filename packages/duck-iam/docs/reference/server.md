@@ -616,7 +616,7 @@ flowchart TD
     KIND -->|PUT/POST/DELETE| MUT["iamWithAdminAudit(ctx, handler)<br/>event always fires in finally"]
     MUT -->|resolved, status < 400| S200["2xx; success: true"]
     MUT -->|returned status >= 400| SREF["that status; success:false, error 'HTTP n'"]
-    MUT -->|threw IamValidationError| S400["400 Invalid <kind> + issues<br/>success: false"]
+    MUT -->|threw IamError IAM_VALIDATION_FAILED| S400["400 Invalid <kind> + issues<br/>success: false"]
     MUT -->|threw anything else| S500["onError → 500 Internal server error<br/>success: false"]
 ```
 
@@ -644,13 +644,13 @@ This is the table the whole section exists for. Express, hono and next write the
 | engine or adapter fault | **500** | `{error:'Internal server error'}` (`onError`) | throws, `statusCode: 500`, original as `cause` | fires, `success:false` |
 | success | **200** | the list, or `{ok:true}` | returns the value | fires on mutations only, `success:true` |
 
-`error: 'Invalid ' + err.kind` — `kind` is `'policy'`, `'role'` or `'request'`, from `IamValidationError` (`src/shared/errors.ts`). `issues` is the validator's own formatted strings; they describe the caller's own document and are safe to return, unlike an internal error message.
+`` `Invalid ${err.meta.kind}` `` — `kind` is `'policy'`, `'role'`, `'rule'` or `'request'`, from `IamError`'s `IAM_VALIDATION_FAILED` meta (`core/errors/errors.codes.ts`). `issues` is the validator's own formatted strings; they describe the caller's own document and are safe to return, unlike an internal error message.
 
 **There is no 404 anywhere in `src/server/`.** A 404 on an admin path comes from the host's routing table, never from this package. `GET /policies` on an empty store is `200 []`; a `revokeRole` for an assignment that does not exist is `200 {ok:true}` (the adapters treat revoke as idempotent).
 
 Two things the table encodes that took a while to get right:
 
-- **A malformed document is the caller's mistake.** `savePolicy`/`saveRole` validate before they write and used to signal rejection with a bare `Error`, which every generic catch routes to `onError` → 500. The write was refused correctly either way, so this was never a way past validation — but 500 tells a client to retry a request that can never succeed, and hides a client bug behind an apparent outage. `iamIsValidationError` matches on `name` rather than identity, because a package duplicated in a dependency tree produces two distinct classes and `instanceof` answers `false` for the copy that did not throw.
+- **A malformed document is the caller's mistake.** `savePolicy`/`saveRole` validate before they write and used to signal rejection with a bare `Error`, which every generic catch routes to `onError` → 500. The write was refused correctly either way, so this was never a way past validation — but 500 tells a client to retry a request that can never succeed, and hides a client bug behind an apparent outage. `hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')` matches by property rather than `instanceof IamError`, because a package duplicated in a dependency tree produces two distinct classes and `instanceof` answers `false` for the copy that did not throw.
 - **Nest no longer re-throws the original.** It used to, so every failure except 401/403 arrived at the host with no status at all, and an engine error's message rode out intact — `includeErrorMessage: false` governs only the *audit* string, so a driver error reading `DB password=hunter2` reached the host's filter with the flag off. `onError` now defaults to a fixed `'Internal server error'` with the original attached as `cause`, which is what express, hono and next have always answered. Returning the original from a custom `onError` is then a deliberate choice.
 
 ### 7.5 The audit hook

@@ -143,6 +143,45 @@ export class OAuthClient {
     return tokens
   }
 
+  /** RFC 7009 token revocation, so disconnecting a provider or deleting an account can hand the upstream
+   *  tokens back rather than leave them live at the IdP until they expire. Apple requires this call on
+   *  account deletion. A token that was already invalid answers 200 by design, so only a transport failure
+   *  or a non-2xx is a failure here. */
+  async revoke(token: string, opts: { tokenTypeHint?: 'access_token' | 'refresh_token' } = {}): Promise<void> {
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'oauth: revoke requires a non-empty token' })
+    }
+    const e = await this._resolveEndpoints()
+    if (!e.revocationEndpoint) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'oauth: revocationEndpoint not configured for this provider',
+      })
+    }
+    const fetchImpl = this._opts.fetch ?? globalThis.fetch
+    const secret = await this._resolveSecret()
+    const body = new URLSearchParams({
+      token,
+      client_id: this._opts.clientId,
+      ...(opts.tokenTypeHint !== undefined && { token_type_hint: opts.tokenTypeHint }),
+      ...(secret !== undefined && { client_secret: secret }),
+    })
+    const res = await fetchImpl(e.revocationEndpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      // SECURITY: as at the token endpoint -- a 307 re-posts this body, `client_secret` and the token being
+      // revoked included, to whatever the `Location` names.
+      redirect: 'error',
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
+        providerId: 'oauth',
+        detail: `revocation failed ${res.status}: ${text.slice(0, 200)}`,
+      })
+    }
+  }
+
   /** The provider may not expose one, in which case the profile comes from the id_token instead. */
   async userinfo(accessToken: string): Promise<Record<string, unknown>> {
     const e = await this._resolveEndpoints()

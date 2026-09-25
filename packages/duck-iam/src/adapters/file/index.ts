@@ -11,6 +11,7 @@ import {
   iamNormalizePolicy,
   iamRoleWithoutInherit,
   iamUnreadablePolicy,
+  iamUnreadableRole,
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -300,7 +301,7 @@ export class IamFileAdapter<
         }
         const parsed = parsedRaw
 
-        // Validate rows: a bad policy throws, a bad role is dropped. Null-proto dicts block prototype pollution.
+        // Validate rows: a bad policy or role throws. Null-proto dicts block prototype pollution.
         const policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>> = Object.create(null)
         const policiesRaw = this._rootField(parsed, 'policies')
         for (const [rowId, p] of Object.entries(policiesRaw)) {
@@ -326,6 +327,7 @@ export class IamFileAdapter<
               .issues.map((i) => i.message)
               .join('; ')
             this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
+            throw iamUnreadableRole('file', rowId, issues)
           }
         }
 
@@ -539,10 +541,6 @@ export class IamFileAdapter<
   async assignRole(id: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('file', scope)
     iamAssertNoAssignOptions('file', opts)
-    // NOTE: the loader refuses an empty scope, so it is refused here too (as redis does) rather than persisted.
-    if (scope === '') {
-      throw new Error('[@gentleduck/iam:file] scope must not be an empty string; omit it for a global assignment')
-    }
     const s = await this._loadState()
     this._assertReadableAssignments(s, id)
     iamAssertRoleExists('file', Object.hasOwn(s.roles, roleId))

@@ -1,11 +1,11 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
 
 import { matchesUnconditionally } from '../../conditions/conditions'
+import { throwIamError } from '../../errors'
 import { combiners, isRuleEffect, policyTargetsActionResource, ranksByPriority } from '../../evaluate/evaluate.libs'
 import { MAX_INHERITANCE_DEPTH, rolesToPolicy } from '../../rbac'
 import type { AccessControl } from '../../types'
 import { IAM_MAX_COMPILED_ROLES as MAX_ROLES } from '../engine.libs'
-import { IamPolicyCompileError, IamRoleLimitExceededError } from './compiled.errors'
 import { CellKind, type CompiledTable, type DynamicPolicyGroup, type RbacRuleGroup } from './compiled.types'
 
 /** Not a literal string: `'*'`, or an action/resource prefix pattern (`'foo:*'`, `'foo.*'`). */
@@ -28,19 +28,26 @@ function targetRolesOf(policy: AccessControl.IPolicy): readonly string[] | undef
 
 /**
  * Rejects, by policy id, a shape the compiler cannot walk: `rules`, `actions` or `resources` not an array.
- * Runs first, since adapter rows and hand-written configs do not honour the types. See {@link IamPolicyCompileError}.
+ * Runs first, since adapter rows and hand-written configs do not honour the types. See `IAM_POLICY_COMPILE_FAILED`.
  */
 function assertCompilablePolicy(policy: AccessControl.IPolicy): void {
   const policyId = typeof policy.id === 'string' ? policy.id : '<unnamed>'
-  if (!Array.isArray(policy.rules)) throw new IamPolicyCompileError(policyId, '`rules` is missing or not an array')
+  if (!Array.isArray(policy.rules)) {
+    throwIamError('IAM_POLICY_COMPILE_FAILED', { policyId, detail: '`rules` is missing or not an array' })
+  }
   let index = 0
   for (const rule of policy.rules) {
     const at = typeof rule?.id === 'string' ? `rule ${JSON.stringify(rule.id)}` : `rule at index ${index}`
     index++
-    if (rule === null || typeof rule !== 'object') throw new IamPolicyCompileError(policyId, `${at} is not an object`)
-    if (!Array.isArray(rule.actions)) throw new IamPolicyCompileError(policyId, `${at}: \`actions\` is not an array`)
-    if (!Array.isArray(rule.resources))
-      throw new IamPolicyCompileError(policyId, `${at}: \`resources\` is not an array`)
+    if (rule === null || typeof rule !== 'object') {
+      throwIamError('IAM_POLICY_COMPILE_FAILED', { policyId, detail: `${at} is not an object` })
+    }
+    if (!Array.isArray(rule.actions)) {
+      throwIamError('IAM_POLICY_COMPILE_FAILED', { policyId, detail: `${at}: \`actions\` is not an array` })
+    }
+    if (!Array.isArray(rule.resources)) {
+      throwIamError('IAM_POLICY_COMPILE_FAILED', { policyId, detail: `${at}: \`resources\` is not an array` })
+    }
   }
 }
 
@@ -86,7 +93,7 @@ function isSimplePermission(perm: AccessControl.IPermission, role: AccessControl
 
 /**
  * Compiles roles and policies into a flat lookup table. ABAC and RBAC stay separate votes, combined in `lookup()`.
- * Throws {@link IamRoleLimitExceededError} past the role cap and {@link IamPolicyCompileError} on a malformed policy.
+ * Throws `IAM_ROLE_LIMIT_EXCEEDED` past the role cap and `IAM_POLICY_COMPILE_FAILED` on a malformed policy.
  */
 export function compileTable(
   roles: readonly AccessControl.IRole[],
@@ -95,7 +102,7 @@ export function compileTable(
   scopeMode: 'flat' | 'hierarchical' = 'flat',
 ): CompiledTable {
   if (roles.length > MAX_ROLES) {
-    throw new IamRoleLimitExceededError(roles.length, MAX_ROLES)
+    throwIamError('IAM_ROLE_LIMIT_EXCEEDED', { roleCount: roles.length, limit: MAX_ROLES })
   }
 
   const flatPolicies: AccessControl.IPolicy[] = []

@@ -191,6 +191,69 @@ describe('drizzle sqlite dialect, against a real SQLite engine', () => {
   })
 })
 
+const HOUR = 60 * 60 * 1000
+
+describe('drizzle sqlite dialect: an elapsed assignment does not block its own re-grant', () => {
+  it('assignRole revives an elapsed unscoped assignment instead of leaving it blocked forever', async () => {
+    const { db } = makeEngine([])
+    const adapter = adapterFor('sqlite', db)
+    await adapter.saveRole(role('editor', 'Editor'))
+    await adapter.assignRole('sub-1', 'editor', undefined, { expiresAt: new Date(Date.now() - 1000) })
+
+    await adapter.assignRole('sub-1', 'editor')
+
+    expect(await adapter.getSubjectRoles('sub-1')).toEqual(['editor'])
+  })
+
+  it('CONTROL: assignRole is still a no-op for an active duplicate', async () => {
+    const { db, raw } = makeEngine([])
+    const adapter = adapterFor('sqlite', db)
+    await adapter.saveRole(role('editor', 'Editor'))
+    await adapter.assignRole('sub-1', 'editor', undefined, { expiresAt: new Date(Date.now() + HOUR) })
+
+    await adapter.assignRole('sub-1', 'editor', undefined, { attributes: { should: 'not-apply' } })
+
+    const row = raw
+      .prepare('select attributes from iam_assignments where subject_id = ? and role_id = ?')
+      .get('sub-1', 'editor')
+    expect(row).toEqual({ attributes: null })
+  })
+
+  it('assignRoleMany revives an elapsed assignment for one row without disturbing an active sibling', async () => {
+    const { db } = makeEngine([])
+    const adapter = adapterFor('sqlite', db)
+    await adapter.saveRole(role('editor', 'Editor'))
+    await adapter.saveRole(role('viewer', 'Viewer'))
+    await adapter.assignRole('sub-1', 'editor', undefined, { expiresAt: new Date(Date.now() - 1000) })
+    await adapter.assignRole('sub-1', 'viewer', undefined, { expiresAt: new Date(Date.now() + HOUR) })
+
+    await adapter.assignRoleMany([
+      { roleId: 'editor', subjectId: 'sub-1' },
+      { roleId: 'viewer', subjectId: 'sub-1' },
+    ])
+
+    const rolesAfter = await adapter.getSubjectRoles('sub-1')
+    expect(rolesAfter).toContain('editor')
+    expect(rolesAfter).toContain('viewer')
+    expect(rolesAfter).toHaveLength(2)
+  })
+
+  it('CONTROL: assignRoleMany is still a no-op for an active duplicate', async () => {
+    const { db, raw } = makeEngine([])
+    const adapter = adapterFor('sqlite', db)
+    await adapter.saveRole(role('editor', 'Editor'))
+    await adapter.assignRole('sub-1', 'editor', undefined, { expiresAt: new Date(Date.now() + HOUR) })
+
+    const changed = await adapter.assignRoleMany([{ roleId: 'editor', subjectId: 'sub-1' }])
+
+    expect(changed).toEqual([])
+    const row = raw
+      .prepare('select expires_at from iam_assignments where subject_id = ? and role_id = ?')
+      .get('sub-1', 'editor')
+    expect(row).not.toEqual({ expires_at: null })
+  })
+})
+
 describe('drizzle setSubjectAttributes when the read fails, against a real SQLite engine', () => {
   const isAttrRead = (sql: string) => isSelect(sql) && /iam_subject_attrs/i.test(sql)
   const storedData = (raw: DatabaseSync) =>
@@ -258,7 +321,7 @@ describe('drizzle setSubjectAttributes when the read fails, against a real SQLit
   it('a row that parses but is not a flat bag is corruption too', async () => {
     const { adapter, raw } = seeded()
     raw.prepare('insert into iam_subject_attrs (subject_id, data) values (?, ?)').run('u1', '["not","a","bag"]')
-    await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+    await expect(adapter.getSubjectAttributes('u1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
 
     await adapter.setSubjectAttributes('u1', { tier: 'silver' })
     expect(JSON.parse(String(storedData(raw)?.data))).toEqual({ tier: 'silver' })

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import type { Channel } from '~/channels/channels.types'
 import { orNull } from '~/core/answer'
 import { AuthEngine } from '~/core/engine'
+import type { Deliver } from '~/core/flows/flows.delivery'
 import { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -12,7 +12,7 @@ import { magicLink } from '../index'
 
 interface MyProfile extends Identities.ProfileMetadataBase {}
 
-function buildAuth(channel: Channel.Channel): {
+function buildAuth(channel: Deliver): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
 } {
@@ -30,7 +30,7 @@ function buildAuth(channel: Channel.Channel): {
   })
   auth.providers.register(
     magicLink<MyProfile>({
-      channels: { email: channel },
+      deliver: channel,
       findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
       autoCreateIdentity: false,
       ttlMs: 60_000,
@@ -39,19 +39,15 @@ function buildAuth(channel: Channel.Channel): {
   return { auth, adapter }
 }
 
-// A channel whose send() resolves only after `delayMs`. Used to
-// simulate a real-world SMTP / SES network call.
-function makeSlowChannel(delayMs: number): Channel.Channel & { sendStarted: number } {
-  const ch = {
-    kind: 'email' as const,
-    id: 'slow',
-    sendStarted: 0,
-    async send(): Promise<{ ok: true }> {
+// A `deliver` that resolves only after `delayMs`, standing in for a real SMTP / SES network call.
+function makeSlowChannel(delayMs: number): Deliver & { sendStarted: number } {
+  const ch: Deliver & { sendStarted: number } = Object.assign(
+    async (): Promise<void> => {
       ch.sendStarted++
       await new Promise((r) => setTimeout(r, delayMs))
-      return { ok: true }
     },
-  }
+    { sendStarted: 0 },
+  )
   return ch
 }
 
@@ -125,7 +121,7 @@ describe('magic-link.begin - timing-defense', () => {
     })
     auth.providers.register(
       magicLink<MyProfile>({
-        channels: { email: channel },
+        deliver: channel,
         findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
         autoCreateIdentity: false,
         ttlMs: 60_000,
@@ -147,13 +143,9 @@ describe('magic-link.begin - timing-defense', () => {
     expect(ghost.map((c) => c.split('.')[0])).toEqual(known.map((c) => c.split('.')[0]))
   })
 
-  it('channel.send rejection does NOT crash the fire-and-forget - emits signin.failed', async () => {
-    const failingChannel: Channel.Channel = {
-      kind: 'email',
-      id: 'failing',
-      async send() {
-        throw new Error('SMTP exploded')
-      },
+  it('a throwing deliver does NOT crash the fire-and-forget - emits signin.failed', async () => {
+    const failingChannel: Deliver = async () => {
+      throw new Error('SMTP exploded')
     }
     const { auth, adapter } = buildAuth(failingChannel)
     await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }))
@@ -163,36 +155,15 @@ describe('magic-link.begin - timing-defense', () => {
       seen.push(payload.reason)
     })
 
-    // The call resolves with ok:true even though the channel threw.
+    // The call resolves with ok:true even though deliver threw.
     const intents = await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
     expect(intents).toEqual([{ type: 'json', status: 200, body: { ok: true } }])
 
     // Yield so the fire-and-forget chain can settle.
     await new Promise((r) => setImmediate(r))
     expect(seen).toHaveLength(1)
-    expect(seen[0]).toContain('channel.send threw')
-    expect(seen[0]).toContain('SMTP exploded')
-  })
-
-  it('channel.send returning ok:false emits signin.failed with the canonical reason', async () => {
-    const rejectingChannel: Channel.Channel = {
-      kind: 'email',
-      id: 'reject',
-      async send() {
-        return { ok: false, error: 'recipient quota exceeded' }
-      },
-    }
-    const { auth, adapter } = buildAuth(rejectingChannel)
-    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }))
-
-    const seen: string[] = []
-    auth.events.on('signin.failed', (payload) => {
-      seen.push(payload.reason)
-    })
-
-    await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
-
-    await new Promise((r) => setImmediate(r))
-    expect(seen).toEqual(['channel.send rejected delivery'])
+    // Fixed text: this flow's rendered body is the sign-in link, so the thrown message cannot go on the bus.
+    expect(seen[0]).toBe('deliver threw')
+    expect(seen[0]).not.toContain('SMTP exploded')
   })
 })

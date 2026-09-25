@@ -25,6 +25,27 @@ export namespace Events {
       identity: Identities.Me | null
       audit?: Envelope
     }
+    /**
+     * A session died of age rather than by request - the sliding TTL, the hard absolute cap, an elapsed
+     * impersonation window, or a `gc()` sweep.
+     *
+     * Deliberately not `session.revoked`: a consumer has to be able to tell "the system aged this out"
+     * from "someone revoked this", and folding them together makes the revocation audit trail lie and
+     * hides organic churn inside deliberate action.
+     *
+     * `sessionId` and `identityId` are absent for a `gc()` sweep, which knows only how many rows it took;
+     * `count` is set only there, and is 1 everywhere else.
+     *
+     * No `audit` envelope, which is what keeps it out of `AUDITED_EVENTS`: that envelope names who did a
+     * thing, and nobody did this one. Stamping the holder of a dead token onto it would invite reading
+     * "who expired this session" out of a field that answers a different question.
+     */
+    'session.expired': {
+      sessionId?: string
+      identityId?: string | null
+      reason: 'sliding' | 'absolute' | 'impersonation' | 'gc'
+      count?: number
+    }
     /** Emitted after every rotation. `previousSessionId` is the hashed id rotated away from, present whenever
      *  the caller supplied a `previousSid`, and it is what chains a session's lineage for audit. */
     'session.rotated': { session: Sessions.Me; previousSessionId?: string; audit?: Envelope }
@@ -78,6 +99,17 @@ export namespace Events {
       /** Which IAM decision let this through. An impersonation nobody can trace to an authorization
        *  is the one entry an audit log cannot afford to be missing. */
       iamDecisionId?: string
+      /** WARN: the flow sets this itself; it emits outside any request scope, so the stamper finds nothing. */
+      audit?: Envelope
+    }
+    /** The close of a window, however it closed. */
+    'identity.impersonation.ended': {
+      sessionId: string
+      realIdentityId: string
+      /** The impersonated subject: the session's own `identityId`, which a guest row leaves null. */
+      targetIdentityId: string | null
+      endedBy: 'release' | 'revoke' | 'expiry'
+      audit?: Envelope
     }
     'recovery.password.requested': { identityId: string; audit?: Envelope }
     'recovery.password.completed': { identityId: string; audit?: Envelope }
@@ -98,10 +130,6 @@ export namespace Events {
     /** Published by the IAM side when an identity's authorization is revoked, so every instance drops its cached
      *  decisions. duck-auth only subscribes, which is why this carries no `audit` envelope. */
     'authz.revoked': { identityId: string; at: number }
-    'maintenance.on': { message?: string; retryAfter?: number }
-    'maintenance.off': Record<string, never>
-    'readonly.on': Record<string, never>
-    'readonly.off': Record<string, never>
   }
 
   export type EventName = keyof EventMap
@@ -114,9 +142,8 @@ export namespace Events {
   }
 
   /** True when a payload declares `audit`.
-   *  WARN: both guards are load-bearing. `T extends { audit?: Envelope }` matches everything, since
-   *  all-optional types are assignable, and `keyof Record<string, never>` is `string`, which would drag in
-   *  `maintenance.off`. */
+   *  WARN: `T extends { audit?: Envelope }` matches everything, since all-optional types are assignable,
+   *  and the `string extends keyof T` guard holds the line for an empty payload, whose `keyof` is `string`. */
   export type DeclaresAudit<T> = string extends keyof T ? false : 'audit' extends keyof T ? true : false
 
   /** Events the stamper in `events.audit.ts` may write an {@link Envelope} onto. */

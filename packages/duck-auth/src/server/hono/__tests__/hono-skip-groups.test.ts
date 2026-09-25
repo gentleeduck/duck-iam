@@ -54,7 +54,9 @@ describe('mountHono opts.skip', () => {
   })
 
   it.each([
-    ['oauth', ['/auth/providers/:provider/callback']],
+    // Twice: the recorder logs one entry per method, and the oauth callback is mounted on GET and on
+    // POST, the latter for `response_mode=form_post`.
+    ['oauth', ['/auth/providers/:provider/callback', '/auth/providers/:provider/callback']],
     ['magic-link', ['/auth/magic-link/verify']],
     ['passkey', ['/auth/passkey/begin', '/auth/passkey/complete']],
     [

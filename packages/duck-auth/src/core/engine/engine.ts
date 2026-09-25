@@ -120,9 +120,9 @@ export class AuthEngine<
     this.providers = new Providers<Profile>()
     for (const entry of cfg.providers ?? []) {
       if (!entry) continue
-      // A thunk receives the constructed engine and the channels, so a capability can bind to stores and
-      // events, as mfa and api-key do, or to channels, as magic-link and otp do.
-      const cap = typeof entry === 'function' ? entry(this, cfg.channels) : entry
+      // A thunk receives the constructed engine and `deliver`, so a capability can bind to stores and
+      // events, as mfa and api-key do, or to delivery, as magic-link and otp do.
+      const cap = typeof entry === 'function' ? entry(this, cfg.deliver) : entry
       if (!cap) continue
       this.providers.register(cap)
     }
@@ -150,6 +150,7 @@ export class AuthEngine<
       }),
       () => this.passwords,
       () => this.mfa,
+      cfg.deliver,
       DEFAULT_FLOWS_CONFIG,
     )
   }
@@ -198,6 +199,7 @@ export class AuthEngine<
           }),
           () => providers.resolve(PasswordsImpl) ?? this.passwords,
           () => providers.resolve(MfaFacet) ?? this.mfa,
+          this.cfg.deliver,
           DEFAULT_FLOWS_CONFIG,
         ),
     })

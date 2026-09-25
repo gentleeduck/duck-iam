@@ -3,6 +3,7 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../engine'
 import { compileTable } from '../../engine/compiled/compiled.compile'
 import { lookup } from '../../engine/compiled/compiled.lookup'
+import { IamError, metaOf } from '../../errors'
 import { evaluatePolicy } from '../../evaluate/evaluate'
 import { combiners } from '../../evaluate/evaluate.libs'
 import { evaluateOperator } from '../conditions'
@@ -69,13 +70,23 @@ describe('an inherited name is not an operator', () => {
   })
 
   it.each(INHERITED)('evalCondition refuses operator %s instead of answering truthy', (name) => {
-    expect(() =>
-      evalCondition(REQ as never, { field: 'subject.attributes.tier', operator: name, value: 'gold' } as never),
-    ).toThrow(new RegExp(`unknown operator "${name}"`))
+    try {
+      evalCondition(REQ as never, { field: 'subject.attributes.tier', operator: name, value: 'gold' } as never)
+      expect.unreachable()
+    } catch (err) {
+      const meta = metaOf(err as IamError<'IAM_CONDITION_OPERATOR_UNKNOWN'>, 'IAM_CONDITION_OPERATOR_UNKNOWN')
+      expect(meta.operator).toBe(name)
+    }
   })
 
   it.each(INHERITED)('the public iamEvaluateOperator refuses %s too', (name) => {
-    expect(() => evaluateOperator(name as never, 'bronze', 'gold')).toThrow(new RegExp(`unknown operator "${name}"`))
+    try {
+      evaluateOperator(name as never, 'bronze', 'gold')
+      expect.unreachable()
+    } catch (err) {
+      const meta = metaOf(err as IamError<'IAM_CONDITION_OPERATOR_UNKNOWN'>, 'IAM_CONDITION_OPERATOR_UNKNOWN')
+      expect(meta.operator).toBe(name)
+    }
   })
 
   it('CONTROL: iamEvaluateOperator still applies a real operator', () => {
@@ -131,7 +142,9 @@ describe('an inherited name is not an operator', () => {
 
   it('the write path already refused these, so only a seeded row could carry one', async () => {
     const adapter = new IamMemoryAdapter()
-    await expect(adapter.savePolicy(planted('w', 'constructor', 'allow', 'all'))).rejects.toThrow(/Invalid operator/)
+    await expect(adapter.savePolicy(planted('w', 'constructor', 'allow', 'all'))).rejects.toThrow(
+      'IAM_VALIDATION_FAILED',
+    )
   })
 
   // An inherited combiner name answers an object with no `effect`, so it denies either way. What the guard adds is

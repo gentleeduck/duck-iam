@@ -1,5 +1,6 @@
 import { orNull } from '~/core/answer'
 import {
+  burnCredential,
   getCredentialPurpose,
   isCredentialExpired,
   isRevoked,
@@ -35,16 +36,8 @@ export async function requestEmailVerification<Profile extends Identities.Profil
   const limited = await ctx.limiter.consume(`verify:email:${opts.identityId}`)
   if (!limited.ok) await refuseRateLimited(ctx.events, limited, identity.id)
 
-  const requestedChannel = opts.channel ?? 'email'
-  const channel: 'email' | 'sms' | 'webpush' =
-    requestedChannel === 'email' || requestedChannel === 'sms' || requestedChannel === 'webpush'
-      ? requestedChannel
-      : 'email'
-  const channelImpl = opts.channels[channel]
-  if (!channelImpl) {
-    throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: `email-verification: channel "${channel}" not configured`,
-    })
+  if (!deps.deliver) {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: 'email-verification: no `deliver` configured' })
   }
 
   // By purpose, never by kind. `recovery` is shared by six token families (`RECOVERY_PURPOSES`) told
@@ -72,9 +65,8 @@ export async function requestEmailVerification<Profile extends Identities.Profil
   )
 
   const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-  await deliver(ctx.events, 'email-verification', channelImpl, {
+  await deliver(ctx.events, 'email-verification', deps.deliver, {
     identity,
-    templateId: 'email-verification',
     vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
     tenant: ctx.tenant,
   })
@@ -99,18 +91,7 @@ export async function completeEmailVerification<Profile extends Identities.Profi
     throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
   }
 
-  // The CAS claim burns the token in the same write. Rotating to `row.secret` would claim the version
-  // while leaving the row findable by `hash` until the delete below, and a second verification reading
-  // in that window wins its own CAS.
-  const burnt = ctx.crypto.authSha256(ctx.crypto.authRandomToken(32))
-  try {
-    await ctx.stores.credentials.rotate(row.id, burnt, row.version, ctx.tenant)
-  } catch (err) {
-    if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') {
-      throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
-    }
-    throw err
-  }
+  await burnCredential(ctx, row)
 
   // Through the facet, not the raw store. `IdentitiesImpl` is where the profile size cap and the
   // stale-write retry live, and a flow reaching past it to `ctx.stores.identities.update` gets

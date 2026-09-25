@@ -225,7 +225,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('assignRole to a role that does not exist is refused here and on memory', async () => {
       await reset()
       const mem = new IamMemoryAdapter<string, string, string, string>()
-      await expect(mem.assignRole('u1', 'ghost')).rejects.toThrow(/role that is not stored/)
+      await expect(mem.assignRole('u1', 'ghost')).rejects.toThrow('IAM_ROLE_NOT_FOUND')
       expect(await mem.getSubjectRoles('u1')).toEqual([])
 
       // Same call, same contract, same outcome - the database says it with the
@@ -262,7 +262,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
         top = err instanceof Error ? err.message : String(err)
         cause = err instanceof Error ? err.cause : undefined
       }
-      expect(top).toMatch(/cannot assign a role that is not stored/)
+      expect(top).toBe('IAM_ROLE_NOT_FOUND')
       // The driver error is not discarded: whoever wants the constraint name
       // can still reach it.
       expect(String(cause)).toMatch(/Failed query/)
@@ -384,40 +384,40 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
     it('a policy whose rules column holds JSON null is refused, not read as rule-less', async () => {
       await reset()
       await pool.query(`INSERT INTO iam_policies (id, name, rules) VALUES ('p1','Broken','null'::jsonb)`)
-      // SECURITY: the row may have been a deny, and `null` would look like a deleted policy.
-      // A corrupt role can be dropped because the engine reports the grants left naming it; a policy cannot.
-      await expect(adapter.getPolicy('p1')).rejects.toThrow(/cannot be read/)
-      await expect(adapter.listPolicies()).rejects.toThrow(/cannot be read/)
+      // SECURITY: the row may have been a deny, and `null` would look like a deleted policy. A corrupt role is
+      // refused for the same reason - a deny selects on the role id. See `iamUnreadableRole`.
+      await expect(adapter.getPolicy('p1')).rejects.toThrow('IAM_UNREADABLE_POLICY')
+      await expect(adapter.listPolicies()).rejects.toThrow('IAM_UNREADABLE_POLICY')
     })
 
-    it('a role whose permissions column holds a JSON string is dropped', async () => {
+    it('a role whose permissions column holds a JSON string is refused', async () => {
       await reset()
       await pool.query(`INSERT INTO iam_roles (id, name, permissions) VALUES ('r1','Broken','"nope"'::jsonb)`)
-      expect(await adapter.getRole('r1')).toBeNull()
-      expect(await adapter.listRoles()).toEqual([])
+      await expect(adapter.getRole('r1')).rejects.toThrow('IAM_UNREADABLE_ROLE')
+      await expect(adapter.listRoles()).rejects.toThrow('IAM_UNREADABLE_ROLE')
     })
 
-    it('a role whose permissions column holds a wildcard-granting non-array is dropped', async () => {
+    it('a role whose permissions column holds a wildcard-granting non-array is refused', async () => {
       await reset()
       // The shape a hand-written migration produces: an object instead of the
       // array of permissions. Nothing may read this as "grants everything".
       await pool.query(
         `INSERT INTO iam_roles (id, name, permissions) VALUES ('r1','Broken','{"action":"*","resource":"*"}'::jsonb)`,
       )
-      expect(await adapter.getRole('r1')).toBeNull()
+      await expect(adapter.getRole('r1')).rejects.toThrow('IAM_UNREADABLE_ROLE')
     })
 
     it('subject attributes that are a JSON array throw rather than reading as empty', async () => {
       await reset()
       await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','[1,2]'::jsonb)`)
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
     })
 
     it('subject attributes that are JSON null throw rather than reading as empty', async () => {
       await reset()
       await pool.query(`INSERT INTO iam_subject_attrs (subject_id, data) VALUES ('u1','null'::jsonb)`)
       // SECURITY: `{}` here would retire every deny rule that tests an attribute.
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
     })
 
     it('a stored __proto__ attribute key makes the row unreadable rather than half-read', async () => {
@@ -427,7 +427,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
       )
       // SECURITY: assigning the key sets the prototype, and owning it hides the value a deny rule tests,
       // so the bag is refused and the operator gets a row to repair.
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow('IAM_ATTRIBUTES_CORRUPT')
     })
 
     it('a __proto__ attribute written through the adapter is refused at the write', async () => {
@@ -442,7 +442,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
         writable: true,
       })
       // Refused at the write, while the caller still has the request in hand.
-      await expect(adapter.setSubjectAttributes('u1', hostile)).rejects.toThrow(/must not contain a __proto__ key/)
+      await expect(adapter.setSubjectAttributes('u1', hostile)).rejects.toThrow('IAM_ATTRIBUTES_INVALID')
       expect(await adapter.getSubjectAttributes('u1')).toEqual({})
     })
   })
@@ -821,7 +821,7 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
           expiresAt: new Date(Date.now()),
           startsAt: new Date(Date.now() + 60_000),
         }),
-      ).rejects.toThrow(/startsAt >= expiresAt/)
+      ).rejects.toThrow('IAM_ASSIGN_WINDOW_EMPTY')
       const rows = await pool.query('SELECT count(*)::int AS n FROM iam_assignments')
       expect((rows.rows[0] as { n: number }).n).toBe(0)
     })

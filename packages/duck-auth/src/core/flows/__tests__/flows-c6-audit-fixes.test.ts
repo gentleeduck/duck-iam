@@ -2,8 +2,6 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import type { Channel } from '~/channels/channels.types'
-import { AuthTestChannel } from '~/channels/console'
 import { getCredentialPurpose, toCredentialCreate } from '~/core/credentials/credentials'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
@@ -11,6 +9,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -18,14 +17,16 @@ interface MyProfile extends Identities.ProfileMetadataBase {
 
 function build(limit = 50) {
   const adapter = new MemoryAdapter<MyProfile>()
+  const channel = authTestDeliver()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
+    deliver: channel.deliver,
     limiter: new MemoryLimiter({ max: limit, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
     transport: new CookieTransport({ name: 'duck-sid', secure: false }),
   })
-  return { adapter, auth }
+  return { adapter, auth, channel }
 }
 
 /** Count every store round trip the flow makes, in order. */
@@ -51,10 +52,11 @@ function traceStores(adapter: MemoryAdapter<MyProfile>): string[] {
 describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
   let auth: AuthEngine<MyProfile>
   let adapter: MemoryAdapter<MyProfile>
+  let channel: ReturnType<typeof build>['channel']
   let known: string
 
   beforeEach(async () => {
-    ;({ adapter, auth } = build())
+    ;({ adapter, auth, channel } = build())
     const ident = await auth.identities.create({ profile: { email: 'real@x.com', username: 'real' } })
     known = ident.id
   })
@@ -64,7 +66,6 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
   it('makes the same store calls, in the same order, whether or not the address exists', async () => {
     const hit = traceStores(adapter)
     await auth.flows.requestPasswordReset({
-      channels: { email: new AuthTestChannel() },
       findIdentityByEmail: findByEmail(known),
       input: { email: 'real@x.com' },
     })
@@ -73,7 +74,6 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
     const rebuilt = build()
     const miss = traceStores(rebuilt.adapter)
     await rebuilt.auth.flows.requestPasswordReset({
-      channels: { email: new AuthTestChannel() },
       findIdentityByEmail: async () => null,
       input: { email: 'ghost@x.com' },
     })
@@ -91,28 +91,25 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
     expect(miss.slice(2)).toEqual(knownCalls.slice(2))
   })
 
-  it('an unconfigured channel fails the same way for a real address and a fictional one', async () => {
-    const ghost = auth.flows.requestPasswordReset({
-      channels: {},
-      findIdentityByEmail: findByEmail(known),
-      input: { email: 'ghost@x.com' },
+  it('an unconfigured deliver fails the same way for a real address and a fictional one', async () => {
+    const undeliverable = new AuthEngine<MyProfile>({
+      baseUrl: 'https://app',
+      limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
+      providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+      stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
     })
     // Pre-fix this resolved `{ok:true}` while the real address threw - the
     // response body said "no such user" in plain language.
-    await expect(ghost).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
-    await expect(
-      auth.flows.requestPasswordReset({
-        channels: {},
-        findIdentityByEmail: findByEmail(known),
-        input: { email: 'real@x.com' },
-      }),
-    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    for (const email of ['ghost@x.com', 'real@x.com']) {
+      await expect(
+        undeliverable.flows.requestPasswordReset({ findIdentityByEmail: findByEmail(known), input: { email } }),
+      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    }
   })
 
   it('still writes a usable token for the address that exists, and none for the one that does not', async () => {
-    const channel = new AuthTestChannel()
     await auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: findByEmail(known),
       input: { email: 'real@x.com' },
     })
@@ -133,7 +130,6 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
     const seen = vi.fn()
     auth.events.on('recovery.password.requested', seen)
     await auth.flows.requestPasswordReset({
-      channels: { email: new AuthTestChannel() },
       findIdentityByEmail: async () => null,
       input: { email: 'ghost@x.com' },
     })
@@ -145,13 +141,12 @@ describe('F8 / F9 - one credential kind, four flows, one discriminator', () => {
   let auth: AuthEngine<MyProfile>
   let adapter: MemoryAdapter<MyProfile>
   let identityId: string
-  let channel: Channel.Channel & { outbox: unknown[] }
+  let channel: ReturnType<typeof build>['channel']
 
   beforeEach(async () => {
-    ;({ adapter, auth } = build())
+    ;({ adapter, auth, channel } = build())
     const ident = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
     identityId = ident.id
-    channel = new AuthTestChannel()
   })
 
   async function plant(purpose: string, secret: string): Promise<void> {
@@ -166,7 +161,7 @@ describe('F8 / F9 - one credential kind, four flows, one discriminator', () => {
     await plant('account-deletion', 'hash-delete')
     await plant('signup-flow', 'hash-signup')
 
-    await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId })
+    await auth.flows.requestEmailVerification({ identityId })
 
     const rows = await adapter.credentials.listByIdentity(identityId, 'recovery', {})
     const purposes = rows.map((r) => getCredentialPurpose(r)).sort()
@@ -177,8 +172,8 @@ describe('F8 / F9 - one credential kind, four flows, one discriminator', () => {
   })
 
   it('still replaces its own stale token, so two requests never leave two live links', async () => {
-    await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId })
-    await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId })
+    await auth.flows.requestEmailVerification({ identityId })
+    await auth.flows.requestEmailVerification({ identityId })
     const rows = await adapter.credentials.listByIdentity(identityId, 'recovery', {})
     expect(rows.filter((r) => getCredentialPurpose(r) === 'email-verification')).toHaveLength(1)
   })
@@ -276,7 +271,6 @@ describe('what these fixes did NOT close', () => {
     const ident = await auth.identities.create({ profile: { email: 'real@x.com', username: 'real' } })
     const calls = traceStores(adapter)
     await auth.flows.requestPasswordReset({
-      channels: { email: new AuthTestChannel() },
       findIdentityByEmail: async () => ({ id: ident.id }),
       input: { email: 'real@x.com' },
     })
@@ -291,6 +285,7 @@ describe('what these fixes did NOT close', () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
+      deliver: authTestDeliver().deliver,
       limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
       providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
@@ -298,7 +293,6 @@ describe('what these fixes did NOT close', () => {
     })
     await expect(
       auth.flows.requestPasswordReset({
-        channels: { email: new AuthTestChannel() },
         findIdentityByEmail: async () => null,
         input: { email: 'ghost@x.com' },
       }),

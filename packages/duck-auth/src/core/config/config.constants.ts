@@ -11,7 +11,7 @@ const CREATE_AUTH_KEYS: Record<keyof AuthDefine.Cfg, true> = {
   anomaly: true,
   baseUrl: true,
   captcha: true,
-  channels: true,
+  deliver: true,
   events: true,
   hijack: true,
   identities: true,

@@ -3,12 +3,12 @@ import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamIsReservedRefusal } from '../../shared/reserved'
 import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import { clearRegexCache } from '../conditions/conditions.libs'
+import { IamError, metaOf, throwIamError } from '../errors'
 import { VALID_POLICY_COMBINES } from '../evaluate'
 import { evaluate } from '../evaluate/evaluate'
 import type { Explain } from '../explain'
 import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamClient, IamRequest } from '../types'
-import { IamPolicyCompileError, IamRoleLimitExceededError } from './compiled/compiled.errors'
 import { lookup } from './compiled/compiled.lookup'
 import type { CompiledTable } from './compiled/compiled.types'
 import { type Bound, buildBoundEngine } from './engine.bound'
@@ -246,9 +246,7 @@ export class IamEngine<
     // SECURITY: unvalidated, a typo fell through to the default. `'prodution'` selected development, where
     // `check()` answers a decision object that is truthy even for a deny, and `explain()` becomes callable.
     if (!VALID_MODES.includes(this._mode)) {
-      throw new Error(
-        `[@gentleduck/iam:engine] unknown mode ${JSON.stringify(this._mode)}. Must be one of: ${VALID_MODES.join(', ')}.`,
-      )
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', { field: 'mode', got: this._mode, allowed: VALID_MODES })
     }
     // SECURITY: the other fail-open configuration, and the one a log search used to miss. `defaultEffect: 'allow'`
     // still answers `false` for a deny; here a deny comes back as a truthy object.
@@ -264,34 +262,36 @@ export class IamEngine<
     // SECURITY: `scopeCombine` defaults to the *wider* branch, so `'overide'` hands a subject every ancestor
     // scope's roles instead of the most specific level's.
     if (!VALID_SCOPE_MODES.includes(this._scopeMode)) {
-      throw new Error(
-        `[@gentleduck/iam:engine] unknown scopeMode ${JSON.stringify(this._scopeMode)}. Must be one of: ${VALID_SCOPE_MODES.join(', ')}.`,
-      )
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'scopeMode',
+        got: this._scopeMode,
+        allowed: VALID_SCOPE_MODES,
+      })
     }
     if (!VALID_SCOPE_COMBINES.includes(this._scopeCombine)) {
-      throw new Error(
-        `[@gentleduck/iam:engine] unknown scopeCombine ${JSON.stringify(this._scopeCombine)}. Must be one of: ${VALID_SCOPE_COMBINES.join(', ')}.`,
-      )
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'scopeCombine',
+        got: this._scopeCombine,
+        allowed: VALID_SCOPE_COMBINES,
+      })
     }
     // SECURITY: both evaluators treat an unknown value as first-applicable, the most permissive combine.
     if (!VALID_POLICY_COMBINES.includes(this._policyCombine)) {
-      throw new Error(
-        `[@gentleduck/iam:engine] unknown policyCombine ${JSON.stringify(this._policyCombine)}. Must be one of: ${VALID_POLICY_COMBINES.join(', ')}.`,
-      )
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'policyCombine',
+        got: this._policyCombine,
+        allowed: VALID_POLICY_COMBINES,
+      })
     }
 
     // evaluateFast can't represent first-applicable; fail at construction.
     if (this._mode === 'production' && this._policyCombine === 'first-applicable') {
-      throw new Error(
-        "[@gentleduck/iam:engine] policyCombine 'first-applicable' requires mode 'development'; the production fast path cannot represent it correctly.",
-      )
+      throwIamError('IAM_ENGINE_POLICY_COMBINE_INCOMPATIBLE', { mode: this._mode, policyCombine: this._policyCombine })
     }
 
     // `defaultEffect: 'allow'` is a fail-open footgun; require explicit opt-in.
     if (this._defaultEffect === 'allow' && !config.allowFailOpen) {
-      throw new Error(
-        "[@gentleduck/iam:engine] defaultEffect 'allow' is a fail-open footgun. Pass `allowFailOpen: true` to confirm intent.",
-      )
+      throwIamError('IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED')
     }
     // Warn even with the opt-in, so a log search for fail-open configs finds it.
     if (this._defaultEffect === 'allow') {
@@ -308,25 +308,43 @@ export class IamEngine<
 
     // SECURITY: reject non-finite caps; `NaN > x` is always false, so a NaN limit disables the bound.
     if (!Number.isFinite(this._maxPolicies) || this._maxPolicies < 1) {
-      throw new RangeError('[@gentleduck/iam:engine] maxPolicies must be a finite number >= 1')
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'maxPolicies',
+        got: this._maxPolicies,
+        constraint: 'finite number >= 1',
+      })
     }
     if (!Number.isFinite(this._maxRoles) || this._maxRoles < 1) {
-      throw new RangeError('[@gentleduck/iam:engine] maxRoles must be a finite number >= 1')
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'maxRoles',
+        got: this._maxRoles,
+        constraint: 'finite number >= 1',
+      })
     }
     if (!Number.isFinite(this._adapterTimeoutMs) || this._adapterTimeoutMs < 0) {
-      throw new RangeError('[@gentleduck/iam:engine] adapterTimeoutMs must be a finite number >= 0')
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'adapterTimeoutMs',
+        got: this._adapterTimeoutMs,
+        constraint: 'finite number >= 0',
+      })
     }
     if (!Number.isFinite(this._hookTimeoutMs) || this._hookTimeoutMs < 0) {
-      throw new RangeError('[@gentleduck/iam:engine] hookTimeoutMs must be a finite number >= 0')
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'hookTimeoutMs',
+        got: this._hookTimeoutMs,
+        constraint: 'finite number >= 0',
+      })
     }
     // 0 means unbounded, the same convention `adapterTimeoutMs` and `hookTimeoutMs` use; anything else is a cap.
     if (
       !Number.isFinite(this._maxConcurrentSubjectLoads) ||
       (this._maxConcurrentSubjectLoads !== 0 && this._maxConcurrentSubjectLoads < 1)
     ) {
-      throw new RangeError(
-        '[@gentleduck/iam:engine] maxConcurrentSubjectLoads must be 0 (unbounded) or a finite number >= 1',
-      )
+      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
+        field: 'maxConcurrentSubjectLoads',
+        got: this._maxConcurrentSubjectLoads,
+        constraint: '0 (unbounded) or a finite number >= 1',
+      })
     }
 
     if (this._adapterTimeoutMs === 0) {
@@ -548,12 +566,18 @@ export class IamEngine<
     if (this._policyCombine === 'first-applicable') return null
     const table = this._compiledTable
     if (table !== null && !this._compiledTableExpired()) return table
+    const genAtStart = this._compiledTableGen
     try {
       return await this._rebuildCompiledTable()
     } catch (err) {
-      if (!(err instanceof IamRoleLimitExceededError)) throw err
+      if (!(err instanceof IamError && err.code === 'IAM_ROLE_LIMIT_EXCEEDED')) throw err
+      // The same generation guard `_rebuildCompiledTable` puts on the table write: an invalidation that landed
+      // while this build was parked already retired its role count, so latching on it would pin the engine to the
+      // interpreter and report a count the store no longer holds.
+      if (this._compiledTableGen !== genAtStart) return null
       this._roleLimitExceeded = true
-      this._roleLimitDetail = { limit: err.limit, roleCount: err.roleCount }
+      const meta = metaOf(err, 'IAM_ROLE_LIMIT_EXCEEDED')
+      this._roleLimitDetail = { limit: meta.limit, roleCount: meta.roleCount }
       if (!this._roleLimitReported) {
         this._roleLimitReported = true
         // Once, not per request, so the slower path is never silent.
@@ -643,7 +667,7 @@ export class IamEngine<
 
   /**
    * Compiles, logging the first failure once, since every request then denies. Every failure is rethrown.
-   * Not logged: {@link IamRoleLimitExceededError} (it falls back) and {@link IamPolicyCompileError} (`onPolicyError`).
+   * Not logged: `IAM_ROLE_LIMIT_EXCEEDED` (it falls back) and `IAM_POLICY_COMPILE_FAILED` (`onPolicyError`).
    */
   private _compileOrReport(
     compileTable: (
@@ -658,11 +682,11 @@ export class IamEngine<
     try {
       return compileTable(roles, policies, this._policyCombine, this._scopeMode)
     } catch (err) {
-      if (err instanceof IamRoleLimitExceededError) throw err
-      if (err instanceof IamPolicyCompileError) {
+      if (err instanceof IamError && err.code === 'IAM_ROLE_LIMIT_EXCEEDED') throw err
+      if (err instanceof IamError && err.code === 'IAM_POLICY_COMPILE_FAILED') {
         // Sync, so not `_safeHookCall`; a throwing hook must not replace the compile error.
         try {
-          this._hooks.onPolicyError?.(err, err.policyId)
+          this._hooks.onPolicyError?.(err, metaOf(err, 'IAM_POLICY_COMPILE_FAILED').policyId)
         } catch {}
         throw err
       }

@@ -1,13 +1,11 @@
 /**
- * Every `@gentleduck/auth/...` import we hand a consumer has to resolve: the README examples, and the
- * `auth.ts` that `duck-auth init` writes. Both are strings, so no build anywhere type-checks them, and
- * a renamed export or a retired subpath rots there silently.
+ * Every `@gentleduck/auth/...` import we hand a consumer has to resolve. The README examples are strings,
+ * so no build anywhere type-checks them, and a renamed export or a retired subpath rots there silently.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { __scaffoldTemplate } from '~/cli'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const README = readFileSync(resolve(ROOT, 'README.md'), 'utf8')
@@ -87,17 +85,10 @@ function exportedNames(file: string, seen = new Set<string>()): Set<string> {
 }
 
 describe('the imports we ship to consumers', () => {
-  const imports = [
-    ...importsIn(README, 'README.md'),
-    ...importsIn(__scaffoldTemplate('quickstart'), 'init:quickstart'),
-    ...importsIn(__scaffoldTemplate('production'), 'init:production'),
-  ]
+  const imports = importsIn(README, 'README.md')
 
   it('finds the import examples', () => {
     expect(imports.length).toBeGreaterThan(10)
-    // Both scaffold flavors reached the list, so a broken one cannot pass by being absent.
-    expect(imports.some((i) => i.where.startsWith('init:quickstart'))).toBe(true)
-    expect(imports.some((i) => i.where.startsWith('init:production'))).toBe(true)
   })
 
   it('names only subpaths the package exports', () => {

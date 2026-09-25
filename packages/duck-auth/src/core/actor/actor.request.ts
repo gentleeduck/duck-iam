@@ -1,83 +1,44 @@
-/** Binds a request's actor scope, which is what fills `created_by` / `updated_by` / `deleted_by` and
- *  `Events.Envelope.actorId`. The framework adapters wrap handler execution in it. */
-
 import type { Anomaly } from '../anomaly/anomaly.types'
 import { orNull } from '../answer'
 import { auditEnvelopeFor, runWithAuditEnvelope } from '../events/events.audit'
 import type { Sessions } from '../sessions/sessions.types'
 import { withActor } from './actor'
+import type { Actor } from './actor.types'
 
-/**  which would close a cycle; `csrfGuard` types its engine the same way. */
-export type ActorResolvable = {
-  resolveSession(
-    req: { headers: Headers },
-    opts?: { requestSnapshot?: Anomaly.RequestSnapshot },
-  ): Promise<{ session: Sessions.Me }>
-}
-
-/** What a wrapper may do beyond binding the actor. Both absent by default, which keeps it a pure
- *  attribution scope that refuses nothing; `server/generic`'s `requestSecurity` is what fills them in. */
-export type RequestActorOptions = {
-  /** Forwarded to `resolveSession`, which runs the registered anomaly detectors against it. No snapshot
-   *  means no detectors run, having nothing to compare the request to. */
-  requestSnapshot?: Anomaly.RequestSnapshot
-  /**
-   * Runs once the session is resolved and the actor is bound, before `fn`. Throwing here refuses
-   * the request; a write it makes first (revoking the session, say) is attributed to that actor.
-   */
-  onSession?: (session: Sessions.Me) => void | Promise<void>
-}
-
-/** Who a write during this request is attributed to. While impersonating that is the operator behind
- *  `actingAs`, not the account acted on, since the column names the human accountable. Otherwise the
- *  session's own identity, which is a distinct fact from the `null` that means no actor was bound. */
+/** The operator behind `actingAs` while impersonating, since the column names the human accountable,
+ *  otherwise the session's own identity. */
 export function actorForSession(session: Pick<Sessions.Me, 'identityId' | 'actingAs'>): string | undefined {
   return session.actingAs?.realIdentityId ?? session.identityId ?? undefined
 }
 
-/**
- * Resolves the session, binds the actor and audit envelope, and runs `fn` inside both. An anonymous
- * request runs `fn` unbound, and so does one whose session will not resolve, leaving the actor `null`:
- * refusing an expired or forged cookie is a guard's job, not this wrapper's. The scope is a default,
- * never a fence, and an explicit `withActor` inside `fn` still wins.
- *
- * PERF: one `resolveSession` per request. A caller that already holds one should use
- * {@link withResolvedActor} instead of paying for a second read.
- */
+/** Resolves the session, binds the actor and the audit envelope, and runs `fn` inside both.
+ *  PERF: one `resolveSession` per request; a caller holding one uses {@link withResolvedActor}. */
 export async function withRequestActor<T>(
-  auth: ActorResolvable,
+  auth: Actor.Resolvable,
   req: { headers: Headers },
   fn: () => Promise<T>,
-  opts: RequestActorOptions = {},
+  opts: Actor.RequestOptions = {},
 ): Promise<T> {
-  let session: Sessions.Me | undefined
-  try {
-    const snapshot = opts.requestSnapshot
-    const resolved = auth.resolveSession(req, snapshot ? { requestSnapshot: snapshot } : undefined)
-    session = (await orNull(resolved))?.session
-  } catch {
-    // An anonymous request is `orNull`'s null above; this is the rest - a store that is down, or a session
-    // that outlived its identity. Both leave the request unattributed rather than failing here, which is
-    // what this wrapper did before either was distinguishable.
-  }
-  if (session === undefined) return fn()
-  return withResolvedActor(session, fn, opts)
+  const snapshot = opts.requestSnapshot
+  // SECURITY: no catch. `orNull` answers null for every code meaning "no session", so an anonymous or
+  // forged request runs unbound; a store that is down and a session outliving its identity still throw.
+  const resolved = await orNull(auth.resolveSession(req, snapshot ? { requestSnapshot: snapshot } : undefined))
+  if (!resolved) return fn()
+  return withResolvedActor(resolved.session, fn, opts, resolved.anomaly)
 }
 
-/** {@link withRequestActor} for a caller that already resolved the session. `opts.onSession` runs
- *  inside the scope, so a check that writes, a hijack policy revoking the session say, is attributed
- *  rather than landing anonymous. */
+/** {@link withRequestActor} for a caller that already resolved the session. `opts.onSession` runs inside
+ *  the scope, so a check that writes is attributed rather than landing anonymous. */
 export function withResolvedActor<T>(
   session: Sessions.Me,
   fn: () => Promise<T>,
-  opts: Pick<RequestActorOptions, 'onSession'> = {},
+  opts: Pick<Actor.RequestOptions, 'onSession'> = {},
+  anomaly?: Anomaly.Result,
 ): Promise<T> {
-  return Promise.resolve(
-    withActor(actorForSession(session), () =>
-      runWithAuditEnvelope(auditEnvelopeFor(session), async () => {
-        await opts.onSession?.(session)
-        return fn()
-      }),
-    ),
+  return withActor(actorForSession(session), () =>
+    runWithAuditEnvelope(auditEnvelopeFor(session), async () => {
+      await opts.onSession?.(session, anomaly)
+      return fn()
+    }),
   )
 }
