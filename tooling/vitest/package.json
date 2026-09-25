@@ -6,7 +6,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react-swc": "^4.3.0",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^5.0.1",
     "@vitest/ui": "^4.0.18",
     "vitest": "^4.1.9"
   },
