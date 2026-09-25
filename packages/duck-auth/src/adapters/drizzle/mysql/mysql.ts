@@ -14,7 +14,7 @@ import { toEmailList, withNormalisedEmail } from '~/core/identities/identities.c
 import type { Identities } from '~/core/identities/identities.types'
 import { stripUndefined } from '~/core/patch'
 import { isFiniteNumber } from '~/core/predicates'
-import { authCredentials, authIdentities, authIdentityProviders, authSessions } from './mysql.schema'
+import { authCredentials, authIdentities, authIdentityProviders, authSessions, nowMs } from './mysql.schema'
 import type { Mysql } from './mysql.types'
 
 /** The one link a provider lookup is answering, joined under its own name so it can drive the plan. */
@@ -515,7 +515,10 @@ export class DrizzleMysqlAdapter<
 
     revoke: (id, { tenantId }) =>
       this.run(async () => {
-        const row = await this._write({ expectedVersion: null, id, tenantId }, { revokedAt: new Date() })
+        // The DB's own clock, not the app's: `created_at` is `nowMs`-stamped by MySQL, and an app-clock
+        // `revokedAt` can land behind it on a fast create-then-revoke, tripping
+        // chk_auth_credentials_revoked_after_created on a perfectly legitimate write.
+        const row = await this._write({ expectedVersion: null, id, tenantId }, { revokedAt: nowMs })
         if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
         return row
@@ -532,7 +535,7 @@ export class DrizzleMysqlAdapter<
         )
         const [written] = await this._db
           .update(authCredentials)
-          .set({ revokedAt: new Date(), updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
+          .set({ revokedAt: nowMs, updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
           .where(reach)
 
         return written.affectedRows
@@ -541,7 +544,7 @@ export class DrizzleMysqlAdapter<
     /** NOTE: a rotation is a use, so it stamps lastUsedAt. */
     rotate: (id, secret, expectedVersion, { tenantId }) =>
       this.run(async () => {
-        const row = await this._write({ expectedVersion, id, tenantId }, { lastUsedAt: new Date(), secret })
+        const row = await this._write({ expectedVersion, id, tenantId }, { lastUsedAt: nowMs, secret })
         if (row) return row
 
         throw new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: expectedVersion })

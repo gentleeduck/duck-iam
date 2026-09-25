@@ -521,7 +521,10 @@ export class DrizzlePgAdapter<
 
     revoke: (id, { tenantId }) =>
       this.run(async () => {
-        const row = await this._write({ expectedVersion: null, id, tenantId }, { revokedAt: new Date() })
+        // The DB's own clock, not the app's: `created_at` is `defaultNow()`-stamped by Postgres, and an
+        // app-clock `revokedAt` can land a fraction of a millisecond behind it on a fast create-then-revoke,
+        // tripping chk_auth_credentials_revoked_after_created on a perfectly legitimate write.
+        const row = await this._write({ expectedVersion: null, id, tenantId }, { revokedAt: sql`now()` })
         if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
         return row
@@ -538,7 +541,7 @@ export class DrizzlePgAdapter<
         )
         const moved = await this._db
           .update(authCredentials)
-          .set({ revokedAt: new Date(), updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
+          .set({ revokedAt: sql`now()`, updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
           .where(reach)
           .returning({ id: authCredentials.id })
 
@@ -548,7 +551,7 @@ export class DrizzlePgAdapter<
     /** NOTE: a rotation is a use, so it stamps lastUsedAt. */
     rotate: (id, secret, expectedVersion, { tenantId }) =>
       this.run(async () => {
-        const row = await this._write({ expectedVersion, id, tenantId }, { lastUsedAt: new Date(), secret })
+        const row = await this._write({ expectedVersion, id, tenantId }, { lastUsedAt: sql`now()`, secret })
         if (row) return row
 
         throw new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: expectedVersion })

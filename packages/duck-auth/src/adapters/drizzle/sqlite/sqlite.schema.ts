@@ -13,7 +13,7 @@ import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.type
  */
 // `subsec`, because a bare `unixepoch()` is whole seconds: `findByHashedSecret` orders on this column
 // and would pick arbitrarily between two rows minted in the same second. Needs sqlite 3.42.
-const nowMs = sql`(cast(unixepoch('subsec') * 1000 as integer))`
+export const nowMs = sql`(cast(unixepoch('subsec') * 1000 as integer))`
 
 const factorsColumn = customType<{ data: Sessions.Factor[]; driverData: string }>({
   dataType: () => 'text',
