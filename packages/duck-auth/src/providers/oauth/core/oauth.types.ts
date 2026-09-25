@@ -56,6 +56,10 @@ export namespace OAuth {
     stateSigningSecret: string
     /** Binds a callback to the browser that began the flow. See {@link OAuth.StateCookie}. */
     stateCookie?: StateCookie
+    /** Burns the state's nonce at `complete`. See {@link OAuth.Options.nonceStore}. */
+    nonceStore?: NonceStore
+    /** Accepts a state nothing burns. See {@link OAuth.Options.allowStateReplay}. */
+    allowStateReplay?: boolean
     /** Overrides the provider's default scopes. */
     scopes?: string[]
     /** Override fetch impl (test stubs). */
@@ -67,6 +71,15 @@ export namespace OAuth {
     /** What to do when the profile's email already belongs to an identity with no link to this provider. See
      *  {@link OAuth.Options.onFederationConflict}; the default is `'reject'`. */
     onFederationConflict?: Options<AppProfile>['onFederationConflict']
+  }
+
+  /** Records a state nonce once, answering false when it has already been seen. Must be atomic across
+   *  concurrent callers, and honour `ttlMs` per key rather than assuming one global window.
+   *
+   *  `memoryDPoPNonceStore()` and `redisDPoPNonceStore()` satisfy this; give the Redis one its own
+   *  `prefix` so oauth nonces and DPoP jtis do not share a keyspace. */
+  export interface NonceStore {
+    recordSeen(nonce: string, ttlMs: number): Promise<boolean>
   }
 
   /** The pre-auth cookie's own settings. `secure` defaults to true and the name to `__Host-duck-oauth`, which
@@ -88,6 +101,22 @@ export namespace OAuth {
     stateSigningSecret: string
     /** Binds a callback to the browser that began the flow. See {@link OAuth.StateCookie}. */
     stateCookie?: StateCookie
+    /** Burns `StatePayload.nonce` at `complete`, so one signed state completes exactly once.
+     *  SECURITY: without it a callback URL recovered from browser history, a `Referer` or a proxy log
+     *  completes again for the rest of the state's ten minutes, from any browser still holding the
+     *  binding cookie — which a failed completion leaves in place, since only the success path clears it. */
+    nonceStore?: NonceStore
+    /** Accepts a state nothing burns. Default false: the nonce is minted and signed either way, so an
+     *  absent store reads as replay protection that is present and off. */
+    allowStateReplay?: boolean
+    /**
+     * How the IdP returns the authorisation code. `'query'` is the default and the redirect every other
+     * provider performs. `'form_post'` (OAuth 2.0 Form Post Response Mode) is what Apple requires as soon
+     * as any scope is requested, and it changes two things at once, which is why it is one flag: the
+     * authorize request carries `response_mode=form_post`, and the pre-auth cookie has to be
+     * `SameSite=None` to survive a cross-site POST. Set by the provider module, not by the host.
+     */
+    responseMode?: 'query' | 'form_post'
     /** Extract a canonical profile from the token response + userinfo. */
     fetchProfile: (tokens: { access_token: string; id_token?: string }, client: OAuthClient) => Promise<Profile>
     /** Map Profile -> consumer Profile shape on first sign-in. */
@@ -150,7 +179,7 @@ export namespace OAuth {
    *  secret. Carries the PKCE verifier and the digest of the cookie `begin` left in the browser, so one
    *  authorisation code cannot be stitched to another flow. */
   export interface StatePayload {
-    /** Random nonce; one-time use. */
+    /** Random per flow, and what `Options.nonceStore` burns so one state completes once. */
     nonce: string
     /** PKCE verifier. Secret; never leaves the server. */
     verifier: string

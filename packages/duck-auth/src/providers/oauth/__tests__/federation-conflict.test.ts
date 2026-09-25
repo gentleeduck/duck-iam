@@ -4,6 +4,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
+import { memoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
 import { afterOAuthBegin } from '~/test/oauth-browser'
 import { apple } from '../apple/apple'
 import type { OAuth } from '../core/oauth.types'
@@ -52,6 +53,7 @@ async function buildAuth(
         fetch: fakeGoogle(userinfo),
         redirectUri: 'https://app/cb',
         stateSigningSecret: 'super-secret',
+        nonceStore: memoryDPoPNonceStore(),
         ...(onFederationConflict !== undefined && { onFederationConflict }),
         profileToIdentityProfile: (p) => ({ email: p.email ?? '', username: p.email ?? '' }),
       }),
@@ -166,6 +168,7 @@ async function buildMicrosoftAuth(
         fetch: fakeMicrosoft(userinfo),
         redirectUri: 'https://app/cb',
         stateSigningSecret: 'super-secret',
+        nonceStore: memoryDPoPNonceStore(),
         ...(onFederationConflict !== undefined && { onFederationConflict }),
         profileToIdentityProfile: (p) => ({ email: p.email ?? '', username: p.email ?? '' }),
       }),
@@ -244,6 +247,7 @@ async function buildAppleAuth(
         privateKey: privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
         redirectUri: 'https://app/cb',
         stateSigningSecret: 'super-secret',
+        nonceStore: memoryDPoPNonceStore(),
         teamId: 'TEAM123456',
         ...(onFederationConflict !== undefined && { onFederationConflict }),
         profileToIdentityProfile: (p) => ({ email: p.email ?? '', username: p.email ?? '' }),

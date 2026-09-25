@@ -2,6 +2,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { randomToken } from '~/core/crypto'
 import type { OAuth } from './oauth.types'
 
+/** How long a signed state stays verifiable, and so how long a burned nonce has to stay burned. */
+export const OAUTH_STATE_MAX_AGE_MS = 10 * 60 * 1000
+
 /** Signs a state payload into the `state` parameter the IdP round-trips. */
 export function signState(payload: OAuth.StatePayload, secret: string): string {
   const json = JSON.stringify(payload)
@@ -16,7 +19,7 @@ export function authVerifyState(
   secret: string,
   opts: { maxAgeMs?: number } = {},
 ): OAuth.StatePayload | null {
-  const maxAgeMs = opts.maxAgeMs ?? 10 * 60 * 1000
+  const maxAgeMs = opts.maxAgeMs ?? OAUTH_STATE_MAX_AGE_MS
   // Capped at 8KB so a multi-MB base64/JSON parse cannot be forced. The typeof holds because the caller
   // types this `string` while the wire surface is really unknown.
   if (typeof state !== 'string' || state.length === 0 || state.length > 8192) return null

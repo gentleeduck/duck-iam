@@ -27,7 +27,7 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
     clientSecret: opts.clientSecret,
     endpoints,
     scopes: opts.scopes ?? ['openid', 'profile', 'email', 'User.Read'],
-    ...(opts.fetch !== undefined && { fetch: opts.fetch }),
+    fetch: opts.fetch,
   })
   return oProvider<Profile>({
     providerId: 'authMicrosoft',
@@ -35,11 +35,12 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
     endpoints,
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
-    ...(opts.onSignIn !== undefined && { onSignIn: opts.onSignIn }),
-    ...(opts.onFederationConflict !== undefined && { onFederationConflict: opts.onFederationConflict }),
-    ...(opts.profileToIdentityProfile !== undefined && {
-      profileToIdentityProfile: opts.profileToIdentityProfile,
-    }),
+    nonceStore: opts.nonceStore,
+    allowStateReplay: opts.allowStateReplay,
+    stateCookie: opts.stateCookie,
+    onSignIn: opts.onSignIn,
+    onFederationConflict: opts.onFederationConflict,
+    profileToIdentityProfile: opts.profileToIdentityProfile,
     async fetchProfile(tokens, c) {
       const info = await c.userinfo(tokens.access_token)
       const sub = getUserinfoString(info, 'sub')
