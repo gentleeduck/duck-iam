@@ -190,11 +190,8 @@
     "packages/duck-auth": {
       "name": "@gentleduck/auth",
       "version": "5.13.0",
-      "bin": {
-        "duck-auth": "./dist/cli/index.js",
-      },
       "dependencies": {
-        "@gentleduck/errors": "workspace:*",
+        "@gentleduck/error": "^1.0.0",
         "@types/node": "^26.1.0",
       },
       "devDependencies": {
@@ -249,30 +246,11 @@
         "web-push",
       ],
     },
-    "packages/duck-errors": {
-      "name": "@gentleduck/errors",
-      "version": "0.1.0",
-      "devDependencies": {
-        "@gentleduck/tsdown-config": "workspace:*",
-        "@gentleduck/typescript-config": "workspace:*",
-        "@gentleduck/vitest-config": "workspace:*",
-        "@types/node": "^26.1.0",
-        "tsdown": "^0.22.3",
-        "typescript": "^7.0.2",
-        "vitest": "^4.1.9",
-      },
-      "peerDependencies": {
-        "typescript": ">=5.0.0",
-      },
-      "optionalPeers": [
-        "typescript",
-      ],
-    },
     "packages/duck-iam": {
       "name": "@gentleduck/iam",
       "version": "5.10.0",
       "dependencies": {
-        "@gentleduck/errors": "workspace:*",
+        "@gentleduck/error": "^1.0.0",
         "uuid": "^14.0.2",
       },
       "devDependencies": {
@@ -770,7 +748,7 @@
 
     "@gentleduck/duck-auth-demo": ["@gentleduck/duck-auth-demo@workspace:apps/duck-auth-demo"],
 
-    "@gentleduck/errors": ["@gentleduck/errors@workspace:packages/duck-errors"],
+    "@gentleduck/error": ["@gentleduck/error@1.0.0", "", { "peerDependencies": { "typescript": ">=5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-NUjVZwD1sIxqGeXlcBoc5F1jnJL4jb4WfeFa7oxSrd34wOn36EOckhXQqKLwD2n+EkDTuQQqRuvPhgMgKYKALg=="],
 
     "@gentleduck/example-oidc-op": ["@gentleduck/example-oidc-op@workspace:examples/oidc-op"],
 

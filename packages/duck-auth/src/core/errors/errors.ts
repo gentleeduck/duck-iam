@@ -1,4 +1,4 @@
-import { createErrorKit, type ErrorKit, type KitError } from '@gentleduck/errors'
+import { createErrorKit, type ErrorKit, type KitError } from '@gentleduck/error'
 import { AUTH_ERRORS } from './errors.codes'
 
 const kit = createErrorKit('AuthError', AUTH_ERRORS)
@@ -10,7 +10,6 @@ export const AuthError = kit.ErrorClass
  *  `AuthError<C>` as a type depends on this. */
 export type AuthError<C extends AuthError.Code = AuthError.Code> = KitError<typeof AUTH_ERRORS, C>
 
-export const fail = kit.fail
 export const asAuthError = kit.asError
 
 // Real function declarations, not `const throwAuthError = kit.throwError`: TypeScript's
@@ -27,9 +26,6 @@ export function rethrowAuthError<C extends AuthError.Code>(error: unknown, code:
 export namespace AuthError {
   export type Code = ErrorKit.Code<typeof AUTH_ERRORS>
   export type Meta<C extends AuthError.Code> = ErrorKit.Meta<typeof AUTH_ERRORS, C>
-  export type Error = { [C in Code]: { code: C } & Meta<C> }[Code]
-  export type HasRequired<T> = ErrorKit.HasRequired<T>
-  export type Faults = ErrorKit.Faults<typeof AUTH_ERRORS>
   export type Bare = ErrorKit.Bare<typeof AUTH_ERRORS>
   export type Args<C extends AuthError.Code> = ErrorKit.Args<typeof AUTH_ERRORS, C>
 }

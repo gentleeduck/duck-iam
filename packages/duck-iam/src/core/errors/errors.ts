@@ -1,4 +1,4 @@
-import { createErrorKit, type ErrorKit, type KitError } from '@gentleduck/errors'
+import { createErrorKit, type ErrorKit, type KitError } from '@gentleduck/error'
 import { IAM_ERRORS } from './errors.codes'
 
 const kit = createErrorKit('IamError', IAM_ERRORS)

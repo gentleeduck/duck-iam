@@ -1,4 +1,4 @@
-import { detail, fault } from '@gentleduck/errors'
+import { detail, fault } from '@gentleduck/error'
 
 export { detail, fault }
 

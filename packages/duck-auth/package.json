@@ -532,16 +532,6 @@
         "default": "./dist/client/solid/index.cjs"
       }
     },
-    "./cli": {
-      "import": {
-        "types": "./dist/cli/index.d.ts",
-        "default": "./dist/cli/index.js"
-      },
-      "require": {
-        "types": "./dist/cli/index.d.cts",
-        "default": "./dist/cli/index.cjs"
-      }
-    },
     "./openapi": {
       "import": {
         "types": "./dist/openapi/index.d.ts",
@@ -602,16 +592,6 @@
         "default": "./dist/oidc/op/drizzle/mysql.cjs"
       }
     },
-    "./i18n": {
-      "import": {
-        "types": "./dist/i18n/index.d.ts",
-        "default": "./dist/i18n/index.js"
-      },
-      "require": {
-        "types": "./dist/i18n/index.d.cts",
-        "default": "./dist/i18n/index.cjs"
-      }
-    },
     "./telemetry/otel": {
       "import": {
         "types": "./dist/telemetry/otel/index.d.ts",
@@ -632,9 +612,6 @@
         "default": "./dist/test/index.cjs"
       }
     }
-  },
-  "bin": {
-    "duck-auth": "./dist/cli/index.js"
   },
   "files": [
     "dist",
@@ -661,7 +638,7 @@
     "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-sqlite.config.ts && node src/test/sqlite-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-sqlite.config.ts && node src/test/oidc-e2e-schema.mjs"
   },
   "dependencies": {
-    "@gentleduck/errors": "workspace:*",
+    "@gentleduck/error": "^1.0.0",
     "@types/node": "^26.1.0"
   },
   "peerDependencies": {

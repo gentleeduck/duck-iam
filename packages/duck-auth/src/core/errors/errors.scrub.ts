@@ -1,4 +1,4 @@
-import { isSecretKey } from '@gentleduck/errors'
+import { isSecretKey } from '@gentleduck/error'
 
 export { isSecretKey }
 
