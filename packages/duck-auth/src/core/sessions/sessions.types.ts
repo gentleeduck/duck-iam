@@ -16,6 +16,20 @@ export const AUTH_SESSION_FACTOR_METHODS = [
   'backup-code',
 ] as const
 
+const KIND_VALUES: ReadonlySet<string> = new Set<string>(AUTH_SESSION_KINDS)
+const FACTOR_METHOD_VALUES: ReadonlySet<string> = new Set<string>(AUTH_SESSION_FACTOR_METHODS)
+
+/** Derived from the constant, not restated: a kind added to one and not the other would be refused by
+ *  every reader while the source of truth still called it valid. */
+export function isSessionKind(v: unknown): v is Sessions.Kind {
+  return typeof v === 'string' && KIND_VALUES.has(v)
+}
+
+/** {@link isSessionKind} for factor methods, and derived for the same reason. */
+export function isFactorMethod(v: unknown): v is Sessions.FactorMethod {
+  return typeof v === 'string' && FACTOR_METHOD_VALUES.has(v)
+}
+
 /** The session row, its assurance levels, and the store contract over it. */
 export namespace Sessions {
   /** NIST 800-63B Authentication Assurance Levels. */
@@ -96,7 +110,20 @@ export namespace Sessions {
     /** The session behind a cookie's hash. A hash matching nothing is `AUTH_SESSION_REVOKED`: one that never
      *  existed and one that was ended must read the same. */
     getByHash(sidHash: string): Promise<Me>
-    update(id: string, patch: Partial<Me>): Promise<Me>
+    /**
+     * Patch a session. `expectedUpdatedAt` is an optional optimistic guard: supplied, the write lands only
+     * if the stored `updatedAt` still matches, and a mismatch is `AUTH_STALE_WRITE` rather than a silent
+     * overwrite. Omitted, the write is unconditional, as it always was.
+     *
+     * `updatedAt` is the token rather than a `version` column, which `Me` does not have and which would be
+     * a migration in four dialects, and rather than `rotatedAt`, which only a rotation moves - a `touch()`
+     * landing on a step-up would compare equal and discard the AAL upgrade, which is the race this guards.
+     * Every store stamps `updatedAt` on every write, which is what makes it usable and what
+     * `store-compliance` already pins.
+     *
+     * WARN: `Date` is millisecond-resolution, so two writes inside one millisecond still compare equal.
+     */
+    update(id: string, patch: Partial<Me>, expectedUpdatedAt?: Date): Promise<Me>
     delete(id: string): Promise<void>
     /** Every session of an identity, narrowed to one tenant by `ctx`. Identities are global, so an unfiltered
      *  read hands one tenant the IP, user-agent and existence of every session another issued. A named
@@ -121,6 +148,16 @@ export namespace Sessions {
     absoluteTtlMs: number
     /** Window in ms where a session counts as "fresh" since the last factor. Default 5 min. */
     freshnessMs: number
+    /**
+     * Most concurrent sessions one identity may hold. Over the cap, the oldest by `createdAt` is revoked
+     * to make room. Unset means unlimited, which is the historical behaviour and the default.
+     *
+     * Guests are not counted: `identityId === null` is not an identity to scope a limit to.
+     *
+     * WARN: setting it puts a `listByIdentity` on every sign-in. An operator turning it on is choosing
+     * that read.
+     */
+    maxSessionsPerIdentity?: number
   }
 
   export type MintInput = {
@@ -137,6 +174,8 @@ export namespace Sessions {
     /** An upper bound on `expiresAt`, never an extension: the facet's own ttl still wins when it is sooner.
      *  The m2m grant sets it so a session expires with the token it was minted for. */
     maxExpiresAt?: Date
+    /** Shortens this row's whole life, `absoluteExpiresAt` included. Only ever shortens. */
+    ttlMs?: number
   }
 
   export interface RotateInput extends MintInput {

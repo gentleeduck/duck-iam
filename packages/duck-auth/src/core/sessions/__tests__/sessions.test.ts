@@ -842,8 +842,7 @@ describe('resolveBySid()', () => {
         },
       })
       await expect(resolveBySid(sid, adapter.sessions, adapter.identities)).rejects.toMatchObject({
-        code: 'AUTH_SESSION_REVOKED',
-        meta: { reason: 'the impersonation window has closed' },
+        code: 'AUTH_IMPERSONATE_WINDOW_CLOSED',
       })
       await expect(adapter.sessions.getByHash(hash)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
     })

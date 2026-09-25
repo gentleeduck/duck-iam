@@ -4,7 +4,7 @@ import { stripUndefined } from '~/core/patch'
 import { isFiniteNumber } from '~/core/predicates'
 import { assertSessionAllowed } from '~/core/sessions/sessions.constants'
 import type { Sessions } from '~/core/sessions/sessions.types'
-import { AUTH_SESSION_FACTOR_METHODS, AUTH_SESSION_KINDS } from '~/core/sessions/sessions.types'
+import { isFactorMethod, isSessionKind } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 
 /** Configuration for the Redis-backed session store. */
@@ -26,13 +26,28 @@ export namespace RedisSession {
   }
 }
 
+/** Swaps the row only if it is byte-for-byte the one the caller read, so the compare and the write are
+ *  one operation. Compares the whole record rather than its `updatedAt` because the reader has the bytes
+ *  in hand already and every concurrent write changes them. */
+const CAS_SET = `if redis.call('GET', KEYS[1]) == ARGV[1] then
+  redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+  return 1
+end
+return 0`
+
 /** No ctx, or one with no `tenantId`, sees every tenant; a named tenant sees only its own rows. */
 function inTenant(s: Sessions.Me, ctx: TenantContext | undefined): boolean {
   return ctx?.tenantId === undefined || s.tenantId === ctx.tenantId
 }
 
 /** `Sessions.Me.id` is already the sha-256 of the sid, so the primary key and the lookup key are the
- *  same value. */
+ *  same value.
+ *
+ *  WARN: `update` swaps the record with a Lua compare-and-swap, so a client whose `eval` is missing -
+ *  it is optional on {@link RedisLike.Client} - is left with a read, a compare and a separate write.
+ *  Two clients can then both read, both pass the compare and both write, and the first write is lost
+ *  silently. On a real server that is not a corner: network latency puts both reads before either
+ *  write. An operator choosing a client without `eval` is choosing that. */
 export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client> implements Sessions.Store {
   private readonly _redis: TRedis
   private readonly _prefix: string
@@ -52,6 +67,11 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
 
   private _idxKey(identityId: string): string {
     return `${this._prefix}:idx:identity:${identityId}`
+  }
+
+  /** Where the last "revoke everything for this identity" instant is recorded. */
+  private _revokedAtKey(identityId: string): string {
+    return `${this._prefix}:revokedAt:${identityId}`
   }
 
   private _leaseKey(): string {
@@ -155,6 +175,25 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     // Refused here rather than stored: `parseStoredSession` rejects these, so the row would be written
     // and then read back as a revoked session for the rest of its life.
     assertSessionAllowed(s)
+    // SECURITY: a session minted before this identity's last revoke does not survive it, whichever
+    // order the two writes land in - otherwise a sign-in already in flight when "sign out everywhere"
+    // ran came back alive on the other side of it.
+    // `AUTH_STALE_WRITE` and not `AUTH_SESSION_REVOKED`, which is in the reader's absent set and would
+    // be read back as "no session": this is a lost race, and whether the sign-in is worth attempting
+    // again is only the caller's to decide if the refusal reaches it.
+    if (s.identityId) {
+      const mark = await this._redis.get(this._revokedAtKey(s.identityId))
+      if (mark !== null) {
+        const revokedAt = Number(mark)
+        // A guard that cannot read its own token refuses rather than waving the write through.
+        if (!Number.isFinite(revokedAt)) {
+          throw new AuthError('AUTH_STALE_WRITE', { expected: s.createdAt.getTime() })
+        }
+        if (s.createdAt.getTime() < revokedAt) {
+          throw new AuthError('AUTH_STALE_WRITE', { actual: revokedAt, expected: s.createdAt.getTime() })
+        }
+      }
+    }
     const ttl = this._ttlFor(s)
     // SECURITY: index BEFORE the record. A record the index does not name survives
     // `deleteAllForIdentity` forever; a dangling entry is compensated below and swept anyway.
@@ -202,37 +241,72 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
   }
 
   /** Merges a patch onto the stored session, rewriting it under the remaining TTL. */
-  async update(id: string, patch: Partial<Sessions.Me>): Promise<Sessions.Me> {
-    const raw = await this._redis.get(this._sessKey(id))
-    if (!raw) {
-      throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+  async update(id: string, patch: Partial<Sessions.Me>, expectedUpdatedAt?: Date): Promise<Sessions.Me> {
+    for (let attempt = 0; ; attempt++) {
+      const raw = await this._redis.get(this._sessKey(id))
+      if (!raw) {
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+      }
+      const current = parseStoredSession(raw, id)
+      if (!current) {
+        throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} corrupted` })
+      }
+      if (expectedUpdatedAt !== undefined && current.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+        throw new AuthError('AUTH_STALE_WRITE', {
+          actual: current.updatedAt.getTime(),
+          expected: expectedUpdatedAt.getTime(),
+        })
+      }
+      // `id` is pinned to the key the row lives under, and `undefined` means "leave this alone".
+      // `updatedAt` is stamped here rather than taken from the patch, as `$onUpdate` does in SQL, and is
+      // strictly increasing: it is the token `expectedUpdatedAt` compares, and `Date` resolves to the
+      // millisecond, so two writes inside one would stamp equal and the second land on top of the first.
+      const next: Sessions.Me = {
+        ...current,
+        ...stripUndefined(patch),
+        id: current.id,
+        updatedAt: new Date(Math.max(Date.now(), current.updatedAt.getTime() + 1)),
+      }
+      assertSessionAllowed(next)
+      const ttl = this._ttlFor(next)
+      // Reschedule BEFORE the record write: the other order lets `gc` sweep a session a renewal had just
+      // extended. A swap that then loses leaves the member rescheduled for a write that never landed,
+      // which costs at worst one wasted sweep or one early retirement of a row the reader would have
+      // taken - wrong in the safe direction, either way.
+      await this._redis.zadd(this._expKey(), this._expScore(next), this._expMember(current.id, next.identityId))
+      // SECURITY: compare-and-swap on the exact bytes read. The guard above is a compare and a write with
+      // a gap between them, so two clients can both read the same row, both find their expectation
+      // intact and both write - and the first write is lost with nothing raised. The script makes the
+      // compare and the write one operation; without `eval` on the client it is the gap it always was,
+      // which the class doc says out loud.
+      let swapped = true
+      if (this._redis.eval) {
+        const won = await this._redis.eval(CAS_SET, [this._sessKey(id)], [raw, JSON.stringify(next), String(ttl)])
+        swapped = Number(won) === 1
+      } else {
+        await this._redis.set(this._sessKey(id), JSON.stringify(next), { ex: ttl })
+      }
+      if (!swapped) {
+        // An unguarded patch means "apply this to whatever is current", so losing the swap is a reason to
+        // re-read and apply it to the row that won rather than to fail. A guarded one already named the
+        // row it meant, and that row is gone.
+        if (expectedUpdatedAt === undefined && attempt < 2) continue
+        throw new AuthError('AUTH_STALE_WRITE', {
+          expected: expectedUpdatedAt?.getTime() ?? current.updatedAt.getTime(),
+        })
+      }
+      // SECURITY: a repointed session moves between the indexes, or "sign out everywhere" cannot reach
+      // it under its new owner. The expiry member carries the identity, so it moves too.
+      if (current.identityId !== next.identityId) {
+        await this._redis.zrem(this._expKey(), this._expMember(current.id, current.identityId))
+        if (current.identityId) await this._redis.srem(this._idxKey(current.identityId), current.id)
+        if (next.identityId) await this._redis.sadd(this._idxKey(next.identityId), current.id)
+      }
+      if (next.identityId) {
+        await this._redis.expire(this._idxKey(next.identityId), this._maxTtlSec)
+      }
+      return next
     }
-    const current = parseStoredSession(raw, id)
-    if (!current) {
-      throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} corrupted` })
-    }
-    // `id` is pinned to the key the row lives under, and `undefined` means "leave this alone", as in
-    // the memory and SQL stores.
-    // Stamped here rather than taken from the patch, so it tracks the write the way `$onUpdate` does in
-    // SQL and a caller cannot backdate it.
-    const next: Sessions.Me = { ...current, ...stripUndefined(patch), id: current.id, updatedAt: new Date() }
-    assertSessionAllowed(next)
-    const ttl = this._ttlFor(next)
-    // Reschedule BEFORE the record write: the other order lets `gc` sweep a session a renewal had just
-    // extended. This order costs at worst one late sweep, and readers reject a stale row regardless.
-    await this._redis.zadd(this._expKey(), this._expScore(next), this._expMember(current.id, next.identityId))
-    await this._redis.set(this._sessKey(id), JSON.stringify(next), { ex: ttl })
-    // SECURITY: a repointed session moves between the indexes, or "sign out everywhere" cannot reach
-    // it under its new owner. The expiry member carries the identity, so it moves too.
-    if (current.identityId !== next.identityId) {
-      await this._redis.zrem(this._expKey(), this._expMember(current.id, current.identityId))
-      if (current.identityId) await this._redis.srem(this._idxKey(current.identityId), current.id)
-      if (next.identityId) await this._redis.sadd(this._idxKey(next.identityId), current.id)
-    }
-    if (next.identityId) {
-      await this._redis.expire(this._idxKey(next.identityId), this._maxTtlSec)
-    }
-    return next
   }
 
   /** Removes the session and takes it out of its identity's index. */
@@ -258,17 +332,25 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
 
   /** Removes every session for this identity, and the index itself. */
   async deleteAllForIdentity(identityId: string, ctx?: TenantContext): Promise<void> {
+    // Written before the index is read, so a `create` landing after the sweep is refused by `create`'s
+    // own check rather than surviving. The TTL is the longest a session can live, past which nothing
+    // minted before the mark could still be valid.
+    // Set on the scoped path too. The mark is identity-wide, so a scoped revoke also refuses a racing
+    // create for the identity's other tenants; that costs the retry `AUTH_STALE_WRITE` asks for, where
+    // a key per tenant would refuse nothing extra but could not be told apart from an identity whose
+    // id happens to contain the separator.
+    await this._redis.set(this._revokedAtKey(identityId), String(Date.now()), { ex: this._maxTtlSec })
     const ids = await this._redis.smembers(this._idxKey(identityId))
-    if (ids.length === 0) {
-      await this._redis.del(this._idxKey(identityId))
-      return
-    }
-    // Unscoped, the index key goes with the rows and nothing has to be read.
+    if (ids.length === 0) return
+    // Unscoped, every row goes and nothing has to be read.
     if (ctx?.tenantId === undefined) {
       await this._redis.del(...ids.map((id) => this._sessKey(id)))
       // Every member is known exactly, so no row has to wait for its deadline to leave the index.
       await this._redis.zrem(this._expKey(), ...ids.map((id) => this._expMember(id, identityId)))
-      await this._redis.del(this._idxKey(identityId))
+      // SECURITY: `srem` of the members just read, never `del` of the key. A `create` that indexed
+      // itself after `smembers` is not in `ids`, and dropping the whole key took its entry with it -
+      // leaving a live session no later revoke could find. Redis retires an empty set key itself.
+      await this._redis.srem(this._idxKey(identityId), ...ids)
       return
     }
     // Scoped, membership is per row, so each is read first. An unreadable one is left alone rather than
@@ -291,6 +373,10 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
   /** Unscoped by tenant, like the rest of the set-based forms. */
   async deleteAllForIdentities(identityIds: string[]): Promise<Sessions.Revoked[]> {
     if (identityIds.length === 0) return []
+    const mark = String(Date.now())
+    await Promise.all(
+      identityIds.map((identityId) => this._redis.set(this._revokedAtKey(identityId), mark, { ex: this._maxTtlSec })),
+    )
     const found = await Promise.all(
       identityIds.map(async (identityId) => ({
         identityId,
@@ -305,7 +391,9 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
         ...live.flatMap((f) => f.ids.map((id) => this._expMember(id, f.identityId))),
       )
     }
-    await this._redis.del(...found.map((f) => this._idxKey(f.identityId)))
+    // `srem` of the members just read, never `del` of the key - see `deleteAllForIdentity`. Identities
+    // with nothing indexed are skipped rather than emptied, which is the same thing and one less call.
+    await Promise.all(live.map((f) => this._redis.srem(this._idxKey(f.identityId), ...f.ids)))
 
     // Keyed off the index rather than the records: a record that no longer parses was still revoked.
     return live.flatMap((f) => f.ids.map((id) => ({ id, identityId: f.identityId })))
@@ -388,14 +476,6 @@ const GC_PAGE = 250
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
-function isSessionKind(v: unknown): v is Sessions.Kind {
-  return AUTH_SESSION_KINDS.some((kind) => kind === v)
-}
-
-function isFactorMethod(v: unknown): v is Sessions.FactorMethod {
-  return AUTH_SESSION_FACTOR_METHODS.some((method) => method === v)
 }
 
 function isAal(v: unknown): v is Sessions.AAL {
