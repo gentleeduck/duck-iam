@@ -115,17 +115,19 @@ describe('a supplied getCaller reaches the hijack policy', () => {
     const sid = await signIn(auth)
 
     let ran = false
-    await expect(
-      expressActorContext(auth, { getCaller: expressCaller })(
-        // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
-        expressReq(sid, { ...SIGNED_IN, userAgent: 'curl/8.7.1' }) as any,
-        noRes,
-        () => {
-          ran = true
-        },
-      ),
-      // The default `onUserAgentChange` is 'mfa', which `applyReaction` throws.
-    ).rejects.toMatchObject({ code: 'AUTH_STEP_UP_REQUIRED' })
+    let refusal: unknown
+    await expressActorContext(auth, { getCaller: expressCaller })(
+      // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
+      expressReq(sid, { ...SIGNED_IN, userAgent: 'curl/8.7.1' }) as any,
+      noRes,
+      (err) => {
+        if (err) refusal = err
+        else ran = true
+      },
+    )
+    // The default `onUserAgentChange` is 'mfa', which `applyReaction` throws. It reaches express as
+    // `next(err)`: a rejected async middleware goes nowhere on Express 4 and the request just hangs.
+    expect(refusal).toMatchObject({ code: 'AUTH_STEP_UP_REQUIRED' })
     // Refused before the handler, not after it.
     expect(ran).toBe(false)
   })
@@ -281,21 +283,24 @@ describe('every adapter can read its own fingerprint', () => {
 
     const nest = buildAuth()
     const nestSid = await signIn(nest)
-    await expect(
-      nestActorContext(nest, { getCaller: nestCaller }).use(
+    let nestRefusal: unknown
+    await nestActorContext(nest, { getCaller: nestCaller }).use(
+      // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
+      {
+        headers: { ...cookieHeader(nestSid), 'user-agent': drifted },
+        identity: null,
+        ip: SIGNED_IN.ip,
+        method: 'POST',
+        session: null,
         // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
-        {
-          headers: { ...cookieHeader(nestSid), 'user-agent': drifted },
-          identity: null,
-          ip: SIGNED_IN.ip,
-          method: 'POST',
-          session: null,
-          // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
-        } as any,
-        {},
-        () => {},
-      ),
-    ).rejects.toMatchObject(stepUp)
+      } as any,
+      {},
+      (err) => {
+        nestRefusal = err
+      },
+    )
+    // Nest runs on express, so the refusal travels as `next(err)` here too.
+    expect(nestRefusal).toMatchObject(stepUp)
 
     const next = buildAuth()
     const nextSid = await signIn(next)
@@ -336,20 +341,22 @@ describe('every adapter can read its own fingerprint', () => {
     const sid = await signIn(auth)
     const resolved = await auth.resolveSession({ headers: new Headers(cookieHeader(sid)) })
 
-    await expect(
-      nestActorContext(auth, { getCaller: nestCaller }).use(
-        {
-          headers: { 'user-agent': 'curl/8.7.1' },
-          identity: null,
-          ip: SIGNED_IN.ip,
-          method: 'POST',
-          session: resolved.session,
-          // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
-        } as any,
-        {},
-        () => {},
-      ),
-    ).rejects.toMatchObject({ code: 'AUTH_STEP_UP_REQUIRED' })
+    let refusal: unknown
+    await nestActorContext(auth, { getCaller: nestCaller }).use(
+      {
+        headers: { 'user-agent': 'curl/8.7.1' },
+        identity: null,
+        ip: SIGNED_IN.ip,
+        method: 'POST',
+        session: resolved.session,
+        // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
+      } as any,
+      {},
+      (err) => {
+        refusal = err
+      },
+    )
+    expect(refusal).toMatchObject({ code: 'AUTH_STEP_UP_REQUIRED' })
   })
 })
 
@@ -422,14 +429,16 @@ describe('a caller that supplies no fingerprint at all still meets the policy', 
     const auth = buildAuth(STRICT)
     const sid = await signIn(auth)
 
-    await expect(
-      // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
-      expressActorContext(auth, { getCaller: expressCaller })(
-        expressReq(sid, { ip: SIGNED_IN.ip }) as any,
-        noRes,
-        () => {},
-      ),
-    ).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    let refusal: unknown
+    // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
+    await expressActorContext(auth, { getCaller: expressCaller })(
+      expressReq(sid, { ip: SIGNED_IN.ip }) as any,
+      noRes,
+      (err) => {
+        refusal = err
+      },
+    )
+    expect(refusal).toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 
   it('softens to an audit record under the default policy rather than refusing', async () => {

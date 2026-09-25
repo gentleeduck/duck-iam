@@ -123,7 +123,7 @@ function hasBearerAuthorization(headers: Headers): boolean {
 }
 
 /** Resolves the session, then runs {@link verifyCsrf} over it. Structural for the same reason
- *  `ActorResolvable` is, and a plain `Promise` for the same reason too. */
+ *  `Actor.Resolvable` is, and a plain `Promise` for the same reason too. */
 export async function csrfGuard(
   auth: {
     resolveSession(

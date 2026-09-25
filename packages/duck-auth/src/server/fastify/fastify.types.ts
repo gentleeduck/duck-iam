@@ -5,7 +5,8 @@ export namespace FastifyAdapter {
     reply: FastifyAdapter.Reply,
   ) => Promise<FastifyAdapter.Reply | undefined>
 
-  /** `preHandler` hook shape. Sending from the hook halts the chain. */
+  /** `preHandler` hook shape. Sending is not what halts the chain - awaiting the reply is, so a hook that
+   *  refuses a request must `await` the send before it returns. */
   export type PreHandler = (req: FastifyAdapter.Request, reply: FastifyAdapter.Reply) => Promise<void>
 
   export type Request = {

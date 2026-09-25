@@ -6,6 +6,7 @@ import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type ActorOptions,
   type CallerFingerprint,
   callerContext,
   errorToHttp,
@@ -15,7 +16,6 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
-  type RequestSecurityOptions,
   requestSecurity,
 } from '../generic'
 
@@ -138,30 +138,17 @@ export function koaCaller(ctx: KoaAdapter.Context): CallerFingerprint {
   return callerContext({ ip: ctx.request.ip, userAgent: ctx.request.headers['user-agent'] })
 }
 
-/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
- *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
- *  with the session's, running the anomaly detectors and the hijack policy.
- *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
-export type KoaActorOptions = {
-  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
-  getCaller?: (ctx: KoaAdapter.Context) => CallerFingerprint
-  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
-  onHijack?: RequestSecurityOptions['onHijack']
-}
+export type KoaActorOptions = ActorOptions<KoaAdapter.Context>
 
 /** Bind the request's actor scope for everything downstream; install it above your own routes,
- *  alongside the CSRF guard. Anonymous and unresolvable sessions run unbound, which is the honest
- *  `null`; while impersonating the actor is the operator behind `actingAs`. */
+ *  alongside the CSRF guard. See `core/actor/README.md` for what runs unbound and what raises. */
 export function koaActorContext(auth: AuthEngine, opts: KoaActorOptions = {}): KoaAdapter.Middleware {
   return async (ctx, next) => {
     await withRequestActor(
       auth,
       { headers: toFetchHeaders(ctx.request.headers) },
       () => next(),
-      requestSecurity(auth, {
-        ...(opts.onHijack && { onHijack: opts.onHijack }),
-        ...(opts.getCaller && { caller: opts.getCaller(ctx) }),
-      }),
+      requestSecurity(auth, { caller: opts.getCaller?.(ctx), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
     )
   }
 }

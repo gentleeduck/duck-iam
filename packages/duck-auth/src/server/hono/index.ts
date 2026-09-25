@@ -5,15 +5,16 @@ import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import {
+  type ActorOptions,
   type CallerFingerprint,
   callerContext,
-  errorToHttp,
+  errorResponse,
   executeIntents,
   isValidProviderId,
+  jsonResponse,
   parseBodyStringField,
   parseProviderBeginBody,
   parseSignInBody,
-  type RequestSecurityOptions,
   requestSecurity,
 } from '../generic'
 
@@ -24,6 +25,9 @@ export function honoCaller(ctx: { ip?: string; req: { header: (n?: string) => un
 }
 
 import type { HonoAdapter, MountHono } from './hono.types'
+
+/** Apple's form post is 1-2KB; the cap is what stops a public route buffering an arbitrary body. */
+const OAUTH_FORM_POST_MAX_BYTES = 8 * 1024
 
 function reqHeaders(ctx: HonoAdapter.Context): Headers {
   return ctx.req.raw.headers
@@ -45,7 +49,7 @@ export function honoSignIn(auth: AuthEngine): HonoAdapter.Handler {
       const result = await auth.flows.signIn({ ...parsed, ...honoCaller(ctx) })
       return executeIntents(result.intents)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -60,7 +64,7 @@ export function honoSignOut(auth: AuthEngine): HonoAdapter.Handler {
       const { intents } = await auth.flows.signOut(sid)
       return executeIntents(intents)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -73,12 +77,9 @@ export function honoSession(auth: AuthEngine): HonoAdapter.Handler {
       // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
       const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
       const body = resolved ? { session, identity: resolved.identity } : { session: null, identity: null }
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
-      })
+      return jsonResponse(200, body)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
 }
@@ -99,17 +100,9 @@ export function honoProviderBegin(auth: AuthEngine): HonoAdapter.Handler {
       const intents = await auth.flows.beginProvider(id, body)
       return executeIntents(intents)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
   }
-}
-
-function handleError(err: unknown): Response {
-  const { status, body } = errorToHttp(err)
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
-  })
 }
 
 /** Convert a native Hono Context into the structural {@link HonoAdapter.Context}. */
@@ -156,17 +149,28 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
   app.post(`${prefix}/providers/:id/begin`, (c) => honoProviderBegin(auth)(toHonoAdapterCtx(c)))
 
   if (!skip.has('oauth')) {
-    app.get(`${prefix}/providers/:provider/callback`, async (c) => {
+    const oauthCallback = async (c: MountHono.HonoCtx): Promise<Response> => {
       const provider = c.req.param('provider')
       if (typeof provider !== 'string' || provider.length === 0) {
         return executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }])
       }
       const url = new URL(c.req.url)
-      const code = url.searchParams.get('code') ?? ''
-      const state = url.searchParams.get('state') ?? ''
+      let code = url.searchParams.get('code') ?? ''
+      let state = url.searchParams.get('state') ?? ''
+      if (c.req.method === 'POST') {
+        // `response_mode=form_post`, which Apple uses as soon as any scope is requested: the parameters
+        // arrive as a urlencoded body rather than a query string, and no adapter mounted a POST that could
+        // receive one. Capped because this is a public route and `text()` is otherwise unbounded; a
+        // truncated body fails the state check, which is the direction to fail in.
+        const body = await c.req.raw.text().catch(() => '')
+        const form = new URLSearchParams(body.slice(0, OAUTH_FORM_POST_MAX_BYTES))
+        code = form.get('code') ?? ''
+        state = form.get('state') ?? ''
+      }
       // The provider reads its own cookie out of this. Without it every callback is refused, which
       // is the right direction to fail but not a good way to find out.
-      const cookieHeader = c.req.header('cookie') ?? ''
+      const cookie = c.req.header('cookie')
+      const cookieHeader = typeof cookie === 'string' ? cookie : ''
       try {
         const result = await auth.flows.signIn({
           input: { code, cookieHeader, state },
@@ -175,9 +179,15 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         })
         return executeIntents(result.intents)
       } catch (err) {
-        return handleError(err)
+        return errorResponse(err)
       }
-    })
+    }
+    app.get(`${prefix}/providers/:provider/callback`, oauthCallback)
+    // SECURITY: deliberately not behind `csrfGuard`. This POST is cross-site by construction - it is the
+    // IdP's form submitting to us - so an origin check refuses every real Apple sign-in. What authenticates
+    // it is the signed `state` plus the `binding` cookie digest inside it, which is the same proof the GET
+    // callback rests on and does not depend on the request's origin.
+    app.post(`${prefix}/providers/:provider/callback`, oauthCallback)
   }
 
   if (!skip.has('magic-link')) {
@@ -188,7 +198,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         const result = await auth.flows.signIn({ input: { token }, providerId: 'magic-link', ...honoCaller(c) })
         return executeIntents(result.intents)
       } catch (err) {
-        return handleError(err)
+        return errorResponse(err)
       }
     })
   }
@@ -206,7 +216,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         const intents = await auth.flows.beginProvider('passkey', body)
         return executeIntents(intents)
       } catch (err) {
-        return handleError(err)
+        return errorResponse(err)
       }
     })
     app.post(`${prefix}/passkey/complete`, async (c) => {
@@ -216,7 +226,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         const result = await auth.flows.signIn({ input: body, providerId: 'passkey', ...honoCaller(c) })
         return executeIntents(result.intents)
       } catch (err) {
-        return handleError(err)
+        return errorResponse(err)
       }
     })
   }
@@ -235,9 +245,13 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         if (label === null) {
           return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
         }
-        return jsonResponse(200, await auth.mfa.beginTotpEnrollment(resolved.session.identityId, label))
+        // The session's own tenant, as `flows.completeStepUp` passes it. `MfaFacet` defaults `ctx` to `{}`,
+        // which reads and writes unscoped: enrolling here stamped a global row, and verifying here spent a
+        // factor enrolled in any other tenant.
+        const tenant = resolved.session.tenantId !== null ? { tenantId: resolved.session.tenantId } : {}
+        return jsonResponse(200, await auth.mfa.beginTotpEnrollment(resolved.session.identityId, label, tenant))
       } catch (err) {
-        return handleError(err)
+        return errorResponse(err)
       }
     })
     app.post(`${prefix}/mfa/totp/confirm`, async (c) => {
@@ -252,10 +266,11 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         if (code === null) {
           return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
         }
-        const result = await auth.mfa.confirmTotpEnrollment(resolved.session.identityId, code)
+        const tenant = resolved.session.tenantId !== null ? { tenantId: resolved.session.tenantId } : {}
+        const result = await auth.mfa.confirmTotpEnrollment(resolved.session.identityId, code, tenant)
         return jsonResponse(result.ok ? 200 : 400, result)
       } catch (err) {
-        return handleError(err)
+        return errorResponse(err)
       }
     })
     app.post(`${prefix}/mfa/totp/verify`, async (c) => {
@@ -275,9 +290,10 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         // `completeStepUp` uses, so grinding cannot buy a second budget by switching routes.
         const limited = await auth.limiter.consume(`stepup:${resolved.session.identityId}`)
         if (!limited.ok) await refuseRateLimited(auth.events, limited, resolved.session.identityId)
-        return jsonResponse(200, { ok: await auth.mfa.verifyTotp(resolved.session.identityId, code) })
+        const tenant = resolved.session.tenantId !== null ? { tenantId: resolved.session.tenantId } : {}
+        return jsonResponse(200, { ok: await auth.mfa.verifyTotp(resolved.session.identityId, code, tenant) })
       } catch (err) {
-        return handleError(err)
+        return errorResponse(err)
       }
     })
     app.post(`${prefix}/mfa/totp/remove`, async (c) => {
@@ -295,10 +311,11 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         if (!stepUp.satisfied) {
           throw new AuthError('AUTH_STEP_UP_REQUIRED', { challenge: stepUp })
         }
-        await auth.mfa.removeTotp(resolved.session.identityId)
+        const tenant = resolved.session.tenantId !== null ? { tenantId: resolved.session.tenantId } : {}
+        await auth.mfa.removeTotp(resolved.session.identityId, tenant)
         return jsonResponse(200, { ok: true })
       } catch (err) {
-        return handleError(err)
+        return errorResponse(err)
       }
     })
     app.post(`${prefix}/mfa/backup-codes/regenerate`, async (c) => {
@@ -316,45 +333,26 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         if (!stepUp.satisfied) {
           throw new AuthError('AUTH_STEP_UP_REQUIRED', { challenge: stepUp })
         }
-        return jsonResponse(200, { codes: await auth.mfa.regenerateBackupCodes(resolved.session.identityId) })
+        const tenant = resolved.session.tenantId !== null ? { tenantId: resolved.session.tenantId } : {}
+        return jsonResponse(200, { codes: await auth.mfa.regenerateBackupCodes(resolved.session.identityId, tenant) })
       } catch (err) {
-        return handleError(err)
+        return errorResponse(err)
       }
     })
   }
 }
 
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
-    status,
-  })
-}
-
-/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
- *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
- *  with the session's, running the anomaly detectors and the hijack policy.
- *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
-export type HonoActorOptions = {
-  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
-  getCaller?: (ctx: HonoAdapter.Context) => CallerFingerprint
-  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
-  onHijack?: RequestSecurityOptions['onHijack']
-}
+export type HonoActorOptions = ActorOptions<HonoAdapter.Context>
 
 /** Bind the request's actor scope for everything downstream; install it above your own routes,
- *  alongside the CSRF guard. Anonymous and unresolvable sessions run unbound, which is the honest
- *  `null`; while impersonating the actor is the operator behind `actingAs`. */
+ *  alongside the CSRF guard. See `core/actor/README.md` for what runs unbound and what raises. */
 export function honoActorContext(auth: AuthEngine, opts: HonoActorOptions = {}): HonoAdapter.Middleware {
   return async (ctx, next) => {
     await withRequestActor(
       auth,
       { headers: ctx.req.raw.headers },
       () => next(),
-      requestSecurity(auth, {
-        ...(opts.onHijack && { onHijack: opts.onHijack }),
-        ...(opts.getCaller && { caller: opts.getCaller(ctx) }),
-      }),
+      requestSecurity(auth, { caller: opts.getCaller?.(ctx), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
     )
     return undefined
   }
@@ -366,7 +364,7 @@ export function honoCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): HonoAd
     try {
       await csrfGuard(auth, { headers: reqHeaders(ctx), method: reqMethod(ctx) }, opts)
     } catch (err) {
-      return handleError(err)
+      return errorResponse(err)
     }
     await next()
     return undefined

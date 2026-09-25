@@ -1,6 +1,7 @@
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext } from '@nestjs/common'
 import { Catch, createParamDecorator } from '@nestjs/common'
 import { withResolvedActor } from '~/core/actor'
+import type { Anomaly } from '~/core/anomaly/anomaly.types'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard, verifyCsrf } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
@@ -10,6 +11,7 @@ import type { Identities } from '~/core/identities/identities.types'
 import type { Provider } from '~/core/provider'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import {
+  type ActorOptions,
   type CallerFingerprint,
   callerContext,
   errorToHttp,
@@ -19,7 +21,6 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
-  type RequestSecurityOptions,
   requestSecurity,
 } from '../generic'
 
@@ -46,8 +47,10 @@ async function forward(response: Response, reply: NestAdapter.Response): Promise
 function handleError(err: unknown, reply: NestAdapter.Response): never {
   const { status, body } = errorToHttp(err)
   reply.status(status)
-  if (reply.setHeader) reply.setHeader('cache-control', 'no-store')
-  if (reply.setHeader) reply.setHeader('content-type', 'application/json; charset=utf-8')
+  if (reply.setHeader) {
+    reply.setHeader('cache-control', 'no-store')
+    reply.setHeader('content-type', 'application/json; charset=utf-8')
+  }
   reply.send(JSON.stringify(body))
   // rethrow so NestJS exception filter can log to Loki; filter's res.headersSent
   // check prevents double-send
@@ -238,16 +241,7 @@ export function nestCaller(req: NestAdapter.Request): CallerFingerprint {
   return callerContext({ ip: req.ip, userAgent: req.headers?.['user-agent'] })
 }
 
-/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
- *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
- *  with the session's, running the anomaly detectors and the hijack policy.
- *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
-export type NestActorOptions = {
-  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
-  getCaller?: (req: NestAdapter.Request) => CallerFingerprint
-  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
-  onHijack?: RequestSecurityOptions['onHijack']
-}
+export type NestActorOptions = ActorOptions<NestAdapter.Request>
 
 /** Bind the request's actor scope for everything downstream:
  *  `consumer.apply(nestActorContext(auth)).forRoutes('*')`. Middleware rather than a guard or an
@@ -257,7 +251,7 @@ export function nestActorContext(
   auth: AuthEngine,
   opts: NestActorOptions = {},
 ): {
-  use(req: NestAdapter.Request, res: unknown, next: () => void): Promise<void>
+  use(req: NestAdapter.Request, res: unknown, next: (err?: unknown) => void): Promise<void>
 } {
   return {
     async use(req, _res, next) {
@@ -265,31 +259,37 @@ export function nestActorContext(
         next()
       }
       const security = requestSecurity(auth, {
-        ...(opts.onHijack && { onHijack: opts.onHijack }),
-        ...(opts.getCaller && { caller: opts.getCaller(req) }),
+        caller: opts.getCaller?.(req),
+        onAnomaly: opts.onAnomaly,
+        onHijack: opts.onHijack,
       })
-      // Resolved here rather than by `withRequestActor`, which keeps the session and drops the
-      // identity: both are stashed on the request so `makeGuard` reuses them instead of paying a
-      // second resolveSession. A session that will not resolve leaves the request unattributed,
-      // which is what the wrapper did too.
-      if (!req.session) {
-        const resolved = await auth
-          .resolveSession(
-            { headers: toFetchHeaders(req.headers) },
-            security.requestSnapshot ? { requestSnapshot: security.requestSnapshot } : undefined,
-          )
-          // `.orNull()`, not `.catch(() => null)`: that swallowed a store outage too, and recorded the
-          // request as anonymous rather than letting it fail.
-          .orNull()
-        if (resolved) {
-          req.session = resolved.session
-          req.identity = resolved.identity as NestAdapter.Request['identity']
+      // Resolved here rather than by `withRequestActor`, which keeps the session and drops the identity:
+      // both are stashed on the request so `makeGuard` reuses them. The verdict is not, since a later
+      // middleware reusing `req.session` never ran the detectors.
+      let anomaly: Anomaly.Result | undefined
+      // SECURITY: the resolve is inside the try. Nest's HTTP layer is Express, where a rejected async
+      // middleware goes nowhere, so a refusal or a store outage hung the request instead of answering it.
+      try {
+        if (!req.session) {
+          const resolved = await auth
+            .resolveSession(
+              { headers: toFetchHeaders(req.headers) },
+              security.requestSnapshot ? { requestSnapshot: security.requestSnapshot } : undefined,
+            )
+            // `.orNull()`, not `.catch(() => null)`: that recorded a store outage as an anonymous request.
+            .orNull()
+          if (resolved) {
+            req.session = resolved.session
+            req.identity = resolved.identity as NestAdapter.Request['identity']
+            anomaly = resolved.anomaly
+          }
         }
+        // `next()` is synchronous, so the downstream chain starts inside the scope.
+        if (req.session) await withResolvedActor(req.session, bound, security, anomaly)
+        else await bound()
+      } catch (err) {
+        next(err)
       }
-      // `next()` is synchronous, so the downstream chain starts inside the
-      // scope and every async continuation of it inherits the binding.
-      if (req.session) await withResolvedActor(req.session, bound, security)
-      else await bound()
     },
   }
 }

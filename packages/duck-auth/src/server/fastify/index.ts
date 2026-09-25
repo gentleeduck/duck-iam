@@ -7,6 +7,7 @@ import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type ActorOptions,
   type CallerFingerprint,
   callerContext,
   errorToHttp,
@@ -16,7 +17,6 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
-  type RequestSecurityOptions,
   requestSecurity,
 } from '../generic'
 
@@ -151,20 +151,10 @@ export function fastifyCaller(req: FastifyAdapter.Request): CallerFingerprint {
   return callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] })
 }
 
-/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
- *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
- *  with the session's, running the anomaly detectors and the hijack policy.
- *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
-export type FastifyActorOptions = {
-  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
-  getCaller?: (req: FastifyAdapter.Request) => CallerFingerprint
-  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
-  onHijack?: RequestSecurityOptions['onHijack']
-}
+export type FastifyActorOptions = ActorOptions<FastifyAdapter.Request>
 
-/** Wrap one handler so its writes carry the request's actor. Per-handler rather than middleware,
- *  since Fastify composes no `next`. Anonymous and unresolvable sessions run unbound, which is the
- *  honest `null`; while impersonating the actor is the operator behind `actingAs`. */
+/** Wrap one handler so its writes carry the request's actor; per-handler, since Fastify composes no
+ *  `next`. See `core/actor/README.md` for what runs unbound and what raises. */
 export function fastifyWithActor(
   auth: AuthEngine,
   handler: FastifyAdapter.Handler,
@@ -175,10 +165,7 @@ export function fastifyWithActor(
       auth,
       { headers: toFetchHeaders(req.headers) },
       () => handler(req, reply),
-      requestSecurity(auth, {
-        ...(opts.onHijack && { onHijack: opts.onHijack }),
-        ...(opts.getCaller && { caller: opts.getCaller(req) }),
-      }),
+      requestSecurity(auth, { caller: opts.getCaller?.(req), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
     )
 }
 
@@ -188,7 +175,12 @@ export function fastifyCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): Fas
     try {
       await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method }, opts)
     } catch (err) {
-      handleError(err, reply)
+      // SECURITY: `await`, because Fastify's Reply is thenable and awaiting it is what waits for the send.
+      // Dropping it resolved the hook with the response still in flight, Fastify ran the chain on, and the
+      // protected handler executed after the 403 had been written - the request refused on the wire and the
+      // write performed anyway, which is the whole of what a CSRF attack is after. Returning the reply does
+      // not help; only awaiting it does.
+      await handleError(err, reply)
     }
   }
 }

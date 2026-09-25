@@ -4,6 +4,7 @@ import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import type { Provider } from '~/core/provider/provider.types'
 import {
+  type ActorOptions,
   type CallerFingerprint,
   callerContext,
   errorToHttp,
@@ -12,7 +13,6 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
-  type RequestSecurityOptions,
   requestSecurity,
   serializeCookie,
 } from '../generic'
@@ -176,35 +176,30 @@ export function expressCaller(req: ExpressAdapter.Request): CallerFingerprint {
   return callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] })
 }
 
-/** Options for the actor-context wrapper. `getCaller` is the opt-in: without it the wrapper is a
- *  pure attribution scope that refuses nothing; with it, every request's fingerprint is compared
- *  with the session's, running the anomaly detectors and the hijack policy.
- *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
-export type ExpressActorOptions = {
-  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
-  getCaller?: (req: ExpressAdapter.Request) => CallerFingerprint
-  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
-  onHijack?: RequestSecurityOptions['onHijack']
-}
+export type ExpressActorOptions = ActorOptions<ExpressAdapter.Request>
 
 /** Bind the request's actor scope for everything downstream; install it above your own routes,
- *  alongside the CSRF guard. Anonymous and unresolvable sessions run unbound, which is the honest
- *  `null`; while impersonating the actor is the operator behind `actingAs`. */
+ *  alongside the CSRF guard. See `core/actor/README.md` for what runs unbound and what raises. */
 export function expressActorContext(auth: AuthEngine, opts: ExpressActorOptions = {}): ExpressAdapter.Middleware {
   return async (req, _res, next) => {
-    // `next()` is synchronous, so the downstream chain starts inside the scope
-    // and every async continuation of it inherits the binding.
-    await withRequestActor(
-      auth,
-      { headers: toHeaders(req.headers) },
-      async () => {
-        next()
-      },
-      requestSecurity(auth, {
-        ...(opts.onHijack && { onHijack: opts.onHijack }),
-        ...(opts.getCaller && { caller: opts.getCaller(req) }),
-      }),
-    )
+    try {
+      // `next()` is synchronous, so the downstream chain starts inside the scope
+      // and every async continuation of it inherits the binding.
+      await withRequestActor(
+        auth,
+        { headers: toHeaders(req.headers) },
+        async () => {
+          next()
+        },
+        requestSecurity(auth, { caller: opts.getCaller?.(req), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
+      )
+    } catch (err) {
+      // SECURITY: Express 4 does not forward a rejected async middleware anywhere - the socket is simply
+      // held until something times out. `onHijack` and the `revoke` reaction refuse by throwing, so on
+      // Express 4 that refusal reached neither the error handler nor the client. Only errors raised before
+      // `next()` arrive here: a downstream throw is caught by its own layer, so this cannot double-dispatch.
+      next(err)
+    }
   }
 }
 

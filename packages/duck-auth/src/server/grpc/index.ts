@@ -61,12 +61,12 @@ export function withGrpc<Req, Res>(
     void (async () => {
       try {
         const headers = metadataToHeaders(call.metadata, headerName)
-        // The same opt-in the seven HTTP adapters take: without a `getCaller` no `caller` is passed at
-        // all and nothing is compared, so a deployment that does not ask keeps the behaviour it had. The
-        // key is omitted rather than set to `{}`, which would read as a caller who sent no fingerprint.
+        // The same opt-in the seven HTTP adapters take: no `getCaller` means no fingerprint, so nothing is
+        // compared and a deployment that did not ask keeps the behaviour it had.
         const security = requestSecurity(auth, {
-          ...(opts.onHijack && { onHijack: opts.onHijack }),
-          ...(opts.getCaller && { caller: opts.getCaller(call) }),
+          caller: opts.getCaller?.(call),
+          onAnomaly: opts.onAnomaly,
+          onHijack: opts.onHijack,
         })
         const resolved = await auth
           .resolveSession(
@@ -98,6 +98,7 @@ export function withGrpc<Req, Res>(
             handler(call, callback)
           },
           security.onSession ? { onSession: security.onSession } : {},
+          resolved.anomaly,
         )
       } catch (err) {
         if (err instanceof AuthError) {

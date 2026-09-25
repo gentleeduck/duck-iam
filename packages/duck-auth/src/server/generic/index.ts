@@ -1,4 +1,4 @@
-import type { RequestActorOptions } from '~/core/actor'
+import type { Actor } from '~/core/actor'
 import type { Anomaly } from '~/core/anomaly/anomaly.types'
 import { AuthError } from '~/core/errors'
 import type { Hijack } from '~/core/hijack/hijack.types'
@@ -159,6 +159,20 @@ export function errorToHttp(err: unknown): { status: number; body: object } {
   }
 }
 
+/** A JSON body as the Web `Response` the fetch-native adapters answer with. */
+export function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' },
+    status,
+  })
+}
+
+/** {@link jsonResponse} over {@link errorToHttp}: what every fetch-native adapter answers on a throw. */
+export function errorResponse(err: unknown): Response {
+  const { status, body } = errorToHttp(err)
+  return jsonResponse(status, body)
+}
+
 /** RFC 6265 cookie serializer (zero deps; subset sufficient for auth use). */
 export function serializeCookie(
   name: string,
@@ -234,38 +248,52 @@ export type HijackEvaluable = {
 
 /** What {@link requestSecurity} takes: the request fingerprint, and what to do when it drifts. */
 export type RequestSecurityOptions = {
-  /**
-   * The request fingerprint. Passing one is what switches these checks on: without it the
-   * session's recorded `ip` / `userAgent` are stamped at sign-in and never looked at again.
-   */
+  /** Passing one switches these checks on; without it the session's `ip` / `userAgent` are stamped at
+   *  sign-in and never looked at again. */
   caller?: CallerFingerprint
-  /**
-   * Called instead of the configured reaction when drift is detected, and the place to handle
-   * `'rotate'`. `applyReaction` throws for `'mfa'` and `'revoke'` but is deliberately a no-op for
-   * `'rotate'`: rotating means writing a new session cookie onto the response, which a wrapper
-   * that only owns handler execution cannot do. Throwing from here refuses the request.
-   */
+  /** Called instead of the configured reaction on drift, and the only place to handle `'rotate'`, which
+   *  `applyReaction` leaves alone since a wrapper cannot write a cookie. Throwing refuses the request. */
   onHijack?: (drift: HijackDrift, session: Sessions.Me) => void | Promise<void>
+  /** Called instead of the default refusal for any anomaly decision but `'allow'`. Throwing refuses.
+   *  The default acts on `'deny'` alone: `'step-up'` shares its threshold with the device detector's own
+   *  score, so refusing on it would demand MFA at every first sight of a device. */
+  onAnomaly?: (result: Anomaly.Result, session: Sessions.Me) => void | Promise<void>
+}
+
+/** What every adapter's actor wrapper takes, over the request object that adapter's `getCaller` reads.
+ *  `getCaller` is the opt-in: without it the wrapper is a pure attribution scope that refuses nothing;
+ *  with it, each request's fingerprint is compared with the session's, running the anomaly detectors and
+ *  the hijack policy.
+ *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
+export type ActorOptions<Req> = {
+  /** Read the request fingerprint. Never from a forwarded header: see {@link callerContext}. */
+  getCaller?: (req: Req) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+  /** Handle the anomaly verdict yourself, including the `'step-up'` the default ignores. */
+  onAnomaly?: RequestSecurityOptions['onAnomaly']
 }
 
 /**
- * Build the {@link RequestActorOptions} that turn an actor-context wrapper into a fingerprint
+ * Build the {@link Actor.RequestOptions} that turn an actor-context wrapper into a fingerprint
  * check as well: the anomaly detectors get a snapshot to run against, and every resolved session
  * is compared with `hijack.evaluate`, which emits `suspicious` on any drift, even when the
  * configured reaction is `'ignore'`.
  */
-export function requestSecurity(auth: HijackEvaluable, opts: RequestSecurityOptions = {}): RequestActorOptions {
+export function requestSecurity(auth: HijackEvaluable, opts: RequestSecurityOptions = {}): Actor.RequestOptions {
   const caller = opts.caller
-  // SECURITY: `!caller` alone. Supplying a `getCaller` is the host's opt-in; supplying no values is the
-  // *caller's* choice, and those were the same early return, so a request that sent neither an IP nor a
-  // User-Agent was never compared with the session at all. `nextCaller` and `grpcCaller` resolve no IP
-  // by design - a Web `Request` has no peer and gRPC's is on the runtime's object - so on those two the
-  // User-Agent was the whole fingerprint and dropping one header turned the check off, `suspicious`
-  // included. `onMissingSignal: 'strict'` exists for exactly that move and could never be reached.
-  // The facet already distinguishes a stripped value from an absent baseline, so it decides now.
+  // SECURITY: `!caller` alone - the host's opt-in. A caller that sent no IP and no User-Agent is the
+  // facet's call to make, and `onMissingSignal: 'strict'` is where it makes it.
   if (!caller) return {}
   return {
-    onSession: async (session) => {
+    onSession: async (session, anomaly) => {
+      // Before the hijack check: this is the verdict `resolveSession` already paid the detectors for.
+      if (anomaly && anomaly.decision !== 'allow') {
+        if (opts.onAnomaly) await opts.onAnomaly(anomaly, session)
+        else if (anomaly.decision === 'deny') {
+          throw new AuthError('AUTH_ANOMALY_DENIED', { score: anomaly.score })
+        }
+      }
       const evaluation = await auth.hijack.evaluate(session, caller)
       if (evaluation.ok) return
       if (opts.onHijack) {
