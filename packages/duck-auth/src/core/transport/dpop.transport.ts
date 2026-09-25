@@ -192,13 +192,9 @@ export class DPoPVerifier {
       }
     }
 
-    // SECURITY: held until this proof stops being acceptable, which is `iat + window` and not `window`
-    // from now. The check above is two-sided, so a proof dated into the future - which is what
-    // `clockSkewMs` exists to tolerate, and every client whose clock runs fast mints one - is accepted
-    // before its `iat` and stays acceptable well after the jti was forgotten. Measured at the defaults:
-    // the verifier asked for a 90s TTL on a proof that stayed fresh for another 179s, and the identical
-    // proof, replayed once its jti had expired, was accepted a second time. The gap is how far ahead the
-    // client's clock runs, up to the full 90s.
+    // SECURITY: held until this proof stops being acceptable, which is `iat + window`, not `window` from
+    // now. The check above is two-sided, so a proof dated into the future - what `clockSkewMs` tolerates,
+    // and what every fast client mints - outlives a jti forgotten `window` from now and replays.
     const fresh = await this._nonceStore.recordSeen(claims.jti, iatMs + window - nowMs)
     if (!fresh) {
       throw new AuthError('AUTH_DPOP_INVALID', { reason: 'jti replay detected' })

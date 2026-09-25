@@ -86,9 +86,10 @@ export class CompositeTransport implements Transport.ITransport {
       // Sequential, and deliberately so: order is the tiebreak between transports that would both
       // vouch for a token, and asking them at once would decide it by whichever resolved first.
       let failure: unknown
-      // As in the engine: a member reaches `AUTH_SESSION_EXPIRED` only about a token it authenticated, so
-      // that verdict outranks the generic refusal below. A later member may still vouch, so the loop runs on.
-      let expired: unknown
+      // As in the engine: a member reaches these two only about a token it authenticated -- every "not a
+      // token of mine" rejection is in the absent set -- so they outrank the generic refusal below. A
+      // later member may still vouch, so the loop runs on.
+      let authenticated: unknown
       for (const t of this._transports) {
         if (!t.verify) continue
         let session: Sessions.Me | null = null
@@ -99,10 +100,19 @@ export class CompositeTransport implements Transport.ITransport {
             // The "does not vouch" verdict, taken as `orNull` would.
             const { code } = asAuthError(err, 'AUTH_ADAPTER_FAILED')
             if (!ABSENT.has(code)) throw err
-            if (code === 'AUTH_SESSION_EXPIRED') expired ??= err
+            if (code === 'AUTH_SESSION_EXPIRED' || code === 'AUTH_IMPERSONATE_WINDOW_CLOSED') {
+              authenticated ??= err
+            }
             return null
           })
         } catch (err) {
+          // An authoritative member is not an optional one. The fall-through exists so a recoverable fault in
+          // an optional transport cannot take down the members after it, and applying it here let the next
+          // transport answer for a token this one had just refused - the whole thing the flag prevents. Only a
+          // refusal spelled with an ABSENT code returned `null` and reached the veto below; every other
+          // spelling, which is what a custom transport throws, skipped it. Its own error is rethrown rather
+          // than the veto's, so a bad proof and an unreachable JWKS stay tellable apart.
+          if (t.authoritative) throw err
           failure ??= err
           continue
         }
@@ -114,7 +124,7 @@ export class CompositeTransport implements Transport.ITransport {
       }
       // `!== undefined`, not a truthiness test: a transport that threw `''` still threw.
       if (failure !== undefined) throw failure
-      if (expired !== undefined) throw expired
+      if (authenticated !== undefined) throw authenticated
 
       throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'no transport vouched for the token' })
     })

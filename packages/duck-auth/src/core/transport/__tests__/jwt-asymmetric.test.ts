@@ -73,7 +73,7 @@ describe('AuthJwtTransport - ES256', () => {
       ],
       issuer: 'https://app.example.com',
     })
-    await expect(otherTransport.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(otherTransport.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 
   it('jwks emits the public key with kid + alg + use', () => {
@@ -147,7 +147,7 @@ describe('AuthJwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => 
     // verifier ignores the sig because alg mismatch is caught first.
     const fakeSig = 'A'.repeat(32)
     const jwt = `${header}.${payload}.${fakeSig}`
-    await expect(t.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 
   it('refuses unknown alg headers (none / RS512 / etc.)', async () => {
@@ -159,7 +159,7 @@ describe('AuthJwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => 
     const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT', kid: 'k1' })).toString('base64url')
     const payload = Buffer.from(JSON.stringify({ sub: 'x' })).toString('base64url')
     const jwt = `${header}.${payload}.`
-    await expect(t.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(jwt)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 })
 
@@ -207,7 +207,7 @@ describe('AuthJwtTransport - EdDSA (Ed25519)', () => {
       issuer: 'https://app.example.com',
     })
     const fakeJwt = findAccessToken(forge.issue('x', fakeSession(), { fresh: true, absolute: false }))
-    await expect(t.verify(fakeJwt)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(fakeJwt)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 
   it('jwks emits the OKP public key with crv=Ed25519', () => {
@@ -254,7 +254,7 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
 
     // After retiring 'a', the old token stops verifying.
     t.retireVerifyKey('a')
-    await expect(t.verify(t1)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(t1)).rejects.toMatchObject({ code: 'AUTH_JWT_KEY_UNKNOWN' })
   })
 
   it('refuses to retire the active signing kid', () => {

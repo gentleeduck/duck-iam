@@ -127,7 +127,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
     })
     expect((await t.verify(oldTok)).identityId).toBe('user-1')
     t.retireVerifyKey('a')
-    await expect(t.verify(oldTok)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(oldTok)).rejects.toMatchObject({ code: 'AUTH_JWT_KEY_UNKNOWN' })
   })
 
   it('notAfter cutoff retires tokens at verify time', async () => {
@@ -138,7 +138,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a', notAfter: Date.now() - 1 }],
     })
     const tok = findAccessToken(t.issue('x', fakeSession(), { absolute: false, fresh: true }))
-    await expect(t.verify(tok)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(tok)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 
   it('verify ring holds HS256 + ES256 + RS256 + EdDSA simultaneously', async () => {
@@ -191,7 +191,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
     const tok = findAccessToken(t.issue('x', fakeSession(), { absolute: false, fresh: true }))
     const [h, p, s] = tok.split('.')
     const truncated = `${h}.${p}.${s!.slice(0, -4)}AAAA`
-    await expect(t.verify(truncated)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    await expect(t.verify(truncated)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
   })
 
   it('EdDSA verify rejects garbage public key on rotation', () => {
