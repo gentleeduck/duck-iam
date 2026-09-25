@@ -24,7 +24,7 @@
     "@gentleduck/registry-ui": "^0.5.0",
     "@gentleduck/variants": "^1.0.0",
     "@node-rs/argon2": "2.1.0",
-    "@simplewebauthn/server": "^13.3.0",
+    "@simplewebauthn/server": "^14.0.2",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.34",
     "pg": "^8.23.0",
