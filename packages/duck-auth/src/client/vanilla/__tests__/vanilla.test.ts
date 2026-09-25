@@ -133,12 +133,19 @@ describe('createAuthClient', () => {
   })
 
   describe('onChange', () => {
-    it('synchronously fires the handler on subscribe by default', () => {
+    it('replays the state on subscribe, but only once there is one to replay', async () => {
       const fetchImpl = mockFetch(() => ({ status: 200, body: null }))
       const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
-      const handler = vi.fn()
-      client.onChange(handler)
-      expect(handler).toHaveBeenCalledWith({ session: null, identity: null })
+      // Before the first read the client holds nothing. It used to replay an empty state here, which
+      // every framework binding reads as `status: 'guest'` - signed out, announced before asking.
+      const early = vi.fn()
+      client.onChange(early)
+      expect(early).not.toHaveBeenCalled()
+
+      await client.getSession()
+      const late = vi.fn()
+      client.onChange(late)
+      expect(late).toHaveBeenCalledWith({ session: null, identity: null })
     })
 
     it('handler errors are caught (do not break subsequent notifications)', async () => {

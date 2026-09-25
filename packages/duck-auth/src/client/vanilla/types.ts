@@ -12,7 +12,8 @@ export namespace VanillaClient {
     baseUrl?: string
     /** Override the fetch impl (test stubs, retry wrappers, etc.). */
     fetch?: typeof globalThis.fetch
-    /** Override how subscribed observers are notified. Default: synchronous. */
+    /** Whether `onChange` replays the current state on subscribe. Default: yes, once there is one to
+     *  replay - before the first read the client holds no state and notifies nothing. */
     notifyImmediately?: boolean
     /** Optional headers to merge into every request (e.g. tenant header). */
     headers?: Record<string, string>

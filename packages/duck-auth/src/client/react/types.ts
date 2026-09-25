@@ -9,7 +9,7 @@ export namespace ReactClient {
   /** The vanilla types a React consumer actually needs, surfaced here. */
   export type Profile = Identities.ProfileMetadataBase
   export type Identity<P extends Profile = Profile> = Identities.Me<P>
-  export type Session = Sessions.Me
+  export type Session = Sessions.Public
   export type SessionResult<P extends Profile = Profile> = VanillaClient.SessionResult<P>
   export type SignInOptions = VanillaClient.SignInOptions
   export type SignUpOptions = VanillaClient.SignUpOptions
