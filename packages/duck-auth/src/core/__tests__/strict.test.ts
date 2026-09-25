@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { InMemoryEvents } from '~/core/events'
+import type { Events } from '~/core/events/events.types'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
+import { memoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
 import type { Limiter } from '~/limiters'
 import { MemoryLimiter } from '~/limiters/memory'
 import { NoopLimiter } from '~/limiters/mock'
@@ -12,6 +15,17 @@ import { JwtTransport } from '../transport/jwt.transport'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
+}
+
+/** A bus carrying no in-process brand, which is what a fleet-safe one looks like to `strict()`. It
+ *  keeps `listenerCount`, or the `lockout` check would be skipped rather than satisfied. */
+function foreignEvents(): Events.IBus & { listenerCount(event: Events.EventName): number } {
+  const bus = new InMemoryEvents()
+  return {
+    emit: (event, payload) => bus.emit(event, payload),
+    listenerCount: (event) => bus.listenerCount(event),
+    on: (event, handler) => bus.on(event, handler),
+  }
 }
 
 function makeAuth(
@@ -32,6 +46,7 @@ function makeAuth(
   }
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
+    events: foreignEvents(),
     transport: new CookieTransport({ secure: o.secureCookie, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
@@ -228,7 +243,13 @@ describe('AuthEngine.strict() - signing secrets', () => {
       baseUrl: 'https://app.example.com',
       limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
       providers: [
-        github({ clientId: 'c', clientSecret: 's', redirectUri: 'https://app.example.com/cb', stateSigningSecret }),
+        github({
+          clientId: 'c',
+          clientSecret: 's',
+          redirectUri: 'https://app.example.com/cb',
+          stateSigningSecret,
+          nonceStore: memoryDPoPNonceStore(),
+        }),
       ],
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
       transport: new CookieTransport({ name: 'duck-sid', secure: true }),
@@ -238,7 +259,13 @@ describe('AuthEngine.strict() - signing secrets', () => {
   it('refuses an empty stateSigningSecret at construction, before strict() is ever called', () => {
     // `createHmac` accepts an empty key, so this is not an unsigned state; it is one anyone can sign.
     expect(() =>
-      github({ clientId: 'c', clientSecret: 's', redirectUri: 'https://app.example.com/cb', stateSigningSecret: '' }),
+      github({
+        clientId: 'c',
+        clientSecret: 's',
+        redirectUri: 'https://app.example.com/cb',
+        stateSigningSecret: '',
+        nonceStore: memoryDPoPNonceStore(),
+      }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
@@ -301,6 +328,7 @@ describe('AuthEngine.strict() and the in-process limiter', () => {
   const production = (limiter: Limiter.Me) => {
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app.example.com',
+      events: foreignEvents(),
       idempotency,
       limiter,
       stores: foreignStores(),

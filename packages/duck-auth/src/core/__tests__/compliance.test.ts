@@ -40,7 +40,7 @@ describe('authResolveCompliance', () => {
   })
 })
 
-describe('authAssertComplianceStrict', () => {
+describe('assertComplianceStrict', () => {
   it('passes when every required adapter is wired', () => {
     expect(() =>
       assertComplianceStrict({

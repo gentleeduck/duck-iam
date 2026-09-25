@@ -36,26 +36,31 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
       try {
         const result = await engine.anomaly.evaluate({ session, identity, req: opts.requestSnapshot })
         return { session, identity, anomaly: result }
-      } catch {
+      } catch (err) {
         // The detector machinery catches a per-detector throw; this catches a bug in the aggregator.
+        // Logged, not swallowed: it turns anomaly detection off for the request and nothing else says so.
+        console.error('[@gentleduck/auth] anomaly evaluation failed; resolving without a verdict:', err)
         return { session, identity }
       }
     }
     return { session, identity }
   }
 
-  // SECURITY: `AUTH_SESSION_EXPIRED` is the one refusal a transport reaches only about a token it
-  // authenticated -- every "not a token of mine" rejection is `AUTH_SESSION_REVOKED` -- so it is kept and
-  // answered below. The store cannot improve on it: it is keyed by sid hash and holds no row for a minted
-  // token, so falling through would replace a dated verdict with "no session for that sid".
-  let expiredByTransport: unknown
+  // SECURITY: these two are the refusals a transport reaches only about a token it authenticated -- every
+  // "not a token of mine" rejection is in the absent set -- so they are kept and answered below. The
+  // store cannot improve on either: it is keyed by sid hash and holds no row for a minted token, so falling
+  // through would replace a dated verdict with "no session for that sid". A closed impersonation window is
+  // the one an operator's SOC alerts on, and it is what the generic refusal used to swallow.
+  let verdictByTransport: unknown
   if (engine.transport.verify) {
     // A transport whose dependency broke still throws here rather than being read as "not signed in";
     // every other refusal falls through to the store lookup below, as `orNull` did.
     const verified = await engine.transport.verify(token).catch((err: unknown) => {
       const { code } = asAuthError(err, 'AUTH_ADAPTER_FAILED')
       if (!ABSENT.has(code)) throw err
-      if (code === 'AUTH_SESSION_EXPIRED') expiredByTransport = err
+      if (code === 'AUTH_SESSION_EXPIRED' || code === 'AUTH_IMPERSONATE_WINDOW_CLOSED') {
+        verdictByTransport = err
+      }
       return null
     })
     if (verified) {
@@ -74,9 +79,19 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
     // The engine's own window, so `session.fresh` means the same thing here as it
     // does on the JWT path, which has always recomputed it from `rotatedAt`.
     freshnessMs: engine.cfg.session?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
+    // `resolveBySid` is a free function and holds no bus, so the emit belongs here. Neither awaited nor
+    // allowed to throw: a subscriber that fails, or an engine assembled without a bus, must not turn a
+    // refused session into a different error on the way out.
+    onExpired: (info) => {
+      try {
+        void engine.events?.emit('session.expired', info)?.catch(() => {})
+      } catch {
+        // Reporting the refusal must never change it.
+      }
+    },
     ...(opts.expectedTenantId !== undefined && { expectedTenantId: opts.expectedTenantId }),
   }).catch((err: unknown) => {
-    throw expiredByTransport ?? err
+    throw verdictByTransport ?? err
   })
 
   return finalize(resolved.session, resolved.identity)

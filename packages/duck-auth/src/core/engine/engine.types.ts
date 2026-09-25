@@ -1,9 +1,11 @@
 import type { Events } from '~/core/events/events.types'
 import type { Limiter } from '~/limiters'
+import type { Actor } from '../actor/actor.types'
 import type { Anomaly } from '../anomaly'
 import type { AuthCaptcha } from '../captcha'
 import type { AuthDefine } from '../config/config.types'
 import type { Credential } from '../credentials/credentials.types'
+import type { Deliver } from '../flows/flows.delivery'
 import type { Hijack } from '../hijack/hijack.types'
 import type { IdempotencyInput } from '../idempotency'
 import type { Identities } from '../identities/identities.types'
@@ -49,7 +51,7 @@ export namespace Engine {
     /** The budget the flows spend against; without one nothing is throttled. */
     limiter?: Limiter.Me
     /** Sign-in providers and attach-only facets, or thunks building one from the constructed engine and its
-     *  channels. The constructor resolves them, so `new AuthEngine` and `createAuth` behave alike. */
+     *  `deliver`. The constructor resolves them, so `new AuthEngine` and `createAuth` behave alike. */
     providers?: AuthDefine.IProviderEntry<Profile, Tenant, OrgMeta>[]
     /** A facet, or a bare store to wrap in one, mirroring `limiter`:
      *  `idempotency: redisIdempotency({ prefix: 'auth:idem', redis })`. */
@@ -63,8 +65,8 @@ export namespace Engine {
      * SECURITY: a missing secret must not read as a solved challenge.
      */
     captcha?: AuthCaptcha.IVerifier
-    /** Forwarded to provider thunks, magic-link and OTP among them. */
-    channels?: AuthDefine.IChannels
+    /** How the host sends every outbound token. Forwarded to provider thunks, magic-link among them. */
+    deliver?: Deliver
     /** Where lifecycle events are published; some `strict()` checks need a bus to be reachable. */
     events?: Events.IBus
     session?: {
@@ -82,9 +84,9 @@ export namespace Engine {
       profileMaxBytes?: number
     }
     /** Fills `created_by`, `updated_by` and `deleted_by` when no `withActor` scope is active; wire it to the
-     *  request context the host framework already has. Answering `null` or `undefined` records no actor, which is
-     *  truthful and never swapped for a placeholder. Process-wide, see `setDefaultActorResolver`. */
-    resolveActor?: () => string | null | undefined
+     *  request context the host framework already has. Answering `null` or `undefined` records no actor,
+     *  which is truthful and never swapped for a placeholder. Process-wide, see `setDefaultActorResolver`. */
+    resolveActor?: Actor.Resolver
     /** Session-hijack policy: what counts as drift, and what to do about it. */
     hijack?: Hijack.Cfg
     /** Scoring thresholds and per-signal reactions, merged over the defaults the way `hijack` is. */

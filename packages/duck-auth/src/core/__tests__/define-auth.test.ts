@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { memoryAdapter } from '~/adapters/memory'
-import { AuthConsoleChannel } from '~/channels/console'
 import { apiKeyProvider } from '~/providers/api-key'
 import { magicLink } from '~/providers/magic-link'
 import { mfaProvider } from '~/providers/mfa'
@@ -112,7 +111,7 @@ describe('createAuth', () => {
           autoCreateIdentity: true,
           autoCreateProfile: (email) => ({ username: email, email }),
           callbackPath: '/AUTH/magic-link/callback',
-          channels: { email: new AuthConsoleChannel() },
+          deliver: async () => {},
           findIdentityByEmail: (email) => storage.identities.find({ email }),
         }),
         google({
@@ -120,12 +119,14 @@ describe('createAuth', () => {
           clientSecret: 'authGoogle-secret',
           redirectUri: 'http://x/AUTH/providers/authGoogle/callback',
           stateSigningSecret: 'state-secret',
+          allowStateReplay: true,
         }),
         github({
           clientId: 'authGithub-client',
           clientSecret: 'authGithub-secret',
           redirectUri: 'http://x/AUTH/providers/authGithub/callback',
           stateSigningSecret: 'state-secret',
+          allowStateReplay: true,
         }),
         passkey({
           expectedOrigins: 'http://x',

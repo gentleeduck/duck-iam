@@ -143,7 +143,7 @@ function dedupePresets(list: Compliance.Preset[]): Compliance.Preset[] {
 }
 
 /** The compliance preset `applyCompliancePreset` attached to a config, or null when it never ran. This is
- *  what lets `AuthEngine.strict()` invoke `authAssertComplianceStrict` itself. */
+ *  what lets `AuthEngine.strict()` invoke `assertComplianceStrict` itself. */
 export function readCompliancePreset(cfg: unknown): Compliance.Preset | Compliance.Preset[] | null {
   if (typeof cfg !== 'object' || cfg === null) return null
   if (!('__compliancePreset' in cfg)) return null

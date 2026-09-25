@@ -55,16 +55,21 @@ export function assertStrict<
     )
   }
 
-  // A channel that delivers nothing is where a password reset or a magic link goes to die, and the three
-  // shipped ones carry the brand for the same NODE_ENV-unset deploy the two checks around this one cover.
-  // Over the bag, as the stores are, so a fourth kind is covered the day it is added.
-  for (const [kind, channel] of Object.entries(engine.cfg.channels ?? {})) {
-    if (typeof channel !== 'object' || channel === null) continue
-    if (Reflect.get(channel, '__isNonDeliveringChannel') === true) {
-      errors.push(
-        `the ${kind} channel ('${String(Reflect.get(channel, 'id') ?? kind)}') delivers nothing and is rejected in production`,
-      )
-    }
+  // Read off `cfg.events`, not `engine.events`: `withAuditStamping` wraps the bus in a fresh object
+  // literal that carries no brand. An omitted bus is the engine's own `InMemoryEvents` fallback, so both
+  // spellings of the same mistake are named.
+  if (!engine.cfg.events) {
+    errors.push('Event bus required; the in-process fallback drops every event raised on another instance')
+  } else if (Reflect.get(engine.cfg.events, '__isInProcessBus') === true) {
+    errors.push(
+      'AuthInMemoryEvents rejected in production; its handlers are per node, so a lockout, a revocation or a `suspicious` signal raised on one instance is never heard by the others - the `lockout` check below included',
+    )
+  }
+
+  // Boot, not first request: without it magic-link mints a token, stores it and answers ok with nothing
+  // sent, and the flows that throw for the same reason only do so once a user has already asked.
+  if (typeof engine.cfg.deliver !== 'function' && engine.providers.has('magic-link')) {
+    errors.push('the magic-link provider is registered with no `deliver`, so no link can ever be sent')
   }
 
   // Always-pass, so it is the one verifier that cannot fail: every path it fronts is unprotected and says
@@ -93,6 +98,21 @@ export function assertStrict<
   for (const { id } of engine.providers.list()) {
     if (Reflect.get(engine.providers.get(id), '__weakStateSecret') === true) {
       errors.push(`oauth provider '${id}' has a stateSigningSecret under 32 bytes`)
+    }
+    // Development is where `allowStateReplay` earns its keep, production is where a state that nothing
+    // burns is a callback URL that keeps working for ten minutes.
+    if (Reflect.get(engine.providers.get(id), '__stateReplayAllowed') === true) {
+      errors.push(
+        `oauth provider '${id}' was built with \`allowStateReplay: true\`, rejected in production; pass \`nonceStore: redisDPoPNonceStore({ redis, prefix: 'auth:oauth:nonce' })\``,
+      )
+    }
+    // The challenge is the whole of a WebAuthn ceremony's binding, and `take` consuming it in one
+    // process leaves it live in every other: the assertion a pod just spent replays on its neighbours
+    // for the rest of the TTL.
+    if (Reflect.get(engine.providers.get(id), '__inProcessChallengeStore') === true) {
+      errors.push(
+        `provider '${id}' holds AuthMemoryPasskeyChallengeStore, rejected in production; pass \`challengeStore: redisPasskeyChallengeStore({ redis })\``,
+      )
     }
   }
 
@@ -140,9 +160,8 @@ export function assertStrict<
   }
 }
 
-/** The brand was documented as the hook `strict()` uses to auto-invoke `authAssertComplianceStrict`,
- *  and no caller existed, so branding a config and calling `strict()` ran none of the compliance
- *  assertions and said nothing about having skipped them. */
+/** Runs `assertComplianceStrict` for the preset the config is branded with, so branding it and calling
+ *  `strict()` is one step rather than two. */
 function assertCompliance<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   Tenant = string,
@@ -186,13 +205,9 @@ function engineEvidence<
         webauthnAttestationDirect: Reflect.get(engine.providers.get('passkey'), '__requestsDirectAttestation') === true,
       }
     : {}
-  // SECURITY: `fipsValidatedHasher` is the one check in the `fips` preset that the process can see for
-  // itself, and it was the one left to an attestation. Measured: a fips deployment running scrypt - or a
-  // hasher whose `verify` answers `false` to everything - booted `strict()` clean on the operator typing
-  // `true`, while `ARGON2ID_COMPLIANCE`, the exact parameter set the check demands, was exported by the
-  // package and read by nothing. Both shipped hashers publish a boolean; a foreign one publishes nothing
-  // and the key stays absent, which leaves the attestation standing - the rule `__weakSigningKey` states
-  // above, and the case that matters, since FIPS 140 approves no Argon2 at all.
+  // SECURITY: `fipsValidatedHasher` is the one check in the `fips` preset the process can see for itself,
+  // and it was left to the operator's attestation. Both shipped hashers publish a boolean; a foreign one
+  // publishes nothing, the key stays absent and the attestation stands, as `__weakSigningKey` has it.
   const fipsHasher = engine.providers.has('password')
     ? Reflect.get(engine.providers.get('password'), '__fipsValidatedHasher')
     : undefined
