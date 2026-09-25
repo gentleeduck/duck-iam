@@ -67,14 +67,11 @@ describe('withAuditStamping', () => {
   it('does not stamp events whose payload has no audit field', async () => {
     const bus = withAuditStamping(new InMemoryEvents())
     const handler = vi.fn()
-    bus.on('identity.impersonated', handler)
+    // `authz.revoked` is the only name left whose payload declares no envelope, which is what this covers.
+    bus.on('authz.revoked', handler)
 
     await runWithAuditEnvelope({ actingAs: actingAs('admin-3') }, async () => {
-      await bus.emit('identity.impersonated', {
-        realIdentityId: 'admin-3',
-        reason: 'r',
-        targetIdentityId: 'user-1',
-      })
+      await bus.emit('authz.revoked', { at: 0, identityId: 'u' })
     })
 
     expect(handler.mock.calls[0]?.[0]).not.toHaveProperty('audit')

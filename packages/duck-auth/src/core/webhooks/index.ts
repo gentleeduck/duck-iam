@@ -278,16 +278,11 @@ export class WebhookDeliverer {
     deliveryId: string,
     endpoint: { url: string; secret: string; signatureHeader: string },
   ): Promise<{ state: 'delivered' } | { state: 'retry' | 'permanent'; reason: string }> {
-    // SECURITY: `sentAt` is taken per attempt, and every attempt on the ladder used to carry the first
-    // one's. `verifyWebhookSignature` refuses a stamp older than its tolerance - 5 minutes by default -
-    // so a retry arrived bearing its own position on the ladder as an age, and past that point the
-    // consumer answered `false`: the same answer as a wrong secret, with nothing to tell them apart.
-    // Measured with the ladder scaled down, attempts 4 and 5 were refused while 1 to 3 passed. The
-    // supported settings reach it at full size: `backoffMs: 60_000` puts attempt 5 at 7.5 minutes, and
-    // the documented `maxAttempts: 20` puts attempt 20 a day and a half out.
-    // The body's own `timestamp` stays the event time, so one delivery's attempts remain byte-identical
-    // and a consumer can still key idempotency on `deliveryId`. Neither can be swapped for the other:
-    // the HMAC covers `sentAt` and the body together.
+    // SECURITY: `sentAt` is per attempt, not per delivery. `verifyWebhookSignature` refuses a stamp
+    // older than its tolerance, so a retry carrying the first attempt's stamp read as too old and the
+    // consumer answered `false` - the same answer as a wrong secret. The body's own `timestamp` stays
+    // the event time, so attempts stay byte-identical and `deliveryId` still keys idempotency; the HMAC
+    // covers both, so neither substitutes for the other.
     const signature = signWebhookBody(endpoint.secret, body, sentAt)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this._timeoutMs)

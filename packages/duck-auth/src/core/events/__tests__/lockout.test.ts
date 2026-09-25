@@ -2,7 +2,6 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { AuthTestChannel } from '~/channels/console'
 import { orNull } from '~/core/answer'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
@@ -16,6 +15,7 @@ import { ApiKeysFacet } from '~/providers/api-key/api-key'
 import { magicLink } from '~/providers/magic-link'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
+import { authTestDeliver } from '~/test'
 import { identityInput } from '~/test/store-inputs'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
@@ -26,8 +26,10 @@ type Lockout = { identityId: string; until: number }
 
 function build(limit: number) {
   const adapter = new MemoryAdapter<MyProfile>()
+  const channel = authTestDeliver()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
+    deliver: channel.deliver,
     limiter: new MemoryLimiter({ max: limit, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
     stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
@@ -37,7 +39,7 @@ function build(limit: number) {
   auth.events.on('lockout', (p) => {
     seen.push(p)
   })
-  return { adapter, auth, seen }
+  return { adapter, auth, channel, seen }
 }
 
 async function newIdentity(auth: AuthEngine<MyProfile>, email: string): Promise<string> {
@@ -45,7 +47,7 @@ async function newIdentity(auth: AuthEngine<MyProfile>, email: string): Promise<
   return ident.id
 }
 
-function tokenFrom(channel: AuthTestChannel): string {
+function tokenFrom(channel: ReturnType<typeof authTestDeliver>): string {
   const url = (channel.outbox.at(-1)?.vars as { url: string }).url
   return new URL(url).searchParams.get('token') ?? ''
 }
@@ -131,54 +133,49 @@ describe('lockout is emitted where the refusal knows whose account it is', () =>
   })
 
   it('requestEmailVerification - the resend bucket names its identity', async () => {
-    const { auth, seen } = build(1)
+    const { auth, channel, seen } = build(1)
     const id = await newIdentity(auth, 'bob@x.com')
-    const channel = new AuthTestChannel()
 
-    await auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: id })
-    await expect(
-      auth.flows.requestEmailVerification({ channels: { email: channel }, identityId: id }),
-    ).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
+    await auth.flows.requestEmailVerification({ identityId: id })
+    await expect(auth.flows.requestEmailVerification({ identityId: id })).rejects.toMatchObject({
+      code: 'AUTH_RATE_LIMITED',
+    })
 
     expect(seen).toHaveLength(1)
     expect(seen[0]?.identityId).toBe(id)
   })
 
   it('requestAccountDeletion - names its identity', async () => {
-    const { auth, seen } = build(1)
+    const { auth, channel, seen } = build(1)
     const id = await newIdentity(auth, 'carol@x.com')
-    const channel = new AuthTestChannel()
 
-    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: id })
-    await expect(
-      auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: id }),
-    ).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
+    await auth.flows.requestAccountDeletion({ identityId: id })
+    await expect(auth.flows.requestAccountDeletion({ identityId: id })).rejects.toMatchObject({
+      code: 'AUTH_RATE_LIMITED',
+    })
     expect(seen.map((s) => s.identityId)).toEqual([id])
   })
 
   it('requestAccountDeletion - an id with no row never reaches the limiter', async () => {
-    const { auth, seen } = build(1)
-    const channel = new AuthTestChannel()
+    const { auth, channel, seen } = build(1)
     // The consume used to run above the lookup, so the second call answered
     // `AUTH_RATE_LIMITED` for an identity that does not exist - and, once the
     // guard emitted, would have paged an operator about a phantom account.
     for (let i = 0; i < 3; i++) {
-      await expect(
-        auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: 'no-such-id' }),
-      ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+      await expect(auth.flows.requestAccountDeletion({ identityId: 'no-such-id' })).rejects.toMatchObject({
+        code: 'AUTH_UNAUTHENTICATED',
+      })
     }
     expect(seen).toEqual([])
   })
 
   it('completePasswordReset - a ground MFA gate names the token owner', async () => {
-    const { auth, seen } = build(1)
+    const { auth, channel, seen } = build(1)
     const id = await newIdentity(auth, 'dave@x.com')
     const enrol = await auth.mfa.beginTotpEnrollment(id, 'dave@x.com')
     await auth.mfa.confirmTotpEnrollment(id, totpAt(enrol.secret, Math.floor(Date.now() / 1000 / 30)))
 
-    const channel = new AuthTestChannel()
     await auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'dave@x.com' },
     })
@@ -209,12 +206,10 @@ describe('lockout is withheld where the refusal has no subject', () => {
   it('requestPasswordReset - resolving the address means running host code on a refused request', async () => {
     const { auth, seen } = build(1)
     await newIdentity(auth, 'erin@x.com')
-    const channel = new AuthTestChannel()
     const findIdentityByEmail = vi.fn((email: string) => auth.identities.getByEmail(email))
 
     const request = () =>
       auth.flows.requestPasswordReset({
-        channels: { email: channel },
         findIdentityByEmail,
         input: { email: 'erin@x.com' },
       })
@@ -238,10 +233,10 @@ describe('lockout is withheld where the refusal has no subject', () => {
     auth.events.on('lockout', (p) => {
       seen.push(p)
     })
-    const channel = new AuthTestChannel()
+    const channel = authTestDeliver()
     auth.providers.register(
       magicLink<MyProfile>({
-        channels: { email: channel },
+        deliver: channel.deliver,
         findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
       }),
     )

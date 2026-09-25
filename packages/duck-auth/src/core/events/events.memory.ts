@@ -3,6 +3,9 @@ import type { Events } from './events.types'
 /** Single-process: production swaps in `RedisEvents`. Handlers run sequentially per
  *  event, and a throwing one is caught and logged so its siblings still fire. */
 export class InMemoryEvents implements Events.IBus {
+  /** Read by `strict()`. `withAuditStamping` wraps the bus in a fresh object literal, so the engine's
+   *  `events` carries no brand and the check reads `cfg.events`, which is what the operator passed. */
+  readonly __isInProcessBus = true as const
   private _handlers = new Map<Events.EventName, Set<(p: unknown) => void | Promise<void>>>()
 
   /** Registers a handler and answers the function that unsubscribes it. */

@@ -5,6 +5,8 @@ import type { Events } from './events.types'
 
 /** Exhaustive by construction: a newly audited event fails to compile until it's listed. */
 const AUDITED_EVENTS: Record<Events.AuditedEvent, true> = {
+  'identity.impersonated': true,
+  'identity.impersonation.ended': true,
   'identity.linked': true,
   'identity.unlinked': true,
   lockout: true,
