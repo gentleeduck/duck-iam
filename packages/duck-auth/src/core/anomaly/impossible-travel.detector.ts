@@ -1,13 +1,11 @@
 import { AuthError } from '~/core/errors'
-import type { Anomaly } from './anomaly.types'
-
-const DEFAULT_CONFIG: AuthImpossibleTravel.Cfg = {
-  maxKmPerHour: 900,
-  minElapsedMs: 60_000,
-}
-
-/** The overshoot at which the score reaches 1. */
-const FULL_SCORE_OVERSHOOT = 2
+import {
+  DEFAULT_IMPOSSIBLE_TRAVEL_CONFIG,
+  EARTH_RADIUS_KM,
+  IMPOSSIBLE_TRAVEL_FULL_SCORE_OVERSHOOT,
+  MS_PER_HOUR,
+} from './anomaly.constants'
+import type { Anomaly, AuthImpossibleTravel } from './anomaly.types'
 
 /** Whether a pair is a place on earth. `Number.isFinite` alone let a latitude of 900 be scored. */
 function isCoordinate(lat: number, lon: number): boolean {
@@ -17,11 +15,10 @@ function isCoordinate(lat: number, lon: number): boolean {
 /** Haversine distance in km between two (lat, lon) pairs. */
 function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
   const toRad = (x: number): number => (x * Math.PI) / 180
-  const R = 6371
   const dLat = toRad(b.lat - a.lat)
   const dLon = toRad(b.lon - a.lon)
   const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2
-  return 2 * R * Math.asin(Math.sqrt(s))
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(s))
 }
 
 /** `getLastSeen(identityId)` reads the prior coords from wherever the app persists them, often
@@ -30,7 +27,7 @@ export function authImpossibleTravelDetector(opts: {
   getLastSeen: (identityId: string) => Promise<{ lat: number; lon: number; at: number } | null>
   config?: Partial<AuthImpossibleTravel.Cfg>
 }): Anomaly.Detector {
-  const cfg: AuthImpossibleTravel.Cfg = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
+  const cfg: AuthImpossibleTravel.Cfg = { ...DEFAULT_IMPOSSIBLE_TRAVEL_CONFIG, ...(opts.config ?? {}) }
   if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `authImpossibleTravelDetector: maxKmPerHour must be a finite positive number (got ${cfg.maxKmPerHour})`,
@@ -59,11 +56,11 @@ export function authImpossibleTravelDetector(opts: {
       // clamps to zero and then floors, and tomorrow's date in the store no longer turns the detector off.
       const intervalMs = Math.max(Math.max(0, elapsedMs), cfg.minElapsedMs)
       const distanceKm = haversineKm({ lat: last.lat, lon: last.lon }, { lat: req.geo.lat, lon: req.geo.lon })
-      const speedKmH = distanceKm / (intervalMs / 3_600_000)
+      const speedKmH = distanceKm / (intervalMs / MS_PER_HOUR)
       if (!Number.isFinite(speedKmH)) return []
       if (speedKmH <= cfg.maxKmPerHour) return []
       const overshoot = speedKmH / cfg.maxKmPerHour
-      const score = Math.min(1, overshoot / FULL_SCORE_OVERSHOOT)
+      const score = Math.min(1, overshoot / IMPOSSIBLE_TRAVEL_FULL_SCORE_OVERSHOOT)
       return [
         {
           kind: 'impossible-travel',
@@ -79,16 +76,5 @@ export function authImpossibleTravelDetector(opts: {
         },
       ]
     },
-  }
-}
-
-export namespace AuthImpossibleTravel {
-  export interface Cfg {
-    /** Max speed (km/h) above which the gap counts as suspicious. Default 900. */
-    maxKmPerHour: number
-    /** Floor on the interval the speed is computed over, ms, and it must be positive. Default 60s:
-     *  sub-minute gaps are usually NAT mobility, and dividing a real distance by one reports a speed the
-     *  sampling resolution invented. */
-    minElapsedMs: number
   }
 }

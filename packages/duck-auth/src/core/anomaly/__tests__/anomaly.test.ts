@@ -207,14 +207,14 @@ describe('AnomalyFacet', () => {
     })
 
     it('decide() honors per-kind reaction override (step-up beats allow)', () => {
-      const f = new AnomalyFacet(events, { reactions: { 'impossible-travel': 'step-up' } })
+      const f = new AnomalyFacet(events, { reactions: { '*': { 'impossible-travel': 'step-up' } } })
       // Score alone is below stepUpAt; reaction lifts it to step-up.
       expect(f.decide([{ kind: 'impossible-travel', score: 0.3, evidence: {} }])).toBe('step-up')
     })
 
     it('decide() honors per-kind reaction override (deny short-circuits over step-up)', () => {
       const f = new AnomalyFacet(events, {
-        reactions: { 'impossible-travel': 'step-up', 'new-device': 'deny' },
+        reactions: { '*': { 'impossible-travel': 'step-up', 'new-device': 'deny' } },
       })
       expect(
         f.decide([
