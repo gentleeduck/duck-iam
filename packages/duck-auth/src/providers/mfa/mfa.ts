@@ -104,6 +104,14 @@ export class MfaImpl {
     ) {
       throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['totp'] })
     }
+    // SECURITY: the guard above reads `totp` rows only, so it saw nothing for an identity whose second factor
+    // is WebAuthn - and a caller holding just the password enrolled a factor of its own, took the ten backup
+    // codes `confirmTotpEnrollment` mints, and spent one on `completeStepUp`, which sets `aal: 2` on the
+    // strength of the code alone. AAL2 without ever touching the key, and the victim's factor untouched, so
+    // nothing looks wrong. The question is whether a second factor exists, not whether it is this kind.
+    if (await this.hasWebauthnMfa(identityId, ctx)) {
+      throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['webauthn'] })
+    }
     const secret = generateSecret()
     await this._credentials.deleteByKind(identityId, 'totp', ctx)
     await this._credentials.create(
@@ -150,14 +158,9 @@ export class MfaImpl {
   async verifyTotp(identityId: string, code: string, ctx: TenantContext = {}): Promise<boolean> {
     if (typeof code !== 'string' || code.length === 0 || code.length > 64) return false
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
-    // SECURITY: `isCredentialExpired` beside `isRevoked`, which six readers on this class were missing -
-    // both totp paths, both webauthn-mfa paths and the two `has*` probes - while `verifyBackupCode` below
-    // and both internal facets already paired them. An `expiresAt` on a `totp` or `webauthn-mfa` row was
-    // therefore written and then honoured by nothing: the deadline on a contractor's enrollment passed and
-    // the second factor kept verifying, the assertion challenge kept offering the credential, and
-    // `hasTotp` - which `beginPasswordReset` reads to decide whether a reset needs MFA - kept counting it.
-    // `isStandingFactor` has always read an elapsed expiry as revocation for every kind, so the lockout
-    // guard and these readers disagreed about whether the same row existed.
+    // SECURITY: `isCredentialExpired` beside `isRevoked`. Six readers on this class paired only the
+    // second, so an `expiresAt` on a `totp` or `webauthn-mfa` row was written and honoured by nothing,
+    // while `isStandingFactor` had always read an elapsed expiry as revocation.
     const row = rows.find(
       (r) => !isRevoked(r) && !isCredentialExpired(r) && isProfileBooleanTrue(r.metadata, 'confirmed'),
     )
@@ -185,7 +188,7 @@ export class MfaImpl {
   /** Confirmed enrollments only. */
   async hasTotp(identityId: string, ctx: TenantContext = {}): Promise<boolean> {
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
-    // A strict boolean read, as in `authVerifyTotp`.
+    // A strict boolean read, as in `verifyTotp`.
     return rows.some((r) => !isRevoked(r) && !isCredentialExpired(r) && isProfileBooleanTrue(r.metadata, 'confirmed'))
   }
 
@@ -354,7 +357,7 @@ export class MfaImpl {
     const webauthn = await loadWebAuthnMfa(opts.webauthnModule)
     const creds = await this._credentials.listByIdentity(identityId, 'webauthn-mfa', ctx)
     const allowCredentials = creds
-      // As in `authVerifyTotp`: `!c.revokedAt` let a `revokedAt: 0` through as live, which offered a
+      // As in `verifyTotp`: `!c.revokedAt` let a `revokedAt: 0` through as live, which offered a
       // revoked credential as `allowCredentials` in the next assertion challenge.
       .filter((c) => !isRevoked(c) && !isCredentialExpired(c))
       .map((c) => ({ id: c.secret, type: 'public-key' as const }))

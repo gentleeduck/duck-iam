@@ -72,7 +72,7 @@ describe('totpAt', () => {
   })
 })
 
-describe('authVerifyTotp', () => {
+describe('verifyTotp', () => {
   const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
   const fixedNow = 1_700_000_000_000 // pinned for determinism
   const stepIndex = Math.floor(fixedNow / 1000 / TOTP_DEFAULTS.periodSec)
