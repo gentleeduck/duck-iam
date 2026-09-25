@@ -54,8 +54,6 @@ export const AUTH_ERRORS = {
   AUTH_APIKEY_INVALID: 401,
   AUTH_APIKEY_REVOKED: 401,
   AUTH_APIKEY_SCOPE_INSUFFICIENT: detail<{ required: string[]; missing: string[] }>(403),
-  AUTH_MAINTENANCE: detail<{ retryAfter: number; message?: string }>(503),
-  AUTH_READONLY_MODE: 423,
   AUTH_PROVIDER_NOT_REGISTERED: detail<{ detail: string }>(500),
   AUTH_MISCONFIGURED: fault<{ detail: string }>(500),
   // ADAPTER_FAILED carries the driver error on `cause`, which is the only place it survives.
@@ -64,7 +62,6 @@ export const AUTH_ERRORS = {
   AUTH_ORG_NOT_FOUND: fault(404),
   AUTH_MEMBERSHIP_NOT_FOUND: fault(404),
   AUTH_IDEMPOTENCY_MISS: fault(404),
-  AUTH_OPERATION_NOT_FOUND: fault(404),
   AUTH_NOT_ENOUGH_PARAMETERS: fault<{ detail?: string }>(500),
   AUTH_ADAPTER_FAILED: fault(500),
   /** A store answered a row scoped to a tenant other than the one asked for. 500 because it is the store

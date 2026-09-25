@@ -6,13 +6,15 @@
  * from `@gentleduck/auth/core`. Types only: they cost nothing at runtime.
  */
 export type {
-  ActorContext,
+  Actor,
   Anomaly,
   Answer,
   Bound,
   Compliance,
   Credential,
   DataAtRest,
+  Deliver,
+  DeliveryKind,
   Engine,
   Envelope,
   Events,
@@ -21,7 +23,6 @@ export type {
   Identities,
   Kms,
   M2m,
-  Operations,
   Org,
   Pending,
   Provider,

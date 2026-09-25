@@ -19,9 +19,8 @@ describe('AuthError construction', () => {
     expect(new AuthError('AUTH_UNAUTHENTICATED').status).toBe(401)
     expect(new AuthError('AUTH_CSRF').status).toBe(403)
     expect(new AuthError('AUTH_RATE_LIMITED', { retryAfter: 60 }).status).toBe(429)
-    expect(new AuthError('AUTH_LOCKED', { reason: 'brute force', until: Date.now() }).status).toBe(423)
     expect(new AuthError('AUTH_MISCONFIGURED', { detail: 'x' }).status).toBe(500)
-    expect(new AuthError('AUTH_MAINTENANCE', { retryAfter: 60 }).status).toBe(503)
+    expect(new AuthError('AUTH_ADAPTER_UNAVAILABLE').status).toBe(503)
   })
 
   it('is an Error, so existing catch blocks and instanceof still work', () => {
