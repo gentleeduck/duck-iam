@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import type { Channel } from '~/channels/channels.types'
 import type { Credential } from '~/core/credentials'
 import { AuthEngine } from '~/core/engine'
+import type { Deliver } from '~/core/flows/flows.delivery'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -13,31 +13,29 @@ interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
-function fakeChannel(): Channel.Channel & { sent: Array<{ to: string; url: string }> } {
+function fakeChannel(): Deliver & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
-  return {
-    kind: 'email',
-    id: 'fake',
-    sent,
-    async send(input) {
-      const url = (input.vars as { url?: string }).url ?? ''
-      const email = (input.identity.profile as { email?: string } | undefined)?.email ?? ''
+  return Object.assign(
+    async (message: Parameters<Deliver>[0]): Promise<void> => {
+      const url = (message.vars as { url?: string }).url ?? ''
+      const email = (message.identity.profile as { email?: string } | undefined)?.email ?? ''
       sent.push({ to: email, url })
-      return { ok: true }
     },
-  }
+    { sent },
+  )
 }
 
 function buildAuth(opts: { credentials?: (base: Credential.Store) => Credential.Store } = {}): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
-  channel: Channel.Channel & { sent: Array<{ to: string; url: string }> }
+  channel: Deliver & { sent: Array<{ to: string; url: string }> }
 } {
   const adapter = new MemoryAdapter<MyProfile>()
   const channel = fakeChannel()
   const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
+    deliver: channel,
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
@@ -137,7 +135,6 @@ describe('FlowsImpl - password reset', () => {
     const r = await auth.flows.requestPasswordReset({
       input: { email: 'ghost@x.com' },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
-      channels: { email: channel },
     })
     expect(r.ok).toBe(true)
     expect(channel.sent).toHaveLength(0)
@@ -153,7 +150,6 @@ describe('FlowsImpl - password reset', () => {
     await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
-      channels: { email: channel },
     })
 
     expect(channel.sent).toHaveLength(1)
@@ -172,7 +168,6 @@ describe('FlowsImpl - password reset', () => {
     await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
-      channels: { email: channel },
     })
     const token = tokenFrom(channel.sent[0]?.url ?? '')
 
@@ -214,7 +209,6 @@ describe('FlowsImpl - password reset', () => {
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
     await auth.passwords.set(identity.id, 'old-password-9', adapter.credentials)
     await auth.flows.requestPasswordReset({
-      channels: { email: channel },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
       input: { email: 'a@x.com' },
     })
@@ -245,7 +239,6 @@ describe('FlowsImpl - password reset', () => {
     await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
-      channels: { email: channel },
     })
     const token = tokenFrom(channel.sent[0]?.url ?? '')
     await auth.flows.completePasswordReset({ token, newPassword: 'new-password-9' })
@@ -264,7 +257,6 @@ describe('FlowsImpl - password reset', () => {
     await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
-      channels: { email: channel },
     })
     const token = tokenFrom(channel.sent[0]?.url ?? '')
 
@@ -310,7 +302,6 @@ describe('FlowsImpl - password reset', () => {
     await auth.flows.requestPasswordReset({
       input: { email: 'a@x.com' },
       findIdentityByEmail: (email) => auth.identities.getByEmail(email),
-      channels: { email: channel },
     })
     const token = tokenFrom(channel.sent[0]?.url ?? '')
     const creds = await adapter.credentials.listByIdentity(identity.id, 'recovery', {})
@@ -330,7 +321,6 @@ describe('FlowsImpl - password reset', () => {
     // Mint an email-verification token directly via the flow.
     await auth.flows.requestEmailVerification({
       identityId: identity.id,
-      channels: { email: channel },
     })
     const verifyToken = tokenFrom(channel.sent[0]?.url ?? '')
 
@@ -355,7 +345,6 @@ describe('FlowsImpl - password reset', () => {
 
     await auth.flows.requestAccountDeletion({
       identityId: identity.id,
-      channels: { email: channel },
     })
     const deleteToken = tokenFrom(channel.sent[0]?.url ?? '')
 
