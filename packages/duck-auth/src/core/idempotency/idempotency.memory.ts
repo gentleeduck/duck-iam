@@ -7,7 +7,8 @@ import type { Idempotency } from './idempotency.types'
 
 /**
  * Dev and test only: production needs the Redis store, whose `SET NX EX` claim is atomic across
- * processes. Keys are scoped by tenantId, so two tenants sending one Idempotency-Key cannot collide.
+ * processes. Keys are scoped by an encoded tenantId, so two tenants sending one Idempotency-Key cannot
+ * collide however the host spells its tenant ids.
  */
 export class MemoryIdempotency implements Idempotency.Store {
   /** Read by `strict()`, which must not go by constructor name: every plain-object store would answer to one. */
@@ -31,7 +32,10 @@ export class MemoryIdempotency implements Idempotency.Store {
   }
 
   private _k(key: string, ctx: TenantContext): string {
-    return `${ctx.tenantId ?? '_default'}::${key}`
+    // The tenant segment is encoded and absence is the empty string, not a name a tenant could hold.
+    // Raw, tenant `a::b` key `k` and tenant `a` key `b::k` were one entry, and the key half is the
+    // client's `Idempotency-Key` header - so a tenant read the response cached for its own prefix.
+    return `${encodeURIComponent(ctx.tenantId ?? '')}::${key}`
   }
 
   /** The cached response, throwing `AUTH_IDEMPOTENCY_MISS` when the key holds none. */
