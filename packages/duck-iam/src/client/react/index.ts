@@ -19,7 +19,7 @@
 import type { ReactNode } from 'react'
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
-import { iamAllowedActions, iamHasAnyOn, iamPermissionGranted } from '../../shared/permission-map'
+import { iamAllowedActions, iamCan, iamHasAnyOn } from '../../shared/permission-map'
 
 /** Re-exported so consumers get key escaping and introspection instead of splitting keys on `':'`. */
 export { iamAllowedActions, iamBuildPermissionKey, iamHasAnyOn }
@@ -169,10 +169,8 @@ export function createIamAccessControl<
       // NOTE: copied in and frozen out, so neither mutating the caller's map nor writing to the exposed
       // `permissions` changes `can()`. Frozen, not copied per read, because consumers use it as a hook dependency.
       const snapshot: IamClient.PartialPermissionMap<TAction, TResource, TScope> = Object.freeze({ ...permissions })
-      const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
-        const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-        return iamPermissionGranted(snapshot, key)
-      }
+      const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean =>
+        iamCan(snapshot, action, resource, resourceId, scope)
 
       return {
         permissions: snapshot,
@@ -290,10 +288,8 @@ export function createIamAccessControl<
     }, deps)
 
     const can = useCallback(
-      (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => {
-        const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-        return iamPermissionGranted(permissions, key)
-      },
+      (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) =>
+        iamCan(permissions, action, resource, resourceId, scope),
       [permissions],
     )
 
@@ -336,10 +332,8 @@ export function createIamPermissionChecker<
   TResource extends string = string,
   TScope extends string = string,
 >(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
-  const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
-    const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-    return iamPermissionGranted(permissions, key)
-  }
+  const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean =>
+    iamCan(permissions, action, resource, resourceId, scope)
 
   return {
     can,
