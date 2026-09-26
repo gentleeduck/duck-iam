@@ -1,5 +1,5 @@
 import * as nodePath from 'node:path'
-import { toError } from '../../core/errors/normalize'
+import { toError, toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
@@ -268,9 +268,7 @@ export class IamFileAdapter<
           // Only ENOENT is recoverable; anything else must surface.
           const code = err !== null && err !== undefined ? Reflect.get(Object(err), 'code') : undefined
           if (code !== 'ENOENT') {
-            throw new Error(
-              `[@gentleduck/iam:file] load failed (${code ?? 'unknown'}): ${err instanceof Error ? err.message : String(err)}`,
-            )
+            throw new Error(`[@gentleduck/iam:file] load failed (${code ?? 'unknown'}): ${toErrorMessage(err)}`)
           }
           // SECURITY: null-prototype dicts, so ids like `__proto__` cannot read or pollute the prototype chain.
           const empty: IamFile.IState<TAction, TResource, TRole, TScope> = {

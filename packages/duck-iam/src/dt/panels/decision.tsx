@@ -1,4 +1,5 @@
 import React from 'react'
+import { toErrorMessage } from '../../core/errors/normalize'
 import type { Explain } from '../../core/explain'
 import { iamNarrowAttributes } from '../../shared/attributes'
 import { Spinner } from '../components/icons'
@@ -69,7 +70,7 @@ export function IamDecisionInspector({
       const trace = await engine.explain(input.subjectId, input.action, resource, environment, input.scope || undefined)
       setResult(trace)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     } finally {
       setPending(false)
     }

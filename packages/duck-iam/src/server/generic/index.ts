@@ -1,6 +1,6 @@
 import type { IamEngine } from '../../core'
 import { fail, type IamError, throwIamError } from '../../core/errors'
-import { toError } from '../../core/errors/normalize'
+import { toError, toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
 import { IAM_RESERVED_REFUSAL } from '../../shared/reserved'
 
@@ -447,6 +447,15 @@ export function iamFireAdminMutation(
   }
 }
 
+/** Logs a prefixed error message, swallowing a throw from `console.error` itself (extremely unusual). */
+function safeConsoleError(prefix: string, err: unknown): void {
+  try {
+    console.error(prefix, toErrorMessage(err))
+  } catch {
+    // ignore
+  }
+}
+
 /** Sends a hook failure to `onAuditHookError`, else `console.error`; a throwing sink falls back to `console.error`. */
 function reportAuditHookError(
   err: unknown,
@@ -459,25 +468,11 @@ function reportAuditHookError(
       return
     } catch (sinkErr) {
       // Sink itself threw - last-resort log, then stop.
-      try {
-        console.error(
-          '[@gentleduck/iam:generic] onAuditHookError sink threw:',
-          sinkErr instanceof Error ? sinkErr.message : String(sinkErr),
-        )
-      } catch {
-        // console.error itself failed (extremely unusual) - give up silently.
-      }
+      safeConsoleError('[@gentleduck/iam:generic] onAuditHookError sink threw:', sinkErr)
       return
     }
   }
-  try {
-    console.error(
-      '[@gentleduck/iam:generic] onAdminMutation hook threw:',
-      err instanceof Error ? err.message : String(err),
-    )
-  } catch {
-    // ignore
-  }
+  safeConsoleError('[@gentleduck/iam:generic] onAdminMutation hook threw:', err)
 }
 /**
  * Builds a server-side permission map for a subject; call once per request and forward the map to the client.

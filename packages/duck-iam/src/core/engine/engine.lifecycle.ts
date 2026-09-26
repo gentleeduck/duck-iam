@@ -1,5 +1,6 @@
 // Boot, health and dispose helpers, testable without an engine.
 
+import { toErrorMessage } from '../errors/normalize'
 import type { AccessControl } from '../types'
 import type { IamValidate } from '../validate/validate.types'
 import { aggregateCacheHitRate, type IIamCachesForStats, statsSnapshot } from './engine.stats'
@@ -20,7 +21,7 @@ export async function runHealthCheck(
     await probe()
   } catch (err) {
     adapter = 'fail'
-    lastError = err instanceof Error ? err.message : String(err)
+    lastError = toErrorMessage(err)
   }
   const s = statsSnapshot(caches)
   const { rate } = aggregateCacheHitRate(s)
@@ -90,7 +91,7 @@ export function disposeInvalidator(invalidatorUnsub: (() => void) | null): { uns
       try {
         console.warn(
           '[@gentleduck/iam:engine] the invalidator teardown threw; this engine may keep receiving invalidations ' +
-            `after being released. (${err instanceof Error ? err.message : String(err)})`,
+            `after being released. (${toErrorMessage(err)})`,
         )
       } catch {}
     }

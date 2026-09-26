@@ -4,6 +4,7 @@ import { iamIsReservedRefusal } from '../../shared/reserved'
 import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import { clearRegexCache } from '../conditions/conditions.libs'
 import { IamError, metaOf, throwIamError } from '../errors'
+import { toErrorMessage } from '../errors/normalize'
 import { VALID_POLICY_COMBINES } from '../evaluate'
 import { evaluate } from '../evaluate/evaluate'
 import type { Explain } from '../explain'
@@ -677,7 +678,7 @@ export class IamEngine<
       if (!this._compileFailureReported) {
         this._compileFailureReported = true
         console.error(
-          `[@gentleduck/iam:engine] the compiled table could not be built; every request will be denied until this is fixed. ${err instanceof Error ? err.message : String(err)}`,
+          `[@gentleduck/iam:engine] the compiled table could not be built; every request will be denied until this is fixed. ${toErrorMessage(err)}`,
         )
       }
       throw err

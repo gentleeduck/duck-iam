@@ -13,6 +13,7 @@ import { execFile } from 'node:child_process'
 import { connect } from 'node:net'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { toErrorMessage } from '../core/errors/normalize'
 
 const exec = promisify(execFile)
 
@@ -76,7 +77,7 @@ async function waitUntilReady(name: string, probe: string[]): Promise<void> {
       await docker(['exec', name, ...probe])
       return
     } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err)
+      lastError = toErrorMessage(err)
       await new Promise((r) => setTimeout(r, 250))
     }
   }

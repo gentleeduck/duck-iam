@@ -1,4 +1,5 @@
 import React from 'react'
+import { toErrorMessage } from '../../core/errors/normalize'
 import type { IamPrimitives } from '../../core/types'
 import { iamNarrowAttributes } from '../../shared/attributes'
 import { JsonTree } from '../components/json-tree'
@@ -37,7 +38,7 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
       setAttrs(a)
       setAttrsDraft(JSON.stringify(a, null, 2))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -57,7 +58,7 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
       setAttrs(attributes)
       setStatus('attributes saved')
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -72,7 +73,7 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
       await engine.admin.assignRole(subjectId, roleId, scope || undefined)
       setStatus(`assigned ${roleId}${scope ? ` @ ${scope}` : ''}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -87,7 +88,7 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
       await engine.admin.revokeRole(subjectId, roleId, scope || undefined)
       setStatus(`revoked ${roleId}${scope ? ` @ ${scope}` : ''}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     } finally {
       setBusy(false)
     }
