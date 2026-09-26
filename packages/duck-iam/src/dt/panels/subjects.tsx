@@ -28,15 +28,14 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   // Below every hook, so the hook order is the same on both branches.
   if (!isDevtoolsAllowed(engine)) return null
 
-  async function load() {
+  /** Every mutation shares this frame: clear both messages, run, report a status if `what` sets one. */
+  async function attempt(what: () => Promise<string | undefined>) {
     setError(null)
     setStatus(null)
-    if (!subjectId) return setError('subject id required')
     setBusy(true)
     try {
-      const a = await engine.admin.getAttributes(subjectId)
-      setAttrs(a)
-      setAttrsDraft(JSON.stringify(a, null, 2))
+      const message = await what()
+      if (message) setStatus(message)
     } catch (err) {
       setError(toErrorMessage(err))
     } finally {
@@ -44,54 +43,42 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
     }
   }
 
-  async function saveAttrs() {
-    setError(null)
-    setStatus(null)
+  function load() {
+    if (!subjectId) return setError('subject id required')
+    return attempt(async () => {
+      const a = await engine.admin.getAttributes(subjectId)
+      setAttrs(a)
+      setAttrsDraft(JSON.stringify(a, null, 2))
+    })
+  }
+
+  function saveAttrs() {
     const parsed = safeParseJson(attrsDraft)
     if (parsed.error) return setError(`attributes JSON: ${parsed.error}`)
     // Narrow before `setAttributes`, which writes whatever it is given.
     const attributes = parsed.value === undefined ? {} : iamNarrowAttributes(parsed.value)
     if (attributes === null) return setError('attributes JSON: expected an object of scalar values')
-    setBusy(true)
-    try {
+    return attempt(async () => {
       await engine.admin.setAttributes(subjectId, attributes)
       setAttrs(attributes)
-      setStatus('attributes saved')
-    } catch (err) {
-      setError(toErrorMessage(err))
-    } finally {
-      setBusy(false)
-    }
+      return 'attributes saved'
+    })
   }
 
-  async function assign() {
-    setError(null)
-    setStatus(null)
+  function assign() {
     if (!roleId) return setError('role id required')
-    setBusy(true)
-    try {
+    return attempt(async () => {
       await engine.admin.assignRole(subjectId, roleId, scope || undefined)
-      setStatus(`assigned ${roleId}${scope ? ` @ ${scope}` : ''}`)
-    } catch (err) {
-      setError(toErrorMessage(err))
-    } finally {
-      setBusy(false)
-    }
+      return `assigned ${roleId}${scope ? ` @ ${scope}` : ''}`
+    })
   }
 
-  async function revoke() {
-    setError(null)
-    setStatus(null)
+  function revoke() {
     if (!roleId) return setError('role id required')
-    setBusy(true)
-    try {
+    return attempt(async () => {
       await engine.admin.revokeRole(subjectId, roleId, scope || undefined)
-      setStatus(`revoked ${roleId}${scope ? ` @ ${scope}` : ''}`)
-    } catch (err) {
-      setError(toErrorMessage(err))
-    } finally {
-      setBusy(false)
-    }
+      return `revoked ${roleId}${scope ? ` @ ${scope}` : ''}`
+    })
   }
 
   return (
