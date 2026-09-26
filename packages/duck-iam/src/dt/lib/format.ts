@@ -24,6 +24,25 @@ function stringify(value: unknown): string {
   }
 }
 
+function pad(value: number, width = 2): string {
+  return String(value).padStart(width, '0')
+}
+
+/** `14:03:11.482` - wall-clock, to line a decision up against an app log. */
+export function formatClockTime(ts: number): string {
+  const d = new Date(ts)
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
+}
+
+/** Coarse relative age, meant to be re-rendered by the caller's own once-a-second ticker: `250ms ago` / `4s ago` / `3m ago` / `1h ago`. */
+export function formatRelativeAge(ts: number, now: number): string {
+  const ms = Math.max(0, now - ts)
+  if (ms < 1000) return `${ms}ms ago`
+  if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`
+  return `${Math.floor(ms / 3_600_000)}h ago`
+}
+
 /**
  * Parses operator-typed JSON from a panel textarea.
  * NOTE: returns `unknown`; call sites must narrow before the value reaches the engine or adapter.

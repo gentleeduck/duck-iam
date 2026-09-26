@@ -2,8 +2,8 @@
 
 import { cn } from '@gentleduck/libs/cn'
 import { Gauge, RotateCcw } from 'lucide-react'
-import React from 'react'
 import { isDevtoolsAllowed } from '../../lib/guard'
+import { useIamMetricsPanel } from '../../lib/metrics-panel'
 import type { IamIDevtoolsEngine, IamIDevtoolsMetrics } from '../../lib/types'
 import {
   IamV2Action,
@@ -54,35 +54,18 @@ export function IamMetricsPanelV2({
   metrics?: IamIDevtoolsMetrics
   pollMs?: number
 }) {
-  const [stats, setStats] = React.useState(() => engine.stats.get())
-  const [snapshot, setSnapshot] = React.useState(() => metrics?.snapshot() ?? null)
-
-  React.useEffect(() => {
-    const id = setInterval(() => {
-      setStats(engine.stats.get())
-      if (metrics) setSnapshot(metrics.snapshot())
-    }, pollMs)
-    return () => clearInterval(id)
-  }, [engine, metrics, pollMs])
+  const { allowRate, reset, snapshot, stats } = useIamMetricsPanel(engine, metrics, pollMs)
 
   // Below every hook. Also guards a write: reset clears the engine's counters.
   if (!isDevtoolsAllowed(engine)) return null
 
-  const allowRate = snapshot && snapshot.total > 0 ? Math.round((snapshot.allow / snapshot.total) * 100) : 0
   const caches = Object.entries(stats)
 
   return (
     <IamV2Root className="flex-1">
       <IamV2PaneHeader
         actions={
-          <IamV2Action
-            label="Reset counters"
-            onClick={() => {
-              engine.stats.reset()
-              metrics?.reset()
-              setStats(engine.stats.get())
-              setSnapshot(metrics?.snapshot() ?? null)
-            }}>
+          <IamV2Action label="Reset counters" onClick={reset}>
             <RotateCcw size={12} />
             reset
           </IamV2Action>
