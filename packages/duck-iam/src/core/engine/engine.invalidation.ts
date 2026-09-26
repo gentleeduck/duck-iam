@@ -186,7 +186,7 @@ export function invalidateRoles<TRole extends string>(
 }
 
 /** Per-kind shape check for an inbound event: `subjectId` required, `roleId` optional, neither empty. */
-function isApplicableEvent<TRole extends string>(ev: unknown): ev is IamEngineTypes.IInvalidateEvent<TRole> {
+export function isApplicableEvent<TRole extends string>(ev: unknown): ev is IamEngineTypes.IInvalidateEvent<TRole> {
   if (typeof ev !== 'object' || ev === null || Array.isArray(ev)) return false
   const kind = Reflect.get(ev, 'kind')
   if (kind === 'all' || kind === 'policies') return true
