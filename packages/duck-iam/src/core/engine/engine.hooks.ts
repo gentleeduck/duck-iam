@@ -91,10 +91,6 @@ export function emitMetrics<TAction extends string, TResource extends string, TS
       failOpen,
     })
   } catch (err) {
-    try {
-      console.error('[@gentleduck/iam:engine] onMetrics hook threw - swallowed to preserve decision', err)
-    } catch {
-      /* last-resort: give up logging */
-    }
+    logHookThrow('onMetrics', err)
   }
 }
