@@ -14,16 +14,15 @@ import {
   iamActionForMethod,
   iamAdminActorOptions,
   iamAuditIdOf,
-  iamDefaultCsrfCheck,
   iamExtractEnvironment,
   iamIsSubjectId,
   iamNormalizePathname,
-  iamNoticeCsrfDefaultIfNeeded,
   iamOptionalStringField,
   iamPathIsAmbiguous,
   iamReadJsonBody,
   iamRequirePathParam,
   iamRequireStringField,
+  iamResolveCsrfCheck,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
@@ -462,9 +461,7 @@ export function createIamAdminHandlers<
   }
   const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
     opts
-  // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
-  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
-  iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
+  const effectiveCsrfCheck = iamResolveCsrfCheck(csrfCheck)
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 

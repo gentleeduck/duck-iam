@@ -110,6 +110,17 @@ export function iamNoticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
   )
 }
 
+/**
+ * Resolves an options `csrfCheck` to the effective checker (or `null` to disable), firing the once-per-process
+ * default notice. Every admin router calls this once at construction, so the four adapters share one rule.
+ */
+export function iamResolveCsrfCheck(
+  csrfCheck: ((req: unknown) => boolean) | false | undefined,
+): ((req: unknown) => boolean) | null {
+  iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
+  return csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
+}
+
 /** The header the default CSRF predicate reads, lowercased for comparison. */
 const SEC_FETCH_SITE = 'sec-fetch-site'
 
