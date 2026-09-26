@@ -87,6 +87,19 @@ export function runAdapterCompliance(
     if (!read) throw new Error(`${adapterName} is recorded as implementing getSubjectScopedRoles`)
     return (subjectId) => read.call(a, subjectId)
   }
+  // Bound scope-move writer that throws when the declared method is missing, rather than skipping the assertion.
+  const requireMove = (
+    a: AnyAdapter,
+  ): ((
+    subjectId: string,
+    roleId: string,
+    fromScope: string | undefined,
+    toScope: string | undefined,
+  ) => Promise<boolean>) => {
+    const move = a.updateAssignmentScope
+    if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
+    return (subjectId, roleId, fromScope, toScope) => move.call(a, subjectId, roleId, fromScope, toScope)
+  }
   describe(`IamAdapter compliance: ${adapterName}`, () => {
     describe('IPolicyStore', () => {
       it('listPolicies returns [] on empty store', async () => {
@@ -541,11 +554,9 @@ export function runAdapterCompliance(
         // A move must neither leave the old row nor lose the new one, and its boolean must be true to what happened.
         it('updateAssignmentScope moves a scoped assignment and reports that it did', async () => {
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
           await a.assignRole('user-1', 'editor', 'org-1')
 
-          expect(await move.call(a, 'user-1', 'editor', 'org-1', 'org-2')).toBe(true)
+          expect(await requireMove(a)('user-1', 'editor', 'org-1', 'org-2')).toBe(true)
           if (supports.getSubjectScopedRoles) {
             // Exactly one row: the old scope is gone and no second grant sits beside the new one.
             expect(await requireScoped(a)('user-1')).toEqual([{ role: 'editor', scope: 'org-2' }])
@@ -555,18 +566,14 @@ export function runAdapterCompliance(
 
         it('updateAssignmentScope reports false for an assignment that is not there', async () => {
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
 
-          expect(await move.call(a, 'user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+          expect(await requireMove(a)('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
         })
 
         it('a false report is not a write - the move must not create the grant', async () => {
           // An upserting implementation would answer `false` and still grant `org-2`.
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
-          await move.call(a, 'user-1', 'editor', 'org-1', 'org-2')
+          await requireMove(a)('user-1', 'editor', 'org-1', 'org-2')
 
           expect(await a.getSubjectRoles('user-1')).toEqual([])
           if (supports.getSubjectScopedRoles) expect(await requireScoped(a)('user-1')).toEqual([])
@@ -574,11 +581,9 @@ export function runAdapterCompliance(
 
         it('the from-scope has to match - a row in another scope is not moved', async () => {
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
           await a.assignRole('user-1', 'editor', 'org-9')
 
-          expect(await move.call(a, 'user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+          expect(await requireMove(a)('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
           if (supports.getSubjectScopedRoles) {
             expect(await requireScoped(a)('user-1')).toEqual([{ role: 'editor', scope: 'org-9' }])
           }
@@ -586,11 +591,9 @@ export function runAdapterCompliance(
 
         it('the role has to match - another role in the same scope is not moved', async () => {
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
           await a.assignRole('user-1', 'viewer', 'org-1')
 
-          expect(await move.call(a, 'user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+          expect(await requireMove(a)('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
           if (supports.getSubjectScopedRoles) {
             expect(await requireScoped(a)('user-1')).toEqual([{ role: 'viewer', scope: 'org-1' }])
           }
@@ -598,11 +601,9 @@ export function runAdapterCompliance(
 
         it('the subject has to match - another subject holding the same grant is untouched', async () => {
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
           await a.assignRole('user-2', 'editor', 'org-1')
 
-          expect(await move.call(a, 'user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+          expect(await requireMove(a)('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
           if (supports.getSubjectScopedRoles) {
             expect(await requireScoped(a)('user-2')).toEqual([{ role: 'editor', scope: 'org-1' }])
           }
@@ -611,22 +612,18 @@ export function runAdapterCompliance(
         it('undefined as the to-scope promotes a scoped grant to a global one', async () => {
           // The widening direction: afterwards the subject holds the role everywhere, not only in `org-1`.
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
           await a.assignRole('user-1', 'editor', 'org-1')
 
-          expect(await move.call(a, 'user-1', 'editor', 'org-1', undefined)).toBe(true)
+          expect(await requireMove(a)('user-1', 'editor', 'org-1', undefined)).toBe(true)
           expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
           if (supports.getSubjectScopedRoles) expect(await requireScoped(a)('user-1')).toEqual([])
         })
 
         it('undefined as the from-scope narrows a global grant into a scope', async () => {
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
           await a.assignRole('user-1', 'editor')
 
-          expect(await move.call(a, 'user-1', 'editor', undefined, 'org-1')).toBe(true)
+          expect(await requireMove(a)('user-1', 'editor', undefined, 'org-1')).toBe(true)
           // The global grant must be gone, or the narrowing kept the broader access.
           expect(await a.getSubjectRoles('user-1')).toEqual([])
           if (supports.getSubjectScopedRoles) {
@@ -637,23 +634,19 @@ export function runAdapterCompliance(
         it('an unscoped row is not what a scoped move is looking for', async () => {
           // `undefined` and `'org-1'` are different rows; a from-scope of `org-1` must not match the global grant.
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
           await a.assignRole('user-1', 'editor')
 
-          expect(await move.call(a, 'user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+          expect(await requireMove(a)('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
           expect(await a.getSubjectRoles('user-1')).toEqual(['editor'])
         })
 
         it('moving onto a scope the subject already holds does not leave two rows', async () => {
           // A merge, not a refusal, but a duplicate `org-2` row would survive a later single revoke.
           const a = await seeded(factory)
-          const move = a.updateAssignmentScope
-          if (!move) throw new Error(`${adapterName} is recorded as implementing updateAssignmentScope`)
           await a.assignRole('user-1', 'editor', 'org-1')
           await a.assignRole('user-1', 'editor', 'org-2')
 
-          await move.call(a, 'user-1', 'editor', 'org-1', 'org-2')
+          await requireMove(a)('user-1', 'editor', 'org-1', 'org-2')
           if (supports.getSubjectScopedRoles) {
             expect(await requireScoped(a)('user-1')).toEqual([{ role: 'editor', scope: 'org-2' }])
           }
