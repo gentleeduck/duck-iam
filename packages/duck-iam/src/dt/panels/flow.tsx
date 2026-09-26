@@ -1,26 +1,13 @@
-import React from 'react'
+import type React from 'react'
 import { Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Badge, Button } from '../components/ui'
 import { cn } from '../lib/cn'
-import type { IamIFlowEntry, IamIFlowRecorder } from '../lib/flow'
+import type { IamIFlowRecorder } from '../lib/flow'
+import { useIamFlowPanel } from '../lib/flow-panel'
+import { formatClockTime, formatRelativeAge } from '../lib/format'
 import { useIamDevtoolsStyles } from '../lib/styles'
-
-function pad(n: number, w = 2) {
-  return String(n).padStart(w, '0')
-}
-function fmtTime(ts: number) {
-  const d = new Date(ts)
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
-}
-function fmtAgo(ts: number, now: number) {
-  const ms = Math.max(0, now - ts)
-  if (ms < 1000) return `${ms}ms ago`
-  if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`
-  return `${Math.floor(ms / 3_600_000)}h ago`
-}
 
 function ActionChip({ action }: { action: string }) {
   return <code className="iam-dt-chip iam-dt-chip--action">{action}</code>
@@ -51,52 +38,23 @@ function SubjectChip({ id }: { id: string }) {
  */
 export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
   useIamDevtoolsStyles()
-  const [entries, setEntries] = React.useState<readonly IamIFlowEntry[]>(() => flow.list())
-  const [selected, setSelected] = React.useState<number | null>(null)
-  const [filter, setFilter] = React.useState('')
-  const [showAllow, setShowAllow] = React.useState(true)
-  const [showDeny, setShowDeny] = React.useState(true)
-  const [now, setNow] = React.useState(Date.now())
-  const [copied, setCopied] = React.useState(false)
-
-  React.useEffect(() => {
-    const off = flow.subscribe(() => setEntries(flow.list().slice()))
-    return off
-  }, [flow])
-  React.useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [])
-
-  const q = filter.trim().toLowerCase()
-  const filtered = entries.filter((e) => {
-    if (!showAllow && e.allowed) return false
-    if (!showDeny && !e.allowed) return false
-    if (!q) return true
-    return (
-      e.subjectId.toLowerCase().includes(q) ||
-      e.action.toLowerCase().includes(q) ||
-      e.resource.toLowerCase().includes(q) ||
-      (e.resourceId ?? '').toLowerCase().includes(q)
-    )
-  })
-
-  const current = selected != null ? (flow.get(selected) ?? null) : null
-  const counts = React.useMemo(() => {
-    let allow = 0,
-      deny = 0
-    for (const e of entries) e.allowed ? allow++ : deny++
-    return { allow, deny }
-  }, [entries])
-
-  const copyEntry = async () => {
-    if (!current) return
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(current, null, 2))
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {}
-  }
+  const {
+    copied,
+    copyEntry,
+    counts,
+    current,
+    entries,
+    filter,
+    filtered,
+    now,
+    selected,
+    setFilter,
+    setSelected,
+    setShowAllow,
+    setShowDeny,
+    showAllow,
+    showDeny,
+  } = useIamFlowPanel(flow)
 
   return (
     <SplitView
@@ -145,7 +103,7 @@ export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
                 <span className="iam-dt-row" style={{ gap: 6 }}>
                   {e.subjectId}
                   <Dot />
-                  {fmtAgo(e.ts, now)}
+                  {formatRelativeAge(e.ts, now)}
                   {typeof e.durationMs === 'number' && (
                     <>
                       <Dot />
@@ -169,7 +127,7 @@ export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
               <span className="iam-dt-soft">on</span>
               <ResourceChip resource={current.resource} resourceId={current.resourceId} />
               <span className="iam-dt-flow__time">
-                {fmtTime(current.ts)}
+                {formatClockTime(current.ts)}
                 {typeof current.durationMs === 'number' && (
                   <>
                     <Dot />

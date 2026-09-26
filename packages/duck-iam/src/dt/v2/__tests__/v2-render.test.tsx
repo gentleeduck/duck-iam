@@ -158,7 +158,8 @@ describe('no v2 panel can reach the engine without the guard', () => {
     for (const file of readdirSync(dir)) {
       if (!file.endsWith('.tsx')) continue
       const src = readFileSync(join(dir, file), 'utf8')
-      if (!/\bengine\./.test(src)) continue
+      // A panel that delegates its engine reads to a shared `dt/lib` hook has no literal `engine.` of its own.
+      if (!/\bengine\./.test(src) && !/\bengine:\s*IamIDevtoolsEngine\b/.test(src)) continue
       checked++
       if (!src.includes('isDevtoolsAllowed(engine)')) offenders.push(file)
     }
