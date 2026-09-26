@@ -1,28 +1,24 @@
 'use client'
 
 import { cn } from '@gentleduck/libs/cn'
-import { CornerUpRight, RefreshCw, Users } from 'lucide-react'
+import { CornerUpRight, Users } from 'lucide-react'
 import type { AccessControl } from '../../../core/types'
 import { isDevtoolsAllowed } from '../../lib/guard'
 import { useIamListPanel } from '../../lib/list-panel'
 import type { IamEnginePanelProps } from '../../lib/types'
 import {
-  IamV2Action,
-  IamV2Alert,
   IamV2Chip,
   IamV2DescriptionSection,
   IamV2Disclosure,
   IamV2Empty,
   IamV2ListRow,
   IamV2PaneBody,
-  IamV2PaneHeader,
   IamV2Root,
-  IamV2Search,
   IamV2Section,
-  IamV2SkeletonRows,
   IamV2Split,
 } from '../components/chrome'
 import { IamV2Json } from '../components/json-view'
+import { IamV2ListBrowser } from '../components/list-browser'
 import { IAM_V2_ACTION, IAM_V2_MONO, IAM_V2_RESOURCE } from '../lib/tone'
 
 /** One granted permission; expandable only when it has conditions. */
@@ -107,47 +103,35 @@ export function IamRolesPanelV2({ engine }: IamEnginePanelProps) {
           )
         }
         list={
-          <>
-            <IamV2PaneHeader
-              actions={
-                <IamV2Action label="Reload roles" onClick={() => void reload()}>
-                  <RefreshCw size={12} />
-                  refresh
-                </IamV2Action>
-              }
-              count={filtered.length}
-              title="Roles"
-            />
-            <div className="shrink-0 border-border border-b p-3">
-              <IamV2Search onChange={setFilter} placeholder="Filter roles" value={filter} />
-            </div>
-            <IamV2PaneBody className="gap-1">
-              {error && <IamV2Alert tone="error">{error}</IamV2Alert>}
-              {!error && loading && items.length === 0 && <IamV2SkeletonRows />}
-              {!error && !loading && filtered.length === 0 && (
-                <IamV2Empty
-                  description={items.length === 0 ? 'The adapter holds no roles.' : 'Nothing matches the filter.'}
-                  icon={<Users />}
-                  title={items.length === 0 ? 'No roles' : 'No matches'}
-                />
-              )}
-              {filtered.map((role) => (
-                <IamV2ListRow
-                  active={selected === role.id}
-                  description={
-                    role.inherits?.length
-                      ? `${role.permissions.length} perms · inherits ${role.inherits.join(', ')}`
-                      : `${role.permissions.length} perms`
-                  }
-                  key={role.id}
-                  onSelect={() => setSelected(role.id)}
-                  title={<code className={IAM_V2_MONO}>{role.id}</code>}
-                  tone="allow"
-                  trailing={<IamV2Chip tone="neutral">{role.permissions.length}</IamV2Chip>}
-                />
-              ))}
-            </IamV2PaneBody>
-          </>
+          <IamV2ListBrowser
+            emptyIcon={<Users />}
+            error={error}
+            filter={filter}
+            filtered={filtered}
+            items={items}
+            loading={loading}
+            noun="roles"
+            reload={reload}
+            reloadLabel="Reload roles"
+            renderRow={(role) => (
+              <IamV2ListRow
+                active={selected === role.id}
+                description={
+                  role.inherits?.length
+                    ? `${role.permissions.length} perms · inherits ${role.inherits.join(', ')}`
+                    : `${role.permissions.length} perms`
+                }
+                key={role.id}
+                onSelect={() => setSelected(role.id)}
+                title={<code className={IAM_V2_MONO}>{role.id}</code>}
+                tone="allow"
+                trailing={<IamV2Chip tone="neutral">{role.permissions.length}</IamV2Chip>}
+              />
+            )}
+            searchPlaceholder="Filter roles"
+            setFilter={setFilter}
+            title="Roles"
+          />
         }
       />
     </IamV2Root>
