@@ -19,6 +19,23 @@ export const IAM_COMBINE_ALGORITHMS = [
 /** Per-row epoch-millisecond timestamp. */
 const nowMs = sql`(unixepoch() * 1000)`
 
+/**
+ * The `created_by`/`updated_by`/`created_at`/`updated_at` columns every table carries.
+ * A factory, not a shared object: drizzle's column builders mutate in place when a table builds them
+ * (e.g. caching a table-derived unique name), so the same builder instance can't back two tables.
+ */
+function auditColumns() {
+  return {
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
+  }
+}
+
 /** Stored ABAC policies. JSON payloads are TEXT and parsed by the adapter. */
 export const iamPolicies = sqliteTable(
   'iam_policies',
@@ -30,13 +47,7 @@ export const iamPolicies = sqliteTable(
     algorithm: text('algorithm').$type<AccessControl.CombiningAlgorithm>().notNull().default('deny-overrides'),
     rules: text('rules').$type<string>().notNull(),
     targets: text('targets').$type<string>(),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-      .notNull()
-      .default(nowMs)
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
@@ -64,13 +75,7 @@ export const iamRoles = sqliteTable(
     inherits: text('inherits').$type<string>().notNull().default('[]'),
     scope: text('scope'),
     metadata: text('metadata').$type<string>(),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-      .notNull()
-      .default(nowMs)
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
@@ -100,13 +105,7 @@ export const iamAssignments = sqliteTable(
     startsAt: integer('starts_at', { mode: 'timestamp_ms' }),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
     attributes: text('attributes').$type<string>(),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-      .notNull()
-      .default(nowMs)
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_assignments', columns: [t.id] }),
@@ -147,13 +146,7 @@ export const iamSubjectAttrs = sqliteTable(
   {
     subjectId: text('subject_id').notNull(),
     data: text('data').$type<string>().notNull(),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-      .notNull()
-      .default(nowMs)
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
