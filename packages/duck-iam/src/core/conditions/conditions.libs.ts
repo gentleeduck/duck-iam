@@ -44,8 +44,8 @@ export const OPERAND_TYPES: ReadonlyMap<string, 'array' | 'number' | 'scalar' | 
   ['after', 'temporal'],
 ])
 
-/** Scalar check over `unknown`, for use before anything is narrowed. */
-function isScalarUnknown(value: unknown): boolean {
+/** Whether `value` is a scalar {@link IamPrimitives.Scalar}; takes `unknown`, for use before anything is narrowed. */
+function isScalar(value: unknown): value is IamPrimitives.Scalar {
   return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
 }
 
@@ -54,12 +54,11 @@ export function operandHasType(kind: 'array' | 'number' | 'scalar' | 'string' | 
   switch (kind) {
     case 'array':
       // SECURITY: elements too, since `includes` never matches an object element and the rule would retire.
-      return Array.isArray(value) && value.every(isScalarUnknown)
+      return Array.isArray(value) && value.every(isScalar)
     case 'number':
       return typeof value === 'number'
     case 'scalar':
-      // Matches `isScalar`, which the membership operators use on their operand.
-      return isScalarUnknown(value)
+      return isScalar(value)
     case 'string':
       return typeof value === 'string'
     case 'temporal':
@@ -462,10 +461,6 @@ export function getCachedRegex(pattern: string, cache: Map<string, RegExp> = reg
   }
 }
 
-function isScalar(v: IamPrimitives.AttributeValue | undefined): v is IamPrimitives.Scalar {
-  return v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
-}
-
 /**
  * Epoch ms for `before`/`after`: numbers pass through, strings go through `Date.parse`, anything else is `NaN`.
  * SECURITY: `NaN` makes the comparison fail closed.
@@ -474,6 +469,17 @@ function toEpoch(v: IamPrimitives.AttributeValue): number {
   if (typeof v === 'number') return v
   if (typeof v === 'string') return Date.parse(v)
   return NaN
+}
+
+/** Shared `before`/`after` shape: both operands through {@link toEpoch}, fails closed unless both parsed. */
+function compareEpoch(
+  f: IamPrimitives.AttributeValue,
+  v: IamPrimitives.AttributeValue,
+  cmp: (a: number, b: number) => boolean,
+): boolean {
+  const a = toEpoch(f)
+  const b = toEpoch(v)
+  return Number.isFinite(a) && Number.isFinite(b) && cmp(a, b)
 }
 
 /** Record mapping every supported operator to its implementation function. */
@@ -491,11 +497,9 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
     if (Array.isArray(f)) return f.some((i) => isScalar(i) && v.includes(i))
     return isScalar(f) && v.includes(f)
   },
-  nin: (f, v) => {
-    if (!Array.isArray(v)) return true
-    if (Array.isArray(f)) return !f.some((i) => isScalar(i) && v.includes(i))
-    return !isScalar(f) || !v.includes(f)
-  },
+  // Exact negation of `in` above - unlike `not_contains`/`contains`, no field state answers `false` on both sides,
+  // so `!ops.in` cannot disagree with a hand-written version.
+  nin: (f, v) => !ops.in(f, v),
 
   // SECURITY: array membership only, never substring. A present non-array field satisfies neither operator;
   // an absent field is an empty list, so `not_contains` holds.
@@ -519,23 +523,12 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
     if (!Array.isArray(f) || !Array.isArray(v)) return false
     return f.every((i) => v.includes(i))
   },
-  superset_of: (f, v) => {
-    if (!Array.isArray(f) || !Array.isArray(v)) return false
-    return v.every((i) => f.includes(i))
-  },
+  // `f ⊇ v` is exactly `v ⊆ f`; delegates so the two cannot drift, as `matches` does below.
+  superset_of: (f, v) => ops.subset_of(v, f),
 
-  // Both operands go through `toEpoch`; a non-temporal one is `NaN` and fails closed.
   // Pair with `$environment.now` for "still in the future" / "already past".
-  after: (f, v) => {
-    const a = toEpoch(f)
-    const b = toEpoch(v)
-    return Number.isFinite(a) && Number.isFinite(b) && a > b
-  },
-  before: (f, v) => {
-    const a = toEpoch(f)
-    const b = toEpoch(v)
-    return Number.isFinite(a) && Number.isFinite(b) && a < b
-  },
+  after: (f, v) => compareEpoch(f, v, (a, b) => a > b),
+  before: (f, v) => compareEpoch(f, v, (a, b) => a < b),
 }
 
 /** Maximum nesting depth for condition groups to prevent stack overflow. */
