@@ -15,10 +15,10 @@ import { Alert, Badge, Button } from '../components/ui'
 import { isDevtoolsAllowed } from '../lib/guard'
 import { useIamListPanel } from '../lib/list-panel'
 import { useIamDevtoolsStyles } from '../lib/styles'
-import type { IamIDevtoolsEngine } from '../lib/types'
+import type { IamEnginePanelProps } from '../lib/types'
 
 /** Read-only browser for roles, their permissions and inheritance; the RBAC counterpart to {@link IamPoliciesPanel}. */
-export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
+export function IamRolesPanel({ engine }: IamEnginePanelProps) {
   useIamDevtoolsStyles()
   const { current, error, filter, filtered, reload, selected, setFilter, setSelected } =
     useIamListPanel<AccessControl.IRole>(() => engine.admin.listRoles())

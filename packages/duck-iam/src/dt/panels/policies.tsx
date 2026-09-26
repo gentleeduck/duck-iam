@@ -15,10 +15,10 @@ import { Alert, Badge, Button } from '../components/ui'
 import { isDevtoolsAllowed } from '../lib/guard'
 import { useIamListPanel } from '../lib/list-panel'
 import { useIamDevtoolsStyles } from '../lib/styles'
-import type { IamIDevtoolsEngine } from '../lib/types'
+import type { IamEnginePanelProps } from '../lib/types'
 
 /** Read-only browser for the live policies from `engine.admin.listPolicies()`, with the selected policy rules. */
-export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
+export function IamPoliciesPanel({ engine }: IamEnginePanelProps) {
   useIamDevtoolsStyles()
   const { current, error, filter, filtered, reload, selected, setFilter, setSelected } =
     useIamListPanel<AccessControl.IPolicy>(() => engine.admin.listPolicies())
