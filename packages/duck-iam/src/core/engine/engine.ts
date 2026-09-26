@@ -384,11 +384,7 @@ export class IamEngine<
   /** @internal Build the cache-bag the helper modules use to mutate state. */
   private _cacheBag(): IEngineCacheBag<TRole> {
     return {
-      policyCache: this._policyCache,
-      roleCache: this._roleCache,
-      rbacPolicyCache: this._rbacPolicyCache,
-      mergedPolicyCache: this._mergedPolicyCache,
-      subjectCache: this._subjectCache,
+      ...this._cachesForStats(),
       inFlight: this._inFlight,
       ...(this._invalidator !== undefined && { invalidator: this._invalidator }),
     }
@@ -455,11 +451,7 @@ export class IamEngine<
   private _loaderDeps(): IIamLoaderDeps<TAction, TResource, TRole, TScope> {
     return {
       adapter: this._adapter,
-      policyCache: this._policyCache,
-      roleCache: this._roleCache,
-      rbacPolicyCache: this._rbacPolicyCache,
-      mergedPolicyCache: this._mergedPolicyCache,
-      subjectCache: this._subjectCache,
+      ...this._cachesForStats(),
       inFlight: this._inFlight,
       maxPolicies: this._maxPolicies,
       maxRoles: this._maxRoles,
@@ -494,8 +486,17 @@ export class IamEngine<
     } catch {}
   }
 
-  /** Targets already reported, so the warning is one line per bad target, not one per cache fill. */
+  /**
+   * Targets/rules already reported, so each warning is one line per bad target, not one per cache fill.
+   * SECURITY: one set per report function, not shared - `reportDeadConditionPaths`' key embeds a user-controlled
+   * dot-path with no fixed prefix of its own, so a field literally named e.g. "unmatchable" could otherwise collide
+   * with another function's fixed-suffix key for the same policy/rule and silently swallow its distinct warning,
+   * including one about a deny rule that can never fire.
+   */
   private _reportedRoleTargets = new Set<string>()
+  private _reportedDeadTargets = new Set<string>()
+  private _reportedDeadConditionPaths = new Set<string>()
+  private _reportedUnmatchableRules = new Set<string>()
 
   /** @internal Both evaluator paths call this; either can be the only one that runs for a given config. */
   private _reportPolicyTargetProblems(
@@ -511,9 +512,9 @@ export class IamEngine<
       } catch {}
     }
     reportUnreachableRoleTargets(policies, roles, this._reportedRoleTargets, report)
-    reportDeadPolicyTargets(policies, this._reportedRoleTargets, report)
-    reportDeadConditionPaths(policies, this._reportedRoleTargets, report)
-    reportUnmatchableRules(policies, this._reportedRoleTargets, report)
+    reportDeadPolicyTargets(policies, this._reportedDeadTargets, report)
+    reportDeadConditionPaths(policies, this._reportedDeadConditionPaths, report)
+    reportUnmatchableRules(policies, this._reportedUnmatchableRules, report)
   }
 
   private _resolveSubject(subjectId: string): Promise<IamRequest.ISubject> {
@@ -786,11 +787,7 @@ export class IamEngine<
         result = this._asResult(this._mode === 'production' ? false : refusal)
         allowedForMetrics = false
         failOpenForMetrics = false
-        if (this._hooks.afterEvaluate || this._hooks.onDeny) {
-          await this._safeHookCall(() => this._hooks.afterEvaluate?.(req, refusal), 'afterEvaluate')
-          await this._safeHookCall(() => this._hooks.onDeny?.(req, refusal), 'onDeny')
-        }
-        this._emitMetrics(req, false, t0, false)
+        await this._fireTrailingHooks(req, refusal, false, t0, false, true)
         return result
       }
 
@@ -823,14 +820,7 @@ export class IamEngine<
 
     // Outside the evaluation try, each hook wrapped, so a hook throw cannot rewrite the decision or skip the others.
     // Production has no `IDecision`, so one is built from the verdict.
-    if (this._hooks.afterEvaluate || this._hooks.onDeny) {
-      const d = decisionForHooks ?? this._verdictOnlyDecision(allowedForMetrics, t0)
-      await this._safeHookCall(() => this._hooks.afterEvaluate?.(req, d), 'afterEvaluate')
-      if (!d.allowed) {
-        await this._safeHookCall(() => this._hooks.onDeny?.(req, d), 'onDeny')
-      }
-    }
-    this._emitMetrics(req, allowedForMetrics, t0, failOpenForMetrics)
+    await this._fireTrailingHooks(req, decisionForHooks, allowedForMetrics, t0, failOpenForMetrics, true)
     return result
   }
 
@@ -932,6 +922,32 @@ export class IamEngine<
     failOpen: boolean,
   ): void {
     emitMetrics(this._hooks, req, allowed, t0, failOpen, this._mode)
+  }
+
+  /**
+   * Fires `afterEvaluate`/`onDeny` (if either is wired) and `onMetrics` (if `telemetry`) for one evaluated request.
+   * Shared by `authorize()`'s reserved-refusal branch, its main tail, and `permissions()`'s per-check loop tail, so
+   * the three can never drift on when a hook fires. `req: null` no-ops both - only the `permissions()` loop passes
+   * it, for a check whose own try threw before building one.
+   */
+  private async _fireTrailingHooks(
+    req: IamRequest.IAccessRequest<TAction, TResource, TScope> | null,
+    decisionForHooks: AccessControl.IDecision | null,
+    allowed: boolean,
+    t0: number,
+    failOpen: boolean,
+    telemetry: boolean,
+  ): Promise<void> {
+    if (req === null) return
+    const r = req
+    if (this._hooks.afterEvaluate || this._hooks.onDeny) {
+      const d = decisionForHooks ?? this._verdictOnlyDecision(allowed, t0)
+      await this._safeHookCall(() => this._hooks.afterEvaluate?.(r, d), 'afterEvaluate')
+      if (!d.allowed) {
+        await this._safeHookCall(() => this._hooks.onDeny?.(r, d), 'onDeny')
+      }
+    }
+    if (telemetry) this._emitMetrics(r, allowed, t0, failOpen)
   }
 
   /**
@@ -1220,15 +1236,7 @@ export class IamEngine<
       }
 
       // Outside the try, as in authorize(), so a hook throw cannot rewrite the verdict.
-      if (evalReq !== null && (this._hooks.afterEvaluate || this._hooks.onDeny)) {
-        const d = decisionForHooks ?? this._verdictOnlyDecision(allowedForCheck, t0)
-        const r = evalReq
-        await this._safeHookCall(() => this._hooks.afterEvaluate?.(r, d), 'afterEvaluate')
-        if (!d.allowed) {
-          await this._safeHookCall(() => this._hooks.onDeny?.(r, d), 'onDeny')
-        }
-      }
-      if (telemetry && evalReq !== null) this._emitMetrics(evalReq, allowedForCheck, t0, failOpenForCheck)
+      await this._fireTrailingHooks(evalReq, decisionForHooks, allowedForCheck, t0, failOpenForCheck, telemetry)
     }
 
     return map as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
@@ -1283,7 +1291,7 @@ export class IamEngine<
     return buildBoundEngine(this, bind.call(this._adapter, client), this._config, (cfg) => new IamEngine(cfg))
   }
 
-  /** @internal Cache references for the stats helper. */
+  /** @internal The engine's five LRU caches, shared by the stats helper and spread into `_cacheBag`/`_loaderDeps`. */
   private _cachesForStats() {
     return {
       policyCache: this._policyCache,
