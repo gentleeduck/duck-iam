@@ -13,8 +13,3 @@ function hideMethod<A extends object>(adapter: A, name: string): A {
 export function withoutInPlaceUpdate<A extends object>(adapter: A): A {
   return hideMethod(adapter, 'updateAssignmentScope')
 }
-
-/** An adapter with no set-based writes, so the batch admin takes its row loop. */
-export function withoutSetBasedWrites<A extends object>(adapter: A): A {
-  return hideMethod(hideMethod(adapter, 'assignRoleMany'), 'revokeRoleMany')
-}
