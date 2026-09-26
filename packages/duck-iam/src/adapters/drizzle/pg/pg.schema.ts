@@ -47,13 +47,20 @@ function auditColumns() {
   }
 }
 
+/** The `id`/`name`/`description` columns both `iam_policies` and `iam_roles` carry; a factory for the same reason as {@link auditColumns}. */
+function identityColumns() {
+  return {
+    id: text('id').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+  }
+}
+
 /** Stored ABAC policies. `rules`/`targets` are `jsonb`. */
 export const iamPolicies = pgTable(
   'iam_policies',
   {
-    id: text('id').notNull(),
-    name: text('name').notNull(),
-    description: text('description'),
+    ...identityColumns(),
     version: integer('version').notNull().default(1),
     algorithm: combineAlgorithm('algorithm').notNull().default('deny-overrides'),
     rules: jsonb('rules').$type<AccessControl.IRule[]>().notNull(),
@@ -74,9 +81,7 @@ export const iamPolicies = pgTable(
 export const iamRoles = pgTable(
   'iam_roles',
   {
-    id: text('id').notNull(),
-    name: text('name').notNull(),
-    description: text('description'),
+    ...identityColumns(),
     permissions: jsonb('permissions').$type<AccessControl.IPermission[]>().notNull(),
     inherits: jsonb('inherits').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     scope: text('scope'),
