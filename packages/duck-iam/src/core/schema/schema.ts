@@ -1,6 +1,11 @@
 import { MAX_CONDITION_DEPTH } from '../conditions/conditions.libs'
 import type { AccessControl } from '../types'
-import { MAX_CONDITION_VALUE_LENGTH, MAX_FIELD_LENGTH, POLICY_LIMITS } from '../validate/validate.libs'
+import {
+  CONDITION_OPERATORS,
+  MAX_CONDITION_VALUE_LENGTH,
+  MAX_FIELD_LENGTH,
+  POLICY_LIMITS,
+} from '../validate/validate.libs'
 
 /** One branch of a condition-group `oneOf`: exactly one of `all` / `any` / `none`. */
 interface IGroupBranch {
@@ -112,27 +117,7 @@ export const POLICY_JSON_SCHEMA = {
       properties: {
         field: { type: 'string', minLength: 1, maxLength: MAX_FIELD_LENGTH },
         operator: {
-          enum: [
-            'eq',
-            'neq',
-            'gt',
-            'gte',
-            'lt',
-            'lte',
-            'in',
-            'nin',
-            'contains',
-            'not_contains',
-            'starts_with',
-            'ends_with',
-            'matches',
-            'exists',
-            'not_exists',
-            'subset_of',
-            'superset_of',
-            'before',
-            'after',
-          ],
+          enum: CONDITION_OPERATORS,
         },
         value: {},
       },
