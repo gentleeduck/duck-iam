@@ -52,30 +52,25 @@ export namespace IamPrisma {
     data: unknown
   }
 
+  /**
+   * Shape of a Prisma model client keyed by a plain `id`, offering exactly the ops the adapter needs.
+   * NOTE: `deleteMany`, not `delete`: `delete` throws `P2025` when nothing matches, and deletes are idempotent.
+   */
+  export interface IModelOps<TRow> {
+    findMany: (args?: unknown) => Promise<TRow[]>
+    findUnique: (args: { where: { id: string } }) => Promise<TRow | null>
+    upsert: (args: {
+      where: { id: string }
+      create: Record<string, unknown>
+      update: Record<string, unknown>
+    }) => Promise<TRow>
+    deleteMany: (args: { where: { id: string } }) => Promise<{ count: number }>
+  }
+
   /** Structural Prisma client shape, so `@prisma/client` is not a dependency; your client needs these models. */
   export interface ILike {
-    accessPolicy: {
-      findMany: (args?: unknown) => Promise<IPolicyRow[]>
-      findUnique: (args: { where: { id: string } }) => Promise<IPolicyRow | null>
-      upsert: (args: {
-        where: { id: string }
-        create: Record<string, unknown>
-        update: Record<string, unknown>
-      }) => Promise<IPolicyRow>
-      /** NOTE: `deleteMany`, not `delete`: `delete` throws `P2025` when nothing matches, and deletes are idempotent. */
-      deleteMany: (args: { where: { id: string } }) => Promise<{ count: number }>
-    }
-    accessRole: {
-      findMany: (args?: unknown) => Promise<IRoleRow[]>
-      findUnique: (args: { where: { id: string } }) => Promise<IRoleRow | null>
-      upsert: (args: {
-        where: { id: string }
-        create: Record<string, unknown>
-        update: Record<string, unknown>
-      }) => Promise<IRoleRow>
-      /** See `accessPolicy.deleteMany`. */
-      deleteMany: (args: { where: { id: string } }) => Promise<{ count: number }>
-    }
+    accessPolicy: IModelOps<IPolicyRow>
+    accessRole: IModelOps<IRoleRow>
     accessAssignment: {
       findMany: (args: {
         where: { subjectId: string; roleId?: string; scope?: string | null }
