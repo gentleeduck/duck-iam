@@ -1,9 +1,9 @@
-import React from 'react'
 import { Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { Section } from '../components/layout'
 import { Badge, Button, Empty } from '../components/ui'
 import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamMetricsPanel } from '../lib/metrics-panel'
 import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine, IamIDevtoolsMetrics } from '../lib/types'
 
@@ -31,21 +31,10 @@ export function IamMetricsPanel({
   pollMs?: number
 }) {
   useIamDevtoolsStyles()
-  const [stats, setStats] = React.useState(() => engine.stats.get())
-  const [snap, setSnap] = React.useState(() => metrics?.snapshot() ?? null)
-
-  React.useEffect(() => {
-    const id = setInterval(() => {
-      setStats(engine.stats.get())
-      if (metrics) setSnap(metrics.snapshot())
-    }, pollMs)
-    return () => clearInterval(id)
-  }, [engine, metrics, pollMs])
+  const { allowRate, reset, snapshot: snap, stats } = useIamMetricsPanel(engine, metrics, pollMs)
 
   // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
   if (!isDevtoolsAllowed(engine)) return null
-
-  const allowRate = snap && snap.total > 0 ? Math.round((snap.allow / snap.total) * 100) : 0
 
   return (
     <div className="iam-dt iam-dt-detail">
@@ -53,13 +42,7 @@ export function IamMetricsPanel({
         <span className="iam-dt-listshell__title">Telemetry</span>
         <Badge tone="info">poll {pollMs}ms</Badge>
         <span style={{ marginLeft: 'auto' }}>
-          <Button
-            onClick={() => {
-              engine.stats.reset()
-              metrics?.reset()
-              setStats(engine.stats.get())
-              setSnap(metrics?.snapshot() ?? null)
-            }}>
+          <Button onClick={reset}>
             <Refresh size={10} /> reset
           </Button>
         </span>

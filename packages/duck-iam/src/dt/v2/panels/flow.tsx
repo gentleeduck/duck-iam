@@ -5,8 +5,9 @@ import { Button } from '@gentleduck/registry-ui/button'
 import { Separator } from '@gentleduck/registry-ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@gentleduck/registry-ui/table'
 import { Check, Copy, Radio, Trash2 } from 'lucide-react'
-import React from 'react'
 import type { IamIFlowEntry, IamIFlowRecorder } from '../../lib/flow'
+import { useIamFlowPanel } from '../../lib/flow-panel'
+import { formatClockTime, formatRelativeAge } from '../../lib/format'
 import {
   IamV2Action,
   IamV2Avatar,
@@ -24,25 +25,6 @@ import {
 } from '../components/chrome'
 import { IamV2Json } from '../components/json-view'
 import { IAM_V2_ACTION, IAM_V2_MONO, IAM_V2_RESOURCE, iamV2Decision, iamV2Dot } from '../lib/tone'
-
-function pad(value: number, width = 2): string {
-  return String(value).padStart(width, '0')
-}
-
-/** `14:03:11.482` - wall-clock, to line a decision up against an app log. */
-function clockTime(ts: number): string {
-  const d = new Date(ts)
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
-}
-
-/** Coarse relative age, re-rendered once a second by the panel's own ticker. */
-function relativeAge(ts: number, now: number): string {
-  const ms = Math.max(0, now - ts)
-  if (ms < 1000) return `${ms}ms ago`
-  if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`
-  return `${Math.floor(ms / 3_600_000)}h ago`
-}
 
 /**
  * One decision as a table row.
@@ -90,7 +72,7 @@ function FlowRow({
         </span>
       </TableCell>
       <TableCell className="hidden whitespace-nowrap px-3 py-1.5 text-end text-[0.6875rem] text-muted-foreground tabular-nums md:table-cell">
-        {relativeAge(entry.ts, now)}
+        {formatRelativeAge(entry.ts, now)}
       </TableCell>
       <TableCell className="whitespace-nowrap px-3 py-1.5 text-end text-[0.6875rem] text-muted-foreground tabular-nums">
         {typeof entry.durationMs === 'number' ? `${entry.durationMs.toFixed(1)}ms` : '—'}
@@ -104,56 +86,23 @@ function FlowRow({
  * Takes no engine, so it carries no devtools guard; `side="end"` gives the table the flexible column.
  */
 export function IamFlowPanelV2({ flow }: { flow: IamIFlowRecorder }) {
-  const [entries, setEntries] = React.useState<readonly IamIFlowEntry[]>(() => flow.list())
-  const [selected, setSelected] = React.useState<number | null>(null)
-  const [filter, setFilter] = React.useState('')
-  const [showAllow, setShowAllow] = React.useState(true)
-  const [showDeny, setShowDeny] = React.useState(true)
-  const [now, setNow] = React.useState(() => Date.now())
-  const [copied, setCopied] = React.useState(false)
-
-  React.useEffect(() => flow.subscribe(() => setEntries(flow.list())), [flow])
-  React.useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [])
-
-  const query = filter.trim().toLowerCase()
-  const filtered = entries.filter((entry) => {
-    if (!showAllow && entry.allowed) return false
-    if (!showDeny && !entry.allowed) return false
-    if (!query) return true
-    return (
-      entry.subjectId.toLowerCase().includes(query) ||
-      entry.action.toLowerCase().includes(query) ||
-      entry.resource.toLowerCase().includes(query) ||
-      (entry.resourceId ?? '').toLowerCase().includes(query)
-    )
-  })
-
-  const counts = React.useMemo(() => {
-    let allow = 0
-    let deny = 0
-    for (const entry of entries) {
-      if (entry.allowed) allow++
-      else deny++
-    }
-    return { allow, deny }
-  }, [entries])
-
-  const current = selected === null ? null : (flow.get(selected) ?? null)
-
-  const copyEntry = () => {
-    if (!current) return
-    void navigator.clipboard
-      .writeText(JSON.stringify(current, null, 2))
-      .then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      })
-      // Clipboard is permission-gated and missing over plain http; swallow rather than leak an unhandled rejection.
-      .catch(() => setCopied(false))
-  }
+  const {
+    copied,
+    copyEntry,
+    counts,
+    current,
+    entries,
+    filter,
+    filtered,
+    now,
+    selected,
+    setFilter,
+    setSelected,
+    setShowAllow,
+    setShowDeny,
+    showAllow,
+    showDeny,
+  } = useIamFlowPanel(flow)
 
   return (
     <IamV2Root className="flex-1">
@@ -178,7 +127,7 @@ export function IamFlowPanelV2({ flow }: { flow: IamIFlowRecorder }) {
                   {current.resourceId && <span className="text-muted-foreground">#{current.resourceId}</span>}
                 </code>
                 <span className="ms-auto text-[0.6875rem] text-muted-foreground tabular-nums">
-                  {clockTime(current.ts)}
+                  {formatClockTime(current.ts)}
                   {typeof current.durationMs === 'number' && ` · ${current.durationMs.toFixed(2)}ms`}
                 </span>
               </div>
