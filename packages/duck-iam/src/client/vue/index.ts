@@ -197,6 +197,14 @@ export function createIamVueAccess<
     }
   }
 
+  /** Runtime prop schema shared by `Can`/`Cannot`, declared once so the two can't drift apart. */
+  const PERMISSION_SLOT_PROPS = {
+    action: { type: String, required: true },
+    resource: { type: String, required: true },
+    resourceId: { type: String, default: undefined },
+    scope: { type: String, default: undefined },
+  }
+
   /**
    * Renders the default slot when the permission is granted, otherwise the `fallback` slot.
    *
@@ -207,20 +215,15 @@ export function createIamVueAccess<
    */
   const Can = defineComponent({
     name: 'Can',
-    props: {
-      action: { type: String, required: true },
-      resource: { type: String, required: true },
-      resourceId: { type: String, default: undefined },
-      scope: { type: String, default: undefined },
-    },
+    props: PERMISSION_SLOT_PROPS,
     setup(
-      props: { action: string; resource: string; resourceId?: string; scope?: string },
+      props: { action: TAction; resource: TResource; resourceId?: string; scope?: TScope },
       { slots }: { slots: Record<string, (() => VNode[]) | undefined> },
     ) {
       // biome-ignore lint/correctness/useHookAtTopLevel: this is a declarative component
       const { can } = useAccess()
       return () => {
-        if (can(props.action as TAction, props.resource as TResource, props.resourceId, props.scope as TScope)) {
+        if (can(props.action, props.resource, props.resourceId, props.scope)) {
           return slots.default?.()
         }
         return slots.fallback?.()
@@ -231,20 +234,15 @@ export function createIamVueAccess<
   /** Renders the default slot only when the permission is denied. */
   const Cannot = defineComponent({
     name: 'Cannot',
-    props: {
-      action: { type: String, required: true },
-      resource: { type: String, required: true },
-      resourceId: { type: String, default: undefined },
-      scope: { type: String, default: undefined },
-    },
+    props: PERMISSION_SLOT_PROPS,
     setup(
-      props: { action: string; resource: string; resourceId?: string; scope?: string },
+      props: { action: TAction; resource: TResource; resourceId?: string; scope?: TScope },
       { slots }: { slots: Record<string, (() => VNode[]) | undefined> },
     ) {
       // biome-ignore lint/correctness/useHookAtTopLevel: this is a declarative component
       const { cannot } = useAccess()
       return () => {
-        if (cannot(props.action as TAction, props.resource as TResource, props.resourceId, props.scope as TScope)) {
+        if (cannot(props.action, props.resource, props.resourceId, props.scope)) {
           return slots.default?.()
         }
         return null
