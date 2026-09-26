@@ -1,4 +1,5 @@
 import React from 'react'
+import { toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl } from '../../core/types'
 import { ChevronDown, ChevronRight, CornerUpRight, Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
@@ -21,7 +22,7 @@ export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
       setError(null)
       setRoles(await engine.admin.listRoles())
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     }
   }, [engine])
 

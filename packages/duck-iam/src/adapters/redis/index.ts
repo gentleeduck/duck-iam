@@ -1,5 +1,5 @@
 import { hasIamErrorCode, throwIamError } from '../../core/errors'
-import { toError } from '../../core/errors/normalize'
+import { toError, toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
@@ -125,7 +125,7 @@ export class IamRedisAdapter<
       parsed = JSON.parse(raw)
     } catch (err) {
       this._reportPolicyError(toError(err), rowId)
-      throw iamUnreadableRole('redis', rowId, err instanceof Error ? err.message : String(err))
+      throw iamUnreadableRole('redis', rowId, toErrorMessage(err))
     }
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(parsed)
     if (role === null) {

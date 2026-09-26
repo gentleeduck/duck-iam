@@ -5,7 +5,7 @@ import type { SQLiteTableWithColumns } from 'drizzle-orm/sqlite-core/table'
 import { creditWrites } from '../../core/batch'
 import type { IamConfig } from '../../core/config'
 import { fail } from '../../core/errors'
-import { toError } from '../../core/errors/normalize'
+import { toError, toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertValidAssignWindow } from '../../shared/assign-options'
@@ -356,7 +356,7 @@ export class IamDrizzleAdapter<
       metadata = row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : undefined
     } catch (err) {
       this._reportPolicyError(toError(err), row.id)
-      throw iamUnreadableRole('drizzle', row.id, err instanceof Error ? err.message : String(err))
+      throw iamUnreadableRole('drizzle', row.id, toErrorMessage(err))
     }
 
     // Omit absent columns instead of writing `undefined`, so every adapter reads a role back with the same keys.

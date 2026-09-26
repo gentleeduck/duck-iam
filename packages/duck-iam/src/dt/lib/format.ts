@@ -1,3 +1,4 @@
+import { toErrorMessage } from '../../core/errors/normalize'
 import type { Explain } from '../../core/explain'
 
 /**
@@ -35,7 +36,7 @@ export function safeParseJson(raw: string): { value: unknown; error?: string } {
   try {
     return { value: JSON.parse(trimmed) }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err), value: undefined }
+    return { error: toErrorMessage(err), value: undefined }
   }
 }
 

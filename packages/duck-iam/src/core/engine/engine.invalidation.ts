@@ -1,5 +1,6 @@
 // Cache and in-flight invalidation, kept out of the engine class. Each function takes its caches explicitly.
 
+import { toErrorMessage } from '../errors/normalize'
 import type { AccessControl, IamRequest } from '../types'
 import { isThenable } from './engine.hooks'
 import type { IIamCachesForStats } from './engine.stats'
@@ -36,7 +37,7 @@ function reportPublishFailure(event: { kind: string }, err: unknown): void {
     console.warn(
       `[@gentleduck/iam:engine] invalidator.publish(${JSON.stringify(event.kind)}) failed; this instance is ` +
         'up to date but other instances keep their caches until their own TTL expires. ' +
-        `(${err instanceof Error ? err.message : String(err)})`,
+        `(${toErrorMessage(err)})`,
     )
   } catch {}
 }
@@ -214,7 +215,7 @@ function classifyInbound<TRole extends string>(ev: unknown): IInboundEvent<TRole
     if (isApplicableEvent<TRole>(ev)) return { event: ev, ok: true }
     return { ok: false, reason: unapplicableReason(ev) }
   } catch (err) {
-    return { ok: false, reason: `could not be read (${err instanceof Error ? err.message : String(err)})` }
+    return { ok: false, reason: `could not be read (${toErrorMessage(err)})` }
   }
 }
 
