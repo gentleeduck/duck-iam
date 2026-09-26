@@ -7,6 +7,7 @@ import { Badge } from '@gentleduck/registry-ui/badge'
 import { Button } from '@gentleduck/registry-ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@gentleduck/registry-ui/card'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@gentleduck/registry-ui/empty'
+import { Field, FieldLabel } from '@gentleduck/registry-ui/field'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@gentleduck/registry-ui/input-group'
 import { Item, ItemContent, ItemDescription, ItemTitle } from '@gentleduck/registry-ui/item'
 import { Kbd, KbdGroup } from '@gentleduck/registry-ui/kbd'
@@ -229,6 +230,18 @@ export function IamV2DescriptionSection({ text }: { text?: string }) {
     <IamV2Section title="Description">
       <p className="text-muted-foreground text-xs leading-relaxed">{text}</p>
     </IamV2Section>
+  )
+}
+
+/** A labelled form control: duck-ui's `Field` with a dense uppercase label wired to the input's id. */
+export function IamV2FieldBox({ children, id, label }: { children: React.ReactNode; id: string; label: string }) {
+  return (
+    <Field className="gap-1.5">
+      <FieldLabel className="text-[0.6875rem] text-muted-foreground uppercase tracking-wider" htmlFor={id}>
+        {label}
+      </FieldLabel>
+      {children}
+    </Field>
   )
 }
 
