@@ -5,7 +5,6 @@ import { Alert, AlertDescription, AlertTitle } from '@gentleduck/registry-ui/ale
 import { Avatar, AvatarFallback } from '@gentleduck/registry-ui/avatar'
 import { Badge } from '@gentleduck/registry-ui/badge'
 import { Button } from '@gentleduck/registry-ui/button'
-import { ButtonGroup } from '@gentleduck/registry-ui/button-group'
 import { Card, CardContent, CardHeader, CardTitle } from '@gentleduck/registry-ui/card'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@gentleduck/registry-ui/empty'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@gentleduck/registry-ui/input-group'
@@ -468,15 +467,6 @@ export function IamV2Action({
       </TooltipTrigger>
       <TooltipContent className="px-2 py-1 text-xs">{label}</TooltipContent>
     </Tooltip>
-  )
-}
-
-/** A segmented row of related controls, on duck-ui's `ButtonGroup`. */
-export function IamV2Toolbar({ children, label }: { children: React.ReactNode; label: string }) {
-  return (
-    <ButtonGroup aria-label={label} className="h-7">
-      {children}
-    </ButtonGroup>
   )
 }
 
