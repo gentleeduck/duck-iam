@@ -1,6 +1,7 @@
 import { MAX_CONDITION_DEPTH } from '../conditions/conditions.libs'
 import type { AccessControl } from '../types'
 import {
+  COMBINING_ALGORITHMS,
   CONDITION_OPERATORS,
   MAX_CONDITION_VALUE_LENGTH,
   MAX_FIELD_LENGTH,
@@ -92,7 +93,7 @@ export const POLICY_JSON_SCHEMA = {
     description: { type: 'string' },
     version: { type: 'number' },
     algorithm: {
-      enum: ['deny-overrides', 'allow-overrides', 'first-match', 'highest-priority'],
+      enum: COMBINING_ALGORITHMS,
     },
     rules: {
       type: 'array',
