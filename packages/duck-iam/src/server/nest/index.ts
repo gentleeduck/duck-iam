@@ -110,6 +110,12 @@ export namespace IamNest {
       request: NestRequest,
       ctx: { action: string; resource: string; resourceId: string | undefined; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
+    /**
+     * Builds the error thrown for a missing/invalid subject id, matching every other adapter's "401 without a
+     * user, 403 on deny" contract; defaults to a 401. Nest's base filter duck-types `statusCode`, not `status`:
+     * set it, or return an `HttpException`.
+     */
+    onUnauthorized?: (request: NestRequest) => Error
     /** Handles thrown errors during evaluation; return `true` to allow, `false` to deny. */
     onError?: (err: Error, request: NestRequest) => boolean
   }
@@ -255,6 +261,7 @@ export function iamNestAccessGuard<
     getResourceId = (req: NestRequest) => req.params?.id,
     getResourceAttributes,
     getScope,
+    onUnauthorized = () => adminHttpError('Unauthorized', 401),
     onError = () => false,
   } = opts
 
@@ -277,11 +284,19 @@ export function iamNestAccessGuard<
       )
     }
 
+    let userId: string | null
     try {
-      // Inside the try, like every other extractor, so a throwing `getUserId` reaches `onError`.
-      const userId = getUserId(request)
-      if (!iamIsSubjectId(userId)) return false
+      // Inside its own try, like every other extractor, so a throwing `getUserId` reaches `onError`.
+      userId = getUserId(request)
+    } catch (err) {
+      return onError(toError(err), request)
+    }
+    // SECURITY: kept outside both try blocks, so `onUnauthorized`'s default 401 reaches Nest's exception filter
+    // directly - matching every other adapter's "401 without a user, 403 on deny" - instead of being re-caught
+    // below and folded into `onError`'s plain `false` (Nest's default 403 for a guard that returns false).
+    if (!iamIsSubjectId(userId)) throw onUnauthorized(request)
 
+    try {
       // `isAuthorizeMeta` proved these are strings, not members of the erased union, so they widen through the named
       // helpers the other adapters use.
       // SECURITY: an undeclared action falls back to the method, as `createIamNextMiddleware` does. Defaulting to

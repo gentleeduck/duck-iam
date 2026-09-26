@@ -111,14 +111,15 @@ describe('iamNestAccessGuard', () => {
     expect(await guard(ctx)).toBe(true)
   })
 
-  it('returns false when no userId resolved', async () => {
+  it('rejects with a 401-shaped error when no userId resolved', async () => {
     const guard = iamNestAccessGuard(engine)
     const handler = function h() {}
     Object.defineProperty(handler, '__accessMeta', {
       value: { action: 'delete', resource: 'post' },
     })
     const ctx = makeCtx({ handler })
-    expect(await guard(ctx)).toBe(false)
+    const err = await guard(ctx).catch((e: unknown) => e)
+    expect(err).toMatchObject({ message: 'Unauthorized', status: 401, statusCode: 401 })
   })
 
   it('returns true when allowed', async () => {
