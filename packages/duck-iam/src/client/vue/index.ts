@@ -11,6 +11,7 @@
  *   <button v-if="can('delete', 'post')">Delete</button>
  */
 
+import { toError } from '../../core/errors/normalize'
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamAllowedActions, iamCan, iamHasAnyOn } from '../../shared/permission-map'
@@ -159,7 +160,7 @@ export function createIamVueAccess<
         },
         (err: unknown) => {
           if (run !== latestRun) return
-          error.value = err instanceof Error ? err : new Error(String(err))
+          error.value = toError(err)
           loading.value = false
         },
       )

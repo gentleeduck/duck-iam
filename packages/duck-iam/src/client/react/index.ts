@@ -17,6 +17,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { toError } from '../../core/errors/normalize'
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamAllowedActions, iamCan, iamHasAnyOn } from '../../shared/permission-map'
@@ -273,7 +274,7 @@ export function createIamAccessControl<
         (err: unknown) => {
           if (stale()) return
           // A rejection can carry a string or a `Response`; normalise it to match `Error | null`.
-          setError(err instanceof Error ? err : new Error(String(err)))
+          setError(toError(err))
           setLoading(false)
         },
       )
