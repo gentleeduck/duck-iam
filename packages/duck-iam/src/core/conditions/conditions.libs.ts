@@ -1,6 +1,6 @@
 import { throwIamError } from '../errors'
 import { resolve } from '../resolve'
-import type { AccessControl, IamPrimitives, IamRequest } from '../types'
+import { type AccessControl, type IamPrimitives, type IamRequest, iamIsScalar } from '../types'
 
 /**
  * Max `matches` pattern length.
@@ -44,21 +44,16 @@ export const OPERAND_TYPES: ReadonlyMap<string, 'array' | 'number' | 'scalar' | 
   ['after', 'temporal'],
 ])
 
-/** Whether `value` is a scalar {@link IamPrimitives.Scalar}; takes `unknown`, for use before anything is narrowed. */
-function isScalar(value: unknown): value is IamPrimitives.Scalar {
-  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-}
-
 /** Whether `value` has the operand type `kind`. */
 export function operandHasType(kind: 'array' | 'number' | 'scalar' | 'string' | 'temporal', value: unknown): boolean {
   switch (kind) {
     case 'array':
       // SECURITY: elements too, since `includes` never matches an object element and the rule would retire.
-      return Array.isArray(value) && value.every(isScalar)
+      return Array.isArray(value) && value.every(iamIsScalar)
     case 'number':
       return typeof value === 'number'
     case 'scalar':
-      return isScalar(value)
+      return iamIsScalar(value)
     case 'string':
       return typeof value === 'string'
     case 'temporal':
@@ -494,8 +489,8 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
 
   in: (f, v) => {
     if (!Array.isArray(v)) return false
-    if (Array.isArray(f)) return f.some((i) => isScalar(i) && v.includes(i))
-    return isScalar(f) && v.includes(f)
+    if (Array.isArray(f)) return f.some((i) => iamIsScalar(i) && v.includes(i))
+    return iamIsScalar(f) && v.includes(f)
   },
   // Exact negation of `in` above - unlike `not_contains`/`contains`, no field state answers `false` on both sides,
   // so `!ops.in` cannot disagree with a hand-written version.
@@ -503,11 +498,11 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
 
   // SECURITY: array membership only, never substring. A present non-array field satisfies neither operator;
   // an absent field is an empty list, so `not_contains` holds.
-  contains: (f, v) => Array.isArray(f) && isScalar(v) && f.includes(v),
+  contains: (f, v) => Array.isArray(f) && iamIsScalar(v) && f.includes(v),
   not_contains: (f, v) => {
     if (f === null || f === undefined) return true
     if (!Array.isArray(f)) return false
-    return !isScalar(v) || !f.includes(v)
+    return !iamIsScalar(v) || !f.includes(v)
   },
 
   starts_with: (f, v) => typeof f === 'string' && typeof v === 'string' && f.startsWith(v),

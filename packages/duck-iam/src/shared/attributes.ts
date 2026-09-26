@@ -1,5 +1,5 @@
 import { throwIamError } from '../core/errors'
-import type { IamPrimitives } from '../core/types'
+import { type IamPrimitives, iamIsAttributeValue } from '../core/types'
 
 /**
  * Adapter-boundary guard for `setSubjectAttributes`: refuses a non-object (a string would spread into per-character
@@ -30,21 +30,8 @@ function hasForbiddenAttributeKey(value: object): boolean {
   return Object.hasOwn(value, FORBIDDEN_ATTRIBUTE_KEY)
 }
 
-/** True for a JSON scalar: `string | number | boolean | null`. */
-function isScalar(value: unknown): value is IamPrimitives.Scalar {
-  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-}
-
-/** True when `value` is storable in an attribute bag: a scalar, an array of scalars, or a flat record of scalars. */
-export function iamIsAttributeValue(value: unknown): value is IamPrimitives.AttributeValue {
-  if (isScalar(value)) return true
-  if (Array.isArray(value)) return value.every(isScalar)
-  if (typeof value !== 'object' || value === null) return false
-  // NOTE: plain objects only. A `Date` has no own enumerable keys, so the record check below would pass it vacuously.
-  const proto = Object.getPrototypeOf(value)
-  if (proto !== Object.prototype && proto !== null) return false
-  return Object.values(value).every(isScalar)
-}
+/** Re-exported: this module's own predicate for a storable attribute value, defined once in `core/types`. */
+export { iamIsAttributeValue }
 
 /**
  * Narrows a stored bag to {@link IamPrimitives.Attributes}, or returns `null` when any entry is not storable.
