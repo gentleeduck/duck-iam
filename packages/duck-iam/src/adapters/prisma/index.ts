@@ -196,19 +196,28 @@ export class IamPrismaAdapter<
     throw iamUnreadablePolicy('prisma', row.id, issues)
   }
 
+  /**
+   * Upserts `data` by `id` through `model`, attaching provenance on create vs update.
+   * Shared by {@link savePolicy} and {@link saveRole}; `setAttributes` keeps its own call; its create/update
+   * payloads are not the same object (create also carries `subjectId`, which `where` already pins on update).
+   */
+  private async _upsertRow(
+    model: IamPrisma.IModelOps<unknown>,
+    id: string,
+    data: Record<string, unknown>,
+    actor: string | undefined,
+  ): Promise<void> {
+    const who = provenance(actor)
+    await model.upsert({ where: { id }, create: { ...data, ...who.create }, update: { ...data, ...who.update } })
+  }
+
   /** Upserts a policy; `opts.actor` fills `created_by` on create and `updated_by` on update. */
   async savePolicy(
     p: AccessControl.IPolicy<TAction, TResource, TRole>,
     opts?: IamAdapter.IActorOptions,
   ): Promise<void> {
     iamAssertSavablePolicy('prisma', p)
-    const data = fromPolicy(iamNormalizePolicy(p))
-    const who = provenance(opts?.actor)
-    await this._prisma.accessPolicy.upsert({
-      where: { id: p.id },
-      create: { ...data, ...who.create },
-      update: { ...data, ...who.update },
-    })
+    await this._upsertRow(this._prisma.accessPolicy, p.id, fromPolicy(iamNormalizePolicy(p)), opts?.actor)
   }
 
   /** Removes a policy by ID; a missing row is a no-op. */
@@ -251,13 +260,7 @@ export class IamPrismaAdapter<
     opts?: IamAdapter.IActorOptions,
   ): Promise<void> {
     iamAssertSavableRole('prisma', r)
-    const data = fromRole(r)
-    const who = provenance(opts?.actor)
-    await this._prisma.accessRole.upsert({
-      where: { id: r.id },
-      create: { ...data, ...who.create },
-      update: { ...data, ...who.update },
-    })
+    await this._upsertRow(this._prisma.accessRole, r.id, fromRole(r), opts?.actor)
   }
 
   /**
