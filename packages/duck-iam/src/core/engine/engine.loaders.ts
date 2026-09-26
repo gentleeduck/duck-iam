@@ -1,6 +1,7 @@
 // Cache-fronted loaders, kept out of the engine class so single-flight, timeouts and row caps test in isolation.
 
 import type { IamLRUCache } from '../../shared/cache'
+import { toErrorMessage } from '../errors/normalize'
 import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 import type { AccessControl, IamAdapter, IamRequest } from '../types'
 import type { IEngineInFlightBag, ISingleFlightSlot } from './engine.invalidation'
@@ -180,7 +181,7 @@ export async function resolveSubject<
                 cacheable = false
                 console.warn(
                   `[@gentleduck/iam:engine] getSubjectGrantBoundary failed for "${subjectId}"; ` +
-                    `not caching this subject: ${err instanceof Error ? err.message : String(err)}`,
+                    `not caching this subject: ${toErrorMessage(err)}`,
                 )
                 return null
               })

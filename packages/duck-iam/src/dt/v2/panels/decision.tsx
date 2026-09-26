@@ -7,6 +7,7 @@ import { Input } from '@gentleduck/registry-ui/input'
 import { Textarea } from '@gentleduck/registry-ui/textarea'
 import { Loader2, Play, ScanSearch } from 'lucide-react'
 import React from 'react'
+import { toErrorMessage } from '../../../core/errors/normalize'
 import type { Explain } from '../../../core/explain'
 import { iamNarrowAttributes } from '../../../shared/attributes'
 import { safeParseJson } from '../../lib/format'
@@ -110,7 +111,7 @@ export function IamDecisionInspectorV2({
       )
       setResult(trace)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     } finally {
       setPending(false)
     }

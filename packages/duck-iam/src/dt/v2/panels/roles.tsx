@@ -3,6 +3,7 @@
 import { cn } from '@gentleduck/libs/cn'
 import { CornerUpRight, RefreshCw, Users } from 'lucide-react'
 import React from 'react'
+import { toErrorMessage } from '../../../core/errors/normalize'
 import type { AccessControl } from '../../../core/types'
 import { isDevtoolsAllowed } from '../../lib/guard'
 import type { IamIDevtoolsEngine } from '../../lib/types'
@@ -58,7 +59,7 @@ export function IamRolesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
       setLoading(true)
       setRoles(await engine.admin.listRoles())
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     } finally {
       setLoading(false)
     }

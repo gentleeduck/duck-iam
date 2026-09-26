@@ -7,6 +7,7 @@ import { Input } from '@gentleduck/registry-ui/input'
 import { Textarea } from '@gentleduck/registry-ui/textarea'
 import { Save, Search, ShieldMinus, ShieldPlus, UserRound } from 'lucide-react'
 import React from 'react'
+import { toErrorMessage } from '../../../core/errors/normalize'
 import type { IamPrimitives } from '../../../core/types'
 import { iamNarrowAttributes } from '../../../shared/attributes'
 import { safeParseJson } from '../../lib/format'
@@ -53,7 +54,7 @@ export function IamSubjectsPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
     try {
       setStatus(await what())
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toErrorMessage(err))
     } finally {
       setBusy(false)
     }

@@ -1,6 +1,7 @@
 import { evalConditionGroup, resolveConditionValue } from '../conditions/conditions'
 import { evalCondition } from '../conditions/conditions.libs'
 import { throwIamError } from '../errors'
+import { toErrorMessage } from '../errors/normalize'
 import {
   combiners,
   isRuleEffect,
@@ -96,7 +97,7 @@ function traceRule(rule: AccessControl.IRule, req: IamRequest.IAccessRequest): E
   try {
     conditions = traceGroup(req, rule.conditions)
   } catch (err) {
-    conditionError = err instanceof Error ? err.message : String(err)
+    conditionError = toErrorMessage(err)
     conditions = { type: 'group', logic: 'all', result: false, children: [] }
   }
 
