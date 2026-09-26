@@ -1,7 +1,7 @@
 import { IamLRUCache } from '../../shared/cache'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamIsReservedRefusal } from '../../shared/reserved'
-import { iamAsRoleLiteral } from '../../shared/tenant-literals'
+import { iamAsActionLiteral, iamAsResourceLiteral, iamAsRoleLiteral } from '../../shared/tenant-literals'
 import { clearRegexCache } from '../conditions/conditions.libs'
 import { IamError, metaOf, throwIamError } from '../errors'
 import { toErrorMessage } from '../errors/normalize'
@@ -750,6 +750,13 @@ export class IamEngine<
     return value as AccessControl.ModeResult<TMode>
   }
 
+  /** `permissions()`'s counterpart to `_asResult`: bridges a built map to `ModePermissionMap<TMode, ...>`. */
+  private _asPermissionMap(
+    value: Record<string, boolean>,
+  ): AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope> {
+    return value as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
+  }
+
   /**
    * Checks a complete {@link IamRequest.IAccessRequest}: a `boolean` in production, an `IDecision` in development.
    * SECURITY: any evaluation error is reported to `onError` and denies.
@@ -1173,8 +1180,8 @@ export class IamEngine<
       }
       const errReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
         subject: { id: subjectId, roles: [], attributes: {} },
-        action: checks[0]?.action ?? ('' as TAction),
-        resource: { type: checks[0]?.resource ?? ('' as TResource), attributes: {} },
+        action: checks[0]?.action ?? iamAsActionLiteral(''),
+        resource: { type: checks[0]?.resource ?? iamAsResourceLiteral(''), attributes: {} },
         environment,
       }
       await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
@@ -1184,7 +1191,7 @@ export class IamEngine<
         const denyReq = this._checkRequest({ id: subjectId, roles: [], attributes: {} }, c, environment)
         await this._emitUnevaluatedDeny(denyReq, 'resolution', t0, telemetry)
       }
-      return failClosed as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
+      return this._asPermissionMap(failClosed)
     }
 
     const map: Record<string, boolean> = {}
@@ -1245,7 +1252,7 @@ export class IamEngine<
       await this._fireTrailingHooks(evalReq, decisionForHooks, allowedForCheck, t0, failOpenForCheck, telemetry)
     }
 
-    return map as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
+    return this._asPermissionMap(map)
   }
 
   private _admin?: IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope>
