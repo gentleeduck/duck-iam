@@ -1,17 +1,12 @@
 // Cache and in-flight invalidation, kept out of the engine class. Each function takes its caches explicitly.
 
-import type { IamLRUCache } from '../../shared/cache'
 import type { AccessControl, IamRequest } from '../types'
 import { isThenable } from './engine.hooks'
+import type { IIamCachesForStats } from './engine.stats'
 import type { IamEngineTypes } from './engine.types'
 
 /** Every cache one engine owns, passed explicitly so each function here is testable on its own. */
-export interface IEngineCacheBag<TRole extends string = string> {
-  policyCache: IamLRUCache<AccessControl.IPolicy[]>
-  roleCache: IamLRUCache<AccessControl.IRole[]>
-  rbacPolicyCache: IamLRUCache<AccessControl.IPolicy>
-  mergedPolicyCache: IamLRUCache<AccessControl.IPolicy[]>
-  subjectCache: IamLRUCache<IamRequest.ISubject>
+export interface IEngineCacheBag<TRole extends string = string> extends IIamCachesForStats {
   inFlight: IEngineInFlightBag
   invalidator?: IamEngineTypes.IInvalidator<TRole>
 }
@@ -121,10 +116,6 @@ export function invalidatePolicies<TRole extends string>(
 }
 
 /**
- * Drops the role caches, the RBAC projection and the merged view wholesale, since inheritance can reach anyone.
- * `roleIdInput` only narrows the subject sweep; an unusable id sweeps every subject (see {@link invalidateSubject}).
- */
-/**
  * `roleId` plus every cached role whose `inherits` chain reaches it.
  * SECURITY: a closure cached while `roleId` was missing holds only the roles that reach it, so those must drop too.
  */
@@ -151,6 +142,10 @@ function rolesReaching(roles: readonly AccessControl.IRole[], roleId: string): S
   return reaching
 }
 
+/**
+ * Drops the role caches, the RBAC projection and the merged view wholesale, since inheritance can reach anyone.
+ * `roleIdInput` only narrows the subject sweep; an unusable id sweeps every subject (see {@link invalidateSubject}).
+ */
 export function invalidateRoles<TRole extends string>(
   bag: IEngineCacheBag<TRole>,
   roleIdInput: TRole | undefined,
