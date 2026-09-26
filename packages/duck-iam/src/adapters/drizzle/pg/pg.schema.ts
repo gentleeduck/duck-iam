@@ -30,6 +30,23 @@ export const combineAlgorithm = pgEnum('iam_combine_algorithm', [
   'highest-priority',
 ] as const satisfies readonly AccessControl.CombiningAlgorithm[])
 
+/**
+ * The `created_by`/`updated_by`/`created_at`/`updated_at` columns every table carries.
+ * A factory, not a shared object: drizzle's column builders mutate in place when a table builds them
+ * (e.g. caching a table-derived unique name), so the same builder instance can't back two tables.
+ */
+function auditColumns() {
+  return {
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  }
+}
+
 /** Stored ABAC policies. `rules`/`targets` are `jsonb`. */
 export const iamPolicies = pgTable(
   'iam_policies',
@@ -41,13 +58,7 @@ export const iamPolicies = pgTable(
     algorithm: combineAlgorithm('algorithm').notNull().default('deny-overrides'),
     rules: jsonb('rules').$type<AccessControl.IRule[]>().notNull(),
     targets: jsonb('targets').$type<NonNullable<AccessControl.IPolicy['targets']>>(),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
@@ -70,13 +81,7 @@ export const iamRoles = pgTable(
     inherits: jsonb('inherits').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     scope: text('scope'),
     metadata: jsonb('metadata').$type<IamPrimitives.Attributes>(),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
@@ -126,13 +131,7 @@ export const iamAssignments = pgTable(
     startsAt: timestamptzWithInfinity('starts_at'),
     expiresAt: timestamptzWithInfinity('expires_at'),
     attributes: jsonb('attributes').$type<IamPrimitives.Attributes>(),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_assignments', columns: [t.id] }),
@@ -161,13 +160,7 @@ export const iamSubjectAttrs = pgTable(
   {
     subjectId: text('subject_id').notNull(),
     data: jsonb('data').$type<IamPrimitives.Attributes>().notNull(),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
