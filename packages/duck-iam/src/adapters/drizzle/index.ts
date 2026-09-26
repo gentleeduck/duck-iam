@@ -298,6 +298,15 @@ export class IamDrizzleAdapter<
     return await this._db.select().from(table).where(this._eq(whereCol, whereVal))
   }
 
+  /** Every assignment row for `subjectId`, active or not; callers filter by window and scope themselves. */
+  private async _subjectAssignmentRows(subjectId: string): Promise<IamDrizzle.AssignmentRow[]> {
+    return await this._selectWhere<IamDrizzle.AssignmentRow>(
+      this._t.assignments,
+      this._t.assignments.subjectId,
+      subjectId,
+    )
+  }
+
   /**
    * Parses a policy row's JSON columns and validates its shape.
    * SECURITY: throws instead of returning `null`, since a dropped policy may be the deny.
@@ -381,11 +390,7 @@ export class IamDrizzleAdapter<
    * See {@link IamAdapter.ISubjectStore.getSubjectGrantBoundary}.
    */
   async getSubjectGrantBoundary(subjectId: string): Promise<number | null> {
-    const rows = await this._selectWhere<IamDrizzle.AssignmentRow>(
-      this._t.assignments,
-      this._t.assignments.subjectId,
-      subjectId,
-    )
+    const rows = await this._subjectAssignmentRows(subjectId)
     const now = Date.now()
     let next: number | null = null
     for (const row of rows) {
@@ -542,11 +547,7 @@ export class IamDrizzleAdapter<
 
   /** Deduplicated IDs of the subject's active *unscoped* roles; scoped ones come from `getSubjectScopedRoles`. */
   async getSubjectRoles(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
-    const rows = await this._selectWhere<IamDrizzle.AssignmentRow>(
-      this._t.assignments,
-      this._t.assignments.subjectId,
-      subjectId,
-    )
+    const rows = await this._subjectAssignmentRows(subjectId)
     const now = Date.now()
     return [
       ...new Set(
@@ -560,11 +561,7 @@ export class IamDrizzleAdapter<
     subjectId: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
-    const rows = await this._selectWhere<IamDrizzle.AssignmentRow>(
-      this._t.assignments,
-      this._t.assignments.subjectId,
-      subjectId,
-    )
+    const rows = await this._subjectAssignmentRows(subjectId)
     const now = Date.now()
     // Narrow per row: a `filter` predicate does not narrow `r.scope`, and a `null` must never pass as a scope.
     const out: IamRequest.IScopedRole<TRole, TScope>[] = []
