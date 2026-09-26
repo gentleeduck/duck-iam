@@ -18,7 +18,7 @@ export {
 import { ALLOWED_ROOTS, BLOCKED_SEGMENTS } from '../resolve/resolve'
 import type { IamValidate } from './validate.types'
 
-function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
+export function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
