@@ -1,4 +1,4 @@
-import { iamParsePermissionKey } from './keys'
+import { iamBuildPermissionKey, iamParsePermissionKey } from './keys'
 
 /**
  * Reads one grant out of a client permission map.
@@ -11,6 +11,20 @@ import { iamParsePermissionKey } from './keys'
 export function iamPermissionGranted(map: object, key: string): boolean {
   if (!Object.hasOwn(map, key)) return false
   return Reflect.get(map, key) === true
+}
+
+/**
+ * Whether `map` grants `action` on `resource` (optionally one instance, within a scope).
+ * Every client binding's `can()` is {@link iamBuildPermissionKey} then {@link iamPermissionGranted}; this is that pair.
+ *
+ * @param map - Permission map to check.
+ * @param action - Action to check.
+ * @param resource - Resource type to check.
+ * @param resourceId - Optional specific instance.
+ * @param scope - Optional scope the grant is confined to.
+ */
+export function iamCan(map: object, action: string, resource: string, resourceId?: string, scope?: string): boolean {
+  return iamPermissionGranted(map, iamBuildPermissionKey(action, resource, resourceId, scope))
 }
 
 /**
