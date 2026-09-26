@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import { hasIamErrorCode } from '../../core/errors'
+import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import {
   iamAsActionLiteral,
@@ -191,7 +192,7 @@ export function iamAccessMiddleware<
 
       if (!allowed) return onDenied(c)
     } catch (err) {
-      return onError(err instanceof Error ? err : new Error(String(err)), c)
+      return onError(toError(err), c)
     }
     // NOTE: outside the try, so a route's own error reaches the app's `app.onError`, not this `onError`.
     await next()
@@ -263,7 +264,7 @@ export function iamBindAdminRouter<
       try {
         return await handler(c)
       } catch (err) {
-        return onError(err instanceof Error ? err : new Error(String(err)), c)
+        return onError(toError(err), c)
       }
     }
 
@@ -316,7 +317,7 @@ export function iamBindAdminRouter<
         if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) {
           return c.json({ error: `Invalid ${err.meta.kind}`, issues: err.meta.issues }, 400)
         }
-        return onError(err instanceof Error ? err : new Error(String(err)), c)
+        return onError(toError(err), c)
       }
     }
 
@@ -476,7 +477,7 @@ export function iamGuard<
 
       if (!allowed) return onDenied(c)
     } catch (err) {
-      return onError(err instanceof Error ? err : new Error(String(err)), c)
+      return onError(toError(err), c)
     }
     // NOTE: outside the try, so a route's own error reaches the app's `app.onError`, not this `onError`.
     await next()

@@ -1,4 +1,5 @@
 import * as nodePath from 'node:path'
+import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
@@ -286,7 +287,7 @@ export class IamFileAdapter<
           parsedRaw = JSON.parse(raw)
         } catch (err) {
           // WARN: throw, never set _cache to {}; a later _flush would erase a recoverable file.
-          this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), this._path)
+          this._reportPolicyError(toError(err), this._path)
           throw new Error(
             `[@gentleduck/iam:file] store at "${this._path}" is corrupt (JSON parse failed) - refusing to load; restore from backup before retrying`,
           )

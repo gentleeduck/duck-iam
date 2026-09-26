@@ -1,4 +1,5 @@
 import { hasIamErrorCode, throwIamError } from '../../core/errors'
+import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
@@ -103,7 +104,7 @@ export class IamRedisAdapter<
     try {
       parsed = JSON.parse(raw)
     } catch (err) {
-      const detail = err instanceof Error ? err : new Error(String(err))
+      const detail = toError(err)
       this._reportPolicyError(detail, rowId)
       throw iamUnreadablePolicy('redis', rowId, detail.message)
     }
@@ -123,7 +124,7 @@ export class IamRedisAdapter<
     try {
       parsed = JSON.parse(raw)
     } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
+      this._reportPolicyError(toError(err), rowId)
       throw iamUnreadableRole('redis', rowId, err instanceof Error ? err.message : String(err))
     }
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(parsed)
@@ -246,7 +247,7 @@ export class IamRedisAdapter<
         await this._client.sadd(key, ...reEncoded)
         await this._client.srem(key, ...stillLegacy)
       } catch (err) {
-        this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), `assignments:${subjectId}`)
+        this._reportPolicyError(toError(err), `assignments:${subjectId}`)
       }
     })
   }
@@ -275,7 +276,7 @@ export class IamRedisAdapter<
       if (!evalFn) return
       await evalFn.call(this._client, IamRedisAdapter._MIGRATE_LUA, 1, key, ...args)
     } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), `assignments:${subjectId}`)
+      this._reportPolicyError(toError(err), `assignments:${subjectId}`)
     }
   }
 
@@ -451,7 +452,7 @@ export class IamRedisAdapter<
       parsed = JSON.parse(value)
     } catch (err) {
       // SECURITY: corrupt is not empty; returning {} would strip the subject's attributes from every decision.
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
+      this._reportPolicyError(toError(err), subjectId)
       throwIamError('IAM_ATTRIBUTES_CORRUPT', { adapter: 'redis', subjectId, reason: 'parse-failed' })
     }
     const attrs = iamNarrowAttributes(parsed)

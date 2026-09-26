@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import type { IamEngineTypes } from '../../core/engine/engine.types'
+import { toError } from '../../core/errors/normalize'
 
 /** Redis invalidator integration types. Type-only namespace - zero bundle cost. */
 export namespace IamRedisInvalidator {
@@ -359,7 +360,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   const seenEnvelopes = secret === null ? null : createSeenEnvelopes()
 
   function reportSubscribeFailure(err: unknown): void {
-    const error = err instanceof Error ? err : new Error(String(err))
+    const error = toError(err)
     try {
       config.onSubscribeError?.(error, channel)
     } catch {
@@ -440,7 +441,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
       }
       // Non-fatal, but reported so a long outage does not desync nodes unnoticed.
       const reportPublishFailure = (err: unknown): void => {
-        const error = err instanceof Error ? err : new Error(String(err))
+        const error = toError(err)
         try {
           config.onPublishError?.(error, channel)
         } catch {

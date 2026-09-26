@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import { fail, type IamError, throwIamError } from '../../core/errors'
+import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
 import { IAM_RESERVED_REFUSAL } from '../../shared/reserved'
 
@@ -313,7 +314,7 @@ export async function iamRunAdminAuthz<TReq>(
   try {
     actor = await authorize(req)
   } catch (err) {
-    return { phase: 'error', error: err instanceof Error ? err : new Error(String(err)) }
+    return { phase: 'error', error: toError(err) }
   }
   if (!actor) return { phase: 'unauthorized' }
   // Any truthy answer authorizes, but only a value that names someone is recorded as the actor.
