@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { IamEngine } from '../../core/engine'
 import type { IamPrimitives } from '../../core/types'
 import { applyPgSchema, dockerIsUp as sharedDockerIsUp } from '../../test/e2e-env'
+import { mulberry32 } from '../../test/mulberry32'
 import { runAdapterCompliance } from '../__compliance__/compliance'
 import { OPTIONAL_SUPPORT } from '../__compliance__/optional-support'
 import { IamDrizzleAdapter } from '../drizzle'
@@ -857,17 +858,6 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
   // Seeded random grant windows, decided by the SQL filter and by a plain-JS reference model; any disagreement fails.
   // The seed is fixed, so a failure names a reproducible row set.
   describe('randomised window matrix against the real filter', () => {
-    /** Deterministic PRNG - a failing run must be replayable from the seed. */
-    function mulberry32(seed: number): () => number {
-      let a = seed >>> 0
-      return () => {
-        a = (a + 0x6d2b79f5) >>> 0
-        let t = Math.imul(a ^ (a >>> 15), 1 | a)
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-      }
-    }
-
     /**
      * A bound as the SQL literal Postgres stores and the number the reference model compares.
      * `at: null` is an absent bound; the infinities are modelled as limits, not instants.

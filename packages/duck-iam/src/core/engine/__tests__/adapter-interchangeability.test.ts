@@ -1,23 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamFileAdapter } from '../../../adapters/file'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { mulberry32 } from '../../../test/mulberry32'
 import type { AccessControl, IamAdapter } from '../../types'
 import { IamEngine } from '../engine'
 
 // The two adapters that need no infrastructure, driven through the same random op sequence: the store they end up
 // holding and the answers built from it must not depend on which one is configured.
 
-/** mulberry32: tiny, fast, deterministic 32-bit PRNG. */
-function mulberry32(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let t = state
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
 const pick = <T>(rng: () => number, xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)] as T
 
 const SEEDS = [1, 2, 3, 4]
