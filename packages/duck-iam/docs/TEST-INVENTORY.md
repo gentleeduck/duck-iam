@@ -161,6 +161,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/compile-failure-is-reported.test.ts` | 12 | a role count past the compiled table capacity falls back and says so |
 | `core/engine/__tests__/compiled.errors.test.ts` | 7 | compileTable throws IAM_ROLE_LIMIT_EXCEEDED past the role cap |
 | `core/engine/__tests__/condition-path-dead-on-arrival.test.ts` | 11 | a condition reading a path that can never resolve is reported |
+| `core/engine/__tests__/dead-rule-reports-do-not-suppress-each-other.test.ts` | 1 | a rule dead for two unrelated reasons at once reports both |
 | `core/engine/__tests__/decision-failure-discriminant.test.ts` | 6 | IDecision distinguishes a policy deny from a broken engine |
 | `core/engine/__tests__/development-mode-announces-itself.test.ts` | 6 | development mode announces itself |
 | `core/engine/__tests__/e2e-resilience-db-kill.e2e.test.ts` | 11 | E2E fail-closed: Postgres frozen (docker pause) mid-flight |
@@ -304,8 +305,8 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unknown-keys.test.ts` | 13 | unknown fields |
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
-| `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2912** | |
+| `core/validate/__tests__/validate.test.ts` | 65 | validateRoles() |
+| **Subtotal** | **2914** | |
 
 ---
 
@@ -448,7 +449,7 @@ drift the way the hand-maintained version did.
 | Core / compiled engine | 11 | 153 |
 | Adapters | 57 | 1688 |
 | Clients | 11 | 136 |
-| Core | 182 | 2912 |
+| Core | 183 | 2914 |
 | Devtools | 9 | 201 |
 | Invalidators | 14 | 145 |
 | Observability | 3 | 24 |
@@ -456,4 +457,4 @@ drift the way the hand-maintained version did.
 | Shared | 7 | 126 |
 | Package surface | 12 | 125 |
 | Other | 1 | 4 |
-| **Total** | **337** | **6389** |
+| **Total** | **338** | **6391** |
