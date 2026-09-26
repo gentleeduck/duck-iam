@@ -16,6 +16,7 @@ import {
   iamAssertSavablePolicy,
   iamAssertSavableRole,
   iamNormalizePolicy,
+  iamOmitNullishField,
   iamRoleWithoutInherit,
   iamUnreadablePolicy,
   iamUnreadableRole,
@@ -322,11 +323,11 @@ export class IamDrizzleAdapter<
     const candidate = {
       id: row.id,
       name: row.name,
-      ...(row.description === null || row.description === undefined ? {} : { description: row.description }),
+      ...iamOmitNullishField('description', row.description),
       version: row.version,
       algorithm: row.algorithm,
       rules: parsedRules,
-      ...(parsedTargets === undefined ? {} : { targets: parsedTargets }),
+      ...iamOmitNullishField('targets', parsedTargets),
     }
     const policy = parsePolicyRow<TAction, TResource, TRole>(candidate)
     if (policy === null) {
@@ -356,12 +357,12 @@ export class IamDrizzleAdapter<
     const candidate = {
       id: row.id,
       name: row.name,
-      ...(row.description === null || row.description === undefined ? {} : { description: row.description }),
+      ...iamOmitNullishField('description', row.description),
       permissions,
       // An empty `inherits` is how an absent one is stored. Any other value, even a non-array, goes to `parseRoleRow`.
       ...(Array.isArray(inherits) && inherits.length === 0 ? {} : { inherits }),
-      ...(row.scope === null || row.scope === undefined ? {} : { scope: row.scope }),
-      ...(metadata === undefined ? {} : { metadata }),
+      ...iamOmitNullishField('scope', row.scope),
+      ...iamOmitNullishField('metadata', metadata),
     }
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(candidate)
     if (role === null) {
