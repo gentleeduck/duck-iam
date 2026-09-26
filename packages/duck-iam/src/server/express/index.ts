@@ -15,14 +15,13 @@ import {
   iamActionForMethod,
   iamAdminActorOptions,
   iamAuditIdOf,
-  iamDefaultCsrfCheck,
   iamDefaultResource,
   iamExtractEnvironment,
   iamIsSubjectId,
-  iamNoticeCsrfDefaultIfNeeded,
   iamOptionalStringField,
   iamRequirePathParam,
   iamRequireStringField,
+  iamResolveCsrfCheck,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
@@ -327,9 +326,7 @@ export function iamAdminRouter<
   const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
   const onBadRequest = (res: Res, err: Error & { meta: IamError.Meta<'IAM_VALIDATION_FAILED'> }) =>
     res.status(400).json({ error: `Invalid ${err.meta.kind}`, issues: err.meta.issues })
-  // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
-  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
-  iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
+  const effectiveCsrfCheck = iamResolveCsrfCheck(csrfCheck)
 
   /**
    * Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event.
