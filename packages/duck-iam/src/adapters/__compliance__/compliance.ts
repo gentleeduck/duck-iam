@@ -43,6 +43,12 @@ async function seeded(factory: () => AnyAdapter | Promise<AnyAdapter>): Promise<
   return a
 }
 
+/** Asserts an `assignRole` refusal names the unsupported option, and returns which fields it named. */
+function assignOptionFields(refusal: unknown): readonly string[] | undefined {
+  expect(refusal).toBeInstanceOf(IamError)
+  return metaOf(refusal as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields
+}
+
 /**
  * Declared support and waivers for adapters that cannot meet a clause for a structural reason.
  * NOTE: a waiver covers the wording of a refusal, never the refusal itself.
@@ -412,10 +418,7 @@ export function runAdapterCompliance(
           (err: unknown) => err,
         )
         if (refusal !== null) {
-          expect(refusal).toBeInstanceOf(IamError)
-          expect(
-            metaOf(refusal as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields,
-          ).toContain('expiresAt')
+          expect(assignOptionFields(refusal)).toContain('expiresAt')
           expect(await a.getSubjectRoles('user-1')).toEqual([])
           return
         }
@@ -430,10 +433,7 @@ export function runAdapterCompliance(
           (err: unknown) => err,
         )
         if (refusal !== null) {
-          expect(refusal).toBeInstanceOf(IamError)
-          expect(
-            metaOf(refusal as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields,
-          ).toContain('startsAt')
+          expect(assignOptionFields(refusal)).toContain('startsAt')
         }
         expect(await a.getSubjectRoles('user-1')).toEqual([])
       })
@@ -445,10 +445,7 @@ export function runAdapterCompliance(
           (err: unknown) => err,
         )
         if (refusal !== null) {
-          expect(refusal).toBeInstanceOf(IamError)
-          expect(
-            metaOf(refusal as IamError<'IAM_ASSIGN_OPTIONS_UNSUPPORTED'>, 'IAM_ASSIGN_OPTIONS_UNSUPPORTED').fields,
-          ).toContain('attributes')
+          expect(assignOptionFields(refusal)).toContain('attributes')
           expect(await a.getSubjectRoles('user-1')).toEqual([])
           return
         }
