@@ -31,6 +31,23 @@ const IAM_COMBINE_ALGORITHMS = [
 /** Per-row current timestamp with millisecond precision. */
 const nowMs = sql`CURRENT_TIMESTAMP(3)`
 
+/**
+ * The `created_by`/`updated_by`/`created_at`/`updated_at` columns every table carries.
+ * A factory, not a shared object: drizzle's column builders mutate in place when a table builds them
+ * (e.g. caching a table-derived unique name), so the same builder instance can't back two tables.
+ */
+function auditColumns() {
+  return {
+    createdBy: varchar('created_by', { length: 191 }),
+    updatedBy: varchar('updated_by', { length: 191 }),
+    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
+  }
+}
+
 /** Stored ABAC policies. */
 export const iamPolicies = mysqlTable(
   'iam_policies',
@@ -42,13 +59,7 @@ export const iamPolicies = mysqlTable(
     algorithm: mysqlEnum('algorithm', IAM_COMBINE_ALGORITHMS).notNull().default('deny-overrides'),
     rules: json('rules').$type<AccessControl.IRule[]>().notNull(),
     targets: json('targets').$type<NonNullable<AccessControl.IPolicy['targets']>>(),
-    createdBy: varchar('created_by', { length: 191 }),
-    updatedBy: varchar('updated_by', { length: 191 }),
-    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
-    updatedAt: datetime('updated_at', { fsp: 3 })
-      .notNull()
-      .default(nowMs)
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
@@ -70,13 +81,7 @@ export const iamRoles = mysqlTable(
     inherits: json('inherits').$type<string[]>().notNull().default(sql`('[]')`),
     scope: varchar('scope', { length: 191 }),
     metadata: json('metadata').$type<IamPrimitives.Attributes>(),
-    createdBy: varchar('created_by', { length: 191 }),
-    updatedBy: varchar('updated_by', { length: 191 }),
-    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
-    updatedAt: datetime('updated_at', { fsp: 3 })
-      .notNull()
-      .default(nowMs)
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
@@ -100,13 +105,7 @@ export const iamAssignments = mysqlTable(
     startsAt: datetime('starts_at', { fsp: 3 }),
     expiresAt: datetime('expires_at', { fsp: 3 }),
     attributes: json('attributes').$type<IamPrimitives.Attributes>(),
-    createdBy: varchar('created_by', { length: 191 }),
-    updatedBy: varchar('updated_by', { length: 191 }),
-    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
-    updatedAt: datetime('updated_at', { fsp: 3 })
-      .notNull()
-      .default(nowMs)
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_assignments', columns: [t.id] }),
@@ -136,13 +135,7 @@ export const iamSubjectAttrs = mysqlTable(
   {
     subjectId: varchar('subject_id', { length: 191 }).notNull(),
     data: json('data').$type<IamPrimitives.Attributes>().notNull(),
-    createdBy: varchar('created_by', { length: 191 }),
-    updatedBy: varchar('updated_by', { length: 191 }),
-    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
-    updatedAt: datetime('updated_at', { fsp: 3 })
-      .notNull()
-      .default(nowMs)
-      .$onUpdate(() => new Date()),
+    ...auditColumns(),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
