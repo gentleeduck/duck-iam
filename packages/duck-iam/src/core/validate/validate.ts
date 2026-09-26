@@ -4,6 +4,7 @@ import type { AccessControl } from '../types'
 import {
   checkKnownKeys,
   hasControlChar,
+  isPlainObjectLike as isPlainObject,
   POLICY_KEYS,
   POLICY_LIMITS,
   TARGET_KEYS,
@@ -12,10 +13,6 @@ import {
   validateRuleShape,
 } from './validate.libs'
 import type { IamValidate } from './validate.types'
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((item) => typeof item === 'string')
@@ -91,29 +88,14 @@ export function validateRoles(
   for (const role of wellFormed) {
     if (!role.inherits?.length) continue
 
-    const visited = new Set<string>()
-    const stack = [role.id]
-
-    while (stack.length > 0) {
-      const current = stack.pop()
-      if (current === undefined) break
-      if (visited.has(current)) {
-        issues.push({
-          type: 'warning',
-          code: 'CIRCULAR_INHERIT',
-          message: `Circular inheritance detected involving role "${role.id}" (cycle includes "${current}")`,
-          roleId: role.id,
-        })
-        break
-      }
-      visited.add(current)
-
-      const r = rolesMap.get(current)
-      if (r?.inherits) {
-        for (const parentId of r.inherits) {
-          if (roleIds.has(parentId)) stack.push(parentId)
-        }
-      }
+    const cycleAt = firstCycleNode(role.id, rolesMap, roleIds)
+    if (cycleAt !== null) {
+      issues.push({
+        type: 'warning',
+        code: 'CIRCULAR_INHERIT',
+        message: `Circular inheritance detected involving role "${role.id}" (cycle includes "${cycleAt}")`,
+        roleId: role.id,
+      })
     }
   }
 
@@ -185,6 +167,36 @@ function undeclared(
     path,
     roleId,
   })
+}
+
+/**
+ * First role on `roleId`'s own inheritance path that the path revisits, or `null` if it has no cycle.
+ * NOTE: `onPath` tracks only the current path (added before recursing into parents, removed after), unlike a
+ * permanent visited set - a role reached twice via two different parents (a diamond) is not a cycle, only a role
+ * reached via itself is. Depth capped at `MAX_INHERITANCE_DEPTH + 1`, as {@link longestInheritanceDepth} is: a
+ * chain past the cap already fails `INHERITANCE_TOO_DEEP` there, so giving up here can't hide a live cycle.
+ */
+function firstCycleNode(
+  roleId: string,
+  rolesMap: Map<string, AccessControl.IRole>,
+  roleIds: Set<string>,
+): string | null {
+  const onPath = new Set<string>()
+  function walk(id: string, depth: number): string | null {
+    if (onPath.has(id)) return id
+    if (depth > MAX_INHERITANCE_DEPTH + 1) return null
+    const role = rolesMap.get(id)
+    if (!role?.inherits?.length) return null
+    onPath.add(id)
+    for (const parentId of role.inherits) {
+      if (!roleIds.has(parentId)) continue
+      const cycle = walk(parentId, depth + 1)
+      if (cycle !== null) return cycle
+    }
+    onPath.delete(id)
+    return null
+  }
+  return walk(roleId, 0)
 }
 
 /** Longest `inherits` path from `roleId`; cycles cut by `seen`, depth capped at `MAX_INHERITANCE_DEPTH + 1`. */

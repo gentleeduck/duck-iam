@@ -42,6 +42,22 @@ describe('validateRoles()', () => {
     expect(result.issues.some((i) => i.code === 'CIRCULAR_INHERIT')).toBe(true)
   })
 
+  it('does not warn about diamond inheritance (shared grandparent, not a cycle)', () => {
+    const roles: AccessControl.IRole[] = [
+      { id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] },
+      { id: 'editor', name: 'Editor', inherits: ['viewer'], permissions: [{ action: 'write', resource: 'post' }] },
+      {
+        id: 'moderator',
+        name: 'Moderator',
+        inherits: ['viewer'],
+        permissions: [{ action: 'delete', resource: 'post' }],
+      },
+      { id: 'admin', name: 'Admin', inherits: ['editor', 'moderator'], permissions: [] },
+    ]
+    const result = validateRoles(roles)
+    expect(result.issues.some((i) => i.code === 'CIRCULAR_INHERIT')).toBe(false)
+  })
+
   it('warns about empty roles (no permissions, no inheritance)', () => {
     const roles: AccessControl.IRole[] = [{ id: 'empty', name: 'Empty', permissions: [] }]
     const result = validateRoles(roles)
