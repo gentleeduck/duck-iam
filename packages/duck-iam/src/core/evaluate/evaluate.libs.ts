@@ -7,6 +7,7 @@ import {
   ops,
   VALUELESS_OPERATORS,
 } from '../conditions/conditions.libs'
+import { toError } from '../errors/normalize'
 import { IAM_RBAC_POLICY_ID } from '../rbac/rbac'
 import { matchesAction, matchesResource } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
@@ -451,7 +452,7 @@ export function safeErrorReport(
 ): void {
   if (!hook) return
   try {
-    hook(err instanceof Error ? err : new Error(String(err)), policy)
+    hook(toError(err), policy)
   } catch (hookErr) {
     if (_ERROR_HOOK_THREW.has(hook)) return
     _ERROR_HOOK_THREW.add(hook)

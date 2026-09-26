@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import { hasIamErrorCode, type IamError } from '../../core/errors'
+import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import {
   iamAsActionLiteral,
@@ -170,7 +171,7 @@ export function iamAccessMiddleware<
         return
       }
     } catch (err) {
-      onError(err instanceof Error ? err : new Error(String(err)), req, res)
+      onError(toError(err), req, res)
       return
     }
     // NOTE: outside the try, as in the hono and next guards, so a route's own error reaches Express's error
@@ -270,7 +271,7 @@ export function iamGuard<
         return
       }
     } catch (err) {
-      onError(err instanceof Error ? err : new Error(String(err)), req, res)
+      onError(toError(err), req, res)
       return
     }
     // NOTE: outside the try, for the same reason as the middleware above.
@@ -342,7 +343,7 @@ export function iamAdminRouter<
     try {
       await handler(req, res)
     } catch (err) {
-      onError(err instanceof Error ? err : new Error(String(err)), req, res)
+      onError(toError(err), req, res)
     }
   }
 
@@ -379,7 +380,7 @@ export function iamAdminRouter<
       } catch (err) {
         // A rejected body is the caller's mistake: answer 400, since a 500 invites retrying what can never succeed.
         if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) return onBadRequest(res, err)
-        onError(err instanceof Error ? err : new Error(String(err)), req, res)
+        onError(toError(err), req, res)
       }
     }
 

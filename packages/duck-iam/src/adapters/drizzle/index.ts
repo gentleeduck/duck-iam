@@ -5,6 +5,7 @@ import type { SQLiteTableWithColumns } from 'drizzle-orm/sqlite-core/table'
 import { creditWrites } from '../../core/batch'
 import type { IamConfig } from '../../core/config'
 import { fail } from '../../core/errors'
+import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertValidAssignWindow } from '../../shared/assign-options'
@@ -320,7 +321,7 @@ export class IamDrizzleAdapter<
           : row.targets
         : undefined
     } catch (err) {
-      const detail = err instanceof Error ? err : new Error(String(err))
+      const detail = toError(err)
       this._reportPolicyError(detail, row.id)
       throw iamUnreadablePolicy('drizzle', row.id, detail.message)
     }
@@ -354,7 +355,7 @@ export class IamDrizzleAdapter<
       inherits = typeof row.inherits === 'string' ? JSON.parse(row.inherits) : (row.inherits ?? [])
       metadata = row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : undefined
     } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), row.id)
+      this._reportPolicyError(toError(err), row.id)
       throw iamUnreadableRole('drizzle', row.id, err instanceof Error ? err.message : String(err))
     }
 
@@ -450,7 +451,7 @@ export class IamDrizzleAdapter<
     try {
       value = typeof raw === 'string' ? JSON.parse(raw) : raw
     } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
+      this._reportPolicyError(toError(err), rowId)
       return undefined
     }
     const attrs = iamNarrowAttributes(value)
@@ -792,7 +793,7 @@ export class IamDrizzleAdapter<
         parsed = JSON.parse(data)
       } catch (err) {
         // SECURITY: corruption is not "no attributes"; surface it so the engine fails closed.
-        this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
+        this._reportPolicyError(toError(err), subjectId)
         return {
           ok: false,
           error: fail('IAM_ATTRIBUTES_CORRUPT', { adapter: 'drizzle', subjectId, reason: 'parse-failed' }),

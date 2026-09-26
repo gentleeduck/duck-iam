@@ -4,6 +4,7 @@
 
 import type { IamEngine } from '../../core'
 import { hasIamErrorCode } from '../../core/errors'
+import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
 import { iamAsActionLiteral, iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
@@ -228,7 +229,7 @@ export function withIamAccess<
         return Response.json({ error: 'Forbidden' }, { status: 403 })
       }
     } catch (err) {
-      return onError(err instanceof Error ? err : new Error(String(err)), req)
+      return onError(toError(err), req)
     }
     // NOTE: outside the try, as in the hono guard, so a route's own error reaches Next and not this `onError`.
     return handler(req, ctx)
@@ -412,7 +413,7 @@ export function createIamNextMiddleware<
 
       return null
     } catch (err) {
-      return onError(err instanceof Error ? err : new Error(String(err)), req)
+      return onError(toError(err), req)
     }
   }
 }
@@ -483,7 +484,7 @@ export function createIamAdminHandlers<
       try {
         return await fn(req, ctx)
       } catch (err) {
-        return onError(err instanceof Error ? err : new Error(String(err)), req)
+        return onError(toError(err), req)
       }
     }
 
@@ -510,7 +511,7 @@ export function createIamAdminHandlers<
       try {
         resolvedParams = (ctx.params instanceof Promise ? await ctx.params : ctx.params) as P
       } catch (err) {
-        return onError(err instanceof Error ? err : new Error(String(err)), req)
+        return onError(toError(err), req)
       }
       let path = ''
       try {
@@ -548,7 +549,7 @@ export function createIamAdminHandlers<
         if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) {
           return Response.json({ error: `Invalid ${err.meta.kind}`, issues: err.meta.issues }, { status: 400 })
         }
-        return onError(err instanceof Error ? err : new Error(String(err)), req)
+        return onError(toError(err), req)
       }
     }
 

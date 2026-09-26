@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import { hasIamErrorCode } from '../../core/errors'
+import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import {
   iamAsActionLiteral,
@@ -307,7 +308,7 @@ export function iamNestAccessGuard<
         scope,
       )
     } catch (err) {
-      return onError(err instanceof Error ? err : new Error(String(err)), request)
+      return onError(toError(err), request)
     }
   }
 }
@@ -424,7 +425,7 @@ export function createIamAdminOperations<
     if (hasIamErrorCode(err, 'IAM_VALIDATION_FAILED')) {
       return Object.assign(adminHttpError(`Invalid ${err.meta.kind}`, 400), { cause: err, issues: err.meta.issues })
     }
-    return onError(err instanceof Error ? err : new Error(String(err)), req)
+    return onError(toError(err), req)
   }
 
   /**
