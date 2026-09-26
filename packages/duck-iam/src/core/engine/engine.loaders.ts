@@ -3,8 +3,9 @@
 import type { IamLRUCache } from '../../shared/cache'
 import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 import type { AccessControl, IamAdapter, IamRequest } from '../types'
-import type { IEngineInFlightBag } from './engine.invalidation'
+import type { IEngineInFlightBag, ISingleFlightSlot } from './engine.invalidation'
 import { deepFreezePolicy, runSingleFlight, runSingleFlightKeyed } from './engine.libs'
+import type { IIamCachesForStats } from './engine.stats'
 
 /** Everything a loader needs. The engine builds one bag per instance and shares it across every loader. */
 export interface IIamLoaderDeps<
@@ -12,13 +13,8 @@ export interface IIamLoaderDeps<
   TResource extends string,
   TRole extends string,
   TScope extends string,
-> {
+> extends IIamCachesForStats {
   adapter: IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
-  policyCache: IamLRUCache<AccessControl.IPolicy[]>
-  roleCache: IamLRUCache<AccessControl.IRole[]>
-  rbacPolicyCache: IamLRUCache<AccessControl.IPolicy>
-  mergedPolicyCache: IamLRUCache<AccessControl.IPolicy[]>
-  subjectCache: IamLRUCache<IamRequest.ISubject>
   inFlight: IEngineInFlightBag
   maxPolicies: number
   maxRoles: number
@@ -48,36 +44,57 @@ export interface IIamLoaderDeps<
 }
 
 /**
- * Every explicit policy, cached under one key and loaded once per cold cache however many callers ask.
- * NOTE: throws above `maxPolicies` instead of caching, so a lost tenant filter is not pinned in memory for a TTL.
+ * Cache-or-load-once for a whole-adapter list: single-flighted under the fixed key `'all'`, capped, and cached
+ * only on success. Shared by {@link loadPolicies} and {@link loadRoles}, which differ only in which cache/slot/
+ * adapter call/cap they use.
+ * NOTE: throws above `cap` instead of caching, so e.g. a lost tenant filter is not pinned in memory for a TTL.
  */
+async function loadAllCapped<T>(opts: {
+  cache: IamLRUCache<T[]>
+  slot: ISingleFlightSlot<T[]>
+  fetch: () => Promise<T[]>
+  cap: number
+  capField: string
+  noun: string
+}): Promise<T[]> {
+  const cached = opts.cache.get('all')
+  if (cached) return cached
+  if (opts.slot.value) return opts.slot.value
+  return runSingleFlight(
+    () => opts.slot.value,
+    (p) => {
+      opts.slot.value = p
+    },
+    async () => {
+      const items = await opts.fetch()
+      if (items.length > opts.cap) {
+        throw new Error(
+          `[@gentleduck/iam:engine] adapter returned ${items.length} ${opts.noun}; ${opts.capField} is ${opts.cap}. Raise the limit or fix the adapter.`,
+        )
+      }
+      return items
+    },
+    (items) => {
+      opts.cache.set('all', items)
+    },
+  )
+}
+
+/** Every explicit policy. */
 export async function loadPolicies<
   TAction extends string,
   TResource extends string,
   TRole extends string,
   TScope extends string,
 >(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<AccessControl.IPolicy[]> {
-  const cached = deps.policyCache.get('all')
-  if (cached) return cached
-  if (deps.inFlight.policies.value) return deps.inFlight.policies.value
-  return runSingleFlight(
-    () => deps.inFlight.policies.value,
-    (p) => {
-      deps.inFlight.policies.value = p
-    },
-    async () => {
-      const policies = await deps.withTimeout((opts) => deps.adapter.listPolicies(opts), 'listPolicies')
-      if (policies.length > deps.maxPolicies) {
-        throw new Error(
-          `[@gentleduck/iam:engine] adapter returned ${policies.length} policies; maxPolicies is ${deps.maxPolicies}. Raise the limit or fix the adapter.`,
-        )
-      }
-      return policies
-    },
-    (policies) => {
-      deps.policyCache.set('all', policies)
-    },
-  )
+  return loadAllCapped({
+    cache: deps.policyCache,
+    slot: deps.inFlight.policies,
+    fetch: () => deps.withTimeout((opts) => deps.adapter.listPolicies(opts), 'listPolicies'),
+    cap: deps.maxPolicies,
+    capField: 'maxPolicies',
+    noun: 'policies',
+  })
 }
 
 /**
@@ -90,27 +107,14 @@ export async function loadRoles<
   TRole extends string,
   TScope extends string,
 >(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<AccessControl.IRole[]> {
-  const cached = deps.roleCache.get('all')
-  if (cached) return cached
-  if (deps.inFlight.roles.value) return deps.inFlight.roles.value
-  return runSingleFlight(
-    () => deps.inFlight.roles.value,
-    (p) => {
-      deps.inFlight.roles.value = p
-    },
-    async () => {
-      const roles = await deps.withTimeout((opts) => deps.adapter.listRoles(opts), 'listRoles')
-      if (roles.length > deps.maxRoles) {
-        throw new Error(
-          `[@gentleduck/iam:engine] adapter returned ${roles.length} roles; maxRoles is ${deps.maxRoles}. Raise the limit or fix the adapter.`,
-        )
-      }
-      return roles
-    },
-    (roles) => {
-      deps.roleCache.set('all', roles)
-    },
-  )
+  return loadAllCapped({
+    cache: deps.roleCache,
+    slot: deps.inFlight.roles,
+    fetch: () => deps.withTimeout((opts) => deps.adapter.listRoles(opts), 'listRoles'),
+    cap: deps.maxRoles,
+    capField: 'maxRoles',
+    noun: 'roles',
+  })
 }
 
 /**
