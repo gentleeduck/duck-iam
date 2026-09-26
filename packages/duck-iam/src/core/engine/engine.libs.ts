@@ -293,6 +293,27 @@ function unmatchableReason(rule: AccessControl.IRule): string | undefined {
 }
 
 /**
+ * Every rule in `policies` whose own value actually is an object, policy by policy.
+ * NOTE: `policy.rules`/`rule` are typed as arrays/objects, but a stored row crossed an adapter this package does not
+ * control - a hostile or buggy one can return anything, so both guards are runtime, not just for TypeScript.
+ * Shared by {@link reportUnmatchableRules} and {@link reportDeadConditionPaths}, which differ only in what counts
+ * as dead and how the report is worded; {@link reportDeadPolicyTargets} walks targets against all rules at once
+ * instead of one rule at a time, so it does not fit this shape.
+ */
+function eachStoredRule(
+  policies: readonly AccessControl.IPolicy[],
+  visit: (policy: AccessControl.IPolicy, rule: AccessControl.IRule) => void,
+): void {
+  for (const policy of policies) {
+    if (!Array.isArray(policy.rules)) continue
+    for (const rule of policy.rules) {
+      if (typeof rule !== 'object' || rule === null) continue
+      visit(policy, rule)
+    }
+  }
+}
+
+/**
  * Reports a rule that no request can reach, for reasons wholly inside the rule - an empty target list or a
  * condition that is false whatever the request holds.
  * SECURITY: `validatePolicy` rejects the empty lists, but nothing on the load path calls it, so a seeded or
@@ -303,25 +324,21 @@ export function reportUnmatchableRules(
   seen: Set<string>,
   report: (err: Error, policyId: string) => void,
 ): void {
-  for (const policy of policies) {
-    if (!Array.isArray(policy.rules)) continue
-    for (const rule of policy.rules) {
-      if (typeof rule !== 'object' || rule === null) continue
-      const reason = unmatchableReason(rule)
-      if (reason === undefined) continue
-      const key = `${policy.id}\u0000${rule.id}\u0000unmatchable`
-      if (seen.has(key)) continue
-      seen.add(key)
-      report(
-        new Error(
-          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} ${reason}. ` +
-            'No request can reach the rule, so ' +
-            `${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
-        ),
-        policy.id,
-      )
-    }
-  }
+  eachStoredRule(policies, (policy, rule) => {
+    const reason = unmatchableReason(rule)
+    if (reason === undefined) return
+    const key = `${policy.id}\u0000${rule.id}\u0000unmatchable`
+    if (seen.has(key)) return
+    seen.add(key)
+    report(
+      new Error(
+        `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} ${reason}. ` +
+          'No request can reach the rule, so ' +
+          `${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
+      ),
+      policy.id,
+    )
+  })
 }
 
 export function reportDeadConditionPaths(
@@ -329,27 +346,23 @@ export function reportDeadConditionPaths(
   seen: Set<string>,
   report: (err: Error, policyId: string) => void,
 ): void {
-  for (const policy of policies) {
-    if (!Array.isArray(policy.rules)) continue
-    for (const rule of policy.rules) {
-      if (typeof rule !== 'object' || rule === null) continue
-      eachConditionPath(rule.conditions, 0, (path) => {
-        if (isResolvablePath(path)) return
-        const key = `${policy.id}\u0000${rule.id}\u0000${path}`
-        if (seen.has(key)) return
-        seen.add(key)
-        report(
-          new Error(
-            `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} reads ` +
-              `${JSON.stringify(path)}, which resolves to null on every request - the root must be "subject", ` +
-              '"resource" or "environment", and no segment may be a prototype key. The condition cannot be ' +
-              `satisfied by any input, so ${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
-          ),
-          policy.id,
-        )
-      })
-    }
-  }
+  eachStoredRule(policies, (policy, rule) => {
+    eachConditionPath(rule.conditions, 0, (path) => {
+      if (isResolvablePath(path)) return
+      const key = `${policy.id}\u0000${rule.id}\u0000${path}`
+      if (seen.has(key)) return
+      seen.add(key)
+      report(
+        new Error(
+          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} reads ` +
+            `${JSON.stringify(path)}, which resolves to null on every request - the root must be "subject", ` +
+            '"resource" or "environment", and no segment may be a prototype key. The condition cannot be ' +
+            `satisfied by any input, so ${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
+        ),
+        policy.id,
+      )
+    })
+  })
 }
 
 /**
