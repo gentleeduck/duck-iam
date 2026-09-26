@@ -384,6 +384,55 @@ export function validateConditionGroup(input: unknown, path: string, issues: Iam
 }
 
 /**
+ * Validates one of a rule's `actions`/`resources` arrays: non-empty, capped, and each entry a control-char-free
+ * string. Shared because both arrays are checked the same way, down to the message wording.
+ */
+function validateRuleList(
+  rule: Record<string, unknown>,
+  field: 'actions' | 'resources',
+  noun: 'Action' | 'Resource',
+  limit: number,
+  path: string,
+  issues: IamValidate.IIssue[],
+): void {
+  const list = rule[field]
+  if (!Array.isArray(list) || list.length === 0) {
+    issues.push({
+      type: 'error',
+      code: 'MISSING_FIELD',
+      message: `Rule must have a non-empty "${field}" array`,
+      path: `${path}.${field}`,
+    })
+    return
+  }
+  if (list.length > limit) {
+    issues.push({
+      type: 'error',
+      code: 'LIMIT_EXCEEDED',
+      message: `Rule has ${list.length} ${field}; limit is ${limit}`,
+      path: `${path}.${field}`,
+    })
+  }
+  for (const [i, entry] of list.entries()) {
+    if (typeof entry !== 'string') {
+      issues.push({
+        type: 'error',
+        code: 'INVALID_TYPE',
+        message: `${noun} must be a string`,
+        path: `${path}.${field}[${i}]`,
+      })
+    } else if (hasControlChar(entry)) {
+      issues.push({
+        type: 'error',
+        code: 'INVALID_TYPE',
+        message: `${noun} must not contain control characters`,
+        path: `${path}.${field}[${i}]`,
+      })
+    }
+  }
+}
+
+/**
  * Validate a Rule's shape (id, effect, priority, actions, resources, optional conditions).
  *
  * @param input  - The rule object to validate.
@@ -445,75 +494,8 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
     })
   }
 
-  if (!Array.isArray(rule.actions) || rule.actions.length === 0) {
-    issues.push({
-      type: 'error',
-      code: 'MISSING_FIELD',
-      message: 'Rule must have a non-empty "actions" array',
-      path: `${path}.actions`,
-    })
-  } else {
-    if (rule.actions.length > POLICY_LIMITS.actionsPerRule) {
-      issues.push({
-        type: 'error',
-        code: 'LIMIT_EXCEEDED',
-        message: `Rule has ${rule.actions.length} actions; limit is ${POLICY_LIMITS.actionsPerRule}`,
-        path: `${path}.actions`,
-      })
-    }
-    for (const [i, action] of rule.actions.entries()) {
-      if (typeof action !== 'string') {
-        issues.push({
-          type: 'error',
-          code: 'INVALID_TYPE',
-          message: 'Action must be a string',
-          path: `${path}.actions[${i}]`,
-        })
-      } else if (hasControlChar(action)) {
-        issues.push({
-          type: 'error',
-          code: 'INVALID_TYPE',
-          message: 'Action must not contain control characters',
-          path: `${path}.actions[${i}]`,
-        })
-      }
-    }
-  }
-
-  if (!Array.isArray(rule.resources) || rule.resources.length === 0) {
-    issues.push({
-      type: 'error',
-      code: 'MISSING_FIELD',
-      message: 'Rule must have a non-empty "resources" array',
-      path: `${path}.resources`,
-    })
-  } else {
-    if (rule.resources.length > POLICY_LIMITS.resourcesPerRule) {
-      issues.push({
-        type: 'error',
-        code: 'LIMIT_EXCEEDED',
-        message: `Rule has ${rule.resources.length} resources; limit is ${POLICY_LIMITS.resourcesPerRule}`,
-        path: `${path}.resources`,
-      })
-    }
-    for (const [i, resource] of rule.resources.entries()) {
-      if (typeof resource !== 'string') {
-        issues.push({
-          type: 'error',
-          code: 'INVALID_TYPE',
-          message: 'Resource must be a string',
-          path: `${path}.resources[${i}]`,
-        })
-      } else if (hasControlChar(resource)) {
-        issues.push({
-          type: 'error',
-          code: 'INVALID_TYPE',
-          message: 'Resource must not contain control characters',
-          path: `${path}.resources[${i}]`,
-        })
-      }
-    }
-  }
+  validateRuleList(rule, 'actions', 'Action', POLICY_LIMITS.actionsPerRule, path, issues)
+  validateRuleList(rule, 'resources', 'Resource', POLICY_LIMITS.resourcesPerRule, path, issues)
 
   // Required by IRule and the schema, so a row without it never reaches the engine. Non-object values are reported by
   // validateConditionGroup below.
