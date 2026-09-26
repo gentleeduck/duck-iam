@@ -40,6 +40,24 @@ function candidateShapeMatches(entry: Evaluate.IIndexedRule, action: string, res
   return false
 }
 
+/** The NotApplicable decision shape both target checks in {@link evaluatePolicy} return, differing only in `reason`. */
+function notApplicable(
+  policy: AccessControl.IPolicy,
+  defaultEffect: AccessControl.Effect,
+  start: number,
+  reason: string,
+): AccessControl.IDecision {
+  return {
+    allowed: defaultEffect === 'allow',
+    effect: defaultEffect,
+    policy: policy.id,
+    reason,
+    duration: performance.now() - start,
+    timestamp: Date.now(),
+    applicable: false,
+  }
+}
+
 /**
  * Evaluates one policy: targets first, then the matching rules under the policy's combining algorithm.
  * @param policy - The policy to evaluate.
@@ -60,29 +78,18 @@ export function evaluatePolicy(
 
   if (!policyApplies(policy, request)) {
     // NotApplicable: the cross-policy combine skips it rather than folding in a `defaultEffect` vote.
-    return {
-      allowed: defaultEffect === 'allow',
-      effect: defaultEffect,
-      policy: policy.id,
-      reason: `Policy "${policy.id}" targets do not match. Not applicable.`,
-      duration: performance.now() - start,
-      timestamp: Date.now(),
-      applicable: false,
-    }
+    return notApplicable(policy, defaultEffect, start, `Policy "${policy.id}" targets do not match. Not applicable.`)
   }
 
   // Also NotApplicable when no rule's shape matches: a policy about `update` has nothing to say about `read`,
   // even when its `targets` were silent.
   if (!policy.rules.some((rule) => ruleTargetsMatch(rule, request))) {
-    return {
-      allowed: defaultEffect === 'allow',
-      effect: defaultEffect,
-      policy: policy.id,
-      reason: `Policy "${policy.id}" has no rule for this action/resource. Not applicable.`,
-      duration: performance.now() - start,
-      timestamp: Date.now(),
-      applicable: false,
-    }
+    return notApplicable(
+      policy,
+      defaultEffect,
+      start,
+      `Policy "${policy.id}" has no rule for this action/resource. Not applicable.`,
+    )
   }
 
   // SECURITY: a non-finite priority is Indeterminate under the two ranking algorithms. Checked at policy level,
@@ -145,6 +152,32 @@ function allowedByDefaultEffect(decision: AccessControl.IDecision): boolean {
 }
 
 /**
+ * `defaultEffect === 'allow'`, flagging `signals.failOpen` when so - the "nothing voted" outcome both evaluators
+ * reach when no policy decided the request.
+ */
+function defaultAllowed(defaultEffect: AccessControl.Effect, signals?: IEvalSignals): boolean {
+  const allowed = defaultEffect === 'allow'
+  if (signals && allowed) signals.failOpen = true
+  return allowed
+}
+
+/** The cross-policy fallback decision {@link evaluate} returns when nothing decided; only `reason` varies by caller. */
+function defaultDecision(
+  defaultEffect: AccessControl.Effect,
+  start: number,
+  reason: string,
+  signals?: IEvalSignals,
+): AccessControl.IDecision {
+  return {
+    allowed: defaultAllowed(defaultEffect, signals),
+    effect: defaultEffect,
+    reason,
+    duration: performance.now() - start,
+    timestamp: Date.now(),
+  }
+}
+
+/**
  * Combine decisions across multiple policies per `combine` (`'and'` | `'allow-overrides'` | `'first-applicable'`).
  *
  * @param policies - All policies to evaluate.
@@ -168,14 +201,7 @@ export function evaluate(
   const start = performance.now()
 
   if (policies.length === 0) {
-    if (signals && defaultEffect === 'allow') signals.failOpen = true
-    return {
-      allowed: defaultEffect === 'allow',
-      effect: defaultEffect,
-      reason: 'No policies configured',
-      duration: performance.now() - start,
-      timestamp: Date.now(),
-    }
+    return defaultDecision(defaultEffect, start, 'No policies configured', signals)
   }
 
   /**
@@ -217,14 +243,7 @@ export function evaluate(
       lastAllow = decision
     }
     if (lastAllow === null) {
-      if (signals && defaultEffect === 'allow') signals.failOpen = true
-      return {
-        allowed: defaultEffect === 'allow',
-        effect: defaultEffect,
-        reason: `No policy applicable. Defaulted to ${defaultEffect}`,
-        duration: performance.now() - start,
-        timestamp: Date.now(),
-      }
+      return defaultDecision(defaultEffect, start, `No policy applicable. Defaulted to ${defaultEffect}`, signals)
     }
     // Every applicable policy contributed, so one that allowed only through `defaultEffect` is the `failOpen` shape.
     if (signals && defaultSourced) signals.failOpen = true
@@ -243,14 +262,7 @@ export function evaluate(
       lastDeny = decision
     }
     if (lastDeny === null) {
-      if (signals && defaultEffect === 'allow') signals.failOpen = true
-      return {
-        allowed: defaultEffect === 'allow',
-        effect: defaultEffect,
-        reason: `No policy applicable. Defaulted to ${defaultEffect}`,
-        duration: performance.now() - start,
-        timestamp: Date.now(),
-      }
+      return defaultDecision(defaultEffect, start, `No policy applicable. Defaulted to ${defaultEffect}`, signals)
     }
     return { ...lastDeny, duration: performance.now() - start }
   }
@@ -264,14 +276,7 @@ export function evaluate(
     if (signals && allowedByDefaultEffect(decision)) signals.failOpen = true
     return { ...decision, duration: performance.now() - start }
   }
-  if (signals && defaultEffect === 'allow') signals.failOpen = true
-  return {
-    allowed: defaultEffect === 'allow',
-    effect: defaultEffect,
-    reason: `No policy was applicable. Defaulted to ${defaultEffect}`,
-    duration: performance.now() - start,
-    timestamp: Date.now(),
-  }
+  return defaultDecision(defaultEffect, start, `No policy was applicable. Defaulted to ${defaultEffect}`, signals)
 }
 
 /**
@@ -486,9 +491,7 @@ export function evaluateFast(
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
   if (policies.length === 0) {
-    const allowed = defaultEffect === 'allow'
-    if (signals && allowed) signals.failOpen = true
-    return allowed
+    return defaultAllowed(defaultEffect, signals)
   }
 
   /**
@@ -521,9 +524,7 @@ export function evaluateFast(
       }
     }
     if (!anyApplicable) {
-      const allowed = defaultEffect === 'allow'
-      if (signals && allowed) signals.failOpen = true
-      return allowed
+      return defaultAllowed(defaultEffect, signals)
     }
     return false
   }
@@ -539,9 +540,7 @@ export function evaluateFast(
     if (voteSource.fromDefault) defaultSourced = true
   }
   if (!anyApplicable) {
-    const allowed = defaultEffect === 'allow'
-    if (signals && allowed) signals.failOpen = true
-    return allowed
+    return defaultAllowed(defaultEffect, signals)
   }
   // Mirrors the interpreter: every applicable policy contributed, so one resting on `defaultEffect` is fail-open.
   if (signals && defaultSourced) signals.failOpen = true
