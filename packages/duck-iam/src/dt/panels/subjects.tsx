@@ -8,13 +8,13 @@ import { Alert, Badge, Button, Field, Input, TextArea } from '../components/ui'
 import { safeParseJson } from '../lib/format'
 import { isDevtoolsAllowed } from '../lib/guard'
 import { useIamDevtoolsStyles } from '../lib/styles'
-import type { IamIDevtoolsEngine } from '../lib/types'
+import type { IamEnginePanelProps } from '../lib/types'
 
 /**
  * Loads one subject's attributes and edits them and its role assignments through `engine.admin`.
  * SECURITY: writes with no auth of its own and is exported individually, so it runs `isDevtoolsAllowed` itself.
  */
-export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
+export function IamSubjectsPanel({ engine }: IamEnginePanelProps) {
   useIamDevtoolsStyles()
   const [subjectId, setSubjectId] = React.useState('')
   const [attrs, setAttrs] = React.useState<IamPrimitives.Attributes | null>(null)

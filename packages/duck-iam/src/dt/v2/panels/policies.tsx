@@ -5,7 +5,7 @@ import { FileText, RefreshCw } from 'lucide-react'
 import type { AccessControl } from '../../../core/types'
 import { isDevtoolsAllowed } from '../../lib/guard'
 import { useIamListPanel } from '../../lib/list-panel'
-import type { IamIDevtoolsEngine } from '../../lib/types'
+import type { IamEnginePanelProps } from '../../lib/types'
 import {
   IamV2Action,
   IamV2Alert,
@@ -45,7 +45,7 @@ function RuleRow({ rule }: { rule: AccessControl.IRule }) {
 }
 
 /** Read-only browser for the adapter's policies, re-read via `engine.admin.listPolicies()` on each refresh. */
-export function IamPoliciesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
+export function IamPoliciesPanelV2({ engine }: IamEnginePanelProps) {
   const { current, error, filter, filtered, items, loading, reload, selected, setFilter, setSelected } =
     useIamListPanel<AccessControl.IPolicy>(() => engine.admin.listPolicies())
 

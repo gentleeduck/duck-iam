@@ -12,7 +12,7 @@ import type { IamPrimitives } from '../../../core/types'
 import { iamNarrowAttributes } from '../../../shared/attributes'
 import { safeParseJson } from '../../lib/format'
 import { isDevtoolsAllowed } from '../../lib/guard'
-import type { IamIDevtoolsEngine } from '../../lib/types'
+import type { IamEnginePanelProps } from '../../lib/types'
 import {
   IamV2Alert,
   IamV2Avatar,
@@ -32,7 +32,7 @@ import { IAM_V2_MONO } from '../lib/tone'
  * Inspects one subject and edits it: assigns/revokes roles and saves attributes through `engine.admin`.
  * SECURITY: this is a role-assignment UI with no authorization, so it must stay behind `isDevtoolsAllowed`.
  */
-export function IamSubjectsPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
+export function IamSubjectsPanelV2({ engine }: IamEnginePanelProps) {
   const [subjectId, setSubjectId] = React.useState('')
   const [attrs, setAttrs] = React.useState<IamPrimitives.Attributes | null>(null)
   const [attrsDraft, setAttrsDraft] = React.useState('{}')

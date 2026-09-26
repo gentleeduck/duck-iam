@@ -5,7 +5,7 @@ import { CornerUpRight, RefreshCw, Users } from 'lucide-react'
 import type { AccessControl } from '../../../core/types'
 import { isDevtoolsAllowed } from '../../lib/guard'
 import { useIamListPanel } from '../../lib/list-panel'
-import type { IamIDevtoolsEngine } from '../../lib/types'
+import type { IamEnginePanelProps } from '../../lib/types'
 import {
   IamV2Action,
   IamV2Alert,
@@ -45,7 +45,7 @@ function PermissionRow({ permission }: { permission: AccessControl.IPermission }
 }
 
 /** Read-only browser for roles, their permissions and inheritance. Assignment lives in the Subjects panel. */
-export function IamRolesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
+export function IamRolesPanelV2({ engine }: IamEnginePanelProps) {
   const { current, error, filter, filtered, items, loading, reload, selected, setFilter, setSelected } =
     useIamListPanel<AccessControl.IRole>(() => engine.admin.listRoles())
 
