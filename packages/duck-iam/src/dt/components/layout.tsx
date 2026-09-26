@@ -113,6 +113,37 @@ export function Section({
   )
 }
 
+/**
+ * The compact collapsible row shared by every trace/rule/permission listing: a chevron-toggle header and a body
+ * shown only while open. Distinct from {@link Section}, which is the titled top-level section header.
+ */
+export function CollapsibleGroup({
+  summary,
+  detail,
+  defaultOpen = false,
+  disabled = false,
+}: {
+  summary: React.ReactNode
+  detail: React.ReactNode
+  defaultOpen?: boolean
+  disabled?: boolean
+}) {
+  const [open, setOpen] = React.useState(defaultOpen)
+  return (
+    <div className="iam-dt-trace__group">
+      <button
+        className="iam-dt-trace__group-head"
+        disabled={disabled}
+        onClick={() => !disabled && setOpen((o) => !o)}
+        type="button">
+        <span className="iam-dt-section__chev">{disabled ? null : open ? <ChevronDown /> : <ChevronRight />}</span>
+        {summary}
+      </button>
+      {open && <div className="iam-dt-trace__group-body">{detail}</div>}
+    </div>
+  )
+}
+
 /** The centred placeholder shown in a detail pane before anything is selected. */
 export function DetailEmpty({ message }: { message: string }) {
   return <div className="iam-dt-empty iam-dt-empty--fill">{message}</div>
