@@ -100,31 +100,32 @@ function isAttributeValue(value: unknown): value is IamPrimitives.AttributeValue
   return Object.values(value).every(isScalar)
 }
 
-/** Whether a request action matches a rule pattern: `*` matches all, `posts:*` matches `posts:read`. */
-export function matchesAction(pattern: string, action: string): boolean {
+/**
+ * Exact match, or `pattern` ending in one of `wildcardSuffixes` and `value` starting with everything before its
+ * trailing `*`. Shared by {@link matchesAction}, {@link matchesResource} and {@link matchesResourceHierarchical},
+ * which differ only in which suffix(es) count as wildcard-enabling.
+ */
+function matchesWithWildcardSuffix(pattern: string, value: string, wildcardSuffixes: readonly string[]): boolean {
   if (pattern === '*') return true
-  if (pattern === action) return true
+  if (pattern === value) return true
 
-  if (pattern.endsWith(':*')) {
-    const prefix = pattern.slice(0, -1)
-    return action.startsWith(prefix)
+  // The separator comes from the pattern, so e.g. a dot-pattern only matches dot-style values and vice versa.
+  if (wildcardSuffixes.some((suffix) => pattern.endsWith(suffix))) {
+    const prefix = pattern.slice(0, -1) // includes the trailing separator
+    return value.startsWith(prefix)
   }
 
   return false
 }
 
+/** Whether a request action matches a rule pattern: `*` matches all, `posts:*` matches `posts:read`. */
+export function matchesAction(pattern: string, action: string): boolean {
+  return matchesWithWildcardSuffix(pattern, action, [':*'])
+}
+
 /** Whether a resource type matches a pattern. Bare is literal; a `:*` / `.*` suffix matches everything under it. */
 export function matchesResource(pattern: string, resourceType: string): boolean {
-  if (pattern === '*') return true
-  if (pattern === resourceType) return true
-
-  // The separator comes from the pattern, so a dot-pattern only matches dot-style resources and vice versa.
-  if (pattern.endsWith(':*') || pattern.endsWith('.*')) {
-    const prefix = pattern.slice(0, -1) // includes the trailing separator
-    return resourceType.startsWith(prefix)
-  }
-
-  return false
+  return matchesWithWildcardSuffix(pattern, resourceType, [':*', '.*'])
 }
 
 /**
@@ -132,16 +133,7 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
  * A strict subset of {@link matchesResource}, which the engine uses everywhere; this one ignores `':*'`.
  */
 export function matchesResourceHierarchical(pattern: string, resourceType: string): boolean {
-  if (pattern === '*') return true
-  if (pattern === resourceType) return true
-
-  // Only an explicit `.*` suffix enables recursive prefix match.
-  if (pattern.endsWith('.*')) {
-    const prefix = pattern.slice(0, -1) // includes trailing '.'
-    return resourceType.startsWith(prefix)
-  }
-
-  return false
+  return matchesWithWildcardSuffix(pattern, resourceType, ['.*'])
 }
 
 /**
