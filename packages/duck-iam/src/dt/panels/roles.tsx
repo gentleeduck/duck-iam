@@ -1,7 +1,16 @@
 import type { AccessControl } from '../../core/types'
 import { CornerUpRight, Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
-import { CollapsibleGroup, DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
+import {
+  CollapsibleGroup,
+  DescriptionSection,
+  DetailEmpty,
+  FilterBar,
+  ListItem,
+  ListShell,
+  Section,
+  SplitView,
+} from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
 import { isDevtoolsAllowed } from '../lib/guard'
 import { useIamListPanel } from '../lib/list-panel'
@@ -64,13 +73,7 @@ export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
               <span className="iam-dt-mute">{current.name}</span>
               {current.scope && <Badge tone="info">scope: {current.scope}</Badge>}
             </div>
-            {current.description && (
-              <Section title="Description">
-                <p className="iam-dt-soft" style={{ fontSize: 11 }}>
-                  {current.description}
-                </p>
-              </Section>
-            )}
+            <DescriptionSection text={current.description} />
             {current.inherits && current.inherits.length > 0 && (
               <Section title="Inherits">
                 <div className="iam-dt-row">
