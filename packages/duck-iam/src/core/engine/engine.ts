@@ -818,14 +818,7 @@ export class IamEngine<
       this._emitMetrics(req, false, t0, false)
       // NOTE: `afterEvaluate`/`onDeny` do not fire on the error path; `onError` reports it.
       if (this._mode === 'production') return this._asResult(false)
-      return this._asResult({
-        allowed: false,
-        effect: 'deny',
-        failure: 'evaluation',
-        reason: 'Evaluation error',
-        duration: 0,
-        timestamp: Date.now(),
-      })
+      return this._asResult(this._syntheticDenyDecision('evaluation', 'Evaluation error'))
     }
 
     // Outside the evaluation try, each hook wrapped, so a hook throw cannot rewrite the decision or skip the others.
@@ -834,16 +827,27 @@ export class IamEngine<
     return result
   }
 
-  /** The denial for the reserved refusal token, shared by `authorize` and `permissions`; an input failure. */
-  private _reservedRefusalDecision(): AccessControl.IDecision {
+  /** A synthesized fail-closed decision for a non-evaluation deny: engine failure, not a policy vote. */
+  private _syntheticDenyDecision(
+    failure: NonNullable<AccessControl.IDecision['failure']>,
+    reason: string,
+  ): AccessControl.IDecision {
     return {
       allowed: false,
       effect: 'deny',
-      failure: 'input',
-      reason: 'Denied: the request names the reserved refusal token, which no policy can grant',
+      failure,
+      reason,
       duration: 0,
       timestamp: Date.now(),
     }
+  }
+
+  /** The denial for the reserved refusal token, shared by `authorize` and `permissions`; an input failure. */
+  private _reservedRefusalDecision(): AccessControl.IDecision {
+    return this._syntheticDenyDecision(
+      'input',
+      'Denied: the request names the reserved refusal token, which no policy can grant',
+    )
   }
 
   /**
@@ -1036,14 +1040,7 @@ export class IamEngine<
       // Fail-closed: in production mode return false; otherwise a synthesized deny.
       await this._emitUnevaluatedDeny(req, 'input', t0)
       if (this._mode === 'production') return this._asResult(false)
-      return this._asResult({
-        allowed: false,
-        effect: 'deny',
-        failure: 'input',
-        reason: 'invalid subjectId',
-        duration: 0,
-        timestamp: Date.now(),
-      })
+      return this._asResult(this._syntheticDenyDecision('input', 'invalid subjectId'))
     }
     try {
       const subject = await this._resolveSubject(subjectId)
@@ -1054,14 +1051,7 @@ export class IamEngine<
       await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
       await this._emitUnevaluatedDeny(req, 'resolution', t0)
       if (this._mode === 'production') return this._asResult(false)
-      return this._asResult({
-        allowed: false,
-        effect: 'deny',
-        failure: 'resolution',
-        reason: 'Subject resolution error',
-        duration: 0,
-        timestamp: Date.now(),
-      })
+      return this._asResult(this._syntheticDenyDecision('resolution', 'Subject resolution error'))
     }
   }
 
