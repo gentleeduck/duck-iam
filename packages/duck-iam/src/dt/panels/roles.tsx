@@ -1,43 +1,22 @@
 import React from 'react'
-import { toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl } from '../../core/types'
 import { ChevronDown, ChevronRight, CornerUpRight, Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
 import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamListPanel } from '../lib/list-panel'
 import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
 /** Read-only browser for roles, their permissions and inheritance; the RBAC counterpart to {@link IamPoliciesPanel}. */
 export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   useIamDevtoolsStyles()
-  const [roles, setRoles] = React.useState<AccessControl.IRole[]>([])
-  const [selected, setSelected] = React.useState<string | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
-  const [filter, setFilter] = React.useState('')
-
-  const load = React.useCallback(async () => {
-    try {
-      setError(null)
-      setRoles(await engine.admin.listRoles())
-    } catch (err) {
-      setError(toErrorMessage(err))
-    }
-  }, [engine])
-
-  React.useEffect(() => {
-    void load()
-  }, [load])
+  const { current, error, filter, filtered, reload, selected, setFilter, setSelected } =
+    useIamListPanel<AccessControl.IRole>(() => engine.admin.listRoles())
 
   // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
   if (!isDevtoolsAllowed(engine)) return null
-
-  const filtered = roles.filter(
-    (r) =>
-      r.id.toLowerCase().includes(filter.toLowerCase()) || (r.name ?? '').toLowerCase().includes(filter.toLowerCase()),
-  )
-  const current = roles.find((r) => r.id === selected) ?? null
 
   return (
     <SplitView
@@ -46,7 +25,7 @@ export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
           count={filtered.length}
           title="Roles"
           toolbar={
-            <Button onClick={load}>
+            <Button onClick={reload}>
               <Refresh size={10} /> refresh
             </Button>
           }>
