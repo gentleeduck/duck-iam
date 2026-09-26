@@ -7,10 +7,7 @@ import { Input } from '@gentleduck/registry-ui/input'
 import { Textarea } from '@gentleduck/registry-ui/textarea'
 import { Loader2, Play, ScanSearch } from 'lucide-react'
 import React from 'react'
-import { toErrorMessage } from '../../../core/errors/normalize'
-import type { Explain } from '../../../core/explain'
-import { iamNarrowAttributes } from '../../../shared/attributes'
-import { safeParseJson } from '../../lib/format'
+import { useIamDecisionInspector } from '../../lib/decision'
 import { isDevtoolsAllowed } from '../../lib/guard'
 import type { IamIDecisionInput, IamIDevtoolsEngine } from '../../lib/types'
 import {
@@ -27,24 +24,6 @@ import {
 import { IamV2Json } from '../components/json-view'
 import { IAM_V2_ACTION, IAM_V2_MONO, IAM_V2_RESOURCE, iamV2Decision } from '../lib/tone'
 import { IamTraceTreeV2 } from './trace'
-
-/** The environment is a free-form record, so it only has to be a non-null, non-array object. */
-function narrowRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
-  const out: Record<string, unknown> = {}
-  for (const [key, entry] of Object.entries(value)) out[key] = entry
-  return out
-}
-
-const INITIAL: IamIDecisionInput = {
-  action: '',
-  attributesJson: '{}',
-  environmentJson: '{}',
-  resourceId: '',
-  resourceType: '',
-  scope: '',
-  subjectId: '',
-}
 
 /** A labelled control. duck-ui's `Field` wired to the id the input carries. */
 function Box({ children, id, label }: { children: React.ReactNode; id: string; label: string }) {
@@ -69,52 +48,18 @@ export function IamDecisionInspectorV2({
   defaults?: Partial<IamIDecisionInput>
   engine: IamIDevtoolsEngine
 }) {
-  const [input, setInput] = React.useState<IamIDecisionInput>({ ...INITIAL, ...defaults })
-  const [result, setResult] = React.useState<Explain.IResult | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
-  const [pending, setPending] = React.useState(false)
+  const { error, input, pending, result, run, update } = useIamDecisionInspector(engine, defaults)
   const fieldId = React.useId()
 
   // SECURITY: guarded here too, since the panel is exported alone and `engine.explain` answers for any subject.
   // Below every hook so hook order is stable.
   if (!isDevtoolsAllowed(engine)) return null
 
-  const update = (patch: Partial<IamIDecisionInput>) => setInput((state) => ({ ...state, ...patch }))
-
   // Cmd/Ctrl+Enter evaluates; plain Enter stays a newline in the JSON textareas.
   const onFormKeyDown = (event: React.KeyboardEvent) => {
     if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
     event.preventDefault()
     if (!pending) void run()
-  }
-
-  async function run() {
-    setError(null)
-    setPending(true)
-    try {
-      const attrs = safeParseJson(input.attributesJson)
-      const env = safeParseJson(input.environmentJson)
-      if (attrs.error) throw new Error(`attributes JSON: ${attrs.error}`)
-      if (env.error) throw new Error(`environment JSON: ${env.error}`)
-      // Valid JSON is not necessarily an attribute bag, so narrow before the engine sees it.
-      const attributes = attrs.value === undefined ? {} : iamNarrowAttributes(attrs.value)
-      if (attributes === null) throw new Error('attributes JSON: expected an object of scalar values')
-      const environment = env.value === undefined ? {} : narrowRecord(env.value)
-      if (environment === null) throw new Error('environment JSON: expected an object')
-      // NOTE: pass `scope` positionally; nothing reads it from the environment bag, so it would show a false deny.
-      const trace = await engine.explain(
-        input.subjectId,
-        input.action,
-        { attributes, id: input.resourceId || undefined, type: input.resourceType },
-        environment,
-        input.scope || undefined,
-      )
-      setResult(trace)
-    } catch (err) {
-      setError(toErrorMessage(err))
-    } finally {
-      setPending(false)
-    }
   }
 
   return (

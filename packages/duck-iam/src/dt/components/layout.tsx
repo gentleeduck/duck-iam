@@ -144,6 +144,18 @@ export function CollapsibleGroup({
   )
 }
 
+/** An optional blurb rendered in its own {@link Section}; renders nothing when `text` is absent. */
+export function DescriptionSection({ text }: { text?: string }) {
+  if (!text) return null
+  return (
+    <Section title="Description">
+      <p className="iam-dt-soft" style={{ fontSize: 11 }}>
+        {text}
+      </p>
+    </Section>
+  )
+}
+
 /** The centred placeholder shown in a detail pane before anything is selected. */
 export function DetailEmpty({ message }: { message: string }) {
   return <div className="iam-dt-empty iam-dt-empty--fill">{message}</div>
