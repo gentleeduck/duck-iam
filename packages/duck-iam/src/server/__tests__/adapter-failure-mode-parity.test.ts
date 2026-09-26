@@ -116,6 +116,43 @@ describe('a throwing getUserId denies through the adapter, not the framework', (
   })
 })
 
+// The nest guard's `canActivate` can only return `boolean`; Nest maps a plain `false` to its own default
+// `ForbiddenException` (403), so unlike the other three adapters it cannot answer 401 without throwing.
+describe('nest access guard answers 401, not a bare false, when getUserId returns null', () => {
+  const handler = function route() {
+    return null
+  }
+  IamAuthorize({ action: 'read', resource: 'post' })({} as never, 'route', {
+    configurable: true,
+    value: handler,
+    writable: true,
+  })
+  const ctx = {
+    getHandler: () => handler,
+    switchToHttp: () => ({ getRequest: () => ({ method: 'GET', params: {}, path: '/post' }) }),
+  }
+
+  it('rejects with a 401-shaped error instead of resolving false', async () => {
+    const guard = iamNestAccessGuard(engine(), { getUserId: () => null })
+    const err = await guard(ctx).catch((e: unknown) => e)
+    expect(err).toMatchObject({ message: 'Unauthorized', status: 401, statusCode: 401 })
+  })
+
+  it('honors a custom onUnauthorized', async () => {
+    const onUnauthorized = vi.fn(() => Object.assign(new Error('nope'), { statusCode: 419 }))
+    const guard = iamNestAccessGuard(engine(), { getUserId: () => null, onUnauthorized })
+    const err = await guard(ctx).catch((e: unknown) => e)
+    expect(onUnauthorized).toHaveBeenCalledOnce()
+    expect(err).toMatchObject({ message: 'nope', statusCode: 419 })
+  })
+
+  // Control: a real subject id still resolves normally, never a rejection.
+  it('still resolves normally for a real subject id', async () => {
+    const guard = iamNestAccessGuard(engine(), { getUserId: () => 'u1' })
+    await expect(guard(ctx)).resolves.toBe(true)
+  })
+})
+
 // SECURITY: `env.ip` feeds `matches` conditions, so every IP source goes through the same caps.
 describe('iamExtractEnvironment caps every IP source', () => {
   it('drops an oversized req.ip', () => {

@@ -461,7 +461,12 @@ describe('no integration lets a blank or non-string subject id reach the engine'
     for (const [label, value] of REFUSED) {
       it(`${entry} refuses ${label} without asking the engine`, async () => {
         const engine = new RecordingEngine()
-        await run(engine, (() => value) as never)
+        try {
+          await run(engine, (() => value) as never)
+        } catch {
+          // The nest guard rejects (401) instead of resolving `false` for this case; either way, what matters
+          // here is that the engine was never consulted.
+        }
         expect(engine.calls).toEqual([])
       })
     }
