@@ -779,10 +779,7 @@ export class IamEngine<
 
       req = await this._runBeforeEvaluateAndDefaultClock(req)
 
-      const onPolicyErrorHook = this._hooks.onPolicyError
-      const onPolicyError = onPolicyErrorHook
-        ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
-        : undefined
+      const onPolicyError = this._onPolicyErrorAdapter()
 
       // SECURITY: the reserved refusal token (an unmappable method or path) denies before any policy, since a `'*'`
       // rule would match it. Inside the try so the hooks see this denial like any other.
@@ -954,6 +951,30 @@ export class IamEngine<
       req = await this._runBeforeEvaluate(req)
     }
     return ensureEnvNow(req)
+  }
+
+  /** Wraps `onPolicyError` to take the policy object `_evaluateOnce` has in hand, extracting just its `id`. */
+  private _onPolicyErrorAdapter(): ((err: Error, policy: AccessControl.IPolicy) => void) | undefined {
+    const onPolicyErrorHook = this._hooks.onPolicyError
+    return onPolicyErrorHook ? (err, policy) => onPolicyErrorHook(err, policy.id) : undefined
+  }
+
+  /**
+   * Builds one batch check's request, varying only `subject` across the three `permissions()` sites that need
+   * this shape: the placeholder subject before resolution, the scope-enriched subject, and the plain resolved one.
+   */
+  private _checkRequest(
+    subject: IamRequest.ISubject,
+    c: IamClient.IPermissionCheck<TAction, TResource, TScope>,
+    environment: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+  ): IamRequest.IAccessRequest<TAction, TResource, TScope> {
+    return {
+      subject,
+      action: c.action,
+      resource: { type: c.resource, id: c.resourceId, attributes: c.attributes ?? {} },
+      environment,
+      scope: c.scope,
+    }
   }
 
   /** Fires `onMetrics`, if set, with the caller's `t0` (`0` when no hook needed `performance.now()`). */
@@ -1160,13 +1181,7 @@ export class IamEngine<
       // One observed deny per map entry, as the evaluated path emits, so a batch under an outage is countable.
       const t0 = this._observerT0()
       for (const c of checks) {
-        const denyReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
-          subject: { id: subjectId, roles: [], attributes: {} },
-          action: c.action,
-          resource: { type: c.resource, id: c.resourceId, attributes: c.attributes ?? {} },
-          environment,
-          scope: c.scope,
-        }
+        const denyReq = this._checkRequest({ id: subjectId, roles: [], attributes: {} }, c, environment)
         await this._emitUnevaluatedDeny(denyReq, 'resolution', t0, telemetry)
       }
       return failClosed as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
@@ -1177,10 +1192,7 @@ export class IamEngine<
     const enrichedByScope = new Map<TScope, IamRequest.ISubject>()
 
     // Forward onPolicyError so batch checks report per-policy throws too.
-    const onPolicyErrorHook = this._hooks.onPolicyError
-    const onPolicyError = onPolicyErrorHook
-      ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
-      : undefined
+    const onPolicyError = this._onPolicyErrorAdapter()
 
     for (const c of checks) {
       const key = iamBuildPermissionKey(c.action, c.resource, c.resourceId, c.scope)
@@ -1204,13 +1216,7 @@ export class IamEngine<
           }
         }
 
-        let req: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
-          subject: enrichedSubject,
-          action: c.action,
-          resource: { type: c.resource, id: c.resourceId, attributes: c.attributes ?? {} },
-          environment,
-          scope: c.scope,
-        }
+        let req = this._checkRequest(enrichedSubject, c, environment)
 
         req = await this._runBeforeEvaluateAndDefaultClock(req)
 
@@ -1228,13 +1234,7 @@ export class IamEngine<
         evalReq = req
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
-        const errReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
-          subject,
-          action: c.action,
-          resource: { type: c.resource, id: c.resourceId, attributes: c.attributes ?? {} },
-          environment,
-          scope: c.scope,
-        }
+        const errReq = this._checkRequest(subject, c, environment)
         await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
         await this._emitUnevaluatedDeny(errReq, 'evaluation', t0, telemetry)
         map[key] = false
