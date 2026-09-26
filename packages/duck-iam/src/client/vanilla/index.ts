@@ -15,8 +15,7 @@
  */
 
 import type { IamClient } from '../../core/types'
-import { iamBuildPermissionKey } from '../../shared/keys'
-import { iamAllowedActions, iamHasAnyOn, iamPermissionGranted } from '../../shared/permission-map'
+import { iamAllowedActions, iamCan, iamHasAnyOn } from '../../shared/permission-map'
 
 /** Re-exported so consumers get map introspection instead of splitting keys on `':'`. */
 export { iamAllowedActions, iamHasAnyOn }
@@ -93,8 +92,7 @@ export class IamAccessClient<
 
   /** Returns whether the map grants the action on the resource (optionally one instance, within a scope). */
   can(action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean {
-    const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-    return iamPermissionGranted(this._permissions, key)
+    return iamCan(this._permissions, action, resource, resourceId, scope)
   }
 
   /** Negation of {@link IamAccessClient.can}. */

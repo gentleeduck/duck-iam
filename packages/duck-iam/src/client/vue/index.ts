@@ -13,7 +13,7 @@
 
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
-import { iamAllowedActions, iamHasAnyOn, iamPermissionGranted } from '../../shared/permission-map'
+import { iamAllowedActions, iamCan, iamHasAnyOn } from '../../shared/permission-map'
 
 /** Re-exported so consumers get key escaping and introspection instead of splitting keys on `':'`. */
 export { iamAllowedActions, iamBuildPermissionKey, iamHasAnyOn }
@@ -87,10 +87,8 @@ export function createIamVueAccess<
     const snapshot = (map: IamClient.PartialPermissionMap<TAction, TResource, TScope>) => Object.freeze({ ...map })
     const permissions = ref(snapshot(initialPermissions))
 
-    const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
-      const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-      return iamPermissionGranted(permissions.value, key)
-    }
+    const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean =>
+      iamCan(permissions.value, action, resource, resourceId, scope)
 
     const cannot = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
       return !can(action, resource, resourceId, scope)
@@ -167,10 +165,8 @@ export function createIamVueAccess<
       )
     }
 
-    const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
-      const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-      return iamPermissionGranted(permissions.value, key)
-    }
+    const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean =>
+      iamCan(permissions.value, action, resource, resourceId, scope)
 
     void refetch()
 
