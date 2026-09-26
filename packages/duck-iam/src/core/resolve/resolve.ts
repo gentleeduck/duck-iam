@@ -1,4 +1,4 @@
-import type { IamPrimitives, IamRequest } from '../types'
+import { type IamPrimitives, type IamRequest, iamIsAttributeValue } from '../types'
 
 /** Top-level path prefixes accepted by {@link resolve}. */
 export const ALLOWED_ROOTS: ReadonlySet<string> = new Set(['subject', 'resource', 'environment'])
@@ -80,24 +80,9 @@ export function resolve(
     node = Object.hasOwn(node, seg) ? Reflect.get(node, seg) : undefined
   }
 
-  return isAttributeValue(node) ? node : null
-}
-
-function isScalar(value: unknown): value is IamPrimitives.Scalar {
-  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-}
-
-/**
- * Narrows a resolved node to the {@link resolve} contract; adapters can pass nested objects, `Date`s and functions.
- * SECURITY: anything off-contract resolves to `null`, so no operator gives it a wrong `false` that retires a deny.
- */
-function isAttributeValue(value: unknown): value is IamPrimitives.AttributeValue {
-  if (isScalar(value)) return true
-  if (Array.isArray(value)) return value.every(isScalar)
-  if (typeof value !== 'object') return false
-  const proto = Object.getPrototypeOf(value)
-  if (proto !== Object.prototype && proto !== null) return false
-  return Object.values(value).every(isScalar)
+  // SECURITY: anything off-contract resolves to `null`, so no operator gives it a wrong `false` that retires a deny;
+  // adapters can pass nested objects, `Date`s and functions that {@link iamIsAttributeValue} refuses.
+  return iamIsAttributeValue(node) ? node : null
 }
 
 /**
