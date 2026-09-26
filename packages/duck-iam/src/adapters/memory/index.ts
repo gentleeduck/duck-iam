@@ -1,5 +1,6 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamScopedRoleEntries, iamUnscopedRoleIds } from '../../shared/assignment-entries'
 import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamCopyAttributes } from '../../shared/attributes'
 import {
@@ -145,8 +146,7 @@ export class IamMemoryAdapter<
 
   /** Lists a subject's unscoped (global) role IDs, deduplicated. */
   async getSubjectRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
-    const entries = this._assignments.get(id) ?? []
-    return [...new Set(entries.filter((e) => e.scope == null).map((e) => e.role))]
+    return iamUnscopedRoleIds(this._assignments.get(id) ?? [])
   }
 
   /** Lists a subject's scoped `(role, scope)` assignments only. */
@@ -154,8 +154,7 @@ export class IamMemoryAdapter<
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
-    const hasScope = (e: { role: TRole; scope?: TScope }): e is { role: TRole; scope: TScope } => e.scope != null
-    return (this._assignments.get(id) ?? []).filter(hasScope).map((e) => ({ role: e.role, scope: e.scope }))
+    return iamScopedRoleEntries(this._assignments.get(id) ?? [])
   }
 
   /**
