@@ -3,7 +3,13 @@ import { toError, toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
-import { iamScopedRoleEntries, iamUnscopedRoleIds } from '../../shared/assignment-entries'
+import {
+  iamAddAssignmentIfAbsent,
+  iamFilterOutRoleAssignment,
+  iamPruneRoleAssignments,
+  iamScopedRoleEntries,
+  iamUnscopedRoleIds,
+} from '../../shared/assignment-entries'
 import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamCopyAttributes, iamNarrowAttributes } from '../../shared/attributes'
 import { iamRowErrorReporter } from '../../shared/row-error-reporter'
@@ -493,8 +499,8 @@ export class IamFileAdapter<
       )
     }
     for (const [subjectId, entries] of Object.entries(s.assignments)) {
-      const kept = entries.filter((e) => e.role !== id)
-      if (kept.length === entries.length) continue
+      const kept = iamPruneRoleAssignments(entries, id)
+      if (kept === null) continue
       if (kept.length === 0) delete s.assignments[subjectId]
       else s.assignments[subjectId] = kept
     }
@@ -540,9 +546,7 @@ export class IamFileAdapter<
       entries = []
       s.assignments[id] = entries
     }
-    if (!entries.some((e) => e.role === roleId && e.scope === scope)) {
-      entries.push({ role: roleId, scope })
-    }
+    iamAddAssignmentIfAbsent(entries, roleId, scope)
     await this._flush()
   }
 
@@ -556,10 +560,7 @@ export class IamFileAdapter<
     this._assertReadableAssignments(s, id)
     const entries = s.assignments[id]
     if (!entries) return
-    s.assignments[id] =
-      scope === undefined
-        ? entries.filter((e) => e.role !== roleId)
-        : entries.filter((e) => !(e.role === roleId && e.scope === scope))
+    s.assignments[id] = iamFilterOutRoleAssignment(entries, roleId, scope)
     await this._flush()
   }
 

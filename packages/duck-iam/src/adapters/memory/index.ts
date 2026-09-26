@@ -1,6 +1,12 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
-import { iamScopedRoleEntries, iamUnscopedRoleIds } from '../../shared/assignment-entries'
+import {
+  iamAddAssignmentIfAbsent,
+  iamFilterOutRoleAssignment,
+  iamPruneRoleAssignments,
+  iamScopedRoleEntries,
+  iamUnscopedRoleIds,
+} from '../../shared/assignment-entries'
 import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamCopyAttributes } from '../../shared/attributes'
 import {
@@ -137,8 +143,8 @@ export class IamMemoryAdapter<
       if (stripped !== null) this._roles.set(roleId, stripped)
     }
     for (const [subjectId, entries] of this._assignments) {
-      const kept = entries.filter((e) => e.role !== id)
-      if (kept.length === entries.length) continue
+      const kept = iamPruneRoleAssignments(entries, id)
+      if (kept === null) continue
       if (kept.length === 0) this._assignments.delete(subjectId)
       else this._assignments.set(subjectId, kept)
     }
@@ -170,9 +176,7 @@ export class IamMemoryAdapter<
       entries = []
       this._assignments.set(id, entries)
     }
-    if (!entries.some((e) => e.role === roleId && e.scope === scope)) {
-      entries.push({ role: roleId, scope })
-    }
+    iamAddAssignmentIfAbsent(entries, roleId, scope)
   }
 
   /**
@@ -183,11 +187,7 @@ export class IamMemoryAdapter<
     iamAssertAssignableScope('memory', scope, 'lookup')
     const entries = this._assignments.get(id)
     if (!entries) return
-    const filtered =
-      scope === undefined
-        ? entries.filter((e) => e.role !== roleId)
-        : entries.filter((e) => !(e.role === roleId && e.scope === scope))
-    this._assignments.set(id, filtered)
+    this._assignments.set(id, iamFilterOutRoleAssignment(entries, roleId, scope))
   }
 
   /**
