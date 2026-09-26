@@ -37,7 +37,11 @@ import {
 } from './engine.libs'
 import { disposeInvalidator, preloadEngine, runHealthCheck } from './engine.lifecycle'
 import { type IIamLoaderDeps, loadAllPolicies, loadPolicies, loadRoles, resolveSubject } from './engine.loaders'
-import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
+import {
+  type IStatsSnapshot,
+  resetStats as resetStatsHelper,
+  statsSnapshot as statsSnapshotHelper,
+} from './engine.stats'
 import type { IamEngineTypes } from './engine.types'
 
 /**
@@ -228,7 +232,12 @@ export class IamEngine<
    * @since 3.0.0
    */
   readonly stats = {
-    /** Snapshot per-cache counters. Counters accumulate from construction. */
+    /**
+     * Snapshot per-cache counters. Counters accumulate from construction.
+     * NOTE: kept as a fresh object-literal return type (not {@link IStatsSnapshot}) on purpose: only a literal
+     * type gets TS's implicit index signature, which is what lets the devtools `IamIDevtoolsEngine` contract's
+     * deliberately looser `Record<string, ...>` accept it.
+     */
     get: (): {
       policies: { hits: number; misses: number; size: number }
       roles: { hits: number; misses: number; size: number }
@@ -884,6 +893,26 @@ export class IamEngine<
     if (telemetry) this._emitMetrics(req, false, t0, false)
   }
 
+  /** Shared preamble for `can`/`check`: the subject-stub request they deny with, and whether `subjectId` fails validation. */
+  private _requestPreamble(
+    subjectId: string,
+    action: TAction,
+    resource: IamRequest.IResource<TResource>,
+    environment: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+    scope: TScope | undefined,
+  ): { req: IamRequest.IAccessRequest<TAction, TResource, TScope>; invalidSubjectId: boolean } {
+    return {
+      req: {
+        subject: { id: typeof subjectId === 'string' ? subjectId : '', roles: [], attributes: {} },
+        action,
+        resource,
+        environment,
+        scope,
+      },
+      invalidSubjectId: typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024,
+    }
+  }
+
   /** {@link safeHookCall} with this engine's `hookTimeoutMs`. */
   private async _safeHookCall(fn: () => unknown, hookName: string): Promise<void> {
     await safeHookCall(fn, hookName, this._hookTimeoutMs)
@@ -963,14 +992,8 @@ export class IamEngine<
     scope?: TScope,
   ): Promise<boolean> {
     const t0 = this._observerT0()
-    const denyReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
-      subject: { id: typeof subjectId === 'string' ? subjectId : '', roles: [], attributes: {} },
-      action,
-      resource,
-      environment,
-      scope,
-    }
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
+    const { req: denyReq, invalidSubjectId } = this._requestPreamble(subjectId, action, resource, environment, scope)
+    if (invalidSubjectId) {
       await this._emitUnevaluatedDeny(denyReq, 'input', t0)
       return false
     }
@@ -1008,14 +1031,8 @@ export class IamEngine<
     scope?: TScope,
   ): Promise<AccessControl.ModeResult<TMode>> {
     const t0 = this._observerT0()
-    const req: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
-      subject: { id: typeof subjectId === 'string' ? subjectId : '', roles: [], attributes: {} },
-      action,
-      resource,
-      environment,
-      scope,
-    }
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
+    const { req, invalidSubjectId } = this._requestPreamble(subjectId, action, resource, environment, scope)
+    if (invalidSubjectId) {
       // Fail-closed: in production mode return false; otherwise a synthesized deny.
       await this._emitUnevaluatedDeny(req, 'input', t0)
       if (this._mode === 'production') return this._asResult(false)
@@ -1304,13 +1321,7 @@ export class IamEngine<
   }
 
   /** @internal Snapshot per-cache counters. Reached via `stats.get`. */
-  private _statsSnapshot(): {
-    policies: { hits: number; misses: number; size: number }
-    roles: { hits: number; misses: number; size: number }
-    rbacPolicy: { hits: number; misses: number; size: number }
-    mergedPolicies: { hits: number; misses: number; size: number }
-    subjects: { hits: number; misses: number; size: number }
-  } {
+  private _statsSnapshot(): IStatsSnapshot {
     return statsSnapshotHelper(this._cachesForStats())
   }
 
