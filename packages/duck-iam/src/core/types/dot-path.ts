@@ -205,17 +205,13 @@ export namespace DotPath {
 
   /**
    * Value at a dot-path inside an attribute-bag; `never` on invalid path.
+   * NOTE: identical recursion to {@link PathValue}, kept as its own name since it's read at the attribute-bag
+   * boundary ({@link AttrValue} below) rather than the whole context - delegates so the two can't drift apart.
    *
    * @template T - The attribute-bag object type.
    * @template P - The dot-separated path string.
    */
-  export type AttrValueAt<T, P extends string> = P extends `${infer K}.${infer Rest}`
-    ? K extends keyof T
-      ? AttrValueAt<T[K], Rest>
-      : never
-    : P extends keyof T
-      ? T[P]
-      : never
+  export type AttrValueAt<T, P extends string> = PathValue<T, P>
 
   /**
    * Constrained value lookup at `P` in attribute bag `T`; falls back to {@link IamPrimitives.AttributeValue}.
