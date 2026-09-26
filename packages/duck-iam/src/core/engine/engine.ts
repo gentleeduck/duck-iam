@@ -777,12 +777,7 @@ export class IamEngine<
         if (enriched !== req.subject) req = { ...req, subject: enriched }
       }
 
-      if (this._hooks.beforeEvaluate) {
-        req = await this._runBeforeEvaluate(req)
-      }
-
-      // Default the clock after the hook, so a hook-pinned `now` wins.
-      req = ensureEnvNow(req)
+      req = await this._runBeforeEvaluateAndDefaultClock(req)
 
       const onPolicyErrorHook = this._hooks.onPolicyError
       const onPolicyError = onPolicyErrorHook
@@ -948,6 +943,19 @@ export class IamEngine<
     }
   }
 
+  /**
+   * Runs `beforeEvaluate` if wired, then defaults the request's evaluation clock; the hook runs first so a
+   * hook-pinned `now` wins. Shared by `authorize()`, `explain()` and `permissions()`'s per-check loop.
+   */
+  private async _runBeforeEvaluateAndDefaultClock(
+    req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+  ): Promise<IamRequest.IAccessRequest<TAction, TResource, TScope>> {
+    if (this._hooks.beforeEvaluate) {
+      req = await this._runBeforeEvaluate(req)
+    }
+    return ensureEnvNow(req)
+  }
+
   /** Fires `onMetrics`, if set, with the caller's `t0` (`0` when no hook needed `performance.now()`). */
   private _emitMetrics(
     req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
@@ -1093,12 +1101,7 @@ export class IamEngine<
       scope,
     }
 
-    if (this._hooks.beforeEvaluate) {
-      req = await this._runBeforeEvaluate(req)
-    }
-
-    // Default the evaluation clock (after the hook, so a pinned `now` wins).
-    req = ensureEnvNow(req)
+    req = await this._runBeforeEvaluateAndDefaultClock(req)
 
     const allPolicies = await this._loadAllPolicies()
 
@@ -1209,12 +1212,7 @@ export class IamEngine<
           scope: c.scope,
         }
 
-        if (this._hooks.beforeEvaluate) {
-          req = await this._runBeforeEvaluate(req)
-        }
-
-        // Default the evaluation clock per check (after the hook).
-        req = ensureEnvNow(req)
+        req = await this._runBeforeEvaluateAndDefaultClock(req)
 
         const signals: { failOpen?: boolean } = {}
 
