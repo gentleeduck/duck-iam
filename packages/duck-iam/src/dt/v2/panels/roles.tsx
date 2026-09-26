@@ -10,6 +10,7 @@ import {
   IamV2Action,
   IamV2Alert,
   IamV2Chip,
+  IamV2DescriptionSection,
   IamV2Disclosure,
   IamV2Empty,
   IamV2ListRow,
@@ -75,11 +76,7 @@ export function IamRolesPanelV2({ engine }: IamEnginePanelProps) {
                 </span>
               </div>
               <IamV2PaneBody>
-                {current.description && (
-                  <IamV2Section title="Description">
-                    <p className="text-muted-foreground text-xs leading-relaxed">{current.description}</p>
-                  </IamV2Section>
-                )}
+                <IamV2DescriptionSection text={current.description} />
                 {current.inherits && current.inherits.length > 0 && (
                   <IamV2Section title="Inherits">
                     <div className="flex flex-wrap gap-1.5">

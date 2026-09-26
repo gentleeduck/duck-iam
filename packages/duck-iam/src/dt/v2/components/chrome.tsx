@@ -222,6 +222,16 @@ export function IamV2Section({
   )
 }
 
+/** An optional blurb rendered in its own {@link IamV2Section}; renders nothing when `text` is absent. */
+export function IamV2DescriptionSection({ text }: { text?: string }) {
+  if (!text) return null
+  return (
+    <IamV2Section title="Description">
+      <p className="text-muted-foreground text-xs leading-relaxed">{text}</p>
+    </IamV2Section>
+  )
+}
+
 /** A disclosure row inside a section - a rule, a permission, a trace group. */
 export function IamV2Disclosure({
   children,
