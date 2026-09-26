@@ -112,6 +112,13 @@ function readInvalidatorSubscribed(
   return { ok: true, subscribed: reported.subscribed }
 }
 
+/** Throws `IAM_ENGINE_INVALID_CONFIG` unless `value` is finite and `>= min`; shared by the engine's numeric options. */
+function assertFiniteAtLeast(field: string, value: number, min: number, constraint: string): void {
+  if (!Number.isFinite(value) || value < min) {
+    throwIamError('IAM_ENGINE_INVALID_CONFIG', { field, got: value, constraint })
+  }
+}
+
 /** One bit per directly held role; `compileTable` already folds inherited grants into `table.allow`. */
 function maskFromRoles(table: CompiledTable, roles: readonly string[]): number {
   let mask = 0
@@ -307,34 +314,10 @@ export class IamEngine<
     this._maxConcurrentSubjectLoads = config.maxConcurrentSubjectLoads ?? DEFAULT_MAX_CONCURRENT_SUBJECT_LOADS
 
     // SECURITY: reject non-finite caps; `NaN > x` is always false, so a NaN limit disables the bound.
-    if (!Number.isFinite(this._maxPolicies) || this._maxPolicies < 1) {
-      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
-        field: 'maxPolicies',
-        got: this._maxPolicies,
-        constraint: 'finite number >= 1',
-      })
-    }
-    if (!Number.isFinite(this._maxRoles) || this._maxRoles < 1) {
-      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
-        field: 'maxRoles',
-        got: this._maxRoles,
-        constraint: 'finite number >= 1',
-      })
-    }
-    if (!Number.isFinite(this._adapterTimeoutMs) || this._adapterTimeoutMs < 0) {
-      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
-        field: 'adapterTimeoutMs',
-        got: this._adapterTimeoutMs,
-        constraint: 'finite number >= 0',
-      })
-    }
-    if (!Number.isFinite(this._hookTimeoutMs) || this._hookTimeoutMs < 0) {
-      throwIamError('IAM_ENGINE_INVALID_CONFIG', {
-        field: 'hookTimeoutMs',
-        got: this._hookTimeoutMs,
-        constraint: 'finite number >= 0',
-      })
-    }
+    assertFiniteAtLeast('maxPolicies', this._maxPolicies, 1, 'finite number >= 1')
+    assertFiniteAtLeast('maxRoles', this._maxRoles, 1, 'finite number >= 1')
+    assertFiniteAtLeast('adapterTimeoutMs', this._adapterTimeoutMs, 0, 'finite number >= 0')
+    assertFiniteAtLeast('hookTimeoutMs', this._hookTimeoutMs, 0, 'finite number >= 0')
     // 0 means unbounded, the same convention `adapterTimeoutMs` and `hookTimeoutMs` use; anything else is a cap.
     if (
       !Number.isFinite(this._maxConcurrentSubjectLoads) ||
