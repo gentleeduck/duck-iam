@@ -1,8 +1,7 @@
-import React from 'react'
 import type { AccessControl } from '../../core/types'
-import { ChevronDown, ChevronRight, Refresh } from '../components/icons'
+import { Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
-import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
+import { CollapsibleGroup, DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
 import { isDevtoolsAllowed } from '../lib/guard'
 import { useIamListPanel } from '../lib/list-panel'
@@ -88,28 +87,28 @@ export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
 }
 
 function RuleRow({ rule }: { rule: AccessControl.IRule }) {
-  const [open, setOpen] = React.useState(false)
   return (
-    <div className="iam-dt-trace__group">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="iam-dt-trace__group-head">
-        <span className="iam-dt-section__chev">{open ? <ChevronDown /> : <ChevronRight />}</span>
-        <code>{rule.id}</code>
-        <Badge tone={rule.effect === 'allow' ? 'allow' : 'deny'}>{rule.effect}</Badge>
-        <Badge>p{rule.priority}</Badge>
-        <code className="iam-dt-action">{rule.actions.join(', ')}</code>
-        <span className="iam-dt-mute">on</span>
-        <code className="iam-dt-resource">{rule.resources.join(', ')}</code>
-      </button>
-      {open && (
-        <div className="iam-dt-trace__group-body">
+    <CollapsibleGroup
+      detail={
+        <>
           {rule.description && (
             <p className="iam-dt-soft" style={{ fontSize: 11 }}>
               {rule.description}
             </p>
           )}
           {rule.conditions && <JsonTree data={rule.conditions} defaultOpen label="conditions" />}
-        </div>
-      )}
-    </div>
+        </>
+      }
+      summary={
+        <>
+          <code>{rule.id}</code>
+          <Badge tone={rule.effect === 'allow' ? 'allow' : 'deny'}>{rule.effect}</Badge>
+          <Badge>p{rule.priority}</Badge>
+          <code className="iam-dt-action">{rule.actions.join(', ')}</code>
+          <span className="iam-dt-mute">on</span>
+          <code className="iam-dt-resource">{rule.resources.join(', ')}</code>
+        </>
+      }
+    />
   )
 }

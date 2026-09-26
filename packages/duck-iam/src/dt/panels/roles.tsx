@@ -1,8 +1,7 @@
-import React from 'react'
 import type { AccessControl } from '../../core/types'
-import { ChevronDown, ChevronRight, CornerUpRight, Refresh } from '../components/icons'
+import { CornerUpRight, Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
-import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
+import { CollapsibleGroup, DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
 import { isDevtoolsAllowed } from '../lib/guard'
 import { useIamListPanel } from '../lib/list-panel'
@@ -99,27 +98,20 @@ export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
 }
 
 function PermRow({ perm }: { perm: AccessControl.IPermission }) {
-  const [open, setOpen] = React.useState(false)
   const hasDetail = !!perm.conditions || !!perm.scope
   return (
-    <div className="iam-dt-trace__group">
-      <button
-        type="button"
-        onClick={() => hasDetail && setOpen((o) => !o)}
-        className="iam-dt-trace__group-head"
-        disabled={!hasDetail}>
-        <span className="iam-dt-section__chev">{hasDetail ? open ? <ChevronDown /> : <ChevronRight /> : null}</span>
-        <code className="iam-dt-action">{perm.action}</code>
-        <span className="iam-dt-mute">on</span>
-        <code className="iam-dt-resource">{perm.resource}</code>
-        {perm.scope && <Badge tone="info">{perm.scope}</Badge>}
-        {perm.conditions && <Badge tone="warn">cond</Badge>}
-      </button>
-      {open && hasDetail && perm.conditions && (
-        <div className="iam-dt-trace__group-body">
-          <JsonTree data={perm.conditions} defaultOpen label="conditions" />
-        </div>
-      )}
-    </div>
+    <CollapsibleGroup
+      disabled={!hasDetail}
+      detail={perm.conditions && <JsonTree data={perm.conditions} defaultOpen label="conditions" />}
+      summary={
+        <>
+          <code className="iam-dt-action">{perm.action}</code>
+          <span className="iam-dt-mute">on</span>
+          <code className="iam-dt-resource">{perm.resource}</code>
+          {perm.scope && <Badge tone="info">{perm.scope}</Badge>}
+          {perm.conditions && <Badge tone="warn">cond</Badge>}
+        </>
+      }
+    />
   )
 }

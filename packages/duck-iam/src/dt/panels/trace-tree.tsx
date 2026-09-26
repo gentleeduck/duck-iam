@@ -1,6 +1,6 @@
-import React from 'react'
 import type { Explain } from '../../core/explain'
-import { ArrowRight, ChevronDown, ChevronRight } from '../components/icons'
+import { ArrowRight } from '../components/icons'
+import { CollapsibleGroup } from '../components/layout'
 import { Badge } from '../components/ui'
 import { formatAttrValue, summarizeTrace } from '../lib/format'
 import { useIamDevtoolsStyles } from '../lib/styles'
@@ -29,55 +29,49 @@ function LeafNode({ leaf }: { leaf: Explain.ILeafTrace }) {
 }
 
 function GroupNode({ group, depth = 0 }: { group: Explain.IGroupTrace; depth?: number }) {
-  const [open, setOpen] = React.useState(depth < 2)
   return (
-    <div className="iam-dt-trace__group">
-      <button onClick={() => setOpen(!open)} type="button" className="iam-dt-trace__group-head">
-        <span className="iam-dt-section__chev">{open ? <ChevronDown /> : <ChevronRight />}</span>
-        <Badge tone={group.result ? 'allow' : 'deny'}>{group.logic.toUpperCase()}</Badge>
-        <span className="iam-dt-soft" style={{ fontSize: 11 }}>
-          {summarizeTrace(group)}
-        </span>
-      </button>
-      {open && (
-        <div className="iam-dt-trace__group-body">
-          {group.children.map((child) =>
-            child.type === 'condition' ? (
-              <LeafNode key={`leaf:${child.field}:${child.operator}`} leaf={child} />
-            ) : (
-              <GroupNode depth={depth + 1} group={child} key={`group:${child.logic}:${child.children.length}`} />
-            ),
-          )}
-        </div>
+    <CollapsibleGroup
+      defaultOpen={depth < 2}
+      detail={group.children.map((child) =>
+        child.type === 'condition' ? (
+          <LeafNode key={`leaf:${child.field}:${child.operator}`} leaf={child} />
+        ) : (
+          <GroupNode depth={depth + 1} group={child} key={`group:${child.logic}:${child.children.length}`} />
+        ),
       )}
-    </div>
+      summary={
+        <>
+          <Badge tone={group.result ? 'allow' : 'deny'}>{group.logic.toUpperCase()}</Badge>
+          <span className="iam-dt-soft" style={{ fontSize: 11 }}>
+            {summarizeTrace(group)}
+          </span>
+        </>
+      }
+    />
   )
 }
 
 function RuleTrace({ rule }: { rule: Explain.IRuleTrace }) {
-  const [open, setOpen] = React.useState(rule.matched)
   return (
-    <div className="iam-dt-trace__group">
-      <button onClick={() => setOpen(!open)} type="button" className="iam-dt-trace__group-head">
-        <span className="iam-dt-section__chev">{open ? <ChevronDown /> : <ChevronRight />}</span>
-        <span
-          className={rule.effect === 'allow' ? 'iam-dt-effect-allow' : 'iam-dt-effect-deny'}
-          style={{ fontSize: 10, textTransform: 'uppercase' }}>
-          {rule.effect}
-        </span>
-        <code>{rule.ruleId}</code>
-        <Badge tone={rule.actionMatch ? 'allow' : 'neutral'}>act</Badge>
-        <Badge tone={rule.resourceMatch ? 'allow' : 'neutral'}>res</Badge>
-        <Badge tone={rule.conditionsMet ? 'allow' : 'deny'}>cond</Badge>
-        <Badge tone="warn">p{rule.priority}</Badge>
-        {rule.matched && <Badge tone="allow">matched</Badge>}
-      </button>
-      {open && (
-        <div className="iam-dt-trace__group-body">
-          <GroupNode group={rule.conditions} />
-        </div>
-      )}
-    </div>
+    <CollapsibleGroup
+      defaultOpen={rule.matched}
+      detail={<GroupNode group={rule.conditions} />}
+      summary={
+        <>
+          <span
+            className={rule.effect === 'allow' ? 'iam-dt-effect-allow' : 'iam-dt-effect-deny'}
+            style={{ fontSize: 10, textTransform: 'uppercase' }}>
+            {rule.effect}
+          </span>
+          <code>{rule.ruleId}</code>
+          <Badge tone={rule.actionMatch ? 'allow' : 'neutral'}>act</Badge>
+          <Badge tone={rule.resourceMatch ? 'allow' : 'neutral'}>res</Badge>
+          <Badge tone={rule.conditionsMet ? 'allow' : 'deny'}>cond</Badge>
+          <Badge tone="warn">p{rule.priority}</Badge>
+          {rule.matched && <Badge tone="allow">matched</Badge>}
+        </>
+      }
+    />
   )
 }
 
