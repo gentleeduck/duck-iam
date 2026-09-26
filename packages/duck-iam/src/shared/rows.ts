@@ -42,6 +42,11 @@ export function iamCloneRow<T>(row: T): T {
   return structuredClone(row)
 }
 
+/** Spreads `{ [key]: value }` into a row candidate, unless `value` is a SQL/Prisma NULL or an absent column. */
+export function iamOmitNullishField(key: string, value: unknown): Record<string, unknown> {
+  return value === null || value === undefined ? {} : { [key]: value }
+}
+
 /**
  * Copy of the policy in the one shape every adapter round-trips: `version` defaults to `1` (the SQL default),
  * absent optional keys stay absent (not `undefined`), and fields outside {@link AccessControl.IPolicy} are dropped.

@@ -7,6 +7,7 @@ import {
   iamAssertSavablePolicy,
   iamAssertSavableRole,
   iamNormalizePolicy,
+  iamOmitNullishField,
   iamRoleWithoutInherit,
   iamUnreadablePolicy,
   iamUnreadableRole,
@@ -441,11 +442,11 @@ function toPolicy(row: IamPrisma.IPolicyRow): Record<string, unknown> {
   return {
     id: row.id,
     name: row.name,
-    ...(row.description === null || row.description === undefined ? {} : { description: row.description }),
+    ...iamOmitNullishField('description', row.description),
     version: row.version,
     algorithm: row.algorithm,
     rules: row.rules,
-    ...(row.targets === null || row.targets === undefined ? {} : { targets: row.targets }),
+    ...iamOmitNullishField('targets', row.targets),
   }
 }
 
@@ -470,14 +471,14 @@ function toRole(row: IamPrisma.IRoleRow): Record<string, unknown> {
   return {
     id: row.id,
     name: row.name,
-    ...(row.description === null || row.description === undefined ? {} : { description: row.description }),
+    ...iamOmitNullishField('description', row.description),
     permissions: row.permissions,
     // Any other value, even a non-array, passes through so `parseRoleRow` refuses a corrupt column.
     ...(inherits === null || inherits === undefined || (Array.isArray(inherits) && inherits.length === 0)
       ? {}
       : { inherits }),
-    ...(row.scope === null || row.scope === undefined ? {} : { scope: row.scope }),
-    ...(row.metadata === null || row.metadata === undefined ? {} : { metadata: row.metadata }),
+    ...iamOmitNullishField('scope', row.scope),
+    ...iamOmitNullishField('metadata', row.metadata),
   }
 }
 
