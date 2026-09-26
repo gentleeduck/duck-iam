@@ -138,18 +138,11 @@ function _measureDepth(node: unknown, current = 0): number {
   if (current > 32) return current
   if (typeof node !== 'object' || node === null) return current
   let max = current
-  if (Array.isArray(node)) {
-    for (const v of node) {
-      const d = _measureDepth(v, current + 1)
-      if (d > max) max = d
-      if (max > 32) return max
-    }
-  } else {
-    for (const v of Object.values(node)) {
-      const d = _measureDepth(v, current + 1)
-      if (d > max) max = d
-      if (max > 32) return max
-    }
+  const values = Array.isArray(node) ? node : Object.values(node)
+  for (const v of values) {
+    const d = _measureDepth(v, current + 1)
+    if (d > max) max = d
+    if (max > 32) return max
   }
   return max
 }
