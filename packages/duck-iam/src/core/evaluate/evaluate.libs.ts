@@ -108,6 +108,24 @@ function topByPriority<T extends { rule: { readonly priority: number } }>(matche
 }
 
 /**
+ * `deny-overrides`/`allow-overrides` share one shape: prefer a match with `primary`'s effect, else `secondary`'s,
+ * else the algorithm's default. Only which effect is preferred first differs between the two.
+ */
+function overrideVote(
+  matched: Array<{ rule: AccessControl.IRule; effect: AccessControl.Effect }>,
+  primary: AccessControl.Effect,
+  secondary: AccessControl.Effect,
+  defaultEffect: AccessControl.Effect,
+): { rule?: AccessControl.IRule; effect: AccessControl.Effect; reason: string } {
+  const found = matched.find((m) => m.effect === primary) ?? matched.find((m) => m.effect === secondary)
+  if (found === undefined) {
+    return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
+  }
+  const verb = found.effect === 'deny' ? 'Denied' : 'Allowed'
+  return { rule: found.rule, effect: found.effect, reason: `${verb} by rule "${found.rule.id}"` }
+}
+
+/**
  * Combining-algorithm implementations. Each picks one matched rule's effect:
  *
  * - `deny-overrides`   - any deny wins; otherwise first allow wins.
@@ -119,45 +137,9 @@ function topByPriority<T extends { rule: { readonly priority: number } }>(matche
  * equal-priority rules of opposing effect make the verdict depend on it.
  */
 export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combiner> = {
-  'deny-overrides': (matched, defaultEffect) => {
-    const deny = matched.find((m) => m.effect === 'deny')
-    if (deny) {
-      return {
-        rule: deny.rule,
-        effect: 'deny',
-        reason: `Denied by rule "${deny.rule.id}"`,
-      }
-    }
-    const allow = matched.find((m) => m.effect === 'allow')
-    if (allow) {
-      return {
-        rule: allow.rule,
-        effect: 'allow',
-        reason: `Allowed by rule "${allow.rule.id}"`,
-      }
-    }
-    return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
-  },
+  'deny-overrides': (matched, defaultEffect) => overrideVote(matched, 'deny', 'allow', defaultEffect),
 
-  'allow-overrides': (matched, defaultEffect) => {
-    const allow = matched.find((m) => m.effect === 'allow')
-    if (allow) {
-      return {
-        rule: allow.rule,
-        effect: 'allow',
-        reason: `Allowed by rule "${allow.rule.id}"`,
-      }
-    }
-    const deny = matched.find((m) => m.effect === 'deny')
-    if (deny) {
-      return {
-        rule: deny.rule,
-        effect: 'deny',
-        reason: `Denied by rule "${deny.rule.id}"`,
-      }
-    }
-    return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
-  },
+  'allow-overrides': (matched, defaultEffect) => overrideVote(matched, 'allow', 'deny', defaultEffect),
 
   'first-match': (matched, defaultEffect) => {
     const first = topByPriority(matched)
