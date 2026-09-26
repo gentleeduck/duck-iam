@@ -31,13 +31,19 @@ export const MAX_FIELD_LENGTH = 256
 
 /** Max allowed length for a string `value` on a condition. */
 export const MAX_CONDITION_VALUE_LENGTH = 1024
-/** Valid combining algorithm names. */
-export const VALID_ALGORITHMS: ReadonlySet<string> = new Set([
+/**
+ * Every {@link AccessControl.CombiningAlgorithm}, in one place; `satisfies` catches drift against the type.
+ * The JSON schema's `algorithm` enum is derived from this array, so the two can't desync.
+ */
+export const COMBINING_ALGORITHMS = [
   'deny-overrides',
   'allow-overrides',
   'first-match',
   'highest-priority',
-])
+] as const satisfies readonly AccessControl.CombiningAlgorithm[]
+
+/** Valid combining algorithm names. */
+export const VALID_ALGORITHMS: ReadonlySet<string> = new Set(COMBINING_ALGORITHMS)
 
 /**
  * True when `value` contains an ASCII control character.
