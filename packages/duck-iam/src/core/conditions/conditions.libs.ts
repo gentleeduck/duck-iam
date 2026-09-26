@@ -283,6 +283,11 @@ function atomMatcher(source: string): RegExp | null {
   }
 }
 
+/** The pattern's own literal characters, added to {@link OVERLAP_PROBE_CHARS} so a class like `[q-s]` is covered. */
+function literalProbeChars(pattern: string): string[] {
+  return pattern.replace(/[^A-Za-z0-9]/g, '').split('')
+}
+
 /**
  * Whether two atoms can match the same character.
  * SECURITY: an atom that will not compile alone (a group, a backreference) counts as overlapping.
@@ -305,7 +310,7 @@ function atomsOverlap(a: string, b: string, extraProbes: readonly string[]): boo
  */
 function findAdjacentUnboundedOverlap(pattern: string): string | null {
   const atoms = scanQuantifiedAtoms(pattern)
-  const literals = pattern.replace(/[^A-Za-z0-9]/g, '').split('')
+  const literals = literalProbeChars(pattern)
   let prev: QuantifiedAtom | undefined
   for (const cur of atoms) {
     const pair = prev
@@ -336,7 +341,7 @@ function overlapsAll(sources: readonly string[], extraProbes: readonly string[])
  */
 function findOverlappingUnboundedChain(pattern: string): string | null {
   const atoms = scanQuantifiedAtoms(pattern)
-  const literals = pattern.replace(/[^A-Za-z0-9]/g, '').split('')
+  const literals = literalProbeChars(pattern)
   let chain: QuantifiedAtom[] = []
   let separators: QuantifiedAtom[] = []
   for (const atom of atoms) {
