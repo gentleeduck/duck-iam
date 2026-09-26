@@ -2,7 +2,7 @@
 
 import { cn } from '@gentleduck/libs/cn'
 import { Button } from '@gentleduck/registry-ui/button'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@gentleduck/registry-ui/field'
+import { FieldDescription, FieldGroup } from '@gentleduck/registry-ui/field'
 import { Input } from '@gentleduck/registry-ui/input'
 import { Textarea } from '@gentleduck/registry-ui/textarea'
 import { Loader2, Play, ScanSearch } from 'lucide-react'
@@ -14,6 +14,7 @@ import {
   IamV2Alert,
   IamV2Chip,
   IamV2Empty,
+  IamV2FieldBox,
   IamV2Hint,
   IamV2PaneBody,
   IamV2PaneHeader,
@@ -24,18 +25,6 @@ import {
 import { IamV2Json } from '../components/json-view'
 import { IAM_V2_ACTION, IAM_V2_MONO, IAM_V2_RESOURCE, iamV2Decision } from '../lib/tone'
 import { IamTraceTreeV2 } from './trace'
-
-/** A labelled control. duck-ui's `Field` wired to the id the input carries. */
-function Box({ children, id, label }: { children: React.ReactNode; id: string; label: string }) {
-  return (
-    <Field className="gap-1.5">
-      <FieldLabel className="text-[0.6875rem] text-muted-foreground uppercase tracking-wider" htmlFor={id}>
-        {label}
-      </FieldLabel>
-      {children}
-    </Field>
-  )
-}
 
 /**
  * Runs an ad-hoc check through `engine.explain()` and renders the trace with {@link IamTraceTreeV2}.
@@ -109,7 +98,7 @@ export function IamDecisionInspectorV2({
             <IamV2PaneBody className="gap-3">
               {/* One `FieldGroup` so the form shares duck-ui's field spacing and a single shortcut handler. */}
               <FieldGroup className="gap-3" onKeyDown={onFormKeyDown}>
-                <Box id={`${fieldId}-subject`} label="subject id">
+                <IamV2FieldBox id={`${fieldId}-subject`} label="subject id">
                   <Input
                     className="h-8 font-mono text-xs"
                     id={`${fieldId}-subject`}
@@ -117,9 +106,9 @@ export function IamDecisionInspectorV2({
                     placeholder="user-1"
                     value={input.subjectId}
                   />
-                </Box>
+                </IamV2FieldBox>
                 <div className="grid grid-cols-2 gap-3">
-                  <Box id={`${fieldId}-action`} label="action">
+                  <IamV2FieldBox id={`${fieldId}-action`} label="action">
                     <Input
                       className="h-8 font-mono text-xs"
                       id={`${fieldId}-action`}
@@ -127,8 +116,8 @@ export function IamDecisionInspectorV2({
                       placeholder="read"
                       value={input.action}
                     />
-                  </Box>
-                  <Box id={`${fieldId}-scope`} label="scope">
+                  </IamV2FieldBox>
+                  <IamV2FieldBox id={`${fieldId}-scope`} label="scope">
                     <Input
                       className="h-8 font-mono text-xs"
                       id={`${fieldId}-scope`}
@@ -136,10 +125,10 @@ export function IamDecisionInspectorV2({
                       placeholder="org-acme"
                       value={input.scope}
                     />
-                  </Box>
+                  </IamV2FieldBox>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <Box id={`${fieldId}-rtype`} label="resource type">
+                  <IamV2FieldBox id={`${fieldId}-rtype`} label="resource type">
                     <Input
                       className="h-8 font-mono text-xs"
                       id={`${fieldId}-rtype`}
@@ -147,8 +136,8 @@ export function IamDecisionInspectorV2({
                       placeholder="post"
                       value={input.resourceType}
                     />
-                  </Box>
-                  <Box id={`${fieldId}-rid`} label="resource id">
+                  </IamV2FieldBox>
+                  <IamV2FieldBox id={`${fieldId}-rid`} label="resource id">
                     <Input
                       className="h-8 font-mono text-xs"
                       id={`${fieldId}-rid`}
@@ -156,9 +145,9 @@ export function IamDecisionInspectorV2({
                       placeholder="p-1"
                       value={input.resourceId}
                     />
-                  </Box>
+                  </IamV2FieldBox>
                 </div>
-                <Box id={`${fieldId}-attrs`} label="resource.attributes (JSON)">
+                <IamV2FieldBox id={`${fieldId}-attrs`} label="resource.attributes (JSON)">
                   <Textarea
                     className="font-mono text-xs"
                     id={`${fieldId}-attrs`}
@@ -166,8 +155,8 @@ export function IamDecisionInspectorV2({
                     rows={4}
                     value={input.attributesJson}
                   />
-                </Box>
-                <Box id={`${fieldId}-env`} label="environment (JSON)">
+                </IamV2FieldBox>
+                <IamV2FieldBox id={`${fieldId}-env`} label="environment (JSON)">
                   <Textarea
                     className="font-mono text-xs"
                     id={`${fieldId}-env`}
@@ -175,7 +164,7 @@ export function IamDecisionInspectorV2({
                     rows={3}
                     value={input.environmentJson}
                   />
-                </Box>
+                </IamV2FieldBox>
                 <Button className="h-8 gap-1.5" disabled={pending} onClick={() => void run()} size="sm">
                   {pending ? <Loader2 className="animate-spin" size={13} /> : <Play size={13} />}
                   {pending ? 'evaluating' : 'evaluate'}

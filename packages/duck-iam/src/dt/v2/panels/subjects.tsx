@@ -2,7 +2,7 @@
 
 import { Button } from '@gentleduck/registry-ui/button'
 import { ButtonGroup } from '@gentleduck/registry-ui/button-group'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@gentleduck/registry-ui/field'
+import { FieldDescription, FieldGroup } from '@gentleduck/registry-ui/field'
 import { Input } from '@gentleduck/registry-ui/input'
 import { Textarea } from '@gentleduck/registry-ui/textarea'
 import { Save, Search, ShieldMinus, ShieldPlus, UserRound } from 'lucide-react'
@@ -18,6 +18,7 @@ import {
   IamV2Avatar,
   IamV2Chip,
   IamV2Empty,
+  IamV2FieldBox,
   IamV2Notice,
   IamV2PaneBody,
   IamV2PaneHeader,
@@ -148,12 +149,7 @@ export function IamSubjectsPanelV2({ engine }: IamEnginePanelProps) {
                 <IamV2Section defaultOpen={false} title="Role assignment">
                   <FieldGroup className="gap-3">
                     <div className="grid grid-cols-2 gap-3">
-                      <Field className="gap-1.5">
-                        <FieldLabel
-                          className="text-[0.6875rem] text-muted-foreground uppercase tracking-wider"
-                          htmlFor={`${fieldId}-role`}>
-                          role id
-                        </FieldLabel>
+                      <IamV2FieldBox id={`${fieldId}-role`} label="role id">
                         <Input
                           className="h-8 font-mono text-xs"
                           id={`${fieldId}-role`}
@@ -161,13 +157,8 @@ export function IamSubjectsPanelV2({ engine }: IamEnginePanelProps) {
                           placeholder="editor"
                           value={roleId}
                         />
-                      </Field>
-                      <Field className="gap-1.5">
-                        <FieldLabel
-                          className="text-[0.6875rem] text-muted-foreground uppercase tracking-wider"
-                          htmlFor={`${fieldId}-scope`}>
-                          scope (optional)
-                        </FieldLabel>
+                      </IamV2FieldBox>
+                      <IamV2FieldBox id={`${fieldId}-scope`} label="scope (optional)">
                         <Input
                           className="h-8 font-mono text-xs"
                           id={`${fieldId}-scope`}
@@ -175,7 +166,7 @@ export function IamSubjectsPanelV2({ engine }: IamEnginePanelProps) {
                           placeholder="org-acme"
                           value={scope}
                         />
-                      </Field>
+                      </IamV2FieldBox>
                     </div>
                     <ButtonGroup aria-label="Role assignment" className="self-start">
                       <Button className="h-8 gap-1.5" disabled={busy} onClick={() => void assign()} size="sm">
@@ -206,12 +197,7 @@ export function IamSubjectsPanelV2({ engine }: IamEnginePanelProps) {
           <>
             <IamV2PaneHeader title="Lookup" />
             <IamV2PaneBody className="gap-3">
-              <Field className="gap-1.5">
-                <FieldLabel
-                  className="text-[0.6875rem] text-muted-foreground uppercase tracking-wider"
-                  htmlFor={`${fieldId}-subject`}>
-                  subject id
-                </FieldLabel>
+              <IamV2FieldBox id={`${fieldId}-subject`} label="subject id">
                 <Input
                   className="h-8 font-mono text-xs"
                   id={`${fieldId}-subject`}
@@ -219,7 +205,7 @@ export function IamSubjectsPanelV2({ engine }: IamEnginePanelProps) {
                   placeholder="user-1"
                   value={subjectId}
                 />
-              </Field>
+              </IamV2FieldBox>
               <Button className="h-8 gap-1.5" disabled={busy} onClick={() => void load()} size="sm">
                 <Search size={13} />
                 load subject
