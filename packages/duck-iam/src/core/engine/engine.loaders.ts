@@ -44,6 +44,32 @@ export interface IIamLoaderDeps<
 }
 
 /**
+ * Cache-or-load-once for a single key: a cache hit returns immediately, an in-flight load is joined, and
+ * everything else runs exactly once through {@link runSingleFlight}. Shared by {@link loadAllCapped},
+ * {@link loadRbacPolicy} and {@link loadAllPolicies}, which differ only in which cache/key/slot they read and
+ * what `build`/`onSuccess` do.
+ */
+async function cacheOrBuild<T>(opts: {
+  cache: IamLRUCache<T>
+  key: string
+  slot: ISingleFlightSlot<T>
+  build: () => Promise<T>
+  onSuccess: (value: T) => void
+}): Promise<T> {
+  const cached = opts.cache.get(opts.key)
+  if (cached) return cached
+  if (opts.slot.value) return opts.slot.value
+  return runSingleFlight(
+    () => opts.slot.value,
+    (p) => {
+      opts.slot.value = p
+    },
+    opts.build,
+    opts.onSuccess,
+  )
+}
+
+/**
  * Cache-or-load-once for a whole-adapter list: single-flighted under the fixed key `'all'`, capped, and cached
  * only on success. Shared by {@link loadPolicies} and {@link loadRoles}, which differ only in which cache/slot/
  * adapter call/cap they use.
@@ -57,15 +83,11 @@ async function loadAllCapped<T>(opts: {
   capField: string
   noun: string
 }): Promise<T[]> {
-  const cached = opts.cache.get('all')
-  if (cached) return cached
-  if (opts.slot.value) return opts.slot.value
-  return runSingleFlight(
-    () => opts.slot.value,
-    (p) => {
-      opts.slot.value = p
-    },
-    async () => {
+  return cacheOrBuild({
+    cache: opts.cache,
+    key: 'all',
+    slot: opts.slot,
+    build: async () => {
       const items = await opts.fetch()
       if (items.length > opts.cap) {
         throw new Error(
@@ -74,10 +96,10 @@ async function loadAllCapped<T>(opts: {
       }
       return items
     },
-    (items) => {
+    onSuccess: (items) => {
       opts.cache.set('all', items)
     },
-  )
+  })
 }
 
 /** Every explicit policy. */
@@ -208,23 +230,19 @@ export async function loadRbacPolicy<
   TRole extends string,
   TScope extends string,
 >(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<AccessControl.IPolicy> {
-  const cached = deps.rbacPolicyCache.get('rbac')
-  if (cached) return cached
-  if (deps.inFlight.rbac.value) return deps.inFlight.rbac.value
-  return runSingleFlight(
-    () => deps.inFlight.rbac.value,
-    (p) => {
-      deps.inFlight.rbac.value = p
-    },
-    async () => {
+  return cacheOrBuild({
+    cache: deps.rbacPolicyCache,
+    key: 'rbac',
+    slot: deps.inFlight.rbac,
+    build: async () => {
       const roles = await loadRoles(deps)
       return deepFreezePolicy(rolesToPolicy(roles, deps.scopeMode))
     },
-    (built) => {
+    onSuccess: (built) => {
       // Expire with the role snapshot it was built from; a fresh TTL would outlive its input.
       deps.rbacPolicyCache.set('rbac', built, deps.roleCache.expiresAt('all'))
     },
-  )
+  })
 }
 
 /**
@@ -237,15 +255,11 @@ export async function loadAllPolicies<
   TRole extends string,
   TScope extends string,
 >(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<AccessControl.IPolicy[]> {
-  const cached = deps.mergedPolicyCache.get('merged')
-  if (cached) return cached
-  if (deps.inFlight.merged.value) return deps.inFlight.merged.value
-  return runSingleFlight(
-    () => deps.inFlight.merged.value,
-    (p) => {
-      deps.inFlight.merged.value = p
-    },
-    async () => {
+  return cacheOrBuild({
+    cache: deps.mergedPolicyCache,
+    key: 'merged',
+    slot: deps.inFlight.merged,
+    build: async () => {
       // `loadRoles` is a cache hit behind `loadRbacPolicy`, so the target check costs no extra read.
       const [policies, rbacPolicy, roles] = await Promise.all([
         loadPolicies(deps),
@@ -255,7 +269,7 @@ export async function loadAllPolicies<
       deps.reportPolicyTargetProblems(policies, roles)
       return rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
     },
-    (merged) => {
+    onSuccess: (merged) => {
       // Expire with the older input. An absent entry (`Infinity`) was read live and imposes no cap.
       deps.mergedPolicyCache.set(
         'merged',
@@ -266,5 +280,5 @@ export async function loadAllPolicies<
         ),
       )
     },
-  )
+  })
 }
