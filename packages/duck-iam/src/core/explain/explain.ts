@@ -38,7 +38,8 @@ export function explainEvaluation(
 
   // SECURITY: the reserved refusal token is denied before any policy is consulted, so the summary must say deny even
   // when a wildcard grant would have matched. Calls the decision path's own predicate, never a hand-copy of it.
-  if (iamIsReservedRefusal(request.action) || iamIsReservedRefusal(request.resource.type)) {
+  const isReservedRefusal = iamIsReservedRefusal(request.action) || iamIsReservedRefusal(request.resource.type)
+  if (isReservedRefusal) {
     finalEffect = 'deny'
     finalReason = 'Denied: the request names the reserved refusal token, which no policy can grant'
     finalPolicy = undefined
@@ -52,9 +53,7 @@ export function explainEvaluation(
     policy: finalPolicy,
     reason: finalReason,
     // The same `failure` tag `_reservedRefusalDecision` carries, so a caller branching on it reads one value.
-    ...(iamIsReservedRefusal(request.action) || iamIsReservedRefusal(request.resource.type)
-      ? { failure: 'input' as const }
-      : {}),
+    ...(isReservedRefusal ? { failure: 'input' as const } : {}),
     duration: performance.now() - start,
     timestamp: Date.now(),
   }

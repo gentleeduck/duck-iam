@@ -1,5 +1,3 @@
-/** biome-ignore-all lint/style/noNonNullAssertion: index iteration guarded by length check. */
-
 import { evalConditionGroup, resolveConditionValue } from '../conditions/conditions'
 import { evalCondition } from '../conditions/conditions.libs'
 import { throwIamError } from '../errors'
@@ -116,6 +114,39 @@ function traceRule(rule: AccessControl.IRule, req: IamRequest.IAccessRequest): E
   }
 }
 
+/** No rule in the matched set decided the policy; every combiner reports this the same way. */
+function noMatchResult(defaultEffect: AccessControl.Effect): { effect: AccessControl.Effect; reason: string } {
+  return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
+}
+
+/**
+ * `deny-overrides`/`allow-overrides` share one shape: prefer a rule with `primary`'s effect, else `secondary`'s,
+ * else the algorithm's default. Only which effect is preferred first differs between the two.
+ */
+function overrideResult(
+  matched: readonly Explain.IRuleTrace[],
+  primary: AccessControl.Effect,
+  secondary: AccessControl.Effect,
+  defaultEffect: AccessControl.Effect,
+): { effect: AccessControl.Effect; reason: string; decidingRuleId?: string } {
+  const rule = matched.find((r) => r.effect === primary) ?? matched.find((r) => r.effect === secondary)
+  if (rule === undefined) return noMatchResult(defaultEffect)
+  const verb = rule.effect === 'deny' ? 'Denied' : 'Allowed'
+  return { effect: rule.effect, reason: `${verb} by rule "${rule.ruleId}"`, decidingRuleId: rule.ruleId }
+}
+
+/**
+ * The matched rule with the highest {@link rulePriority}; the earliest rule wins a tie.
+ * NOTE: `first-match` and `highest-priority` resolve to this same rule - only the reported reason differs.
+ */
+function highestPriorityRule(matched: readonly Explain.IRuleTrace[]): Explain.IRuleTrace | undefined {
+  let top: Explain.IRuleTrace | undefined
+  for (const cur of matched) {
+    if (top === undefined || rulePriority(cur) > rulePriority(top)) top = cur
+  }
+  return top
+}
+
 /** Apply a combining algorithm to matched rule traces, mirroring the evaluate module. */
 function applyCombiner(
   algorithm: AccessControl.CombiningAlgorithm,
@@ -123,33 +154,13 @@ function applyCombiner(
   defaultEffect: AccessControl.Effect,
 ): { effect: AccessControl.Effect; reason: string; decidingRuleId?: string } {
   switch (algorithm) {
-    case 'deny-overrides': {
-      const deny = matched.find((r) => r.effect === 'deny')
-      if (deny) return { effect: 'deny', reason: `Denied by rule "${deny.ruleId}"`, decidingRuleId: deny.ruleId }
-      const allow = matched.find((r) => r.effect === 'allow')
-      if (allow) return { effect: 'allow', reason: `Allowed by rule "${allow.ruleId}"`, decidingRuleId: allow.ruleId }
-      return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
-    }
-    case 'allow-overrides': {
-      const allow = matched.find((r) => r.effect === 'allow')
-      if (allow) return { effect: 'allow', reason: `Allowed by rule "${allow.ruleId}"`, decidingRuleId: allow.ruleId }
-      const deny = matched.find((r) => r.effect === 'deny')
-      if (deny) return { effect: 'deny', reason: `Denied by rule "${deny.ruleId}"`, decidingRuleId: deny.ruleId }
-      return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
-    }
+    case 'deny-overrides':
+      return overrideResult(matched, 'deny', 'allow', defaultEffect)
+    case 'allow-overrides':
+      return overrideResult(matched, 'allow', 'deny', defaultEffect)
     case 'first-match': {
-      if (matched.length === 0)
-        return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
-      let first = matched[0]!
-      let firstPriority = rulePriority(first)
-      for (let i = 1; i < matched.length; i++) {
-        const cur = matched[i]!
-        const priority = rulePriority(cur)
-        if (priority > firstPriority) {
-          first = cur
-          firstPriority = priority
-        }
-      }
+      const first = highestPriorityRule(matched)
+      if (first === undefined) return noMatchResult(defaultEffect)
       return {
         effect: first.effect,
         reason: `First match: rule "${first.ruleId}" (${first.effect})`,
@@ -157,18 +168,13 @@ function applyCombiner(
       }
     }
     case 'highest-priority': {
-      let top: (typeof matched)[number] | undefined
-      for (const cur of matched) {
-        if (top === undefined || rulePriority(cur) > rulePriority(top)) top = cur
+      const top = highestPriorityRule(matched)
+      if (top === undefined) return noMatchResult(defaultEffect)
+      return {
+        effect: top.effect,
+        reason: `Highest priority: rule "${top.ruleId}" (p=${top.priority})`,
+        decidingRuleId: top.ruleId,
       }
-      if (top !== undefined) {
-        return {
-          effect: top.effect,
-          reason: `Highest priority: rule "${top.ruleId}" (p=${top.priority})`,
-          decidingRuleId: top.ruleId,
-        }
-      }
-      return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
     }
   }
 }
@@ -194,6 +200,13 @@ function policyRefusal(
   return badEffect === undefined ? undefined : `unknown effect on rule "${badEffect.ruleId}"`
 }
 
+/** The 3 fields every {@link Explain.IPolicyTrace} carries regardless of outcome. */
+function policyTraceHeader(
+  policy: AccessControl.IPolicy,
+): Pick<Explain.IPolicyTrace, 'policyId' | 'policyName' | 'algorithm'> {
+  return { policyId: policy.id, policyName: policy.name, algorithm: policy.algorithm }
+}
+
 /**
  * Trace a full policy evaluation: target matching, rule traces, and the combining algorithm's result.
  *
@@ -209,9 +222,7 @@ export function tracePolicy(
 
   if (!targetMatch) {
     return {
-      policyId: policy.id,
-      policyName: policy.name,
-      algorithm: policy.algorithm,
+      ...policyTraceHeader(policy),
       targetMatch: false,
       rules: [],
       result: defaultEffect,
@@ -242,9 +253,7 @@ export function tracePolicy(
     const hasDeny = policyHasDenyRule(policy)
     const detail = cause === undefined ? '' : `: ${cause}`
     return {
-      policyId: policy.id,
-      policyName: policy.name,
-      algorithm: policy.algorithm,
+      ...policyTraceHeader(policy),
       targetMatch: true,
       rules: ruleTraces,
       result: hasDeny ? 'deny' : defaultEffect,
@@ -257,9 +266,7 @@ export function tracePolicy(
   // the cross-policy combine, so the algorithm is never consulted - an unvalidated one would have no arm here.
   if (matched.length === 0) {
     return {
-      policyId: policy.id,
-      policyName: policy.name,
-      algorithm: policy.algorithm,
+      ...policyTraceHeader(policy),
       targetMatch: true,
       rules: ruleTraces,
       result: defaultEffect,
@@ -271,9 +278,7 @@ export function tracePolicy(
   const decidingRule = decidingRuleId ? policy.rules.find((r) => r.id === decidingRuleId) : undefined
 
   return {
-    policyId: policy.id,
-    policyName: policy.name,
-    algorithm: policy.algorithm,
+    ...policyTraceHeader(policy),
     targetMatch: true,
     rules: ruleTraces,
     result: effect,
