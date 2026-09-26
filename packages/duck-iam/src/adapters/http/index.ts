@@ -2,6 +2,7 @@ import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../..
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import { iamRowErrorReporter } from '../../shared/row-error-reporter'
 import {
   iamAssertSavablePolicy,
   iamAssertSavableRole,
@@ -279,7 +280,7 @@ export class IamHttpAdapter<
   private _backoffMs: number
   private _cbThreshold: number
   private _cbCooldownMs: number
-  private _onPolicyError: IamHttp.IConfig['onPolicyError']
+  private _reportPolicyError: (err: Error, rowId: string) => void
   // Circuit-breaker state. closed -> too many transients -> open -> cooldown
   // expires -> half-open -> success closes / failure re-opens.
   private _cbConsecutiveFailures = 0
@@ -303,7 +304,7 @@ export class IamHttpAdapter<
     this._cbCooldownMs = IamHttpAdapter._number('circuitBreakerCooldownMs', config.circuitBreakerCooldownMs, 30_000, {
       min: 0,
     })
-    this._onPolicyError = config.onPolicyError
+    this._reportPolicyError = iamRowErrorReporter('http', config.onPolicyError)
   }
 
   /**
@@ -416,15 +417,6 @@ export class IamHttpAdapter<
       throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
     }
     return readJsonCapped(res)
-  }
-
-  /** Routes a bad row to `onPolicyError`, or warns when no handler is set, so it never vanishes unseen. */
-  private _reportPolicyError(err: Error, rowId: string): void {
-    if (this._onPolicyError) {
-      this._onPolicyError(err, { adapter: 'http', rowId })
-      return
-    }
-    console.warn(`[@gentleduck/iam:http] dropped malformed row "${rowId}": ${err.message}`)
   }
 
   /**

@@ -5,6 +5,7 @@ import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../.
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
 import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamCopyAttributes, iamNarrowAttributes } from '../../shared/attributes'
+import { iamRowErrorReporter } from '../../shared/row-error-reporter'
 import {
   iamAssertSavablePolicy,
   iamAssertSavableRole,
@@ -138,7 +139,7 @@ export class IamFileAdapter<
   /** Cache for {@link IamFileAdapter._canonicalRootDir}. */
   private _canonicalRoot: string | null = null
   private readonly _fs: TFS
-  private readonly _onPolicyError?: IamAdapter.RowErrorHandler<'file'>
+  private readonly _reportPolicyError: (err: Error, rowId: string) => void
   private _cache: IamFile.IState<TAction, TResource, TRole, TScope> | null = null
   private _loadInFlight: Promise<IamFile.IState<TAction, TResource, TRole, TScope>> | null = null
 
@@ -180,7 +181,7 @@ export class IamFileAdapter<
     this._parentDir = nodePath.dirname(resolved)
     this._rootDir = rootDir
     this._fs = init.fs
-    this._onPolicyError = init.onPolicyError
+    this._reportPolicyError = iamRowErrorReporter('file', init.onPolicyError)
   }
 
   /**
@@ -244,14 +245,6 @@ export class IamFileAdapter<
     throw new Error(
       `[@gentleduck/iam:file] "${name}" must be an object, got ${Array.isArray(v) ? 'array' : typeof v}; refusing to load the store as empty`,
     )
-  }
-
-  private _reportPolicyError(err: Error, rowId: string): void {
-    if (this._onPolicyError) {
-      this._onPolicyError(err, { adapter: 'file', rowId })
-      return
-    }
-    console.warn(`[@gentleduck/iam:file] dropped malformed row "${rowId}": ${err.message}`)
   }
 
   private async _loadState(): Promise<IamFile.IState<TAction, TResource, TRole, TScope>> {
