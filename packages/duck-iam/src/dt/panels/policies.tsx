@@ -1,7 +1,16 @@
 import type { AccessControl } from '../../core/types'
 import { Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
-import { CollapsibleGroup, DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
+import {
+  CollapsibleGroup,
+  DescriptionSection,
+  DetailEmpty,
+  FilterBar,
+  ListItem,
+  ListShell,
+  Section,
+  SplitView,
+} from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
 import { isDevtoolsAllowed } from '../lib/guard'
 import { useIamListPanel } from '../lib/list-panel'
@@ -62,13 +71,7 @@ export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
               {current.version != null && <Badge>v{current.version}</Badge>}
               <span className="iam-dt-detail__meta">{current.rules.length} rules</span>
             </div>
-            {current.description && (
-              <Section title="Description">
-                <p className="iam-dt-soft" style={{ fontSize: 11 }}>
-                  {current.description}
-                </p>
-              </Section>
-            )}
+            <DescriptionSection text={current.description} />
             <Section title={`Rules (${current.rules.length})`}>
               <div className="iam-dt-col">
                 {current.rules.map((r) => (
