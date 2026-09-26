@@ -7,37 +7,34 @@ import { validatePolicy, validateRole } from '../core/validate'
  * Throws on any error-level issue, so every adapter refuses a malformed row at write time.
  * NOTE: the read-path checks stay; they catch rows that reached the store another way (a migration, a hand edit).
  */
-function assertValid(
-  adapter: string,
-  kind: 'policy' | 'role',
-  row: unknown,
-  issues: readonly IamValidate.IIssue[],
-): void {
-  void adapter // kept for signature compatibility with both call sites; no longer needed once the message is gone
-  void row
+function assertValid(kind: 'policy' | 'role', issues: readonly IamValidate.IIssue[]): void {
   if (issues.some((issue) => issue.type === 'error')) throwIamValidationFailed(kind, issues)
 }
 
 /**
  * Refuses a policy the read path would drop.
  *
- * @param adapter - Adapter name for the error message, e.g. `'memory'`.
+ * @param adapter - Adapter name, kept for parity with this package's other adapter-boundary guards;
+ *   `IAM_VALIDATION_FAILED` does not carry it.
  * @param policy  - The policy as the caller passed it; `unknown` because it checks untrusted input.
  * @throws When {@link validatePolicy} reports any error-level issue.
  */
 export function iamAssertSavablePolicy(adapter: string, policy: unknown): void {
-  assertValid(adapter, 'policy', policy, validatePolicy(policy).issues)
+  void adapter
+  assertValid('policy', validatePolicy(policy).issues)
 }
 
 /**
  * Refuses a role the read path would drop.
  *
- * @param adapter - Adapter name for the error message, e.g. `'memory'`.
+ * @param adapter - Adapter name, kept for parity with this package's other adapter-boundary guards;
+ *   `IAM_VALIDATION_FAILED` does not carry it.
  * @param role    - The role as the caller passed it; `unknown` because it checks untrusted input.
  * @throws When {@link validateRole} reports any error-level issue.
  */
 export function iamAssertSavableRole(adapter: string, role: unknown): void {
-  assertValid(adapter, 'role', role, validateRole(role).issues)
+  void adapter
+  assertValid('role', validateRole(role).issues)
 }
 
 /** A row the caller can no longer reach: a store that keeps their object serves later edits to it. */
