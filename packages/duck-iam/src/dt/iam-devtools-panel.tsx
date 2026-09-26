@@ -3,14 +3,15 @@ import { Close } from './components/icons'
 import { Button } from './components/ui'
 import { IamDevtoolsInner, type IIamDevtoolsInnerProps } from './iam-devtools'
 import { cn } from './lib/cn'
+import { type IamDockPosition, useIamDockablePanel } from './lib/dockable-panel'
 import { isDevtoolsAllowed } from './lib/guard'
 import { GENTLEDUCK_LOGO_DATA_URL } from './lib/logo'
 import { iamDevtoolsThemeAttr, useIamDevtoolsStyles } from './lib/styles'
 
 /** Where the floating launcher sits; `'relative'` renders it in normal flow, e.g. inside your own toolbar. */
 export type ButtonPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'relative'
-/** Which edge the panel docks to. Cycled through by the dock button in `PANEL_POSITIONS` order. */
-export type PanelPosition = 'top' | 'bottom' | 'left' | 'right'
+/** Which edge the panel docks to. Cycled through by the dock button in dock order. */
+export type PanelPosition = IamDockPosition
 
 /**
  * Props for `IamDevtools`: the launcher button plus the dockable panel around {@link IamDevtoolsInner}.
@@ -32,50 +33,6 @@ const MAX_SIZE_VW = 0.9
 const ANIM_MS = 240
 /** How far one arrow key nudges the resize edge; Page Up/Down move ten times that. */
 const KEY_RESIZE_STEP = 16
-
-/** Dock positions, in the order the dock button cycles through them. */
-const PANEL_POSITIONS: readonly PanelPosition[] = ['bottom', 'right', 'top', 'left']
-
-function isPanelPosition(value: unknown): value is PanelPosition {
-  return typeof value === 'string' && PANEL_POSITIONS.some((position) => position === value)
-}
-
-function isBoolean(value: unknown): value is boolean {
-  return typeof value === 'boolean'
-}
-
-function isPanelSize(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-}
-
-/**
- * Reads one persisted panel preference, falling back when it is missing or fails `isValid`.
- * NOTE: localStorage is user-editable and outlives upgrades, so the parsed value is never trusted.
- */
-function loadState<T>(key: string, isValid: (value: unknown) => value is T, fallback: T): T {
-  if (typeof window === 'undefined') return fallback
-  try {
-    const raw = window.localStorage.getItem(key)
-    if (raw == null) return fallback
-    const parsed: unknown = JSON.parse(raw)
-    return isValid(parsed) ? parsed : fallback
-  } catch {
-    return fallback
-  }
-}
-function saveState(key: string, value: unknown) {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value))
-  } catch {}
-}
-
-/** Max panel size along the dock axis: 90% of the viewport, at least `MIN_SIZE`, and `DEFAULT_SIZE` under SSR. */
-function viewportLimit(position: PanelPosition): number {
-  if (typeof window === 'undefined') return DEFAULT_SIZE
-  const axis = position === 'left' || position === 'right' ? window.innerWidth : window.innerHeight
-  return Math.max(MIN_SIZE, axis * MAX_SIZE_VW)
-}
 
 function panelSize(position: PanelPosition, size: number): React.CSSProperties {
   if (position === 'bottom' || position === 'top') return { height: size }
@@ -107,37 +64,34 @@ function IamDevtoolsImpl({
 }: IIamDevtoolsProps) {
   useIamDevtoolsStyles()
 
-  const openKey = `${storagePrefix}_OPEN`
-  const sizeKey = `${storagePrefix}_SIZE`
-  const posKey = `${storagePrefix}_POSITION`
+  const {
+    cycleDock,
+    isHorizontal,
+    launcherRef,
+    maxSize,
+    onDragEnd,
+    onDragMove,
+    onDragStart,
+    onResizeKeyDown,
+    open,
+    panelRef: dockRef,
+    position,
+    setOpen,
+    size,
+  } = useIamDockablePanel({
+    defaultSize: DEFAULT_SIZE,
+    initialIsOpen,
+    keyResizeStep: KEY_RESIZE_STEP,
+    maxSizeFraction: MAX_SIZE_VW,
+    minSize: MIN_SIZE,
+    positionKeySuffix: '_POSITION',
+    positionProp,
+    storagePrefix,
+  })
 
-  const [open, setOpen] = React.useState<boolean>(() => loadState(openKey, isBoolean, initialIsOpen))
-  const [mounted, setMounted] = React.useState<boolean>(() => loadState(openKey, isBoolean, initialIsOpen))
+  const [mounted, setMounted] = React.useState<boolean>(open)
   const [animateIn, setAnimateIn] = React.useState<boolean>(false)
-  const [size, setSize] = React.useState<number>(() => loadState(sizeKey, isPanelSize, DEFAULT_SIZE))
-  const [position, setPosition] = React.useState<PanelPosition>(() =>
-    loadState(posKey, isPanelPosition, positionProp ?? 'bottom'),
-  )
-  // Max panel size in px, held in state because the resize handle renders it as `aria-valuemax`.
-  const [maxSize, setMaxSize] = React.useState<number>(() => viewportLimit(positionProp ?? 'bottom'))
-  const dragRef = React.useRef<{ start: number; size: number; axis: 'x' | 'y' } | null>(null)
-  const launcherRef = React.useRef<HTMLButtonElement | null>(null)
-  const dockRef = React.useRef<HTMLDivElement | null>(null)
   const titleId = React.useId()
-
-  React.useEffect(() => saveState(openKey, open), [open, openKey])
-  React.useEffect(() => saveState(sizeKey, size), [size, sizeKey])
-  React.useEffect(() => saveState(posKey, position), [position, posKey])
-  React.useEffect(() => {
-    if (positionProp) setPosition(positionProp)
-  }, [positionProp])
-
-  React.useEffect(() => {
-    const update = () => setMaxSize(viewportLimit(position))
-    update()
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [position])
 
   React.useEffect(() => {
     let raf = 0
@@ -157,75 +111,12 @@ function IamDevtoolsImpl({
     }
   }, [open])
 
-  // Escape closes the panel and refocuses the launcher. Listens on `document`, since focus may be anywhere.
-  React.useEffect(() => {
-    if (!open) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      setOpen(false)
-      launcherRef.current?.focus()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [open])
-
   // Opening moves focus into the panel, so the next Tab lands on the dock and
   // close controls rather than back at the top of the host page.
   React.useEffect(() => {
     if (open && mounted) dockRef.current?.focus()
-  }, [open, mounted])
+  }, [open, mounted, dockRef])
 
-  const clampSize = React.useCallback(
-    (next: number) => Math.max(MIN_SIZE, Math.min(viewportLimit(position), next)),
-    [position],
-  )
-
-  const onDragStart = (e: React.PointerEvent) => {
-    const axis: 'x' | 'y' = position === 'left' || position === 'right' ? 'x' : 'y'
-    dragRef.current = { axis, size, start: axis === 'x' ? e.clientX : e.clientY }
-    if (e.target instanceof Element) e.target.setPointerCapture(e.pointerId)
-  }
-  const onDragMove = (e: React.PointerEvent) => {
-    const d = dragRef.current
-    if (!d) return
-    const delta = (d.axis === 'x' ? e.clientX : e.clientY) - d.start
-    const sign = position === 'bottom' || position === 'right' ? -1 : 1
-    setSize(clampSize(d.size + sign * delta))
-  }
-  const onDragEnd = (e: React.PointerEvent) => {
-    dragRef.current = null
-    try {
-      if (e.target instanceof Element) e.target.releasePointerCapture(e.pointerId)
-    } catch {}
-  }
-
-  // Keyboard resizing for the focusable `separator`; which arrow grows the panel depends on the dock edge.
-  const onResizeKeyDown = (e: React.KeyboardEvent) => {
-    const grows = position === 'bottom' || position === 'right' ? -1 : 1
-    const step = e.key === 'PageUp' || e.key === 'PageDown' ? KEY_RESIZE_STEP * 10 : KEY_RESIZE_STEP
-    let dir = 0
-    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'PageUp') dir = grows
-    else if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'PageDown') dir = -grows
-    else if (e.key === 'Home') {
-      e.preventDefault()
-      return setSize(clampSize(MIN_SIZE))
-    } else if (e.key === 'End') {
-      e.preventDefault()
-      return setSize(clampSize(Number.POSITIVE_INFINITY))
-    }
-    if (dir === 0) return
-    e.preventDefault()
-    setSize((current) => clampSize(current + dir * step))
-  }
-
-  const cycleDock = () => {
-    const idx = PANEL_POSITIONS.indexOf(position)
-    const next = PANEL_POSITIONS[(idx + 1) % PANEL_POSITIONS.length]
-    // `noUncheckedIndexedAccess` types the index as possibly undefined; the modulo keeps it defined, so no cast.
-    if (next !== undefined) setPosition(next)
-  }
-
-  const isHorizontal = position === 'left' || position === 'right'
   const themeAttr = iamDevtoolsThemeAttr(inner.theme)
 
   return (
