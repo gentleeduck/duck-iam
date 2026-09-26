@@ -727,6 +727,43 @@ export function createAdmin<
     })
   }
 
+  /**
+   * Shared shape of `assignRoles`/`revokeRoles`: validate every row first (so fixing a bad row and retrying
+   * cannot double-apply the rows that already landed), prefer the adapter's set-based `*Many` form, fall back to
+   * a per-row loop, then invalidate every requested row and emit per-row events. Only the adapter calls and the
+   * event type differ between the two callers.
+   */
+  const runRoleBatch = async <TRow extends IamAdapter.ITripleRow<TRole, TScope>>(
+    rows: readonly TRow[],
+    validateIntent: 'grant' | 'lookup',
+    many: (() => Promise<readonly number[] | null>) | undefined,
+    manyLabel: string,
+    single: (row: TRow) => Promise<void>,
+    singleLabel: string,
+    eventType: 'role.assigned' | 'role.revoked',
+  ): Promise<Batch.Result<TRow, Batch.Change>> => {
+    if (rows.length === 0) return batchResult([])
+    for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope, validateIntent)
+    // `null` means written, but which rows changed is unknown, as on the loop path (the single write returns void).
+    let changed: readonly number[] | null = null
+    const landed: TRow[] = []
+    try {
+      if (many) changed = await run(many, manyLabel)
+      else
+        for (const r of rows) {
+          await run(() => single(r), singleLabel)
+          landed.push(r)
+        }
+    } catch (err) {
+      await settlePartialBatch(rows, landed, eventType)
+      throw err
+    }
+    invalidateEach(rows)
+    const result = appliedRows(rows, changed)
+    await emitRowEvents(emit, result, eventType)
+    return result
+  }
+
   return {
     async listPolicies() {
       return run((o) => adapter.listPolicies(o), 'admin.listPolicies')
@@ -826,51 +863,29 @@ export function createAdmin<
       await moveOne(subjectId, roleId, fromScope, toScope, actor)
     },
     async assignRoles(rows: readonly IamEngineTypes.IAssignRow<TRole, TScope>[]) {
-      if (rows.length === 0) return batchResult([])
-      // Validate every row first, so fixing a bad row and retrying cannot double-apply the rows that landed.
-      for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope)
       // Bound: a class-instance adapter needs its `this`.
       const assignRoleMany = adapter.assignRoleMany?.bind(adapter)
-      // `null` means written, but which rows changed is unknown, as on the loop path (`assignRole` returns void).
-      let changed: readonly number[] | null = null
-      const landed: IamEngineTypes.IAssignRow<TRole, TScope>[] = []
-      try {
-        if (assignRoleMany) changed = await run(() => assignRoleMany(rows), 'admin.assignRoleMany')
-        else
-          for (const r of rows) {
-            await run(() => adapter.assignRole(r.subjectId, r.roleId, r.scope, r.opts), 'admin.assignRole')
-            landed.push(r)
-          }
-      } catch (err) {
-        await settlePartialBatch(rows, landed, 'role.assigned')
-        throw err
-      }
-      invalidateEach(rows)
-      const result = appliedRows(rows, changed)
-      await emitRowEvents(emit, result, 'role.assigned')
-      return result
+      return runRoleBatch(
+        rows,
+        'grant',
+        assignRoleMany && (() => assignRoleMany(rows)),
+        'admin.assignRoleMany',
+        (r) => run(() => adapter.assignRole(r.subjectId, r.roleId, r.scope, r.opts), 'admin.assignRole'),
+        'admin.assignRole',
+        'role.assigned',
+      )
     },
     async revokeRoles(rows: readonly IamEngineTypes.IRevokeRow<TRole, TScope>[]) {
-      if (rows.length === 0) return batchResult([])
-      for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope, 'lookup')
       const revokeRoleMany = adapter.revokeRoleMany?.bind(adapter)
-      let changed: readonly number[] | null = null
-      const landed: IamEngineTypes.IRevokeRow<TRole, TScope>[] = []
-      try {
-        if (revokeRoleMany) changed = await run(() => revokeRoleMany(rows), 'admin.revokeRoleMany')
-        else
-          for (const r of rows) {
-            await run(() => adapter.revokeRole(r.subjectId, r.roleId, r.scope, r.opts), 'admin.revokeRole')
-            landed.push(r)
-          }
-      } catch (err) {
-        await settlePartialBatch(rows, landed, 'role.revoked')
-        throw err
-      }
-      invalidateEach(rows)
-      const result = appliedRows(rows, changed)
-      await emitRowEvents(emit, result, 'role.revoked')
-      return result
+      return runRoleBatch(
+        rows,
+        'lookup',
+        revokeRoleMany && (() => revokeRoleMany(rows)),
+        'admin.revokeRoleMany',
+        (r) => run(() => adapter.revokeRole(r.subjectId, r.roleId, r.scope, r.opts), 'admin.revokeRole'),
+        'admin.revokeRole',
+        'role.revoked',
+      )
     },
     async moveRoleScopes(rows: readonly IamEngineTypes.IMoveRow<TRole, TScope>[]) {
       if (rows.length === 0) return batchResult([])

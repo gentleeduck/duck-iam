@@ -198,13 +198,16 @@ describe('the engine reference keeps up with the config type', () => {
     const docs = read('packages/duck-iam/docs/reference/core-engine.md')
     // A numeric-bound guard carries `constraint:`; an enum-membership guard carries `allowed:` instead —
     // that's what distinguishes a "range-checked" option from the rest of IAM_ENGINE_INVALID_CONFIG's callers.
-    const ranged = [...engine.matchAll(/throwIamError\('IAM_ENGINE_INVALID_CONFIG',\s*\{([^}]*)\}\)/g)]
+    const inlineRanged = [...engine.matchAll(/throwIamError\('IAM_ENGINE_INVALID_CONFIG',\s*\{([^}]*)\}\)/g)]
       .map((m) => m[1] ?? '')
       .filter((body) => body.includes('constraint:'))
       .flatMap((body) => {
         const field = body.match(/field: '(\w+)'/)
         return field?.[1] === undefined ? [] : [field[1]]
       })
+    // Most numeric bounds share one call through `assertFiniteAtLeast('field', value, min, constraint)` instead.
+    const sharedRanged = [...engine.matchAll(/assertFiniteAtLeast\('(\w+)'/g)].map((m) => m[1])
+    const ranged = [...inlineRanged, ...sharedRanged]
     // The table words some rows as a pair (`maxPolicies` / `maxRoles`), so the name is what must appear in it.
     const table = docs.slice(docs.indexOf('| Condition | Throws |'))
     const refusals = table.slice(0, table.indexOf('\n\n'))
