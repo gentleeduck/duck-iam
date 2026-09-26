@@ -6,6 +6,7 @@ import {
   operandHasType,
   VALUELESS_OPERATORS,
 } from '../conditions/conditions.libs'
+import type { AccessControl } from '../types'
 
 // Re-exported public surface. The heuristic lives beside `getCachedRegex` so validation and evaluation refuse the
 // same patterns.
@@ -83,8 +84,11 @@ export function isResolvablePath(path: string): boolean {
   return !segments.some((segment) => BLOCKED_SEGMENTS.has(segment))
 }
 
-/** Set of valid condition operator names supported by the condition evaluator. */
-export const VALID_OPERATORS: ReadonlySet<string> = new Set([
+/**
+ * Every {@link AccessControl.Operator}, in one place; `satisfies` catches drift against the type at compile time.
+ * The JSON schema's `operator` enum is derived from this array, so the two can't desync.
+ */
+export const CONDITION_OPERATORS = [
   'eq',
   'neq',
   'gt',
@@ -104,7 +108,10 @@ export const VALID_OPERATORS: ReadonlySet<string> = new Set([
   'superset_of',
   'before',
   'after',
-])
+] as const satisfies readonly AccessControl.Operator[]
+
+/** Set of valid condition operator names supported by the condition evaluator. */
+export const VALID_OPERATORS: ReadonlySet<string> = new Set(CONDITION_OPERATORS)
 
 function isCompilableRegex(pattern: string): boolean {
   try {
