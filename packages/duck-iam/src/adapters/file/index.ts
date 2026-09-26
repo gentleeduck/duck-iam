@@ -3,6 +3,7 @@ import { toError, toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamScopedRoleEntries, iamUnscopedRoleIds } from '../../shared/assignment-entries'
 import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamCopyAttributes, iamNarrowAttributes } from '../../shared/attributes'
 import { iamRowErrorReporter } from '../../shared/row-error-reporter'
@@ -511,8 +512,7 @@ export class IamFileAdapter<
   async getSubjectRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     const s = await this._loadState()
     this._assertReadableAssignments(s, id)
-    const entries = s.assignments[id] ?? []
-    return [...new Set(entries.filter((e) => e.scope == null).map((e) => e.role))]
+    return iamUnscopedRoleIds(s.assignments[id] ?? [])
   }
 
   /** Lists a subject's scoped `(role, scope)` assignments only; throws on a corrupt row. */
@@ -522,8 +522,7 @@ export class IamFileAdapter<
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     const s = await this._loadState()
     this._assertReadableAssignments(s, id)
-    const hasScope = (e: { role: TRole; scope?: TScope }): e is { role: TRole; scope: TScope } => e.scope != null
-    return (s.assignments[id] ?? []).filter(hasScope).map((e) => ({ role: e.role, scope: e.scope }))
+    return iamScopedRoleEntries(s.assignments[id] ?? [])
   }
 
   /**
