@@ -124,6 +124,13 @@ const _UNBOUND_WARNED = new Set<string>()
  */
 const _UNSIGNED_WARNED = new Set<string>()
 
+/** Emits `message` once per `channel`, tracked in `warned`; a no-op on every later call for the same channel. */
+function warnOncePerChannel(warned: Set<string>, channel: string, message: string): void {
+  if (warned.has(channel)) return
+  warned.add(channel)
+  console.warn(message)
+}
+
 /** Drop-warn coalescing state per key: time of the last warn and drops suppressed since. */
 const _DROP_WARN_STATE = new Map<string, { lastWarn: number; suppressed: number }>()
 /** Minimum gap between drop warns for a single channel. */
@@ -291,16 +298,18 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   const secret = config.secret ?? null
   const acceptLegacyUnbound = config.acceptLegacyUnboundEnvelopes === true
 
-  if (acceptLegacyUnbound && secret !== null && !_UNBOUND_WARNED.has(channel)) {
-    _UNBOUND_WARNED.add(channel)
-    console.warn(
+  if (acceptLegacyUnbound && secret !== null) {
+    warnOncePerChannel(
+      _UNBOUND_WARNED,
+      channel,
       `[@gentleduck/iam:invalidator:redis] \`acceptLegacyUnboundEnvelopes\` is on for channel ${JSON.stringify(redactChannel(channel))} - pre-v2 envelopes are accepted, and their signature does not cover the channel. Any party holding this secret for any channel can forge messages here. Turn it off once every node publishes v:${ENVELOPE_V}.`,
     )
   }
 
-  if (secret === null && !_UNSIGNED_WARNED.has(channel)) {
-    _UNSIGNED_WARNED.add(channel)
-    console.warn(
+  if (secret === null) {
+    warnOncePerChannel(
+      _UNSIGNED_WARNED,
+      channel,
       `[@gentleduck/iam:invalidator:redis] \`secret\` not set on channel ${JSON.stringify(redactChannel(channel))} - accepting unsigned pub/sub. Anyone with PUBLISH rights on the channel can wipe caches. Pass \`secret\` to require HMAC-SHA256.`,
     )
   }
@@ -573,17 +582,7 @@ function parseIncoming<TRole extends string>(
       return null
     }
     // Shape-check inner payload.
-    const instanceId = Reflect.get(payload, 'instanceId')
-    if (typeof instanceId !== 'string') {
-      warnDropOnce(channel, 'malformed inner payload (instanceId)')
-      return null
-    }
-    const ev = Reflect.get(payload, 'event')
-    if (!_isValidEvent<TRole>(ev)) {
-      warnDropOnce(channel, 'malformed inner payload (event)')
-      return null
-    }
-    return { event: ev, instanceId }
+    return extractInstanceAndEvent<TRole>(payload, channel, warnDropOnce, 'inner')
   }
 
   // Legacy unsigned envelope: only allowed when no secret is configured.
@@ -591,17 +590,31 @@ function parseIncoming<TRole extends string>(
     warnDropOnce(channel, 'unsigned message with secret configured')
     return null
   }
-  const legacyInstanceId = Reflect.get(parsed, 'instanceId')
-  if (typeof legacyInstanceId !== 'string') {
-    warnDropOnce(channel, 'malformed legacy payload (instanceId)')
+  return extractInstanceAndEvent<TRole>(parsed, channel, warnDropOnce, 'legacy')
+}
+
+/**
+ * Extracts `{ instanceId, event }` from a decoded payload, or reports the drop and returns `null`.
+ * Shared by `parseIncoming`'s signed and legacy shapes, which differ only in which decoded object holds the
+ * fields and the label their drop reasons carry.
+ */
+function extractInstanceAndEvent<TRole extends string>(
+  source: object,
+  channel: string,
+  warnDropOnce: (channel: string, reason: string) => void,
+  label: 'inner' | 'legacy',
+): { instanceId: string; event: IamEngineTypes.IInvalidateEvent<TRole> } | null {
+  const instanceId = Reflect.get(source, 'instanceId')
+  if (typeof instanceId !== 'string') {
+    warnDropOnce(channel, `malformed ${label} payload (instanceId)`)
     return null
   }
-  const ev = Reflect.get(parsed, 'event')
+  const ev = Reflect.get(source, 'event')
   if (!_isValidEvent<TRole>(ev)) {
-    warnDropOnce(channel, 'malformed legacy payload (event)')
+    warnDropOnce(channel, `malformed ${label} payload (event)`)
     return null
   }
-  return { event: ev, instanceId: legacyInstanceId }
+  return { event: ev, instanceId }
 }
 
 /** Per-kind shape check for an invalidate event: `subjectId` required, `roleId` optional, neither empty. */
