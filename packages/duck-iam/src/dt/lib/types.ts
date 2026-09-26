@@ -39,6 +39,11 @@ export interface IamIDevtoolsEngine {
   }
 }
 
+/** Props for a read-only devtools panel that takes nothing but the engine (policies, roles, subjects; v1 and v2 alike). */
+export interface IamEnginePanelProps {
+  engine: IamIDevtoolsEngine
+}
+
 /** The metrics aggregator as the Telemetry panel needs it; structural, so consumers can pass their own. */
 export interface IamIDevtoolsMetrics {
   snapshot(): IamMetrics.ISnapshot
