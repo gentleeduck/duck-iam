@@ -11,6 +11,7 @@ import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../.
 import { iamAssertValidAssignWindow } from '../../shared/assign-options'
 import { iamIsForeignKeyViolation, iamUnknownRoleError } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import { iamRowErrorReporter } from '../../shared/row-error-reporter'
 import {
   iamAssertSavablePolicy,
   iamAssertSavableRole,
@@ -216,7 +217,7 @@ export class IamDrizzleAdapter<
   private readonly _or?: IamDrizzle.IConfig<TDb, TType>['ops']['or']
   private readonly _json: 'native' | 'string'
   private readonly _dialect: 'pg' | 'mysql' | 'sqlite'
-  private readonly _onPolicyError?: IamAdapter.RowErrorHandler<'drizzle'>
+  private readonly _reportPolicyError: (err: Error, rowId: string) => void
   /** Retained whole so {@link IamDrizzleAdapter.withClient} can re-make this adapter with only `db` swapped. */
   private readonly _config: IamDrizzle.IConfig<TDb, TType>
 
@@ -231,7 +232,7 @@ export class IamDrizzleAdapter<
     this._or = config.ops.or
     this._json = config.json ?? 'native'
     this._dialect = config.dialect ?? 'pg'
-    this._onPolicyError = config.onPolicyError
+    this._reportPolicyError = iamRowErrorReporter('drizzle', config.onPolicyError)
     warnMissingOps(config.ops)
   }
 
@@ -294,14 +295,6 @@ export class IamDrizzleAdapter<
   }
   private async _selectWhere<T>(table: IamDrizzle.DrizzleTable, whereCol: SQLWrapper, whereVal: unknown): Promise<T[]> {
     return await this._db.select().from(table).where(this._eq(whereCol, whereVal))
-  }
-
-  private _reportPolicyError(err: Error, rowId: string): void {
-    if (this._onPolicyError) {
-      this._onPolicyError(err, { adapter: 'drizzle', rowId })
-      return
-    }
-    console.warn(`[@gentleduck/iam:drizzle] malformed row "${rowId}": ${err.message}`)
   }
 
   /**

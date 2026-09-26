@@ -5,6 +5,7 @@ import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../.
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
 import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import { iamRowErrorReporter } from '../../shared/row-error-reporter'
 import {
   iamAssertSavablePolicy,
   iamAssertSavableRole,
@@ -80,7 +81,7 @@ export class IamRedisAdapter<
 {
   private _client: TClient
   private _prefix: string
-  private _onPolicyError?: IamAdapter.RowErrorHandler<'redis'>
+  private _reportPolicyError: (err: Error, rowId: string) => void
   /**
    * Per-assignments-key promise chain, so a migration cannot re-add a member a concurrent revoke just removed.
    * NOTE: in-process only; across processes only the Lua `eval` migration is atomic.
@@ -91,7 +92,7 @@ export class IamRedisAdapter<
   constructor(config: IamRedis.IConfig<TClient>) {
     this._client = config.client
     this._prefix = config.keyPrefix ?? ''
-    this._onPolicyError = config.onPolicyError
+    this._reportPolicyError = iamRowErrorReporter('redis', config.onPolicyError)
     this._migrateLegacyAssignments = config.migrateLegacyAssignments ?? false
   }
 
@@ -136,14 +137,6 @@ export class IamRedisAdapter<
       throw iamUnreadableRole('redis', rowId, issues)
     }
     return role
-  }
-
-  private _reportPolicyError(err: Error, rowId: string): void {
-    if (this._onPolicyError) {
-      this._onPolicyError(err, { adapter: 'redis', rowId })
-      return
-    }
-    console.warn(`[@gentleduck/iam:redis] dropped malformed row "${rowId}": ${err.message}`)
   }
 
   private _policiesKey(): string {
