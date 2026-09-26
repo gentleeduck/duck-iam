@@ -1,43 +1,22 @@
 import React from 'react'
-import { toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl } from '../../core/types'
 import { ChevronDown, ChevronRight, Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
 import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamListPanel } from '../lib/list-panel'
 import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
 /** Read-only browser for the live policies from `engine.admin.listPolicies()`, with the selected policy rules. */
 export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   useIamDevtoolsStyles()
-  const [policies, setPolicies] = React.useState<AccessControl.IPolicy[]>([])
-  const [selected, setSelected] = React.useState<string | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
-  const [filter, setFilter] = React.useState('')
-
-  const load = React.useCallback(async () => {
-    try {
-      setError(null)
-      setPolicies(await engine.admin.listPolicies())
-    } catch (err) {
-      setError(toErrorMessage(err))
-    }
-  }, [engine])
-
-  React.useEffect(() => {
-    void load()
-  }, [load])
+  const { current, error, filter, filtered, reload, selected, setFilter, setSelected } =
+    useIamListPanel<AccessControl.IPolicy>(() => engine.admin.listPolicies())
 
   // SECURITY: each panel is exported on its own, so it runs the guard itself. Kept below every hook.
   if (!isDevtoolsAllowed(engine)) return null
-
-  const filtered = policies.filter(
-    (p) =>
-      p.id.toLowerCase().includes(filter.toLowerCase()) || (p.name ?? '').toLowerCase().includes(filter.toLowerCase()),
-  )
-  const current = policies.find((p) => p.id === selected) ?? null
 
   return (
     <SplitView
@@ -46,7 +25,7 @@ export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
           count={filtered.length}
           title="Policies"
           toolbar={
-            <Button onClick={load}>
+            <Button onClick={reload}>
               <Refresh size={10} /> refresh
             </Button>
           }>
