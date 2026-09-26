@@ -24,16 +24,20 @@ export class IamLRUCache<V> {
     this._ttl = ttlMs
   }
 
+  /**
+   * Whether `entry` has not yet lapsed as of `now` (defaulting to the current instant).
+   * NOTE: `>=`, not `>`: `expiresAt` is exclusive, as it is for grants, so a `notAfter` cap holds to the millisecond.
+   * Shared by every reader below, so none can drift from this on when an entry counts as expired.
+   */
+  private _isLive(entry: { expiresAt: number }, now: number = Date.now()): boolean {
+    return now < entry.expiresAt
+  }
+
   /** Returns the value and marks it most recently used; `undefined` when missing or expired. */
   get(key: string): V | undefined {
     const entry = this._map.get(key)
-    if (!entry) {
-      this._misses++
-      return undefined
-    }
-    // NOTE: `>=`, not `>`: `expiresAt` is exclusive, as it is for grants, so a `notAfter` cap holds to the millisecond.
-    if (Date.now() >= entry.expiresAt) {
-      this._map.delete(key)
+    if (!entry || !this._isLive(entry)) {
+      if (entry) this._map.delete(key)
       this._misses++
       return undefined
     }
@@ -50,7 +54,7 @@ export class IamLRUCache<V> {
   peek(key: string): V | undefined {
     const entry = this._map.get(key)
     if (!entry) return undefined
-    return Date.now() >= entry.expiresAt ? undefined : entry.value
+    return this._isLive(entry) ? entry.value : undefined
   }
 
   /**
@@ -60,7 +64,7 @@ export class IamLRUCache<V> {
   expiresAt(key: string): number | undefined {
     const entry = this._map.get(key)
     if (!entry) return undefined
-    return Date.now() >= entry.expiresAt ? undefined : entry.expiresAt
+    return this._isLive(entry) ? entry.expiresAt : undefined
   }
 
   /** Hit/miss counters + current size. */
@@ -110,12 +114,11 @@ export class IamLRUCache<V> {
     return this._map.size
   }
 
-  /** Iterates non-expired entries without refreshing LRU order; expiry uses `>=` to agree with {@link IamLRUCache.get}. */
+  /** Iterates non-expired entries without refreshing LRU order, all judged against one snapshot instant. */
   *entries(): IterableIterator<[string, V]> {
     const now = Date.now()
     for (const [key, entry] of this._map) {
-      if (now >= entry.expiresAt) continue
-      yield [key, entry.value]
+      if (this._isLive(entry, now)) yield [key, entry.value]
     }
   }
 }

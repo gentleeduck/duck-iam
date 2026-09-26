@@ -24,10 +24,7 @@ export function iamPermissionGranted(map: object, key: string): boolean {
 export function iamAllowedActions(map: object, resource: string): string[] {
   const actions: string[] = []
   for (const [key, allowed] of Object.entries(map)) {
-    // `=== true`, matching `iamPermissionGranted`: a truthiness test lists an
-    // action whose value is the string "false".
-    if (allowed !== true) continue
-    const action = iamActionForResource(key, resource)
+    const action = grantedActionForResource(key, allowed, resource)
     // `!== null`, not truthiness: an empty-string action is a real segment that `can()` honours.
     if (action !== null) actions.push(action)
   }
@@ -42,17 +39,17 @@ export function iamAllowedActions(map: object, resource: string): string[] {
  * @returns `true` when any granted key targets `resource`.
  */
 export function iamHasAnyOn(map: object, resource: string): boolean {
-  return Object.entries(map).some(([key, allowed]) => {
-    if (allowed !== true) return false
-    return iamActionForResource(key, resource) !== null
-  })
+  return Object.entries(map).some(([key, allowed]) => grantedActionForResource(key, allowed, resource) !== null)
 }
 
 /**
- * Extracts the action from a permission key for a given resource, or `null`
- * when the key targets something else or is not a key this package built.
+ * The action `key` grants on `resource`, or `null` when `allowed` is not a literal `true`, `key` targets something
+ * else, or `key` is not one this package built. Shared by {@link iamAllowedActions} and {@link iamHasAnyOn}, which
+ * differ only in collecting every match versus stopping at the first.
+ * SECURITY: `allowed === true`, matching `iamPermissionGranted`: a truthiness test would grant on the string "false".
  */
-function iamActionForResource(key: string, resource: string): string | null {
+function grantedActionForResource(key: string, allowed: unknown, resource: string): string | null {
+  if (allowed !== true) return null
   const parsed = iamParsePermissionKey(key)
   if (parsed === null || parsed.resource !== resource) return null
   return parsed.action
