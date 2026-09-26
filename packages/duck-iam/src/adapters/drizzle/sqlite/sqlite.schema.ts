@@ -36,13 +36,20 @@ function auditColumns() {
   }
 }
 
+/** The `id`/`name`/`description` columns both `iam_policies` and `iam_roles` carry; a factory for the same reason as {@link auditColumns}. */
+function identityColumns() {
+  return {
+    id: text('id').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+  }
+}
+
 /** Stored ABAC policies. JSON payloads are TEXT and parsed by the adapter. */
 export const iamPolicies = sqliteTable(
   'iam_policies',
   {
-    id: text('id').notNull(),
-    name: text('name').notNull(),
-    description: text('description'),
+    ...identityColumns(),
     version: integer('version').notNull().default(1),
     algorithm: text('algorithm').$type<AccessControl.CombiningAlgorithm>().notNull().default('deny-overrides'),
     rules: text('rules').$type<string>().notNull(),
@@ -68,9 +75,7 @@ export const iamPolicies = sqliteTable(
 export const iamRoles = sqliteTable(
   'iam_roles',
   {
-    id: text('id').notNull(),
-    name: text('name').notNull(),
-    description: text('description'),
+    ...identityColumns(),
     permissions: text('permissions').$type<string>().notNull(),
     inherits: text('inherits').$type<string>().notNull().default('[]'),
     scope: text('scope'),
