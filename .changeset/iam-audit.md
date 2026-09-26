@@ -21,6 +21,17 @@ editor who actually held `delete` was refused. The action now falls back to the
 request method, as `createIamNextMiddleware` already did. On a GET route the
 derived action is still `read`, so this can only turn wrong allows into denies.
 
+**An unauthenticated Nest request could look the same as a denied one.**
+`iamNestAccessGuard`'s `canActivate` can only return `boolean`, and Nest maps a
+plain `false` to its own default `ForbiddenException` (403) — so a request
+carrying no valid subject id was indistinguishable from one the engine actually
+denied, unlike every other adapter's "401 without a user, 403 on deny" contract
+(already pinned for Express by this package's own tests, just never checked for
+Nest). A client that redirects to login on 401 but shows "access denied" on 403
+got the wrong one for every logged-out visitor. The guard now throws the same
+`statusCode`-carrying error the admin gate already uses for this, via a new
+`onUnauthorized` option.
+
 **Your denies could go missing while your grants survived.** Over HTTP, a list
 endpoint answering with anything but a bare array — an envelope such as
 `{"policies": [...]}`, a proxy's `{"status":"ok"}`, a JSON `null`, an empty body
@@ -152,7 +163,11 @@ where it used to fail quietly. The same applies to role rows across every
 adapter: `listRoles` and `getRole` now reject where they used to skip the row or
 answer `null`, so a store with a corrupt role row stops serving decisions instead
 of serving one with the denies missing. An empty `secret` on the redis
-invalidator is now a constructor error. `IamAdminAudit.Target` narrows from five members to
+invalidator is now a constructor error. `iamNestAccessGuard` now throws instead
+of resolving `false` when no valid subject id is found; a caller relying on
+Nest's default 403-via-`false` for that case needs an exception filter (or a
+custom `onUnauthorized` returning what it wants) — the same shape
+`createIamAdminOperations` already requires. `IamAdminAudit.Target` narrows from five members to
 `'policy' | 'role' | 'role-assignment'`; consumers receive these events rather
 than construct them, so a narrowing removes switch arms that could never be hit,
 but it is a public type change. The release bump is left as it stands for you to
