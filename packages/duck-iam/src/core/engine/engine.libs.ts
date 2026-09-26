@@ -80,18 +80,12 @@ export function runSingleFlightKeyed<K, T>(
   produce: () => Promise<T>,
   onResolve: (value: T) => void,
 ): Promise<T> {
-  let pending!: Promise<T>
-  pending = (async () => {
-    try {
-      const value = await produce()
-      if (map.get(key) === pending) onResolve(value)
-      return value
-    } finally {
-      if (map.get(key) === pending) map.delete(key)
-    }
-  })()
-  map.set(key, pending)
-  return pending
+  return runSingleFlight(
+    () => map.get(key) ?? null,
+    (p) => (p === null ? map.delete(key) : map.set(key, p)),
+    produce,
+    onResolve,
+  )
 }
 
 /** Throw if the validate result has any `error`-type issue. */

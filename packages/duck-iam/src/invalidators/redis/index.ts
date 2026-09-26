@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import { isApplicableEvent } from '../../core/engine/engine.invalidation'
 import type { IamEngineTypes } from '../../core/engine/engine.types'
 import { toError } from '../../core/errors/normalize'
 
@@ -611,27 +612,11 @@ function extractInstanceAndEvent<TRole extends string>(
     return null
   }
   const ev = Reflect.get(source, 'event')
-  if (!_isValidEvent<TRole>(ev)) {
+  if (!isApplicableEvent<TRole>(ev)) {
     warnDropOnce(channel, `malformed ${label} payload (event)`)
     return null
   }
   return { event: ev, instanceId }
-}
-
-/** Per-kind shape check for an invalidate event: `subjectId` required, `roleId` optional, neither empty. */
-function _isValidEvent<TRole extends string>(ev: unknown): ev is IamEngineTypes.IInvalidateEvent<TRole> {
-  if (typeof ev !== 'object' || ev === null || Array.isArray(ev)) return false
-  const kind = Reflect.get(ev, 'kind')
-  if (kind === 'all' || kind === 'policies') return true
-  if (kind === 'roles') {
-    const roleId = Reflect.get(ev, 'roleId')
-    return roleId === undefined || (typeof roleId === 'string' && roleId.length > 0)
-  }
-  if (kind === 'subject') {
-    const subjectId = Reflect.get(ev, 'subjectId')
-    return typeof subjectId === 'string' && subjectId.length > 0
-  }
-  return false
 }
 
 function generateInstanceId(): string {
