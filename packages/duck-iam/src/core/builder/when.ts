@@ -237,6 +237,25 @@ export class When<
   }
 
   /**
+   * Shared shape of `and`/`or`/`not`: build a fresh nested {@link When} via `fn`, then push whichever
+   * group `close` emits from it. Only which terminal `build*` method closes the group differs between the three.
+   * SECURITY: routed through `iamChosenWhen`, as `when()`/`whenAny()`/`grantWhen()` are - a callback that
+   * returns a different builder than it was given must not silently empty the nested group.
+   */
+  private buildNested(
+    fn: (
+      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    close: (
+      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => AccessControl.ICondition | AccessControl.IConditionGroup,
+  ): this {
+    const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
+    this._items.push(close(iamChosenWhen(nested, fn(nested))))
+    return this
+  }
+
+  /**
    * Appends a nested AND group as a single item.
    *
    * @example
@@ -249,10 +268,7 @@ export class When<
       w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
     ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
-    const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
-    fn(nested)
-    this._items.push(nested.buildAll())
-    return this
+    return this.buildNested(fn, (w) => w.buildAll())
   }
 
   /**
@@ -268,10 +284,7 @@ export class When<
       w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
     ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
-    const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
-    fn(nested)
-    this._items.push(nested.buildAny())
-    return this
+    return this.buildNested(fn, (w) => w.buildAny())
   }
 
   /**
@@ -287,10 +300,7 @@ export class When<
       w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
     ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
-    const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
-    fn(nested)
-    this._items.push(nested.buildNone())
-    return this
+    return this.buildNested(fn, (w) => w.buildNone())
   }
 
   /** Emits a copy of the conditions as `{ all }` (AND); used by `when()` and `grantWhen()`. */
