@@ -2,10 +2,9 @@
 
 import { cn } from '@gentleduck/libs/cn'
 import { CornerUpRight, RefreshCw, Users } from 'lucide-react'
-import React from 'react'
-import { toErrorMessage } from '../../../core/errors/normalize'
 import type { AccessControl } from '../../../core/types'
 import { isDevtoolsAllowed } from '../../lib/guard'
+import { useIamListPanel } from '../../lib/list-panel'
 import type { IamIDevtoolsEngine } from '../../lib/types'
 import {
   IamV2Action,
@@ -47,36 +46,11 @@ function PermissionRow({ permission }: { permission: AccessControl.IPermission }
 
 /** Read-only browser for roles, their permissions and inheritance. Assignment lives in the Subjects panel. */
 export function IamRolesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
-  const [roles, setRoles] = React.useState<AccessControl.IRole[]>([])
-  const [selected, setSelected] = React.useState<string | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
-  const [filter, setFilter] = React.useState('')
-  const [loading, setLoading] = React.useState(true)
-
-  const load = React.useCallback(async () => {
-    try {
-      setError(null)
-      setLoading(true)
-      setRoles(await engine.admin.listRoles())
-    } catch (err) {
-      setError(toErrorMessage(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [engine])
-
-  React.useEffect(() => {
-    void load()
-  }, [load])
+  const { current, error, filter, filtered, items, loading, reload, selected, setFilter, setSelected } =
+    useIamListPanel<AccessControl.IRole>(() => engine.admin.listRoles())
 
   // Below every hook; guards the whole role catalog.
   if (!isDevtoolsAllowed(engine)) return null
-
-  const query = filter.trim().toLowerCase()
-  const filtered = roles.filter(
-    (role) => role.id.toLowerCase().includes(query) || (role.name ?? '').toLowerCase().includes(query),
-  )
-  const current = roles.find((role) => role.id === selected) ?? null
 
   return (
     <IamV2Root className="flex-1">
@@ -139,7 +113,7 @@ export function IamRolesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
           <>
             <IamV2PaneHeader
               actions={
-                <IamV2Action label="Reload roles" onClick={() => void load()}>
+                <IamV2Action label="Reload roles" onClick={() => void reload()}>
                   <RefreshCw size={12} />
                   refresh
                 </IamV2Action>
@@ -152,12 +126,12 @@ export function IamRolesPanelV2({ engine }: { engine: IamIDevtoolsEngine }) {
             </div>
             <IamV2PaneBody className="gap-1">
               {error && <IamV2Alert tone="error">{error}</IamV2Alert>}
-              {!error && loading && roles.length === 0 && <IamV2SkeletonRows />}
+              {!error && loading && items.length === 0 && <IamV2SkeletonRows />}
               {!error && !loading && filtered.length === 0 && (
                 <IamV2Empty
-                  description={roles.length === 0 ? 'The adapter holds no roles.' : 'Nothing matches the filter.'}
+                  description={items.length === 0 ? 'The adapter holds no roles.' : 'Nothing matches the filter.'}
                   icon={<Users />}
-                  title={roles.length === 0 ? 'No roles' : 'No matches'}
+                  title={items.length === 0 ? 'No roles' : 'No matches'}
                 />
               )}
               {filtered.map((role) => (
