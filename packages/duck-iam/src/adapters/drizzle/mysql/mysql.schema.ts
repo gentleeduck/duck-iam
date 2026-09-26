@@ -48,13 +48,20 @@ function auditColumns() {
   }
 }
 
+/** The `id`/`name`/`description` columns both `iam_policies` and `iam_roles` carry; a factory for the same reason as {@link auditColumns}. */
+function identityColumns() {
+  return {
+    id: varchar('id', { length: 191 }).notNull(),
+    name: varchar('name', { length: 191 }).notNull(),
+    description: varchar('description', { length: 1024 }),
+  }
+}
+
 /** Stored ABAC policies. */
 export const iamPolicies = mysqlTable(
   'iam_policies',
   {
-    id: varchar('id', { length: 191 }).notNull(),
-    name: varchar('name', { length: 191 }).notNull(),
-    description: varchar('description', { length: 1024 }),
+    ...identityColumns(),
     version: int('version').notNull().default(1),
     algorithm: mysqlEnum('algorithm', IAM_COMBINE_ALGORITHMS).notNull().default('deny-overrides'),
     rules: json('rules').$type<AccessControl.IRule[]>().notNull(),
@@ -73,9 +80,7 @@ export const iamPolicies = mysqlTable(
 export const iamRoles = mysqlTable(
   'iam_roles',
   {
-    id: varchar('id', { length: 191 }).notNull(),
-    name: varchar('name', { length: 191 }).notNull(),
-    description: varchar('description', { length: 1024 }),
+    ...identityColumns(),
     permissions: json('permissions').$type<AccessControl.IPermission[]>().notNull(),
     // INFO: an expression default is the only form MySQL accepts on a JSON column (8.0.13+).
     inherits: json('inherits').$type<string[]>().notNull().default(sql`('[]')`),
