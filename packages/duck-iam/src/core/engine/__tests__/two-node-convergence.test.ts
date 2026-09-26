@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { mulberry32 } from '../../../test/mulberry32'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 import type { IamEngineTypes } from '../engine.types'
@@ -8,17 +9,6 @@ import type { IamEngineTypes } from '../engine.types'
 // cold engine reading the same store answers - a write that invalidates locally but publishes nothing looks fine
 // from one node and is stale on every other.
 
-/** mulberry32: tiny, fast, deterministic 32-bit PRNG. */
-function mulberry32(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let t = state
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
 const pick = <T>(rng: () => number, xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)] as T
 
 const SEEDS = [1, 2, 3]
