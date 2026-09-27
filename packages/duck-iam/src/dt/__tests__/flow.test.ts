@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../core/errors'
 import { iamCreateFlowRecorder } from '../lib/flow'
+
+function throwsFlowBufferSizeInvalid(fn: () => unknown): boolean {
+  try {
+    fn()
+    return false
+  } catch (err) {
+    return hasIamErrorCode(err, 'IAM_DT_FLOW_BUFFER_SIZE_INVALID')
+  }
+}
 
 function base(overrides: Partial<Parameters<ReturnType<typeof iamCreateFlowRecorder>['record']>[0]> = {}) {
   return {
@@ -139,8 +149,7 @@ describe('iamCreateFlowRecorder validates bufferSize', () => {
 
   for (const bufferSize of bad) {
     it(`rejects bufferSize=${String(bufferSize)} at construction`, () => {
-      expect(() => iamCreateFlowRecorder({ bufferSize })).toThrow(RangeError)
-      expect(() => iamCreateFlowRecorder({ bufferSize })).toThrow(/\[@gentleduck\/iam:dt:flow\]/)
+      expect(throwsFlowBufferSizeInvalid(() => iamCreateFlowRecorder({ bufferSize }))).toBe(true)
     })
   }
 
