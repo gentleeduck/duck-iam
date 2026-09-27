@@ -1,4 +1,5 @@
 import * as nodePath from 'node:path'
+import { throwIamError } from '../../core/errors'
 import { toError, toErrorMessage } from '../../core/errors/normalize'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
@@ -172,26 +173,26 @@ export class IamFileAdapter<
   constructor(init: IamFile.IInit<TFS>) {
     // Reject raw `..`; path.resolve would silently collapse it.
     if (init.path.split(/[\\/]+/).includes('..')) {
-      throw new Error(`[@gentleduck/iam:file] IamFileAdapter path contains a ".." segment: "${init.path}"`)
+      throwIamError('IAM_FILE_PATH_INVALID', { reason: 'dotdot-segment', path: init.path })
     }
     const resolved = nodePath.resolve(init.path)
     if (!nodePath.isAbsolute(resolved)) {
-      throw new Error(`[@gentleduck/iam:file] IamFileAdapter path must resolve to an absolute path: "${init.path}"`)
+      throwIamError('IAM_FILE_PATH_INVALID', { reason: 'not-resolvable-absolute', path: init.path })
     }
     // Refuse pre-resolve relative paths; path.resolve would silently join cwd.
     if (!nodePath.isAbsolute(init.path)) {
-      throw new Error(`[@gentleduck/iam:file] IamFileAdapter path must be supplied as an absolute path: "${init.path}"`)
+      throwIamError('IAM_FILE_PATH_INVALID', { reason: 'not-absolute', path: init.path })
     }
 
     let rootDir: string | null = null
     if (init.rootDir !== undefined) {
       if (!nodePath.isAbsolute(init.rootDir)) {
-        throw new Error(`[@gentleduck/iam:file] IamFileAdapter rootDir must be absolute: "${init.rootDir}"`)
+        throwIamError('IAM_FILE_PATH_INVALID', { reason: 'rootdir-not-absolute', rootDir: init.rootDir })
       }
       rootDir = nodePath.resolve(init.rootDir)
       const rel = nodePath.relative(rootDir, resolved)
       if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
-        throw new Error(`[@gentleduck/iam:file] IamFileAdapter path "${resolved}" escapes rootDir "${rootDir}"`)
+        throwIamError('IAM_FILE_PATH_INVALID', { reason: 'escapes-rootdir', path: resolved, rootDir })
       }
     } else if (!_ROOTDIR_WARNED_FIRED) {
       // Once-per-process; do not echo the path (request-derived; log-oracle).
@@ -237,9 +238,11 @@ export class IamFileAdapter<
     const canonicalRoot = await this._canonicalRootDir(this._rootDir)
     const rel = nodePath.relative(canonicalRoot, canonical)
     if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
-      throw new Error(
-        `[@gentleduck/iam:file] IamFileAdapter realpath "${canonical}" escapes rootDir "${canonicalRoot}" (symlink traversal)`,
-      )
+      throwIamError('IAM_FILE_PATH_INVALID', {
+        reason: 'symlink-escapes-rootdir',
+        path: canonical,
+        rootDir: canonicalRoot,
+      })
     }
   }
 
@@ -266,9 +269,7 @@ export class IamFileAdapter<
     const v = parsed[name]
     if (v === undefined || v === null) return {}
     if (isPlainObject(v)) return v
-    throw new Error(
-      `[@gentleduck/iam:file] "${name}" must be an object, got ${Array.isArray(v) ? 'array' : typeof v}; refusing to load the store as empty`,
-    )
+    throwIamError('IAM_FILE_STORE_FIELD_INVALID', { field: name, got: Array.isArray(v) ? 'array' : typeof v })
   }
 
   private async _loadState(): Promise<IamFile.IState<TAction, TResource, TRole, TScope>> {
@@ -285,7 +286,10 @@ export class IamFileAdapter<
           // Only ENOENT is recoverable; anything else must surface.
           const code = errorCode(err)
           if (code !== 'ENOENT') {
-            throw new Error(`[@gentleduck/iam:file] load failed (${code ?? 'unknown'}): ${toErrorMessage(err)}`)
+            throwIamError('IAM_FILE_READ_FAILED', {
+              code: typeof code === 'string' ? code : 'unknown',
+              detail: toErrorMessage(err),
+            })
           }
           // SECURITY: null-prototype dicts, so ids like `__proto__` cannot read or pollute the prototype chain.
           const empty: IamFile.IState<TAction, TResource, TRole, TScope> = {
@@ -303,17 +307,13 @@ export class IamFileAdapter<
         } catch (err) {
           // WARN: throw, never set _cache to {}; a later _flush would erase a recoverable file.
           this._reportPolicyError(toError(err), this._path)
-          throw new Error(
-            `[@gentleduck/iam:file] store at "${this._path}" is corrupt (JSON parse failed) - refusing to load; restore from backup before retrying`,
-          )
+          throwIamError('IAM_FILE_STORE_CORRUPT', { path: this._path, reason: 'parse-failed' })
         }
 
         if (!isPlainObject(parsedRaw)) {
           const got = parsedRaw === null ? 'null' : Array.isArray(parsedRaw) ? 'array' : typeof parsedRaw
           this._reportPolicyError(new Error(`store root: expected object, got ${got}`), this._path)
-          throw new Error(
-            `[@gentleduck/iam:file] store at "${this._path}" is corrupt (root is ${got}, not an object) - refusing to load; restore from backup before retrying`,
-          )
+          throwIamError('IAM_FILE_STORE_CORRUPT', { path: this._path, reason: 'not-object', got })
         }
         const parsed = parsedRaw
 
@@ -401,10 +401,7 @@ export class IamFileAdapter<
     if (!state) {
       // NOTE: not a defensive no-op. A null cache means an earlier flush in this chain failed and discarded the
       // state this caller mutated, so its write is lost.
-      throw new Error(
-        '[@gentleduck/iam:file] IamFileAdapter discarded its in-memory state after an earlier write failed, ' +
-          'so this write did not reach the store. Reload and retry it.',
-      )
+      throwIamError('IAM_FILE_STATE_DISCARDED')
     }
     try {
       await this._writeState(state)
@@ -424,10 +421,10 @@ export class IamFileAdapter<
       // EEXIST is the happy path; anything else surfaces.
       const code = errorCode(err)
       if (code !== 'EEXIST') {
-        throw new Error(
-          `[@gentleduck/iam:file] IamFileAdapter parent directory "${this._parentDir}" is not accessible (${code ?? 'unknown'}). ` +
-            'Create it explicitly; the adapter no longer does recursive mkdir.',
-        )
+        throwIamError('IAM_FILE_MKDIR_FAILED', {
+          path: this._parentDir,
+          code: typeof code === 'string' ? code : 'unknown',
+        })
       }
     }
     const data = JSON.stringify(this._serializableState(state), null, 2)
@@ -525,7 +522,7 @@ export class IamFileAdapter<
   /** Throws when the subject's assignments row is corrupt; a partial role set is what makes a deny stop applying. */
   private _assertReadableAssignments(s: IamFile.IState<TAction, TResource, TRole, TScope>, id: string): void {
     if (s.corruptAssignments?.has(id)) {
-      throw new Error(`[@gentleduck/iam:file] corrupted assignments for "${id}" (malformed {role, scope?} entry)`)
+      throwIamError('IAM_FILE_ASSIGNMENTS_CORRUPT', { subjectId: id })
     }
   }
 
@@ -607,7 +604,7 @@ export class IamFileAdapter<
     const s = await this._loadState()
     if (s.corruptAttributes?.has(id)) {
       // SECURITY: corrupt is not empty; `{}` would strip ABAC. Matches redis/http.
-      throw new Error(`[@gentleduck/iam:file] corrupted attributes for "${id}" (not a JSON object)`)
+      throwIamError('IAM_ATTRIBUTES_CORRUPT', { adapter: 'file', subjectId: id, reason: 'not-object' })
     }
     // NOTE: return a copy (see `iamCopyAttributes`); the cached bag is live state the next flush writes to disk.
     const stored = s.attributes[id]

@@ -1,5 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamFile, IamFileAdapter } from '../index'
+
+async function rejectsWithCode(
+  p: Promise<unknown>,
+  code:
+    | 'IAM_FILE_ASSIGNMENTS_CORRUPT'
+    | 'IAM_ATTRIBUTES_CORRUPT'
+    | 'IAM_FILE_STORE_FIELD_INVALID'
+    | 'IAM_FILE_STORE_CORRUPT',
+): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, code)
+}
 
 type Action = 'read' | 'write'
 type Resource = 'post'
@@ -53,7 +69,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
       },
     })
     expect(await adapter.getSubjectRoles('user-good')).toEqual(['editor'])
-    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
+    expect(await rejectsWithCode(adapter.getSubjectRoles('user-bad'), 'IAM_FILE_ASSIGNMENTS_CORRUPT')).toBe(true)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
@@ -66,7 +82,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
         'user-bad': [{ role: 'editor' }, null, { role: 'viewer' }],
       },
     })
-    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
+    expect(await rejectsWithCode(adapter.getSubjectRoles('user-bad'), 'IAM_FILE_ASSIGNMENTS_CORRUPT')).toBe(true)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
@@ -76,7 +92,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
         'user-bad': [{ role: 'editor' }, null, { role: 42 }],
       },
     })
-    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
+    expect(await rejectsWithCode(adapter.getSubjectRoles('user-bad'), 'IAM_FILE_ASSIGNMENTS_CORRUPT')).toBe(true)
     expect(errors.some((e) => e.includes('[1]'))).toBe(true)
     expect(errors.some((e) => e.includes('[2]'))).toBe(true)
   })
@@ -95,7 +111,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
         'user-bad': [{ role: 42 }],
       },
     })
-    await expect(adapter.getSubjectRoles('user-bad')).rejects.toThrow(/corrupted assignments for "user-bad"/)
+    expect(await rejectsWithCode(adapter.getSubjectRoles('user-bad'), 'IAM_FILE_ASSIGNMENTS_CORRUPT')).toBe(true)
     expect(errors.some((e) => e.includes('missing/non-string role'))).toBe(true)
   })
 
@@ -127,7 +143,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     })
     expect(await adapter.getSubjectAttributes('user-good')).toEqual({ tier: 'pro' })
     // Corruption != empty: `{}` would silently strip ABAC. Matches redis/http.
-    await expect(adapter.getSubjectAttributes('user-bad')).rejects.toThrow(/corrupted attributes for "user-bad"/)
+    expect(await rejectsWithCode(adapter.getSubjectAttributes('user-bad'), 'IAM_ATTRIBUTES_CORRUPT')).toBe(true)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
@@ -159,7 +175,7 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
         'user-bad': ['tier', 'pro'],
       },
     })
-    await expect(adapter.getSubjectAttributes('user-bad')).rejects.toThrow(/corrupted attributes for "user-bad"/)
+    expect(await rejectsWithCode(adapter.getSubjectAttributes('user-bad'), 'IAM_ATTRIBUTES_CORRUPT')).toBe(true)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
@@ -167,17 +183,17 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
   // policies would drop every deny the store holds.
   it('refuses a wrong-typed policies root instead of loading it as empty', async () => {
     const { adapter } = await makeAdapter({ policies: [] })
-    await expect(adapter.listPolicies()).rejects.toThrow(/"policies" must be an object, got array/)
+    expect(await rejectsWithCode(adapter.listPolicies(), 'IAM_FILE_STORE_FIELD_INVALID')).toBe(true)
   })
 
   it('refuses a wrong-typed roles root instead of loading it as empty', async () => {
     const { adapter } = await makeAdapter({ roles: 'oops' })
-    await expect(adapter.listRoles()).rejects.toThrow(/"roles" must be an object, got string/)
+    expect(await rejectsWithCode(adapter.listRoles(), 'IAM_FILE_STORE_FIELD_INVALID')).toBe(true)
   })
 
   it('refuses to load a store whose root is not an object', async () => {
     const { adapter, errors } = await makeAdapter([])
-    await expect(adapter.listPolicies()).rejects.toThrow(/refusing to load/)
+    expect(await rejectsWithCode(adapter.listPolicies(), 'IAM_FILE_STORE_CORRUPT')).toBe(true)
     expect(errors).toHaveLength(1)
   })
 

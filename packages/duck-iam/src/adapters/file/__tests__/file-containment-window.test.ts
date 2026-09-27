@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { type IamFile, IamFileAdapter } from '../index'
+
+async function rejectsWithPathInvalid(p: Promise<unknown>): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, 'IAM_FILE_PATH_INVALID')
+}
 
 // Pins the containment window: `_assertWithinRoot` runs on cache misses and every write, not on cached reads,
 // so a symlink swapped in after the first read is caught by the next write.
@@ -75,9 +84,9 @@ describe('file adapter containment is checked on a cache miss and on every write
     await expect(adapter.listPolicies()).resolves.toEqual([])
 
     // The write path checks unconditionally and refuses to follow the link.
-    await expect(adapter.savePolicy({ algorithm: 'deny-overrides', id: 'p1', name: 'P', rules: [] })).rejects.toThrow(
-      /escapes rootDir/,
-    )
+    expect(
+      await rejectsWithPathInvalid(adapter.savePolicy({ algorithm: 'deny-overrides', id: 'p1', name: 'P', rules: [] })),
+    ).toBe(true)
   })
 
   // Control: without the swap the same write succeeds, so the rejection above
