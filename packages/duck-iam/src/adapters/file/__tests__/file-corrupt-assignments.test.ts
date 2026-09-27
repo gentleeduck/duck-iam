@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { IamEngine } from '../../../core/engine'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamFile, IamFileAdapter } from '../index'
+
+async function rejectsWithAssignmentsCorrupt(p: Promise<unknown>): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, 'IAM_FILE_ASSIGNMENTS_CORRUPT')
+}
 
 // A dropped role grant is not a smaller permission set: a policy targeting that role stops applying, so its
 // deny stops firing. This file pins that a malformed assignments row fails closed, as a corrupt attributes row does.
@@ -92,15 +101,15 @@ describe('file adapter: a malformed assignments row fails closed', () => {
     it(`reports and refuses to read the row: ${label}`, async () => {
       const reports: string[] = []
       const adapter = adapterOn(makeFs(storeWith({ u1: assignments })).fs, reports)
-      await expect(adapter.getSubjectRoles('u1')).rejects.toThrow(/corrupted assignments for "u1"/)
-      await expect(adapter.getSubjectScopedRoles('u1')).rejects.toThrow(/corrupted assignments for "u1"/)
+      expect(await rejectsWithAssignmentsCorrupt(adapter.getSubjectRoles('u1'))).toBe(true)
+      expect(await rejectsWithAssignmentsCorrupt(adapter.getSubjectScopedRoles('u1'))).toBe(true)
       expect(reports.join(' | ')).toContain('assignments[u1]')
     })
   }
 
   it('leaves every other subject readable', async () => {
     const adapter = adapterOn(makeFs(storeWith({ u1: [{ role: 42 }], u2: [{ role: 'reader' }] })).fs)
-    await expect(adapter.getSubjectRoles('u1')).rejects.toThrow(/corrupted assignments/)
+    expect(await rejectsWithAssignmentsCorrupt(adapter.getSubjectRoles('u1'))).toBe(true)
     expect(await adapter.getSubjectRoles('u2')).toEqual(['reader'])
   })
 
@@ -112,18 +121,18 @@ describe('file adapter: a malformed assignments row fails closed', () => {
     expect(JSON.parse(read()).assignments.u1).toEqual([{ role: 'reader' }, { role: 42 }])
 
     const reloaded = adapterOn(fs)
-    await expect(reloaded.getSubjectRoles('u1')).rejects.toThrow(/corrupted assignments/)
+    expect(await rejectsWithAssignmentsCorrupt(reloaded.getSubjectRoles('u1'))).toBe(true)
     expect(await canRead(JSON.parse(read()).assignments)).toBe(false)
   })
 
   it('refuses an assignment write against a row it cannot read, and still serves a clean subject', async () => {
     const { fs } = makeFs(storeWith({ u1: [{ role: 'reader' }, { role: 42 }], u2: [] }))
     const adapter = adapterOn(fs)
-    await expect(adapter.assignRole('u1', 'banned')).rejects.toThrow(/corrupted assignments/)
-    await expect(adapter.revokeRole('u1', 'reader')).rejects.toThrow(/corrupted assignments/)
-    await expect(adapter.updateAssignmentScope('u1', 'reader', undefined, 'tenant-a')).rejects.toThrow(
-      /corrupted assignments/,
-    )
+    expect(await rejectsWithAssignmentsCorrupt(adapter.assignRole('u1', 'banned'))).toBe(true)
+    expect(await rejectsWithAssignmentsCorrupt(adapter.revokeRole('u1', 'reader'))).toBe(true)
+    expect(
+      await rejectsWithAssignmentsCorrupt(adapter.updateAssignmentScope('u1', 'reader', undefined, 'tenant-a')),
+    ).toBe(true)
     await adapter.assignRole('u2', 'reader')
     expect(await adapter.getSubjectRoles('u2')).toEqual(['reader'])
   })

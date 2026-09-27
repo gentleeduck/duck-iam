@@ -39,6 +39,8 @@ describe('every log prefix names its module', () => {
     for (const file of await sourceFiles()) {
       tagged += readFileSync(join(ROOT, file), 'utf8').split('[@gentleduck/iam:').length - 1
     }
-    expect(tagged).toBeGreaterThan(80)
+    // The IamError migration is converting raw tagged throws to bare-code errors, so this count keeps
+    // falling; 30 stays below the console.warn/error floor that migration never touches.
+    expect(tagged).toBeGreaterThan(30)
   })
 })

@@ -70,4 +70,21 @@ export const IAM_ERRORS = {
   IAM_REDIS_INVALIDATOR_CANONICAL_DEPTH_EXCEEDED: detail<{ depth: number }>(500),
   IAM_CLIENT_PERMISSIONS_FETCH_FAILED: detail<{ status: number }>(502),
   IAM_CLIENT_PROVIDER_MISSING: detail<{ framework: 'react' | 'vue'; detail: string }>(500),
+  IAM_FILE_PATH_INVALID: detail<{
+    reason:
+      | 'dotdot-segment'
+      | 'not-resolvable-absolute'
+      | 'not-absolute'
+      | 'rootdir-not-absolute'
+      | 'escapes-rootdir'
+      | 'symlink-escapes-rootdir'
+    path?: string
+    rootDir?: string
+  }>(500),
+  IAM_FILE_STORE_FIELD_INVALID: detail<{ field: 'policies' | 'roles'; got: string }>(500),
+  IAM_FILE_READ_FAILED: fault<{ code: string; detail: string }>(500),
+  IAM_FILE_STORE_CORRUPT: detail<{ path: string; reason: 'parse-failed' | 'not-object'; got?: string }>(500),
+  IAM_FILE_STATE_DISCARDED: 500,
+  IAM_FILE_MKDIR_FAILED: detail<{ path: string; code: string }>(500),
+  IAM_FILE_ASSIGNMENTS_CORRUPT: detail<{ subjectId: string }>(500),
 } as const satisfies Record<string, number>

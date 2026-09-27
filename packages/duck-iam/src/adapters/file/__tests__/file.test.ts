@@ -1,9 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode, type IamError, metaOf } from '../../../core/errors'
 import type { AccessControl } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { runEngineCapabilityCompliance } from '../../__compliance__/engine-capability'
 import { OPTIONAL_SUPPORT } from '../../__compliance__/optional-support'
 import { IamFile, IamFileAdapter, iamFileAdapter } from '../index'
+
+function thrown(fn: () => unknown): unknown {
+  try {
+    fn()
+    return undefined
+  } catch (err) {
+    return err
+  }
+}
+
+async function rejected(p: Promise<unknown>): Promise<unknown> {
+  return p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+}
 
 type Action = 'read' | 'write'
 type Resource = 'post'
@@ -177,7 +194,7 @@ describe('IamFileAdapter', () => {
     // A cached `{}` would be persisted by the next flush, destroying recoverable data.
     const fs = makeFakeFS('not-json{')
     const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
-    await expect(adapter.listPolicies()).rejects.toThrow(/corrupt.*refusing to load/)
+    expect(hasIamErrorCode(await rejected(adapter.listPolicies()), 'IAM_FILE_STORE_CORRUPT')).toBe(true)
   })
 
   describe('malformed-row handling (P0)', () => {
@@ -234,7 +251,7 @@ describe('IamFileAdapter', () => {
         fs,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
-      await expect(adapter.listPolicies()).rejects.toThrow(/corrupt/)
+      expect(hasIamErrorCode(await rejected(adapter.listPolicies()), 'IAM_FILE_STORE_CORRUPT')).toBe(true)
       expect(errors[0]?.rowId).toBe('/store.json')
     })
   })
@@ -242,24 +259,28 @@ describe('IamFileAdapter', () => {
   describe('path-traversal hardening', () => {
     it('rejects a path containing a ".." segment', () => {
       const fs = makeFakeFS()
-      expect(
+      const err = thrown(
         () =>
           new IamFileAdapter<Action, Resource, Role, Scope>({
             path: '/var/lib/iam/../../etc/passwd',
             fs,
           }),
-      ).toThrow(/".." segment/)
+      )
+      expect(hasIamErrorCode(err, 'IAM_FILE_PATH_INVALID')).toBe(true)
+      expect(metaOf(err as IamError<'IAM_FILE_PATH_INVALID'>, 'IAM_FILE_PATH_INVALID').reason).toBe('dotdot-segment')
     })
 
     it('rejects a relative path (must be supplied absolute)', () => {
       const fs = makeFakeFS()
-      expect(
+      const err = thrown(
         () =>
           new IamFileAdapter<Action, Resource, Role, Scope>({
             path: 'store.json',
             fs,
           }),
-      ).toThrow(/absolute/)
+      )
+      expect(hasIamErrorCode(err, 'IAM_FILE_PATH_INVALID')).toBe(true)
+      expect(metaOf(err as IamError<'IAM_FILE_PATH_INVALID'>, 'IAM_FILE_PATH_INVALID').reason).toBe('not-absolute')
     })
 
     it('accepts a happy-path absolute path under rootDir', async () => {
@@ -275,14 +296,16 @@ describe('IamFileAdapter', () => {
 
     it('rejects an absolute path that escapes rootDir', () => {
       const fs = makeFakeFS()
-      expect(
+      const err = thrown(
         () =>
           new IamFileAdapter<Action, Resource, Role, Scope>({
             path: '/etc/passwd',
             rootDir: '/srv/iam',
             fs,
           }),
-      ).toThrow(/escapes rootDir/)
+      )
+      expect(hasIamErrorCode(err, 'IAM_FILE_PATH_INVALID')).toBe(true)
+      expect(metaOf(err as IamError<'IAM_FILE_PATH_INVALID'>, 'IAM_FILE_PATH_INVALID').reason).toBe('escapes-rootdir')
     })
 
     // The missing-`rootDir` warning is tested in `file-rootdir-warn.test.ts`: the compliance call above trips
@@ -310,7 +333,7 @@ describe('IamFileAdapter', () => {
         rootDir: '/srv/iam',
         fs,
       })
-      await expect(adapter.listPolicies()).rejects.toThrow(/symlink traversal/)
+      expect(hasIamErrorCode(await rejected(adapter.listPolicies()), 'IAM_FILE_PATH_INVALID')).toBe(true)
     })
 
     it('rethrows non-ENOENT realpath errors instead of falling through to parent', async () => {
@@ -386,7 +409,7 @@ describe('IamFileAdapter', () => {
         rootDir: '/srv/iam',
         fs,
       })
-      await expect(adapter.listPolicies()).rejects.toThrow(/symlink traversal/)
+      expect(hasIamErrorCode(await rejected(adapter.listPolicies()), 'IAM_FILE_PATH_INVALID')).toBe(true)
       // Fix the FS and retry; a fresh load must be attempted.
       escapingSymlink = false
       expect(await adapter.listPolicies()).toEqual([])
@@ -402,7 +425,9 @@ describe('IamFileAdapter', () => {
         async mkdir() {},
       }
       const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
-      await expect(adapter.listPolicies()).rejects.toThrow(/load failed \(EACCES\)/)
+      const err = await rejected(adapter.listPolicies())
+      expect(hasIamErrorCode(err, 'IAM_FILE_READ_FAILED')).toBe(true)
+      expect(metaOf(err as IamError<'IAM_FILE_READ_FAILED'>, 'IAM_FILE_READ_FAILED').code).toBe('EACCES')
     })
 
     it('still treats genuinely-missing file as empty store (ENOENT)', async () => {
@@ -446,9 +471,8 @@ describe('IamFileAdapter', () => {
       // Attacker swap.
       swapped = true
       // The write path runs `_assertWithinRoot` before writing, even though the load is served from cache.
-      await expect(adapter.savePolicy({ id: 'p', name: 'p', algorithm: 'deny-overrides', rules: [] })).rejects.toThrow(
-        /symlink traversal/,
-      )
+      const err = await rejected(adapter.savePolicy({ id: 'p', name: 'p', algorithm: 'deny-overrides', rules: [] }))
+      expect(hasIamErrorCode(err, 'IAM_FILE_PATH_INVALID')).toBe(true)
       expect(realpathCalls).toBeGreaterThan(callsAfterFirst)
     })
 
@@ -479,6 +503,7 @@ describe('iamFileAdapter factory', () => {
   })
 
   it('propagates constructor validation (relative path still rejected)', () => {
-    expect(() => iamFileAdapter({ fs: makeFakeFS(), path: 'relative.json' })).toThrow(/absolute path/)
+    const err = thrown(() => iamFileAdapter({ fs: makeFakeFS(), path: 'relative.json' }))
+    expect(hasIamErrorCode(err, 'IAM_FILE_PATH_INVALID')).toBe(true)
   })
 })
