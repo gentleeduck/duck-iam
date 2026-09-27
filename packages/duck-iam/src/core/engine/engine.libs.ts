@@ -301,6 +301,22 @@ function eachStoredRule(
 }
 
 /**
+ * Reports `message` under `policyId`, once per `key` across the lifetime of `seen`. Shared by every `report*`
+ * function below, which differ only in what `key` and `message` they compute - never in the dedupe or report step.
+ */
+function reportOnce(
+  seen: Set<string>,
+  key: string,
+  policyId: string,
+  message: string,
+  report: (err: Error, policyId: string) => void,
+): void {
+  if (seen.has(key)) return
+  seen.add(key)
+  report(new Error(message), policyId)
+}
+
+/**
  * Reports a rule that no request can reach, for reasons wholly inside the rule - an empty target list or a
  * condition that is false whatever the request holds.
  * SECURITY: `validatePolicy` rejects the empty lists, but nothing on the load path calls it, so a seeded or
@@ -314,16 +330,14 @@ export function reportUnmatchableRules(
   eachStoredRule(policies, (policy, rule) => {
     const reason = unmatchableReason(rule)
     if (reason === undefined) return
-    const key = `${policy.id}\u0000${rule.id}\u0000unmatchable`
-    if (seen.has(key)) return
-    seen.add(key)
-    report(
-      new Error(
-        `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} ${reason}. ` +
-          'No request can reach the rule, so ' +
-          `${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
-      ),
+    reportOnce(
+      seen,
+      `${policy.id}\u0000${rule.id}\u0000unmatchable`,
       policy.id,
+      `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} ${reason}. ` +
+        'No request can reach the rule, so ' +
+        `${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
+      report,
     )
   })
 }
@@ -336,17 +350,15 @@ export function reportDeadConditionPaths(
   eachStoredRule(policies, (policy, rule) => {
     eachConditionPath(rule.conditions, 0, (path) => {
       if (isResolvablePath(path)) return
-      const key = `${policy.id}\u0000${rule.id}\u0000${path}`
-      if (seen.has(key)) return
-      seen.add(key)
-      report(
-        new Error(
-          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} reads ` +
-            `${JSON.stringify(path)}, which resolves to null on every request - the root must be "subject", ` +
-            '"resource" or "environment", and no segment may be a prototype key. The condition cannot be ' +
-            `satisfied by any input, so ${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
-        ),
+      reportOnce(
+        seen,
+        `${policy.id}\u0000${rule.id}\u0000${path}`,
         policy.id,
+        `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} reads ` +
+          `${JSON.stringify(path)}, which resolves to null on every request - the root must be "subject", ` +
+          '"resource" or "environment", and no segment may be a prototype key. The condition cannot be ' +
+          `satisfied by any input, so ${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way never fires.`,
+        report,
       )
     })
   })
@@ -405,17 +417,15 @@ export function reportDeadPolicyTargets(
       if (candidates.length === 0) continue
       const live = candidates.filter((rule) => ruleMatchesTargets(rule, targeted, dimension))
       if (live.length === 0) {
-        const key = `${policy.id}\u0000targets.${dimension}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        report(
-          new Error(
-            `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} has targets.${dimension} ` +
-              `${JSON.stringify(targeted)}, which no rule in the policy can match. ` +
-              'The policy is NotApplicable for every request - a deny written this way never fires. ' +
-              `Check for a typo, or widen targets.${dimension}.`,
-          ),
+        reportOnce(
+          seen,
+          `${policy.id}\u0000targets.${dimension}`,
           policy.id,
+          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} has targets.${dimension} ` +
+            `${JSON.stringify(targeted)}, which no rule in the policy can match. ` +
+            'The policy is NotApplicable for every request - a deny written this way never fires. ' +
+            `Check for a typo, or widen targets.${dimension}.`,
+          report,
         )
         continue
       }
@@ -423,17 +433,15 @@ export function reportDeadPolicyTargets(
       // either, and nothing else would say so.
       for (const rule of candidates) {
         if (live.includes(rule)) continue
-        const key = `${policy.id}\u0000${rule.id}\u0000rule.${dimension}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        report(
-          new Error(
-            `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} has ` +
-              `${dimension} ${JSON.stringify(rule[dimension])}, which the policy's targets.${dimension} ` +
-              `${JSON.stringify(targeted)} never admits. The rule cannot fire, though other rules in the policy ` +
-              `can - so ${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way is dead on its own.`,
-          ),
+        reportOnce(
+          seen,
+          `${policy.id}\u0000${rule.id}\u0000rule.${dimension}`,
           policy.id,
+          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} rule ${JSON.stringify(rule.id)} has ` +
+            `${dimension} ${JSON.stringify(rule[dimension])}, which the policy's targets.${dimension} ` +
+            `${JSON.stringify(targeted)} never admits. The rule cannot fire, though other rules in the policy ` +
+            `can - so ${rule.effect === 'deny' ? 'a deny' : 'an allow'} written this way is dead on its own.`,
+          report,
         )
       }
     }
@@ -456,16 +464,14 @@ export function reportUnreachableRoleTargets(
     if (!Array.isArray(targeted)) continue
     for (const roleId of targeted) {
       if (typeof roleId !== 'string' || stored.has(roleId)) continue
-      const key = `${policy.id}\u0000${roleId}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      report(
-        new Error(
-          `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} targets role ${JSON.stringify(roleId)}, ` +
-            'which no stored role defines. Targets are matched by equality, so the policy applies to no subject - ' +
-            'a deny written this way never fires. Fix the id or drop the target.',
-        ),
+      reportOnce(
+        seen,
+        `${policy.id}\u0000${roleId}`,
         policy.id,
+        `[@gentleduck/iam:engine] policy ${JSON.stringify(policy.id)} targets role ${JSON.stringify(roleId)}, ` +
+          'which no stored role defines. Targets are matched by equality, so the policy applies to no subject - ' +
+          'a deny written this way never fires. Fix the id or drop the target.',
+        report,
       )
     }
   }

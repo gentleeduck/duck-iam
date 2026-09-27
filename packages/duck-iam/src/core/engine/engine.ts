@@ -901,7 +901,7 @@ export class IamEngine<
     subjectId: string,
     action: TAction,
     resource: IamRequest.IResource<TResource>,
-    environment: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+    environment: IamRequest.IEnvironment | undefined,
     scope: TScope | undefined,
   ): { req: IamRequest.IAccessRequest<TAction, TResource, TScope>; invalidSubjectId: boolean } {
     return {
@@ -973,7 +973,7 @@ export class IamEngine<
   private _checkRequest(
     subject: IamRequest.ISubject,
     c: IamClient.IPermissionCheck<TAction, TResource, TScope>,
-    environment: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+    environment: IamRequest.IEnvironment | undefined,
   ): IamRequest.IAccessRequest<TAction, TResource, TScope> {
     return {
       subject,
@@ -1028,7 +1028,7 @@ export class IamEngine<
     subjectId: string,
     action: TAction,
     resource: IamRequest.IResource<TResource>,
-    environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+    environment?: IamRequest.IEnvironment,
     scope?: TScope,
   ): Promise<boolean> {
     const t0 = this._observerT0()
@@ -1067,7 +1067,7 @@ export class IamEngine<
     subjectId: string,
     action: TAction,
     resource: IamRequest.IResource<TResource>,
-    environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+    environment?: IamRequest.IEnvironment,
     scope?: TScope,
   ): Promise<AccessControl.ModeResult<TMode>> {
     const t0 = this._observerT0()
@@ -1102,7 +1102,7 @@ export class IamEngine<
     subjectId: string,
     action: TAction,
     resource: IamRequest.IResource<TResource>,
-    environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+    environment?: IamRequest.IEnvironment,
     scope?: TScope,
   ): Promise<Explain.IResult> {
     if (this._mode === 'production') {
@@ -1154,7 +1154,7 @@ export class IamEngine<
   async permissions(
     subjectId: string,
     checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
-    environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+    environment?: IamRequest.IEnvironment,
     opts: { telemetry?: boolean } = {},
   ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
