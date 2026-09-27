@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { hasIamErrorCode, type IamError, metaOf } from '../../errors'
 import { IamEngine } from '../engine'
 
 function buildEngine() {
@@ -12,6 +13,11 @@ function buildEngine() {
   return engine
 }
 
+function snapshotFieldGot(err: unknown): string {
+  return metaOf(err as IamError<'IAM_ENGINE_SNAPSHOT_VERSION_UNSUPPORTED'>, 'IAM_ENGINE_SNAPSHOT_VERSION_UNSUPPORTED')
+    .got
+}
+
 describe('engine.admin.import schemaVersion error interpolation cap', () => {
   it('caps a multi-MB attacker-controlled schemaVersion string', async () => {
     const engine = buildEngine()
@@ -20,11 +26,11 @@ describe('engine.admin.import schemaVersion error interpolation cap', () => {
       await engine.admin.import({ schemaVersion: evil } as unknown as Parameters<typeof engine.admin.import>[0])
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg.length).toBeLessThan(500)
-      expect(msg).toMatch(/length 10485760/)
-      expect(msg).toContain('...')
-      expect(msg).toContain('unsupported snapshot schemaVersion')
+      expect(hasIamErrorCode(err, 'IAM_ENGINE_SNAPSHOT_VERSION_UNSUPPORTED')).toBe(true)
+      const got = snapshotFieldGot(err)
+      expect(got.length).toBeLessThan(500)
+      expect(got).toMatch(/length 10485760/)
+      expect(got).toContain('...')
     }
   })
 
@@ -34,10 +40,10 @@ describe('engine.admin.import schemaVersion error interpolation cap', () => {
       await engine.admin.import({ schemaVersion: 'v2-beta' } as unknown as Parameters<typeof engine.admin.import>[0])
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg).toContain(`string 'v2-beta'`)
-      expect(msg).not.toContain('...')
-      expect(msg).not.toMatch(/length \d+/)
+      const got = snapshotFieldGot(err)
+      expect(got).toContain(`string 'v2-beta'`)
+      expect(got).not.toContain('...')
+      expect(got).not.toMatch(/length \d+/)
     }
   })
 
@@ -47,8 +53,7 @@ describe('engine.admin.import schemaVersion error interpolation cap', () => {
       await engine.admin.import({ schemaVersion: 2 } as unknown as Parameters<typeof engine.admin.import>[0])
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg).toContain('number 2')
+      expect(snapshotFieldGot(err)).toContain('number 2')
     }
   })
 
@@ -58,8 +63,7 @@ describe('engine.admin.import schemaVersion error interpolation cap', () => {
       await engine.admin.import({ schemaVersion: true } as unknown as Parameters<typeof engine.admin.import>[0])
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg).toContain('boolean true')
+      expect(snapshotFieldGot(err)).toContain('boolean true')
     }
   })
 
@@ -69,8 +73,7 @@ describe('engine.admin.import schemaVersion error interpolation cap', () => {
       await engine.admin.import({ schemaVersion: null } as unknown as Parameters<typeof engine.admin.import>[0])
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg).toContain('null')
+      expect(snapshotFieldGot(err)).toContain('null')
     }
   })
 
@@ -81,10 +84,10 @@ describe('engine.admin.import schemaVersion error interpolation cap', () => {
       await engine.admin.import({ schemaVersion: huge } as unknown as Parameters<typeof engine.admin.import>[0])
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg).not.toContain('Y'.repeat(100))
-      expect(msg.length).toBeLessThan(500)
-      expect(msg).toContain('object')
+      const got = snapshotFieldGot(err)
+      expect(got).not.toContain('Y'.repeat(100))
+      expect(got.length).toBeLessThan(500)
+      expect(got).toContain('object')
     }
   })
 
@@ -95,16 +98,22 @@ describe('engine.admin.import schemaVersion error interpolation cap', () => {
       await engine.admin.import({ schemaVersion: arr } as unknown as Parameters<typeof engine.admin.import>[0])
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg).toContain('array (length 1000000)')
-      expect(msg.length).toBeLessThan(500)
+      const got = snapshotFieldGot(err)
+      expect(got).toContain('array (length 1000000)')
+      expect(got.length).toBeLessThan(500)
     }
   })
 
   it('survives a non-object snapshot without crashing on Reflect.get', async () => {
     const engine = buildEngine()
-    await expect(
-      engine.admin.import('not-a-snapshot' as unknown as Parameters<typeof engine.admin.import>[0]),
-    ).rejects.toThrow(/unsupported snapshot schemaVersion/)
+    const err = await engine.admin
+      .import('not-a-snapshot' as unknown as Parameters<typeof engine.admin.import>[0])
+      .then(
+        () => {
+          throw new Error('expected import() to throw')
+        },
+        (e: unknown) => e,
+      )
+    expect(hasIamErrorCode(err, 'IAM_ENGINE_SNAPSHOT_VERSION_UNSUPPORTED')).toBe(true)
   })
 })

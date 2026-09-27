@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../errors'
 import type { AccessControl, IamAdapter } from '../../types'
 import { IamEngine } from '../engine'
 
@@ -84,7 +85,7 @@ describe('IamEngine: subject load shed under the cap, end-to-end', () => {
     const thirdAllowed = await engine.can('s-3', 'read', { type: 'post', attributes: {} })
     expect(thirdAllowed).toBe(false)
     expect(errors).toHaveLength(1)
-    expect(errors[0]?.message).toMatch(/subject load shed/)
+    expect(hasIamErrorCode(errors[0], 'IAM_ENGINE_SUBJECT_LOAD_SHED')).toBe(true)
 
     gate1.resolve([])
     gate2.resolve([])

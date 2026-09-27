@@ -1,5 +1,6 @@
 // Boot, health and dispose helpers, testable without an engine.
 
+import { throwIamError } from '../errors'
 import { toErrorMessage } from '../errors/normalize'
 import type { AccessControl } from '../types'
 import type { IamValidate } from '../validate/validate.types'
@@ -71,11 +72,10 @@ export async function preloadEngine(args: {
   for (const role of roles) record('role', role.id, validate.validateRole(role))
 
   if (problems.length === 0) return
-  const shown = problems.slice(0, PRELOAD_REPORT_LIMIT).join(' | ')
-  const more = problems.length > PRELOAD_REPORT_LIMIT ? ` (+${problems.length - PRELOAD_REPORT_LIMIT} more)` : ''
-  throw new Error(
-    `[@gentleduck/iam:engine] preload({ validator: true }): ${problems.length} stored row(s) are invalid: ${shown}${more}`,
-  )
+  throwIamError('IAM_ENGINE_PRELOAD_VALIDATION_FAILED', {
+    count: problems.length,
+    problems: problems.slice(0, PRELOAD_REPORT_LIMIT),
+  })
 }
 
 /**

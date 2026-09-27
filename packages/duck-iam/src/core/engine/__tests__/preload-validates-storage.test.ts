@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { type IamError, metaOf } from '../../errors'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../index'
+
+function preloadFailure(promise: Promise<unknown>): Promise<IamError<'IAM_ENGINE_PRELOAD_VALIDATION_FAILED'>> {
+  return promise.then(
+    () => {
+      throw new Error('expected preload() to throw')
+    },
+    (err: unknown) => err as IamError<'IAM_ENGINE_PRELOAD_VALIDATION_FAILED'>,
+  )
+}
 
 /** Rows the write gate never saw: a migration, a seed script, a restore, another service writing the same table. */
 class Planted extends IamMemoryAdapter {
@@ -83,29 +93,28 @@ describe('preload is the only check on rows the write path never saw', () => {
   it('preload({ validator: true }) throws, naming the policy and the reason', async () => {
     const adapter = new Planted()
     adapter.extraPolicies.push(INVALID)
-    await expect(engineOn(adapter).preload({ validator: true })).rejects.toThrow(
-      /1 stored row\(s\) are invalid: policy "planted": .*control characters/,
-    )
+    const err = await preloadFailure(engineOn(adapter).preload({ validator: true }))
+    const meta = metaOf(err, 'IAM_ENGINE_PRELOAD_VALIDATION_FAILED')
+    expect(meta.count).toBe(1)
+    expect(meta.problems[0]).toMatch(/policy "planted": .*control characters/)
   })
 
   it('a planted role is checked too', async () => {
     const adapter = new Planted()
     adapter.extraRoles.push(INVALID_ROLE)
-    await expect(engineOn(adapter).preload({ validator: true })).rejects.toThrow(/role "bad"/)
+    const err = await preloadFailure(engineOn(adapter).preload({ validator: true }))
+    const meta = metaOf(err, 'IAM_ENGINE_PRELOAD_VALIDATION_FAILED')
+    expect(meta.problems.some((p) => p.includes('role "bad"'))).toBe(true)
   })
 
   it('counts every offender exactly and names at most ten', async () => {
     const adapter = new Planted()
     for (let i = 0; i < 12; i++) adapter.extraPolicies.push(policy(`planted-${i}`, 'read\n'))
-    const message = await engineOn(adapter)
-      .preload({ validator: true })
-      .then(
-        () => '',
-        (e: unknown) => (e instanceof Error ? e.message : String(e)),
-      )
-    expect(message).toMatch(/12 stored row\(s\) are invalid/)
-    expect(message).toMatch(/\(\+2 more\)/)
-    expect(message.match(/policy "planted-/g)).toHaveLength(10)
+    const err = await preloadFailure(engineOn(adapter).preload({ validator: true }))
+    const meta = metaOf(err, 'IAM_ENGINE_PRELOAD_VALIDATION_FAILED')
+    expect(meta.count).toBe(12)
+    expect(meta.problems).toHaveLength(10)
+    expect(meta.problems.every((p) => p.includes('policy "planted-'))).toBe(true)
   })
 
   it('reports the errors on an offending row, not its warnings', async () => {
@@ -117,14 +126,10 @@ describe('preload is the only check on rows the write path never saw', () => {
         deny('read\n'),
       ],
     })
-    const message = await engineOn(adapter)
-      .preload({ validator: true })
-      .then(
-        () => '',
-        (e: unknown) => (e instanceof Error ? e.message : String(e)),
-      )
-    expect(message).toMatch(/control characters/)
-    expect(message).not.toMatch(/broadest possible grant/)
+    const err = await preloadFailure(engineOn(adapter).preload({ validator: true }))
+    const meta = metaOf(err, 'IAM_ENGINE_PRELOAD_VALIDATION_FAILED')
+    expect(meta.problems.some((p) => p.includes('control characters'))).toBe(true)
+    expect(meta.problems.some((p) => p.includes('broadest possible grant'))).toBe(false)
   })
 
   it('a clean store preloads with the flag on', async () => {

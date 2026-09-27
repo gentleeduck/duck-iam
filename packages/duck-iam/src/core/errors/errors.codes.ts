@@ -44,4 +44,21 @@ export const IAM_ERRORS = {
   IAM_BUILDER_WHEN_GROUP_CONFLICT: 500,
   IAM_BUILDER_RULE_SCOPE_EMPTY: detail<{ ruleId: string }>(500),
   IAM_BUILDER_RULE_UNCONFIGURED: detail<{ ruleId: string }>(500),
+  IAM_ENGINE_PARAM_INVALID: detail<{ name: string; reason: 'empty' | 'too-long'; got?: string; length?: number }>(400),
+  IAM_ENGINE_ATTRIBUTES_PARAM_INVALID: detail<{
+    reason: 'not-object' | 'too-many-keys' | 'too-deep'
+    got?: string
+    count?: number
+    depth?: number
+  }>(400),
+  IAM_ENGINE_SNAPSHOT_VERSION_UNSUPPORTED: detail<{ got: string }>(400),
+  IAM_ENGINE_SNAPSHOT_FIELD_INVALID: detail<{ field: 'policies' | 'roles' }>(400),
+  IAM_ENGINE_PRELOAD_VALIDATION_FAILED: detail<{ count: number; problems: readonly string[] }>(500),
+  IAM_ENGINE_ROW_CAP_EXCEEDED: detail<{ noun: string; count: number; cap: number; capField: string }>(500),
+  IAM_ENGINE_SUBJECT_LOAD_SHED: detail<{ subjectId: string; inFlight: number; cap: number }>(503),
+  IAM_ENGINE_INVALIDATOR_SHAPE_INVALID: 500,
+  IAM_ENGINE_INTERPRETER_DISAGREEMENT: detail<{ compiled: boolean; interpreted: boolean; detail: string }>(500),
+  IAM_ENGINE_EXPLAIN_UNAVAILABLE: 500,
+  IAM_ENGINE_BATCH_TOO_LARGE: detail<{ count: number; limit: number }>(400),
+  IAM_ENGINE_ADAPTER_NOT_TRANSACTIONAL: 500,
 } as const satisfies Record<string, number>

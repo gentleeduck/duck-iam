@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamLRUCache } from '../../../shared/cache'
+import { hasIamErrorCode, type IamError, metaOf } from '../../errors'
 import type { AccessControl, IamAdapter, IamRequest } from '../../types'
 import {
   type IIamLoaderDeps,
@@ -111,7 +112,17 @@ describe('loadPolicies', () => {
       { id: 'a', name: 'a', algorithm: 'deny-overrides' as const, rules: [] },
       { id: 'b', name: 'b', algorithm: 'deny-overrides' as const, rules: [] },
     ]
-    await expect(loadPolicies(deps)).rejects.toThrow(/maxPolicies is 1/)
+    const err = await loadPolicies(deps).then(
+      () => {
+        throw new Error('expected loadPolicies() to throw')
+      },
+      (e: unknown) => e,
+    )
+    expect(hasIamErrorCode(err, 'IAM_ENGINE_ROW_CAP_EXCEEDED')).toBe(true)
+    expect(metaOf(err as IamError<'IAM_ENGINE_ROW_CAP_EXCEEDED'>, 'IAM_ENGINE_ROW_CAP_EXCEEDED')).toMatchObject({
+      capField: 'maxPolicies',
+      cap: 1,
+    })
   })
 
   it('mid-flight cache clear is honored: produce resolves but cache stays empty', async () => {
@@ -146,7 +157,17 @@ describe('loadRoles', () => {
       { id: 'a', name: 'a', permissions: [] },
       { id: 'b', name: 'b', permissions: [] },
     ]
-    await expect(loadRoles(deps)).rejects.toThrow(/maxRoles is 1/)
+    const err = await loadRoles(deps).then(
+      () => {
+        throw new Error('expected loadRoles() to throw')
+      },
+      (e: unknown) => e,
+    )
+    expect(hasIamErrorCode(err, 'IAM_ENGINE_ROW_CAP_EXCEEDED')).toBe(true)
+    expect(metaOf(err as IamError<'IAM_ENGINE_ROW_CAP_EXCEEDED'>, 'IAM_ENGINE_ROW_CAP_EXCEEDED')).toMatchObject({
+      capField: 'maxRoles',
+      cap: 1,
+    })
   })
 })
 
@@ -295,7 +316,13 @@ describe('resolveSubject: maxConcurrentSubjectLoads cap', () => {
     const p1 = resolveSubject(deps, 's-1')
     const p2 = resolveSubject(deps, 's-2')
 
-    await expect(resolveSubject(deps, 's-3')).rejects.toThrow(/load shed/i)
+    const err = await resolveSubject(deps, 's-3').then(
+      () => {
+        throw new Error('expected resolveSubject() to throw')
+      },
+      (e: unknown) => e,
+    )
+    expect(hasIamErrorCode(err, 'IAM_ENGINE_SUBJECT_LOAD_SHED')).toBe(true)
     expect(getRoles).toHaveBeenCalledTimes(2) // s-3 never reached the adapter
 
     gate1.resolve([])

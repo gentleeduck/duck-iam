@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { withoutInPlaceUpdate } from '../../../test/adapter-capabilities'
+import { hasIamErrorCode } from '../../errors'
 import type { AccessControl, IamClient, IamRequest } from '../../types'
 import { IamEngine, iamFlushSharedCaches } from '../engine'
 
@@ -579,7 +580,13 @@ describe('Engine.admin - CRUD operations', () => {
       const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
       const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
       const bad = { schemaVersion: 99, exportedAt: '', policies: [], roles: [] } as unknown as EngineSnapshot
-      await expect(engine.admin.import(bad)).rejects.toThrow(/schemaVersion/)
+      const err = await engine.admin.import(bad).then(
+        () => {
+          throw new Error('expected import() to throw')
+        },
+        (e: unknown) => e,
+      )
+      expect(hasIamErrorCode(err, 'IAM_ENGINE_SNAPSHOT_VERSION_UNSUPPORTED')).toBe(true)
       // Verify nothing was deleted.
       expect((await engine.admin.listRoles()).map((r) => r.id)).toEqual(['viewer'])
     })
@@ -1119,7 +1126,7 @@ describe('Engine - DoS bounds at load time (B5)', () => {
       },
     })
     expect(await engine.can('u', 'read', { type: 'post', attributes: {} })).toBe(false)
-    expect(errors[0]?.message).toMatch(/maxPolicies/)
+    expect(hasIamErrorCode(errors[0], 'IAM_ENGINE_ROW_CAP_EXCEEDED')).toBe(true)
   })
 
   it('routes to deny + onError when adapter returns more roles than maxRoles', async () => {
@@ -1141,7 +1148,7 @@ describe('Engine - DoS bounds at load time (B5)', () => {
       },
     })
     expect(await engine.can('u', 'read', { type: 'post', attributes: {} })).toBe(false)
-    expect(errors[0]?.message).toMatch(/maxRoles/)
+    expect(hasIamErrorCode(errors[0], 'IAM_ENGINE_ROW_CAP_EXCEEDED')).toBe(true)
   })
 })
 
