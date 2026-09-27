@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import type { IamClient } from '../../../core/types'
 import { createIamVueAccess, IAM_ACCESS_INJECTION_KEY } from '../index'
 
@@ -104,7 +105,13 @@ describe('createIamVueAccess - provideAccess + useAccess', () => {
   it('useAccess throws when no provider', () => {
     const { vue } = makeFakeVue()
     const { useAccess } = createIamVueAccess<A, R, S>(vue)
-    expect(() => useAccess()).toThrow(/useAccess.*provideAccess/)
+    let err: unknown
+    try {
+      useAccess()
+    } catch (e) {
+      err = e
+    }
+    expect(hasIamErrorCode(err, 'IAM_CLIENT_PROVIDER_MISSING')).toBe(true)
   })
 })
 

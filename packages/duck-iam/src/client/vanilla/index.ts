@@ -14,6 +14,7 @@
  *   });
  */
 
+import { throwIamError } from '../../core/errors'
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamAllowedActions, iamCan, iamHasAnyOn } from '../../shared/permission-map'
@@ -67,7 +68,7 @@ export class IamAccessClient<
    * @param url - Specifies the endpoint that returns a JSON permission map.
    * @param init - Optional `fetch` init (auth headers, signal, etc.).
    * @returns A populated {@link IamAccessClient}.
-   * @throws Error when the response status is non-2xx.
+   * @throws `IAM_CLIENT_PERMISSIONS_FETCH_FAILED` when the response status is non-2xx.
    */
   static async fromServer<TA extends string = string, TR extends string = string, TS extends string = string>(
     url: string,
@@ -77,7 +78,7 @@ export class IamAccessClient<
     const headers = new Headers(init?.headers)
     if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
     const res = await fetch(url, { ...init, headers })
-    if (!res.ok) throw new Error(`[@gentleduck/iam:vanilla] Failed to fetch permissions: ${res.status}`)
+    if (!res.ok) throwIamError('IAM_CLIENT_PERMISSIONS_FETCH_FAILED', { status: res.status })
     const perms: IamClient.PartialPermissionMap<TA, TR, TS> = await res.json()
     return new IamAccessClient<TA, TR, TS>(perms)
   }

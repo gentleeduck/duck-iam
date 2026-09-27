@@ -11,6 +11,7 @@
  *   <button v-if="can('delete', 'post')">Delete</button>
  */
 
+import { throwIamError } from '../../core/errors'
 import { toError } from '../../core/errors/normalize'
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
@@ -121,10 +122,12 @@ export function createIamVueAccess<
     // Typed at the injection site, so only presence needs a runtime check.
     const state = inject<ReturnType<typeof createAccessState>>(IAM_ACCESS_INJECTION_KEY)
     if (!state) {
-      throw new Error(
-        '[@gentleduck/iam:vue] useAccess() called without provideAccess(). ' +
+      throwIamError('IAM_CLIENT_PROVIDER_MISSING', {
+        framework: 'vue',
+        detail:
+          '[@gentleduck/iam:vue] useAccess() called without provideAccess(). ' +
           'Use provideAccess() in a parent component or install the plugin.',
-      )
+      })
     }
     return state
   }
