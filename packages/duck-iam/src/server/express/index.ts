@@ -17,11 +17,11 @@ import {
   iamAuditIdOf,
   iamDefaultResource,
   iamExtractEnvironment,
-  iamIsSubjectId,
   iamOptionalStringField,
   iamRequirePathParam,
   iamRequireStringField,
   iamResolveCsrfCheck,
+  iamRunAccessCheck,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
@@ -155,25 +155,24 @@ export function iamAccessMiddleware<
   } = opts
 
   return async (req, res, next) => {
-    try {
-      // INFO: inside the try because `getUserId` may do I/O, and Express 4 answers nothing for a rejected
-      // middleware promise, leaving the client to time out.
-      const userId = getUserId(req)
-      if (!iamIsSubjectId(userId)) {
-        res.status(401).json({ error: 'Unauthorized' })
-        return
-      }
-
-      const allowed = await engine.can(userId, getAction(req), getResource(req), getEnvironment(req), getScope?.(req))
-      if (!allowed) {
-        onDenied(req, res)
-        return
-      }
-    } catch (err) {
-      onError(toError(err), req, res)
+    // INFO: `getUserId` runs inside the shared check because it may do I/O, and Express 4 answers nothing for a
+    // rejected middleware promise, leaving the client to time out.
+    const result = await iamRunAccessCheck(req, getUserId, (userId) =>
+      engine.can(userId, getAction(req), getResource(req), getEnvironment(req), getScope?.(req)),
+    )
+    if (result.phase === 'unauthorized') {
+      res.status(401).json({ error: 'Unauthorized' })
       return
     }
-    // NOTE: outside the try, as in the hono and next guards, so a route's own error reaches Express's error
+    if (result.phase === 'denied') {
+      onDenied(req, res)
+      return
+    }
+    if (result.phase === 'error') {
+      onError(result.error, req, res)
+      return
+    }
+    // NOTE: outside the check, as in the hono and next guards, so a route's own error reaches Express's error
     // middleware rather than being answered here as an authorization failure.
     next()
   }
@@ -246,34 +245,27 @@ export function iamGuard<
   } = opts
 
   return async (req, res, next) => {
-    try {
-      const userId = getUserId(req)
-      if (!iamIsSubjectId(userId)) {
-        res.status(401).json({ error: 'Unauthorized' })
-        return
-      }
-
+    const result = await iamRunAccessCheck(req, getUserId, async (userId) => {
       const scope = staticScope ?? getScope?.(req)
       const resourceId = getResourceId(req)
       const attributes = getResourceAttributes
         ? await getResourceAttributes(req, { action, resource: resourceType, resourceId, scope })
         : {}
-      const allowed = await engine.can(
-        userId,
-        action,
-        { type: resourceType, id: resourceId, attributes },
-        getEnvironment(req),
-        scope,
-      )
-      if (!allowed) {
-        onDenied(req, res)
-        return
-      }
-    } catch (err) {
-      onError(toError(err), req, res)
+      return engine.can(userId, action, { type: resourceType, id: resourceId, attributes }, getEnvironment(req), scope)
+    })
+    if (result.phase === 'unauthorized') {
+      res.status(401).json({ error: 'Unauthorized' })
       return
     }
-    // NOTE: outside the try, for the same reason as the middleware above.
+    if (result.phase === 'denied') {
+      onDenied(req, res)
+      return
+    }
+    if (result.phase === 'error') {
+      onError(result.error, req, res)
+      return
+    }
+    // NOTE: outside the check, for the same reason as the middleware above.
     next()
   }
 }
