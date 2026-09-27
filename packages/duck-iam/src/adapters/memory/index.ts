@@ -18,6 +18,17 @@ import {
 } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 
+/** Every stored row in a collection, deep-cloned so edits to the result cannot reach the store. */
+function listRows<T>(map: ReadonlyMap<string, T>): T[] {
+  return [...map.values()].map(iamCloneRow)
+}
+
+/** One stored row by id, deep-cloned, or `null` when absent. */
+function getRow<T>(map: ReadonlyMap<string, T>, id: string): T | null {
+  const row = map.get(id)
+  return row === undefined ? null : iamCloneRow(row)
+}
+
 /** Types for the in-memory adapter. Type-only namespace - zero bundle cost. */
 export namespace IamMemory {
   /**
@@ -89,7 +100,7 @@ export class IamMemoryAdapter<
 
   /** Lists every stored policy. */
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
-    return [...this._policies.values()].map(iamCloneRow)
+    return listRows(this._policies)
   }
 
   /** Fetches a policy by ID, or `null` when absent. */
@@ -97,8 +108,7 @@ export class IamMemoryAdapter<
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
-    const p = this._policies.get(id)
-    return p === undefined ? null : iamCloneRow(p)
+    return getRow(this._policies, id)
   }
 
   /** Stores or overwrites a policy keyed by its ID. */
@@ -114,7 +124,7 @@ export class IamMemoryAdapter<
 
   /** Lists every stored role. */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
-    return [...this._roles.values()].map(iamCloneRow)
+    return listRows(this._roles)
   }
 
   /** Fetches a role by ID, or `null` when absent. */
@@ -122,8 +132,7 @@ export class IamMemoryAdapter<
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
-    const r = this._roles.get(id)
-    return r === undefined ? null : iamCloneRow(r)
+    return getRow(this._roles, id)
   }
 
   /** Stores or overwrites a role keyed by its ID. */
