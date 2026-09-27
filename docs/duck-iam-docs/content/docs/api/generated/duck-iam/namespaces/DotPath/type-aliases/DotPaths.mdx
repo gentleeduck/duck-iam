@@ -1,0 +1,33 @@
+---
+title: "Type Alias: DotPaths<T, Prefix *extends* string = \"\">"
+description: "String-literal union of every reachable path through T; arrays are leaves; index-signatures bail to never."
+---
+
+> **DotPaths**\<`T`, `Prefix` *extends* `string` = `""`\> = `string` *extends* keyof `T` ? `never` : \{ \[K in keyof T & string\]: T\[K\] extends readonly any\[\] ? \`$\{Prefix\}$\{K\}\` : T\[K\] extends (args: any\[\]) =\> any ? never : T\[K\] extends object ? \`$\{Prefix\}$\{K\}\` \| DotPaths\<T\[K\], \`$\{Prefix\}$\{K\}.\`\> : \`$\{Prefix\}$\{K\}\` \}\[keyof `T` & `string`\]
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:18](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L18)
+
+String-literal union of every reachable path through `T`; arrays are leaves; index-signatures bail to `never`.
+
+## Type Parameters
+
+### T
+
+`T`
+
+The object type to extract paths from.
+
+### Prefix
+
+`Prefix` *extends* `string` = `""`
+
+Internal accumulator for the current path prefix (do not set manually).
+
+## Example
+
+```ts
+type Ctx = { subject: { id: string; attributes: { status: string } } }
+type Paths = DotPath.DotPaths<Ctx>
+// = 'subject' | 'subject.id' | 'subject.attributes' | 'subject.attributes.status'
+```
+

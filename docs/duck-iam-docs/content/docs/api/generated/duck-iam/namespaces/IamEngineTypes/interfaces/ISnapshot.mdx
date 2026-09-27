@@ -1,0 +1,67 @@
+---
+title: "Interface: ISnapshot<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string>"
+description: "A configuration snapshot. WARN: bumping schemaVersion is breaking; importers refuse unknown versions."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:141](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L141)
+
+A configuration snapshot. WARN: bumping `schemaVersion` is breaking; importers refuse unknown versions.
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings.
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings.
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+Union of valid role IDs.
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+Union of valid scope strings.
+
+## Properties
+
+### exportedAt
+
+> `readonly` **exportedAt**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:148](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L148)
+
+***
+
+### policies
+
+> `readonly` **policies**: readonly [`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>[]
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:149](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L149)
+
+***
+
+### roles
+
+> `readonly` **roles**: readonly [`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>[]
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:150](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L150)
+
+***
+
+### schemaVersion
+
+> `readonly` **schemaVersion**: `1`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:147](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L147)
+

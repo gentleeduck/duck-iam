@@ -1,0 +1,45 @@
+---
+title: "Interface: ISubjectInfo"
+description: "Subject metadata passed to explainEvaluation for building the explain trace."
+---
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:178](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L178)
+
+Subject metadata passed to `explainEvaluation` for building the explain trace.
+
+## Example
+
+```ts
+const info: Explain.ISubjectInfo = {
+  subjectId: 'user-1',
+  originalRoles: ['editor'],
+  // Plain role ids, never a scope-qualified composite: these are the roles a scoped grant added, and which
+  // scope added them is not encoded here.
+  scopedRolesApplied: ['admin'],
+}
+```
+
+## Properties
+
+### originalRoles
+
+> **originalRoles**: readonly `string`[]
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:180](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L180)
+
+***
+
+### scopedRolesApplied
+
+> **scopedRolesApplied**: readonly `string`[]
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:181](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L181)
+
+***
+
+### subjectId
+
+> **subjectId**: `string`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:179](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L179)
+

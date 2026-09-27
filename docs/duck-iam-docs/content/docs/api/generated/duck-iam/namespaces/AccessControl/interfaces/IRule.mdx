@@ -1,0 +1,99 @@
+---
+title: "Interface: IRule<TAction *extends* string = string, TResource *extends* string = string>"
+description: "Atomic unit of an ABAC policy. Declares an Effect, the actions / resources it covers, an optional priority, and a condition tree that must hold for the rule to fire."
+---
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:98](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L98)
+
+Atomic unit of an ABAC policy. Declares an [Effect](../type-aliases/Effect), the actions /
+resources it covers, an optional priority, and a condition tree that must
+hold for the rule to fire.
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings.
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings.
+
+## Properties
+
+### actions
+
+> `readonly` **actions**: readonly (`TAction` \| `"*"`)[]
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:106](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L106)
+
+Actions this rule applies to. `'*'` matches all actions.
+
+***
+
+### conditions
+
+> `readonly` **conditions**: [`IConditionGroup`](../type-aliases/IConditionGroup)
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:109](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L109)
+
+***
+
+### description?
+
+> `readonly` `optional` **description?**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:102](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L102)
+
+Human-readable description for audit logs and explain output.
+
+***
+
+### effect
+
+> `readonly` **effect**: [`Effect`](../type-aliases/Effect)
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:100](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L100)
+
+***
+
+### id
+
+> `readonly` **id**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:99](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L99)
+
+***
+
+### metadata?
+
+> `readonly` `optional` **metadata?**: `Readonly`\<[`Attributes`](../../IamPrimitives/type-aliases/Attributes)\>
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:111](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L111)
+
+Arbitrary metadata for admin dashboards, audit logs, or app bookkeeping.
+
+***
+
+### priority
+
+> `readonly` **priority**: `number`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:104](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L104)
+
+Higher values evaluated first under `highest-priority` and `first-match`.
+
+***
+
+### resources
+
+> `readonly` **resources**: readonly (`TResource` \| `"*"`)[]
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:108](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L108)
+
+Resources this rule applies to. `'*'` matches all resources.
+

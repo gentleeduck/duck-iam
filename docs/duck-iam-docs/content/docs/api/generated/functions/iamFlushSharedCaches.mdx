@@ -1,0 +1,16 @@
+---
+title: "Function: iamFlushSharedCaches()"
+description: "Clears the process-global regex and dot-path caches used by direct evaluate() calls and explain(). NOTE: engine checks use per-instance caches this does not touch, so it is not a multi-tenancy measure."
+---
+
+> **iamFlushSharedCaches**(): `void`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:58](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L58)
+
+Clears the process-global regex and dot-path caches used by direct `evaluate()` calls and `explain()`.
+NOTE: engine checks use per-instance caches this does not touch, so it is not a multi-tenancy measure.
+
+## Returns
+
+`void`
+

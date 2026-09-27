@@ -1,0 +1,602 @@
+---
+title: "Class: IamEngine<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string, TMode *extends* Mode = \"production\">"
+description: "Generated API reference for @gentleduck/iam — Class: IamEngine<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string, TMode *extends* Mode = \"production\">."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:164](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L164)
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+### TMode
+
+`TMode` *extends* [`Mode`](../duck-iam/namespaces/AccessControl/type-aliases/Mode) = `"production"`
+
+## Constructors
+
+### Constructor
+
+> **new IamEngine**\<`TAction` *extends* `string` = `string`, `TResource` *extends* `string` = `string`, `TRole` *extends* `string` = `string`, `TScope` *extends* `string` = `string`, `TMode` *extends* [`Mode`](../duck-iam/namespaces/AccessControl/type-aliases/Mode) = `"production"`\>(`config`: [`IConfig`](../duck-iam/namespaces/IamEngineTypes/interfaces/IConfig)\<`TAction`, `TResource`, `TRole`, `TScope`, `TMode`\>): `IamEngine`\<`TAction`, `TResource`, `TRole`, `TScope`, `TMode`\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:254](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L254)
+
+Throws on an invalid config, such as an unknown `policyCombine` or `defaultEffect: 'allow'` without opt-in.
+
+#### Parameters
+
+##### config
+
+[`IConfig`](../duck-iam/namespaces/IamEngineTypes/interfaces/IConfig)\<`TAction`, `TResource`, `TRole`, `TScope`, `TMode`\>
+
+#### Returns
+
+`IamEngine`\<`TAction`, `TResource`, `TRole`, `TScope`, `TMode`\>
+
+## Properties
+
+### cache
+
+> `readonly` **cache**: \{ `invalidate`: (`opts`: \{ `broadcast?`: `boolean`; \}) => `void`; `invalidatePolicies`: (`opts`: \{ `broadcast?`: `boolean`; \}) => `void`; `invalidateRoles`: (`roleId?`: `TRole`, `opts`: \{ `broadcast?`: `boolean`; \}) => `void`; `invalidateSubject`: (`subjectId`: `string`, `opts`: \{ `broadcast?`: `boolean`; \}) => `void`; \}
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:218](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L218)
+
+Cache invalidation, for writes made outside `engine.admin`.
+Pass `{ broadcast: false }` when applying an event received from another instance.
+
+#### invalidate
+
+> **invalidate**: (`opts`: \{ `broadcast?`: `boolean`; \}) => `void`
+
+Clear every cache + in-flight resolver.
+
+##### Parameters
+
+###### opts?
+
+###### broadcast?
+
+`boolean`
+
+##### Returns
+
+`void`
+
+#### invalidatePolicies
+
+> **invalidatePolicies**: (`opts`: \{ `broadcast?`: `boolean`; \}) => `void`
+
+Clear cached policies (after policy CRUD).
+
+##### Parameters
+
+###### opts?
+
+###### broadcast?
+
+`boolean`
+
+##### Returns
+
+`void`
+
+#### invalidateRoles
+
+> **invalidateRoles**: (`roleId?`: `TRole`, `opts`: \{ `broadcast?`: `boolean`; \}) => `void`
+
+Clear cached roles + RBAC policy; selectively drops affected subjects.
+
+##### Parameters
+
+###### roleId?
+
+`TRole`
+
+###### opts?
+
+###### broadcast?
+
+`boolean`
+
+##### Returns
+
+`void`
+
+#### invalidateSubject
+
+> **invalidateSubject**: (`subjectId`: `string`, `opts`: \{ `broadcast?`: `boolean`; \}) => `void`
+
+Clear one subject's cached resolved roles + attributes.
+
+##### Parameters
+
+###### subjectId
+
+`string`
+
+###### opts?
+
+###### broadcast?
+
+`boolean`
+
+##### Returns
+
+`void`
+
+#### Since
+
+3.0.0
+
+***
+
+### stats
+
+> `readonly` **stats**: \{ `get`: () => \{ `mergedPolicies`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `policies`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `rbacPolicy`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `roles`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `subjects`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; \}; `reset`: () => `void`; \}
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:235](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L235)
+
+Per-cache hit, miss and size counters.
+
+#### get
+
+> **get**: () => \{ `mergedPolicies`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `policies`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `rbacPolicy`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `roles`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `subjects`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; \}
+
+Snapshot per-cache counters. Counters accumulate from construction.
+NOTE: kept as a fresh object-literal return type (not IStatsSnapshot) on purpose: only a literal
+type gets TS's implicit index signature, which is what lets the devtools `IamIDevtoolsEngine` contract's
+deliberately looser `Record<string, ...>` accept it.
+
+##### Returns
+
+\{ `mergedPolicies`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `policies`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `rbacPolicy`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `roles`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; `subjects`: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}; \}
+
+###### mergedPolicies
+
+> **mergedPolicies**: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}
+
+###### mergedPolicies.hits
+
+> **hits**: `number`
+
+###### mergedPolicies.misses
+
+> **misses**: `number`
+
+###### mergedPolicies.size
+
+> **size**: `number`
+
+###### policies
+
+> **policies**: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}
+
+###### policies.hits
+
+> **hits**: `number`
+
+###### policies.misses
+
+> **misses**: `number`
+
+###### policies.size
+
+> **size**: `number`
+
+###### rbacPolicy
+
+> **rbacPolicy**: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}
+
+###### rbacPolicy.hits
+
+> **hits**: `number`
+
+###### rbacPolicy.misses
+
+> **misses**: `number`
+
+###### rbacPolicy.size
+
+> **size**: `number`
+
+###### roles
+
+> **roles**: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}
+
+###### roles.hits
+
+> **hits**: `number`
+
+###### roles.misses
+
+> **misses**: `number`
+
+###### roles.size
+
+> **size**: `number`
+
+###### subjects
+
+> **subjects**: \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}
+
+###### subjects.hits
+
+> **hits**: `number`
+
+###### subjects.misses
+
+> **misses**: `number`
+
+###### subjects.size
+
+> **size**: `number`
+
+#### reset
+
+> **reset**: () => `void`
+
+Zero the counters returned by `stats.get`.
+
+##### Returns
+
+`void`
+
+#### Since
+
+3.0.0
+
+## Accessors
+
+### admin
+
+#### Get Signature
+
+> **get** **admin**(): [`IAdmin`](../duck-iam/namespaces/IamEngineTypes/interfaces/IAdmin)\<`TAction`, `TResource`, `TRole`, `TScope`\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:1256](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L1256)
+
+Lazily-built admin interface for CRUD operations on policies, roles, subjects.
+
+##### Returns
+
+[`IAdmin`](../duck-iam/namespaces/IamEngineTypes/interfaces/IAdmin)\<`TAction`, `TResource`, `TRole`, `TScope`\>
+
+## Methods
+
+### authorize()
+
+> **authorize**(`request`: [`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest)\<`TAction`, `TResource`, `TScope`\>): `Promise`\<[`ModeResult`](../duck-iam/namespaces/AccessControl/type-aliases/ModeResult)\<`TMode`\>\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:763](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L763)
+
+Checks a complete [IamRequest.IAccessRequest](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest): a `boolean` in production, an `IDecision` in development.
+SECURITY: any evaluation error is reported to `onError` and denies.
+
+#### Parameters
+
+##### request
+
+[`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest)\<`TAction`, `TResource`, `TScope`\>
+
+#### Returns
+
+`Promise`\<[`ModeResult`](../duck-iam/namespaces/AccessControl/type-aliases/ModeResult)\<`TMode`\>\>
+
+***
+
+### can()
+
+> **can**(`subjectId`: `string`, `action`: `TAction`, `resource`: [`IResource`](../duck-iam/namespaces/IamRequest/interfaces/IResource)\<`TResource`\>, `environment?`: [`IEnvironment`](../duck-iam/namespaces/IamRequest/interfaces/IEnvironment), `scope?`: `TScope`): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:1026](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L1026)
+
+Whether the subject may perform `action` on `resource`, as a `boolean` in every mode.
+SECURITY: an invalid `subjectId` or a failed subject load returns `false`, never a rejection.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### action
+
+`TAction`
+
+##### resource
+
+[`IResource`](../duck-iam/namespaces/IamRequest/interfaces/IResource)\<`TResource`\>
+
+##### environment?
+
+[`IEnvironment`](../duck-iam/namespaces/IamRequest/interfaces/IEnvironment)
+
+##### scope?
+
+`TScope`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### check()
+
+> **check**(`subjectId`: `string`, `action`: `TAction`, `resource`: [`IResource`](../duck-iam/namespaces/IamRequest/interfaces/IResource)\<`TResource`\>, `environment?`: [`IEnvironment`](../duck-iam/namespaces/IamRequest/interfaces/IEnvironment), `scope?`: `TScope`): `Promise`\<[`ModeResult`](../duck-iam/namespaces/AccessControl/type-aliases/ModeResult)\<`TMode`\>\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:1065](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L1065)
+
+[IamEngine.can](#can), returning an [AccessControl.IDecision](../duck-iam/namespaces/AccessControl/interfaces/IDecision) in development mode and a `boolean` in production.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### action
+
+`TAction`
+
+##### resource
+
+[`IResource`](../duck-iam/namespaces/IamRequest/interfaces/IResource)\<`TResource`\>
+
+##### environment?
+
+[`IEnvironment`](../duck-iam/namespaces/IamRequest/interfaces/IEnvironment)
+
+##### scope?
+
+`TScope`
+
+#### Returns
+
+`Promise`\<[`ModeResult`](../duck-iam/namespaces/AccessControl/type-aliases/ModeResult)\<`TMode`\>\>
+
+***
+
+### dispose()
+
+> **dispose**(): `void`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:454](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L454)
+
+Release the invalidator subscription and detach the invalidator. Call when discarding the engine.
+Detaches both directions: an engine that still publishes but can no longer receive is the worse half.
+
+#### Returns
+
+`void`
+
+***
+
+### explain()
+
+> **explain**(`this`: `IamEngine`\<`TAction`, `TResource`, `TRole`, `TScope`, `"development"`\>, `subjectId`: `string`, `action`: `TAction`, `resource`: [`IResource`](../duck-iam/namespaces/IamRequest/interfaces/IResource)\<`TResource`\>, `environment?`: [`IEnvironment`](../duck-iam/namespaces/IamRequest/interfaces/IEnvironment), `scope?`: `TScope`): `Promise`\<[`IResult`](../duck-iam/namespaces/Explain/interfaces/IResult)\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:1099](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L1099)
+
+A development-mode trace of why a check was allowed or denied: matched policies, fired rules, condition values.
+Runs `beforeEvaluate` but no other hook.
+
+#### Parameters
+
+##### this
+
+`IamEngine`\<`TAction`, `TResource`, `TRole`, `TScope`, `"development"`\>
+
+##### subjectId
+
+`string`
+
+##### action
+
+`TAction`
+
+##### resource
+
+[`IResource`](../duck-iam/namespaces/IamRequest/interfaces/IResource)\<`TResource`\>
+
+##### environment?
+
+[`IEnvironment`](../duck-iam/namespaces/IamRequest/interfaces/IEnvironment)
+
+##### scope?
+
+`TScope`
+
+#### Returns
+
+`Promise`\<[`IResult`](../duck-iam/namespaces/Explain/interfaces/IResult)\>
+
+#### Throws
+
+In production mode, or when `subjectId` is not a non-empty string of at most 1024 chars.
+
+***
+
+### getEffectiveRoles()
+
+> **getEffectiveRoles**(`subjectId`: `string`, `scope?`: `TScope`): `Promise`\<readonly `TRole`[]\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:1057](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L1057)
+
+The subject's roles closed over `inherits`, plus scoped roles matching `scope`, as `can`/`check` see them.
+Uses the subject cache; returns `[]` for an invalid `subjectId`.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### scope?
+
+`TScope`
+
+#### Returns
+
+`Promise`\<readonly `TRole`[]\>
+
+***
+
+### healthCheck()
+
+> **healthCheck**(): `Promise`\<[`IHealth`](../duck-iam/namespaces/IamEngineTypes/interfaces/IHealth)\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:1377](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L1377)
+
+Health probe for `/healthz`: one timed `listPolicies` plus a table build; `ok: false` when either fails.
+`compiledTable` and `invalidator` report degradations without failing it, and are absent when healthy.
+
+#### Returns
+
+`Promise`\<[`IHealth`](../duck-iam/namespaces/IamEngineTypes/interfaces/IHealth)\>
+
+***
+
+### permissions()
+
+> **permissions**(`subjectId`: `string`, `checks`: readonly [`IPermissionCheck`](../duck-iam/namespaces/IamClient/interfaces/IPermissionCheck)\<`TAction`, `TResource`, `TScope`\>[], `environment?`: [`IEnvironment`](../duck-iam/namespaces/IamRequest/interfaces/IEnvironment), `opts?`: \{ `telemetry?`: `boolean`; \}): `Promise`\<[`ModePermissionMap`](../duck-iam/namespaces/AccessControl/type-aliases/ModePermissionMap)\<`TMode`, `TAction`, `TResource`, `TScope`\>\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:1151](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L1151)
+
+Evaluates many checks for one subject, loading its data once; each check gets the same hooks as `authorize()`.
+Keyed by `[@scope:]action:resource[:resourceId]` (see `iamBuildPermissionKey`); a load failure denies them all.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### checks
+
+readonly [`IPermissionCheck`](../duck-iam/namespaces/IamClient/interfaces/IPermissionCheck)\<`TAction`, `TResource`, `TScope`\>[]
+
+##### environment?
+
+[`IEnvironment`](../duck-iam/namespaces/IamRequest/interfaces/IEnvironment)
+
+##### opts?
+
+###### telemetry?
+
+`boolean`
+
+#### Returns
+
+`Promise`\<[`ModePermissionMap`](../duck-iam/namespaces/AccessControl/type-aliases/ModePermissionMap)\<`TMode`, `TAction`, `TResource`, `TScope`\>\>
+
+#### Throws
+
+When `subjectId` is invalid or `checks` exceeds 1024: a caller bug, not a deny.
+
+***
+
+### preload()
+
+> **preload**(`opts?`: \{ `validator?`: `boolean`; \}): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:1364](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L1364)
+
+Warms policies and the compiled permission table (read in both modes) at startup; call once.
+A policy the table cannot compile throws here, at boot; over 32 roles warns and falls back.
+`validator: true` also loads the validators and runs them over every stored policy and role, throwing on the
+first boot where any is invalid — the only check on rows that did not arrive through `engine.admin`.
+
+#### Parameters
+
+##### opts?
+
+###### validator?
+
+`boolean`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### setInvalidator()
+
+> **setInvalidator**(`invalidator`: [`IInvalidator`](../duck-iam/namespaces/IamEngineTypes/interfaces/IInvalidator)\<`TRole`\> \| `null`): `void`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:426](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L426)
+
+Attaches, replaces or detaches the invalidator after construction, for a client built after the engine.
+The previous one is unsubscribed first. Transaction views flush through whatever is attached at flush time.
+
+#### Parameters
+
+##### invalidator
+
+[`IInvalidator`](../duck-iam/namespaces/IamEngineTypes/interfaces/IInvalidator)\<`TRole`\> \| `null`
+
+The broadcaster to attach, or `null` to detach.
+
+#### Returns
+
+`void`
+
+#### Throws
+
+When `invalidator` is neither `null` nor an object with `publish` and `subscribe` methods.
+
+***
+
+### withTransaction()
+
+> **withTransaction**(`client`: `unknown`): [`IamEngine`](../duck-iam/namespaces/Bound/interfaces/IamEngine)\<`TAction`, `TResource`, `TRole`, `TScope`, `TMode`\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.ts:1291](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.ts#L1291)
+
+A view whose adapter runs on the transaction handle `client` and whose invalidations buffer into `pending`.
+Reads use empty caches, so they see the transaction's own writes.
+
+```ts
+let pending
+await db.transaction(async (tx) => {
+  const perms = iam.withTransaction(tx)
+  await perms.admin.assignRole(userId, 'admin', orgId)
+  await tx.insert(members).values({ userId, orgId })
+  pending = perms.pending
+})
+await pending.flush() // invalidate and broadcast only after the commit
+```
+
+A rollback needs no cleanup; `pending.discard()` says so explicitly.
+
+#### Parameters
+
+##### client
+
+`unknown`
+
+Opaque driver handle, passed straight to the adapter.
+
+#### Returns
+
+[`IamEngine`](../duck-iam/namespaces/Bound/interfaces/IamEngine)\<`TAction`, `TResource`, `TRole`, `TScope`, `TMode`\>
+
+#### Throws
+
+When the adapter has no `withClient`, rather than writing outside the transaction.
+

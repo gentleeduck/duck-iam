@@ -1,0 +1,32 @@
+---
+title: "Function: iamDetectCatastrophicRegex()"
+description: "Static ReDoS screen for a policy-supplied matches pattern, run before it is ever compiled. SECURITY: errs toward refusing; a refused pattern fails closed, a missed one stalls the process."
+---
+
+> **iamDetectCatastrophicRegex**(`pattern`: `string`): \{ `reason?`: `string`; `safe`: `boolean`; \}
+
+Defined in: [packages/duck-iam/src/core/conditions/conditions.libs.ts:117](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/conditions/conditions.libs.ts#L117)
+
+Static ReDoS screen for a policy-supplied `matches` pattern, run before it is ever compiled.
+SECURITY: errs toward refusing; a refused pattern fails closed, a missed one stalls the process.
+
+## Parameters
+
+### pattern
+
+`string`
+
+## Returns
+
+\{ `reason?`: `string`; `safe`: `boolean`; \}
+
+`{ safe: true }`, or `{ safe: false, reason }` naming the most specific shape found.
+
+### reason?
+
+> `optional` **reason?**: `string`
+
+### safe
+
+> **safe**: `boolean`
+

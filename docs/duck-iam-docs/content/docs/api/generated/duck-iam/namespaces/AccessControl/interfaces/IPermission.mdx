@@ -1,0 +1,69 @@
+---
+title: "Interface: IPermission<TAction *extends* string = string, TResource *extends* string = string, TScope *extends* string = string>"
+description: "One action/resource grant within an IRole; rolesToPolicy() turns each into an ABAC allow rule."
+---
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:178](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L178)
+
+One action/resource grant within an [IRole](IRole); `rolesToPolicy()` turns each into an ABAC allow rule.
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings.
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings.
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+Union of valid scope strings.
+
+## Properties
+
+### action
+
+> `readonly` **action**: `"*"` \| `TAction`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:184](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L184)
+
+Action this permission grants, or `'*'` for all.
+
+***
+
+### conditions?
+
+> `readonly` `optional` **conditions?**: [`IConditionGroup`](../type-aliases/IConditionGroup)
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:190](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L190)
+
+Optional conditions (used by `grantWhen`).
+
+***
+
+### resource
+
+> `readonly` **resource**: `"*"` \| `TResource`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:186](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L186)
+
+Resource this permission applies to, or `'*'` for all.
+
+***
+
+### scope?
+
+> `readonly` `optional` **scope?**: `"*"` \| `TScope`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:188](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L188)
+
+Optional scope restriction.
+

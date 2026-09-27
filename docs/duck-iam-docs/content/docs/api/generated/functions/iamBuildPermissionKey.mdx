@@ -1,0 +1,34 @@
+---
+title: "Function: iamBuildPermissionKey()"
+description: "Permission map key [@scope:]action:resource[:resourceId], with :, \\ and a leading @ backslash-escaped. NOTE: the @ marker keeps ('read', 'doc', '42') and ('doc', '42', undefined, 'read') from sharing a key."
+---
+
+> **iamBuildPermissionKey**(`action`: `string`, `resource`: `string`, `resourceId?`: `string`, `scope?`: `string`): `string`
+
+Defined in: [packages/duck-iam/src/shared/keys.ts:11](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/keys.ts#L11)
+
+Permission map key `[@scope:]action:resource[:resourceId]`, with `:`, `\` and a leading `@` backslash-escaped.
+NOTE: the `@` marker keeps `('read', 'doc', '42')` and `('doc', '42', undefined, 'read')` from sharing a key.
+
+## Parameters
+
+### action
+
+`string`
+
+### resource
+
+`string`
+
+### resourceId?
+
+`string`
+
+### scope?
+
+`string`
+
+## Returns
+
+`string`
+

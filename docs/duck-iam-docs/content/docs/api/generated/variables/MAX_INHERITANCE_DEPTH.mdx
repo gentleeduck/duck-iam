@@ -1,0 +1,13 @@
+---
+title: "Variable: MAX\\_INHERITANCE\\_DEPTH"
+description: "Max inheritance depth walked by collectPermissions and resolveEffectiveRoles. WARN: bounds the resolved role set only; rolesToPolicy walks from every role, so a past-cap permission can still be granted. Not configurable, so every adapter and validator agrees on one limit."
+---
+
+> `const` **MAX\_INHERITANCE\_DEPTH**: `32` = `32`
+
+Defined in: [packages/duck-iam/src/core/rbac/rbac.ts:7](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/rbac/rbac.ts#L7)
+
+Max inheritance depth walked by collectPermissions and [resolveEffectiveRoles](../functions/resolveEffectiveRoles).
+WARN: bounds the resolved role set only; `rolesToPolicy` walks from every role, so a past-cap permission can still be
+granted. Not configurable, so every adapter and validator agrees on one limit.
+

@@ -1,0 +1,38 @@
+---
+title: "Type Alias: RowErrorHandler<TAdapter *extends* string>"
+description: "onPolicyError shape for adapter configs: called with the adapter tag and the id of a row it could not read. See AccessControl.PolicyErrorHandler for all three shapes."
+---
+
+> **RowErrorHandler**\<`TAdapter` *extends* `string`\> = (`err`: `Error`, `ctx`: \{ `adapter`: `TAdapter`; `rowId`: `string`; \}) => `void`
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:19](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L19)
+
+`onPolicyError` shape for adapter configs: called with the adapter tag and the id of a row it could not read.
+See [AccessControl.PolicyErrorHandler](../../AccessControl/type-aliases/PolicyErrorHandler) for all three shapes.
+
+## Type Parameters
+
+### TAdapter
+
+`TAdapter` *extends* `string`
+
+## Parameters
+
+### err
+
+`Error`
+
+### ctx
+
+#### adapter
+
+`TAdapter`
+
+#### rowId
+
+`string`
+
+## Returns
+
+`void`
+

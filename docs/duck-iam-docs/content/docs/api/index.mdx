@@ -1,0 +1,29 @@
+---
+title: API / types
+description: Generated API reference for @gentleduck/iam, listing every export, type, and signature, straight from source.
+---
+
+Everything under `generated/` on this page is produced from `packages/duck-iam/src` with
+[TypeDoc](https://typedoc.org) (`typedoc-plugin-markdown`), not hand-written. Regenerate it with:
+
+```sh
+bun run docs:api
+```
+
+run from `docs/duck-iam-docs`, or `bun run --cwd docs/duck-iam-docs docs:api` from the repo
+root. It reads the same JSDoc comments the editor shows you on hover; if a description here is
+wrong or missing, the fix belongs in `packages/duck-iam/src`, not in these files. This page
+itself (`api/index.mdx`) is hand-written and lives outside `generated/` on purpose, so a clean
+regeneration never touches it.
+
+## Contents
+
+- [Full index](./generated/README): every export in one page
+- **Classes**: [`IamEngine`](./generated/classes/IamEngine), [`IamLRUCache`](./generated/classes/IamLRUCache), [`PolicyBuilder`](./generated/classes/PolicyBuilder), [`RoleBuilder`](./generated/classes/RoleBuilder), [`RuleBuilder`](./generated/classes/RuleBuilder), [`When`](./generated/classes/When)
+- **Core functions**: [`createIam`](./generated/functions/createIam), [`definePolicy`](./generated/functions/definePolicy), [`defineRole`](./generated/functions/defineRole), [`defineRule`](./generated/functions/defineRule), [`explainEvaluation`](./generated/functions/explainEvaluation), [`resolveEffectiveRoles`](./generated/functions/resolveEffectiveRoles), [`rolesToPolicy`](./generated/functions/rolesToPolicy)
+- **Errors**: [`throwIamError`](./generated/functions/throwIamError), [`rethrowIamError`](./generated/functions/rethrowIamError), [`throwIamValidationFailed`](./generated/functions/throwIamValidationFailed) — see the [`IamError`](./generated/duck-iam/namespaces/IamError/README) namespace for `IamError.Code`/`IamError.Meta`
+- **Namespaces**: [`AccessControl`](./generated/duck-iam/namespaces/AccessControl/README), [`IamAdapter`](./generated/duck-iam/namespaces/IamAdapter/README), [`IamClient`](./generated/duck-iam/namespaces/IamClient/README), [`IamConfig`](./generated/duck-iam/namespaces/IamConfig/README), [`IamRequest`](./generated/duck-iam/namespaces/IamRequest/README), [`IamValidate`](./generated/duck-iam/namespaces/IamValidate/README), [`Explain`](./generated/duck-iam/namespaces/Explain/README), [`Evaluate`](./generated/duck-iam/namespaces/Evaluate/README), [`DotPath`](./generated/duck-iam/namespaces/DotPath/README), [`Batch`](./generated/duck-iam/namespaces/Batch/README), [`Bound`](./generated/duck-iam/namespaces/Bound/README), [`Pending`](./generated/duck-iam/namespaces/Pending/README)
+
+For the narrative version of this same surface, grouped by task, with the reasoning behind each
+piece, see the hand-written guides under [Core](/duck-iam/core) and [Advanced](/duck-iam/advanced)
+instead.

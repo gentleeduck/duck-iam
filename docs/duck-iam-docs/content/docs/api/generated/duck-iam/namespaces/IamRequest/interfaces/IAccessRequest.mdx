@@ -1,0 +1,73 @@
+---
+title: "Interface: IAccessRequest<TAction *extends* string = string, TResource *extends* string = string, TScope *extends* string = string>"
+description: "Complete authorization request the engine evaluates."
+---
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:77](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L77)
+
+Complete authorization request the engine evaluates.
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings.
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings.
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+Union of valid scope strings.
+
+## Properties
+
+### action
+
+> `readonly` **action**: `TAction`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:84](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L84)
+
+Action being performed (e.g. `'read'`, `'update'`, `'delete'`).
+
+***
+
+### environment?
+
+> `readonly` `optional` **environment?**: [`IEnvironment`](IEnvironment)
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:88](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L88)
+
+***
+
+### resource
+
+> `readonly` **resource**: [`IResource`](IResource)\<`TResource`\>
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:85](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L85)
+
+***
+
+### scope?
+
+> `readonly` `optional` **scope?**: `TScope`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:87](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L87)
+
+Multi-tenant scope (e.g. `'org-acme'`).
+
+***
+
+### subject
+
+> `readonly` **subject**: [`ISubject`](ISubject)
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:82](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L82)
+

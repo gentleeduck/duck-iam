@@ -13,3 +13,5 @@ bun run test
 bun run test:e2e
 
 echo "[husky] pre-push checks passed"
+
+bash scripts/sync-docs-to-duck-ui.sh

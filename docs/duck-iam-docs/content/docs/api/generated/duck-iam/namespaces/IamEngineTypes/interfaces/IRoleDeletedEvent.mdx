@@ -1,0 +1,63 @@
+---
+title: "Interface: IRoleDeletedEvent<TRole *extends* string = string>"
+description: "A role definition was deleted."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:222](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L222)
+
+A role definition was deleted.
+
+## Extends
+
+- [`IMutationBase`](IMutationBase)
+
+## Type Parameters
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+## Properties
+
+### actor?
+
+> `readonly` `optional` **actor?**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:200](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L200)
+
+Who made the change, when the caller supplied it.
+
+#### Inherited from
+
+[`IMutationBase`](IMutationBase).[`actor`](IMutationBase#actor)
+
+***
+
+### at
+
+> `readonly` **at**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:198](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L198)
+
+`Date.now()` at the moment the write completed.
+
+#### Inherited from
+
+[`IMutationBase`](IMutationBase).[`at`](IMutationBase#at)
+
+***
+
+### roleId
+
+> `readonly` **roleId**: `TRole`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:224](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L224)
+
+***
+
+### type
+
+> `readonly` **type**: `"role.deleted"`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:223](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L223)
+

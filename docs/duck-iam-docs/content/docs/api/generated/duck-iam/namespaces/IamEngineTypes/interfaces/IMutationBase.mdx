@@ -1,0 +1,41 @@
+---
+title: "Interface: IMutationBase"
+description: "Fields common to every IMutationEvent. The engine emits events but stores none; retention and redaction belong to the application."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:196](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L196)
+
+Fields common to every [IMutationEvent](../type-aliases/IMutationEvent).
+The engine emits events but stores none; retention and redaction belong to the application.
+
+## Extended by
+
+- [`IPolicySavedEvent`](IPolicySavedEvent)
+- [`IPolicyDeletedEvent`](IPolicyDeletedEvent)
+- [`IRoleSavedEvent`](IRoleSavedEvent)
+- [`IRoleDeletedEvent`](IRoleDeletedEvent)
+- [`IRoleAssignedEvent`](IRoleAssignedEvent)
+- [`IRoleRevokedEvent`](IRoleRevokedEvent)
+- [`IRoleScopeChangedEvent`](IRoleScopeChangedEvent)
+- [`IAttributesSetEvent`](IAttributesSetEvent)
+
+## Properties
+
+### actor?
+
+> `readonly` `optional` **actor?**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:200](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L200)
+
+Who made the change, when the caller supplied it.
+
+***
+
+### at
+
+> `readonly` **at**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:198](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L198)
+
+`Date.now()` at the moment the write completed.
+

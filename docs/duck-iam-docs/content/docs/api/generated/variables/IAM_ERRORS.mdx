@@ -1,0 +1,290 @@
+---
+title: "Variable: IAM\\_ERRORS"
+description: "Every code this package raises, at its HTTP status, carrying what the code itself cannot say.  Phase 1 only: the ~150 ad-hoc adapter/server/client sites are not in this registry yet."
+---
+
+> `const` **IAM\_ERRORS**: \{ `IAM_ASSIGN_OPTIONS_UNSUPPORTED`: `Carries`\<\{ `adapter`: `string`; `fields`: readonly `string`[]; \}\>; `IAM_ASSIGN_WINDOW_EMPTY`: `Carries`\<\{ `adapter`: `string`; \}\>; `IAM_ASSIGN_WINDOW_INVALID_DATE`: `Carries`\<\{ `adapter`: `string`; `field`: `"startsAt"` \| `"expiresAt"`; \}\>; `IAM_ATTRIBUTES_CORRUPT`: `number` & \{ \} & \{ \}; `IAM_ATTRIBUTES_INVALID`: `Carries`\<\{ `adapter`: `string`; `got?`: `string`; `reason`: `"not-object"` \| `"forbidden-key"`; `subjectId`: `string`; \}\>; `IAM_BUILDER_RULE_SCOPE_EMPTY`: `Carries`\<\{ `ruleId`: `string`; \}\>; `IAM_BUILDER_RULE_UNCONFIGURED`: `Carries`\<\{ `ruleId`: `string`; \}\>; `IAM_BUILDER_WHEN_EMPTY_LIST`: `Carries`\<\{ `method`: `"roles"` \| `"scopes"` \| `"resourceType"`; \}\>; `IAM_BUILDER_WHEN_GROUP_CONFLICT`: `500`; `IAM_CACHE_CONFIG_INVALID`: `Carries`\<\{ `constraint`: `string`; `field`: `"maxSize"` \| `"ttlMs"`; `got`: `number`; \}\>; `IAM_CLIENT_PERMISSIONS_FETCH_FAILED`: `Carries`\<\{ `status`: `number`; \}\>; `IAM_CLIENT_PROVIDER_MISSING`: `Carries`\<\{ `detail`: `string`; `framework`: `"react"` \| `"vue"`; \}\>; `IAM_CONDITION_GROUP_INVALID`: `Carries`\<\{ `detail`: `string`; `reason`: `"depth"` \| `"unknown-keys"`; \}\>; `IAM_CONDITION_ITEMS_NOT_ARRAY`: `Carries`\<\{ `key`: `"all"` \| `"any"` \| `"none"`; \}\>; `IAM_CONDITION_OPERAND_TYPE`: `Carries`\<\{ `detail`: `string`; `field`: `string`; `operator`: `string`; \}\>; `IAM_CONDITION_OPERATOR_UNKNOWN`: `Carries`\<\{ `field?`: `string`; `operator`: `string`; \}\>; `IAM_CONDITION_PATTERN_REFUSED`: `Carries`\<\{ `detail`: `string`; `field`: `string`; `reason`: `"too-long"` \| `"uncompilable"`; \}\>; `IAM_CONDITION_REGEX_INPUT_TOO_LARGE`: `Carries`\<\{ `field`: `string`; `length`: `number`; \}\>; `IAM_CONDITION_USER_SOURCED_PATTERN`: `Carries`\<\{ `field`: `string`; `value`: `string`; \}\>; `IAM_DT_FLOW_BUFFER_SIZE_INVALID`: `Carries`\<\{ `got`: `number`; \}\>; `IAM_ENGINE_ADAPTER_NOT_TRANSACTIONAL`: `500`; `IAM_ENGINE_ATTRIBUTES_PARAM_INVALID`: `Carries`\<\{ `count?`: `number`; `depth?`: `number`; `got?`: `string`; `reason`: `"not-object"` \| `"too-many-keys"` \| `"too-deep"`; \}\>; `IAM_ENGINE_BATCH_TOO_LARGE`: `Carries`\<\{ `count`: `number`; `limit`: `number`; \}\>; `IAM_ENGINE_EXPLAIN_UNAVAILABLE`: `500`; `IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED`: `500`; `IAM_ENGINE_INTERPRETER_DISAGREEMENT`: `Carries`\<\{ `compiled`: `boolean`; `detail`: `string`; `interpreted`: `boolean`; \}\>; `IAM_ENGINE_INVALID_CONFIG`: `Carries`\<\{ `allowed?`: readonly `string`[]; `constraint?`: `string`; `field`: `string`; `got`: `string` \| `number`; \}\>; `IAM_ENGINE_INVALIDATOR_SHAPE_INVALID`: `500`; `IAM_ENGINE_PARAM_INVALID`: `Carries`\<\{ `got?`: `string`; `length?`: `number`; `name`: `string`; `reason`: `"too-long"` \| `"empty"`; \}\>; `IAM_ENGINE_POLICY_COMBINE_INCOMPATIBLE`: `Carries`\<\{ `mode`: `string`; `policyCombine`: `string`; \}\>; `IAM_ENGINE_PRELOAD_VALIDATION_FAILED`: `Carries`\<\{ `count`: `number`; `problems`: readonly `string`[]; \}\>; `IAM_ENGINE_ROW_CAP_EXCEEDED`: `Carries`\<\{ `cap`: `number`; `capField`: `string`; `count`: `number`; `noun`: `string`; \}\>; `IAM_ENGINE_SNAPSHOT_FIELD_INVALID`: `Carries`\<\{ `field`: `"policies"` \| `"roles"`; \}\>; `IAM_ENGINE_SNAPSHOT_VERSION_UNSUPPORTED`: `Carries`\<\{ `got`: `string`; \}\>; `IAM_ENGINE_SUBJECT_LOAD_SHED`: `Carries`\<\{ `cap`: `number`; `inFlight`: `number`; `subjectId`: `string`; \}\>; `IAM_EVALUATE_ALGORITHM_UNKNOWN`: `Carries`\<\{ `algorithm`: `string`; `policyId`: `string`; \}\>; `IAM_EVALUATE_RULE_EFFECT_UNKNOWN`: `Carries`\<\{ `effect`: `unknown`; `policyId`: `string`; `ruleId`: `string`; \}\>; `IAM_EVALUATE_RULE_PRIORITY_INVALID`: `Carries`\<\{ `policyId?`: `string`; `priority?`: `unknown`; \}\>; `IAM_FILE_ASSIGNMENTS_CORRUPT`: `Carries`\<\{ `subjectId`: `string`; \}\>; `IAM_FILE_MKDIR_FAILED`: `Carries`\<\{ `code`: `string`; `path`: `string`; \}\>; `IAM_FILE_PATH_INVALID`: `Carries`\<\{ `path?`: `string`; `reason`: `"dotdot-segment"` \| `"not-resolvable-absolute"` \| `"not-absolute"` \| `"rootdir-not-absolute"` \| `"escapes-rootdir"` \| `"symlink-escapes-rootdir"`; `rootDir?`: `string`; \}\>; `IAM_FILE_READ_FAILED`: `number` & \{ \} & \{ \}; `IAM_FILE_STATE_DISCARDED`: `500`; `IAM_FILE_STORE_CORRUPT`: `Carries`\<\{ `got?`: `string`; `path`: `string`; `reason`: `"not-object"` \| `"parse-failed"`; \}\>; `IAM_FILE_STORE_FIELD_INVALID`: `Carries`\<\{ `field`: `"policies"` \| `"roles"`; `got`: `string`; \}\>; `IAM_HTTP_BASE_URL_INVALID`: `Carries`\<\{ `baseUrl?`: `string`; `host?`: `string`; `reason`: `"unparseable"` \| `"bad-scheme"` \| `"has-query-or-fragment"` \| `"host-not-allowed"` \| `"private-host"`; `scheme?`: `string`; \}\>; `IAM_HTTP_CIRCUIT_OPEN`: `Carries`\<\{ `state`: `"open"` \| `"half-open-busy"`; \}\>; `IAM_HTTP_ID_INVALID`: `Carries`\<\{ `field`: `string`; `length?`: `number`; `reason`: `"too-long"` \| `"empty"` \| `"separator"` \| `"dot-segment"`; `value?`: `string`; \}\>; `IAM_HTTP_LIST_INVALID`: `Carries`\<\{ `got`: `string`; `path`: `string`; \}\>; `IAM_HTTP_OPTION_INVALID`: `Carries`\<\{ `constraint`: `string`; `field`: `string`; `got`: `string`; \}\>; `IAM_HTTP_RESPONSE_ERROR`: `Carries`\<\{ `body`: `string`; `status`: `number`; \}\>; `IAM_HTTP_RESPONSE_TOO_LARGE`: `Carries`\<\{ `capBytes`: `number`; \}\>; `IAM_HTTP_RETRY_EXHAUSTED`: `Carries`\<\{ `path`: `string`; \}\>; `IAM_HTTP_SUBJECT_ROLES_INVALID`: `Carries`\<\{ `got?`: `string`; `index?`: `number`; `reason`: `"not-array"` \| `"entry-invalid"`; `subjectId`: `string`; \}\>; `IAM_HTTP_SUBJECT_SCOPED_ROLES_INVALID`: `Carries`\<\{ `got?`: `string`; `index?`: `number`; `reason`: `"not-array"` \| `"entry-not-object"` \| `"entry-fields-invalid"`; `role?`: `string`; `scope?`: `string`; `subjectId`: `string`; \}\>; `IAM_METRICS_SAMPLE_SIZE_INVALID`: `Carries`\<\{ `got`: `number`; \}\>; `IAM_POLICY_COMPILE_FAILED`: `Carries`\<\{ `detail`: `string`; `policyId`: `string`; \}\>; `IAM_REDIS_ASSIGNMENT_ENCODING_INVALID`: `Carries`\<\{ `field`: `"scope"` \| `"role"`; \}\>; `IAM_REDIS_INVALIDATOR_CANONICAL_DEPTH_EXCEEDED`: `Carries`\<\{ `depth`: `number`; \}\>; `IAM_REDIS_INVALIDATOR_SECRET_EMPTY`: `500`; `IAM_REDIS_INVALIDATOR_TENANT_ID_INVALID`: `Carries`\<\{ `got`: `string`; \}\>; `IAM_ROLE_LIMIT_EXCEEDED`: `Carries`\<\{ `limit`: `number`; `roleCount`: `number`; \}\>; `IAM_ROLE_NOT_FOUND`: `number` & \{ \} & \{ \}; `IAM_SCOPE_INVALID`: `Carries`\<\{ `adapter`: `string`; `reason`: `"empty"` \| `"wildcard-on-grant"`; \}\>; `IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED`: `Carries`\<\{ `fn`: `string`; `framework`: `"next"` \| `"express"` \| `"hono"` \| `"nest"`; \}\>; `IAM_SERVER_GET_USER_ID_REQUIRED`: `Carries`\<\{ `framework`: `"next"`; \}\>; `IAM_UNREADABLE_POLICY`: `number` & \{ \} & \{ \}; `IAM_UNREADABLE_ROLE`: `number` & \{ \} & \{ \}; `IAM_VALIDATION_FAILED`: `Carries`\<\{ `issues`: readonly `string`[]; `kind`: `"policy"` \| `"role"` \| `"rule"` \| `"request"`; \}\>; \}
+
+Defined in: [packages/duck-iam/src/core/errors/errors.codes.ts:7](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/errors/errors.codes.ts#L7)
+
+Every code this package raises, at its HTTP status, carrying what the code itself cannot say.
+ Phase 1 only: the ~150 ad-hoc adapter/server/client sites are not in this registry yet.
+
+## Type Declaration
+
+### IAM\_ASSIGN\_OPTIONS\_UNSUPPORTED
+
+> `readonly` **IAM\_ASSIGN\_OPTIONS\_UNSUPPORTED**: `Carries`\<\{ `adapter`: `string`; `fields`: readonly `string`[]; \}\>
+
+### IAM\_ASSIGN\_WINDOW\_EMPTY
+
+> `readonly` **IAM\_ASSIGN\_WINDOW\_EMPTY**: `Carries`\<\{ `adapter`: `string`; \}\>
+
+### IAM\_ASSIGN\_WINDOW\_INVALID\_DATE
+
+> `readonly` **IAM\_ASSIGN\_WINDOW\_INVALID\_DATE**: `Carries`\<\{ `adapter`: `string`; `field`: `"startsAt"` \| `"expiresAt"`; \}\>
+
+### IAM\_ATTRIBUTES\_CORRUPT
+
+> `readonly` **IAM\_ATTRIBUTES\_CORRUPT**: `number` & \{ \} & \{ \}
+
+### IAM\_ATTRIBUTES\_INVALID
+
+> `readonly` **IAM\_ATTRIBUTES\_INVALID**: `Carries`\<\{ `adapter`: `string`; `got?`: `string`; `reason`: `"not-object"` \| `"forbidden-key"`; `subjectId`: `string`; \}\>
+
+### IAM\_BUILDER\_RULE\_SCOPE\_EMPTY
+
+> `readonly` **IAM\_BUILDER\_RULE\_SCOPE\_EMPTY**: `Carries`\<\{ `ruleId`: `string`; \}\>
+
+### IAM\_BUILDER\_RULE\_UNCONFIGURED
+
+> `readonly` **IAM\_BUILDER\_RULE\_UNCONFIGURED**: `Carries`\<\{ `ruleId`: `string`; \}\>
+
+### IAM\_BUILDER\_WHEN\_EMPTY\_LIST
+
+> `readonly` **IAM\_BUILDER\_WHEN\_EMPTY\_LIST**: `Carries`\<\{ `method`: `"roles"` \| `"scopes"` \| `"resourceType"`; \}\>
+
+### IAM\_BUILDER\_WHEN\_GROUP\_CONFLICT
+
+> `readonly` **IAM\_BUILDER\_WHEN\_GROUP\_CONFLICT**: `500` = `500`
+
+### IAM\_CACHE\_CONFIG\_INVALID
+
+> `readonly` **IAM\_CACHE\_CONFIG\_INVALID**: `Carries`\<\{ `constraint`: `string`; `field`: `"maxSize"` \| `"ttlMs"`; `got`: `number`; \}\>
+
+### IAM\_CLIENT\_PERMISSIONS\_FETCH\_FAILED
+
+> `readonly` **IAM\_CLIENT\_PERMISSIONS\_FETCH\_FAILED**: `Carries`\<\{ `status`: `number`; \}\>
+
+### IAM\_CLIENT\_PROVIDER\_MISSING
+
+> `readonly` **IAM\_CLIENT\_PROVIDER\_MISSING**: `Carries`\<\{ `detail`: `string`; `framework`: `"react"` \| `"vue"`; \}\>
+
+### IAM\_CONDITION\_GROUP\_INVALID
+
+> `readonly` **IAM\_CONDITION\_GROUP\_INVALID**: `Carries`\<\{ `detail`: `string`; `reason`: `"depth"` \| `"unknown-keys"`; \}\>
+
+### IAM\_CONDITION\_ITEMS\_NOT\_ARRAY
+
+> `readonly` **IAM\_CONDITION\_ITEMS\_NOT\_ARRAY**: `Carries`\<\{ `key`: `"all"` \| `"any"` \| `"none"`; \}\>
+
+### IAM\_CONDITION\_OPERAND\_TYPE
+
+> `readonly` **IAM\_CONDITION\_OPERAND\_TYPE**: `Carries`\<\{ `detail`: `string`; `field`: `string`; `operator`: `string`; \}\>
+
+### IAM\_CONDITION\_OPERATOR\_UNKNOWN
+
+> `readonly` **IAM\_CONDITION\_OPERATOR\_UNKNOWN**: `Carries`\<\{ `field?`: `string`; `operator`: `string`; \}\>
+
+### IAM\_CONDITION\_PATTERN\_REFUSED
+
+> `readonly` **IAM\_CONDITION\_PATTERN\_REFUSED**: `Carries`\<\{ `detail`: `string`; `field`: `string`; `reason`: `"too-long"` \| `"uncompilable"`; \}\>
+
+### IAM\_CONDITION\_REGEX\_INPUT\_TOO\_LARGE
+
+> `readonly` **IAM\_CONDITION\_REGEX\_INPUT\_TOO\_LARGE**: `Carries`\<\{ `field`: `string`; `length`: `number`; \}\>
+
+### IAM\_CONDITION\_USER\_SOURCED\_PATTERN
+
+> `readonly` **IAM\_CONDITION\_USER\_SOURCED\_PATTERN**: `Carries`\<\{ `field`: `string`; `value`: `string`; \}\>
+
+### IAM\_DT\_FLOW\_BUFFER\_SIZE\_INVALID
+
+> `readonly` **IAM\_DT\_FLOW\_BUFFER\_SIZE\_INVALID**: `Carries`\<\{ `got`: `number`; \}\>
+
+### IAM\_ENGINE\_ADAPTER\_NOT\_TRANSACTIONAL
+
+> `readonly` **IAM\_ENGINE\_ADAPTER\_NOT\_TRANSACTIONAL**: `500` = `500`
+
+### IAM\_ENGINE\_ATTRIBUTES\_PARAM\_INVALID
+
+> `readonly` **IAM\_ENGINE\_ATTRIBUTES\_PARAM\_INVALID**: `Carries`\<\{ `count?`: `number`; `depth?`: `number`; `got?`: `string`; `reason`: `"not-object"` \| `"too-many-keys"` \| `"too-deep"`; \}\>
+
+### IAM\_ENGINE\_BATCH\_TOO\_LARGE
+
+> `readonly` **IAM\_ENGINE\_BATCH\_TOO\_LARGE**: `Carries`\<\{ `count`: `number`; `limit`: `number`; \}\>
+
+### IAM\_ENGINE\_EXPLAIN\_UNAVAILABLE
+
+> `readonly` **IAM\_ENGINE\_EXPLAIN\_UNAVAILABLE**: `500` = `500`
+
+### IAM\_ENGINE\_FAIL\_OPEN\_NOT\_CONFIRMED
+
+> `readonly` **IAM\_ENGINE\_FAIL\_OPEN\_NOT\_CONFIRMED**: `500` = `500`
+
+### IAM\_ENGINE\_INTERPRETER\_DISAGREEMENT
+
+> `readonly` **IAM\_ENGINE\_INTERPRETER\_DISAGREEMENT**: `Carries`\<\{ `compiled`: `boolean`; `detail`: `string`; `interpreted`: `boolean`; \}\>
+
+### IAM\_ENGINE\_INVALID\_CONFIG
+
+> `readonly` **IAM\_ENGINE\_INVALID\_CONFIG**: `Carries`\<\{ `allowed?`: readonly `string`[]; `constraint?`: `string`; `field`: `string`; `got`: `string` \| `number`; \}\>
+
+### IAM\_ENGINE\_INVALIDATOR\_SHAPE\_INVALID
+
+> `readonly` **IAM\_ENGINE\_INVALIDATOR\_SHAPE\_INVALID**: `500` = `500`
+
+### IAM\_ENGINE\_PARAM\_INVALID
+
+> `readonly` **IAM\_ENGINE\_PARAM\_INVALID**: `Carries`\<\{ `got?`: `string`; `length?`: `number`; `name`: `string`; `reason`: `"too-long"` \| `"empty"`; \}\>
+
+### IAM\_ENGINE\_POLICY\_COMBINE\_INCOMPATIBLE
+
+> `readonly` **IAM\_ENGINE\_POLICY\_COMBINE\_INCOMPATIBLE**: `Carries`\<\{ `mode`: `string`; `policyCombine`: `string`; \}\>
+
+### IAM\_ENGINE\_PRELOAD\_VALIDATION\_FAILED
+
+> `readonly` **IAM\_ENGINE\_PRELOAD\_VALIDATION\_FAILED**: `Carries`\<\{ `count`: `number`; `problems`: readonly `string`[]; \}\>
+
+### IAM\_ENGINE\_ROW\_CAP\_EXCEEDED
+
+> `readonly` **IAM\_ENGINE\_ROW\_CAP\_EXCEEDED**: `Carries`\<\{ `cap`: `number`; `capField`: `string`; `count`: `number`; `noun`: `string`; \}\>
+
+### IAM\_ENGINE\_SNAPSHOT\_FIELD\_INVALID
+
+> `readonly` **IAM\_ENGINE\_SNAPSHOT\_FIELD\_INVALID**: `Carries`\<\{ `field`: `"policies"` \| `"roles"`; \}\>
+
+### IAM\_ENGINE\_SNAPSHOT\_VERSION\_UNSUPPORTED
+
+> `readonly` **IAM\_ENGINE\_SNAPSHOT\_VERSION\_UNSUPPORTED**: `Carries`\<\{ `got`: `string`; \}\>
+
+### IAM\_ENGINE\_SUBJECT\_LOAD\_SHED
+
+> `readonly` **IAM\_ENGINE\_SUBJECT\_LOAD\_SHED**: `Carries`\<\{ `cap`: `number`; `inFlight`: `number`; `subjectId`: `string`; \}\>
+
+### IAM\_EVALUATE\_ALGORITHM\_UNKNOWN
+
+> `readonly` **IAM\_EVALUATE\_ALGORITHM\_UNKNOWN**: `Carries`\<\{ `algorithm`: `string`; `policyId`: `string`; \}\>
+
+### IAM\_EVALUATE\_RULE\_EFFECT\_UNKNOWN
+
+> `readonly` **IAM\_EVALUATE\_RULE\_EFFECT\_UNKNOWN**: `Carries`\<\{ `effect`: `unknown`; `policyId`: `string`; `ruleId`: `string`; \}\>
+
+### IAM\_EVALUATE\_RULE\_PRIORITY\_INVALID
+
+> `readonly` **IAM\_EVALUATE\_RULE\_PRIORITY\_INVALID**: `Carries`\<\{ `policyId?`: `string`; `priority?`: `unknown`; \}\>
+
+### IAM\_FILE\_ASSIGNMENTS\_CORRUPT
+
+> `readonly` **IAM\_FILE\_ASSIGNMENTS\_CORRUPT**: `Carries`\<\{ `subjectId`: `string`; \}\>
+
+### IAM\_FILE\_MKDIR\_FAILED
+
+> `readonly` **IAM\_FILE\_MKDIR\_FAILED**: `Carries`\<\{ `code`: `string`; `path`: `string`; \}\>
+
+### IAM\_FILE\_PATH\_INVALID
+
+> `readonly` **IAM\_FILE\_PATH\_INVALID**: `Carries`\<\{ `path?`: `string`; `reason`: `"dotdot-segment"` \| `"not-resolvable-absolute"` \| `"not-absolute"` \| `"rootdir-not-absolute"` \| `"escapes-rootdir"` \| `"symlink-escapes-rootdir"`; `rootDir?`: `string`; \}\>
+
+### IAM\_FILE\_READ\_FAILED
+
+> `readonly` **IAM\_FILE\_READ\_FAILED**: `number` & \{ \} & \{ \}
+
+### IAM\_FILE\_STATE\_DISCARDED
+
+> `readonly` **IAM\_FILE\_STATE\_DISCARDED**: `500` = `500`
+
+### IAM\_FILE\_STORE\_CORRUPT
+
+> `readonly` **IAM\_FILE\_STORE\_CORRUPT**: `Carries`\<\{ `got?`: `string`; `path`: `string`; `reason`: `"not-object"` \| `"parse-failed"`; \}\>
+
+### IAM\_FILE\_STORE\_FIELD\_INVALID
+
+> `readonly` **IAM\_FILE\_STORE\_FIELD\_INVALID**: `Carries`\<\{ `field`: `"policies"` \| `"roles"`; `got`: `string`; \}\>
+
+### IAM\_HTTP\_BASE\_URL\_INVALID
+
+> `readonly` **IAM\_HTTP\_BASE\_URL\_INVALID**: `Carries`\<\{ `baseUrl?`: `string`; `host?`: `string`; `reason`: `"unparseable"` \| `"bad-scheme"` \| `"has-query-or-fragment"` \| `"host-not-allowed"` \| `"private-host"`; `scheme?`: `string`; \}\>
+
+### IAM\_HTTP\_CIRCUIT\_OPEN
+
+> `readonly` **IAM\_HTTP\_CIRCUIT\_OPEN**: `Carries`\<\{ `state`: `"open"` \| `"half-open-busy"`; \}\>
+
+### IAM\_HTTP\_ID\_INVALID
+
+> `readonly` **IAM\_HTTP\_ID\_INVALID**: `Carries`\<\{ `field`: `string`; `length?`: `number`; `reason`: `"too-long"` \| `"empty"` \| `"separator"` \| `"dot-segment"`; `value?`: `string`; \}\>
+
+### IAM\_HTTP\_LIST\_INVALID
+
+> `readonly` **IAM\_HTTP\_LIST\_INVALID**: `Carries`\<\{ `got`: `string`; `path`: `string`; \}\>
+
+### IAM\_HTTP\_OPTION\_INVALID
+
+> `readonly` **IAM\_HTTP\_OPTION\_INVALID**: `Carries`\<\{ `constraint`: `string`; `field`: `string`; `got`: `string`; \}\>
+
+### IAM\_HTTP\_RESPONSE\_ERROR
+
+> `readonly` **IAM\_HTTP\_RESPONSE\_ERROR**: `Carries`\<\{ `body`: `string`; `status`: `number`; \}\>
+
+### IAM\_HTTP\_RESPONSE\_TOO\_LARGE
+
+> `readonly` **IAM\_HTTP\_RESPONSE\_TOO\_LARGE**: `Carries`\<\{ `capBytes`: `number`; \}\>
+
+### IAM\_HTTP\_RETRY\_EXHAUSTED
+
+> `readonly` **IAM\_HTTP\_RETRY\_EXHAUSTED**: `Carries`\<\{ `path`: `string`; \}\>
+
+### IAM\_HTTP\_SUBJECT\_ROLES\_INVALID
+
+> `readonly` **IAM\_HTTP\_SUBJECT\_ROLES\_INVALID**: `Carries`\<\{ `got?`: `string`; `index?`: `number`; `reason`: `"not-array"` \| `"entry-invalid"`; `subjectId`: `string`; \}\>
+
+### IAM\_HTTP\_SUBJECT\_SCOPED\_ROLES\_INVALID
+
+> `readonly` **IAM\_HTTP\_SUBJECT\_SCOPED\_ROLES\_INVALID**: `Carries`\<\{ `got?`: `string`; `index?`: `number`; `reason`: `"not-array"` \| `"entry-not-object"` \| `"entry-fields-invalid"`; `role?`: `string`; `scope?`: `string`; `subjectId`: `string`; \}\>
+
+### IAM\_METRICS\_SAMPLE\_SIZE\_INVALID
+
+> `readonly` **IAM\_METRICS\_SAMPLE\_SIZE\_INVALID**: `Carries`\<\{ `got`: `number`; \}\>
+
+### IAM\_POLICY\_COMPILE\_FAILED
+
+> `readonly` **IAM\_POLICY\_COMPILE\_FAILED**: `Carries`\<\{ `detail`: `string`; `policyId`: `string`; \}\>
+
+### IAM\_REDIS\_ASSIGNMENT\_ENCODING\_INVALID
+
+> `readonly` **IAM\_REDIS\_ASSIGNMENT\_ENCODING\_INVALID**: `Carries`\<\{ `field`: `"scope"` \| `"role"`; \}\>
+
+### IAM\_REDIS\_INVALIDATOR\_CANONICAL\_DEPTH\_EXCEEDED
+
+> `readonly` **IAM\_REDIS\_INVALIDATOR\_CANONICAL\_DEPTH\_EXCEEDED**: `Carries`\<\{ `depth`: `number`; \}\>
+
+### IAM\_REDIS\_INVALIDATOR\_SECRET\_EMPTY
+
+> `readonly` **IAM\_REDIS\_INVALIDATOR\_SECRET\_EMPTY**: `500` = `500`
+
+### IAM\_REDIS\_INVALIDATOR\_TENANT\_ID\_INVALID
+
+> `readonly` **IAM\_REDIS\_INVALIDATOR\_TENANT\_ID\_INVALID**: `Carries`\<\{ `got`: `string`; \}\>
+
+### IAM\_ROLE\_LIMIT\_EXCEEDED
+
+> `readonly` **IAM\_ROLE\_LIMIT\_EXCEEDED**: `Carries`\<\{ `limit`: `number`; `roleCount`: `number`; \}\>
+
+### IAM\_ROLE\_NOT\_FOUND
+
+> `readonly` **IAM\_ROLE\_NOT\_FOUND**: `number` & \{ \} & \{ \}
+
+### IAM\_SCOPE\_INVALID
+
+> `readonly` **IAM\_SCOPE\_INVALID**: `Carries`\<\{ `adapter`: `string`; `reason`: `"empty"` \| `"wildcard-on-grant"`; \}\>
+
+### IAM\_SERVER\_ADMIN\_AUTHORIZE\_REQUIRED
+
+> `readonly` **IAM\_SERVER\_ADMIN\_AUTHORIZE\_REQUIRED**: `Carries`\<\{ `fn`: `string`; `framework`: `"next"` \| `"express"` \| `"hono"` \| `"nest"`; \}\>
+
+### IAM\_SERVER\_GET\_USER\_ID\_REQUIRED
+
+> `readonly` **IAM\_SERVER\_GET\_USER\_ID\_REQUIRED**: `Carries`\<\{ `framework`: `"next"`; \}\>
+
+### IAM\_UNREADABLE\_POLICY
+
+> `readonly` **IAM\_UNREADABLE\_POLICY**: `number` & \{ \} & \{ \}
+
+### IAM\_UNREADABLE\_ROLE
+
+> `readonly` **IAM\_UNREADABLE\_ROLE**: `number` & \{ \} & \{ \}
+
+### IAM\_VALIDATION\_FAILED
+
+> `readonly` **IAM\_VALIDATION\_FAILED**: `Carries`\<\{ `issues`: readonly `string`[]; `kind`: `"policy"` \| `"role"` \| `"rule"` \| `"request"`; \}\>
+

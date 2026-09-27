@@ -50,10 +50,12 @@
     "release:iam": "bunx turbo run build --filter=@gentleduck/iam && cd packages/duck-iam && bun publish --access public",
     "clean": "rimraf dist .cache .turbo node_modules .next .velite",
     "clean:git": "git clean -xdf .cache .turbo node_modules dist",
-    "lint:ws": "sherif",
+    "lint:ws": "sherif -i typescript",
     "postinstall": "bun run lint:ws || true",
     "prepare": "husky",
     "check-types": "turbo run check-types",
+    "docs:api": "bun run --cwd docs/duck-iam-docs docs:api",
+    "sync-docs": "bash scripts/sync-docs-to-duck-ui.sh",
     "scorecard": "bash scripts/scorecard.sh",
     "scorecard:local": "bash scripts/scorecard.sh --local"
   },
@@ -118,6 +120,7 @@
   "workspaces": {
     "packages": [
       "apps/duck-auth-demo",
+      "docs/duck-iam-docs",
       "packages/*",
       "tooling/*",
       "examples/*",

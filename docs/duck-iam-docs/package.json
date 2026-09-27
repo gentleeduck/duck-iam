@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "duck-iam-docs",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Content-only docs app. Owns generating the API reference from packages/duck-iam's source via TypeDoc.",
+  "scripts": {
+    "docs:api": "NODE_OPTIONS=\"--import ./scripts/register-ts5-hook.mjs\" typedoc && node scripts/mdxify-api.mjs",
+    "clean": "rimraf content/docs/api/generated .turbo"
+  },
+  "devDependencies": {
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.13.1",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,263 @@
+---
+title: "Chapter 7: client libraries"
+description: Hide buttons the user cannot press - permission maps in React, Vue, and vanilla JS, and why the client check is a hint and never the enforcement
+section: Course
+order: 7
+---
+DocDuck's API is guarded. The UI still shows a Delete button to everyone and only finds out it is forbidden after a 403. This chapter feeds the browser the permission map from chapter 6 and gates the UI on it - in React, in Vue, and in plain JavaScript.
+
+## What you should already have
+
+`GET /api/permissions` from chapter 6, returning a flat object of `[@scope:]action:resource[:resourceId]` keys. Nothing from `src/access.ts` is imported into the browser - the engine, the adapter, and your policies stay on the server.
+
+## Learning goals
+
+- Understand what a permission map is and what its keys mean.
+- Wire the React provider, the Vue plugin, and the vanilla client.
+- Refresh the map when the user switches team, without a page reload.
+- Know exactly why a client check is a hint and the server check is the decision.
+
+<Callout tone="warning" title="The client check is cosmetic">
+Everything in this chapter runs in code the user controls. Its only job is to stop showing actions that will fail. Anyone can edit the permission map in a devtools console and reveal the button - and then get a 403 from chapter 6's guard. **Never remove a server-side check because the client hides the control.**
+</Callout>
+
+## The two halves
+
+<MermaidDiagram chart={`sequenceDiagram
+    participant B as "Browser"
+    participant S as "Your server"
+    participant E as "IamEngine"
+    B->>S: "GET /api/permissions?team=acme.design"
+    S->>E: "permissions(alice, checks, env)"
+    E-->>S: "map of booleans"
+    S-->>B: "@acme.design:delete:document = false"
+    B->>B: "AccessProvider stores the map"
+    B->>B: "Can hides the Delete button"
+    B->>S: "DELETE /documents/doc-1 (user forced it anyway)"
+    S->>E: "can(alice, delete, document doc-1)"
+    E-->>S: "false"
+    S-->>B: "403 Forbidden"`} />
+
+The same engine answers both questions. The top half decides what to *render*; the bottom half decides what to *allow*. They agree because they share one policy set - but only the bottom half is trusted.
+
+## The permission map
+
+`engine.permissions()` returns a flat object. Keys come from `iamBuildPermissionKey(action, resource, resourceId?, scope?)`, which builds them in one of four shapes:
+
+| Arguments given | Key |
+| --- | --- |
+| action, resource | `delete:document` |
+| action, resource, resourceId | `delete:document:doc-1` |
+| scope, action, resource | `@acme.design:delete:document` |
+| all four | `@acme.design:delete:document:doc-1` |
+
+Two details that bite:
+
+- The scope goes **first** and carries an `@`. Without the marker, `('delete', 'document', 'doc-1')` and `('document', 'doc-1', undefined, 'delete')` both spell `delete:document:doc-1`, and two different checks in one batch share a map entry.
+- A `:`, a `\`, or a leading `@` inside any segment is backslash-escaped, so a document id like `doc:42` becomes `delete:document:doc\:42`. Build keys with `iamBuildPermissionKey` and read them with `iamSplitPermissionKey`; `key.split(':')` disagrees with `can()` on exactly the ids that need escaping, and a menu then offers an action the same client's `can()` denies.
+
+A missing key means **denied**. Every `can()` in every client below is `map[key] ?? false`, so a typo in an action name silently hides your button - which is the safe direction, but check your key spelling when a control disappears for no reason.
+
+## React
+
+`createIamAccessControl(React)` takes your React module and returns the bindings. duck-iam never imports React itself, so there is no duplicate-copy or version-mismatch risk.
+
+<Steps>
+  <Step>
+    **Build the surface once**
+
+    ```ts title="src/access-client.ts"
+    import React from 'react'
+    import { createIamAccessControl } from '@gentleduck/iam/client/react'
+
+    export const { AccessProvider, useAccess, usePermissions, Can, Cannot } =
+      createIamAccessControl<'read' | 'create' | 'update' | 'delete' | 'manage', 'document' | 'team'>(React)
+    ```
+
+    Call this once at module scope and export the result. Calling it twice creates two independent contexts, and the second provider will not feed the first hook.
+  </Step>
+
+  <Step>
+    **Provide the map**
+
+    ```tsx title="src/App.tsx"
+    import { AccessProvider } from './access-client'
+
+    export function App({ permissions }: { permissions: Record<string, boolean> }) {
+      return (
+        <AccessProvider permissions={permissions}>
+          <DocumentList />
+        </AccessProvider>
+      )
+    }
+    ```
+
+    In Next.js, fetch the map in a server component with `getIamPermissions(engine, userId, checks)` and pass it down as a prop - the provider is the only client component you need.
+  </Step>
+
+  <Step>
+    **Gate the UI**
+
+    ```tsx title="src/DocumentRow.tsx"
+    import { Can, useAccess } from './access-client'
+
+    export function DocumentRow({ doc, team }: { doc: Doc; team: string }) {
+      const { can, cannot } = useAccess()
+
+      return (
+        <li>
+          <span>{doc.title}</span>
+          <Can action="update" resource="document" scope={team}>
+            <button onClick={() => edit(doc.id)}>Edit</button>
+          </Can>
+          <Can action="delete" resource="document" scope={team} fallback={<span title="Ask an admin">Locked</span>}>
+            <button onClick={() => remove(doc.id)}>Delete</button>
+          </Can>
+          <button disabled={cannot('manage', 'team', undefined, team)}>Team settings</button>
+          {can('create', 'document', undefined, team) && <NewDocumentButton team={team} />}
+        </li>
+      )
+    }
+    ```
+
+    `Can` renders `fallback` (default `null`) when the check fails. `Cannot` renders its children when the check fails and `null` otherwise - it takes no `fallback`.
+  </Step>
+
+  <Step>
+    **Refetch when the team changes**
+
+    ```tsx title="src/TeamShell.tsx"
+    import { AccessProvider, usePermissions } from './access-client'
+
+    export function TeamShell({ team, children }: { team: string; children: React.ReactNode }) {
+      const { permissions, loading, error } = usePermissions(
+        () => fetch(`/api/permissions?team=${encodeURIComponent(team)}`).then((r) => r.json()),
+        [team],
+      )
+
+      if (loading) return <Skeleton />
+      if (error) return <ErrorBanner error={error} />
+      return <AccessProvider permissions={permissions}>{children}</AccessProvider>
+    }
+    ```
+
+    `usePermissions(fetchFn, deps)` returns `{ permissions, can, cannot, allowedActions, hasAnyOn, loading, error, refetch }`. It starts with `loading: true` and an empty map, so **render a skeleton while loading** - an empty map denies everything, and gating directly on it flashes a UI with every control missing. It also guards against out-of-order responses: a fetch whose deps changed mid-flight is discarded rather than applied.
+  </Step>
+</Steps>
+
+Outside React - a route loader, an event handler, a non-component module - use `createIamPermissionChecker(map)`, which returns `{ can, cannot, allowedActions, hasAnyOn, permissions }` with no hooks involved.
+
+## Vue
+
+Same shape, injected the same way:
+
+```ts title="src/access-client.ts"
+import { computed, defineComponent, h, inject, provide, ref } from 'vue'
+import { createIamVueAccess } from '@gentleduck/iam/client/vue'
+
+export const { createAccessPlugin, provideAccess, useAccess, Can, Cannot } = createIamVueAccess({
+  ref, computed, inject, provide, defineComponent, h,
+})
+```
+
+```ts title="src/main.ts"
+const permissions = await fetch('/api/permissions').then((r) => r.json())
+app.use(createAccessPlugin(permissions))
+```
+
+The plugin provides the state app-wide and registers `$can` and `$cannot` as global properties, so templates can call them without importing anything:
+
+```html
+<button v-if="$can('delete', 'document', undefined, team)">Delete</button>
+
+<Can action="update" resource="document" :scope="team">
+  <button>Edit</button>
+  <template #fallback><span>Read only</span></template>
+</Can>
+```
+
+In a `setup` block, `useAccess()` returns `{ permissions, can, cannot, update }`. `permissions` is a `ref`, and `update(newMap)` swaps it - every computed and template that read `can()` re-renders. That is the Vue answer to a team switch:
+
+```ts
+const { can, update } = useAccess()
+
+watch(team, async (next) => {
+  update(await fetch(`/api/permissions?team=${encodeURIComponent(next)}`).then((r) => r.json()))
+})
+```
+
+`useAccess()` throws if no provider is above it in the tree - install the plugin, or call `provideAccess(map)` in a parent component's `setup`.
+
+## Vanilla, Svelte, Solid, web components
+
+`IamAccessClient` is a plain class with no framework in it:
+
+```ts title="src/access-client.ts"
+import { IamAccessClient } from '@gentleduck/iam/client/vanilla'
+
+export const access = await IamAccessClient.fromServer('/api/permissions', {
+  headers: { Authorization: `Bearer ${token}` },
+})
+
+access.can('delete', 'document')                       // false
+access.can('delete', 'document', undefined, 'acme')    // scoped
+access.cannot('manage', 'team')                        // true
+
+const unsubscribe = access.subscribe(() => rerender())
+access.update(await refetch())                         // replaces the map
+access.merge({ '@acme:create:document': true })         // patches a few keys
+```
+
+`fromServer(url, init?)` sets `Content-Type: application/json`, merges your `init`, and **throws** on a non-2xx response - wrap it, or construct with `new IamAccessClient(map)` when you already have the data. `subscribe` returns an unsubscribe function; a listener that throws is logged and the remaining listeners still run.
+
+Two helpers make menu rendering easy without enumerating keys:
+
+```ts
+access.allowedActions('document')  // ['read', 'create', 'update'] - deduplicated, any scope
+access.hasAnyOn('team')            // false - hide the whole Teams section
+```
+
+Both scan the map and understand all four key shapes, so a scoped key like `@acme.design:update:document` still reports `update` on `document`.
+
+<Callout tone="info" title="allowedActions ignores scope">
+It returns actions granted on the resource in **any** scope present in the map. If your UI is per-team, request a map for one team at a time, or filter the keys yourself.
+</Callout>
+
+## What just happened
+
+<MermaidDiagram chart={`flowchart LR
+    A["engine.permissions()"] --> B["flat map of booleans"]
+    B --> C["JSON over HTTP"]
+    C --> D["AccessProvider / plugin / IamAccessClient"]
+    D --> E["can(action, resource, id, scope)"]
+    E --> F["render, hide, or disable"]
+    C --> G["map is user-editable"]
+    G --> H["server guard from chapter 6"]
+    H --> I["the real decision"]`} />
+
+You did not move any authorization logic into the browser. You moved a **snapshot of answers**. Two properties follow from that, and they explain most client-side surprises:
+
+- **It is stale the moment it is sent.** A role revoked after the fetch is still `true` in the map until you refetch. Refetch on login, on team switch, and after any admin action that changes roles.
+- **It is exactly as big as you asked for.** Only the checks you listed in `UI_CHECKS` are present; everything else is absent, and absent means `false`. Add a button, add a check.
+
+Per-resource keys are the usual source of map bloat. `{ action: 'delete', resource: 'document', resourceId: doc.id }` for 500 rows is 500 checks and blows through the 1024-entry batch cap. Prefer a coarse `delete:document` gate for chrome, and let the row-level 403 be the answer for the rare denied row.
+
+## Try it
+
+1. Render the Delete button behind `Can` for Bob in `acme.design`, then switch the team query to `acme.eng` and confirm the button disappears without a reload.
+2. Open devtools, set the map's `@acme.eng:delete:document` to `true`, and press the now-visible button. Confirm chapter 6's guard answers 403 - that is the whole point of this chapter.
+3. Delete one entry from `UI_CHECKS` on the server and watch the corresponding control vanish. That is what a missing key looks like.
+4. Call `access.allowedActions('document')` after fetching a scoped map and check the returned actions have no scope prefix.
+5. Wrap `usePermissions` around a slow endpoint (add a two-second delay) and confirm your skeleton renders instead of a fully-locked UI.
+
+## See also
+
+- [Client integrations](/duck-iam/integrations/client) - the three entry points side by side
+- [Permission map](/duck-iam/integrations/client/permission-map) - key format, escaping, and batch limits
+- [React client](/duck-iam/integrations/client/react), [Vue client](/duck-iam/integrations/client/vue), [Vanilla client](/duck-iam/integrations/client/vanilla)
+- [Next.js integration](/duck-iam/integrations/server/next) - `getIamPermissions` in a server component
+- [Engine methods](/duck-iam/advanced/engine/methods) - `permissions()` options including `telemetry: false`
+
+---
+
+Next: [Chapter 8: production readiness](/duck-iam/course/chapter-8)

@@ -1,0 +1,29 @@
+---
+title: "Type Alias: FlexibleDotPaths<T>"
+description: "Context-wide path: typed paths only when closed; accepts string when an open attribute bag is present."
+---
+
+> **FlexibleDotPaths**\<`T`\> = `true` *extends* `HasOpenIndex`\<`T`\> ? [`DotPaths`](DotPaths)\<`T`\> \| `string` & \{ \} : [`DotPaths`](DotPaths)\<`T`\>
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:65](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L65)
+
+Context-wide path: typed paths only when closed; accepts `string` when an open attribute bag is present.
+
+## Type Parameters
+
+### T
+
+`T`
+
+The context type to extract paths from.
+
+## Example
+
+```ts
+type ClosedCtx = { subject: { id: string } }
+type Paths1 = DotPath.FlexibleDotPaths<ClosedCtx>     // = 'subject' | 'subject.id'
+
+type OpenCtx = { subject: { attributes: DotPath.IAnyAttributes } }
+type Paths2 = DotPath.FlexibleDotPaths<OpenCtx>       // accepts any string too
+```
+

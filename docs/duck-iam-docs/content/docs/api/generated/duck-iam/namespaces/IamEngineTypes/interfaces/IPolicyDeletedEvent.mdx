@@ -1,0 +1,57 @@
+---
+title: "Interface: IPolicyDeletedEvent"
+description: "A policy was deleted."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:210](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L210)
+
+A policy was deleted.
+
+## Extends
+
+- [`IMutationBase`](IMutationBase)
+
+## Properties
+
+### actor?
+
+> `readonly` `optional` **actor?**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:200](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L200)
+
+Who made the change, when the caller supplied it.
+
+#### Inherited from
+
+[`IMutationBase`](IMutationBase).[`actor`](IMutationBase#actor)
+
+***
+
+### at
+
+> `readonly` **at**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:198](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L198)
+
+`Date.now()` at the moment the write completed.
+
+#### Inherited from
+
+[`IMutationBase`](IMutationBase).[`at`](IMutationBase#at)
+
+***
+
+### policyId
+
+> `readonly` **policyId**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:212](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L212)
+
+***
+
+### type
+
+> `readonly` **type**: `"policy.deleted"`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:211](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L211)
+

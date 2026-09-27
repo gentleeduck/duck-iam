@@ -1,0 +1,23 @@
+---
+title: "Type Alias: Operator"
+description: "Comparison operators supported by the condition engine."
+---
+
+> **Operator** = `"eq"` \| `"neq"` \| `"gt"` \| `"gte"` \| `"lt"` \| `"lte"` \| `"in"` \| `"nin"` \| `"contains"` \| `"not_contains"` \| `"starts_with"` \| `"ends_with"` \| `"matches"` \| `"exists"` \| `"not_exists"` \| `"subset_of"` \| `"superset_of"` \| `"before"` \| `"after"`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:35](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L35)
+
+Comparison operators supported by the condition engine.
+
+| Operator | Meaning |
+|---|---|
+| `eq` / `neq` | Equals / not equals |
+| `gt` / `gte` / `lt` / `lte` | Numeric comparisons |
+| `in` / `nin` | Value is / is not in the given array |
+| `contains` / `not_contains` | Array contains / does not contain the value |
+| `starts_with` / `ends_with` | String prefix / suffix |
+| `matches` | String matches a regex pattern |
+| `exists` / `not_exists` | Field is / is not defined |
+| `subset_of` / `superset_of` | Array subset / superset check |
+| `before` / `after` | Temporal compare; operands coerced to epoch ms (number or ISO-8601 string) |
+

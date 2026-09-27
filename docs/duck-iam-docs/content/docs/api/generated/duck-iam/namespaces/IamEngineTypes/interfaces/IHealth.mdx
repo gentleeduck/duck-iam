@@ -1,0 +1,101 @@
+---
+title: "Interface: IHealth"
+description: "Output of engine.healthCheck(). Wire to your /healthz route."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:491](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L491)
+
+Output of `engine.healthCheck()`. Wire to your `/healthz` route.
+
+## Properties
+
+### adapter
+
+> `readonly` **adapter**: `"ok"` \| `"fail"`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:495](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L495)
+
+IamAdapter probe outcome.
+
+***
+
+### adapterLatencyMs
+
+> `readonly` **adapterLatencyMs**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:499](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L499)
+
+Latency of the adapter probe in milliseconds (rounded).
+
+***
+
+### cacheHitRate
+
+> `readonly` **cacheHitRate**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:497](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L497)
+
+Aggregate cache hit rate across all caches. `0` when no traffic yet.
+
+***
+
+### compiledTable?
+
+> `readonly` `optional` **compiledTable?**: \{ `available`: `false`; `limit`: `number`; `reason`: `"role-limit-exceeded"`; `roleCount`: `number`; \}
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:506](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L506)
+
+Present when too many roles for the 32-bit grant mask forced the interpreter fallback.
+`ok` stays `true`: answers are still correct, only throughput is lost.
+
+#### available
+
+> `readonly` **available**: `false`
+
+#### limit
+
+> `readonly` **limit**: `number`
+
+#### reason
+
+> `readonly` **reason**: `"role-limit-exceeded"`
+
+#### roleCount
+
+> `readonly` **roleCount**: `number`
+
+***
+
+### invalidator?
+
+> `readonly` `optional` **invalidator?**: \{ `subscribed`: `false`; \}
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:516](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L516)
+
+Present when the invalidator is not receiving, so peer revocations stay cached for up to `cacheTTL`.
+NOTE: `ok` stays `true`, since failing every replica at once would be an outage. Misses a dropped subscription.
+
+#### subscribed
+
+> `readonly` **subscribed**: `false`
+
+***
+
+### lastError?
+
+> `readonly` `optional` **lastError?**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:501](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L501)
+
+IamAdapter error message when `adapter === 'fail'`.
+
+***
+
+### ok
+
+> `readonly` **ok**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:493](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L493)
+
+Overall result; `false` means the orchestrator should pull this instance.
+

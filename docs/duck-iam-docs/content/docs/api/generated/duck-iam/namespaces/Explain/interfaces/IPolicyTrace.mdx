@@ -1,0 +1,95 @@
+---
+title: "Interface: IPolicyTrace"
+description: "Trace of a single policy evaluation: targets, rule traces, combiner result."
+---
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:116](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L116)
+
+Trace of a single policy evaluation: targets, rule traces, combiner result.
+
+## Example
+
+```ts
+const policy: Explain.IPolicyTrace = {
+  policyId: 'docs-acl',
+  policyName: 'Documents ACL',
+  algorithm: 'deny-overrides',
+  targetMatch: true,
+  rules: [ruleTrace],
+  result: 'allow',
+  reason: 'admin-can-write matched',
+}
+```
+
+## Properties
+
+### algorithm
+
+> `readonly` **algorithm**: [`CombiningAlgorithm`](../../AccessControl/type-aliases/CombiningAlgorithm)
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:119](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L119)
+
+***
+
+### decidingRule?
+
+> `readonly` `optional` **decidingRule?**: [`IRule`](../../AccessControl/interfaces/IRule)\<`string`, `string`\>
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:125](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L125)
+
+***
+
+### decidingRuleId?
+
+> `readonly` `optional` **decidingRuleId?**: `string`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:124](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L124)
+
+***
+
+### policyId
+
+> `readonly` **policyId**: `string`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:117](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L117)
+
+***
+
+### policyName
+
+> `readonly` **policyName**: `string`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:118](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L118)
+
+***
+
+### reason
+
+> `readonly` **reason**: `string`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:123](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L123)
+
+***
+
+### result
+
+> `readonly` **result**: [`Effect`](../../AccessControl/type-aliases/Effect)
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:122](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L122)
+
+***
+
+### rules
+
+> `readonly` **rules**: readonly [`IRuleTrace`](IRuleTrace)[]
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:121](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L121)
+
+***
+
+### targetMatch
+
+> `readonly` **targetMatch**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:120](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L120)
+
