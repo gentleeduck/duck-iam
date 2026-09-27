@@ -61,4 +61,5 @@ export const IAM_ERRORS = {
   IAM_ENGINE_EXPLAIN_UNAVAILABLE: 500,
   IAM_ENGINE_BATCH_TOO_LARGE: detail<{ count: number; limit: number }>(400),
   IAM_ENGINE_ADAPTER_NOT_TRANSACTIONAL: 500,
+  IAM_CACHE_CONFIG_INVALID: detail<{ field: 'maxSize' | 'ttlMs'; got: number; constraint: string }>(500),
 } as const satisfies Record<string, number>
