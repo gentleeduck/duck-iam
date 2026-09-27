@@ -1,3 +1,5 @@
+import { throwIamError } from '../../core/errors'
+
 /**
  * One recorded authorization decision, flattened for the Flow panel.
  * Consumers can also record entries from their own instrumentation.
@@ -45,7 +47,7 @@ const DEFAULT_BUFFER = 250
  * Keeps the last `bufferSize` entries in memory only and notifies subscribers on every write.
  *
  * @param options - `bufferSize` caps retained entries; must be a positive integer, defaults to 250.
- * @throws RangeError when `bufferSize` is not a positive integer.
+ * @throws `IAM_DT_FLOW_BUFFER_SIZE_INVALID` when `bufferSize` is not a positive integer.
  * @example
  * ```ts
  * const flow = iamCreateFlowRecorder({ bufferSize: 500 })
@@ -70,7 +72,7 @@ export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): Ia
   // NaN/Infinity would disable the trim (unbounded growth); a negative would throw inside `record()`,
   // where `safeHookCall` swallows it.
   if (!Number.isInteger(bufferSize) || bufferSize < 1) {
-    throw new RangeError(`[@gentleduck/iam:dt:flow] bufferSize must be a positive integer (got ${String(bufferSize)})`)
+    throwIamError('IAM_DT_FLOW_BUFFER_SIZE_INVALID', { got: bufferSize })
   }
   let nextId = 1
   let buffer: IamIFlowEntry[] = []
