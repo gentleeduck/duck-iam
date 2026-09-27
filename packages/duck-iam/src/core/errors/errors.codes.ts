@@ -68,4 +68,6 @@ export const IAM_ERRORS = {
   IAM_REDIS_INVALIDATOR_TENANT_ID_INVALID: detail<{ got: string }>(500),
   IAM_REDIS_INVALIDATOR_SECRET_EMPTY: 500,
   IAM_REDIS_INVALIDATOR_CANONICAL_DEPTH_EXCEEDED: detail<{ depth: number }>(500),
+  IAM_CLIENT_PERMISSIONS_FETCH_FAILED: detail<{ status: number }>(502),
+  IAM_CLIENT_PROVIDER_MISSING: detail<{ framework: 'react' | 'vue'; detail: string }>(500),
 } as const satisfies Record<string, number>

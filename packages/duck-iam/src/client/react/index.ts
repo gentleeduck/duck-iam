@@ -17,6 +17,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { throwIamError } from '../../core/errors'
 import { toError } from '../../core/errors/normalize'
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
@@ -148,7 +149,7 @@ export function createIamAccessControl<
 
   // SECURITY: outside a provider every member fails closed, and throws in development so the wiring bug shows.
   const outsideProvider = (): never => {
-    throw new Error(MISSING_PROVIDER)
+    throwIamError('IAM_CLIENT_PROVIDER_MISSING', { framework: 'react', detail: MISSING_PROVIDER })
   }
   const AccessContext = createContext<IamReactClient.IContextValue<TAction, TResource, TScope>>({
     permissions: {},

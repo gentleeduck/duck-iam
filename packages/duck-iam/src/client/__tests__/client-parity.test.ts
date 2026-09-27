@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { hasIamErrorCode } from '../../core/errors'
 import type { IamClient } from '../../core/types'
+
+function thrown(fn: () => unknown): unknown {
+  try {
+    fn()
+    return undefined
+  } catch (err) {
+    return err
+  }
+}
+
 import { iamBuildPermissionKey } from '../../shared/keys'
 import * as ReactClient from '../react'
 import { createIamAccessControl, createIamPermissionChecker, type IamReactClient } from '../react'
@@ -225,10 +236,15 @@ describe('react reports a missing provider the way vue does', () => {
     const { React, contextDefault } = makeReact()
     createIamAccessControl(React)
     const ctx = contextDefault()
-    expect(() => ctx.can('read', 'post')).toThrow(/outside <AccessProvider>/)
-    expect(() => ctx.cannot('read', 'post')).toThrow(/outside <AccessProvider>/)
-    expect(() => ctx.allowedActions('post')).toThrow(/outside <AccessProvider>/)
-    expect(() => ctx.hasAnyOn('post')).toThrow(/outside <AccessProvider>/)
+    for (const fn of [
+      () => ctx.can('read', 'post'),
+      () => ctx.cannot('read', 'post'),
+      () => ctx.allowedActions('post'),
+      () => ctx.hasAnyOn('post'),
+    ]) {
+      expect(thrown(fn)).toBeDefined()
+      expect(hasIamErrorCode(thrown(fn), 'IAM_CLIENT_PROVIDER_MISSING')).toBe(true)
+    }
   })
 
   it('still fails closed in production rather than throwing out of a render', () => {
