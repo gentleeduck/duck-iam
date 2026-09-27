@@ -67,6 +67,13 @@ export const IAM_ACCESS_METADATA_KEY = 'duck-iam:authorize'
 /** NestJS server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamNest {
   /**
+   * Builds the error thrown for a refused request, matching every other adapter's "401 without a user" contract
+   * (or a CSRF 403, for {@link IAdminOptions.onForbidden}). Nest's base filter duck-types `statusCode`, not
+   * `status`: set it, or return an `HttpException`.
+   */
+  export type RequestErrorBuilder = (request: NestRequest) => Error
+
+  /**
    * Describes the metadata payload attached by the {@link IamAuthorize} decorator.
    *
    * @template TAction - Constrains valid action strings.
@@ -110,12 +117,8 @@ export namespace IamNest {
       request: NestRequest,
       ctx: { action: string; resource: string; resourceId: string | undefined; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
-    /**
-     * Builds the error thrown for a missing/invalid subject id, matching every other adapter's "401 without a
-     * user, 403 on deny" contract; defaults to a 401. Nest's base filter duck-types `statusCode`, not `status`:
-     * set it, or return an `HttpException`.
-     */
-    onUnauthorized?: (request: NestRequest) => Error
+    /** Defaults to a 401. */
+    onUnauthorized?: RequestErrorBuilder
     /** Handles thrown errors during evaluation; return `true` to allow, `false` to deny. */
     onError?: (err: Error, request: NestRequest) => boolean
   }
@@ -138,13 +141,10 @@ export namespace IamNest {
      * A string `authorize` answer is forwarded without this; an object one names no one until this picks the field.
      */
     getMutationActor?: (actor: IamAdminActor) => string | undefined
-    /**
-     * Builds the error thrown when `authorize` refuses; defaults to a 401.
-     * INFO: Nest's base filter duck-types `statusCode`, not `status`: set it, or return an `HttpException`.
-     */
-    onUnauthorized?: (request: NestRequest) => Error
-    /** Builds the error thrown for a CSRF refusal. Defaults to a 403. */
-    onForbidden?: (request: NestRequest) => Error
+    /** Defaults to a 401. */
+    onUnauthorized?: RequestErrorBuilder
+    /** Defaults to a 403. */
+    onForbidden?: RequestErrorBuilder
     /**
      * Maps an internal failure (a throwing `authorize`, an engine fault) to the thrown error; defaults to a fixed 500.
      * SECURITY: the default keeps the original only as `cause`; `includeErrorMessage` covers just the audit string.
