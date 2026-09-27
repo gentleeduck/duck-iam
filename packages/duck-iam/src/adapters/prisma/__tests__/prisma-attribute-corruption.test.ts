@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamPrismaAdapter } from '../index'
+
+async function rejectsWithAttributesCorrupt(p: Promise<unknown>): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, 'IAM_ATTRIBUTES_CORRUPT')
+}
 
 function makePrismaWithAttrs(data: unknown): {
   adapter: IamPrismaAdapter
@@ -77,27 +86,27 @@ describe('IamPrismaAdapter attribute corruption defense', () => {
 
   it('throws when row.data is a string (corruption)', async () => {
     const { adapter } = makePrismaWithAttrs('admin')
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+    expect(await rejectsWithAttributesCorrupt(adapter.getSubjectAttributes('user-1'))).toBe(true)
   })
 
   it('throws when row.data is null (treated as corruption)', async () => {
     const { adapter } = makePrismaWithAttrs(null)
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+    expect(await rejectsWithAttributesCorrupt(adapter.getSubjectAttributes('user-1'))).toBe(true)
   })
 
   it('throws when row.data is an array (NOT a JSON object)', async () => {
     const { adapter } = makePrismaWithAttrs([1, 2, 3])
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+    expect(await rejectsWithAttributesCorrupt(adapter.getSubjectAttributes('user-1'))).toBe(true)
   })
 
   it('throws when row.data is a number', async () => {
     const { adapter } = makePrismaWithAttrs(42)
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+    expect(await rejectsWithAttributesCorrupt(adapter.getSubjectAttributes('user-1'))).toBe(true)
   })
 
   it('throws when row.data is a boolean', async () => {
     const { adapter } = makePrismaWithAttrs(true)
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+    expect(await rejectsWithAttributesCorrupt(adapter.getSubjectAttributes('user-1'))).toBe(true)
   })
 
   it('returns a FRESH bag (mutations on caller side do not affect Prisma-managed row)', async () => {
