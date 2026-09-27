@@ -9,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { IamDrizzleAdapter } from '../../../adapters/drizzle'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../../../adapters/drizzle/pg'
 import { applyPgSchema, assertE2eReachable, isolatedDatabaseUrl } from '../../../test/e2e-env'
+import { hasIamErrorCode } from '../../errors'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
@@ -237,7 +238,7 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
         adapter: adapter(),
         hooks: {
           onError: (err) => {
-            if (err.message.includes(DISAGREE_MARKER)) disagreements.push(err.message)
+            if (hasIamErrorCode(err, 'IAM_ENGINE_INTERPRETER_DISAGREEMENT')) disagreements.push(err.message)
           },
         },
         mode: 'development',

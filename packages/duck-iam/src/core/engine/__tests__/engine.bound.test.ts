@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { hasIamErrorCode } from '../../errors'
 import { IamEngine } from '../engine'
 
 /**
@@ -24,7 +25,12 @@ describe('IamEngine.withTransaction', () => {
   it('throws when the adapter cannot join a transaction', () => {
     const plain = new IamEngine({ adapter: new IamMemoryAdapter({ roles: GRANTABLE }) })
 
-    expect(() => plain.withTransaction({})).toThrowError(/withClient|transaction/i)
+    try {
+      plain.withTransaction({})
+      throw new Error('expected withTransaction() to throw')
+    } catch (err) {
+      expect(hasIamErrorCode(err, 'IAM_ENGINE_ADAPTER_NOT_TRANSACTIONAL')).toBe(true)
+    }
   })
 
   it('a bound read sees a role assigned on the same bound facade', async () => {

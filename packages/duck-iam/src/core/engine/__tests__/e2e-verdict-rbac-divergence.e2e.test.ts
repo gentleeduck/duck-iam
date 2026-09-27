@@ -2,6 +2,7 @@
 // An unevaluable RBAC grant contributes nothing; the ABAC control denies because that policy is Indeterminate.
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { hasIamErrorCode } from '../../errors'
 import type { AccessControl, IamPrimitives } from '../../types'
 import { validateRole } from '../../validate'
 import { IamEngine } from '../engine'
@@ -30,7 +31,7 @@ async function bothModes(
     adapter: new IamMemoryAdapter(init),
     hooks: {
       onError: (err) => {
-        if (err.message.includes(DISAGREE_MARKER)) disagreements.push(err.message)
+        if (hasIamErrorCode(err, 'IAM_ENGINE_INTERPRETER_DISAGREEMENT')) disagreements.push(err.message)
       },
     },
     mode: 'development',

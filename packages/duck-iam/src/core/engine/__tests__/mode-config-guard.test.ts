@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
-import { type IamError, metaOf } from '../../errors'
+import { hasIamErrorCode, type IamError, metaOf } from '../../errors'
 import { VALID_MODES } from '../engine.libs'
 import { IamEngine } from '../index'
 
@@ -57,7 +57,13 @@ describe('mode is checked at boot, like policyCombine', () => {
     // The signature forbids `explain()` on a production engine, so the runtime guard is only reachable this way.
     Object.assign(prod, { _mode: 'production' })
 
-    await expect(prod.explain('u1', 'read', POST)).rejects.toThrow(/not available in production/)
+    const err = await prod.explain('u1', 'read', POST).then(
+      () => {
+        throw new Error('expected explain() to throw')
+      },
+      (e: unknown) => e,
+    )
+    expect(hasIamErrorCode(err, 'IAM_ENGINE_EXPLAIN_UNAVAILABLE')).toBe(true)
     await expect(dev.explain('u1', 'read', POST)).resolves.toMatchObject({ decision: { allowed: true } })
   })
 

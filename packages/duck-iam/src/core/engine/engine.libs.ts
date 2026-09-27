@@ -4,7 +4,7 @@ import type { Batch } from '../batch'
 import { appliedRows, batchResult, loopFallback } from '../batch'
 import { matchesUnconditionally } from '../conditions/conditions'
 import { MAX_CONDITION_DEPTH } from '../conditions/conditions.libs'
-import { throwIamValidationFailed } from '../errors'
+import { throwIamError, throwIamValidationFailed } from '../errors'
 import { matchesScope } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
 import { isResolvablePath } from '../validate/validate.libs'
@@ -104,11 +104,11 @@ function assertValidOrThrow(kind: 'policy' | 'role', result: IamValidate.IResult
 export function assertNonEmptyStringParam(name: string, value: unknown): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
     const got = value === null ? 'null' : typeof value
-    throw new Error(`[@gentleduck/iam:engine] ${name} must be a non-empty string (got ${got})`)
+    throwIamError('IAM_ENGINE_PARAM_INVALID', { name, reason: 'empty', got })
   }
   // SECURITY: capped so a hostile caller cannot bloat a URL, Redis key or SQL column.
   if (value.length > 1024) {
-    throw new Error(`[@gentleduck/iam:engine] ${name} exceeds 1024-char cap (got length ${value.length})`)
+    throwIamError('IAM_ENGINE_PARAM_INVALID', { name, reason: 'too-long', length: value.length })
   }
 }
 
@@ -120,17 +120,17 @@ function assertOptionalNonEmptyStringParam(name: string, value: unknown): assert
 function assertAttributesParam(value: unknown): asserts value is IamPrimitives.Attributes {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
-    throw new Error(`[@gentleduck/iam:engine] attributes must be a plain object (got ${got})`)
+    throwIamError('IAM_ENGINE_ATTRIBUTES_PARAM_INVALID', { reason: 'not-object', got })
   }
   // SECURITY: capped so a hostile caller cannot store an unbounded bag that every resolve() then walks.
   const keyCount = Object.keys(value).length
   if (keyCount > 256) {
-    throw new Error(`[@gentleduck/iam:engine] attributes must have <=256 keys (got ${keyCount})`)
+    throwIamError('IAM_ENGINE_ATTRIBUTES_PARAM_INVALID', { reason: 'too-many-keys', count: keyCount })
   }
   // SECURITY: depth capped so a recursive walker cannot overflow the stack.
   const depth = _measureDepth(value)
   if (depth > 16) {
-    throw new Error(`[@gentleduck/iam:engine] attributes nesting depth ${depth} exceeds cap (16)`)
+    throwIamError('IAM_ENGINE_ATTRIBUTES_PARAM_INVALID', { reason: 'too-deep', depth })
   }
 }
 
@@ -943,13 +943,11 @@ export function createAdmin<
       if (snapshot?.schemaVersion !== 1) {
         const incoming =
           snapshot !== null && typeof snapshot === 'object' ? Reflect.get(snapshot, 'schemaVersion') : snapshot
-        throw new Error(
-          `[@gentleduck/iam:engine] unsupported snapshot schemaVersion ${formatErrInterp(incoming)}; expected 1`,
-        )
+        throwIamError('IAM_ENGINE_SNAPSHOT_VERSION_UNSUPPORTED', { got: formatErrInterp(incoming) })
       }
       for (const field of ['policies', 'roles'] as const) {
         if (!Array.isArray(snapshot[field])) {
-          throw new Error(`[@gentleduck/iam:engine] snapshot "${field}" must be an array`)
+          throwIamError('IAM_ENGINE_SNAPSHOT_FIELD_INVALID', { field })
         }
       }
       // SECURITY: validate all before writing; in `replace` mode a late bad row would leave deny policies deleted.

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { MAX_REGEX_INPUT_LENGTH } from '../../conditions/conditions.libs'
+import { type IamError, metaOf } from '../../errors'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 import type { IamEngineTypes } from '../engine.types'
@@ -134,7 +135,11 @@ describe('a table/interpreter disagreement is a loud development failure', () =>
         /compiled table and interpreter disagree on update post for roles \[editor\]: table=deny, interpreter=allow/,
       )
       expect(seen).toHaveLength(1)
-      expect(seen[0]?.message).toMatch(/table=deny, interpreter=allow/)
+      const meta = metaOf(
+        seen[0] as IamError<'IAM_ENGINE_INTERPRETER_DISAGREEMENT'>,
+        'IAM_ENGINE_INTERPRETER_DISAGREEMENT',
+      )
+      expect(meta.detail).toMatch(/table=deny, interpreter=allow/)
     } finally {
       error.mockRestore()
     }
