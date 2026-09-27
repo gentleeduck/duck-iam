@@ -65,4 +65,7 @@ export const IAM_ERRORS = {
   IAM_DT_FLOW_BUFFER_SIZE_INVALID: detail<{ got: number }>(500),
   IAM_METRICS_SAMPLE_SIZE_INVALID: detail<{ got: number }>(500),
   IAM_REDIS_ASSIGNMENT_ENCODING_INVALID: detail<{ field: 'role' | 'scope' }>(500),
+  IAM_REDIS_INVALIDATOR_TENANT_ID_INVALID: detail<{ got: string }>(500),
+  IAM_REDIS_INVALIDATOR_SECRET_EMPTY: 500,
+  IAM_REDIS_INVALIDATOR_CANONICAL_DEPTH_EXCEEDED: detail<{ depth: number }>(500),
 } as const satisfies Record<string, number>
