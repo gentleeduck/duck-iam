@@ -5,6 +5,7 @@ import {
   CollapsibleGroup,
   DescriptionSection,
   DetailEmpty,
+  DetailHead,
   FilterBar,
   ListItem,
   ListShell,
@@ -68,11 +69,11 @@ export function IamRolesPanel({ engine }: IamEnginePanelProps) {
           <DetailEmpty message="Select a role on the left." />
         ) : (
           <div className="iam-dt-detail">
-            <div className="iam-dt-detail__head">
+            <DetailHead>
               <code>{current.id}</code>
               <span className="iam-dt-mute">{current.name}</span>
               {current.scope && <Badge tone="info">scope: {current.scope}</Badge>}
-            </div>
+            </DetailHead>
             <DescriptionSection text={current.description} />
             {current.inherits && current.inherits.length > 0 && (
               <Section title="Inherits">
