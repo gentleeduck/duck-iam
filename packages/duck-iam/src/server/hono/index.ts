@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import { hasIamErrorCode } from '../../core/errors'
+import { hasIamErrorCode, throwIamError } from '../../core/errors'
 import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import {
@@ -260,7 +260,7 @@ export function iamBindAdminRouter<
   opts: IamHono.IAdminOptions,
 ): IamHono.IRouterLike {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam:hono] iamBindAdminRouter requires an `authorize` callback.')
+    throwIamError('IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED', { framework: 'hono', fn: 'iamBindAdminRouter' })
   }
   const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
     opts

@@ -119,4 +119,6 @@ export const IAM_ERRORS = {
     role?: string
     scope?: string
   }>(502),
+  IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED: detail<{ framework: 'next' | 'express' | 'hono' | 'nest'; fn: string }>(500),
+  IAM_SERVER_GET_USER_ID_REQUIRED: detail<{ framework: 'next' }>(500),
 } as const satisfies Record<string, number>
