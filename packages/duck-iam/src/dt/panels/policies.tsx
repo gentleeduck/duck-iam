@@ -5,6 +5,7 @@ import {
   CollapsibleGroup,
   DescriptionSection,
   DetailEmpty,
+  DetailHead,
   FilterBar,
   ListItem,
   ListShell,
@@ -64,13 +65,13 @@ export function IamPoliciesPanel({ engine }: IamEnginePanelProps) {
           <DetailEmpty message="Select a policy on the left." />
         ) : (
           <div className="iam-dt-detail">
-            <div className="iam-dt-detail__head">
+            <DetailHead>
               <code>{current.id}</code>
               <span className="iam-dt-mute">{current.name}</span>
               <Badge tone="info">{current.algorithm}</Badge>
               {current.version != null && <Badge>v{current.version}</Badge>}
               <span className="iam-dt-detail__meta">{current.rules.length} rules</span>
-            </div>
+            </DetailHead>
             <DescriptionSection text={current.description} />
             <Section title={`Rules (${current.rules.length})`}>
               <div className="iam-dt-col">
