@@ -363,6 +363,22 @@ export type IamAccessCheckResult =
   | IamAccessCheckOk
 
 /**
+ * The resolved `(action, resource, resourceId, scope)` tuple a `getResourceAttributes` callback receives, once
+ * the guard/middleware/router has picked which permission is under check. Shared by every adapter's option type,
+ * so a callback typed against one keeps the caller's literal action/resource types instead of widening to `string`.
+ */
+export interface IamResourceAttributesContext<
+  TAction extends string = string,
+  TResource extends string = string,
+  TScope extends string = string,
+> {
+  action: TAction
+  resource: TResource
+  resourceId: string | undefined
+  scope: TScope | undefined
+}
+
+/**
  * Runs the subject-id and `engine.can` phases shared by every access middleware/guard (`iamAccessMiddleware`,
  * `iamGuard`, `withIamAccess`); each adapter maps the result to its own response, and decides what "ok" does
  * (`next()`, returning the wrapped handler, or returning `null` to pass through).
