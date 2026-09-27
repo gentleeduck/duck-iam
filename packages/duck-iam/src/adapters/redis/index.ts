@@ -371,16 +371,22 @@ export class IamRedisAdapter<
     }
   }
 
+  /** Raw assignment members for a subject, migrating any legacy-encoded ones first. */
+  private async _readAssignmentMembers(subjectId: string): Promise<string[]> {
+    const members = await this._client.smembers(this._assignmentsKey(subjectId))
+    await this._migrateLegacyAssignment(subjectId, members)
+    return members
+  }
+
   /** Lists the subject's global role ids, deduplicated; scoped grants come from `getSubjectScopedRoles`. */
   async getSubjectRoles(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
-    const members = await this._client.smembers(this._assignmentsKey(subjectId))
+    const members = await this._readAssignmentMembers(subjectId)
     const roles = new Set<TRole>()
     for (const m of members) {
       const decoded = this._decodeAssignment(m)
       if (decoded.scope !== undefined) continue
       roles.add(decoded.role)
     }
-    await this._migrateLegacyAssignment(subjectId, members)
     return Array.from(roles)
   }
 
@@ -389,13 +395,12 @@ export class IamRedisAdapter<
     subjectId: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
-    const members = await this._client.smembers(this._assignmentsKey(subjectId))
+    const members = await this._readAssignmentMembers(subjectId)
     const out: IamRequest.IScopedRole<TRole, TScope>[] = []
     for (const m of members) {
       const decoded = this._decodeAssignment(m)
       if (decoded.scope !== undefined) out.push({ role: decoded.role, scope: decoded.scope })
     }
-    await this._migrateLegacyAssignment(subjectId, members)
     return out
   }
 
