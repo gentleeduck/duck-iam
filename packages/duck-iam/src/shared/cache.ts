@@ -1,4 +1,5 @@
 import type { IamEngine } from '../core'
+import { throwIamError } from '../core/errors'
 /**
  * LRU cache with TTL expiry, ordered by `Map` insertion. Used by {@link IamEngine} for policies, roles and subjects.
  *
@@ -14,13 +15,15 @@ export class IamLRUCache<V> {
   /**
    * @param maxSize - Max entries before the least recently used one is evicted.
    * @param ttlMs - Time-to-live per entry, in milliseconds.
-   * @throws `RangeError` when either is non-finite, `maxSize < 1`, or `ttlMs < 0`.
+   * @throws `IAM_CACHE_CONFIG_INVALID` when either is non-finite, `maxSize < 1`, or `ttlMs < 0`.
    */
   constructor(maxSize: number, ttlMs: number) {
-    if (!Number.isFinite(maxSize) || maxSize < 1)
-      throw new RangeError('[@gentleduck/iam:cache] IamLRUCache maxSize must be a finite number >= 1')
-    if (!Number.isFinite(ttlMs) || ttlMs < 0)
-      throw new RangeError('[@gentleduck/iam:cache] IamLRUCache ttlMs must be a finite number >= 0')
+    if (!Number.isFinite(maxSize) || maxSize < 1) {
+      throwIamError('IAM_CACHE_CONFIG_INVALID', { field: 'maxSize', got: maxSize, constraint: '>= 1' })
+    }
+    if (!Number.isFinite(ttlMs) || ttlMs < 0) {
+      throwIamError('IAM_CACHE_CONFIG_INVALID', { field: 'ttlMs', got: ttlMs, constraint: '>= 0' })
+    }
     this._maxSize = maxSize
     this._ttl = ttlMs
   }
