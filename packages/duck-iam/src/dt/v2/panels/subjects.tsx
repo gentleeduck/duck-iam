@@ -17,7 +17,8 @@ import {
   IamV2Alert,
   IamV2Avatar,
   IamV2Chip,
-  IamV2Empty,
+  IamV2DetailHeader,
+  IamV2EmptyDetail,
   IamV2FieldBox,
   IamV2Notice,
   IamV2PaneBody,
@@ -105,20 +106,18 @@ export function IamSubjectsPanelV2({ engine }: IamEnginePanelProps) {
       <IamV2Split
         detail={
           !subjectId ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-              <IamV2Empty
-                description="Enter a subject id on the left to read and edit its attributes and roles."
-                icon={<UserRound />}
-                title="No subject selected"
-              />
-            </div>
+            <IamV2EmptyDetail
+              description="Enter a subject id on the left to read and edit its attributes and roles."
+              icon={<UserRound />}
+              title="No subject selected"
+            />
           ) : (
             <>
-              <div className="flex shrink-0 flex-wrap items-center gap-2 border-border border-b bg-card px-3 py-2">
+              <IamV2DetailHeader>
                 <IamV2Avatar id={subjectId} />
                 <code className={IAM_V2_MONO}>{subjectId}</code>
                 {attrs && <IamV2Chip tone="info">{Object.keys(attrs).length} attributes</IamV2Chip>}
-              </div>
+              </IamV2DetailHeader>
               <IamV2PaneBody>
                 <IamV2Section title="Attributes">
                   {attrs ? (
