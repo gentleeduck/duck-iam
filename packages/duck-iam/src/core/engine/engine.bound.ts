@@ -31,14 +31,14 @@ export namespace Bound {
       subjectId: string,
       action: TAction,
       resource: IamRequest.IResource<TResource>,
-      environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+      environment?: IamRequest.IEnvironment,
       scope?: TScope,
     ): Promise<boolean>
     check(
       subjectId: string,
       action: TAction,
       resource: IamRequest.IResource<TResource>,
-      environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+      environment?: IamRequest.IEnvironment,
       scope?: TScope,
     ): Promise<AccessControl.ModeResult<TMode>>
     /** Mirrors the unbound `explain`, including its development-mode-only `this` constraint. */
@@ -47,14 +47,14 @@ export namespace Bound {
       subjectId: string,
       action: TAction,
       resource: IamRequest.IResource<TResource>,
-      environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+      environment?: IamRequest.IEnvironment,
       scope?: TScope,
     ): Promise<Explain.IResult>
     getEffectiveRoles(subjectId: string, scope?: TScope): Promise<readonly TRole[]>
     permissions(
       subjectId: string,
       checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
-      environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
+      environment?: IamRequest.IEnvironment,
       opts?: { telemetry?: boolean },
     ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>>
   }
