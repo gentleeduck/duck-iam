@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamHttpAdapter } from '../index'
+
+function throwsOptionInvalid(fn: () => unknown, field: string): boolean {
+  try {
+    fn()
+    return false
+  } catch (err) {
+    return hasIamErrorCode(err, 'IAM_HTTP_OPTION_INVALID') && err.meta.field === field
+  }
+}
 
 // Pins that numeric options refuse `NaN` and out-of-range values, as `Number(process.env.X)` of an unset var gives;
 // `retries: NaN` would otherwise send no request at all.
@@ -29,7 +39,7 @@ describe('a numeric option that would disable what it configures is refused', ()
     // `String`, not `JSON.stringify`: the latter renders NaN as `null`.
     it(`${name}: ${String(value)} throws at construction, naming the option`, () => {
       // Malformed on purpose: `NaN` satisfies the declared `number` type, as an unset env var does.
-      expect(() => new IamHttpAdapter(config({ [name]: value }))).toThrow(new RegExp(`\`${name}\``))
+      expect(throwsOptionInvalid(() => new IamHttpAdapter(config({ [name]: value })), name)).toBe(true)
     })
   }
 

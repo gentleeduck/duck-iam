@@ -1,6 +1,47 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { IamHttpAdapter, iamHttpAdapter } from '../index'
+
+function throwsBaseUrlInvalid(
+  fn: () => unknown,
+  reason: 'unparseable' | 'bad-scheme' | 'has-query-or-fragment' | 'host-not-allowed' | 'private-host',
+): boolean {
+  try {
+    fn()
+    return false
+  } catch (err) {
+    return hasIamErrorCode(err, 'IAM_HTTP_BASE_URL_INVALID') && err.meta.reason === reason
+  }
+}
+
+async function toErr(p: Promise<unknown>): Promise<unknown> {
+  return p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+}
+
+async function rejectsWithResponseStatus(p: Promise<unknown>, status: number): Promise<boolean> {
+  const err = await toErr(p)
+  return hasIamErrorCode(err, 'IAM_HTTP_RESPONSE_ERROR') && err.meta.status === status
+}
+
+async function rejectsWithIdInvalid(
+  p: Promise<unknown>,
+  reason: 'empty' | 'separator' | 'dot-segment' | 'too-long',
+  field?: string,
+): Promise<boolean> {
+  const err = await toErr(p)
+  if (!hasIamErrorCode(err, 'IAM_HTTP_ID_INVALID')) return false
+  const meta = err.meta
+  return meta.reason === reason && (field === undefined || meta.field === field)
+}
+
+async function rejectsWithCircuitOpen(p: Promise<unknown>, state: 'open' | 'half-open-busy'): Promise<boolean> {
+  const err = await toErr(p)
+  return hasIamErrorCode(err, 'IAM_HTTP_CIRCUIT_OPEN') && err.meta.state === state
+}
 
 type A = 'read' | 'write'
 type R = 'post'
@@ -67,76 +108,91 @@ describe('IamHttpAdapter', () => {
     it('throws on non-ok response with status + body', async () => {
       const { fetch } = makeFetch(() => jsonResponse('boom', false, 500))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch })
-      await expect(adapter.listPolicies()).rejects.toThrow(/\[@gentleduck\/iam:http\] HTTP 500: boom/)
+      const err = await toErr(adapter.listPolicies())
+      if (!hasIamErrorCode(err, 'IAM_HTTP_RESPONSE_ERROR')) throw new Error('expected IAM_HTTP_RESPONSE_ERROR')
+      expect(err.meta.status).toBe(500)
+      expect(err.meta.body).toBe('boom')
     })
 
     it('rejects non-http(s) baseUrl scheme', () => {
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'ftp://api.example.com/iam' })).toThrow(
-        /scheme must be http: or https:/,
-      )
+      expect(
+        throwsBaseUrlInvalid(
+          () => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'ftp://api.example.com/iam' }),
+          'bad-scheme',
+        ),
+      ).toBe(true)
     })
 
     it('rejects baseUrl with query string or fragment', () => {
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?x=1' })).toThrow(
-        /query string or fragment/,
-      )
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#frag' })).toThrow(
-        /query string or fragment/,
-      )
+      expect(
+        throwsBaseUrlInvalid(
+          () => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?x=1' }),
+          'has-query-or-fragment',
+        ),
+      ).toBe(true)
+      expect(
+        throwsBaseUrlInvalid(
+          () => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#frag' }),
+          'has-query-or-fragment',
+        ),
+      ).toBe(true)
     })
 
     it('rejects a bare trailing `?` or `#` that `URL` parses back to an empty search/hash', () => {
       // `new URL('https://h/iam?').search` is `''`, so checking only the parsed URL lets a trailing bare `?`
       // or `#` - what a URL builder emits for empty params - through.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?' })).toThrow(
-        /query string or fragment/,
-      )
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#' })).toThrow(
-        /query string or fragment/,
-      )
+      expect(
+        throwsBaseUrlInvalid(
+          () => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?' }),
+          'has-query-or-fragment',
+        ),
+      ).toBe(true)
+      expect(
+        throwsBaseUrlInvalid(
+          () => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#' }),
+          'has-query-or-fragment',
+        ),
+      ).toBe(true)
     })
 
     it('rejects malformed baseUrl', () => {
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'not a url' })).toThrow(/invalid baseUrl/)
+      expect(throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'not a url' }), 'unparseable')).toBe(
+        true,
+      )
     })
 
     it('rejects private/loopback host by default', () => {
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://127.0.0.1/iam' })).toThrow(/private\/loopback/)
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://10.0.0.5/iam' })).toThrow(/private\/loopback/)
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://192.168.1.1/iam' })).toThrow(/private\/loopback/)
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://172.16.0.1/iam' })).toThrow(/private\/loopback/)
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://169.254.169.254/iam' })).toThrow(
-        /private\/loopback/,
-      )
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::1]/iam' })).toThrow(/private\/loopback/)
+      for (const baseUrl of [
+        'http://127.0.0.1/iam',
+        'http://10.0.0.5/iam',
+        'http://192.168.1.1/iam',
+        'http://172.16.0.1/iam',
+        'http://169.254.169.254/iam',
+        'http://[::1]/iam',
+      ]) {
+        expect(throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl }), 'private-host')).toBe(true)
+      }
     })
 
     it('rejects IPv4-mapped IPv6 loopback', () => {
       // Node canonicalises `[::ffff:127.0.0.1]` to `[::ffff:7f00:1]`, so the hex tail must be caught too.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:127.0.0.1]/iam' })).toThrow(
-        /private\/loopback/,
-      )
-      // Canonical hex tail emitted by `new URL()`.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:7f00:1]/iam' })).toThrow(
-        /private\/loopback/,
-      )
-      // RFC1918 mapped via ::ffff:.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:c0a8:1]/iam' })).toThrow(
-        /private\/loopback/,
-      )
-      // Fully expanded form.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[0:0:0:0:0:ffff:7f00:1]/iam' })).toThrow(
-        /private\/loopback/,
-      )
+      // Canonical hex tail emitted by `new URL()`. RFC1918 mapped via ::ffff:. Fully expanded form.
+      for (const baseUrl of [
+        'http://[::ffff:127.0.0.1]/iam',
+        'http://[::ffff:7f00:1]/iam',
+        'http://[::ffff:c0a8:1]/iam',
+        'http://[0:0:0:0:0:ffff:7f00:1]/iam',
+      ]) {
+        expect(throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl }), 'private-host')).toBe(true)
+      }
     })
 
     it('rejects deprecated IPv4-compatible IPv6 loopback (`::a.b.c.d`)', () => {
       // Node normalises `http://[::127.0.0.1]` to the hex tail `[::7f00:1]` before this ever sees it, so the
       // hex form is what actually needs catching; the textual form is exercised too since it costs nothing.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::7f00:1]/iam' })).toThrow(/private\/loopback/)
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::127.0.0.1]/iam' })).toThrow(
-        /private\/loopback/,
-      )
+      for (const baseUrl of ['http://[::7f00:1]/iam', 'http://[::127.0.0.1]/iam']) {
+        expect(throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl }), 'private-host')).toBe(true)
+      }
     })
 
     it('accepts IPv4-mapped IPv6 loopback when allowPrivateHosts: true', async () => {
@@ -150,7 +206,9 @@ describe('IamHttpAdapter', () => {
     })
 
     it('rejects IPv6 unspecified `::`', () => {
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::]/iam' })).toThrow(/private\/loopback/)
+      expect(
+        throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::]/iam' }), 'private-host'),
+      ).toBe(true)
     })
 
     it('accepts IPv6 unspecified when allowPrivateHosts: true', async () => {
@@ -165,7 +223,9 @@ describe('IamHttpAdapter', () => {
 
     it('rejects IPv4 unspecified 0.0.0.0', () => {
       // Covered by the `a === 0` arm; pinned explicitly so a refactor cannot drop it.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://0.0.0.0/iam' })).toThrow(/private\/loopback/)
+      expect(
+        throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://0.0.0.0/iam' }), 'private-host'),
+      ).toBe(true)
     })
 
     it('accepts 0.0.0.0 when allowPrivateHosts: true', async () => {
@@ -190,12 +250,15 @@ describe('IamHttpAdapter', () => {
 
     it('rejects baseUrl whose host is not in allowedHosts', () => {
       expect(
-        () =>
-          new IamHttpAdapter<A, R, Ro, S>({
-            baseUrl: 'https://evil.example.com/iam',
-            allowedHosts: ['api.example.com'],
-          }),
-      ).toThrow(/not in allowedHosts/)
+        throwsBaseUrlInvalid(
+          () =>
+            new IamHttpAdapter<A, R, Ro, S>({
+              baseUrl: 'https://evil.example.com/iam',
+              allowedHosts: ['api.example.com'],
+            }),
+          'host-not-allowed',
+        ),
+      ).toBe(true)
     })
 
     it('accepts baseUrl whose host is in allowedHosts', async () => {
@@ -254,30 +317,32 @@ describe('IamHttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://api.example.com:8080/policies')
 
       expect(
-        () =>
-          new IamHttpAdapter<A, R, Ro, S>({
-            baseUrl: 'https://api.example.com:9090',
-            allowedHosts: ['api.example.com:8080'],
-          }),
-      ).toThrow(/not in allowedHosts/)
+        throwsBaseUrlInvalid(
+          () =>
+            new IamHttpAdapter<A, R, Ro, S>({
+              baseUrl: 'https://api.example.com:9090',
+              allowedHosts: ['api.example.com:8080'],
+            }),
+          'host-not-allowed',
+        ),
+      ).toBe(true)
     })
 
     it('rejects 6to4 IPv6 wrapping loopback', () => {
-      // 2002:7f00:0001:: carries inner 127.0.0.1 via 6to4.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:0001::]/iam' })).toThrow(
-        /private\/loopback/,
-      )
-      // Compact form Node may emit.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:1::]/iam' })).toThrow(
-        /private\/loopback/,
-      )
+      // 2002:7f00:0001:: carries inner 127.0.0.1 via 6to4. Compact form Node may emit.
+      for (const baseUrl of ['http://[2002:7f00:0001::]/iam', 'http://[2002:7f00:1::]/iam']) {
+        expect(throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl }), 'private-host')).toBe(true)
+      }
     })
 
     it('rejects 6to4 IPv6 wrapping RFC1918', () => {
       // 2002:c0a8:0001:: carries inner 192.168.0.1.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:c0a8:0001::]/iam' })).toThrow(
-        /private\/loopback/,
-      )
+      expect(
+        throwsBaseUrlInvalid(
+          () => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:c0a8:0001::]/iam' }),
+          'private-host',
+        ),
+      ).toBe(true)
     })
 
     it('accepts 6to4 loopback when allowPrivateHosts: true', async () => {
@@ -292,14 +357,10 @@ describe('IamHttpAdapter', () => {
 
     it('rejects NAT64 well-known prefix wrapping loopback', () => {
       // 64:ff9b::/96 well-known NAT64 prefix; last 32 bits hold the inner v4.
-      // `64:ff9b::7f00:1` -> 127.0.0.1.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
-        /private\/loopback/,
-      )
-      // Dotted-quad tail spelling (also valid input form).
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::127.0.0.1]/iam' })).toThrow(
-        /private\/loopback/,
-      )
+      // `64:ff9b::7f00:1` -> 127.0.0.1. Dotted-quad tail spelling (also valid input form).
+      for (const baseUrl of ['http://[64:ff9b::7f00:1]/iam', 'http://[64:ff9b::127.0.0.1]/iam']) {
+        expect(throwsBaseUrlInvalid(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl }), 'private-host')).toBe(true)
+      }
     })
 
     it('accepts NAT64 loopback when allowPrivateHosts: true', async () => {
@@ -314,9 +375,12 @@ describe('IamHttpAdapter', () => {
 
     it('canonical NAT64 form `[64:ff9b::7f00:1]` still rejects loopback', () => {
       // The canonical WHATWG form `new URL` emits must reject, independent of the `0064:ff9b:` slicing branch.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
-        /private\/loopback/,
-      )
+      expect(
+        throwsBaseUrlInvalid(
+          () => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' }),
+          'private-host',
+        ),
+      ).toBe(true)
     })
 
     it('matches allowedHosts when URL has trailing FQDN dot', async () => {
@@ -359,14 +423,14 @@ describe('IamHttpAdapter', () => {
     it('refuses a subject id holding a path separator', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
-      await expect(adapter.getSubjectRoles('..//etc/passwd')).rejects.toThrow(/path separator/)
+      expect(await rejectsWithIdInvalid(adapter.getSubjectRoles('..//etc/passwd'), 'separator')).toBe(true)
       expect(calls).toHaveLength(0)
     })
 
     it('refuses a policy id holding a path separator', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse(null, false, 404))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
-      await expect(adapter.getPolicy('..//internal-admin')).rejects.toThrow(/path separator/)
+      expect(await rejectsWithIdInvalid(adapter.getPolicy('..//internal-admin'), 'separator')).toBe(true)
       expect(calls).toHaveLength(0)
     })
 
@@ -440,7 +504,7 @@ describe('IamHttpAdapter', () => {
     it('getPolicy still throws on 5xx', async () => {
       const { fetch } = makeFetch(() => jsonResponse('boom', false, 503))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
-      await expect(adapter.getPolicy('p1')).rejects.toThrow(/\[@gentleduck\/iam:http\] HTTP 503/)
+      expect(await rejectsWithResponseStatus(adapter.getPolicy('p1'), 503)).toBe(true)
     })
 
     it('savePolicy PUT /policies', async () => {
@@ -535,9 +599,9 @@ describe('IamHttpAdapter', () => {
       // id with a slash would assign cleanly and then fail every revokeRole. Reject it symmetrically, up front.
       const { fetch } = makeFetch(() => jsonResponse({ ok: true }))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
-      await expect(adapter.assignRole('user-1', 'editor/admin' as Ro, 'org-1')).rejects.toThrow(
-        /role id cannot contain a path separator/,
-      )
+      expect(
+        await rejectsWithIdInvalid(adapter.assignRole('user-1', 'editor/admin' as Ro, 'org-1'), 'separator', 'role id'),
+      ).toBe(true)
       expect(fetch).not.toHaveBeenCalled()
     })
 
@@ -613,7 +677,7 @@ describe('IamHttpAdapter', () => {
         backoffMs: 1,
         timeoutMs: 0,
       })
-      await expect(adapter.listPolicies()).rejects.toThrow(/403/)
+      expect(await rejectsWithResponseStatus(adapter.listPolicies(), 403)).toBe(true)
       expect(calls).toBe(1)
     })
 
@@ -627,11 +691,11 @@ describe('IamHttpAdapter', () => {
         circuitBreakerThreshold: 2,
         circuitBreakerCooldownMs: 1_000,
       })
-      await expect(adapter.listPolicies()).rejects.toThrow(/503/)
-      await expect(adapter.listPolicies()).rejects.toThrow(/503/)
+      expect(await rejectsWithResponseStatus(adapter.listPolicies(), 503)).toBe(true)
+      expect(await rejectsWithResponseStatus(adapter.listPolicies(), 503)).toBe(true)
       // Third attempt: circuit open, rejects before fetch is touched.
       const beforeCalls = (fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length
-      await expect(adapter.listPolicies()).rejects.toThrow(/circuit open/)
+      expect(await rejectsWithCircuitOpen(adapter.listPolicies(), 'open')).toBe(true)
       const afterCalls = (fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length
       expect(afterCalls).toBe(beforeCalls)
     })
@@ -650,8 +714,8 @@ describe('IamHttpAdapter', () => {
         circuitBreakerThreshold: 1,
         circuitBreakerCooldownMs: 200,
       })
-      await expect(adapter.listPolicies()).rejects.toThrow(/503/) // open
-      await expect(adapter.listPolicies()).rejects.toThrow(/circuit open/) // still open
+      expect(await rejectsWithResponseStatus(adapter.listPolicies(), 503)).toBe(true) // open
+      expect(await rejectsWithCircuitOpen(adapter.listPolicies(), 'open')).toBe(true) // still open
       await new Promise((r) => setTimeout(r, 250)) // cooldown elapses
       nextResponseOk = true
       const out = await adapter.listPolicies() // half-open probe succeeds -> closed
@@ -672,6 +736,6 @@ describe('iamHttpAdapter factory', () => {
   })
 
   it('propagates constructor validation (bad scheme still rejected)', () => {
-    expect(() => iamHttpAdapter({ baseUrl: 'ftp://api.example.com' })).toThrow(/scheme must be http/)
+    expect(throwsBaseUrlInvalid(() => iamHttpAdapter({ baseUrl: 'ftp://api.example.com' }), 'bad-scheme')).toBe(true)
   })
 })

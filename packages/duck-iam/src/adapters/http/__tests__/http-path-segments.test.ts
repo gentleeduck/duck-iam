@@ -1,5 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamHttpAdapter } from '../index'
+
+async function rejectsWithIdInvalid(
+  p: Promise<unknown>,
+  reason: 'empty' | 'separator' | 'dot-segment' | 'too-long',
+): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, 'IAM_HTTP_ID_INVALID') && err.meta.reason === reason
+}
 
 function adapterWithSpy(body = '[]') {
   const fetchSpy = vi.fn(async () => new Response(body, { headers: { 'content-type': 'application/json' } }))
@@ -18,8 +30,8 @@ describe('http adapter builds path segments safely', () => {
 
   it('refuses a dot-segment id rather than walking the remote path', async () => {
     const { adapter } = adapterWithSpy()
-    await expect(adapter.getPolicy('..')).rejects.toThrow(/cannot be a path segment/)
-    await expect(adapter.getRole('.')).rejects.toThrow(/cannot be a path segment/)
+    expect(await rejectsWithIdInvalid(adapter.getPolicy('..'), 'dot-segment')).toBe(true)
+    expect(await rejectsWithIdInvalid(adapter.getRole('.'), 'dot-segment')).toBe(true)
   })
 
   it('an empty id is a miss and never reaches the network', async () => {
@@ -37,19 +49,19 @@ describe('http adapter refuses separators in an id', () => {
   for (const id of traversals) {
     it(`refuses ${JSON.stringify(id)} without calling fetch`, async () => {
       const { adapter, fetchSpy } = adapterWithSpy()
-      await expect(adapter.getPolicy(id)).rejects.toThrow(/path separator/)
+      expect(await rejectsWithIdInvalid(adapter.getPolicy(id), 'separator')).toBe(true)
       expect(fetchSpy).not.toHaveBeenCalled()
     })
   }
 
   it('refuses a separator in any segment, not just the first', async () => {
     const { adapter } = adapterWithSpy()
-    await expect(adapter.getSubjectRoles('u/1')).rejects.toThrow(/path separator/)
+    expect(await rejectsWithIdInvalid(adapter.getSubjectRoles('u/1'), 'separator')).toBe(true)
   })
 
   it('refuses an all-dot segment longer than two', async () => {
     const { adapter } = adapterWithSpy()
-    await expect(adapter.getRole('...')).rejects.toThrow(/cannot be a path segment/)
+    expect(await rejectsWithIdInvalid(adapter.getRole('...'), 'dot-segment')).toBe(true)
   })
 
   // Control: an id that already spells its separator as `%2F` holds no literal

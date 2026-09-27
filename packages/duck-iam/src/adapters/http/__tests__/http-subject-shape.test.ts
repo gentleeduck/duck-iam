@@ -1,5 +1,58 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamHttpAdapter } from '../index'
+
+async function toErr(p: Promise<unknown>): Promise<unknown> {
+  return p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+}
+
+async function rejectsWithAttributesCorrupt(p: Promise<unknown>, subjectId: string): Promise<boolean> {
+  const err = await toErr(p)
+  return (
+    hasIamErrorCode(err, 'IAM_ATTRIBUTES_CORRUPT') &&
+    err.meta.subjectId === subjectId &&
+    err.meta.reason === 'not-object'
+  )
+}
+
+async function rejectsWithRolesInvalid(
+  p: Promise<unknown>,
+  expect_: { reason: 'not-array' | 'entry-invalid'; index?: number; got?: string },
+): Promise<boolean> {
+  const err = await toErr(p)
+  if (!hasIamErrorCode(err, 'IAM_HTTP_SUBJECT_ROLES_INVALID')) return false
+  const meta = err.meta
+  return (
+    meta.reason === expect_.reason &&
+    (expect_.index === undefined || meta.index === expect_.index) &&
+    (expect_.got === undefined || meta.got === expect_.got)
+  )
+}
+
+async function rejectsWithScopedRolesInvalid(
+  p: Promise<unknown>,
+  expect_: {
+    reason: 'not-array' | 'entry-not-object' | 'entry-fields-invalid'
+    index?: number
+    got?: string
+    role?: string
+    scope?: string
+  },
+): Promise<boolean> {
+  const err = await toErr(p)
+  if (!hasIamErrorCode(err, 'IAM_HTTP_SUBJECT_SCOPED_ROLES_INVALID')) return false
+  const meta = err.meta
+  return (
+    meta.reason === expect_.reason &&
+    (expect_.index === undefined || meta.index === expect_.index) &&
+    (expect_.got === undefined || meta.got === expect_.got) &&
+    (expect_.role === undefined || meta.role === expect_.role) &&
+    (expect_.scope === undefined || meta.scope === expect_.scope)
+  )
+}
 
 type A = 'read'
 type R = 'post'
@@ -27,30 +80,22 @@ describe('IamHttpAdapter subject-data shape validation', () => {
   describe('getSubjectAttributes', () => {
     it('rejects a string response (the corruption-as-string class)', async () => {
       const adapter = buildAdapter(() => 'admin=true')
-      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-        /getSubjectAttributes for "user-1" returned string \(expected a JSON object of scalar values\)/,
-      )
+      expect(await rejectsWithAttributesCorrupt(adapter.getSubjectAttributes('user-1'), 'user-1')).toBe(true)
     })
 
     it('rejects a null response (auth API server returned `null` for missing user)', async () => {
       const adapter = buildAdapter(() => null)
-      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-        /getSubjectAttributes for "user-1" returned null/,
-      )
+      expect(await rejectsWithAttributesCorrupt(adapter.getSubjectAttributes('user-1'), 'user-1')).toBe(true)
     })
 
     it('rejects an array response (server collapsed scoped+unscoped into one list)', async () => {
       const adapter = buildAdapter(() => [])
-      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-        /getSubjectAttributes for "user-1" returned array/,
-      )
+      expect(await rejectsWithAttributesCorrupt(adapter.getSubjectAttributes('user-1'), 'user-1')).toBe(true)
     })
 
     it('rejects a number response', async () => {
       const adapter = buildAdapter(() => 42)
-      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
-        /getSubjectAttributes for "user-1" returned number/,
-      )
+      expect(await rejectsWithAttributesCorrupt(adapter.getSubjectAttributes('user-1'), 'user-1')).toBe(true)
     })
 
     it('accepts a valid object', async () => {
@@ -69,19 +114,23 @@ describe('IamHttpAdapter subject-data shape validation', () => {
   describe('getSubjectRoles', () => {
     it('rejects a string response (substring-bypass class)', async () => {
       const adapter = buildAdapter(() => 'admin-extra')
-      await expect(adapter.getSubjectRoles('user-1')).rejects.toThrow(
-        /getSubjectRoles for "user-1" returned string \(expected JSON array\)/,
-      )
+      expect(
+        await rejectsWithRolesInvalid(adapter.getSubjectRoles('user-1'), { reason: 'not-array', got: 'string' }),
+      ).toBe(true)
     })
 
     it('rejects an object response', async () => {
       const adapter = buildAdapter(() => ({ 0: 'admin' }))
-      await expect(adapter.getSubjectRoles('user-1')).rejects.toThrow(/getSubjectRoles for "user-1" returned object/)
+      expect(
+        await rejectsWithRolesInvalid(adapter.getSubjectRoles('user-1'), { reason: 'not-array', got: 'object' }),
+      ).toBe(true)
     })
 
     it('rejects a null response', async () => {
       const adapter = buildAdapter(() => null)
-      await expect(adapter.getSubjectRoles('user-1')).rejects.toThrow(/getSubjectRoles for "user-1" returned null/)
+      expect(
+        await rejectsWithRolesInvalid(adapter.getSubjectRoles('user-1'), { reason: 'not-array', got: 'null' }),
+      ).toBe(true)
     })
 
     it('accepts a valid string array', async () => {
@@ -100,18 +149,25 @@ describe('IamHttpAdapter subject-data shape validation', () => {
       // Was pinned as a silent drop on the premise that roles are allow-only. They are not: a deny policy
       // targets a role, so the half that survives reads as permission. See `http-subject-partial-row.test.ts`.
       const adapter = buildAdapter(() => ['admin', 42, null, 'viewer', { id: 'editor' }, ''])
-      await expect(adapter.getSubjectRoles('user-1')).rejects.toThrow(
-        /getSubjectRoles for "user-1" returned number at \[1\]/,
-      )
+      expect(
+        await rejectsWithRolesInvalid(adapter.getSubjectRoles('user-1'), {
+          reason: 'entry-invalid',
+          index: 1,
+          got: 'number',
+        }),
+      ).toBe(true)
     })
   })
 
   describe('getSubjectScopedRoles', () => {
     it('rejects a non-array response', async () => {
       const adapter = buildAdapter(() => ({ role: 'admin', scope: 'org-1' }))
-      await expect(adapter.getSubjectScopedRoles('user-1')).rejects.toThrow(
-        /getSubjectScopedRoles for "user-1" returned object/,
-      )
+      expect(
+        await rejectsWithScopedRolesInvalid(adapter.getSubjectScopedRoles('user-1'), {
+          reason: 'not-array',
+          got: 'object',
+        }),
+      ).toBe(true)
     })
 
     it('accepts a valid array', async () => {
@@ -134,9 +190,14 @@ describe('IamHttpAdapter subject-data shape validation', () => {
         { role: '', scope: 'org-2' }, // empty role
         { role: 'viewer', scope: 'org-2' },
       ])
-      await expect(adapter.getSubjectScopedRoles('user-1')).rejects.toThrow(
-        /an entry at \[1\] whose role is undefined and scope is string/,
-      )
+      expect(
+        await rejectsWithScopedRolesInvalid(adapter.getSubjectScopedRoles('user-1'), {
+          reason: 'entry-fields-invalid',
+          index: 1,
+          role: 'undefined',
+          scope: 'string',
+        }),
+      ).toBe(true)
     })
 
     it('rejects entries with missing or wrong-type scope (unscoped form belongs in getSubjectRoles)', async () => {
@@ -147,31 +208,35 @@ describe('IamHttpAdapter subject-data shape validation', () => {
         { role: 'viewer', scope: 42 }, // wrong type scope
         { role: 'viewer', scope: '' }, // empty scope
       ])
-      await expect(adapter.getSubjectScopedRoles('user-1')).rejects.toThrow(
-        /an entry at \[1\] whose role is string and scope is undefined/,
-      )
+      expect(
+        await rejectsWithScopedRolesInvalid(adapter.getSubjectScopedRoles('user-1'), {
+          reason: 'entry-fields-invalid',
+          index: 1,
+          role: 'string',
+          scope: 'undefined',
+        }),
+      ).toBe(true)
     })
 
     it('rejects null / primitive / array entries', async () => {
       const adapter = buildAdapter(() => [null, 'admin', 42, [], { role: 'editor', scope: 'org-1' }])
-      await expect(adapter.getSubjectScopedRoles('user-1')).rejects.toThrow(
-        /getSubjectScopedRoles for "user-1" returned null at \[0\]/,
-      )
+      expect(
+        await rejectsWithScopedRolesInvalid(adapter.getSubjectScopedRoles('user-1'), {
+          reason: 'entry-not-object',
+          index: 0,
+          got: 'null',
+        }),
+      ).toBe(true)
     })
   })
 
   describe('error text safety', () => {
-    it('error text names the subjectId but not the offending value', async () => {
+    it('error meta names the subjectId but never the offending value', async () => {
       const adapter = buildAdapter(() => 'attacker-payload-with-credentials')
-      try {
-        await adapter.getSubjectAttributes('user-99')
-        throw new Error('expected throw')
-      } catch (err) {
-        const msg = (err as Error).message
-        expect(msg).toContain('user-99')
-        expect(msg).toContain('string')
-        expect(msg).not.toContain('attacker-payload-with-credentials')
-      }
+      const err = await toErr(adapter.getSubjectAttributes('user-99'))
+      if (!hasIamErrorCode(err, 'IAM_ATTRIBUTES_CORRUPT')) throw new Error('expected IAM_ATTRIBUTES_CORRUPT')
+      expect(err.meta.subjectId).toBe('user-99')
+      expect(JSON.stringify(err.meta)).not.toContain('attacker-payload-with-credentials')
     })
   })
 })
