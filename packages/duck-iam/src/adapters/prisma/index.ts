@@ -1,3 +1,4 @@
+import { throwIamError } from '../../core/errors'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
@@ -379,9 +380,7 @@ export class IamPrismaAdapter<
   async getSubjectAttributes(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     const stored = await this._readStoredAttributes(subjectId)
     if (!stored.ok) {
-      throw new Error(
-        `[@gentleduck/iam:prisma] corrupted attributes for "${subjectId}" (expected a JSON object of scalar values, got ${stored.got})`,
-      )
+      throwIamError('IAM_ATTRIBUTES_CORRUPT', { adapter: 'prisma', subjectId, reason: 'not-object' })
     }
     return stored.attrs
   }
