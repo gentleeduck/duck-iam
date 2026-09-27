@@ -64,4 +64,5 @@ export const IAM_ERRORS = {
   IAM_CACHE_CONFIG_INVALID: detail<{ field: 'maxSize' | 'ttlMs'; got: number; constraint: string }>(500),
   IAM_DT_FLOW_BUFFER_SIZE_INVALID: detail<{ got: number }>(500),
   IAM_METRICS_SAMPLE_SIZE_INVALID: detail<{ got: number }>(500),
+  IAM_REDIS_ASSIGNMENT_ENCODING_INVALID: detail<{ field: 'role' | 'scope' }>(500),
 } as const satisfies Record<string, number>
