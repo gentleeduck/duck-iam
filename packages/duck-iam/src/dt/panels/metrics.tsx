@@ -76,7 +76,7 @@ export function IamMetricsPanel({
                   <code style={{ fontSize: 11 }}>{name}</code>
                   <Badge tone={hit > 80 ? 'allow' : hit > 50 ? 'info' : 'warn'}>{hit}%</Badge>
                 </div>
-                <span className="iam-dt-stat__hint" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span className="iam-dt-stat__hint iam-dt-row--inline">
                   size {s.size}
                   <span className="iam-dt-sep" />
                   {s.hits} hits / {s.misses} miss
