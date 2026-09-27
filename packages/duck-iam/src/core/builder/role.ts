@@ -1,7 +1,7 @@
 import { throwIamValidationFailed } from '../errors'
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 import { validateRole } from '../validate'
-import { iamChosenWhen, When } from './when'
+import { iamChosenWhen, When, type WhenGroupFn } from './when'
 
 /**
  * The four verbs {@link RoleBuilder.grantCRUD} emits. Spread into a config's actions
@@ -153,9 +153,7 @@ export class RoleBuilder<
   grantWhen<R extends TResource | '*'>(
     action: TAction | '*',
     resource: R,
-    fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, R>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, R>,
+    fn: WhenGroupFn<TAction, TResource, TRole, TScope, TContext, R>,
   ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, R>()
     this._permissions.push({ action, resource, conditions: iamChosenWhen(w, fn(w)).buildAll() })

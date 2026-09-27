@@ -2,7 +2,7 @@ import { throwIamValidationFailed } from '../errors'
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 import type { IamValidate } from '../validate'
 import { validateRuleShape } from '../validate/validate.libs'
-import { iamChosenWhen, When } from './when'
+import { iamChosenWhen, When, type WhenGroupFn } from './when'
 
 /**
  * Chainable builder for an {@link AccessControl.IRule}: an effect, the actions and resources it covers,
@@ -175,11 +175,7 @@ export class RuleBuilder<
    *   )
    * ```
    */
-  when(
-    fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-  ): this {
+  when(fn: WhenGroupFn<TAction, TResource, TRole, TScope, TContext, TActiveResource>): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     const group = iamChosenWhen(w, fn(w)).buildAll()
     // SECURITY: an empty `all` group matches every request (`.every` on `[]` is true), so it does not count
@@ -204,11 +200,7 @@ export class RuleBuilder<
    *   )
    * ```
    */
-  whenAny(
-    fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-  ): this {
+  whenAny(fn: WhenGroupFn<TAction, TResource, TRole, TScope, TContext, TActiveResource>): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     // NOTE: counted even when empty, unlike `when`: `{any: []}` matches nothing (`.some` on `[]` is false),
     // so it fails closed, and an `any` list built from an empty collection legitimately means "nobody".

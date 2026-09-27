@@ -205,6 +205,9 @@ export function createIamVueAccess<
     scope: { type: String, default: undefined },
   }
 
+  /** Typing for {@link PERMISSION_SLOT_PROPS}, shared for the same reason: `Can`/`Cannot` can't drift apart. */
+  type PermissionSlotProps = { action: TAction; resource: TResource; resourceId?: string; scope?: TScope }
+
   /**
    * Renders the default slot when the permission is granted, otherwise the `fallback` slot.
    *
@@ -216,10 +219,7 @@ export function createIamVueAccess<
   const Can = defineComponent({
     name: 'Can',
     props: PERMISSION_SLOT_PROPS,
-    setup(
-      props: { action: TAction; resource: TResource; resourceId?: string; scope?: TScope },
-      { slots }: { slots: Record<string, (() => VNode[]) | undefined> },
-    ) {
+    setup(props: PermissionSlotProps, { slots }: { slots: Record<string, (() => VNode[]) | undefined> }) {
       // biome-ignore lint/correctness/useHookAtTopLevel: this is a declarative component
       const { can } = useAccess()
       return () => {
@@ -235,10 +235,7 @@ export function createIamVueAccess<
   const Cannot = defineComponent({
     name: 'Cannot',
     props: PERMISSION_SLOT_PROPS,
-    setup(
-      props: { action: TAction; resource: TResource; resourceId?: string; scope?: TScope },
-      { slots }: { slots: Record<string, (() => VNode[]) | undefined> },
-    ) {
+    setup(props: PermissionSlotProps, { slots }: { slots: Record<string, (() => VNode[]) | undefined> }) {
       // biome-ignore lint/correctness/useHookAtTopLevel: this is a declarative component
       const { cannot } = useAccess()
       return () => {
