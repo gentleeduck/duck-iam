@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamFile, IamFileAdapter } from '../index'
+
+async function rejectsWithAttributesCorrupt(p: Promise<unknown>): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, 'IAM_ATTRIBUTES_CORRUPT')
+}
 
 // Pins that a corrupt attributes row still throws after a flush and reload, as on redis/http;
 // losing it on flush would make an ABAC deny fail open after a restart.
@@ -38,13 +47,13 @@ describe('file adapter: a corrupt attributes row survives a flush', () => {
     const { fs, read } = makeFs(CORRUPT)
 
     const first = adapterOn(fs)
-    await expect(first.getSubjectAttributes('bad')).rejects.toThrow(/corrupted attributes/)
+    expect(await rejectsWithAttributesCorrupt(first.getSubjectAttributes('bad'))).toBe(true)
 
     // An unrelated write, whose flush must not erase the corrupt row.
     await first.assignRole('someone-else', 'editor')
 
     const second = adapterOn(fs)
-    await expect(second.getSubjectAttributes('bad')).rejects.toThrow(/corrupted attributes/)
+    expect(await rejectsWithAttributesCorrupt(second.getSubjectAttributes('bad'))).toBe(true)
 
     // The raw value goes back out verbatim, and the marker never reaches disk.
     const onDisk = JSON.parse(read())

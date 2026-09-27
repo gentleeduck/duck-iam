@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { type IamFile, IamFileAdapter } from '../index'
 
 const ROOT = '/store'
@@ -154,7 +155,7 @@ describe('concurrent flushes are serialised', () => {
     expect(doomed.status === 'rejected' && String(doomed.reason)).toContain('transient')
     // Its mutation lives in the discarded state, so it must not report success.
     expect(queued.status).toBe('rejected')
-    expect(queued.status === 'rejected' && String(queued.reason)).toContain('did not reach the store')
+    expect(queued.status === 'rejected' && hasIamErrorCode(queued.reason, 'IAM_FILE_STATE_DISCARDED')).toBe(true)
     expect(files.get(PATH)).toBeUndefined()
   })
 

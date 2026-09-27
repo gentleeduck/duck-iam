@@ -1,6 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import type { AccessControl } from '../../../core/types'
 import { type IamFile, IamFileAdapter } from '../index'
+
+async function rejectsWithCode(
+  p: Promise<unknown>,
+  code: 'IAM_FILE_MKDIR_FAILED' | 'IAM_FILE_READ_FAILED',
+): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, code)
+}
 
 type A = 'read'
 type R = 'post'
@@ -75,14 +87,14 @@ describe('IamFileAdapter I/O failure handling', () => {
 
   it('reports a non-EEXIST mkdir failure with the explicit parent-directory message', async () => {
     const adapter = new IamFileAdapter<A, R, Ro, S>({ fs: makeFS({ mkdir: 'EPERM' }), path: '/nested/store.json' })
-    await expect(adapter.savePolicy(policy)).rejects.toThrow(/parent directory "\/nested" is not accessible \(EPERM\)/)
+    expect(await rejectsWithCode(adapter.savePolicy(policy), 'IAM_FILE_MKDIR_FAILED')).toBe(true)
   })
 
   it('an unreadable store fails the read rather than presenting an empty (deny-everything) store', async () => {
     const adapter = new IamFileAdapter<A, R, Ro, S>({ fs: makeFS({ read: 'EACCES' }), path: STORE })
-    await expect(adapter.listPolicies()).rejects.toThrow(/load failed \(EACCES\)/)
-    await expect(adapter.getSubjectRoles('user-1')).rejects.toThrow(/load failed \(EACCES\)/)
-    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/load failed \(EACCES\)/)
+    expect(await rejectsWithCode(adapter.listPolicies(), 'IAM_FILE_READ_FAILED')).toBe(true)
+    expect(await rejectsWithCode(adapter.getSubjectRoles('user-1'), 'IAM_FILE_READ_FAILED')).toBe(true)
+    expect(await rejectsWithCode(adapter.getSubjectAttributes('user-1'), 'IAM_FILE_READ_FAILED')).toBe(true)
   })
 
   it('a failed load is not cached - a later successful read still works', async () => {
@@ -99,7 +111,7 @@ describe('IamFileAdapter I/O failure handling', () => {
       async writeFile() {},
     }
     const adapter = new IamFileAdapter<A, R, Ro, S>({ fs, path: STORE })
-    await expect(adapter.listPolicies()).rejects.toThrow(/load failed \(EIO\)/)
+    expect(await rejectsWithCode(adapter.listPolicies(), 'IAM_FILE_READ_FAILED')).toBe(true)
     failing = false
     expect((await adapter.listPolicies()).map((p) => p.id)).toEqual(['p1'])
   })
