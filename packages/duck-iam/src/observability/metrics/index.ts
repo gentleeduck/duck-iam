@@ -1,4 +1,5 @@
 import type { IamEngineTypes } from '../../core/engine/engine.types'
+import { throwIamError } from '../../core/errors'
 
 /** IamMetrics observability types. Type-only namespace - zero bundle cost. */
 export namespace IamMetrics {
@@ -74,7 +75,7 @@ export namespace IamMetrics {
 export function iamCreateMetricsAggregator(config: IamMetrics.IConfig = {}): IamMetrics.IAggregator {
   const cap = config.sampleSize ?? 1000
   if (!Number.isInteger(cap) || cap < 1) {
-    throw new RangeError(`[@gentleduck/iam:metrics] sampleSize must be a positive integer (got ${String(cap)})`)
+    throwIamError('IAM_METRICS_SAMPLE_SIZE_INVALID', { got: cap })
   }
   const buf = new Float64Array(cap)
   let head = 0
