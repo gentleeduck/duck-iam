@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { isApplicableEvent } from '../../core/engine/engine.invalidation'
 import type { IamEngineTypes } from '../../core/engine/engine.types'
+import { throwIamError } from '../../core/errors'
 import { toError } from '../../core/errors/normalize'
 
 /** Redis invalidator integration types. Type-only namespace - zero bundle cost. */
@@ -216,7 +217,7 @@ function _measurePayload(root: unknown): { depth: number; keys: number } | null 
  * Depth-capped for the publish path, which has no wire guard in front of it.
  */
 function canonicalJSON(v: unknown, _depth = 0): string {
-  if (_depth > CANONICAL_MAX_DEPTH) throw new Error('canonicalJSON: max depth exceeded')
+  if (_depth > CANONICAL_MAX_DEPTH) throwIamError('IAM_REDIS_INVALIDATOR_CANONICAL_DEPTH_EXCEEDED', { depth: _depth })
   if (v === null || typeof v !== 'object') return JSON.stringify(v)
   if (Array.isArray(v)) return `[${v.map((x) => canonicalJSON(x, _depth + 1)).join(',')}]`
   const keys = Object.keys(v).sort()
@@ -292,11 +293,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   let channel = baseChannel
   if (config.tenantId !== undefined) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(config.tenantId)) {
-      throw new Error(
-        '[@gentleduck/iam:invalidator:redis] tenantId must match /^[A-Za-z0-9_-]{1,64}$/ (got ' +
-          JSON.stringify(config.tenantId) +
-          ')',
-      )
+      throwIamError('IAM_REDIS_INVALIDATOR_TENANT_ID_INVALID', { got: config.tenantId })
     }
     channel = `${baseChannel}:tenant:${config.tenantId}`
   }
@@ -306,10 +303,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
   // `secret: process.env.IAM_INVALIDATE_SECRET` wiring would run "signed" with a key anyone can guess whenever the
   // variable is set but empty - and the unsigned-channel warning would stay silent because a secret was present.
   if (config.secret !== undefined && config.secret !== null && config.secret.length === 0) {
-    throw new Error(
-      '[@gentleduck/iam:invalidator:redis] secret must not be empty; anyone can sign with an empty key. ' +
-        'Omit it to run the channel unsigned, or pass a real key.',
-    )
+    throwIamError('IAM_REDIS_INVALIDATOR_SECRET_EMPTY')
   }
   const secret = config.secret ?? null
   const acceptLegacyUnbound = config.acceptLegacyUnboundEnvelopes === true

@@ -2,7 +2,17 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IamEngineTypes } from '../../../core/engine/engine.types'
+import { hasIamErrorCode } from '../../../core/errors'
 import { createIamRedisInvalidator, type IamRedisInvalidator } from '../index'
+
+function throwsTenantIdInvalid(fn: () => unknown): boolean {
+  try {
+    fn()
+    return false
+  } catch (err) {
+    return hasIamErrorCode(err, 'IAM_REDIS_INVALIDATOR_TENANT_ID_INVALID')
+  }
+}
 
 /** In-memory `IPubSubLike` stub: captures published wire strings and delivers by calling the saved handler. */
 function makeBus(): {
@@ -195,9 +205,15 @@ describe('createIamRedisInvalidator', () => {
   })
 
   it('rejects tenantId with unsafe chars (CAVEAT-1)', () => {
-    expect(() => createIamRedisInvalidator({ client: makeBus().client, tenantId: 'with space' })).toThrow(/tenantId/)
-    expect(() => createIamRedisInvalidator({ client: makeBus().client, tenantId: 'wild*card' })).toThrow(/tenantId/)
-    expect(() => createIamRedisInvalidator({ client: makeBus().client, tenantId: '' })).toThrow(/tenantId/)
+    expect(
+      throwsTenantIdInvalid(() => createIamRedisInvalidator({ client: makeBus().client, tenantId: 'with space' })),
+    ).toBe(true)
+    expect(
+      throwsTenantIdInvalid(() => createIamRedisInvalidator({ client: makeBus().client, tenantId: 'wild*card' })),
+    ).toBe(true)
+    expect(throwsTenantIdInvalid(() => createIamRedisInvalidator({ client: makeBus().client, tenantId: '' }))).toBe(
+      true,
+    )
   })
 
   it('rejects v:1 envelope in unsigned mode', () => {
