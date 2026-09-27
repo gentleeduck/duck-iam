@@ -8,6 +8,7 @@ import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
 import { iamAsActionLiteral, iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
+  generateIamPermissionMap,
   type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
@@ -293,7 +294,7 @@ export async function getIamPermissions<
   checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
   environment?: IamRequest.IEnvironment,
 ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
-  return engine.permissions(subjectId, checks, environment)
+  return generateIamPermissionMap(engine, subjectId, checks, environment)
 }
 
 /**
@@ -455,18 +456,27 @@ export function createIamAdminHandlers<
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
   /**
-   * Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event.
-   * NOTE: CSRF runs on reads too, so an operator's `csrfCheck` is enforced alike on all four adapters.
+   * CSRF + authorize phase shared by {@link gate} and {@link mutate}.
+   * NOTE: tagged with `ok`, not distinguished by `instanceof Response`: see the identical note in the hono adapter.
    */
+  const authorizeOrRespond = async (
+    req: Request,
+  ): Promise<{ ok: true; actor: IamAdminActor | undefined } | { ok: false; response: Response }> => {
+    const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
+    if (authz.phase === 'forbidden') {
+      return { ok: false, response: Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 }) }
+    }
+    if (authz.phase === 'unauthorized') return { ok: false, response: onUnauthorized(req) }
+    if (authz.phase === 'error') return { ok: false, response: onError(authz.error, req) }
+    return { ok: true, actor: authz.actor }
+  }
+
+  /** Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event. */
   const gate =
     <P>(fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
-      const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
-      if (authz.phase === 'forbidden') {
-        return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
-      }
-      if (authz.phase === 'unauthorized') return onUnauthorized(req)
-      if (authz.phase === 'error') return onError(authz.error, req)
+      const authz = await authorizeOrRespond(req)
+      if (!authz.ok) return authz.response
       try {
         return await fn(req, ctx)
       } catch (err) {
@@ -488,11 +498,8 @@ export function createIamAdminHandlers<
       ) => Promise<Response>,
     ) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
-      // Shared CSRF + authorize phase.
-      const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
-      if (authz.phase === 'forbidden') return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
-      if (authz.phase === 'unauthorized') return onUnauthorized(req)
-      if (authz.phase === 'error') return onError(authz.error, req)
+      const authz = await authorizeOrRespond(req)
+      if (!authz.ok) return authz.response
       let resolvedParams: P | undefined
       try {
         resolvedParams = (ctx.params instanceof Promise ? await ctx.params : ctx.params) as P

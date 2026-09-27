@@ -266,16 +266,28 @@ export function iamBindAdminRouter<
   const onError = opts.onError ?? ((_, c) => c.json({ error: 'Internal server error' }, 500))
 
   /**
-   * Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event.
-   * NOTE: CSRF runs on reads too, so an operator's `csrfCheck` is enforced alike on all four adapters.
+   * CSRF + authorize phase shared by {@link gate} and {@link mutate}.
+   * NOTE: tagged with `ok`, not distinguished by `instanceof Response`: a caller's context (like this file's own
+   * test suite) may hand back a duck-typed stand-in for `Response` that fails that check.
    */
+  const authorizeOrRespond = async (
+    c: HonoAdminContext,
+  ): Promise<{ ok: true; actor: IamAdminActor | undefined } | { ok: false; response: Response }> => {
+    const authz = await iamRunAdminAuthz(c, effectiveCsrfCheck, authorize)
+    if (authz.phase === 'forbidden') {
+      return { ok: false, response: c.json({ error: 'Forbidden (CSRF check failed)' }, 403) }
+    }
+    if (authz.phase === 'unauthorized') return { ok: false, response: onUnauthorized(c) }
+    if (authz.phase === 'error') return { ok: false, response: onError(authz.error, c) }
+    return { ok: true, actor: authz.actor }
+  }
+
+  /** Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event. */
   const gate =
     (handler: (c: HonoAdminContext) => Promise<Response> | Response) =>
     async (c: HonoAdminContext): Promise<Response> => {
-      const authz = await iamRunAdminAuthz(c, effectiveCsrfCheck, authorize)
-      if (authz.phase === 'forbidden') return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
-      if (authz.phase === 'unauthorized') return onUnauthorized(c)
-      if (authz.phase === 'error') return onError(authz.error, c)
+      const authz = await authorizeOrRespond(c)
+      if (!authz.ok) return authz.response
       try {
         return await handler(c)
       } catch (err) {
@@ -296,11 +308,8 @@ export function iamBindAdminRouter<
       ) => Promise<Response> | Response,
     ) =>
     async (c: HonoAdminContext): Promise<Response> => {
-      // Shared CSRF + authorize phase.
-      const authz = await iamRunAdminAuthz(c, effectiveCsrfCheck, authorize)
-      if (authz.phase === 'forbidden') return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
-      if (authz.phase === 'unauthorized') return onUnauthorized(c)
-      if (authz.phase === 'error') return onError(authz.error, c)
+      const authz = await authorizeOrRespond(c)
+      if (!authz.ok) return authz.response
       // NOTE: mutable and read in `finally`, so a handler can set `targetId` once it has parsed the body
       // (`PUT /policies` and `/roles` carry the id there, not in the path).
       const auditCtx = {
