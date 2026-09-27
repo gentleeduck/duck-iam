@@ -1,0 +1,20 @@
+---
+title: "Type Alias: Change"
+description: "changed is true when this row accounts for a write, false when already applied or credited to an earlier row. Absent when the driver cannot say (MySQL has no RETURNING; the per-row fallback returns void)."
+---
+
+> **Change** = \{ `changed?`: `boolean`; \}
+
+Defined in: [packages/duck-iam/src/core/batch/batch.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/batch/batch.types.ts#L16)
+
+`changed` is `true` when this row accounts for a write, `false` when already applied or credited to an earlier row.
+Absent when the driver cannot say (MySQL has no `RETURNING`; the per-row fallback returns `void`).
+
+## Properties
+
+### changed?
+
+> `readonly` `optional` **changed?**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/batch/batch.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/batch/batch.types.ts#L17)
+

@@ -1,0 +1,30 @@
+---
+title: "Function: iamGetCachedRegex()"
+description: "Compiled regex for pattern, or null when it is invalid or refused by detectCatastrophicRegex. PERF: a hit is re-inserted, so Map order is recency order and eviction is LRU."
+---
+
+> **iamGetCachedRegex**(`pattern`: `string`, `cache?`: `Map`\<`string`, `RegExp`\>): `RegExp` \| `null`
+
+Defined in: [packages/duck-iam/src/core/conditions/conditions.libs.ts:447](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/conditions/conditions.libs.ts#L447)
+
+Compiled regex for `pattern`, or `null` when it is invalid or refused by [detectCatastrophicRegex](iamDetectCatastrophicRegex).
+PERF: a hit is re-inserted, so Map order is recency order and eviction is LRU.
+
+## Parameters
+
+### pattern
+
+`string`
+
+Regex source.
+
+### cache?
+
+`Map`\<`string`, `RegExp`\> = `regexCache`
+
+Per-Engine cache that isolates tenants; defaults to the process-wide `regexCache`.
+
+## Returns
+
+`RegExp` \| `null`
+

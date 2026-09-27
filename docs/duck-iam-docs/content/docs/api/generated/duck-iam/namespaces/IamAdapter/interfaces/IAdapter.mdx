@@ -1,0 +1,582 @@
+---
+title: "Interface: IAdapter<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string>"
+description: "Combined storage interface: policies + roles + subjects. Expected by the IamEngine constructor via IamEngineTypes.IConfig.adapter."
+---
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:181](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L181)
+
+Combined storage interface: policies + roles + subjects.
+Expected by the `IamEngine` constructor via `IamEngineTypes.IConfig.adapter`.
+
+## Extends
+
+- [`IPolicyStore`](IPolicyStore)\<`TAction`, `TResource`, `TRole`\>.[`IRoleStore`](IRoleStore)\<`TAction`, `TResource`, `TRole`, `TScope`\>.[`ISubjectStore`](ISubjectStore)\<`TRole`, `TScope`\>
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings.
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings.
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+Union of valid role IDs.
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+Union of valid scope strings.
+
+## Methods
+
+### assignRole()
+
+> **assignRole**(`subjectId`: `string`, `roleId`: `TRole`, `scope?`: `TScope`, `opts?`: [`IAssignOptions`](IAssignOptions)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:136](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L136)
+
+Assigns a role to a subject, optionally within a scope.
+SECURITY: throws if `opts` cannot be stored (a bounded grant must not become permanent) or the role is unknown.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### roleId
+
+`TRole`
+
+##### scope?
+
+`TScope`
+
+##### opts?
+
+[`IAssignOptions`](IAssignOptions)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`assignRole`](ISubjectStore#assignrole)
+
+***
+
+### assignRoleMany()?
+
+> `optional` **assignRoleMany**(`rows`: readonly [`IAssignRow`](IAssignRow)\<`TRole`, `TScope`\>[]): `Promise`\<readonly `number`[] \| `null`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:155](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L155)
+
+Set-based assign in one statement; the admin loops [IamAdapter.ISubjectStore.assignRole](ISubjectStore#assignrole) when absent.
+Returns indices into `rows` of the rows actually written, or `null` when the driver cannot say.
+NOTE: take indices from `RETURNING`, never an extra read; credit each write once, as `creditWrites` does.
+
+#### Parameters
+
+##### rows
+
+readonly [`IAssignRow`](IAssignRow)\<`TRole`, `TScope`\>[]
+
+#### Returns
+
+`Promise`\<readonly `number`[] \| `null`\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`assignRoleMany`](ISubjectStore#assignrolemany)
+
+***
+
+### deletePolicy()
+
+> **deletePolicy**(`id`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:88](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L88)
+
+Engine invalidates its policy cache after this call.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`IPolicyStore`](IPolicyStore).[`deletePolicy`](IPolicyStore#deletepolicy)
+
+***
+
+### deleteRole()
+
+> **deleteRole**(`id`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:115](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L115)
+
+Removes the role and every grant that named it. Engine invalidates its role cache after this call.
+SECURITY: the cascade is contract; a leftover grant comes back to life if a role is recreated under the same id.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`IRoleStore`](IRoleStore).[`deleteRole`](IRoleStore#deleterole)
+
+***
+
+### getPolicy()
+
+> **getPolicy**(`id`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\> \| `null`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:81](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L81)
+
+Returns a single policy by ID, or `null` if not found.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<[`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\> \| `null`\>
+
+#### Inherited from
+
+[`IPolicyStore`](IPolicyStore).[`getPolicy`](IPolicyStore#getpolicy)
+
+***
+
+### getRole()
+
+> **getRole**(`id`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\> \| `null`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:108](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L108)
+
+Returns a single role by ID, or `null` if not found.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<[`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\> \| `null`\>
+
+#### Inherited from
+
+[`IRoleStore`](IRoleStore).[`getRole`](IRoleStore#getrole)
+
+***
+
+### getSubjectAttributes()
+
+> **getSubjectAttributes**(`subjectId`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`Attributes`](../../IamPrimitives/type-aliases/Attributes)\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:164](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L164)
+
+Returns the attribute bag for a subject.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<[`Attributes`](../../IamPrimitives/type-aliases/Attributes)\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`getSubjectAttributes`](ISubjectStore#getsubjectattributes)
+
+***
+
+### getSubjectGrantBoundary()?
+
+> `optional` **getSubjectGrantBoundary**(`subjectId`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<`number` \| `null`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:162](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L162)
+
+Epoch ms of the earliest future `startsAt` / `expiresAt` among the subject's grants, or `null` when none.
+SECURITY: the engine caps the subject's cache entry there, so a grant stops granting when it expires.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<`number` \| `null`\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`getSubjectGrantBoundary`](ISubjectStore#getsubjectgrantboundary)
+
+***
+
+### getSubjectRoles()
+
+> **getSubjectRoles**(`subjectId`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<`TRole`[]\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:129](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L129)
+
+Returns the subject's GLOBAL (unscoped) role IDs.
+SECURITY: never collapse scoped assignments into this list; surface them via [IamAdapter.ISubjectStore.getSubjectScopedRoles](ISubjectStore#getsubjectscopedroles).
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<`TRole`[]\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`getSubjectRoles`](ISubjectStore#getsubjectroles)
+
+***
+
+### getSubjectScopedRoles()?
+
+> `optional` **getSubjectScopedRoles**(`subjectId`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`IScopedRole`](../../IamRequest/interfaces/IScopedRole)\<`TRole`, `TScope`\>[]\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:131](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L131)
+
+Scoped role assignments. Optional - only when multi-tenant scoped roles are in use.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<[`IScopedRole`](../../IamRequest/interfaces/IScopedRole)\<`TRole`, `TScope`\>[]\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`getSubjectScopedRoles`](ISubjectStore#getsubjectscopedroles)
+
+***
+
+### listPolicies()
+
+> **listPolicies**(`opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>[]\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:79](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L79)
+
+Returns all stored policies. Called by the engine on cache miss.
+
+#### Parameters
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<[`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>[]\>
+
+#### Inherited from
+
+[`IPolicyStore`](IPolicyStore).[`listPolicies`](IPolicyStore#listpolicies)
+
+***
+
+### listRoles()
+
+> **listRoles**(`opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>[]\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:106](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L106)
+
+Returns all stored roles. Called by the engine on cache miss.
+
+#### Parameters
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<[`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>[]\>
+
+#### Inherited from
+
+[`IRoleStore`](IRoleStore).[`listRoles`](IRoleStore#listroles)
+
+***
+
+### revokeRole()
+
+> **revokeRole**(`subjectId`: `string`, `roleId`: `TRole`, `scope?`: `TScope`, `opts?`: [`IRevokeOptions`](IRevokeOptions)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:138](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L138)
+
+Revokes a role, optionally within a scope. `opts.actor` is advisory; see [IRevokeOptions](IRevokeOptions).
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### roleId
+
+`TRole`
+
+##### scope?
+
+`TScope`
+
+##### opts?
+
+[`IRevokeOptions`](IRevokeOptions)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`revokeRole`](ISubjectStore#revokerole)
+
+***
+
+### revokeRoleMany()?
+
+> `optional` **revokeRoleMany**(`rows`: readonly [`IRevokeRow`](IRevokeRow)\<`TRole`, `TScope`\>[]): `Promise`\<readonly `number`[] \| `null`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:157](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L157)
+
+Set-based revoke. See [IamAdapter.ISubjectStore.assignRoleMany](ISubjectStore#assignrolemany).
+
+#### Parameters
+
+##### rows
+
+readonly [`IRevokeRow`](IRevokeRow)\<`TRole`, `TScope`\>[]
+
+#### Returns
+
+`Promise`\<readonly `number`[] \| `null`\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`revokeRoleMany`](ISubjectStore#revokerolemany)
+
+***
+
+### savePolicy()
+
+> **savePolicy**(`policy`: [`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>, `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:86](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L86)
+
+Engine invalidates its policy cache after this call.
+`opts.actor` fills `created_by` on first write and `updated_by` after, where the schema has them.
+
+#### Parameters
+
+##### policy
+
+[`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>
+
+##### opts?
+
+[`IActorOptions`](IActorOptions)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`IPolicyStore`](IPolicyStore).[`savePolicy`](IPolicyStore#savepolicy)
+
+***
+
+### saveRole()
+
+> **saveRole**(`role`: [`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>, `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:110](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L110)
+
+Engine invalidates its role cache after this call.
+
+#### Parameters
+
+##### role
+
+[`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>
+
+##### opts?
+
+[`IActorOptions`](IActorOptions)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`IRoleStore`](IRoleStore).[`saveRole`](IRoleStore#saverole)
+
+***
+
+### setSubjectAttributes()
+
+> **setSubjectAttributes**(`subjectId`: `string`, `attrs`: [`Attributes`](../../IamPrimitives/type-aliases/Attributes), `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:169](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L169)
+
+Shallow-merges `attrs` into the subject's bag: `null` clears a key, keys absent from `attrs` must be kept.
+`opts.actor` fills the provenance columns where the schema has them.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### attrs
+
+[`Attributes`](../../IamPrimitives/type-aliases/Attributes)
+
+##### opts?
+
+[`IActorOptions`](IActorOptions)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`setSubjectAttributes`](ISubjectStore#setsubjectattributes)
+
+***
+
+### updateAssignmentScope()?
+
+> `optional` **updateAssignmentScope**(`subjectId`: `string`, `roleId`: `TRole`, `fromScope`: `TScope` \| `undefined`, `toScope`: `TScope` \| `undefined`, `actor?`: `string`): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:143](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L143)
+
+Moves a `(subjectId, roleId, fromScope)` assignment to `toScope` in one write. Returns `false` when none matches,
+and the engine falls back to [IamAdapter.ISubjectStore.assignRole](ISubjectStore#assignrole). Adapters with no in-place update omit it (revoke + assign).
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### roleId
+
+`TRole`
+
+##### fromScope
+
+`TScope` \| `undefined`
+
+##### toScope
+
+`TScope` \| `undefined`
+
+##### actor?
+
+`string`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+#### Inherited from
+
+[`ISubjectStore`](ISubjectStore).[`updateAssignmentScope`](ISubjectStore#updateassignmentscope)
+
+***
+
+### withClient()?
+
+> `optional` **withClient**(`client`: `unknown`): `IAdapter`\<`TAction`, `TResource`, `TRole`, `TScope`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:193](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L193)
+
+Re-binds this adapter to a driver client, typically a transaction handle; the client is opaque to duck-iam.
+When omitted, `IamEngine.withTransaction` throws rather than leave writes outside the caller's transaction.
+
+#### Parameters
+
+##### client
+
+`unknown`
+
+#### Returns
+
+`IAdapter`\<`TAction`, `TResource`, `TRole`, `TScope`\>
+

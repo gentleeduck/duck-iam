@@ -1,0 +1,46 @@
+---
+title: "Function: explainEvaluation()"
+description: "Produce a detailed evaluation trace for debugging authorization decisions. NOTE: every policy is traced without short-circuiting; combine only decides which trace yields the final decision."
+---
+
+> **explainEvaluation**(`policies`: [`IPolicy`](../duck-iam/namespaces/AccessControl/interfaces/IPolicy)\<`string`, `string`, `string`\>[], `request`: [`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest), `defaultEffect`: [`Effect`](../duck-iam/namespaces/AccessControl/type-aliases/Effect), `subjectInfo`: [`ISubjectInfo`](../duck-iam/namespaces/Explain/interfaces/ISubjectInfo), `combine?`: [`PolicyCombine`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyCombine)): [`IResult`](../duck-iam/namespaces/Explain/interfaces/IResult)
+
+Defined in: [packages/duck-iam/src/core/explain/explain.ts:15](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.ts#L15)
+
+Produce a detailed evaluation trace for debugging authorization decisions.
+NOTE: every policy is traced without short-circuiting; `combine` only decides which trace yields the final decision.
+
+## Parameters
+
+### policies
+
+[`IPolicy`](../duck-iam/namespaces/AccessControl/interfaces/IPolicy)\<`string`, `string`, `string`\>[]
+
+### request
+
+[`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest)
+
+### defaultEffect
+
+[`Effect`](../duck-iam/namespaces/AccessControl/type-aliases/Effect)
+
+Effect when no rule fires inside any policy.
+
+### subjectInfo
+
+[`ISubjectInfo`](../duck-iam/namespaces/Explain/interfaces/ISubjectInfo)
+
+Subject metadata (id, roles, scoped roles applied).
+
+### combine?
+
+[`PolicyCombine`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyCombine) = `'and'`
+
+Cross-policy combine strategy (defaults to `'and'`).
+
+## Returns
+
+[`IResult`](../duck-iam/namespaces/Explain/interfaces/IResult)
+
+A full [Explain.IResult](../duck-iam/namespaces/Explain/interfaces/IResult) describing every policy trace and the final decision.
+

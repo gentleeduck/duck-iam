@@ -1,0 +1,49 @@
+---
+title: "Function: iamEvaluate()"
+description: "evaluate with the defaultEffect: 'allow' opt-in the engine also requires."
+---
+
+> **iamEvaluate**(`policies`: [`IPolicy`](../duck-iam/namespaces/AccessControl/interfaces/IPolicy)\<`string`, `string`, `string`\>[], `request`: [`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest), `defaultEffect?`: [`Effect`](../duck-iam/namespaces/AccessControl/type-aliases/Effect), `combine?`: [`PolicyCombine`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyCombine), `onPolicyError?`: [`PolicyErrorHandler`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyErrorHandler)\<`string`, `string`\>, `signals?`: [`IEvalSignals`](../interfaces/IEvalSignals), `caches?`: `Caches`, `allowFailOpen?`: `boolean`): [`IDecision`](../duck-iam/namespaces/AccessControl/interfaces/IDecision)
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.public.ts:25](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.public.ts#L25)
+
+evaluate with the `defaultEffect: 'allow'` opt-in the engine also requires.
+
+## Parameters
+
+### policies
+
+[`IPolicy`](../duck-iam/namespaces/AccessControl/interfaces/IPolicy)\<`string`, `string`, `string`\>[]
+
+### request
+
+[`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest)
+
+### defaultEffect?
+
+[`Effect`](../duck-iam/namespaces/AccessControl/type-aliases/Effect) = `'deny'`
+
+### combine?
+
+[`PolicyCombine`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyCombine) = `'and'`
+
+### onPolicyError?
+
+[`PolicyErrorHandler`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyErrorHandler)\<`string`, `string`\>
+
+### signals?
+
+[`IEvalSignals`](../interfaces/IEvalSignals)
+
+### caches?
+
+`Caches`
+
+### allowFailOpen?
+
+`boolean` = `false`
+
+## Returns
+
+[`IDecision`](../duck-iam/namespaces/AccessControl/interfaces/IDecision)
+

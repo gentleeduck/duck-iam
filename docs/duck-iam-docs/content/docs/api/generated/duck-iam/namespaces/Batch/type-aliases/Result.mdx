@@ -1,0 +1,39 @@
+---
+title: "Type Alias: Result<TRow, T = void>"
+description: "Generated API reference for @gentleduck/iam — Type Alias: Result<TRow, T = void>."
+---
+
+> **Result**\<`TRow`, `T` = `void`\> = \{ `applied`: `number`; `outcomes`: [`Outcome`](Outcome)\<`TRow`, `T`\>[]; \}
+
+Defined in: [packages/duck-iam/src/core/batch/batch.types.ts:20](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/batch/batch.types.ts#L20)
+
+## Type Parameters
+
+### TRow
+
+`TRow`
+
+### T
+
+`T` = `void`
+
+## Properties
+
+### applied
+
+> **applied**: `number`
+
+Defined in: [packages/duck-iam/src/core/batch/batch.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/batch/batch.types.ts#L24)
+
+Always `outcomes.length`; kept because callers read it as the row count.
+
+***
+
+### outcomes
+
+> **outcomes**: [`Outcome`](Outcome)\<`TRow`, `T`\>[]
+
+Defined in: [packages/duck-iam/src/core/batch/batch.types.ts:22](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/batch/batch.types.ts#L22)
+
+One entry per input row, in input order.
+

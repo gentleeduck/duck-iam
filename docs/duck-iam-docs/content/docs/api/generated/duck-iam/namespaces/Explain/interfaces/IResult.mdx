@@ -1,0 +1,96 @@
+---
+title: "Interface: IResult"
+description: "Complete trace returned by engine.explain()."
+---
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:141](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L141)
+
+Complete trace returned by `engine.explain()`.
+
+## Example
+
+```ts
+// `attributes` is required on IResource - pass `{}` when the resource has none.
+const trace: Explain.IResult = await engine.explain('user-1', 'read', {
+  type: 'post',
+  attributes: {},
+})
+trace.policies.forEach((p) => console.log(p.policyId, p.result, p.reason))
+```
+
+## Properties
+
+### decision
+
+> `readonly` **decision**: [`IDecision`](../../AccessControl/interfaces/IDecision)
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:142](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L142)
+
+***
+
+### policies
+
+> `readonly` **policies**: readonly [`IPolicyTrace`](IPolicyTrace)[]
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:155](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L155)
+
+***
+
+### request
+
+> `readonly` **request**: \{ `action`: `string`; `resourceId?`: `string`; `resourceType`: `string`; `scope?`: `string`; \}
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:143](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L143)
+
+#### action
+
+> `readonly` **action**: `string`
+
+#### resourceId?
+
+> `readonly` `optional` **resourceId?**: `string`
+
+#### resourceType
+
+> `readonly` **resourceType**: `string`
+
+#### scope?
+
+> `readonly` `optional` **scope?**: `string`
+
+***
+
+### subject
+
+> `readonly` **subject**: \{ `attributes`: `Readonly`\<`Record`\<`string`, [`AttributeValue`](../../IamPrimitives/type-aliases/AttributeValue)\>\>; `id`: `string`; `roles`: readonly `string`[]; `scopedRolesApplied`: readonly `string`[]; \}
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:149](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L149)
+
+#### attributes
+
+> `readonly` **attributes**: `Readonly`\<`Record`\<`string`, [`AttributeValue`](../../IamPrimitives/type-aliases/AttributeValue)\>\>
+
+#### id
+
+> `readonly` **id**: `string`
+
+#### roles
+
+> `readonly` **roles**: readonly `string`[]
+
+#### scopedRolesApplied
+
+> `readonly` **scopedRolesApplied**: readonly `string`[]
+
+***
+
+### summary
+
+> `readonly` **summary**: `string`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:161](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L161)
+
+Plain-text human-readable summary.
+SECURITY: carries policy, subject and role ids verbatim, some attacker-influenced. The pipeline never escapes
+for a rendering target, so a consumer rendering this into HTML must escape it (see `iamEscapeHtml`).
+

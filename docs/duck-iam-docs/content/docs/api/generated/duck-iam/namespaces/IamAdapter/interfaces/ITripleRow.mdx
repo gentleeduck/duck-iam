@@ -1,0 +1,48 @@
+---
+title: "Interface: ITripleRow<TRole *extends* string = string, TScope *extends* string = string>"
+description: "One (subject, role, scope) triple: the unit every batch role write takes."
+---
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:22](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L22)
+
+One `(subject, role, scope)` triple: the unit every batch role write takes.
+
+## Extended by
+
+- [`IAssignRow`](IAssignRow)
+- [`IRevokeRow`](IRevokeRow)
+
+## Type Parameters
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+## Properties
+
+### roleId
+
+> `readonly` **roleId**: `TRole`
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:24](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L24)
+
+***
+
+### scope?
+
+> `readonly` `optional` **scope?**: `TScope`
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:25](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L25)
+
+***
+
+### subjectId
+
+> `readonly` **subjectId**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:23](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L23)
+

@@ -1,0 +1,52 @@
+---
+title: "Interface: IGroupTrace"
+description: "Trace of a condition group (all / any / none): child traces + the group result."
+---
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L46)
+
+Trace of a condition group (`all` / `any` / `none`): child traces + the group result.
+
+## Example
+
+```ts
+const group: Explain.IGroupTrace = {
+  type: 'group',
+  logic: 'all',
+  result: false,
+  children: [leafA, leafB],
+}
+```
+
+## Properties
+
+### children
+
+> `readonly` **children**: readonly ([`ILeafTrace`](ILeafTrace) \| `IGroupTrace`)[]
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:50](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L50)
+
+***
+
+### logic
+
+> `readonly` **logic**: `"all"` \| `"any"` \| `"none"`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:48](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L48)
+
+***
+
+### result
+
+> `readonly` **result**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:49](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L49)
+
+***
+
+### type
+
+> `readonly` **type**: `"group"`
+
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:47](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L47)
+

@@ -1,0 +1,32 @@
+---
+title: "Type Alias: AttrValue<T, P *extends* string>"
+description: "Constrained value lookup at P in attribute bag T; falls back to IamPrimitives.AttributeValue."
+---
+
+> **AttrValue**\<`T`, `P` *extends* `string`\> = `T` *extends* `Record`\<`string`, `unknown`\> ? [`AttrValueAt`](AttrValueAt)\<`T`, `P`\> *extends* [`AttributeValue`](../../IamPrimitives/type-aliases/AttributeValue) ? `Exclude`\<[`AttrValueAt`](AttrValueAt)\<`T`, `P`\>, `undefined`\> : [`AttributeValue`](../../IamPrimitives/type-aliases/AttributeValue) : [`AttributeValue`](../../IamPrimitives/type-aliases/AttributeValue)
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:228](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L228)
+
+Constrained value lookup at `P` in attribute bag `T`; falls back to [IamPrimitives.AttributeValue](../../IamPrimitives/type-aliases/AttributeValue).
+
+## Type Parameters
+
+### T
+
+`T`
+
+The attribute-bag object type.
+
+### P
+
+`P` *extends* `string`
+
+The dot-separated path string.
+
+## Example
+
+```ts
+type Bag = { profile: { tier: 'gold' | 'silver' } }
+type V = DotPath.AttrValue<Bag, 'profile.tier'>     // = 'gold' | 'silver'
+```
+

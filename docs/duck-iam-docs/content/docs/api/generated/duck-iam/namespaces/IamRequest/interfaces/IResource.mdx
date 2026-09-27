@@ -1,0 +1,47 @@
+---
+title: "Interface: IResource<TResource *extends* string = string>"
+description: "Target resource being accessed."
+---
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:47](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L47)
+
+Target resource being accessed.
+
+## Type Parameters
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource type strings.
+
+## Properties
+
+### attributes
+
+> `readonly` **attributes**: `Readonly`\<[`Attributes`](../../IamPrimitives/type-aliases/Attributes)\>
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:53](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L53)
+
+Resource attributes available to conditions.
+
+***
+
+### id?
+
+> `readonly` `optional` **id?**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:51](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L51)
+
+Specific instance ID (e.g. `'post-123'`).
+
+***
+
+### type
+
+> `readonly` **type**: `TResource`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:49](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L49)
+
+Resource type (e.g. `'post'`, `'comment'`, `'dashboard'`).
+

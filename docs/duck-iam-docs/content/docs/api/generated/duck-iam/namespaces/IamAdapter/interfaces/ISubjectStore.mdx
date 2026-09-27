@@ -1,0 +1,298 @@
+---
+title: "Interface: ISubjectStore<TRole *extends* string = string, TScope *extends* string = string>"
+description: "Storage interface for subject (user) data: role assignments and attributes."
+---
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:124](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L124)
+
+Storage interface for subject (user) data: role assignments and attributes.
+
+## Extended by
+
+- [`IAdapter`](IAdapter)
+
+## Type Parameters
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+Union of valid role IDs.
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+Union of valid scope strings.
+
+## Methods
+
+### assignRole()
+
+> **assignRole**(`subjectId`: `string`, `roleId`: `TRole`, `scope?`: `TScope`, `opts?`: [`IAssignOptions`](IAssignOptions)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:136](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L136)
+
+Assigns a role to a subject, optionally within a scope.
+SECURITY: throws if `opts` cannot be stored (a bounded grant must not become permanent) or the role is unknown.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### roleId
+
+`TRole`
+
+##### scope?
+
+`TScope`
+
+##### opts?
+
+[`IAssignOptions`](IAssignOptions)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### assignRoleMany()?
+
+> `optional` **assignRoleMany**(`rows`: readonly [`IAssignRow`](IAssignRow)\<`TRole`, `TScope`\>[]): `Promise`\<readonly `number`[] \| `null`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:155](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L155)
+
+Set-based assign in one statement; the admin loops [IamAdapter.ISubjectStore.assignRole](#assignrole) when absent.
+Returns indices into `rows` of the rows actually written, or `null` when the driver cannot say.
+NOTE: take indices from `RETURNING`, never an extra read; credit each write once, as `creditWrites` does.
+
+#### Parameters
+
+##### rows
+
+readonly [`IAssignRow`](IAssignRow)\<`TRole`, `TScope`\>[]
+
+#### Returns
+
+`Promise`\<readonly `number`[] \| `null`\>
+
+***
+
+### getSubjectAttributes()
+
+> **getSubjectAttributes**(`subjectId`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`Attributes`](../../IamPrimitives/type-aliases/Attributes)\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:164](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L164)
+
+Returns the attribute bag for a subject.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<[`Attributes`](../../IamPrimitives/type-aliases/Attributes)\>
+
+***
+
+### getSubjectGrantBoundary()?
+
+> `optional` **getSubjectGrantBoundary**(`subjectId`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<`number` \| `null`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:162](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L162)
+
+Epoch ms of the earliest future `startsAt` / `expiresAt` among the subject's grants, or `null` when none.
+SECURITY: the engine caps the subject's cache entry there, so a grant stops granting when it expires.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<`number` \| `null`\>
+
+***
+
+### getSubjectRoles()
+
+> **getSubjectRoles**(`subjectId`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<`TRole`[]\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:129](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L129)
+
+Returns the subject's GLOBAL (unscoped) role IDs.
+SECURITY: never collapse scoped assignments into this list; surface them via [IamAdapter.ISubjectStore.getSubjectScopedRoles](#getsubjectscopedroles).
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<`TRole`[]\>
+
+***
+
+### getSubjectScopedRoles()?
+
+> `optional` **getSubjectScopedRoles**(`subjectId`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`IScopedRole`](../../IamRequest/interfaces/IScopedRole)\<`TRole`, `TScope`\>[]\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:131](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L131)
+
+Scoped role assignments. Optional - only when multi-tenant scoped roles are in use.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### opts?
+
+[`IReadOptions`](IReadOptions)
+
+#### Returns
+
+`Promise`\<[`IScopedRole`](../../IamRequest/interfaces/IScopedRole)\<`TRole`, `TScope`\>[]\>
+
+***
+
+### revokeRole()
+
+> **revokeRole**(`subjectId`: `string`, `roleId`: `TRole`, `scope?`: `TScope`, `opts?`: [`IRevokeOptions`](IRevokeOptions)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:138](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L138)
+
+Revokes a role, optionally within a scope. `opts.actor` is advisory; see [IRevokeOptions](IRevokeOptions).
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### roleId
+
+`TRole`
+
+##### scope?
+
+`TScope`
+
+##### opts?
+
+[`IRevokeOptions`](IRevokeOptions)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### revokeRoleMany()?
+
+> `optional` **revokeRoleMany**(`rows`: readonly [`IRevokeRow`](IRevokeRow)\<`TRole`, `TScope`\>[]): `Promise`\<readonly `number`[] \| `null`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:157](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L157)
+
+Set-based revoke. See [IamAdapter.ISubjectStore.assignRoleMany](#assignrolemany).
+
+#### Parameters
+
+##### rows
+
+readonly [`IRevokeRow`](IRevokeRow)\<`TRole`, `TScope`\>[]
+
+#### Returns
+
+`Promise`\<readonly `number`[] \| `null`\>
+
+***
+
+### setSubjectAttributes()
+
+> **setSubjectAttributes**(`subjectId`: `string`, `attrs`: [`Attributes`](../../IamPrimitives/type-aliases/Attributes), `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:169](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L169)
+
+Shallow-merges `attrs` into the subject's bag: `null` clears a key, keys absent from `attrs` must be kept.
+`opts.actor` fills the provenance columns where the schema has them.
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### attrs
+
+[`Attributes`](../../IamPrimitives/type-aliases/Attributes)
+
+##### opts?
+
+[`IActorOptions`](IActorOptions)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### updateAssignmentScope()?
+
+> `optional` **updateAssignmentScope**(`subjectId`: `string`, `roleId`: `TRole`, `fromScope`: `TScope` \| `undefined`, `toScope`: `TScope` \| `undefined`, `actor?`: `string`): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:143](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L143)
+
+Moves a `(subjectId, roleId, fromScope)` assignment to `toScope` in one write. Returns `false` when none matches,
+and the engine falls back to [IamAdapter.ISubjectStore.assignRole](#assignrole). Adapters with no in-place update omit it (revoke + assign).
+
+#### Parameters
+
+##### subjectId
+
+`string`
+
+##### roleId
+
+`TRole`
+
+##### fromScope
+
+`TScope` \| `undefined`
+
+##### toScope
+
+`TScope` \| `undefined`
+
+##### actor?
+
+`string`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+

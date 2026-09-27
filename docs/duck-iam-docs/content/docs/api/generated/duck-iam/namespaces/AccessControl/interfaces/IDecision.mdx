@@ -1,0 +1,93 @@
+---
+title: "Interface: IDecision"
+description: "Result of an authorization evaluation: the verdict plus which rule and policy produced it."
+---
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:219](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L219)
+
+Result of an authorization evaluation: the verdict plus which rule and policy produced it.
+
+## Properties
+
+### allowed
+
+> `readonly` **allowed**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:220](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L220)
+
+***
+
+### applicable?
+
+> `readonly` `optional` **applicable?**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:231](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L231)
+
+`false` when the policy's targets missed (NotApplicable); omitted or `true` when applicable.
+
+***
+
+### duration
+
+> `readonly` **duration**: `number`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:227](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L227)
+
+Time in milliseconds the evaluation took.
+
+***
+
+### effect
+
+> `readonly` **effect**: [`Effect`](../type-aliases/Effect)
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:221](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L221)
+
+***
+
+### failure?
+
+> `readonly` `optional` **failure?**: `"input"` \| `"resolution"` \| `"evaluation"`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:237](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L237)
+
+Set when the deny came from the engine failing, not a policy saying no, so callers can tell a 503 from a 403.
+`'input'`: malformed request; `'resolution'`: subject not resolved (adapter outage); `'evaluation'`: threw.
+INFO: production mode returns a bare boolean and cannot carry this; use the engine's `onError` hook there.
+
+***
+
+### policy?
+
+> `readonly` `optional` **policy?**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:224](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L224)
+
+ID of the policy that produced this decision (if any).
+
+***
+
+### reason
+
+> `readonly` **reason**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:225](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L225)
+
+***
+
+### rule?
+
+> `readonly` `optional` **rule?**: [`IRule`](IRule)\<`string`, `string`\>
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:222](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L222)
+
+***
+
+### timestamp
+
+> `readonly` **timestamp**: `number`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:229](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L229)
+
+Unix timestamp (ms) when the decision was made.
+

@@ -1,0 +1,440 @@
+---
+title: "Chapter 5: multi-tenant scoping"
+description: Give one subject different roles in different teams, isolate documents per tenant, and learn exactly how the engine merges scoped role assignments
+section: Course
+order: 5
+---
+Up to now every role a subject holds applies everywhere. Real document apps are not like that: Bob edits in the design team and only reads in engineering. This chapter adds **scope** to the app, wires scoped role assignments through the adapter, and pins down the exact matching rules the engine uses.
+
+## What you should already have
+
+Chapter 4 left you with a complete DocDuck: `src/roles.ts` (the `viewer` / `editor` / `admin` chain, exported as `roles`), `src/policies.ts` (`document-ownership` and `document-lifecycle`, exported as `policies`), `src/documents.ts` (the document store plus `findDocument` and `documentAttributes`), `src/access.ts` (the memory adapter, the hooks, the engine), and `src/main.ts`.
+
+The two pieces this chapter builds on directly:
+
+```ts title="src/access.ts (state after chapter 4)"
+export const adapter = new IamMemoryAdapter({
+  roles,
+  policies,
+  assignments: { alice: ['viewer'], bob: ['editor'], carol: ['admin'] },
+  attributes: {
+    alice: { department: 'design' },
+    bob: { department: 'engineering' },
+    carol: { department: 'engineering' },
+  },
+})
+
+export const engine = new IamEngine({ adapter, hooks, defaultEffect: 'deny', mode: 'development' })
+```
+
+```ts title="src/documents.ts (state after chapter 4)"
+export interface Document {
+  readonly id: string
+  readonly ownerId: string
+  readonly teamId: string
+  readonly status: 'draft' | 'published' | 'archived'
+}
+```
+
+Chapter 4 promised to put `teamId` to work. That is this chapter: `teamId` becomes a **scope**, and this chapter edits `src/documents.ts`, `src/access.ts`, `src/policies.ts` and `src/main.ts`.
+
+## Learning goals
+
+- Model orgs and teams as **scopes** and assign a subject a different role per scope.
+- Know the three places a scope can live (assignment, permission, role) and which one to reach for.
+- Read and predict the engine's scope merge: `scopeMode`, `scopeCombine`, and what a request without a scope sees.
+- Match resource hierarchies correctly - `document.*`, not `document`.
+- Debug a scoped check with `engine.explain()` and `engine.getEffectiveRoles()`.
+
+## The tenant model
+
+DocDuck has organizations, teams inside them, and documents owned by a team. A scope string names one of those containers.
+
+<MermaidDiagram chart={`erDiagram
+    ORG ||--o{ TEAM : "contains"
+    TEAM ||--o{ DOCUMENT : "owns"
+    USER ||--o{ ASSIGNMENT : "holds"
+    ASSIGNMENT }o--|| ROLE : "grants"
+    ORG {
+        string scope "acme"
+    }
+    TEAM {
+        string scope "acme.design"
+    }
+    DOCUMENT {
+        string id
+        string ownerId
+        string teamId
+    }
+    ASSIGNMENT {
+        string subjectId
+        string roleId
+        string scope "null = global"
+    }`} />
+
+The `ASSIGNMENT` row is the important one: it carries an optional `scope`. A row with `scope` null is a **global** assignment (what chapters 1 to 4 used); a row with a scope set is a **scoped** assignment that only counts when the request names that scope. `ORG` and `TEAM` are your application's tables - duck-iam never stores them, it only ever sees the scope string.
+
+We use dotted scope strings so an org scope is a prefix of its team scopes: `acme`, `acme.design`, `acme.eng`, `globex`, `globex.ops`. Chapter 4's flat `team-acme` and `team-globex` become scopes in that shape:
+
+```ts title="src/documents.ts"
+const store = new Map<string, Document>([
+  ['doc-1', { id: 'doc-1', ownerId: 'bob', teamId: 'acme.design', status: 'published' }],
+  ['doc-2', { id: 'doc-2', ownerId: 'alice', teamId: 'acme.design', status: 'published' }],
+  ['doc-3', { id: 'doc-3', ownerId: 'alice', teamId: 'acme.eng', status: 'draft' }],
+  ['doc-4', { id: 'doc-4', ownerId: 'bob', teamId: 'globex.ops', status: 'archived' }],
+])
+```
+
+`documentAttributes` already puts `teamId` on the resource, and chapter 4's `beforeEvaluate` hook already loads it, so nothing else changes for the policy to see it.
+
+## Step by step
+
+<Steps>
+  <Step>
+    **Seed the scoped assignments**
+
+    `IamMemoryAdapter`'s `assignments` init option only creates *global* rows - every entry becomes `{ role, scope: undefined }`. Scoped rows go in through `assignRole(subjectId, roleId, scope)`, which is async, so seed them from an exported promise.
+
+    ```ts title="src/access.ts"
+    export const adapter = new IamMemoryAdapter({
+      roles,
+      policies,
+      // Global roles: what everyone gets everywhere.
+      assignments: { alice: ['viewer'], bob: ['viewer'], carol: ['viewer'] },
+      attributes: {
+        alice: { department: 'design' },
+        bob: { department: 'engineering' },
+        carol: { department: 'engineering' },
+      },
+    })
+
+    /** Await this before the first check; seeds the per-team assignments. */
+    export const seeded = (async () => {
+      await adapter.assignRole('bob', 'editor', 'acme.design')
+      await adapter.assignRole('bob', 'viewer', 'acme.eng')
+      await adapter.assignRole('carol', 'admin', 'acme')
+      await adapter.assignRole('alice', 'editor', 'globex.ops')
+    })()
+
+    export const engine = new IamEngine({ adapter, hooks, defaultEffect: 'deny', mode: 'development' })
+    ```
+
+    Bob's and Carol's global rows drop to `viewer` - their real power now comes from the scoped rows, which is the point. Bob edits in `acme.design` and reads in `acme.eng`. Carol administers all of `acme`. Alice edits in `globex.ops` and reads everywhere.
+  </Step>
+
+  <Step>
+    **Pass the scope on every check**
+
+    `scope` is the fifth parameter of `can` and `check`, after `environment`:
+
+    ```ts
+    engine.can(subjectId, action, resource, environment?, scope?)
+    ```
+
+    Pass `undefined` for `environment` when you only need the scope.
+
+    ```ts title="src/main.ts"
+    import { engine, seeded } from './access'
+
+    async function main() {
+      await seeded
+
+      const doc = { type: 'document', id: 'doc-1', attributes: { ownerId: 'bob' } }
+
+      console.log(await engine.can('bob', 'update', doc, undefined, 'acme.design'))
+      // true: bob is editor in acme.design
+
+      console.log(await engine.can('bob', 'update', doc, undefined, 'acme.eng'))
+      // false: bob is only viewer there
+
+      console.log(await engine.can('bob', 'update', doc))
+      // false: no scope, so only bob's global role (viewer) applies
+    }
+
+    main()
+    ```
+  </Step>
+
+  <Step>
+    **Turn on hierarchical scopes**
+
+    Carol is `admin` at `acme`, but the documents live at `acme.design`. Under the default `scopeMode: 'flat'` her grant does not reach them - the scopes must be string-equal. Switch the engine to `hierarchical` so a grant at any ancestor level applies:
+
+    ```ts title="src/access.ts"
+    export const engine = new IamEngine({
+      adapter,
+      hooks,
+      defaultEffect: 'deny',
+      mode: 'development',
+      scopeMode: 'hierarchical', // 'flat' (default) | 'hierarchical'
+      scopeCombine: 'union',     // 'union' (default) | 'override'
+    })
+    ```
+
+    ```ts title="src/main.ts"
+    console.log(await engine.can('carol', 'delete', doc, undefined, 'acme.design'))
+    // true: the acme grant covers acme.design under hierarchical mode
+    console.log(await engine.can('carol', 'delete', doc, undefined, 'globex.ops'))
+    // false: different subtree
+    ```
+
+    A scope with no dot degrades to an exact match, so turning `hierarchical` on is safe even for apps that never nest scopes.
+  </Step>
+</Steps>
+
+## What just happened
+
+Scope never changes *which* rules exist. It changes which of the subject's roles are in play for this one request, and it is available to conditions as the field `scope`.
+
+<MermaidDiagram chart={`flowchart TD
+    A["engine.can(subjectId, action, resource, env, scope)"] --> B["resolveSubject(subjectId)"]
+    B --> C["subject.roles: global roles, closed over inherits"]
+    B --> D["subject.scopedRoles: array of role + scope pairs"]
+    C --> E{"request has a scope?"}
+    D --> E
+    E -- "no" --> F["roles used as-is"]
+    E -- "yes" --> G{"scopeMode"}
+    G -- "flat" --> H["keep scopedRoles whose scope equals request scope"]
+    G -- "hierarchical" --> I["scopeAncestors(scope): self, then each dot-prefix"]
+    I --> J{"scopeCombine"}
+    J -- "union" --> K["keep every scopedRole at any matching level"]
+    J -- "override" --> L["keep only the most specific matching level"]
+    H --> M["merge into subject.roles, de-duplicated"]
+    K --> M
+    L --> M
+    F --> N["evaluate policies"]
+    M --> N`} />
+
+Walking the nodes for `can('carol', 'delete', doc, undefined, 'acme.design')`:
+
+1. **`resolveSubject`** reads Carol's global roles (`viewer`) and her scoped rows (`admin` at `acme`). Both sides are closed over `inherits`, so the scoped `admin` row expands to `admin`, `editor`, `viewer`.
+2. **`scopeAncestors('acme.design')`** yields `['acme.design', 'acme']`, most specific first.
+3. **`scopeCombine: 'union'`** keeps every scoped row at any of those levels, so `admin` is merged into `subject.roles`.
+4. **evaluate** runs the merged role set against the compiled RBAC policy plus `document-ownership`, exactly as in chapter 3.
+
+Two consequences worth internalising:
+
+- The subject cache is keyed on the subject ID alone. Scoped rows are cached with the subject and filtered at evaluation time, so one cached entry serves every scope.
+- Merging is **additive**. There is no per-level revoke: under `union`, a narrow grant can never take away a broad one. Use `scopeCombine: 'override'` when you want the most specific level to shadow the broader ones instead.
+
+## Three places a scope can live
+
+| Where | How you write it | What it does |
+| --- | --- | --- |
+| Assignment | `adapter.assignRole('bob', 'editor', 'acme.design')` or `engine.admin.assignRole(...)` | Bob *is* an editor, but only in that scope. Data, not configuration. |
+| Permission | `.grant('update', 'document', 'acme')` or `.grantScoped('acme', 'update', 'document')` | One permission inside a role applies only at `acme`, or at `acme` and below under `hierarchical`. |
+| Role | `.scope('acme')` on the role builder | Every permission in the role gets that scope condition. Permission-level wins where both are set. |
+
+Assignment-level scoping is what you want almost every time: the roles stay generic and reusable, and per-tenant facts live in the database where they can change without a deploy. Permission- and role-level scoping bake a tenant name into your configuration, so reach for them only for genuinely tenant-specific roles.
+
+The three are independent and compose. A subject can be assigned `editor` at `acme.design` while `editor` itself contains a permission pinned to a different scope; both conditions must hold.
+
+`'*'` means opposite things on the two axes, so the write path refuses it on one of them. On a *declared* scope it means global. On an *assignment* it is compared literally, so `assignRole('carol', 'admin', '*')` would store a grant that answers only a request whose own scope is the string `"*"` - and `getEffectiveRoles` would return `[]` for every real tenant while the write reported success. `assignRole` now throws on it. Omit the scope for a global assignment.
+
+<Callout tone="info" title="scopeMode governs both axes">
+`scopeMode: 'hierarchical'` widens the *assignment* match to every ancestor of the request scope, and it widens the *declared* scope too: `rolesToPolicy` emits `scope eq 'acme' OR scope starts_with 'acme.'` instead of the bare equality. One flag, one meaning on both axes. It did not always work that way, and the asymmetry silently dropped every role-declared grant below the exact level.
+
+The two axes then compose by intersection. A role declaring `acme`, assigned at `globex`, grants in neither scope: at `globex` the role is held but its permission is declared elsewhere, and at `acme` the permission applies but the subject does not hold the role there.
+</Callout>
+
+## Scope matching rules
+
+Scope is not matched by a special code path. `rolesToPolicy()` turns a scoped permission into an ordinary condition on the request field `scope`:
+
+```ts
+// .grant('update', 'document', 'acme') becomes, inside the __rbac__ policy:
+{
+  id: '__rbac__#7',
+  effect: 'allow',
+  actions: ['update'],
+  resources: ['document'],
+  conditions: {
+    all: [
+      { field: 'subject.roles', operator: 'contains', value: 'editor' },
+      { field: 'scope', operator: 'eq', value: 'acme' },
+    ],
+  },
+}
+```
+
+That is the `flat` shape. Under `hierarchical` the second entry becomes `{ any: [{ scope eq 'acme' }, { scope starts_with 'acme.' }] }`.
+
+The field `scope` resolves to `request.scope`, or `null` when the request carries none:
+
+| Permission scope | Request scope | `flat` | `hierarchical` |
+| --- | --- | --- | --- |
+| omitted | anything | match | match - no condition is emitted at all |
+| `'*'` | anything | match | match - `'*'` is global, so no condition is emitted |
+| `'acme'` | `'acme'` | match | match |
+| `'acme'` | `'acme.design'` | no match | match |
+| `'acme'` | `'acme-archive'` | no match | no match - the separator must be a `.` |
+| `'acme'` | `'globex'` | no match | no match |
+| `'acme'` | none | no match | no match - the field resolves to `null` |
+| `''` | `''` | match | match - the empty string is an ordinary scope, not a wildcard |
+
+A request without a scope therefore sees only the unscoped permissions of the subject's global roles. That is a fail-closed default: forgetting the scope narrows access, it never widens it.
+
+`matchesScope(pattern, scope)` is exported from `@gentleduck/iam` with the same semantics for callers building their own filtering; the engine's own path is the condition above.
+
+## Hierarchical resources
+
+Scopes group *tenants*. Resource types can carry their own hierarchy, with either dots or colons: `document.draft`, `org:billing:invoice`. This is a separate mechanism from scope, and it has one rule that surprises people.
+
+<Callout tone="warning" title="A bare pattern never matches its children">
+`.grant('read', 'document')` matches the resource type `document` and nothing else. It does **not** cover `document.draft` or `document:draft`. Recursion is opt-in: write `document.*` or `document:*`. The separator in the pattern picks the separator it matches, so `a.b.*` will not match `a:b:c`.
+</Callout>
+
+```ts
+// Covers document, and nothing under it.
+defineRole('reader').grant('read', 'document').build()
+
+// Covers document.draft and document.draft.v2, but NOT document itself.
+defineRole('draft-reader').grant('read', 'document.*').build()
+
+// Cover both: grant the literal and the subtree.
+defineRole('all-docs')
+  .grant('read', 'document')
+  .grant('read', 'document.*')
+  .build()
+```
+
+| Pattern | Resource type | Match | Why |
+| --- | --- | --- | --- |
+| `'*'` | anything | yes | Global wildcard |
+| `'document'` | `'document'` | yes | Literal |
+| `'document'` | `'document.draft'` | no | Bare patterns are literal |
+| `'document.*'` | `'document.draft'` | yes | Recursive suffix |
+| `'document.*'` | `'document.draft.v2'` | yes | Recursive to any depth |
+| `'document.*'` | `'document'` | no | The suffix requires a child |
+| `'document.*'` | `'document-archive'` | no | The separator must be present |
+| `'org:*'` | `'org:billing:invoice'` | yes | Colon form, same rule |
+| `'a.b.*'` | `'a:b:c'` | no | Separators do not cross-match |
+
+Which matcher runs is decided per rule: if either the pattern or the request's resource type contains a dot, the dot matcher is used; otherwise the colon matcher. Both enforce the same "bare is literal" rule, so pick one convention for your app and stay with it. Actions follow the colon form only - `'documents:*'` matches `documents:publish`.
+
+Full detail lives on [rule matching](/duck-iam/core/rule-matching).
+
+## Scoped batch checks
+
+`engine.permissions()` takes a scope per check, and the scope becomes the first segment of the returned key:
+
+```ts title="src/main.ts"
+const perms = await engine.permissions('bob', [
+  { action: 'update', resource: 'document', scope: 'acme.design' },
+  { action: 'update', resource: 'document', scope: 'acme.eng' },
+  { action: 'read', resource: 'document' },
+])
+// {
+//   '@acme.design:update:document': true,
+//   '@acme.eng:update:document': false,
+//   'read:document': false,
+// }
+```
+
+Keys are built by `iamBuildPermissionKey(action, resource, resourceId?, scope?)`, whose format is `[@scope:]action:resource[:resourceId]`. Build them with that helper rather than by hand - it backslash-escapes any `:`, `\` or leading `@` inside a segment, and the client-side lookups in chapter 7 unescape with the matching `iamSplitPermissionKey`. The `@` is what keeps a three-segment key unambiguous; without it `('read', 'doc', '42')` and `('doc', '42', undefined, 'read')` collide.
+
+The batch resolves the subject once and memoises the merged role list per scope, so N checks sharing a scope pay for one merge. Batches are capped at 1024 checks; a larger array throws rather than silently truncating.
+
+## Debugging a scoped check
+
+Two calls answer "why did this scope not apply?".
+
+```ts title="src/main.ts"
+// 1. What roles does the engine think bob holds here?
+console.log(await engine.getEffectiveRoles('bob', 'acme.design'))
+// ['viewer', 'editor']
+
+// 2. Full trace, with the scoped roles broken out.
+const trace = await engine.explain('bob', 'update',
+  { type: 'document', id: 'doc-1', attributes: { ownerId: 'bob' } },
+  undefined,
+  'acme.design',
+)
+console.log(trace.subject.roles)               // ['viewer']: before the merge
+console.log(trace.subject.scopedRolesApplied)  // ['editor']: what the scope added
+console.log(trace.request.scope)               // 'acme.design'
+console.log(trace.summary)
+```
+
+`subject.roles` in the trace is the *pre-merge* global set, and `subject.scopedRolesApplied` lists exactly what the scope merge added on top of it. Concatenate the two to get the role set the rules actually saw. When it is empty, work down this list:
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `scopedRolesApplied` empty | The scope argument never reached the engine | Pass it as the 5th argument to `can` / `check`, or as `scope` on the batch check |
+| `scopedRolesApplied` empty, scope passed | No scoped row for that subject and scope | `adapter.assignRole(id, role, scope)`, or check the seeding promise was awaited |
+| Ancestor grant ignored | Engine is in the default `flat` mode | Set `scopeMode: 'hierarchical'` |
+| Nothing scoped ever resolves | The adapter does not implement `getSubjectScopedRoles` | It is optional on `IamAdapter.ISubjectStore`; memory, file, redis, prisma and drizzle all implement it |
+
+`explain()` is development-mode only and throws in production mode. See [explain](/duck-iam/advanced/explain).
+
+## Using scope in conditions
+
+`scope` is a first-class condition field, and `$scope` a first-class variable. That lets you write a tenant-isolation policy that denies any cross-tenant read regardless of role:
+
+```ts title="src/policies.ts"
+import { definePolicy } from '@gentleduck/iam'
+
+export const tenantIsolation = definePolicy('tenant-isolation')
+  .name('Tenant Isolation')
+  .algorithm('deny-overrides')
+  .rule('deny-cross-tenant', (r) => r
+    .deny()
+    .on('*')
+    .of('*')
+    .priority(200)
+    .when((w) => w
+      .exists('scope')
+      .resourceAttr('teamId', 'neq', '$scope')
+    )
+  )
+  .build()
+```
+
+The rule only fires when the request carries a scope (`exists('scope')`), then denies whenever the document's own `teamId` attribute differs from it. Push it into the `policies` array in `src/policies.ts` next to `ownershipPolicy` and `lifecyclePolicy`; policies are combined with AND by default, so any one of the three denying is enough.
+
+Two shorthands on the `When` builder cover the common cases:
+
+```ts
+.when((w) => w.scope('acme'))            // scope eq 'acme'
+.when((w) => w.scopes('acme', 'globex')) // scope in ['acme', 'globex']
+```
+
+And on the `RuleBuilder`, `.forScope(...)` restricts a whole rule:
+
+```ts
+.rule('acme-only', (r) => r
+  .allow()
+  .on('manage')
+  .of('team')
+  .forScope('acme')          // one scope  -> scope eq 'acme'
+  .when((w) => w.role('admin'))
+)
+// .forScope('acme', 'globex') -> scope in ['acme', 'globex']
+// .forScope('*')              -> no-op; write no scope restriction instead
+```
+
+`.forScope()` merges its condition into whatever `.when()` or `.whenAny()` you also supply, so the two always compose.
+
+## Try it
+
+Give Alice a read-only seat in the `acme` org while she keeps her editor seat in `globex.ops`, then prove the isolation holds:
+
+1. Seed `assignRole('alice', 'viewer', 'acme')` next to the existing rows.
+2. Assert `can('alice', 'update', doc, undefined, 'globex.ops')` is `true` and `can('alice', 'update', doc, undefined, 'acme.design')` is `false`.
+3. Switch `scopeCombine` to `'override'` and give Alice both `admin` at `acme` and `viewer` at `acme.design`. Predict the result of `can('alice', 'delete', doc, undefined, 'acme.design')` before you run it, then check it.
+4. Add `tenantIsolation` to the `policies` array and confirm that a read of `doc-1` (team `acme.design`) scoped to `acme.eng` is denied even for Carol, who is admin over all of `acme`.
+
+Step 3 is the interesting one: `override` stops at the most specific matching level, so the `acme.design` viewer row shadows the `acme` admin row and the delete is denied.
+
+## See also
+
+- [Scoped roles](/duck-iam/core/roles/scoped) - the reference page for scoped assignments and `scopeMode`
+- [Rule matching](/duck-iam/core/rule-matching) - action, resource, and scope matching in full
+- [Engine methods](/duck-iam/advanced/engine/methods) - signatures for `can`, `check`, `permissions`, `getEffectiveRoles`
+- [Explain](/duck-iam/advanced/explain) - the trace shape used above
+- [Role definition](/duck-iam/core/roles/definition) - `.grant`, `.grantScoped`, and `.scope`
+- [Memory adapter](/duck-iam/integrations/adapters/memory) - `assignRole` and `getSubjectScopedRoles`
+
+---
+
+Next: [Chapter 6: server integration](/duck-iam/course/chapter-6)

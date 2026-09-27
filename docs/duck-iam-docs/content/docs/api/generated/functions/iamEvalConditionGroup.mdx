@@ -1,0 +1,49 @@
+---
+title: "Function: iamEvalConditionGroup()"
+description: "Evaluates an all (AND) / any (OR) / none (NOR) condition tree against the request. SECURITY: too deep, a non-object, or unknown keys throw IAM_CONDITION_GROUP_INVALID; false would retire a deny rule."
+---
+
+> **iamEvalConditionGroup**(`req`: [`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest), `group`: [`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup), `depth?`: `number`, `caches?`: \{ `path?`: `Map`\<`string`, `string`[] \| `null`\>; `regex?`: `Map`\<`string`, `RegExp`\>; \}): `boolean`
+
+Defined in: [packages/duck-iam/src/core/conditions/conditions.ts:65](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/conditions/conditions.ts#L65)
+
+Evaluates an `all` (AND) / `any` (OR) / `none` (NOR) condition tree against the request.
+SECURITY: too deep, a non-object, or unknown keys throw `IAM_CONDITION_GROUP_INVALID`; `false` would retire a
+deny rule.
+
+## Parameters
+
+### req
+
+[`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest)
+
+The access request providing field values.
+
+### group
+
+[`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup)
+
+The condition group to evaluate.
+
+### depth?
+
+`number` = `0`
+
+Current recursion depth (internal, do not set).
+
+### caches?
+
+Optional per-Engine regex / path caches; falls back to the module-global ones.
+
+#### path?
+
+`Map`\<`string`, `string`[] \| `null`\>
+
+#### regex?
+
+`Map`\<`string`, `RegExp`\>
+
+## Returns
+
+`boolean`
+

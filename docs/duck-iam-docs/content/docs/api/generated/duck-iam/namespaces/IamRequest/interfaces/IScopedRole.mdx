@@ -1,0 +1,52 @@
+---
+title: "Interface: IScopedRole<TRole *extends* string = string, TScope *extends* string = string>"
+description: "A role assignment limited to a tenant, organization or workspace (e.g. editor in org-acme)."
+---
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:14](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L14)
+
+A role assignment limited to a tenant, organization or workspace (e.g. `editor` in `org-acme`).
+
+## Type Parameters
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+Union of valid role IDs.
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+Union of valid scope strings.
+
+## Properties
+
+### attributes?
+
+> `readonly` `optional` **attributes?**: [`Attributes`](../../IamPrimitives/type-aliases/Attributes)
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:22](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L22)
+
+Attributes of this one grant, read by conditions as `subject.scopedRoles[].attributes`.
+Distinct from the subject-wide [ISubject.attributes](ISubject#attributes); undefined when the adapter stores none.
+
+***
+
+### role
+
+> `readonly` **role**: `TRole`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:15](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L15)
+
+***
+
+### scope?
+
+> `readonly` `optional` **scope?**: `TScope`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:17](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L17)
+
+The scope this role assignment is restricted to.
+

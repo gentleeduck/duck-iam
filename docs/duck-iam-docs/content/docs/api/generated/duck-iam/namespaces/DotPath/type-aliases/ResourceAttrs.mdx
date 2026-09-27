@@ -1,0 +1,26 @@
+---
+title: "Type Alias: ResourceAttrs<TContext>"
+description: "Dot-paths into resource attribute bag (used by When.resourceAttr()); see ResolvedResourceAttrPaths."
+---
+
+> **ResourceAttrs**\<`TContext`\> = `AttrPaths`\<[`ResourceAttrShape`](ResourceAttrShape)\<`TContext`\>\>
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:161](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L161)
+
+Dot-paths into resource attribute bag (used by `When.resourceAttr()`); see [ResolvedResourceAttrPaths](ResolvedResourceAttrPaths).
+
+## Type Parameters
+
+### TContext
+
+`TContext`
+
+The full evaluation context type.
+
+## Example
+
+```ts
+type Ctx = { resource: { attributes: { ownerId: string; status: 'draft' | 'live' } } }
+type Keys = DotPath.ResourceAttrs<Ctx>    // = 'ownerId' | 'status'
+```
+

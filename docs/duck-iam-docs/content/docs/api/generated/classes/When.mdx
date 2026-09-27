@@ -1,0 +1,798 @@
+---
+title: "Class: When<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string, TContext *extends* object = IDefaultContext, TActiveResource *extends* string = string>"
+description: "Chainable condition builder passed to RuleBuilder.when, RuleBuilder.whenAny and RoleBuilder.grantWhen. buildAll/buildAny/buildNone emit the AND/OR/NOT group."
+---
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:51](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L51)
+
+Chainable condition builder passed to `RuleBuilder.when`, `RuleBuilder.whenAny` and
+`RoleBuilder.grantWhen`. `buildAll`/`buildAny`/`buildNone` emit the AND/OR/NOT group.
+
+## Example
+
+```ts
+// Inside a rule
+defineRule('expense.approve')
+  .allow()
+  .on('approve').of('expense')
+  .when(w => w
+    .attr('department', 'eq', 'engineering')
+    .resourceAttr('amount', 'lte', 10_000)
+  )
+
+// Nested OR inside an AND
+defineRule('post.edit')
+  .allow()
+  .on('update').of('post')
+  .when(w => w
+    .or(o => o.isOwner().role('admin'))
+    .env('time', 'gte', 9)
+  )
+```
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+Union of valid role ID strings
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+Union of valid scope strings
+
+### TContext
+
+`TContext` *extends* `object` = [`IDefaultContext`](../duck-iam/namespaces/DotPath/interfaces/IDefaultContext)
+
+Shape of the full evaluation context for typed dot-paths
+
+### TActiveResource
+
+`TActiveResource` *extends* `string` = `string`
+
+Resource narrowed by the parent `RuleBuilder.of()` (typed `resourceAttr`)
+
+## Constructors
+
+### Constructor
+
+> **new When**\<`TAction` *extends* `string` = `string`, `TResource` *extends* `string` = `string`, `TRole` *extends* `string` = `string`, `TScope` *extends* `string` = `string`, `TContext` *extends* `object` = [`IDefaultContext`](../duck-iam/namespaces/DotPath/interfaces/IDefaultContext), `TActiveResource` *extends* `string` = `string`\>(): `When`\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>
+
+#### Returns
+
+`When`\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>
+
+## Methods
+
+### and()
+
+> **and**(`fn`: [`WhenGroupFn`](../type-aliases/WhenGroupFn)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:281](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L281)
+
+Appends a nested AND group as a single item.
+
+#### Parameters
+
+##### fn
+
+[`WhenGroupFn`](../type-aliases/WhenGroupFn)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>
+
+#### Returns
+
+`this`
+
+#### Example
+
+```ts
+w.and(a => a.attr('tier', 'eq', 'premium').env('region', 'eq', 'us'))
+```
+
+***
+
+### attr()
+
+> **attr**\<`K` *extends* `string`\>(`path`: `K`, `op`: [`Operator`](../duck-iam/namespaces/AccessControl/type-aliases/Operator), `value?`: [`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`ConditionValue`](../duck-iam/namespaces/DotPath/type-aliases/ConditionValue)\<`TContext`, [`AttrValue`](../duck-iam/namespaces/DotPath/type-aliases/AttrValue)\<[`SubjectAttrShape`](../duck-iam/namespaces/DotPath/type-aliases/SubjectAttrShape)\<`TContext`\>, `K`\>\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:207](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L207)
+
+Asserts on `subject.attributes.<path>`.
+
+#### Type Parameters
+
+##### K
+
+`K` *extends* `string`
+
+#### Parameters
+
+##### path
+
+`K`
+
+##### op
+
+[`Operator`](../duck-iam/namespaces/AccessControl/type-aliases/Operator)
+
+##### value?
+
+[`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`ConditionValue`](../duck-iam/namespaces/DotPath/type-aliases/ConditionValue)\<`TContext`, [`AttrValue`](../duck-iam/namespaces/DotPath/type-aliases/AttrValue)\<[`SubjectAttrShape`](../duck-iam/namespaces/DotPath/type-aliases/SubjectAttrShape)\<`TContext`\>, `K`\>\>
+
+#### Returns
+
+`this`
+
+#### Example
+
+```ts
+w.attr('department', 'eq', 'engineering') // subject.attributes.department == 'engineering'
+```
+
+***
+
+### buildAll()
+
+> **buildAll**(): \{ `all`: readonly ([`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition))[]; \}
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:310](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L310)
+
+Emits a copy of the conditions as `{ all }` (AND); used by `when()` and `grantWhen()`.
+
+#### Returns
+
+\{ `all`: readonly ([`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition))[]; \}
+
+##### all
+
+> `readonly` **all**: readonly ([`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition))[]
+
+***
+
+### buildAny()
+
+> **buildAny**(): \{ `any`: readonly ([`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition))[]; \}
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:315](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L315)
+
+Emits a copy of the conditions as `{ any }` (OR), as `RuleBuilder.whenAny` does.
+
+#### Returns
+
+\{ `any`: readonly ([`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition))[]; \}
+
+##### any
+
+> `readonly` **any**: readonly ([`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition))[]
+
+***
+
+### buildNone()
+
+> **buildNone**(): \{ `none`: readonly ([`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition))[]; \}
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:320](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L320)
+
+Emits a copy of the conditions as `{ none }` (NOT), as [When.not](#not) does.
+
+#### Returns
+
+\{ `none`: readonly ([`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition))[]; \}
+
+##### none
+
+> `readonly` **none**: readonly ([`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition))[]
+
+***
+
+### check()
+
+> **check**\<`P`\>(`field`: `P`, `op`: [`Operator`](../duck-iam/namespaces/AccessControl/type-aliases/Operator), `value?`: [`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`FieldValue`](../duck-iam/namespaces/DotPath/type-aliases/FieldValue)\<`TContext`, `P`\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:72](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L72)
+
+Appends a raw condition. `field` is a typed dot-path into `TContext`; `value` is inferred from it.
+Omit `value` for `exists`.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### op
+
+[`Operator`](../duck-iam/namespaces/AccessControl/type-aliases/Operator)
+
+##### value?
+
+[`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`FieldValue`](../duck-iam/namespaces/DotPath/type-aliases/FieldValue)\<`TContext`, `P`\>
+
+#### Returns
+
+`this`
+
+#### Example
+
+```ts
+w.check('subject.attributes.status', 'eq', 'banned')   // OK
+w.check('resource.attributes.status', 'eq', 'deleted') // ERROR if 'deleted' not in type
+w.check('subject.attributes.age', 'eq', 30)            // ERROR if 'age' not in type
+```
+
+***
+
+### contains()
+
+> **contains**\<`P`\>(`field`: `P`, `value`: `string`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:109](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L109)
+
+Asserts the array at `field` contains `value`, e.g. `w.contains('subject.roles', 'admin')`.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### value
+
+`string`
+
+#### Returns
+
+`this`
+
+***
+
+### env()
+
+> **env**\<`K` *extends* `string`\>(`path`: `K`, `op`: [`Operator`](../duck-iam/namespaces/AccessControl/type-aliases/Operator), `value?`: [`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`ConditionValue`](../duck-iam/namespaces/DotPath/type-aliases/ConditionValue)\<`TContext`, [`AttrValue`](../duck-iam/namespaces/DotPath/type-aliases/AttrValue)\<[`EnvAttrShape`](../duck-iam/namespaces/DotPath/type-aliases/EnvAttrShape)\<`TContext`\>, `K`\>\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:245](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L245)
+
+Asserts on `environment.<path>`, e.g. a time window.
+
+#### Type Parameters
+
+##### K
+
+`K` *extends* `string`
+
+#### Parameters
+
+##### path
+
+`K`
+
+##### op
+
+[`Operator`](../duck-iam/namespaces/AccessControl/type-aliases/Operator)
+
+##### value?
+
+[`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`ConditionValue`](../duck-iam/namespaces/DotPath/type-aliases/ConditionValue)\<`TContext`, [`AttrValue`](../duck-iam/namespaces/DotPath/type-aliases/AttrValue)\<[`EnvAttrShape`](../duck-iam/namespaces/DotPath/type-aliases/EnvAttrShape)\<`TContext`\>, `K`\>\>
+
+#### Returns
+
+`this`
+
+#### Example
+
+```ts
+w.env('hour', 'gte', 9).env('hour', 'lte', 17) // environment.hour >= 9 AND environment.hour <= 17
+```
+
+***
+
+### eq()
+
+> **eq**\<`P`\>(`field`: `P`, `value`: [`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`FieldValue`](../duck-iam/namespaces/DotPath/type-aliases/FieldValue)\<`TContext`, `P`\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:82](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L82)
+
+Asserts `field == value`.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### value
+
+[`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`FieldValue`](../duck-iam/namespaces/DotPath/type-aliases/FieldValue)\<`TContext`, `P`\>
+
+#### Returns
+
+`this`
+
+***
+
+### exists()
+
+> **exists**\<`P`\>(`field`: `P`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:115](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L115)
+
+Asserts `field` is defined and non-null.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+#### Returns
+
+`this`
+
+***
+
+### gt()
+
+> **gt**\<`P`\>(`field`: `P`, `value`: `number`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:121](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L121)
+
+Asserts `field > value`.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### value
+
+`number`
+
+#### Returns
+
+`this`
+
+***
+
+### gte()
+
+> **gte**\<`P`\>(`field`: `P`, `value`: `number`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:127](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L127)
+
+Asserts `field >= value`.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### value
+
+`number`
+
+#### Returns
+
+`this`
+
+***
+
+### in()
+
+> **in**\<`P`\>(`field`: `P`, `values`: ([`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`FieldValue`](../duck-iam/namespaces/DotPath/type-aliases/FieldValue)\<`TContext`, `P`\>)[]): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:100](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L100)
+
+Asserts `field` is one of `values`. An empty list matches nothing.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### values
+
+([`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`FieldValue`](../duck-iam/namespaces/DotPath/type-aliases/FieldValue)\<`TContext`, `P`\>)[]
+
+#### Returns
+
+`this`
+
+***
+
+### isOwner()
+
+> **isOwner**(`ownerField?`: [`FlexibleDotPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDotPaths)\<`TContext`\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:185](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L185)
+
+Asserts the subject owns the resource: `ownerField` equals `$subject.id`, resolved at evaluation time.
+
+#### Parameters
+
+##### ownerField?
+
+[`FlexibleDotPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDotPaths)\<`TContext`\> = `...`
+
+#### Returns
+
+`this`
+
+#### Example
+
+```ts
+w.isOwner() // resource.attributes.ownerId
+w.isOwner('resource.attributes.createdBy')
+```
+
+***
+
+### lt()
+
+> **lt**\<`P`\>(`field`: `P`, `value`: `number`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:133](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L133)
+
+Asserts `field < value`.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### value
+
+`number`
+
+#### Returns
+
+`this`
+
+***
+
+### lte()
+
+> **lte**\<`P`\>(`field`: `P`, `value`: `number`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:139](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L139)
+
+Asserts `field <= value`.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### value
+
+`number`
+
+#### Returns
+
+`this`
+
+***
+
+### matches()
+
+> **matches**\<`P`\>(`field`: `P`, `regex`: `string`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:145](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L145)
+
+Asserts `field` matches the regular expression source `regex`.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### regex
+
+`string`
+
+#### Returns
+
+`this`
+
+***
+
+### neq()
+
+> **neq**\<`P`\>(`field`: `P`, `value`: [`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`FieldValue`](../duck-iam/namespaces/DotPath/type-aliases/FieldValue)\<`TContext`, `P`\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:91](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L91)
+
+Asserts `field != value`.
+
+#### Type Parameters
+
+##### P
+
+`P`
+
+#### Parameters
+
+##### field
+
+`P`
+
+##### value
+
+[`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`FieldValue`](../duck-iam/namespaces/DotPath/type-aliases/FieldValue)\<`TContext`, `P`\>
+
+#### Returns
+
+`this`
+
+***
+
+### not()
+
+> **not**(`fn`: [`WhenGroupFn`](../type-aliases/WhenGroupFn)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:305](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L305)
+
+Appends a nested NOT group: passes only if none of its conditions hold.
+
+#### Parameters
+
+##### fn
+
+[`WhenGroupFn`](../type-aliases/WhenGroupFn)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>
+
+#### Returns
+
+`this`
+
+#### Example
+
+```ts
+w.not(n => n.attr('status', 'eq', 'banned')) // status is NOT 'banned'
+```
+
+***
+
+### or()
+
+> **or**(`fn`: [`WhenGroupFn`](../type-aliases/WhenGroupFn)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:293](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L293)
+
+Appends a nested OR group as a single item.
+
+#### Parameters
+
+##### fn
+
+[`WhenGroupFn`](../type-aliases/WhenGroupFn)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>
+
+#### Returns
+
+`this`
+
+#### Example
+
+```ts
+w.or(o => o.isOwner().role('admin')) // owner OR admin
+```
+
+***
+
+### resourceAttr()
+
+> **resourceAttr**\<`K` *extends* `string`\>(`path`: `K`, `op`: [`Operator`](../duck-iam/namespaces/AccessControl/type-aliases/Operator), `value?`: [`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`ConditionValue`](../duck-iam/namespaces/DotPath/type-aliases/ConditionValue)\<`TContext`, [`AttrValue`](../duck-iam/namespaces/DotPath/type-aliases/AttrValue)\<[`ResolvedResourceAttrs`](../duck-iam/namespaces/DotPath/type-aliases/ResolvedResourceAttrs)\<`TContext`, `TActiveResource`\>, `K`\>\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:226](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L226)
+
+Asserts on `resource.attributes.<path>`, typed by the resource selected with `RuleBuilder.of()`.
+
+#### Type Parameters
+
+##### K
+
+`K` *extends* `string`
+
+#### Parameters
+
+##### path
+
+`K`
+
+##### op
+
+[`Operator`](../duck-iam/namespaces/AccessControl/type-aliases/Operator)
+
+##### value?
+
+[`FlexibleDollarPaths`](../duck-iam/namespaces/DotPath/type-aliases/FlexibleDollarPaths)\<`TContext`\> \| [`ConditionValue`](../duck-iam/namespaces/DotPath/type-aliases/ConditionValue)\<`TContext`, [`AttrValue`](../duck-iam/namespaces/DotPath/type-aliases/AttrValue)\<[`ResolvedResourceAttrs`](../duck-iam/namespaces/DotPath/type-aliases/ResolvedResourceAttrs)\<`TContext`, `TActiveResource`\>, `K`\>\>
+
+#### Returns
+
+`this`
+
+#### Example
+
+```ts
+w.resourceAttr('status', 'eq', 'published') // resource.attributes.status == 'published'
+```
+
+***
+
+### resourceType()
+
+> **resourceType**(...`types`: (`"*"` \| `TResource`)[]): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:193](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L193)
+
+Asserts `resource.type` is one of `types`. Throws when called with none.
+
+#### Parameters
+
+##### types
+
+...(`"*"` \| `TResource`)[]
+
+#### Returns
+
+`this`
+
+***
+
+### role()
+
+> **role**(`roleId`: `TRole`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:151](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L151)
+
+Asserts the subject holds `roleId`; same as `w.contains('subject.roles', roleId)`.
+
+#### Parameters
+
+##### roleId
+
+`TRole`
+
+#### Returns
+
+`this`
+
+***
+
+### roles()
+
+> **roles**(...`roleIds`: `TRole`[]): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:157](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L157)
+
+Asserts the subject holds at least one of `roleIds`. Throws when called with none.
+
+#### Parameters
+
+##### roleIds
+
+...`TRole`[]
+
+#### Returns
+
+`this`
+
+***
+
+### scope()
+
+> **scope**(`id`: `TScope`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:164](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L164)
+
+Asserts the request scope is `id`.
+
+#### Parameters
+
+##### id
+
+`TScope`
+
+#### Returns
+
+`this`
+
+***
+
+### scopes()
+
+> **scopes**(...`ids`: `TScope`[]): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/when.ts:170](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/when.ts#L170)
+
+Asserts the request scope is one of `ids`. Throws when called with none.
+
+#### Parameters
+
+##### ids
+
+...`TScope`[]
+
+#### Returns
+
+`this`
+

@@ -1,0 +1,225 @@
+---
+title: "Interface: IConfig<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string, TMode *extends* Mode = \"production\">"
+description: "Configuration for creating an IamEngine instance."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:370](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L370)
+
+Configuration for creating an `IamEngine` instance.
+
+## Example
+
+```ts
+const config: IamEngineTypes.IConfig = {
+  adapter: new IamMemoryAdapter(),
+  defaultEffect: 'deny',
+  mode: 'development',
+}
+```
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings.
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings.
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+Union of valid role IDs.
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+Union of valid scope strings.
+
+### TMode
+
+`TMode` *extends* [`Mode`](../../AccessControl/type-aliases/Mode) = `"production"`
+
+Engine mode (`'development'` or `'production'`).
+
+## Properties
+
+### adapter
+
+> `readonly` **adapter**: [`IAdapter`](../../IamAdapter/interfaces/IAdapter)\<`TAction`, `TResource`, `TRole`, `TScope`\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:378](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L378)
+
+The storage adapter that provides policies, roles, and subject data.
+
+***
+
+### adapterTimeoutMs?
+
+> `readonly` `optional` **adapterTimeoutMs?**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:414](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L414)
+
+Per-adapter-call timeout in ms, enforced by aborting `IReadOptions.signal`. Defaults to `5_000`; `0` disables.
+An adapter that ignores the signal still frees the caller, but its call runs on in the background.
+Covers `engine.admin` as well as the decision path. A write takes no signal, so there the timeout only frees
+the caller; retries must stay idempotent. Inside a transaction the admin is unbounded on purpose.
+
+***
+
+### allowFailOpen?
+
+> `readonly` `optional` **allowFailOpen?**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:407](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L407)
+
+Must be `true` to use `defaultEffect: 'allow'`, in either mode; the constructor refuses it otherwise.
+SECURITY: fail-open lets a buggy condition or an adapter blip turn a deny into an allow.
+
+***
+
+### cacheTTL?
+
+> `readonly` `optional` **cacheTTL?**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:382](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L382)
+
+Cache time-to-live in seconds. Defaults to `60`. Set to `0` to disable caching.
+
+***
+
+### defaultEffect?
+
+> `readonly` `optional` **defaultEffect?**: `"allow"` \| `"deny"`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:380](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L380)
+
+The default effect when no rule matches. Defaults to `'deny'`.
+
+***
+
+### hooks?
+
+> `readonly` `optional` **hooks?**: [`IHooks`](IHooks)\<`TAction`, `TResource`, `TScope`, `TRole`\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:386](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L386)
+
+Lifecycle hooks for observing or transforming requests and decisions.
+
+***
+
+### hookTimeoutMs?
+
+> `readonly` `optional` **hookTimeoutMs?**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:419](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L419)
+
+Ms to wait for a promise a hook returns. Defaults to `5_000`; `0` waits indefinitely.
+On expiry `beforeEvaluate` fails the evaluation (`onError`, then deny); other hooks are logged and left running.
+
+***
+
+### invalidator?
+
+> `readonly` `optional` **invalidator?**: [`IInvalidator`](IInvalidator)\<`TRole`\>
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:429](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L429)
+
+Cross-instance invalidation (e.g. `createIamRedisInvalidator`): every subscribed engine drops caches on a write.
+Read at construction; attach a later-built client with `engine.setInvalidator(...)`.
+
+***
+
+### maxCacheSize?
+
+> `readonly` `optional` **maxCacheSize?**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:384](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L384)
+
+Maximum number of entries in the subject cache. Defaults to `1000`.
+
+***
+
+### maxConcurrentSubjectLoads?
+
+> `readonly` `optional` **maxConcurrentSubjectLoads?**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:424](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L424)
+
+Cap on concurrent uncached subject loads. Defaults to `512`; `0` is unbounded. Cache hits and joins do not count.
+Past the cap a new load throws `subject load shed`, which checks turn into a deny.
+
+***
+
+### maxPolicies?
+
+> `readonly` `optional` **maxPolicies?**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:400](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L400)
+
+Cap on policies loaded from the adapter. Defaults to `10_000`.
+An over-cap load throws on cache fill; lower it to fail loudly on a runaway adapter.
+
+***
+
+### maxRoles?
+
+> `readonly` `optional` **maxRoles?**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:402](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L402)
+
+Hard ceiling on roles loaded from the adapter. Defaults to `10_000`.
+
+***
+
+### mode?
+
+> `readonly` `optional` **mode?**: `TMode`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:393](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L393)
+
+`'production'` (default) returns booleans; `'development'` returns `IDecision` and enables `explain()`.
+WARN: a `TMode` type argument does not set this; without `mode` the engine runs production while typed otherwise.
+SECURITY: the constructor refuses any other value; a typo used to select development, where `check()`
+answers a decision object that is truthy even for a deny.
+
+***
+
+### policyCombine?
+
+> `readonly` `optional` **policyCombine?**: [`PolicyCombine`](../../AccessControl/type-aliases/PolicyCombine)
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:395](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L395)
+
+How decisions combine across policies. Defaults to `'and'`. See [AccessControl.PolicyCombine](../../AccessControl/type-aliases/PolicyCombine).
+
+***
+
+### scopeCombine?
+
+> `readonly` `optional` **scopeCombine?**: `"union"` \| `"override"`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:440](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L440)
+
+Under `'hierarchical'`, how matching levels combine: `'union'` (default) adds them all;
+`'override'` keeps only the most specific. Ignored under `'flat'`.
+SECURITY: the constructor refuses any other value; the default is the wider branch, so a typo used to widen.
+
+***
+
+### scopeMode?
+
+> `readonly` `optional` **scopeMode?**: `"flat"` \| `"hierarchical"`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:434](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L434)
+
+`'flat'` (default) matches scopes exactly; `'hierarchical'` also lets `'org-1'` cover `'org-1.team-2'`.
+Applies to assignment scopes and to scopes a role or permission declares. See `scopeCombine`.
+

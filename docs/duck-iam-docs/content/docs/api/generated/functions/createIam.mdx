@@ -1,0 +1,72 @@
+---
+title: "Function: createIam()"
+description: "Creates a type-safe access configuration: the primary entry point for duck-iam."
+---
+
+> **createIam**\<`TActions` *extends* readonly `string`[], `TResources` *extends* readonly `string`[], `TRoles` *extends* readonly `string`[] = readonly `string`[], `TScopes` *extends* readonly `string`[] = readonly `string`[], `TContext` *extends* `object` = [`IDefaultContext`](../duck-iam/namespaces/DotPath/interfaces/IDefaultContext)\>(`input`: [`IAccessConfigInput`](../duck-iam/namespaces/IamConfig/interfaces/IAccessConfigInput)\<`TActions`, `TResources`, `TRoles`, `TScopes`, `TContext`\>): [`IAccessConfig`](../duck-iam/namespaces/IamConfig/interfaces/IAccessConfig)\<`TActions`\[`number`\], `TResources`\[`number`\], `TRoles`\[`number`\], `TScopes`\[`number`\], `TContext`\>
+
+Defined in: [packages/duck-iam/src/core/config/config.ts:34](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.ts#L34)
+
+Creates a type-safe access configuration: the primary entry point for duck-iam.
+
+## Type Parameters
+
+### TActions
+
+`TActions` *extends* readonly `string`[]
+
+Tuple of action strings, declared `as const`.
+
+### TResources
+
+`TResources` *extends* readonly `string`[]
+
+Tuple of resource strings, declared `as const`.
+
+### TRoles
+
+`TRoles` *extends* readonly `string`[] = readonly `string`[]
+
+Tuple of role ID strings, declared `as const`.
+
+### TScopes
+
+`TScopes` *extends* readonly `string`[] = readonly `string`[]
+
+Tuple of scope strings, declared `as const`.
+
+### TContext
+
+`TContext` *extends* `object` = [`IDefaultContext`](../duck-iam/namespaces/DotPath/interfaces/IDefaultContext)
+
+Shape of the evaluation context for typed dot-paths.
+
+## Parameters
+
+### input
+
+[`IAccessConfigInput`](../duck-iam/namespaces/IamConfig/interfaces/IAccessConfigInput)\<`TActions`, `TResources`, `TRoles`, `TScopes`, `TContext`\>
+
+Your permission schema: actions, resources, and optionally scopes, roles, and context.
+
+## Returns
+
+[`IAccessConfig`](../duck-iam/namespaces/IamConfig/interfaces/IAccessConfig)\<`TActions`\[`number`\], `TResources`\[`number`\], `TRoles`\[`number`\], `TScopes`\[`number`\], `TContext`\>
+
+A typed [IamConfig.IAccessConfig](../duck-iam/namespaces/IamConfig/interfaces/IAccessConfig) with constrained builder methods.
+
+## Example
+
+```ts
+const access = createIam({
+  actions: ['create', 'read', 'update', 'delete'] as const,
+  resources: ['post', 'comment', 'user'] as const,
+  roles: ['viewer', 'editor', 'admin'] as const,
+  context: {} as unknown as AppContext,
+})
+
+// All builders are now type-safe:
+access.defineRole('viewer').grant('read', 'post')   // OK
+access.defineRole('viewer').grant('raed', 'post')   // compile error
+```
+

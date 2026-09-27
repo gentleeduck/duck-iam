@@ -1,0 +1,66 @@
+---
+title: "Interface: IAttributesSetEvent"
+description: "A subject's attributes were merged into. SECURITY: key names only, since attributes often hold personal data; read values via admin.getAttributes."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:269](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L269)
+
+A subject's attributes were merged into.
+SECURITY: key names only, since attributes often hold personal data; read values via `admin.getAttributes`.
+
+## Extends
+
+- [`IMutationBase`](IMutationBase)
+
+## Properties
+
+### actor?
+
+> `readonly` `optional` **actor?**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:200](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L200)
+
+Who made the change, when the caller supplied it.
+
+#### Inherited from
+
+[`IMutationBase`](IMutationBase).[`actor`](IMutationBase#actor)
+
+***
+
+### at
+
+> `readonly` **at**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:198](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L198)
+
+`Date.now()` at the moment the write completed.
+
+#### Inherited from
+
+[`IMutationBase`](IMutationBase).[`at`](IMutationBase#at)
+
+***
+
+### keys
+
+> `readonly` **keys**: readonly `string`[]
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:272](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L272)
+
+***
+
+### subjectId
+
+> `readonly` **subjectId**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:271](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L271)
+
+***
+
+### type
+
+> `readonly` **type**: `"attributes.set"`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:270](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L270)
+
