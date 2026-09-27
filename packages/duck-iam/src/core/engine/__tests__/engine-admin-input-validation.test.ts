@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { hasIamErrorCode, type IamError, metaOf } from '../../errors'
 import { IamEngine } from '../engine'
 
 function buildEngine() {
@@ -15,39 +16,58 @@ function buildEngine() {
   return { adapter, engine }
 }
 
+async function paramInvalid(promise: Promise<unknown>) {
+  const err = await promise.then(
+    () => {
+      throw new Error('expected to throw')
+    },
+    (e: unknown) => e,
+  )
+  expect(hasIamErrorCode(err, 'IAM_ENGINE_PARAM_INVALID')).toBe(true)
+  return metaOf(err as IamError<'IAM_ENGINE_PARAM_INVALID'>, 'IAM_ENGINE_PARAM_INVALID')
+}
+
+async function attributesParamInvalid(promise: Promise<unknown>) {
+  const err = await promise.then(
+    () => {
+      throw new Error('expected to throw')
+    },
+    (e: unknown) => e,
+  )
+  expect(hasIamErrorCode(err, 'IAM_ENGINE_ATTRIBUTES_PARAM_INVALID')).toBe(true)
+  return metaOf(err as IamError<'IAM_ENGINE_ATTRIBUTES_PARAM_INVALID'>, 'IAM_ENGINE_ATTRIBUTES_PARAM_INVALID')
+}
+
 describe('engine.admin input validation', () => {
   describe('assignRole', () => {
     it('rejects null subjectId without touching the adapter', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.assignRole(null as unknown as string, 'editor')).rejects.toThrow(
-        /subjectId must be a non-empty string \(got null\)/,
-      )
+      const meta = await paramInvalid(engine.admin.assignRole(null as unknown as string, 'editor'))
+      expect(meta).toMatchObject({ name: 'subjectId', reason: 'empty', got: 'null' })
     })
 
     it('rejects numeric subjectId', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.assignRole(42 as unknown as string, 'editor')).rejects.toThrow(
-        /subjectId must be a non-empty string \(got number\)/,
-      )
+      const meta = await paramInvalid(engine.admin.assignRole(42 as unknown as string, 'editor'))
+      expect(meta).toMatchObject({ name: 'subjectId', reason: 'empty', got: 'number' })
     })
 
     it('rejects empty-string roleId', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.assignRole('user-1', '')).rejects.toThrow(/roleId must be a non-empty string/)
+      const meta = await paramInvalid(engine.admin.assignRole('user-1', ''))
+      expect(meta).toMatchObject({ name: 'roleId', reason: 'empty' })
     })
 
     it('rejects object roleId', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.assignRole('user-1', { id: 'editor' } as unknown as string)).rejects.toThrow(
-        /roleId must be a non-empty string \(got object\)/,
-      )
+      const meta = await paramInvalid(engine.admin.assignRole('user-1', { id: 'editor' } as unknown as string))
+      expect(meta).toMatchObject({ name: 'roleId', reason: 'empty', got: 'object' })
     })
 
     it('rejects array scope', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.assignRole('user-1', 'editor', [] as unknown as string)).rejects.toThrow(
-        /scope must be a non-empty string/,
-      )
+      const meta = await paramInvalid(engine.admin.assignRole('user-1', 'editor', [] as unknown as string))
+      expect(meta).toMatchObject({ name: 'scope', reason: 'empty' })
     })
 
     it('accepts undefined scope (unscoped assignment)', async () => {
@@ -81,54 +101,55 @@ describe('engine.admin input validation', () => {
   describe('revokeRole', () => {
     it('rejects non-string subjectId', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.revokeRole({} as unknown as string, 'editor')).rejects.toThrow(
-        /subjectId must be a non-empty string \(got object\)/,
-      )
+      const meta = await paramInvalid(engine.admin.revokeRole({} as unknown as string, 'editor'))
+      expect(meta).toMatchObject({ name: 'subjectId', reason: 'empty', got: 'object' })
     })
 
     it('rejects non-string roleId', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.revokeRole('user-1', undefined as unknown as string)).rejects.toThrow(
-        /roleId must be a non-empty string \(got undefined\)/,
-      )
+      const meta = await paramInvalid(engine.admin.revokeRole('user-1', undefined as unknown as string))
+      expect(meta).toMatchObject({ name: 'roleId', reason: 'empty', got: 'undefined' })
     })
 
     it('rejects empty-string scope', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.revokeRole('user-1', 'editor', '')).rejects.toThrow(/scope must be a non-empty string/)
+      const meta = await paramInvalid(engine.admin.revokeRole('user-1', 'editor', ''))
+      expect(meta).toMatchObject({ name: 'scope', reason: 'empty' })
     })
   })
 
   describe('setAttributes', () => {
     it('rejects array attrs', async () => {
       const { engine } = buildEngine()
-      await expect(
+      const meta = await attributesParamInvalid(
         engine.admin.setAttributes('user-1', [] as unknown as Parameters<typeof engine.admin.setAttributes>[1]),
-      ).rejects.toThrow(/attributes must be a plain object \(got array\)/)
+      )
+      expect(meta).toMatchObject({ reason: 'not-object', got: 'array' })
     })
 
     it('rejects null attrs', async () => {
       const { engine } = buildEngine()
-      await expect(
+      const meta = await attributesParamInvalid(
         engine.admin.setAttributes('user-1', null as unknown as Parameters<typeof engine.admin.setAttributes>[1]),
-      ).rejects.toThrow(/attributes must be a plain object \(got null\)/)
+      )
+      expect(meta).toMatchObject({ reason: 'not-object', got: 'null' })
     })
 
     it('rejects primitive attrs', async () => {
       const { engine } = buildEngine()
-      await expect(
+      const meta = await attributesParamInvalid(
         engine.admin.setAttributes(
           'user-1',
           'admin=true' as unknown as Parameters<typeof engine.admin.setAttributes>[1],
         ),
-      ).rejects.toThrow(/attributes must be a plain object \(got string\)/)
+      )
+      expect(meta).toMatchObject({ reason: 'not-object', got: 'string' })
     })
 
     it('rejects non-string subjectId before checking attrs', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.setAttributes(null as unknown as string, { admin: true })).rejects.toThrow(
-        /subjectId must be a non-empty string \(got null\)/,
-      )
+      const meta = await paramInvalid(engine.admin.setAttributes(null as unknown as string, { admin: true }))
+      expect(meta).toMatchObject({ name: 'subjectId', reason: 'empty', got: 'null' })
     })
 
     it('accepts a plain object', async () => {
@@ -142,31 +163,32 @@ describe('engine.admin input validation', () => {
   describe('getAttributes / getRole / getPolicy / deleteRole / deletePolicy', () => {
     it('getAttributes rejects non-string subjectId', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.getAttributes('')).rejects.toThrow(/subjectId must be a non-empty string/)
+      const meta = await paramInvalid(engine.admin.getAttributes(''))
+      expect(meta).toMatchObject({ name: 'subjectId', reason: 'empty' })
     })
 
     it('getRole rejects non-string id', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.getRole(0 as unknown as string)).rejects.toThrow(
-        /id must be a non-empty string \(got number\)/,
-      )
+      const meta = await paramInvalid(engine.admin.getRole(0 as unknown as string))
+      expect(meta).toMatchObject({ name: 'id', reason: 'empty', got: 'number' })
     })
 
     it('getPolicy rejects non-string id', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.getPolicy(false as unknown as string)).rejects.toThrow(
-        /id must be a non-empty string \(got boolean\)/,
-      )
+      const meta = await paramInvalid(engine.admin.getPolicy(false as unknown as string))
+      expect(meta).toMatchObject({ name: 'id', reason: 'empty', got: 'boolean' })
     })
 
     it('deleteRole rejects empty id', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.deleteRole('')).rejects.toThrow(/id must be a non-empty string/)
+      const meta = await paramInvalid(engine.admin.deleteRole(''))
+      expect(meta).toMatchObject({ name: 'id', reason: 'empty' })
     })
 
     it('deletePolicy rejects empty id', async () => {
       const { engine } = buildEngine()
-      await expect(engine.admin.deletePolicy('')).rejects.toThrow(/id must be a non-empty string/)
+      const meta = await paramInvalid(engine.admin.deletePolicy(''))
+      expect(meta).toMatchObject({ name: 'id', reason: 'empty' })
     })
   })
 })

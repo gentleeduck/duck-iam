@@ -1,6 +1,7 @@
 // Cache-fronted loaders, kept out of the engine class so single-flight, timeouts and row caps test in isolation.
 
 import type { IamLRUCache } from '../../shared/cache'
+import { throwIamError } from '../errors'
 import { toErrorMessage } from '../errors/normalize'
 import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 import type { AccessControl, IamAdapter, IamRequest } from '../types'
@@ -91,9 +92,12 @@ async function loadAllCapped<T>(opts: {
     build: async () => {
       const items = await opts.fetch()
       if (items.length > opts.cap) {
-        throw new Error(
-          `[@gentleduck/iam:engine] adapter returned ${items.length} ${opts.noun}; ${opts.capField} is ${opts.cap}. Raise the limit or fix the adapter.`,
-        )
+        throwIamError('IAM_ENGINE_ROW_CAP_EXCEEDED', {
+          noun: opts.noun,
+          count: items.length,
+          cap: opts.cap,
+          capField: opts.capField,
+        })
       }
       return items
     },
@@ -156,9 +160,11 @@ export async function resolveSubject<
   const inFlight = deps.inFlight.subjects.get(subjectId)
   if (inFlight) return inFlight
   if (deps.maxConcurrentSubjectLoads > 0 && deps.inFlight.subjects.size >= deps.maxConcurrentSubjectLoads) {
-    throw new Error(
-      `[@gentleduck/iam:engine] subject load shed: ${deps.inFlight.subjects.size} concurrent subject loads already in flight (cap ${deps.maxConcurrentSubjectLoads}); rejecting new load for "${subjectId}"`,
-    )
+    throwIamError('IAM_ENGINE_SUBJECT_LOAD_SHED', {
+      subjectId,
+      inFlight: deps.inFlight.subjects.size,
+      cap: deps.maxConcurrentSubjectLoads,
+    })
   }
   let boundary: number | null = null
   // SECURITY: a failed boundary read is not `null` (which buys a full TTL); it means do not cache at all.

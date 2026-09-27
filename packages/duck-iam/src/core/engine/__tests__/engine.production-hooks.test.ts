@@ -1,8 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { hasIamErrorCode } from '../../errors'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 import type { IamEngineTypes } from '../engine.types'
+
+function throwsInvalidatorShape(fn: () => unknown): boolean {
+  try {
+    fn()
+    return false
+  } catch (err) {
+    return hasIamErrorCode(err, 'IAM_ENGINE_INVALIDATOR_SHAPE_INVALID')
+  }
+}
 
 // `afterEvaluate` and `onDeny` fire in both modes. The compiled table erases policy identity, so production passes a
 // verdict-only `IDecision` with no `policy`.
@@ -268,8 +278,8 @@ describe('setInvalidator attaches after construction', () => {
     const engine = new IamEngine({ adapter: new IamMemoryAdapter() })
 
     // Only JS or config-driven callers reach this runtime guard; without it a missing `subscribe` loses invalidations.
-    expect(() => engine.setInvalidator(JSON.parse('{"publish":1}'))).toThrow(TypeError)
-    expect(() => engine.setInvalidator(JSON.parse('{"publish":1,"subscribe":2}'))).toThrow(TypeError)
-    expect(() => engine.setInvalidator(JSON.parse('"not-an-object"'))).toThrow(TypeError)
+    expect(throwsInvalidatorShape(() => engine.setInvalidator(JSON.parse('{"publish":1}')))).toBe(true)
+    expect(throwsInvalidatorShape(() => engine.setInvalidator(JSON.parse('{"publish":1,"subscribe":2}')))).toBe(true)
+    expect(throwsInvalidatorShape(() => engine.setInvalidator(JSON.parse('"not-an-object"')))).toBe(true)
   })
 })

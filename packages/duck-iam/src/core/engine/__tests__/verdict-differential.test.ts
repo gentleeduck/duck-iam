@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { iamBuildPermissionKey } from '../../../shared/keys'
 import { mulberry32 } from '../../../test/mulberry32'
+import { hasIamErrorCode } from '../../errors'
 import type { AccessControl, IamPrimitives } from '../../types'
 import { CellKind, compileTable } from '../compiled/compiled.compile'
 import { IamEngine } from '../engine'
@@ -520,7 +521,9 @@ describe('E2E verdict parity: compiled table vs interpreter over generated catal
           ...common,
           hooks: {
             onError: (err) => {
-              if (err.message.includes(DISAGREE_MARKER)) disagreements.push(`${err.message}\n${context()}`)
+              if (hasIamErrorCode(err, 'IAM_ENGINE_INTERPRETER_DISAGREEMENT')) {
+                disagreements.push(`${err.meta.detail}\n${context()}`)
+              }
             },
           },
           mode: 'development',

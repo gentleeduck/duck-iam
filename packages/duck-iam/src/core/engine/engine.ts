@@ -425,9 +425,7 @@ export class IamEngine<
    */
   setInvalidator(invalidator: IamEngineTypes.IInvalidator<TRole> | null): void {
     if (invalidator !== null && !isInvalidatorLike(invalidator)) {
-      throw new TypeError(
-        '[@gentleduck/iam:engine] setInvalidator: expected null or an object with `publish` and `subscribe` methods',
-      )
+      throwIamError('IAM_ENGINE_INVALIDATOR_SHAPE_INVALID')
     }
     // Unsubscribe first, so a throwing `subscribe` cannot leave the old subscription attached.
     this._invalidatorUnsub = disposeInvalidator(this._invalidatorUnsub).unsub
@@ -629,7 +627,7 @@ export class IamEngine<
       // Printed as well as thrown: `authorize()` turns the throw into a generic deny. Not rate-limited, since
       // it fires only on a duck-iam bug.
       console.error(message)
-      throw new Error(message)
+      throwIamError('IAM_ENGINE_INTERPRETER_DISAGREEMENT', { compiled, interpreted: decision.allowed, detail: message })
     }
 
     // Report the interpreter's decision for its provenance; a fail-open seen by either run counts.
@@ -1107,7 +1105,7 @@ export class IamEngine<
     scope?: TScope,
   ): Promise<Explain.IResult> {
     if (this._mode === 'production') {
-      throw new Error('[@gentleduck/iam:engine] explain() is not available in production mode')
+      throwIamError('IAM_ENGINE_EXPLAIN_UNAVAILABLE')
     }
     assertNonEmptyStringParam('explain(): subjectId', subjectId)
     const subject = await this._resolveSubject(subjectId)
@@ -1159,7 +1157,7 @@ export class IamEngine<
     assertNonEmptyStringParam('permissions(): subjectId', subjectId)
     // SECURITY: capped so an attacker-driven batch cannot force thousands of evaluations.
     if (checks.length > 1024) {
-      throw new Error('[@gentleduck/iam:engine] permissions() refuses batches >1024 checks')
+      throwIamError('IAM_ENGINE_BATCH_TOO_LARGE', { count: checks.length, limit: 1024 })
     }
     // PERF: `telemetry: false` skips per-check `onMetrics`, only ~3% on a batch of 20 (ARCHITECTURE-PERF.md).
     // Use it to keep a hot UI gate out of telemetry, not for speed.
@@ -1293,10 +1291,7 @@ export class IamEngine<
   withTransaction(client: unknown): Bound.IamEngine<TAction, TResource, TRole, TScope, TMode> {
     const bind = this._adapter.withClient
     if (!bind) {
-      throw new Error(
-        '[@gentleduck/iam:engine] withTransaction: the configured adapter cannot join a transaction ' +
-          '(no withClient). Use the drizzle or prisma adapter, or perform this write outside the transaction.',
-      )
+      throwIamError('IAM_ENGINE_ADAPTER_NOT_TRANSACTIONAL')
     }
     return buildBoundEngine(this, bind.call(this._adapter, client), this._config, (cfg) => new IamEngine(cfg))
   }

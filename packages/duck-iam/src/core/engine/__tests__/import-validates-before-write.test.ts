@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import { hasIamErrorCode, type IamError, metaOf } from '../../errors'
 import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
@@ -44,9 +45,16 @@ describe('admin.import validates the whole snapshot before writing', () => {
 
   it('rejects a non-array policies field before touching the adapter', async () => {
     const { adapter, engine } = engineWith([goodPolicy('existing')])
-    await expect(engine.admin.import(snapshot({} as never), { mode: 'replace' })).rejects.toThrow(
-      /"policies" must be an array/,
+    const err = await engine.admin.import(snapshot({} as never), { mode: 'replace' }).then(
+      () => {
+        throw new Error('expected import() to throw')
+      },
+      (e: unknown) => e,
     )
+    expect(hasIamErrorCode(err, 'IAM_ENGINE_SNAPSHOT_FIELD_INVALID')).toBe(true)
+    expect(
+      metaOf(err as IamError<'IAM_ENGINE_SNAPSHOT_FIELD_INVALID'>, 'IAM_ENGINE_SNAPSHOT_FIELD_INVALID').field,
+    ).toBe('policies')
     expect(await adapter.listPolicies()).toHaveLength(1)
   })
 })
