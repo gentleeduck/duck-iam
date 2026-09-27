@@ -24,6 +24,7 @@ import {
   invalidateSubject,
 } from './engine.invalidation'
 import {
+  assertNonEmptyStringParam,
   createAdmin,
   enrichSubjectWithScopedRoles,
   ensureEnvNow,
@@ -1108,9 +1109,7 @@ export class IamEngine<
     if (this._mode === 'production') {
       throw new Error('explain() is not available in production mode')
     }
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
-      throw new Error('[@gentleduck/iam:engine] explain(): subjectId must be a non-empty string <=1024 chars')
-    }
+    assertNonEmptyStringParam('explain(): subjectId', subjectId)
     const subject = await this._resolveSubject(subjectId)
     const originalRoles = [...subject.roles]
 
@@ -1157,9 +1156,7 @@ export class IamEngine<
     environment?: IamRequest.IEnvironment,
     opts: { telemetry?: boolean } = {},
   ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
-      throw new Error('[@gentleduck/iam:engine] permissions(): subjectId must be a non-empty string <=1024 chars')
-    }
+    assertNonEmptyStringParam('permissions(): subjectId', subjectId)
     // SECURITY: capped so an attacker-driven batch cannot force thousands of evaluations.
     if (checks.length > 1024) {
       throw new Error('[@gentleduck/iam:engine] permissions() refuses batches >1024 checks')
