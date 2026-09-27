@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { IamEngine } from '../../../core'
+import { hasIamErrorCode } from '../../../core/errors'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { runEngineCapabilityCompliance } from '../../__compliance__/engine-capability'
@@ -500,12 +501,24 @@ describe('IamRedisAdapter', () => {
     // `\0` separates role from scope, so a NUL passed in through `as TRole` must throw.
     it('assignRole rejects roleId containing NUL', async () => {
       const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: new AuthFakeRedis() })
-      await expect(adapter.assignRole('user-1', 'view\0er' as Ro)).rejects.toThrow(/NUL/)
+      const err = await adapter.assignRole('user-1', 'view\0er' as Ro).then(
+        () => {
+          throw new Error('expected assignRole() to throw')
+        },
+        (e: unknown) => e,
+      )
+      expect(hasIamErrorCode(err, 'IAM_REDIS_ASSIGNMENT_ENCODING_INVALID')).toBe(true)
     })
 
     it('assignRole rejects scope containing NUL', async () => {
       const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: new AuthFakeRedis() })
-      await expect(adapter.assignRole('user-1', 'viewer' as Ro, 'org\0-1' as S)).rejects.toThrow(/NUL/)
+      const err = await adapter.assignRole('user-1', 'viewer' as Ro, 'org\0-1' as S).then(
+        () => {
+          throw new Error('expected assignRole() to throw')
+        },
+        (e: unknown) => e,
+      )
+      expect(hasIamErrorCode(err, 'IAM_REDIS_ASSIGNMENT_ENCODING_INVALID')).toBe(true)
     })
   })
 
@@ -545,7 +558,13 @@ describe('IamRedisAdapter', () => {
 
     it('rejects an assignment where roleId contains a literal NUL', async () => {
       const adapter = new IamRedisAdapter<string, string, string, string>({ client: new AuthFakeRedis() })
-      await expect(adapter.assignRole('user-1', 'evil\0role')).rejects.toThrow(/NUL/)
+      const err = await adapter.assignRole('user-1', 'evil\0role').then(
+        () => {
+          throw new Error('expected assignRole() to throw')
+        },
+        (e: unknown) => e,
+      )
+      expect(hasIamErrorCode(err, 'IAM_REDIS_ASSIGNMENT_ENCODING_INVALID')).toBe(true)
     })
 
     it('migrates legacy space-separated entries on first read', async () => {

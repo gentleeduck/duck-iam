@@ -177,8 +177,11 @@ export class IamRedisAdapter<
     // Guarded here as well as in `assignRole`/`revokeRole`, so no internal caller has to remember.
     iamAssertAssignableScope('redis', scope, 'lookup')
     const s: string = scope ?? ''
-    if (r.includes(IamRedisAdapter._SEP) || s.includes(IamRedisAdapter._SEP)) {
-      throw new Error('[@gentleduck/iam:redis] role / scope must not contain NUL bytes')
+    if (r.includes(IamRedisAdapter._SEP)) {
+      throwIamError('IAM_REDIS_ASSIGNMENT_ENCODING_INVALID', { field: 'role' })
+    }
+    if (s.includes(IamRedisAdapter._SEP)) {
+      throwIamError('IAM_REDIS_ASSIGNMENT_ENCODING_INVALID', { field: 'scope' })
     }
     return `${r}${IamRedisAdapter._SEP}${s}`
   }
