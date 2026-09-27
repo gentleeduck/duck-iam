@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine'
+import { hasIamErrorCode } from '../../../core/errors'
 import type { AccessControl } from '../../../core/types'
 import { iamExtractEnvironment } from '../../generic'
 import {
@@ -64,7 +65,13 @@ describe('withIamAccess', () => {
 
   it('throws at construction when getUserId is omitted', () => {
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    expect(() => withIamAccess(engine, 'delete', 'post', handler)).toThrow(/getUserId is required/)
+    try {
+      withIamAccess(engine, 'delete', 'post', handler)
+      throw new Error('expected IAM_SERVER_GET_USER_ID_REQUIRED')
+    } catch (err) {
+      if (!hasIamErrorCode(err, 'IAM_SERVER_GET_USER_ID_REQUIRED')) throw err
+      expect(err.meta.framework).toBe('next')
+    }
   })
 
   it('returns 403 when not allowed', async () => {

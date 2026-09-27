@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine'
+import { hasIamErrorCode } from '../../../core/errors'
 import type { AccessControl } from '../../../core/types'
 import { iamAccessMiddleware, iamBindAdminRouter, iamGuard } from '../index'
 
@@ -336,7 +337,13 @@ describe('iamBindAdminRouter (hono)', () => {
   it('refuses construction without an authorize callback', () => {
     const engine = makeEngine()
     const fakeRouter = { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() }
-    expect(() => iamBindAdminRouter(fakeRouter, engine, undefined as never)).toThrow(/authorize/)
+    try {
+      iamBindAdminRouter(fakeRouter, engine, undefined as never)
+      throw new Error('expected IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED')
+    } catch (err) {
+      if (!hasIamErrorCode(err, 'IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED')) throw err
+      expect(err.meta.framework).toBe('hono')
+    }
   })
 
   it('gates handlers behind authorize and dispatches when allowed', async () => {

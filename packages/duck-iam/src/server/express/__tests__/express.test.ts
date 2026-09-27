@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine'
+import { hasIamErrorCode } from '../../../core/errors'
 import type { AccessControl } from '../../../core/types'
 import { iamAccessMiddleware, iamAdminRouter, iamGuard } from '../index'
 
@@ -324,8 +325,15 @@ describe('iamAdminRouter (express)', () => {
 
   it('rejects construction without an authorize callback', () => {
     const engine = makeEngine()
-    expect(() => iamAdminRouter(engine, undefined as never)).toThrow(/authorize/)
-    expect(() => iamAdminRouter(engine, {} as never)).toThrow(/authorize/)
+    for (const opts of [undefined, {}]) {
+      try {
+        iamAdminRouter(engine, opts as never)
+        throw new Error('expected IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED')
+      } catch (err) {
+        if (!hasIamErrorCode(err, 'IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED')) throw err
+        expect(err.meta.framework).toBe('express')
+      }
+    }
   })
 
   it('default csrfCheck rejects Sec-Fetch-Site: cross-site automatically (CAVEAT-2)', async () => {

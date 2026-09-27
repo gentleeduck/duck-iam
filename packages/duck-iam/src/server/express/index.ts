@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import { hasIamErrorCode, type IamError } from '../../core/errors'
+import { hasIamErrorCode, type IamError, throwIamError } from '../../core/errors'
 import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import {
@@ -319,9 +319,7 @@ export function iamAdminRouter<
   opts: IamExpress.IAdminRouterOptions,
 ): (Router: () => ExpressRouterLike) => ExpressRouterLike {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error(
-      '[@gentleduck/iam:express] iamAdminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
-    )
+    throwIamError('IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED', { framework: 'express', fn: 'iamAdminRouter' })
   }
   const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
     opts

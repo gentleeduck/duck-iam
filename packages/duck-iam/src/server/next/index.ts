@@ -3,7 +3,7 @@
  */
 
 import type { IamEngine } from '../../core'
-import { hasIamErrorCode } from '../../core/errors'
+import { hasIamErrorCode, throwIamError } from '../../core/errors'
 import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamClient, IamPrimitives, IamRequest } from '../../core/types'
 import { iamAsActionLiteral, iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
@@ -199,10 +199,7 @@ export function withIamAccess<
 ): RouteHandler {
   // getUserId required; header-derived identity is spoofable.
   if (!opts.getUserId) {
-    throw new Error(
-      '[@gentleduck/iam:next] opts.getUserId is required - deriving identity from request headers is unsafe. ' +
-        'Wire it from your auth middleware (cookie session, JWT, etc.).',
-    )
+    throwIamError('IAM_SERVER_GET_USER_ID_REQUIRED', { framework: 'next' })
   }
   const {
     getUserId,
@@ -454,7 +451,7 @@ export function createIamAdminHandlers<
   TScope extends string = string,
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNext.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam:next] createIamAdminHandlers requires an `authorize` callback.')
+    throwIamError('IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED', { framework: 'next', fn: 'createIamAdminHandlers' })
   }
   const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
     opts
