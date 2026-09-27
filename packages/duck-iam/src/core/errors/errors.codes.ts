@@ -37,4 +37,7 @@ export const IAM_ERRORS = {
   }>(500),
   IAM_ENGINE_POLICY_COMBINE_INCOMPATIBLE: detail<{ mode: string; policyCombine: string }>(500),
   IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED: 500,
+  IAM_EVALUATE_RULE_PRIORITY_INVALID: detail<{ policyId?: string; priority?: unknown }>(500),
+  IAM_EVALUATE_RULE_EFFECT_UNKNOWN: detail<{ policyId: string; ruleId: string; effect: unknown }>(500),
+  IAM_EVALUATE_ALGORITHM_UNKNOWN: detail<{ policyId: string; algorithm: string }>(500),
 } as const satisfies Record<string, number>

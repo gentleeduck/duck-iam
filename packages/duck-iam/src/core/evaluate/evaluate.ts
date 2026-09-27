@@ -1,6 +1,7 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
 
 import { evalConditionGroup } from '../conditions/conditions'
+import { throwIamError } from '../errors'
 import { IAM_RBAC_POLICY_ID } from '../rbac/rbac'
 import { matchesAction, matchesResource } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
@@ -95,7 +96,7 @@ export function evaluatePolicy(
   // SECURITY: a non-finite priority is Indeterminate under the two ranking algorithms. Checked at policy level,
   // after the NotApplicable tests, so the fast path and the interpreter refuse the same requests.
   if (ranksByPriority(policy.algorithm) && policy.rules.some((rule) => !Number.isFinite(rule.priority))) {
-    throw new Error(`[@gentleduck/iam:evaluate] Rule priority must be a finite number in policy "${policy.id}"`)
+    throwIamError('IAM_EVALUATE_RULE_PRIORITY_INVALID', { policyId: policy.id })
   }
 
   const matched: Array<{ rule: AccessControl.IRule; effect: AccessControl.Effect }> = []
@@ -119,7 +120,7 @@ export function evaluatePolicy(
       // SECURITY: an unrecognised effect is Indeterminate, not an abstention. Under `deny-overrides` a mistyped
       // deny votes for neither arm, so a sibling allow wins and the deny is silently lost.
       if (!isRuleEffect(rule.effect)) {
-        throw new Error(`[@gentleduck/iam:evaluate] Unknown effect ${JSON.stringify(rule.effect)} on rule "${rule.id}"`)
+        throwIamError('IAM_EVALUATE_RULE_EFFECT_UNKNOWN', { policyId: policy.id, ruleId: rule.id, effect: rule.effect })
       }
       matched.push({ rule, effect: rule.effect })
     }
@@ -128,7 +129,7 @@ export function evaluatePolicy(
   // SECURITY: own properties only, and Indeterminate rather than a verdict, as the fast path already is. An
   // inherited `constructor` is a function and answered a decision object with no `effect` at all.
   if (!Object.hasOwn(combiners, policy.algorithm)) {
-    throw new Error(`[@gentleduck/iam:evaluate] Unknown combining algorithm "${String(policy.algorithm)}"`)
+    throwIamError('IAM_EVALUATE_ALGORITHM_UNKNOWN', { policyId: policy.id, algorithm: String(policy.algorithm) })
   }
   const result = combiners[policy.algorithm](matched, defaultEffect)
 
@@ -325,12 +326,12 @@ export function evaluatePolicyFast(
   // which would let this path allow what the interpreter denies. Mirror the interpreter's NotApplicable test first.
   if (!Object.hasOwn(combiners, policy.algorithm)) {
     if (!policy.rules.some((rule) => ruleTargetsMatch(rule, request))) return null
-    throw new Error(`[@gentleduck/iam:evaluate] Unknown combining algorithm "${String(policy.algorithm)}"`)
+    throwIamError('IAM_EVALUATE_ALGORITHM_UNKNOWN', { policyId: policy.id, algorithm: String(policy.algorithm) })
   }
 
   if (ranksByPriority(policy.algorithm) && policy.rules.some((rule) => !Number.isFinite(rule.priority))) {
     if (!policy.rules.some((rule) => ruleTargetsMatch(rule, request))) return null
-    throw new Error(`[@gentleduck/iam:evaluate] Rule priority must be a finite number in policy "${policy.id}"`)
+    throwIamError('IAM_EVALUATE_RULE_PRIORITY_INVALID', { policyId: policy.id })
   }
 
   const idx = indexPolicy(policy)

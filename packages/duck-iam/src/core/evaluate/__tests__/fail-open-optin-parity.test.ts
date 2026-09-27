@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { iamEvaluate, iamEvaluateFast, iamEvaluatePolicy, iamEvaluatePolicyFast } from '../../..'
+import { hasIamErrorCode, iamEvaluate, iamEvaluateFast, iamEvaluatePolicy, iamEvaluatePolicyFast } from '../../..'
 import type { AccessControl, IamRequest } from '../../types'
 
 // SECURITY: the `allowFailOpen` gate belongs on every public evaluator entry point or none; these tests pin all
@@ -21,28 +21,39 @@ const POLICY: AccessControl.IPolicy = {
   ],
 }
 
-const FOOTGUN = /fail-open footgun/
+function throws(fn: () => unknown): unknown {
+  try {
+    fn()
+    throw new Error('expected fn to throw')
+  } catch (err) {
+    return err
+  }
+}
+
+function isFootgun(fn: () => unknown): boolean {
+  return hasIamErrorCode(throws(fn), 'IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED')
+}
 
 describe('fail-open opt-in is required by every public evaluator entry point', () => {
   it('iamEvaluate refuses defaultEffect "allow" without the opt-in', () => {
-    expect(() => iamEvaluate([POLICY], REQUEST, 'allow')).toThrow(FOOTGUN)
+    expect(isFootgun(() => iamEvaluate([POLICY], REQUEST, 'allow'))).toBe(true)
   })
 
   it('iamEvaluateFast refuses defaultEffect "allow" without the opt-in', () => {
-    expect(() => iamEvaluateFast([POLICY], REQUEST, 'allow')).toThrow(FOOTGUN)
+    expect(isFootgun(() => iamEvaluateFast([POLICY], REQUEST, 'allow'))).toBe(true)
   })
 
   it('iamEvaluatePolicy refuses defaultEffect "allow" without the opt-in', () => {
-    expect(() => iamEvaluatePolicy(POLICY, REQUEST, 'allow')).toThrow(FOOTGUN)
+    expect(isFootgun(() => iamEvaluatePolicy(POLICY, REQUEST, 'allow'))).toBe(true)
   })
 
   it('iamEvaluatePolicyFast refuses defaultEffect "allow" without the opt-in', () => {
-    expect(() => iamEvaluatePolicyFast(POLICY, REQUEST, 'allow')).toThrow(FOOTGUN)
+    expect(isFootgun(() => iamEvaluatePolicyFast(POLICY, REQUEST, 'allow'))).toBe(true)
   })
 
   it('the single-policy route cannot answer allow for a non-applicable policy without opting in', () => {
     // Ungated, this answers `{ allowed: true, applicable: false }` straight off the package root.
-    expect(() => iamEvaluatePolicy(POLICY, REQUEST, 'allow')).toThrow(FOOTGUN)
+    expect(isFootgun(() => iamEvaluatePolicy(POLICY, REQUEST, 'allow'))).toBe(true)
   })
 
   it('the opt-in still works on every entry point', () => {
