@@ -13,6 +13,7 @@ import {
   type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
+  type IamIAdminAuthzOk,
   iamActionForMethod,
   iamAdminActorOptions,
   iamAuditIdOf,
@@ -331,14 +332,30 @@ export function iamAdminRouter<
   const effectiveCsrfCheck = iamResolveCsrfCheck(csrfCheck)
 
   /**
-   * Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event.
-   * NOTE: CSRF runs on reads too, so an operator's `csrfCheck` is enforced alike on all four adapters.
+   * CSRF + authorize phase shared by {@link gate} and {@link mutate}: answers the response itself and returns
+   * `undefined` for any non-'ok' phase, else the authorized result.
    */
-  const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {
+  const authorizeOrRespond = async (req: Req, res: Res): Promise<IamIAdminAuthzOk | undefined> => {
     const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
-    if (authz.phase === 'forbidden') return onForbidden(res)
-    if (authz.phase === 'unauthorized') return onUnauthorized(req, res)
-    if (authz.phase === 'error') return onError(authz.error, req, res)
+    if (authz.phase === 'forbidden') {
+      onForbidden(res)
+      return undefined
+    }
+    if (authz.phase === 'unauthorized') {
+      onUnauthorized(req, res)
+      return undefined
+    }
+    if (authz.phase === 'error') {
+      onError(authz.error, req, res)
+      return undefined
+    }
+    return authz
+  }
+
+  /** Read gate: the same CSRF and `authorize` phase as {@link mutate}, with no audit event. */
+  const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {
+    const authz = await authorizeOrRespond(req, res)
+    if (!authz) return
     try {
       await handler(req, res)
     } catch (err) {
@@ -355,11 +372,8 @@ export function iamAdminRouter<
       handler: (req: Req, res: Res, who: { actor?: string }) => Promise<void>,
     ) =>
     async (req: Req, res: Res) => {
-      // Shared CSRF + authorize phase.
-      const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
-      if (authz.phase === 'forbidden') return onForbidden(res)
-      if (authz.phase === 'unauthorized') return onUnauthorized(req, res)
-      if (authz.phase === 'error') return onError(authz.error, req, res)
+      const authz = await authorizeOrRespond(req, res)
+      if (!authz) return
       try {
         await iamWithAdminAudit(
           {
