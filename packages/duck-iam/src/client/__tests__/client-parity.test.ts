@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
+import * as ReactClient from '../react'
 import { createIamAccessControl, createIamPermissionChecker, type IamReactClient } from '../react'
+import * as VanillaClient from '../vanilla'
 import { IamAccessClient } from '../vanilla'
+import * as VueClient from '../vue'
 import { createIamVueAccess } from '../vue'
 
 // Drives one map through the React, Vue, and vanilla clients and compares the answers,
@@ -147,6 +150,18 @@ describe('the three clients answer the same map identically', () => {
     it(`allowedActions(${JSON.stringify(resource)}) agrees on all three`, () => {
       expect(surfaces().map((s) => s.allowedActions(resource).sort())).toEqual([actions, actions, actions])
       expect(surfaces().map((s) => s.hasAnyOn(resource))).toEqual([any, any, any])
+    })
+  }
+})
+
+// SECURITY.md lists "React, Vue, Vanilla" as one shipped client surface; a re-export missing from just one
+// of the three (as `iamBuildPermissionKey` once was from vanilla) sends that framework's users back to
+// hand-splitting keys on `':'`, which is exactly the escaping bug these helpers exist to prevent.
+describe('the three modules re-export the same key/introspection helpers', () => {
+  for (const name of ['iamBuildPermissionKey', 'iamAllowedActions', 'iamHasAnyOn'] as const) {
+    it(`${name} is the identical function on react, vue, and vanilla`, () => {
+      expect(VueClient[name]).toBe(ReactClient[name])
+      expect(VanillaClient[name]).toBe(ReactClient[name])
     })
   }
 })
