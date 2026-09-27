@@ -295,6 +295,7 @@ export namespace IamEngineTypes {
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
    * @template TScope    - Union of valid scope strings.
+   * @template TRole     - Union of valid role strings.
    * @example
    * ```ts
    * const hooks: IamEngineTypes.IHooks = {

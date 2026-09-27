@@ -70,6 +70,7 @@ export namespace IamRedis {
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
+ * @template TClient - The Redis client surface required; ioredis and node-redis v4+ both satisfy it.
  */
 export class IamRedisAdapter<
   TAction extends string = string,
