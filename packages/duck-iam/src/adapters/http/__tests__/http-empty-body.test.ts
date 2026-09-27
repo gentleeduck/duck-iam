@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamHttpAdapter } from '../index'
+
+async function rejectsWithResponseStatus(p: Promise<unknown>, status: number): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, 'IAM_HTTP_RESPONSE_ERROR') && err.meta.status === status
+}
 
 // Pins that a bodiless success (204, or 200 with an empty body) is not a JSON parse error,
 // so writes against a spec-compliant API succeed as they do on the other adapters.
@@ -62,6 +71,6 @@ describe('a bodiless success is not a parse error', () => {
 
   it('control: a non-2xx status is still an error, body or no body', async () => {
     const { adapter } = adapterFor(() => new Response(null, { status: 500 }))
-    await expect(adapter.deletePolicy('p1')).rejects.toThrow(/HTTP 500/)
+    expect(await rejectsWithResponseStatus(adapter.deletePolicy('p1'), 500)).toBe(true)
   })
 })

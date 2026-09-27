@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamHttpAdapter } from '../index'
 
 // Pins that a bad row from the untrusted API is refused, policy or role, rather than skipped.
@@ -61,7 +62,12 @@ describe('IamHttpAdapter refuses malformed policy rows and drops malformed role 
   it('listPolicies: a non-array body is reported and then rejects', async () => {
     const onPolicyError = vi.fn()
     const adapter = buildAdapter(() => ({ policies: [good] }), onPolicyError)
-    await expect(adapter.listPolicies()).rejects.toThrow(/expected an array from \/policies/)
+    const err = await adapter.listPolicies().then(
+      () => undefined,
+      (e: unknown) => e,
+    )
+    if (!hasIamErrorCode(err, 'IAM_HTTP_LIST_INVALID')) throw new Error('expected IAM_HTTP_LIST_INVALID')
+    expect(err.meta.path).toBe('/policies')
     expect(onPolicyError).toHaveBeenCalledTimes(1)
   })
 

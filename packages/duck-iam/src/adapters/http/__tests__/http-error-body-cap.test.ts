@@ -1,10 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { IamHttpAdapter } from '../index'
 
 type A = 'read'
 type R = 'post'
 type Ro = 'viewer'
 type S = 'org-1'
+
+function responseErrorMeta(err: unknown): { status: number; body: string } {
+  if (!hasIamErrorCode(err, 'IAM_HTTP_RESPONSE_ERROR')) {
+    throw new Error(`expected IAM_HTTP_RESPONSE_ERROR, got ${String(err)}`)
+  }
+  return err.meta
+}
 
 function makeResponse(body: string, status = 400): Response {
   return {
@@ -24,11 +32,11 @@ describe('IamHttpAdapter error body cap', () => {
       await adapter.listPolicies()
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
+      const meta = responseErrorMeta(err)
       // The cap holds even though the upstream returned 10 MiB.
-      expect(msg.length).toBeLessThan(500)
-      expect(msg).toContain('...(truncated)')
-      expect(msg).toContain('HTTP 400')
+      expect(meta.body.length).toBeLessThan(500)
+      expect(meta.body).toContain('...(truncated)')
+      expect(meta.status).toBe(400)
     }
   })
 
@@ -41,9 +49,9 @@ describe('IamHttpAdapter error body cap', () => {
       await adapter.listPolicies()
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg).toContain('validation failed for field X')
-      expect(msg).not.toContain('...(truncated)')
+      const meta = responseErrorMeta(err)
+      expect(meta.body).toContain('validation failed for field X')
+      expect(meta.body).not.toContain('...(truncated)')
     }
   })
 
@@ -55,10 +63,9 @@ describe('IamHttpAdapter error body cap', () => {
       await adapter.listPolicies()
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg).toContain('...(truncated)')
-      // 200-char body + marker, plus the framing prefix.
-      expect(msg).toContain('A'.repeat(200))
+      const meta = responseErrorMeta(err)
+      expect(meta.body).toContain('...(truncated)')
+      expect(meta.body).toContain('A'.repeat(200))
     }
   })
 
@@ -70,8 +77,8 @@ describe('IamHttpAdapter error body cap', () => {
       await adapter.listPolicies()
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg).not.toContain('...(truncated)')
+      const meta = responseErrorMeta(err)
+      expect(meta.body).not.toContain('...(truncated)')
     }
   })
 
@@ -90,9 +97,10 @@ describe('IamHttpAdapter error body cap', () => {
       await adapter.listPolicies()
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
+      const meta = responseErrorMeta(err)
       // Caps to empty string rather than crashing on the body read.
-      expect(msg).toContain('HTTP 500')
+      expect(meta.status).toBe(500)
+      expect(meta.body).toBe('')
     }
   })
 
@@ -104,10 +112,10 @@ describe('IamHttpAdapter error body cap', () => {
       await adapter.listPolicies()
       throw new Error('expected throw')
     } catch (err) {
-      const msg = (err as Error).message
-      expect(msg.length).toBeLessThan(500)
-      expect(msg).toContain('HTTP 503')
-      expect(msg).toContain('...(truncated)')
+      const meta = responseErrorMeta(err)
+      expect(meta.body.length).toBeLessThan(500)
+      expect(meta.status).toBe(503)
+      expect(meta.body).toContain('...(truncated)')
     }
   })
 })
