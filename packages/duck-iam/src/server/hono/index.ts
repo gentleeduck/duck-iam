@@ -67,6 +67,8 @@ export namespace IamHono {
    * Options for the Hono {@link iamAccessMiddleware} and {@link iamGuard}; every extractor has a default.
    *
    * @template TScope - Constrains valid scope strings.
+   * @template TAction - Constrains valid action strings.
+   * @template TResource - Constrains valid resource strings.
    */
   export interface IOptions<
     TScope extends string = string,
