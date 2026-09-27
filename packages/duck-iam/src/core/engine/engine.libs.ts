@@ -101,7 +101,7 @@ function assertValidOrThrow(kind: 'policy' | 'role', result: IamValidate.IResult
   )
 }
 
-function assertNonEmptyStringParam(name: string, value: unknown): asserts value is string {
+export function assertNonEmptyStringParam(name: string, value: unknown): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
     const got = value === null ? 'null' : typeof value
     throw new Error(`[@gentleduck/iam:engine] ${name} must be a non-empty string (got ${got})`)
