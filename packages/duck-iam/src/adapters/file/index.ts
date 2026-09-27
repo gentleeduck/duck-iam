@@ -25,6 +25,17 @@ import {
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
+/** Every stored row in a record, deep-cloned so edits to the result cannot reach the store. */
+function listRows<T>(record: Record<string, T>): T[] {
+  return Object.values(record).map(iamCloneRow)
+}
+
+/** One stored row by id, deep-cloned, or `null` when absent. */
+function getRow<T>(record: Record<string, T>, id: string): T | null {
+  const row = record[id]
+  return row === undefined ? null : iamCloneRow(row)
+}
+
 /** Types for the JSON-file adapter. Type-only namespace - zero bundle cost. */
 export namespace IamFile {
   /**
@@ -113,6 +124,11 @@ export namespace IamFile {
  * SECURITY: the warning omits the path so logs cannot act as a path-existence oracle.
  */
 let _ROOTDIR_WARNED_FIRED = false
+
+/** A caught value's `.code` (Node's errno tag), or `undefined` when the value carries none. */
+function errorCode(err: unknown): unknown {
+  return err !== null && err !== undefined ? Reflect.get(Object(err), 'code') : undefined
+}
 
 /**
  * Persists the access store as a single JSON file; single-writer model (no external locking).
@@ -203,14 +219,13 @@ export class IamFileAdapter<
       canonical = await this._fs.realpath(this._path)
     } catch (err) {
       // SECURITY: non-ENOENT failures must propagate; hostile symlinks could bypass containment.
-      const code = err !== null && err !== undefined ? Reflect.get(Object(err), 'code') : undefined
+      const code = errorCode(err)
       if (code && code !== 'ENOENT') throw err
       try {
         const canonicalParent = await this._fs.realpath(this._parentDir)
         canonical = nodePath.join(canonicalParent, nodePath.basename(this._path))
       } catch (parentErr) {
-        const parentCode =
-          parentErr !== null && parentErr !== undefined ? Reflect.get(Object(parentErr), 'code') : undefined
+        const parentCode = errorCode(parentErr)
         if (parentCode && parentCode !== 'ENOENT') throw parentErr
         // Parent missing too: the read path's ENOENT branch handles it and the write path reports it.
         return
@@ -266,7 +281,7 @@ export class IamFileAdapter<
           raw = await this._fs.readFile(this._path, 'utf8')
         } catch (err) {
           // Only ENOENT is recoverable; anything else must surface.
-          const code = err !== null && err !== undefined ? Reflect.get(Object(err), 'code') : undefined
+          const code = errorCode(err)
           if (code !== 'ENOENT') {
             throw new Error(`[@gentleduck/iam:file] load failed (${code ?? 'unknown'}): ${toErrorMessage(err)}`)
           }
@@ -405,7 +420,7 @@ export class IamFileAdapter<
       await this._fs.mkdir(this._parentDir)
     } catch (err) {
       // EEXIST is the happy path; anything else surfaces.
-      const code = err !== null && err !== undefined ? Reflect.get(Object(err), 'code') : undefined
+      const code = errorCode(err)
       if (code !== 'EEXIST') {
         throw new Error(
           `[@gentleduck/iam:file] IamFileAdapter parent directory "${this._parentDir}" is not accessible (${code ?? 'unknown'}). ` +
@@ -428,7 +443,7 @@ export class IamFileAdapter<
   /** Lists every policy persisted on disk. */
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const s = await this._loadState()
-    return Object.values(s.policies).map(iamCloneRow)
+    return listRows(s.policies)
   }
 
   /** Fetches a policy by ID, or `null` when absent. */
@@ -437,8 +452,7 @@ export class IamFileAdapter<
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const s = await this._loadState()
-    const p = s.policies[id]
-    return p === undefined ? null : iamCloneRow(p)
+    return getRow(s.policies, id)
   }
 
   /** Stores or overwrites a policy and flushes to disk. */
@@ -459,7 +473,7 @@ export class IamFileAdapter<
   /** Lists every role persisted on disk. */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const s = await this._loadState()
-    return Object.values(s.roles).map(iamCloneRow)
+    return listRows(s.roles)
   }
 
   /** Fetches a role by ID, or `null` when absent. */
@@ -468,8 +482,7 @@ export class IamFileAdapter<
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const s = await this._loadState()
-    const r = s.roles[id]
-    return r === undefined ? null : iamCloneRow(r)
+    return getRow(s.roles, id)
   }
 
   /** Stores or overwrites a role and flushes to disk. */
