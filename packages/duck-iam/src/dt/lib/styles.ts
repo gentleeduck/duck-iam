@@ -543,6 +543,7 @@ const CSS = `
 
 /* Shared bits. */
 .iam-dt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.iam-dt-row--inline { display: inline-flex; align-items: center; gap: 6px; }
 .iam-dt-col { display: flex; flex-direction: column; gap: 8px; }
 .iam-dt-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 @media (max-width: 600px) { .iam-dt-grid-2 { grid-template-columns: 1fr; } }

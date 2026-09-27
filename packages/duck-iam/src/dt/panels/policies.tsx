@@ -49,7 +49,7 @@ export function IamPoliciesPanel({ engine }: IamEnginePanelProps) {
               onClick={() => setSelected(p.id)}
               primary={p.id}
               secondary={
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span className="iam-dt-row--inline">
                   {p.rules.length} rules
                   <span className="iam-dt-sep" />
                   {p.algorithm}
