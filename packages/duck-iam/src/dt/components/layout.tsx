@@ -161,6 +161,11 @@ export function DetailEmpty({ message }: { message: string }) {
   return <div className="iam-dt-empty iam-dt-empty--fill">{message}</div>
 }
 
+/** A detail pane's header bar once something is selected: id, name, and whatever badges the panel adds. */
+export function DetailHead({ children }: { children: React.ReactNode }) {
+  return <div className="iam-dt-detail__head">{children}</div>
+}
+
 /** Controlled search input above a list; the placeholder doubles as its `aria-label`. */
 export function FilterBar({
   value,
