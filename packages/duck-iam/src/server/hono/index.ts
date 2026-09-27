@@ -13,6 +13,7 @@ import {
   type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
+  type IamResourceAttributesContext,
   iamActionForMethod,
   iamAdminActorOptions,
   iamAuditIdOf,
@@ -464,7 +465,7 @@ export function iamGuard<
      */
     getResourceAttributes?: (
       c: HonoContext,
-      ctx: { action: TAction; resource: TResource; resourceId: string | undefined; scope: TScope | undefined },
+      ctx: IamResourceAttributesContext<TAction, TResource, TScope>,
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
   } = {},
 ): HonoMiddleware {

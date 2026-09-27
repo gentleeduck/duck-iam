@@ -14,6 +14,7 @@ import {
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
   type IamIAdminAuthzOk,
+  type IamResourceAttributesContext,
   iamActionForMethod,
   iamAdminActorOptions,
   iamAuditIdOf,
@@ -249,7 +250,7 @@ export function iamGuard<
      */
     getResourceAttributes?: (
       req: Req,
-      ctx: { action: TAction; resource: TResource; resourceId: string | undefined; scope: TScope | undefined },
+      ctx: IamResourceAttributesContext<TAction, TResource, TScope>,
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
   } = {},
 ): Middleware {
