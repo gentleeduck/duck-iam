@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode, type IamError, metaOf } from '../../../core/errors'
 import type { IamClient } from '../../../core/types'
 import { IamAccessClient, iamAccessClient } from '../index'
 
@@ -221,7 +222,16 @@ describe('IamAccessClient.fromServer', () => {
       json: async () => ({}),
     })) as unknown as typeof fetch
 
-    await expect(IamAccessClient.fromServer('/api/permissions')).rejects.toThrow('Failed to fetch permissions: 403')
+    const err = await IamAccessClient.fromServer('/api/permissions').then(
+      () => {
+        throw new Error('expected fromServer() to throw')
+      },
+      (e: unknown) => e,
+    )
+    expect(hasIamErrorCode(err, 'IAM_CLIENT_PERMISSIONS_FETCH_FAILED')).toBe(true)
+    expect(
+      metaOf(err as IamError<'IAM_CLIENT_PERMISSIONS_FETCH_FAILED'>, 'IAM_CLIENT_PERMISSIONS_FETCH_FAILED').status,
+    ).toBe(403)
   })
 
   it('does not read the body when the response is not ok', async () => {
