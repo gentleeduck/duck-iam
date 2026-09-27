@@ -1,0 +1,104 @@
+---
+title: "Interface: IPolicy<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string>"
+description: "An ABAC policy: named collection of IRule objects plus a CombiningAlgorithm. Cross-policy decisions are merged by the engine according to its policyCombine setting (default 'and')."
+---
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:148](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L148)
+
+An ABAC policy: named collection of [IRule](IRule) objects plus a
+[CombiningAlgorithm](../type-aliases/CombiningAlgorithm). Cross-policy decisions are merged by the
+engine according to its `policyCombine` setting (default `'and'`).
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings.
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings.
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+Union of valid role IDs targeted by `targets.roles`.
+
+## Properties
+
+### algorithm
+
+> `readonly` **algorithm**: [`CombiningAlgorithm`](../type-aliases/CombiningAlgorithm)
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:158](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L158)
+
+***
+
+### description?
+
+> `readonly` `optional` **description?**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:155](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L155)
+
+***
+
+### id
+
+> `readonly` **id**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:153](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L153)
+
+***
+
+### name
+
+> `readonly` **name**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:154](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L154)
+
+***
+
+### rules
+
+> `readonly` **rules**: readonly [`IRule`](IRule)\<`TAction`, `TResource`\>[]
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:159](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L159)
+
+***
+
+### targets?
+
+> `readonly` `optional` **targets?**: \{ `actions?`: readonly (`TAction` \| `"*"`)[]; `resources?`: readonly (`TResource` \| `"*"`)[]; `roles?`: readonly `TRole`[]; \}
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:164](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L164)
+
+Optional target constraints. The policy is skipped (NotApplicable) when
+any specified dimension does not match the request.
+
+#### actions?
+
+> `readonly` `optional` **actions?**: readonly (`TAction` \| `"*"`)[]
+
+#### resources?
+
+> `readonly` `optional` **resources?**: readonly (`TResource` \| `"*"`)[]
+
+#### roles?
+
+> `readonly` `optional` **roles?**: readonly `TRole`[]
+
+***
+
+### version?
+
+> `readonly` `optional` **version?**: `number`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:157](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L157)
+
+Version for tracking policy changes over time.
+

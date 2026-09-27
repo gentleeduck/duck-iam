@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../packages/duck-iam/tsconfig.json",
+  "include": ["../../packages/duck-iam/src/**/*"],
+  "exclude": [
+    "../../packages/duck-iam/node_modules",
+    "../../packages/duck-iam/dist",
+    "../../packages/duck-iam/src/**/__tests__/**",
+    "../../packages/duck-iam/src/**/*.test.ts",
+    "../../packages/duck-iam/src/**/*.e2e.test.ts"
+  ]
+}

@@ -1,0 +1,18 @@
+---
+title: "Pending"
+description: "Cache invalidations and mutation events a transaction-bound admin holds until the caller's transaction commits. A rollback discards them, so no node's cache is evicted for a write that never happened."
+---
+
+Cache invalidations and mutation events a transaction-bound admin holds until the caller's transaction commits.
+A rollback discards them, so no node's cache is evicted for a write that never happened.
+
+## Interfaces
+
+- [Effects](interfaces/Effects)
+- [ICacheSink](interfaces/ICacheSink)
+- [IMutationSink](interfaces/IMutationSink)
+
+## Type Aliases
+
+- [Invalidation](type-aliases/Invalidation)
+

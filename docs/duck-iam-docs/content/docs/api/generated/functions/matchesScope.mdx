@@ -1,0 +1,26 @@
+---
+title: "Function: matchesScope()"
+description: "Whether a request scope matches a rule's pattern: undefined / null / '*' match any scope, else exact match. SECURITY: '' is an ordinary scope value, never a wildcard."
+---
+
+> **matchesScope**(`pattern`: `string` \| `null` \| `undefined`, `scope`: `string` \| `null` \| `undefined`): `boolean`
+
+Defined in: [packages/duck-iam/src/core/resolve/resolve.ts:128](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/resolve/resolve.ts#L128)
+
+Whether a request scope matches a rule's pattern: `undefined` / `null` / `'*'` match any scope, else exact match.
+SECURITY: `''` is an ordinary scope value, never a wildcard.
+
+## Parameters
+
+### pattern
+
+`string` \| `null` \| `undefined`
+
+### scope
+
+`string` \| `null` \| `undefined`
+
+## Returns
+
+`boolean`
+

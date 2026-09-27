@@ -1,0 +1,21 @@
+---
+title: "Explain"
+description: "The decision trace: every policy and rule consulted, what each voted, and which one decided. Type-only. PERF: produced by engine.explain(), never by can(), so reconstructing the reasoning never taxes the fast path."
+---
+
+The decision trace: every policy and rule consulted, what each voted, and which one decided. Type-only.
+PERF: produced by `engine.explain()`, never by `can()`, so reconstructing the reasoning never taxes the fast path.
+
+## Interfaces
+
+- [IGroupTrace](interfaces/IGroupTrace)
+- [ILeafTrace](interfaces/ILeafTrace)
+- [IPolicyTrace](interfaces/IPolicyTrace)
+- [IResult](interfaces/IResult)
+- [IRuleTrace](interfaces/IRuleTrace)
+- [ISubjectInfo](interfaces/ISubjectInfo)
+
+## Type Aliases
+
+- [Trace](type-aliases/Trace)
+

@@ -1,0 +1,27 @@
+---
+title: "Type Alias: AttrValueAt<T, P *extends* string>"
+description: "Value at a dot-path inside an attribute-bag; never on invalid path. NOTE: identical recursion to PathValue, kept as its own name since it's read at the attribute-bag boundary (AttrValue below) rather than the whole context - delegates so the two can't drift apart."
+---
+
+> **AttrValueAt**\<`T`, `P` *extends* `string`\> = [`PathValue`](PathValue)\<`T`, `P`\>
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:214](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L214)
+
+Value at a dot-path inside an attribute-bag; `never` on invalid path.
+NOTE: identical recursion to [PathValue](PathValue), kept as its own name since it's read at the attribute-bag
+boundary ([AttrValue](AttrValue) below) rather than the whole context - delegates so the two can't drift apart.
+
+## Type Parameters
+
+### T
+
+`T`
+
+The attribute-bag object type.
+
+### P
+
+`P` *extends* `string`
+
+The dot-separated path string.
+

@@ -1,0 +1,19 @@
+---
+title: "Type Alias: SubjectAttrShape<TContext>"
+description: "Subject attribute-bag from a context; never when missing."
+---
+
+> **SubjectAttrShape**\<`TContext`\> = `TContext` *extends* \{ `subject`: \{ `attributes`: infer A; \}; \} ? `A` : `never`
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:119](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L119)
+
+Subject attribute-bag from a context; `never` when missing.
+
+## Type Parameters
+
+### TContext
+
+`TContext`
+
+The full evaluation context type.
+

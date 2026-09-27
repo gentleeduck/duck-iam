@@ -1,0 +1,17 @@
+---
+title: "Evaluate"
+description: "Evaluator internals, type-only: the combining-algorithm signature and the per-policy rule index the fast path uses. Rules are bucketed by whichever of action / resource is literal, so a request scans few wildcard rules."
+---
+
+Evaluator internals, type-only: the combining-algorithm signature and the per-policy rule index the fast path uses.
+Rules are bucketed by whichever of `action` / `resource` is literal, so a request scans few wildcard rules.
+
+## Interfaces
+
+- [IIndexedRule](interfaces/IIndexedRule)
+- [IPolicyRuleIndex](interfaces/IPolicyRuleIndex)
+
+## Type Aliases
+
+- [Combiner](type-aliases/Combiner)
+

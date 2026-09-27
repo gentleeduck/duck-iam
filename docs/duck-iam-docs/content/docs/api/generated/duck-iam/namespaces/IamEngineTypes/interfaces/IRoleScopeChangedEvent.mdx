@@ -1,0 +1,91 @@
+---
+title: "Interface: IRoleScopeChangedEvent<TRole *extends* string = string, TScope *extends* string = string>"
+description: "An existing assignment moved between scopes."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:256](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L256)
+
+An existing assignment moved between scopes.
+
+## Extends
+
+- [`IMutationBase`](IMutationBase)
+
+## Type Parameters
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+## Properties
+
+### actor?
+
+> `readonly` `optional` **actor?**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:200](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L200)
+
+Who made the change, when the caller supplied it.
+
+#### Inherited from
+
+[`IMutationBase`](IMutationBase).[`actor`](IMutationBase#actor)
+
+***
+
+### at
+
+> `readonly` **at**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:198](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L198)
+
+`Date.now()` at the moment the write completed.
+
+#### Inherited from
+
+[`IMutationBase`](IMutationBase).[`at`](IMutationBase#at)
+
+***
+
+### fromScope?
+
+> `readonly` `optional` **fromScope?**: `TScope`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:261](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L261)
+
+***
+
+### roleId
+
+> `readonly` **roleId**: `TRole`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:260](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L260)
+
+***
+
+### subjectId
+
+> `readonly` **subjectId**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:259](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L259)
+
+***
+
+### toScope?
+
+> `readonly` `optional` **toScope?**: `TScope`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:262](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L262)
+
+***
+
+### type
+
+> `readonly` **type**: `"role.scope-changed"`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:258](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L258)
+

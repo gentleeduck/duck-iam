@@ -1,0 +1,67 @@
+---
+title: "Interface: IAssignRow<TRole *extends* string = string, TScope *extends* string = string>"
+description: "A triple plus the per-grant extras ISubjectStore.assignRole accepts."
+---
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:29](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L29)
+
+A triple plus the per-grant extras [ISubjectStore.assignRole](ISubjectStore#assignrole) accepts.
+
+## Extends
+
+- [`ITripleRow`](ITripleRow)\<`TRole`, `TScope`\>
+
+## Type Parameters
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+## Properties
+
+### opts?
+
+> `readonly` `optional` **opts?**: [`IAssignOptions`](IAssignOptions)
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:31](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L31)
+
+***
+
+### roleId
+
+> `readonly` **roleId**: `TRole`
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:24](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L24)
+
+#### Inherited from
+
+[`ITripleRow`](ITripleRow).[`roleId`](ITripleRow#roleid)
+
+***
+
+### scope?
+
+> `readonly` `optional` **scope?**: `TScope`
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:25](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L25)
+
+#### Inherited from
+
+[`ITripleRow`](ITripleRow).[`scope`](ITripleRow#scope)
+
+***
+
+### subjectId
+
+> `readonly` **subjectId**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:23](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L23)
+
+#### Inherited from
+
+[`ITripleRow`](ITripleRow).[`subjectId`](ITripleRow#subjectid)
+

@@ -1,0 +1,54 @@
+---
+title: "Interface: IIndexedRule"
+description: "A rule plus its action / resource pattern sets, as held inside a IPolicyRuleIndex."
+---
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L15)
+
+A rule plus its `action` / `resource` pattern sets, as held inside a [IPolicyRuleIndex](IPolicyRuleIndex).
+
+## Properties
+
+### actions
+
+> `readonly` **actions**: `Set`\<`string`\>
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L17)
+
+***
+
+### hasConditions
+
+> `readonly` **hasConditions**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:20](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L20)
+
+Pre-computed `!matchesUnconditionally(rule.conditions)`. PERF: decided once per index, not per request.
+
+***
+
+### order
+
+> `readonly` **order**: `number`
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L25)
+
+Position of this rule in `policy.rules`. The fast path visits literal buckets first, so bucket order is not
+source order; `first-match` / `highest-priority` break ties on this to stay faithful to the interpreter.
+
+***
+
+### resources
+
+> `readonly` **resources**: `Set`\<`string`\>
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:18](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L18)
+
+***
+
+### rule
+
+> `readonly` **rule**: [`IRule`](../../AccessControl/interfaces/IRule)
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L16)
+

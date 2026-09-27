@@ -1,0 +1,107 @@
+---
+title: "Interface: IDefaultContext"
+description: "Default evaluation context shape with open attribute bags."
+---
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:256](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L256)
+
+Default evaluation context shape with open attribute bags.
+
+## Example
+
+```ts
+const ctx: DotPath.IDefaultContext = {
+  action: 'read',
+  subject: { id: 'u-1', roles: ['editor'], attributes: { tier: 'gold' } },
+  resource: { type: 'post', id: 'p-42', attributes: { ownerId: 'u-1' } },
+  environment: { hour: 14 },
+  scope: 'org-acme',
+}
+```
+
+## Properties
+
+### action
+
+> **action**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:258](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L258)
+
+The action being performed (e.g. `'read'`, `'update'`).
+
+***
+
+### environment
+
+> **environment**: [`IAnyAttributes`](IAnyAttributes)
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:278](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L278)
+
+Environment attribute bag (e.g. `{ hour: 14, maintenanceMode: false }`).
+
+***
+
+### resource
+
+> **resource**: \{ `attributes`: [`IAnyAttributes`](IAnyAttributes); `id?`: `string`; `type`: `string`; \}
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:269](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L269)
+
+The target resource being accessed.
+
+#### attributes
+
+> **attributes**: [`IAnyAttributes`](IAnyAttributes)
+
+Resource attribute bag (e.g. `{ ownerId: 'user-1', status: 'published' }`).
+
+#### id?
+
+> `optional` **id?**: `string`
+
+Optional resource instance ID.
+
+#### type
+
+> **type**: `string`
+
+Resource type string (e.g. `'post'`, `'comment'`).
+
+***
+
+### scope
+
+> **scope**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:280](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L280)
+
+Authorization scope for multi-tenant applications (e.g. `'org-acme'`).
+
+***
+
+### subject
+
+> **subject**: \{ `attributes`: [`IAnyAttributes`](IAnyAttributes); `id`: `string`; `roles`: `string`[]; \}
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:260](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L260)
+
+The authenticated subject making the request.
+
+#### attributes
+
+> **attributes**: [`IAnyAttributes`](IAnyAttributes)
+
+Subject attribute bag (e.g. `{ department: 'engineering', status: 'active' }`).
+
+#### id
+
+> **id**: `string`
+
+Unique subject identifier.
+
+#### roles
+
+> **roles**: `string`[]
+
+Flat list of effective role IDs.
+

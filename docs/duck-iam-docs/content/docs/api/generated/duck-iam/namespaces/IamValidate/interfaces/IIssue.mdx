@@ -1,0 +1,59 @@
+---
+title: "Interface: IIssue"
+description: "A single validation issue; errors flip IResult.valid to false, warnings do not."
+---
+
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:37](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L37)
+
+A single validation issue; errors flip [IResult.valid](IResult#valid) to `false`, warnings do not.
+
+## Properties
+
+### code
+
+> `readonly` **code**: [`ValidationCode`](../type-aliases/ValidationCode)
+
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:41](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L41)
+
+Machine-readable code - see [ValidationCode](../type-aliases/ValidationCode).
+
+***
+
+### message
+
+> `readonly` **message**: `string`
+
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:43](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L43)
+
+Human-readable description.
+
+***
+
+### path?
+
+> `readonly` `optional` **path?**: `string`
+
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:47](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L47)
+
+Dot-path into the offending field, when emitted by policy validation.
+
+***
+
+### roleId?
+
+> `readonly` `optional` **roleId?**: `string`
+
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:45](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L45)
+
+Role ID involved, when emitted by role validation.
+
+***
+
+### type
+
+> `readonly` **type**: `"error"` \| `"warning"`
+
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:39](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L39)
+
+`'error'` blocks usage, `'warning'` is informational.
+

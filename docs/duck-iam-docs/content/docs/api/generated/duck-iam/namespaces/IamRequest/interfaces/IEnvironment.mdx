@@ -1,0 +1,50 @@
+---
+title: "Interface: IEnvironment"
+description: "Request-level context such as client IP, user agent or feature flags; custom keys are allowed."
+---
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:57](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L57)
+
+Request-level context such as client IP, user agent or feature flags; custom keys are allowed.
+
+## Indexable
+
+> \[`key`: `string`\]: [`AttributeValue`](../../IamPrimitives/type-aliases/AttributeValue) \| `undefined`
+
+## Properties
+
+### ip?
+
+> `readonly` `optional` **ip?**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:58](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L58)
+
+***
+
+### now?
+
+> `readonly` `optional` **now?**: `number`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:66](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L66)
+
+Evaluation clock in epoch ms, read by rules as `$environment.now`; the engine injects `Date.now()` when absent.
+Set it in tests or a `beforeEvaluate` hook to pin the clock.
+
+***
+
+### timestamp?
+
+> `readonly` `optional` **timestamp?**: `number`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:61](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L61)
+
+Request timestamp in milliseconds since epoch.
+
+***
+
+### userAgent?
+
+> `readonly` `optional` **userAgent?**: `string`
+
+Defined in: [packages/duck-iam/src/core/types/request.ts:59](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L59)
+

@@ -1,0 +1,33 @@
+---
+title: "AccessControl"
+description: "The authorization model: policies, rules, roles and the algorithms that combine their votes. Type-only. Generic over the caller's action/resource/role/scope unions, so a typo in a rule is a compile error."
+---
+
+The authorization model: policies, rules, roles and the algorithms that combine their votes. Type-only.
+Generic over the caller's action/resource/role/scope unions, so a typo in a rule is a compile error.
+
+## Interfaces
+
+- [ICondition](interfaces/ICondition)
+- [IConditionAll](interfaces/IConditionAll)
+- [IConditionAny](interfaces/IConditionAny)
+- [IConditionNone](interfaces/IConditionNone)
+- [IDecision](interfaces/IDecision)
+- [IPermission](interfaces/IPermission)
+- [IPolicy](interfaces/IPolicy)
+- [IRole](interfaces/IRole)
+- [IRule](interfaces/IRule)
+
+## Type Aliases
+
+- [CombiningAlgorithm](type-aliases/CombiningAlgorithm)
+- [Effect](type-aliases/Effect)
+- [IConditionGroup](type-aliases/IConditionGroup)
+- [Mode](type-aliases/Mode)
+- [ModePermissionMap](type-aliases/ModePermissionMap)
+- [ModeResult](type-aliases/ModeResult)
+- [Operator](type-aliases/Operator)
+- [OpFn](type-aliases/OpFn)
+- [PolicyCombine](type-aliases/PolicyCombine)
+- [PolicyErrorHandler](type-aliases/PolicyErrorHandler)
+

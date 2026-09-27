@@ -1,0 +1,22 @@
+---
+title: "Function: iamMatchesUnconditionally()"
+description: "Whether evalConditionGroup returns true for this group on any request: {}, empty all, empty none. WARN: an empty any is always false, not unconditional; key precedence must match evalConditionGroup."
+---
+
+> **iamMatchesUnconditionally**(`group`: [`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| `undefined`): `boolean`
+
+Defined in: [packages/duck-iam/src/core/conditions/conditions.ts:113](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/conditions/conditions.ts#L113)
+
+Whether [evalConditionGroup](iamEvalConditionGroup) returns `true` for this group on any request: `{}`, empty `all`, empty `none`.
+WARN: an empty `any` is always `false`, not unconditional; key precedence must match `evalConditionGroup`.
+
+## Parameters
+
+### group
+
+[`IConditionGroup`](../duck-iam/namespaces/AccessControl/type-aliases/IConditionGroup) \| `undefined`
+
+## Returns
+
+`boolean`
+

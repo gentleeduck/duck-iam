@@ -1,0 +1,94 @@
+---
+title: "Interface: IMetricsEvent<TAction *extends* string = string, TResource *extends* string = string>"
+description: "Primitive-only event emitted after every evaluation, so production mode gets telemetry without a decision object."
+---
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:172](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L172)
+
+Primitive-only event emitted after every evaluation, so production mode gets telemetry without a decision object.
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings.
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings.
+
+## Properties
+
+### action
+
+> `readonly` **action**: `TAction`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:176](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L176)
+
+The action that was checked.
+
+***
+
+### allowed
+
+> `readonly` **allowed**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:180](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L180)
+
+Final allow / deny verdict.
+
+***
+
+### durationMs
+
+> `readonly` **durationMs**: `number`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:182](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L182)
+
+Wall-clock duration of the evaluation in milliseconds.
+
+***
+
+### failOpen
+
+> `readonly` **failOpen**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:189](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L189)
+
+`true` when an allow rests on the `defaultEffect: 'allow'` fallback rather than a rule; always `false` on deny.
+Chart it to catch a broken policy set that the verdict alone hides.
+
+***
+
+### mode
+
+> `readonly` **mode**: [`Mode`](../../AccessControl/type-aliases/Mode)
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:184](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L184)
+
+Engine mode in effect (`'production'` or `'development'`).
+
+***
+
+### resource
+
+> `readonly` **resource**: `TResource`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:178](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L178)
+
+The resource type that was checked.
+
+***
+
+### subjectId
+
+> `readonly` **subjectId**: `string`
+
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:174](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L174)
+
+The subject ID the check ran against.
+

@@ -1,0 +1,20 @@
+---
+title: "Type Alias: CombiningAlgorithm"
+description: "Intra-policy rule conflict resolution."
+---
+
+> **CombiningAlgorithm** = `"deny-overrides"` \| `"allow-overrides"` \| `"first-match"` \| `"highest-priority"`
+
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:126](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L126)
+
+Intra-policy rule conflict resolution.
+
+| Algorithm | Behavior |
+|---|---|
+| `deny-overrides` | Any deny wins. Default. |
+| `allow-overrides` | Any allow wins. Best for RBAC / permissive rules. |
+| `first-match` | Highest-priority match wins; ties resolved by source order. |
+| `highest-priority` | Identical to `first-match`. |
+
+WARN: source order is the adapter's row order; give the rule meant to win a higher priority instead.
+

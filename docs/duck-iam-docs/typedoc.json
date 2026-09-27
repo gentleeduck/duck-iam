@@ -1,0 +1,20 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "duck-iam",
+  "entryPoints": ["../../packages/duck-iam/src/index.ts"],
+  "tsconfig": "./tsconfig.typedoc.json",
+  "out": "content/docs/api/generated",
+  "plugin": ["typedoc-plugin-markdown"],
+  "readme": "none",
+  "skipErrorChecking": true,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "githubPages": false,
+  "sourceLinkTemplate": "https://github.com/gentleeduck/duck-iam/blob/{gitRevision}/{path}#L{line}",
+  "hidePageHeader": true,
+  "hideBreadcrumbs": true,
+  "expandObjects": true,
+  "expandParameters": true,
+  "useFirstParagraphOfCommentAsSummary": true
+}

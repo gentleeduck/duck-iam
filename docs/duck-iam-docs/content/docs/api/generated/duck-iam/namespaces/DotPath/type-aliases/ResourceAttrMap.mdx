@@ -1,0 +1,19 @@
+---
+title: "Type Alias: ResourceAttrMap<TContext>"
+description: "Per-resource attribute map declared via resourceAttributes; never when absent."
+---
+
+> **ResourceAttrMap**\<`TContext`\> = `TContext` *extends* \{ `resourceAttributes`: infer M; \} ? `M` : `never`
+
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:177](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L177)
+
+Per-resource attribute map declared via `resourceAttributes`; `never` when absent.
+
+## Type Parameters
+
+### TContext
+
+`TContext`
+
+The full evaluation context type.
+

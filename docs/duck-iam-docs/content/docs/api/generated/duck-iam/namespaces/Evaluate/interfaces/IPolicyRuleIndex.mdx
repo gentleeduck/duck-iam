@@ -1,0 +1,73 @@
+---
+title: "Interface: IPolicyRuleIndex"
+description: "Pre-computed index over a policy's rules: O(1) on an exact key, and an expansive (*, foo:*, foo.*) side is bucketed by whichever side is still literal. Built once per rules array and cached in a WeakMap."
+---
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:32](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L32)
+
+Pre-computed index over a policy's rules: O(1) on an exact key, and an expansive (`*`, `foo:*`, `foo.*`) side
+is bucketed by whichever side is still literal. Built once per `rules` array and cached in a WeakMap.
+
+## Properties
+
+### byActionResource
+
+> `readonly` **byActionResource**: `Map`\<`string`, `Map`\<`string`, [`IIndexedRule`](IIndexedRule)[]\>\>
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:37](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L37)
+
+Two-level literal action -> literal resource -> rules; covers rules with no expansive pattern.
+SECURITY: not a single `` `${action}\0${resource}` `` key, which is not injective. See `addToPairBucket`.
+
+***
+
+### byActionWildcardResource
+
+> `readonly` **byActionWildcardResource**: `Map`\<`string`, [`IIndexedRule`](IIndexedRule)[]\>
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:39](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L39)
+
+Literal action -> rules whose resource is expansive; resource still needs a match check.
+
+***
+
+### byResourceWildcardAction
+
+> `readonly` **byResourceWildcardAction**: `Map`\<`string`, [`IIndexedRule`](IIndexedRule)[]\>
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:41](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L41)
+
+Literal resource -> rules whose action is expansive; action still needs a match check.
+
+***
+
+### mayThrow
+
+> `readonly` **mayThrow**: `boolean`
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:51](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L51)
+
+Some rule carries a condition that can throw; `conditionMayThrow` decides which shapes count.
+SECURITY: such a policy is Indeterminate as a whole, so the fast path hands it to the interpreter rather
+than reaching a verdict before the throwing rule runs.
+
+***
+
+### precomputed
+
+> `readonly` **precomputed**: `Map`\<`string`, `Map`\<`string`, `boolean`\>\>
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:45](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L45)
+
+`action -> resource -> allowed` for unconditional rules in a wildcardless policy; empty otherwise.
+
+***
+
+### wildcardBoth
+
+> `readonly` **wildcardBoth**: [`IIndexedRule`](IIndexedRule)[]
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.types.ts:43](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.types.ts#L43)
+
+Rules with an expansive action AND an expansive resource - neither side is indexable; matched by scan.
+

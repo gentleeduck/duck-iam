@@ -1,0 +1,289 @@
+---
+title: "Class: PolicyBuilder<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string, TContext *extends* object = IDefaultContext>"
+description: "Chainable builder for an ABAC AccessControl.IPolicy: time windows, geo-fencing, maintenance guards. .algorithm() resolves conflicts between its rules; AccessControl.PolicyCombine merges policies."
+---
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:34](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L34)
+
+Chainable builder for an ABAC [AccessControl.IPolicy](../duck-iam/namespaces/AccessControl/interfaces/IPolicy): time windows, geo-fencing, maintenance guards.
+`.algorithm()` resolves conflicts between its rules; [AccessControl.PolicyCombine](../duck-iam/namespaces/AccessControl/type-aliases/PolicyCombine) merges policies.
+
+## Example
+
+```typescript
+import { definePolicy } from '@gentleduck/iam'
+
+const weekendDeny = definePolicy('deny-weekends')
+  .name('Deny on Weekends')
+  .desc('Block all write operations on weekends')
+  .version(1)
+  .algorithm('deny-overrides')
+  .rule('r-deny-weekends', r => r
+    .deny()
+    .on('create', 'update', 'delete')
+    .of('*')
+    .when(w => w.env('dayOfWeek', 'in', [0, 6]))
+  )
+  .build()
+```
+
+## Type Parameters
+
+### TAction
+
+`TAction` *extends* `string` = `string`
+
+Union of valid action strings.
+
+### TResource
+
+`TResource` *extends* `string` = `string`
+
+Union of valid resource strings.
+
+### TRole
+
+`TRole` *extends* `string` = `string`
+
+Union of valid role strings.
+
+### TScope
+
+`TScope` *extends* `string` = `string`
+
+Union of valid scope strings.
+
+### TContext
+
+`TContext` *extends* `object` = [`IDefaultContext`](../duck-iam/namespaces/DotPath/interfaces/IDefaultContext)
+
+Shape of the full evaluation context for typed dot-paths.
+
+## Constructors
+
+### Constructor
+
+> **new PolicyBuilder**\<`TAction` *extends* `string` = `string`, `TResource` *extends* `string` = `string`, `TRole` *extends* `string` = `string`, `TScope` *extends* `string` = `string`, `TContext` *extends* `object` = [`IDefaultContext`](../duck-iam/namespaces/DotPath/interfaces/IDefaultContext)\>(`id`: `string`): `PolicyBuilder`\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`\>
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:49](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L49)
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`PolicyBuilder`\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`\>
+
+## Methods
+
+### addRule()
+
+> **addRule**(`rule`: [`IRule`](../duck-iam/namespaces/AccessControl/interfaces/IRule)\<`TAction`, `TResource`\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:142](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L142)
+
+Adds a pre-built [AccessControl.IRule](../duck-iam/namespaces/AccessControl/interfaces/IRule), e.g. one from `defineRule`.
+
+#### Parameters
+
+##### rule
+
+[`IRule`](../duck-iam/namespaces/AccessControl/interfaces/IRule)\<`TAction`, `TResource`\>
+
+#### Returns
+
+`this`
+
+#### Example
+
+```typescript
+import { defineRule } from '@gentleduck/iam'
+
+const denyDrafts = defineRule('deny-drafts')
+  .deny()
+  .on('read')
+  .of('post')
+  .when(w => w.resourceAttr('status', 'eq', 'draft'))
+  .build()
+
+definePolicy('post-access').addRule(denyDrafts)
+```
+
+***
+
+### algorithm()
+
+> **algorithm**(`a`: [`CombiningAlgorithm`](../duck-iam/namespaces/AccessControl/type-aliases/CombiningAlgorithm)): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:76](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L76)
+
+Sets how conflicts between this policy's rules resolve; defaults to `'deny-overrides'`.
+See [AccessControl.CombiningAlgorithm](../duck-iam/namespaces/AccessControl/type-aliases/CombiningAlgorithm) for what each algorithm does.
+
+#### Parameters
+
+##### a
+
+[`CombiningAlgorithm`](../duck-iam/namespaces/AccessControl/type-aliases/CombiningAlgorithm)
+
+#### Returns
+
+`this`
+
+***
+
+### build()
+
+> **build**(): [`IPolicy`](../duck-iam/namespaces/AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:152](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L152)
+
+Returns the plain [AccessControl.IPolicy](../duck-iam/namespaces/AccessControl/interfaces/IPolicy), ready for an adapter or the engine.
+
+#### Returns
+
+[`IPolicy`](../duck-iam/namespaces/AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>
+
+#### Throws
+
+If the policy fails validation
+
+***
+
+### desc()
+
+> **desc**(`d`: `string`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:61](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L61)
+
+Sets the description.
+
+#### Parameters
+
+##### d
+
+`string`
+
+#### Returns
+
+`this`
+
+***
+
+### name()
+
+> **name**(`n`: `string`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:55](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L55)
+
+Sets the display name; defaults to the policy ID.
+
+#### Parameters
+
+##### n
+
+`string`
+
+#### Returns
+
+`this`
+
+***
+
+### rule()
+
+> **rule**(`id`: `string`, `fn`: (`r`: [`RuleBuilder`](RuleBuilder)\<`TAction`, `TResource`, `TScope`, `TRole`, `TContext`\>) => [`RuleBuilder`](RuleBuilder)\<`TAction`, `TResource`, `TScope`, `TRole`, `TContext`, `any`\>): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:112](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L112)
+
+Adds a rule built by an inline [RuleBuilder](RuleBuilder) callback.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### fn
+
+(`r`: [`RuleBuilder`](RuleBuilder)\<`TAction`, `TResource`, `TScope`, `TRole`, `TContext`\>) => [`RuleBuilder`](RuleBuilder)\<`TAction`, `TResource`, `TScope`, `TRole`, `TContext`, `any`\>
+
+#### Returns
+
+`this`
+
+#### Example
+
+```typescript
+definePolicy('ip-guard')
+  .rule('block-bad-ips', r => r
+    .deny()
+    .on('*')
+    .of('*')
+    .when(w => w.env('ip', 'in', ['10.0.0.99', '10.0.0.100']))
+  )
+```
+
+***
+
+### target()
+
+> **target**(`t`: \{ `actions?`: readonly (`TAction` \| `"*"`)[]; `resources?`: readonly (`TResource` \| `"*"`)[]; `roles?`: readonly `TRole`[]; \}): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:93](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L93)
+
+Limits the policy to requests matching all given targets; any other request skips its rules entirely.
+
+#### Parameters
+
+##### t
+
+###### actions?
+
+readonly (`TAction` \| `"*"`)[]
+
+###### resources?
+
+readonly (`TResource` \| `"*"`)[]
+
+###### roles?
+
+readonly `TRole`[]
+
+#### Returns
+
+`this`
+
+#### Example
+
+```typescript
+definePolicy('write-restrictions')
+  .target({
+    actions: ['create', 'update', 'delete'],
+    resources: ['post', 'comment'],
+  })
+```
+
+***
+
+### version()
+
+> **version**(`v`: `number`): `this`
+
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:67](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L67)
+
+Sets a version number for tracking changes.
+
+#### Parameters
+
+##### v
+
+`number`
+
+#### Returns
+
+`this`
+

@@ -1,0 +1,367 @@
+---
+title: "Variable: POLICY\\_JSON\\_SCHEMA"
+description: "JSON Schema (Draft 2020-12) for AccessControl.IPolicy; tighten action/resource slots via $ref downstream. Anything it rejects, validatePolicy rejects too. Four checks are runtime-only: matches regex safety and compilation, the POLICY\\_LIMITS.cartesianPerRule cap, UNREACHABLE_TARGET, and a finite priority."
+---
+
+> `const` **POLICY\_JSON\_SCHEMA**: \{ `$defs`: \{ `condition`: \{ `additionalProperties`: `false`; `allOf`: readonly \[\{ `if`: \{ `properties`: \{ `operator`: \{ `not`: \{ `enum`: readonly \[`"exists"`, `"not_exists"`\]; \}; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `required`: readonly \[`"value"`\]; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"in"`, `"nin"`, `"subset_of"`, `"superset_of"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `oneOf`: readonly \[\{ `type`: `"array"`; \}, \{ `pattern`: "^\\$"; `type`: `"string"`; \}\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"gt"`, `"gte"`, `"lt"`, `"lte"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `oneOf`: readonly \[\{ `type`: `"number"`; \}, \{ `pattern`: "^\\$"; `type`: `"string"`; \}\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"starts_with"`, `"ends_with"`, `"matches"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `type`: `"string"`; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"before"`, `"after"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `type`: readonly \[`"number"`, `"string"`\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `value`: \{ `type`: `"string"`; \}; \}; \}; `then`: \{ `properties`: \{ `value`: \{ `maxLength`: `1024`; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `value`: \{ `type`: `"array"`; \}; \}; \}; `then`: \{ `properties`: \{ `value`: \{ `items`: \{ `if`: \{ `type`: `"string"`; \}; `then`: \{ `maxLength`: `1024`; \}; \}; \}; \}; \}; \}\]; `properties`: \{ `field`: \{ `maxLength`: `256`; `minLength`: `1`; `type`: `"string"`; \}; `operator`: \{ `enum`: readonly \[`"eq"`, `"neq"`, `"gt"`, `"gte"`, `"lt"`, `"lte"`, `"in"`, `"nin"`, `"contains"`, `"not_contains"`, `"starts_with"`, `"ends_with"`, `"matches"`, `"exists"`, `"not_exists"`, `"subset_of"`, `"superset_of"`, `"before"`, `"after"`\]; \}; `value`: \{ \}; \}; `required`: readonly \[`"field"`, `"operator"`\]; `type`: `"object"`; \}; `conditionGroup`: `IConditionGroupDef`; `rule`: \{ `additionalProperties`: `false`; `properties`: \{ `actions`: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}; `conditions`: \{ `$ref`: `"#/$defs/conditionGroup"`; \}; `description`: \{ `type`: `"string"`; \}; `effect`: \{ `enum`: readonly \[`"allow"`, `"deny"`\]; \}; `id`: \{ `minLength`: `1`; `type`: `"string"`; \}; `metadata`: \{ `additionalProperties`: `true`; `type`: `"object"`; \}; `priority`: \{ `type`: `"number"`; \}; `resources`: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}; \}; `required`: readonly \[`"id"`, `"effect"`, `"priority"`, `"actions"`, `"resources"`, `"conditions"`\]; `type`: `"object"`; \}; \}; `$id`: `"https://gentleduck.dev/duck-iam/policy.schema.json"`; `$schema`: `"https://json-schema.org/draft/2020-12/schema"`; `additionalProperties`: `false`; `properties`: \{ `algorithm`: \{ `enum`: readonly \[`"deny-overrides"`, `"allow-overrides"`, `"first-match"`, `"highest-priority"`\]; \}; `description`: \{ `type`: `"string"`; \}; `id`: \{ `minLength`: `1`; `type`: `"string"`; \}; `name`: \{ `minLength`: `1`; `type`: `"string"`; \}; `rules`: \{ `items`: \{ `$ref`: `"#/$defs/rule"`; \}; `maxItems`: `1000`; `type`: `"array"`; \}; `targets`: \{ `additionalProperties`: `false`; `properties`: \{ `actions`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; `resources`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; `roles`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; \}; `type`: `"object"`; \}; `version`: \{ `type`: `"number"`; \}; \}; `required`: readonly \[`"id"`, `"name"`, `"algorithm"`, `"rules"`\]; `title`: `"duck-iam Policy"`; `type`: `"object"`; \}
+
+Defined in: [packages/duck-iam/src/core/schema/schema.ts:83](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/schema/schema.ts#L83)
+
+JSON Schema (Draft 2020-12) for [AccessControl.IPolicy](../duck-iam/namespaces/AccessControl/interfaces/IPolicy); tighten action/resource slots via `$ref` downstream.
+Anything it rejects, `validatePolicy` rejects too. Four checks are runtime-only: `matches` regex safety and
+compilation, the POLICY\_LIMITS.cartesianPerRule cap, `UNREACHABLE_TARGET`, and a finite `priority`.
+
+## Type Declaration
+
+### $defs
+
+> `readonly` **$defs**: \{ `condition`: \{ `additionalProperties`: `false`; `allOf`: readonly \[\{ `if`: \{ `properties`: \{ `operator`: \{ `not`: \{ `enum`: readonly \[`"exists"`, `"not_exists"`\]; \}; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `required`: readonly \[`"value"`\]; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"in"`, `"nin"`, `"subset_of"`, `"superset_of"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `oneOf`: readonly \[\{ `type`: `"array"`; \}, \{ `pattern`: "^\\$"; `type`: `"string"`; \}\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"gt"`, `"gte"`, `"lt"`, `"lte"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `oneOf`: readonly \[\{ `type`: `"number"`; \}, \{ `pattern`: "^\\$"; `type`: `"string"`; \}\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"starts_with"`, `"ends_with"`, `"matches"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `type`: `"string"`; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"before"`, `"after"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `type`: readonly \[`"number"`, `"string"`\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `value`: \{ `type`: `"string"`; \}; \}; \}; `then`: \{ `properties`: \{ `value`: \{ `maxLength`: `1024`; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `value`: \{ `type`: `"array"`; \}; \}; \}; `then`: \{ `properties`: \{ `value`: \{ `items`: \{ `if`: \{ `type`: `"string"`; \}; `then`: \{ `maxLength`: `1024`; \}; \}; \}; \}; \}; \}\]; `properties`: \{ `field`: \{ `maxLength`: `256`; `minLength`: `1`; `type`: `"string"`; \}; `operator`: \{ `enum`: readonly \[`"eq"`, `"neq"`, `"gt"`, `"gte"`, `"lt"`, `"lte"`, `"in"`, `"nin"`, `"contains"`, `"not_contains"`, `"starts_with"`, `"ends_with"`, `"matches"`, `"exists"`, `"not_exists"`, `"subset_of"`, `"superset_of"`, `"before"`, `"after"`\]; \}; `value`: \{ \}; \}; `required`: readonly \[`"field"`, `"operator"`\]; `type`: `"object"`; \}; `conditionGroup`: `IConditionGroupDef`; `rule`: \{ `additionalProperties`: `false`; `properties`: \{ `actions`: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}; `conditions`: \{ `$ref`: `"#/$defs/conditionGroup"`; \}; `description`: \{ `type`: `"string"`; \}; `effect`: \{ `enum`: readonly \[`"allow"`, `"deny"`\]; \}; `id`: \{ `minLength`: `1`; `type`: `"string"`; \}; `metadata`: \{ `additionalProperties`: `true`; `type`: `"object"`; \}; `priority`: \{ `type`: `"number"`; \}; `resources`: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}; \}; `required`: readonly \[`"id"`, `"effect"`, `"priority"`, `"actions"`, `"resources"`, `"conditions"`\]; `type`: `"object"`; \}; \}
+
+#### $defs.condition
+
+> `readonly` **condition**: \{ `additionalProperties`: `false`; `allOf`: readonly \[\{ `if`: \{ `properties`: \{ `operator`: \{ `not`: \{ `enum`: readonly \[`"exists"`, `"not_exists"`\]; \}; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `required`: readonly \[`"value"`\]; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"in"`, `"nin"`, `"subset_of"`, `"superset_of"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `oneOf`: readonly \[\{ `type`: `"array"`; \}, \{ `pattern`: "^\\$"; `type`: `"string"`; \}\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"gt"`, `"gte"`, `"lt"`, `"lte"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `oneOf`: readonly \[\{ `type`: `"number"`; \}, \{ `pattern`: "^\\$"; `type`: `"string"`; \}\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"starts_with"`, `"ends_with"`, `"matches"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `type`: `"string"`; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"before"`, `"after"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `type`: readonly \[`"number"`, `"string"`\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `value`: \{ `type`: `"string"`; \}; \}; \}; `then`: \{ `properties`: \{ `value`: \{ `maxLength`: `1024`; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `value`: \{ `type`: `"array"`; \}; \}; \}; `then`: \{ `properties`: \{ `value`: \{ `items`: \{ `if`: \{ `type`: `"string"`; \}; `then`: \{ `maxLength`: `1024`; \}; \}; \}; \}; \}; \}\]; `properties`: \{ `field`: \{ `maxLength`: `256`; `minLength`: `1`; `type`: `"string"`; \}; `operator`: \{ `enum`: readonly \[`"eq"`, `"neq"`, `"gt"`, `"gte"`, `"lt"`, `"lte"`, `"in"`, `"nin"`, `"contains"`, `"not_contains"`, `"starts_with"`, `"ends_with"`, `"matches"`, `"exists"`, `"not_exists"`, `"subset_of"`, `"superset_of"`, `"before"`, `"after"`\]; \}; `value`: \{ \}; \}; `required`: readonly \[`"field"`, `"operator"`\]; `type`: `"object"`; \}
+
+#### $defs.condition.additionalProperties
+
+> `readonly` **additionalProperties**: `false` = `false`
+
+#### $defs.condition.allOf
+
+> `readonly` **allOf**: readonly \[\{ `if`: \{ `properties`: \{ `operator`: \{ `not`: \{ `enum`: readonly \[`"exists"`, `"not_exists"`\]; \}; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `required`: readonly \[`"value"`\]; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"in"`, `"nin"`, `"subset_of"`, `"superset_of"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `oneOf`: readonly \[\{ `type`: `"array"`; \}, \{ `pattern`: "^\\$"; `type`: `"string"`; \}\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"gt"`, `"gte"`, `"lt"`, `"lte"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `oneOf`: readonly \[\{ `type`: `"number"`; \}, \{ `pattern`: "^\\$"; `type`: `"string"`; \}\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"starts_with"`, `"ends_with"`, `"matches"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `type`: `"string"`; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `operator`: \{ `enum`: readonly \[`"before"`, `"after"`\]; \}; \}; `required`: readonly \[`"operator"`\]; \}; `then`: \{ `properties`: \{ `value`: \{ `type`: readonly \[`"number"`, `"string"`\]; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `value`: \{ `type`: `"string"`; \}; \}; \}; `then`: \{ `properties`: \{ `value`: \{ `maxLength`: `1024`; \}; \}; \}; \}, \{ `if`: \{ `properties`: \{ `value`: \{ `type`: `"array"`; \}; \}; \}; `then`: \{ `properties`: \{ `value`: \{ `items`: \{ `if`: \{ `type`: `"string"`; \}; `then`: \{ `maxLength`: `1024`; \}; \}; \}; \}; \}; \}\]
+
+#### $defs.condition.properties
+
+> `readonly` **properties**: \{ `field`: \{ `maxLength`: `256`; `minLength`: `1`; `type`: `"string"`; \}; `operator`: \{ `enum`: readonly \[`"eq"`, `"neq"`, `"gt"`, `"gte"`, `"lt"`, `"lte"`, `"in"`, `"nin"`, `"contains"`, `"not_contains"`, `"starts_with"`, `"ends_with"`, `"matches"`, `"exists"`, `"not_exists"`, `"subset_of"`, `"superset_of"`, `"before"`, `"after"`\]; \}; `value`: \{ \}; \}
+
+#### $defs.condition.properties.field
+
+> `readonly` **field**: \{ `maxLength`: `256`; `minLength`: `1`; `type`: `"string"`; \}
+
+#### $defs.condition.properties.field.maxLength
+
+> `readonly` **maxLength**: `256` = `MAX_FIELD_LENGTH`
+
+#### $defs.condition.properties.field.minLength
+
+> `readonly` **minLength**: `1` = `1`
+
+#### $defs.condition.properties.field.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### $defs.condition.properties.operator
+
+> `readonly` **operator**: \{ `enum`: readonly \[`"eq"`, `"neq"`, `"gt"`, `"gte"`, `"lt"`, `"lte"`, `"in"`, `"nin"`, `"contains"`, `"not_contains"`, `"starts_with"`, `"ends_with"`, `"matches"`, `"exists"`, `"not_exists"`, `"subset_of"`, `"superset_of"`, `"before"`, `"after"`\]; \}
+
+#### $defs.condition.properties.operator.enum
+
+> `readonly` **enum**: readonly \[`"eq"`, `"neq"`, `"gt"`, `"gte"`, `"lt"`, `"lte"`, `"in"`, `"nin"`, `"contains"`, `"not_contains"`, `"starts_with"`, `"ends_with"`, `"matches"`, `"exists"`, `"not_exists"`, `"subset_of"`, `"superset_of"`, `"before"`, `"after"`\] = `CONDITION_OPERATORS`
+
+#### $defs.condition.properties.value
+
+> `readonly` **value**: \{ \} = `{}`
+
+#### $defs.condition.required
+
+> `readonly` **required**: readonly \[`"field"`, `"operator"`\]
+
+#### $defs.condition.type
+
+> `readonly` **type**: `"object"` = `'object'`
+
+#### $defs.conditionGroup
+
+> `readonly` **conditionGroup**: `IConditionGroupDef`
+
+#### $defs.rule
+
+> `readonly` **rule**: \{ `additionalProperties`: `false`; `properties`: \{ `actions`: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}; `conditions`: \{ `$ref`: `"#/$defs/conditionGroup"`; \}; `description`: \{ `type`: `"string"`; \}; `effect`: \{ `enum`: readonly \[`"allow"`, `"deny"`\]; \}; `id`: \{ `minLength`: `1`; `type`: `"string"`; \}; `metadata`: \{ `additionalProperties`: `true`; `type`: `"object"`; \}; `priority`: \{ `type`: `"number"`; \}; `resources`: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}; \}; `required`: readonly \[`"id"`, `"effect"`, `"priority"`, `"actions"`, `"resources"`, `"conditions"`\]; `type`: `"object"`; \}
+
+#### $defs.rule.additionalProperties
+
+> `readonly` **additionalProperties**: `false` = `false`
+
+#### $defs.rule.properties
+
+> `readonly` **properties**: \{ `actions`: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}; `conditions`: \{ `$ref`: `"#/$defs/conditionGroup"`; \}; `description`: \{ `type`: `"string"`; \}; `effect`: \{ `enum`: readonly \[`"allow"`, `"deny"`\]; \}; `id`: \{ `minLength`: `1`; `type`: `"string"`; \}; `metadata`: \{ `additionalProperties`: `true`; `type`: `"object"`; \}; `priority`: \{ `type`: `"number"`; \}; `resources`: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}; \}
+
+#### $defs.rule.properties.actions
+
+> `readonly` **actions**: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}
+
+#### $defs.rule.properties.actions.items
+
+> `readonly` **items**: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}
+
+#### $defs.rule.properties.actions.items.pattern
+
+> `readonly` **pattern**: "^\[^\\u0000-\\u001F\\u007F\]\*$" = `NO_CONTROL_CHARS`
+
+#### $defs.rule.properties.actions.items.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### $defs.rule.properties.actions.maxItems
+
+> `readonly` **maxItems**: `100` = `POLICY_LIMITS.actionsPerRule`
+
+#### $defs.rule.properties.actions.minItems
+
+> `readonly` **minItems**: `1` = `1`
+
+#### $defs.rule.properties.actions.type
+
+> `readonly` **type**: `"array"` = `'array'`
+
+#### $defs.rule.properties.conditions
+
+> `readonly` **conditions**: \{ `$ref`: `"#/$defs/conditionGroup"`; \}
+
+#### $defs.rule.properties.conditions.$ref
+
+> `readonly` **$ref**: `"#/$defs/conditionGroup"` = `'#/$defs/conditionGroup'`
+
+#### $defs.rule.properties.description
+
+> `readonly` **description**: \{ `type`: `"string"`; \}
+
+#### $defs.rule.properties.description.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### $defs.rule.properties.effect
+
+> `readonly` **effect**: \{ `enum`: readonly \[`"allow"`, `"deny"`\]; \}
+
+#### $defs.rule.properties.effect.enum
+
+> `readonly` **enum**: readonly \[`"allow"`, `"deny"`\]
+
+#### $defs.rule.properties.id
+
+> `readonly` **id**: \{ `minLength`: `1`; `type`: `"string"`; \}
+
+#### $defs.rule.properties.id.minLength
+
+> `readonly` **minLength**: `1` = `1`
+
+#### $defs.rule.properties.id.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### $defs.rule.properties.metadata
+
+> `readonly` **metadata**: \{ `additionalProperties`: `true`; `type`: `"object"`; \}
+
+#### $defs.rule.properties.metadata.additionalProperties
+
+> `readonly` **additionalProperties**: `true` = `true`
+
+#### $defs.rule.properties.metadata.type
+
+> `readonly` **type**: `"object"` = `'object'`
+
+#### $defs.rule.properties.priority
+
+> `readonly` **priority**: \{ `type`: `"number"`; \}
+
+#### $defs.rule.properties.priority.type
+
+> `readonly` **type**: `"number"` = `'number'`
+
+#### $defs.rule.properties.resources
+
+> `readonly` **resources**: \{ `items`: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}; `maxItems`: `100`; `minItems`: `1`; `type`: `"array"`; \}
+
+#### $defs.rule.properties.resources.items
+
+> `readonly` **items**: \{ `pattern`: "^\[^\\u0000-\\u001F\\u007F\]\*$"; `type`: `"string"`; \}
+
+#### $defs.rule.properties.resources.items.pattern
+
+> `readonly` **pattern**: "^\[^\\u0000-\\u001F\\u007F\]\*$" = `NO_CONTROL_CHARS`
+
+#### $defs.rule.properties.resources.items.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### $defs.rule.properties.resources.maxItems
+
+> `readonly` **maxItems**: `100` = `POLICY_LIMITS.resourcesPerRule`
+
+#### $defs.rule.properties.resources.minItems
+
+> `readonly` **minItems**: `1` = `1`
+
+#### $defs.rule.properties.resources.type
+
+> `readonly` **type**: `"array"` = `'array'`
+
+#### $defs.rule.required
+
+> `readonly` **required**: readonly \[`"id"`, `"effect"`, `"priority"`, `"actions"`, `"resources"`, `"conditions"`\]
+
+#### $defs.rule.type
+
+> `readonly` **type**: `"object"` = `'object'`
+
+### $id
+
+> `readonly` **$id**: `"https://gentleduck.dev/duck-iam/policy.schema.json"` = `'https://gentleduck.dev/duck-iam/policy.schema.json'`
+
+### $schema
+
+> `readonly` **$schema**: `"https://json-schema.org/draft/2020-12/schema"` = `'https://json-schema.org/draft/2020-12/schema'`
+
+### additionalProperties
+
+> `readonly` **additionalProperties**: `false` = `false`
+
+### properties
+
+> `readonly` **properties**: \{ `algorithm`: \{ `enum`: readonly \[`"deny-overrides"`, `"allow-overrides"`, `"first-match"`, `"highest-priority"`\]; \}; `description`: \{ `type`: `"string"`; \}; `id`: \{ `minLength`: `1`; `type`: `"string"`; \}; `name`: \{ `minLength`: `1`; `type`: `"string"`; \}; `rules`: \{ `items`: \{ `$ref`: `"#/$defs/rule"`; \}; `maxItems`: `1000`; `type`: `"array"`; \}; `targets`: \{ `additionalProperties`: `false`; `properties`: \{ `actions`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; `resources`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; `roles`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; \}; `type`: `"object"`; \}; `version`: \{ `type`: `"number"`; \}; \}
+
+#### properties.algorithm
+
+> `readonly` **algorithm**: \{ `enum`: readonly \[`"deny-overrides"`, `"allow-overrides"`, `"first-match"`, `"highest-priority"`\]; \}
+
+#### properties.algorithm.enum
+
+> `readonly` **enum**: readonly \[`"deny-overrides"`, `"allow-overrides"`, `"first-match"`, `"highest-priority"`\] = `COMBINING_ALGORITHMS`
+
+#### properties.description
+
+> `readonly` **description**: \{ `type`: `"string"`; \}
+
+#### properties.description.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### properties.id
+
+> `readonly` **id**: \{ `minLength`: `1`; `type`: `"string"`; \}
+
+#### properties.id.minLength
+
+> `readonly` **minLength**: `1` = `1`
+
+#### properties.id.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### properties.name
+
+> `readonly` **name**: \{ `minLength`: `1`; `type`: `"string"`; \}
+
+#### properties.name.minLength
+
+> `readonly` **minLength**: `1` = `1`
+
+#### properties.name.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### properties.rules
+
+> `readonly` **rules**: \{ `items`: \{ `$ref`: `"#/$defs/rule"`; \}; `maxItems`: `1000`; `type`: `"array"`; \}
+
+#### properties.rules.items
+
+> `readonly` **items**: \{ `$ref`: `"#/$defs/rule"`; \}
+
+#### properties.rules.items.$ref
+
+> `readonly` **$ref**: `"#/$defs/rule"` = `'#/$defs/rule'`
+
+#### properties.rules.maxItems
+
+> `readonly` **maxItems**: `1000` = `POLICY_LIMITS.rulesPerPolicy`
+
+#### properties.rules.type
+
+> `readonly` **type**: `"array"` = `'array'`
+
+#### properties.targets
+
+> `readonly` **targets**: \{ `additionalProperties`: `false`; `properties`: \{ `actions`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; `resources`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; `roles`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; \}; `type`: `"object"`; \}
+
+#### properties.targets.additionalProperties
+
+> `readonly` **additionalProperties**: `false` = `false`
+
+#### properties.targets.properties
+
+> `readonly` **properties**: \{ `actions`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; `resources`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; `roles`: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}; \}
+
+#### properties.targets.properties.actions
+
+> `readonly` **actions**: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}
+
+#### properties.targets.properties.actions.items
+
+> `readonly` **items**: \{ `type`: `"string"`; \}
+
+#### properties.targets.properties.actions.items.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### properties.targets.properties.actions.type
+
+> `readonly` **type**: `"array"` = `'array'`
+
+#### properties.targets.properties.resources
+
+> `readonly` **resources**: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}
+
+#### properties.targets.properties.resources.items
+
+> `readonly` **items**: \{ `type`: `"string"`; \}
+
+#### properties.targets.properties.resources.items.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### properties.targets.properties.resources.type
+
+> `readonly` **type**: `"array"` = `'array'`
+
+#### properties.targets.properties.roles
+
+> `readonly` **roles**: \{ `items`: \{ `type`: `"string"`; \}; `type`: `"array"`; \}
+
+#### properties.targets.properties.roles.items
+
+> `readonly` **items**: \{ `type`: `"string"`; \}
+
+#### properties.targets.properties.roles.items.type
+
+> `readonly` **type**: `"string"` = `'string'`
+
+#### properties.targets.properties.roles.type
+
+> `readonly` **type**: `"array"` = `'array'`
+
+#### properties.targets.type
+
+> `readonly` **type**: `"object"` = `'object'`
+
+#### properties.version
+
+> `readonly` **version**: \{ `type`: `"number"`; \}
+
+#### properties.version.type
+
+> `readonly` **type**: `"number"` = `'number'`
+
+### required
+
+> `readonly` **required**: readonly \[`"id"`, `"name"`, `"algorithm"`, `"rules"`\]
+
+### title
+
+> `readonly` **title**: `"duck-iam Policy"` = `'duck-iam Policy'`
+
+### type
+
+> `readonly` **type**: `"object"` = `'object'`
+

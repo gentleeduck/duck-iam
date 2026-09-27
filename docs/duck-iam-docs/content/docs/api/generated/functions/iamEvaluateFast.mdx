@@ -1,0 +1,49 @@
+---
+title: "Function: iamEvaluateFast()"
+description: "evaluateFast with the defaultEffect: 'allow' opt-in the engine also requires."
+---
+
+> **iamEvaluateFast**(`policies`: [`IPolicy`](../duck-iam/namespaces/AccessControl/interfaces/IPolicy)\<`string`, `string`, `string`\>[], `request`: [`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest), `defaultEffect?`: [`Effect`](../duck-iam/namespaces/AccessControl/type-aliases/Effect), `combine?`: [`PolicyCombine`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyCombine), `onPolicyError?`: [`PolicyErrorHandler`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyErrorHandler)\<`string`, `string`\>, `signals?`: [`IEvalSignals`](../interfaces/IEvalSignals), `caches?`: `Caches`, `allowFailOpen?`: `boolean`): `boolean`
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.public.ts:40](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.public.ts#L40)
+
+evaluateFast with the `defaultEffect: 'allow'` opt-in the engine also requires.
+
+## Parameters
+
+### policies
+
+[`IPolicy`](../duck-iam/namespaces/AccessControl/interfaces/IPolicy)\<`string`, `string`, `string`\>[]
+
+### request
+
+[`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest)
+
+### defaultEffect?
+
+[`Effect`](../duck-iam/namespaces/AccessControl/type-aliases/Effect) = `'deny'`
+
+### combine?
+
+[`PolicyCombine`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyCombine) = `'and'`
+
+### onPolicyError?
+
+[`PolicyErrorHandler`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyErrorHandler)\<`string`, `string`\>
+
+### signals?
+
+[`IEvalSignals`](../interfaces/IEvalSignals)
+
+### caches?
+
+`Caches`
+
+### allowFailOpen?
+
+`boolean` = `false`
+
+## Returns
+
+`boolean`
+

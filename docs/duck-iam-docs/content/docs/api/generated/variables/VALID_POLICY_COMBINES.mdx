@@ -1,0 +1,13 @@
+---
+title: "Variable: VALID\\_POLICY\\_COMBINES"
+description: "The cross-policy combine strategies both engines implement. SECURITY: refuse anything else at construction - evaluate falls through to first-applicable and evaluateFast to 'and', and TypeScript cannot stop a config-driven or plain-JS caller."
+---
+
+> `const` **VALID\_POLICY\_COMBINES**: readonly [`PolicyCombine`](../duck-iam/namespaces/AccessControl/type-aliases/PolicyCombine)[]
+
+Defined in: [packages/duck-iam/src/core/evaluate/evaluate.libs.ts:84](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/evaluate/evaluate.libs.ts#L84)
+
+The cross-policy combine strategies both engines implement.
+SECURITY: refuse anything else at construction - `evaluate` falls through to `first-applicable` and
+`evaluateFast` to `'and'`, and TypeScript cannot stop a config-driven or plain-JS caller.
+

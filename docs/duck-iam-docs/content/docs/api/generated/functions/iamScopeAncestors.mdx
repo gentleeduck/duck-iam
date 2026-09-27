@@ -1,0 +1,27 @@
+---
+title: "Function: iamScopeAncestors()"
+description: "The scope and each ancestor, most specific first."
+---
+
+> **iamScopeAncestors**(`scope`: `string`): `string`[]
+
+Defined in: [packages/duck-iam/src/core/engine/engine.libs.ts:501](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.libs.ts#L501)
+
+The scope and each ancestor, most specific first.
+
+## Parameters
+
+### scope
+
+`string`
+
+## Returns
+
+`string`[]
+
+## Example
+
+```ts
+scopeAncestors('org-1.team-2.repo-3') // ['org-1.team-2.repo-3', 'org-1.team-2', 'org-1']
+```
+
