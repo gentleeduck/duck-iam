@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../core/errors'
 import { IamLRUCache, iamLRUCache } from '../cache'
+
+function throwsCacheConfigInvalid(fn: () => unknown): boolean {
+  try {
+    fn()
+    return false
+  } catch (err) {
+    return hasIamErrorCode(err, 'IAM_CACHE_CONFIG_INVALID')
+  }
+}
 
 describe('IamLRUCache', () => {
   it('stores and retrieves values', () => {
@@ -74,19 +84,19 @@ describe('IamLRUCache', () => {
   })
 
   it('rejects negative maxSize', () => {
-    expect(() => new IamLRUCache<string>(0, 1000)).toThrow(RangeError)
-    expect(() => new IamLRUCache<string>(-1, 1000)).toThrow(RangeError)
+    expect(throwsCacheConfigInvalid(() => new IamLRUCache<string>(0, 1000))).toBe(true)
+    expect(throwsCacheConfigInvalid(() => new IamLRUCache<string>(-1, 1000))).toBe(true)
   })
 
   it('rejects negative ttlMs', () => {
-    expect(() => new IamLRUCache<string>(10, -1)).toThrow(RangeError)
+    expect(throwsCacheConfigInvalid(() => new IamLRUCache<string>(10, -1))).toBe(true)
   })
 
   it('rejects non-finite maxSize and ttlMs', () => {
-    expect(() => new IamLRUCache<string>(Number.NaN, 1000)).toThrow(RangeError)
-    expect(() => new IamLRUCache<string>(Number.POSITIVE_INFINITY, 1000)).toThrow(RangeError)
-    expect(() => new IamLRUCache<string>(10, Number.NaN)).toThrow(RangeError)
-    expect(() => new IamLRUCache<string>(10, Number.POSITIVE_INFINITY)).toThrow(RangeError)
+    expect(throwsCacheConfigInvalid(() => new IamLRUCache<string>(Number.NaN, 1000))).toBe(true)
+    expect(throwsCacheConfigInvalid(() => new IamLRUCache<string>(Number.POSITIVE_INFINITY, 1000))).toBe(true)
+    expect(throwsCacheConfigInvalid(() => new IamLRUCache<string>(10, Number.NaN))).toBe(true)
+    expect(throwsCacheConfigInvalid(() => new IamLRUCache<string>(10, Number.POSITIVE_INFINITY))).toBe(true)
   })
 
   it('holds a single entry at maxSize 1', () => {
@@ -245,7 +255,7 @@ describe('iamLRUCache()', () => {
   })
 
   it('propagates constructor validation', () => {
-    expect(() => iamLRUCache<string>(0, 1000)).toThrow(RangeError)
-    expect(() => iamLRUCache<string>(10, -1)).toThrow(RangeError)
+    expect(throwsCacheConfigInvalid(() => iamLRUCache<string>(0, 1000))).toBe(true)
+    expect(throwsCacheConfigInvalid(() => iamLRUCache<string>(10, -1))).toBe(true)
   })
 })
