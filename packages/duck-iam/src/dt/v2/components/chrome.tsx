@@ -8,6 +8,7 @@ import { Button } from '@gentleduck/registry-ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@gentleduck/registry-ui/card'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@gentleduck/registry-ui/empty'
 import { Field, FieldLabel } from '@gentleduck/registry-ui/field'
+import { Input } from '@gentleduck/registry-ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@gentleduck/registry-ui/input-group'
 import { Item, ItemContent, ItemDescription, ItemTitle } from '@gentleduck/registry-ui/item'
 import { Kbd, KbdGroup } from '@gentleduck/registry-ui/kbd'
@@ -242,6 +243,33 @@ export function IamV2FieldBox({ children, id, label }: { children: React.ReactNo
       </FieldLabel>
       {children}
     </Field>
+  )
+}
+
+/** A labelled single-line text field at devtools density: {@link IamV2FieldBox} wrapping a monospace `Input`. */
+export function IamV2TextField({
+  id,
+  label,
+  onChange,
+  placeholder,
+  value,
+}: {
+  id: string
+  label: string
+  onChange: (value: string) => void
+  placeholder?: string
+  value: string
+}) {
+  return (
+    <IamV2FieldBox id={id} label={label}>
+      <Input
+        className="h-8 font-mono text-xs"
+        id={id}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        value={value}
+      />
+    </IamV2FieldBox>
   )
 }
 
