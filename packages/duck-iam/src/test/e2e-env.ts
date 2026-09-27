@@ -104,6 +104,9 @@ export function assertE2eReachable(suiteName: string, backend: string | number |
   })
 }
 
+/** Timeout for the docker-availability probe below; shared with `e2e-containers.ts`'s globalSetup message. */
+export const DOCKER_PROBE_TIMEOUT_MS = 30_000
+
 let dockerProbe: Promise<boolean> | undefined
 
 /**
@@ -115,7 +118,9 @@ export function dockerIsUp(): Promise<boolean> {
     const { execFile } = await import('node:child_process')
     const { promisify } = await import('node:util')
     try {
-      await promisify(execFile)('docker', ['info', '--format', '{{.ServerVersion}}'], { timeout: 30_000 })
+      await promisify(execFile)('docker', ['info', '--format', '{{.ServerVersion}}'], {
+        timeout: DOCKER_PROBE_TIMEOUT_MS,
+      })
       return true
     } catch {
       return false
