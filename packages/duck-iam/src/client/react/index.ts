@@ -332,7 +332,9 @@ export function createIamPermissionChecker<
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
->(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
+>(
+  permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>,
+): IamReactClient.IChecker<TAction, TResource, TScope> {
   const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean =>
     iamCan(permissions, action, resource, resourceId, scope)
 
