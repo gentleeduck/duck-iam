@@ -49,7 +49,7 @@ export function IamRolesPanel({ engine }: IamEnginePanelProps) {
               onClick={() => setSelected(r.id)}
               primary={r.id}
               secondary={
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span className="iam-dt-row--inline">
                   {r.permissions.length} perms
                   {r.inherits?.length ? (
                     <>
