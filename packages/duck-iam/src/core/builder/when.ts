@@ -1,3 +1,4 @@
+import { throwIamError } from '../errors'
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 
 /**
@@ -327,11 +328,7 @@ export class When<
  */
 function assertNonEmptyList(method: 'roles' | 'scopes' | 'resourceType', values: readonly string[]): void {
   if (values.length > 0) return
-  throw new Error(
-    `[@gentleduck/iam:builder] When.${method}() was called with no arguments, which builds a condition ` +
-      'that can never match: on a deny rule it removes the guard entirely. Pass at least one value, ' +
-      'or use `.in(field, list)` if the list is computed and may legitimately be empty.',
-  )
+  throwIamError('IAM_BUILDER_WHEN_EMPTY_LIST', { method })
 }
 
 /**
@@ -344,11 +341,7 @@ export function iamChosenWhen<W extends { buildAll(): { readonly all: readonly u
 ): W {
   if (!(returned instanceof When) || returned === given) return given
   if (given.buildAll().all.length > 0) {
-    throw new Error(
-      '[@gentleduck/iam:builder] a condition callback added conditions to the builder it was given ' +
-        'and returned a different one; both cannot be kept. Chain onto the builder passed in, ' +
-        'or return a group built elsewhere - not both.',
-    )
+    throwIamError('IAM_BUILDER_WHEN_GROUP_CONFLICT')
   }
   return returned
 }

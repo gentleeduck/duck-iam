@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { hasIamErrorCode, type IamError, metaOf } from '../../errors'
 import { evaluate } from '../../evaluate/evaluate'
 import { rolesToPolicy } from '../../rbac'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../types'
@@ -6,6 +7,15 @@ import { definePolicy } from '../policy'
 import { defineRole } from '../role'
 import { defineRule } from '../rule'
 import { when } from '../when'
+
+function thrown(fn: () => unknown): unknown {
+  try {
+    fn()
+    throw new Error('expected fn to throw')
+  } catch (err) {
+    return err
+  }
+}
 
 // Authoring mistakes that still build but mean something else, often no condition at all.
 // Each case asserts the engine's verdict, not the emitted shape.
@@ -76,7 +86,7 @@ describe('a condition callback that returns a different builder', () => {
 
   it('refuses the ambiguous chain rather than silently picking one half', () => {
     // Conditions on the given builder and a different returned one cannot both be kept.
-    expect(() =>
+    const err = thrown(() =>
       defineRule('post.update')
         .allow()
         .on('update')
@@ -86,7 +96,8 @@ describe('a condition callback that returns a different builder', () => {
           return when().role('admin')
         })
         .build(),
-    ).toThrow(/both/i)
+    )
+    expect(hasIamErrorCode(err, 'IAM_BUILDER_WHEN_GROUP_CONFLICT')).toBe(true)
   })
 
   it('the ordinary chain, which returns the builder it was given, is untouched', () => {
@@ -131,18 +142,22 @@ describe('an emitted condition group is a snapshot, not a window', () => {
 // A zero-argument variadic helper builds `in: []`, which matches nothing and so disables a deny rule.
 describe('a variadic helper called with nothing to match', () => {
   it.each(['roles', 'scopes', 'resourceType'] as const)('refuses `%s()`', (method) => {
-    expect(() => when()[method]()).toThrow(new RegExp(method))
+    const err = thrown(() => when()[method]())
+    expect(hasIamErrorCode(err, 'IAM_BUILDER_WHEN_EMPTY_LIST')).toBe(true)
+    expect(metaOf(err as IamError<'IAM_BUILDER_WHEN_EMPTY_LIST'>, 'IAM_BUILDER_WHEN_EMPTY_LIST').method).toBe(method)
   })
 
   it('the deny rule that used to disappear now cannot be written by accident', () => {
-    expect(() =>
+    const err = thrown(() =>
       defineRule('deny-banned')
         .deny()
         .on('update')
         .of('post')
         .when((w) => w.roles())
         .build(),
-    ).toThrow(/roles/)
+    )
+    expect(hasIamErrorCode(err, 'IAM_BUILDER_WHEN_EMPTY_LIST')).toBe(true)
+    expect(metaOf(err as IamError<'IAM_BUILDER_WHEN_EMPTY_LIST'>, 'IAM_BUILDER_WHEN_EMPTY_LIST').method).toBe('roles')
   })
 
   it('an explicitly empty list is still allowed - that one may be computed', () => {
