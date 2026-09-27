@@ -24,10 +24,13 @@ export function iamAddAssignmentIfAbsent<TRole extends string, TScope extends st
   if (!entries.some((e) => e.role === roleId && e.scope === scope)) entries.push({ role: roleId, scope })
 }
 
-/** `entries` with every `(roleId, scope)` match removed; omitting `scope` removes every assignment for the role. */
+/**
+ * `entries` with every `(roleId, scope)` match removed; omitting `scope` removes every assignment for the role.
+ * `roleId` takes a plain `string` (not `TRole`) so {@link iamPruneRoleAssignments} can share this without a cast.
+ */
 export function iamFilterOutRoleAssignment<TRole extends string, TScope extends string>(
   entries: readonly { role: TRole; scope?: TScope }[],
-  roleId: TRole,
+  roleId: string,
   scope: TScope | undefined,
 ): { role: TRole; scope?: TScope }[] {
   return scope === undefined
@@ -40,6 +43,6 @@ export function iamPruneRoleAssignments<TRole extends string, TScope extends str
   entries: readonly { role: TRole; scope?: TScope }[],
   roleId: string,
 ): { role: TRole; scope?: TScope }[] | null {
-  const kept = entries.filter((e) => e.role !== roleId)
+  const kept = iamFilterOutRoleAssignment(entries, roleId, undefined)
   return kept.length === entries.length ? null : kept
 }
