@@ -186,6 +186,10 @@ function returnedTriples(returned: unknown): ReturnedTriple[] {
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
+ * @template TDb - The Drizzle database instance type; defaults to the minimal structural shape every
+ * dialect satisfies.
+ * @template TType - Selects the SQL dialect (`'pg' | 'mysql' | 'sqlite'`), which determines the table
+ * and operator typing `IConfig` expects.
  *
  * @example
  * ```ts

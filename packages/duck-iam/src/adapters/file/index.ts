@@ -137,6 +137,8 @@ function errorCode(err: unknown): unknown {
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
+ * @template TFS - The injected `node:fs/promises`-compatible surface; tests inject an in-memory fake,
+ * production passes the real Node module.
  *
  * @example
  * ```ts
