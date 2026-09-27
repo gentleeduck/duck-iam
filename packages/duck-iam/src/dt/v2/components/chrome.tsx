@@ -422,6 +422,32 @@ export function IamV2Empty({
   )
 }
 
+/** A list panel's `detail` before anything is selected: {@link IamV2Empty}, centered in the pane. */
+export function IamV2EmptyDetail({
+  description,
+  icon,
+  title,
+}: {
+  description?: React.ReactNode
+  icon?: React.ReactNode
+  title: string
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+      <IamV2Empty description={description} icon={icon} title={title} />
+    </div>
+  )
+}
+
+/** A list panel's sticky detail-header bar, once something is selected: id, name, chips - whatever the panel needs. */
+export function IamV2DetailHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-border border-b bg-card px-3 py-2">
+      {children}
+    </div>
+  )
+}
+
 /**
  * An inline message, on duck-ui's `Alert`.
  * NOTE: duck-ui hard-codes `role="alert"`; the passed `role` overrides it so only errors are announced assertively.

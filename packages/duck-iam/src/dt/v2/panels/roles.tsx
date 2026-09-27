@@ -9,8 +9,9 @@ import type { IamEnginePanelProps } from '../../lib/types'
 import {
   IamV2Chip,
   IamV2DescriptionSection,
+  IamV2DetailHeader,
   IamV2Disclosure,
-  IamV2Empty,
+  IamV2EmptyDetail,
   IamV2ListRow,
   IamV2PaneBody,
   IamV2Root,
@@ -54,23 +55,21 @@ export function IamRolesPanelV2({ engine }: IamEnginePanelProps) {
       <IamV2Split
         detail={
           !current ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-              <IamV2Empty
-                description="Choose a role on the left to read its permissions and inheritance."
-                icon={<Users />}
-                title="No role selected"
-              />
-            </div>
+            <IamV2EmptyDetail
+              description="Choose a role on the left to read its permissions and inheritance."
+              icon={<Users />}
+              title="No role selected"
+            />
           ) : (
             <>
-              <div className="flex shrink-0 flex-wrap items-center gap-2 border-border border-b bg-card px-3 py-2">
+              <IamV2DetailHeader>
                 <code className={cn(IAM_V2_MONO, 'font-medium text-foreground')}>{current.id}</code>
                 {current.name && <span className="text-muted-foreground text-xs">{current.name}</span>}
                 {current.scope && <IamV2Chip tone="info">scope: {current.scope}</IamV2Chip>}
                 <span className="ms-auto text-[0.6875rem] text-muted-foreground tabular-nums">
                   {current.permissions.length} permissions
                 </span>
-              </div>
+              </IamV2DetailHeader>
               <IamV2PaneBody>
                 <IamV2DescriptionSection text={current.description} />
                 {current.inherits && current.inherits.length > 0 && (
