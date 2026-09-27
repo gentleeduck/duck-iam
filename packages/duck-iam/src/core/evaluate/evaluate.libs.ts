@@ -7,6 +7,7 @@ import {
   ops,
   VALUELESS_OPERATORS,
 } from '../conditions/conditions.libs'
+import { throwIamError } from '../errors'
 import { toError } from '../errors/normalize'
 import { IAM_RBAC_POLICY_ID } from '../rbac/rbac'
 import { matchesAction, matchesResource } from '../resolve'
@@ -235,9 +236,7 @@ export function policyHasDenyRule(policy: AccessControl.IPolicy): boolean {
  */
 export function rulePriority(rule: { readonly priority: number }): number {
   if (!Number.isFinite(rule.priority)) {
-    throw new Error(
-      `[@gentleduck/iam:evaluate] Rule priority must be a finite number, got ${JSON.stringify(rule.priority)}`,
-    )
+    throwIamError('IAM_EVALUATE_RULE_PRIORITY_INVALID', { priority: rule.priority })
   }
   return rule.priority
 }

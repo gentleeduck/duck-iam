@@ -1,3 +1,4 @@
+import { throwIamError } from '../errors'
 import type { AccessControl, IamRequest } from '../types'
 import {
   evaluate,
@@ -16,9 +17,7 @@ type Caches = { regex?: Map<string, RegExp>; path?: Map<string, string[] | null>
  */
 function assertFailOpenOptIn(defaultEffect: AccessControl.Effect, allowFailOpen: boolean): void {
   if (defaultEffect === 'allow' && !allowFailOpen) {
-    throw new Error(
-      "[@gentleduck/iam:evaluate] defaultEffect 'allow' is a fail-open footgun. Pass `allowFailOpen: true` to confirm intent.",
-    )
+    throwIamError('IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED')
   }
 }
 
