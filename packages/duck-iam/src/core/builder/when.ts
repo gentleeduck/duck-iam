@@ -1,4 +1,20 @@
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
+
+/**
+ * Shape of the callback passed to `When.and`/`.or`/`.not`, `RuleBuilder.when`/`.whenAny` and
+ * `RoleBuilder.grantWhen`: takes the nested builder and returns the one to read conditions from.
+ */
+export type WhenGroupFn<
+  TAction extends string = string,
+  TResource extends string = string,
+  TRole extends string = string,
+  TScope extends string = string,
+  TContext extends object = DotPath.IDefaultContext,
+  TActiveResource extends string = string,
+> = (
+  w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>
+
 /**
  * Chainable condition builder passed to `RuleBuilder.when`, `RuleBuilder.whenAny` and
  * `RoleBuilder.grantWhen`. `buildAll`/`buildAny`/`buildNone` emit the AND/OR/NOT group.
@@ -243,9 +259,7 @@ export class When<
    * returns a different builder than it was given must not silently empty the nested group.
    */
   private buildNested(
-    fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    fn: WhenGroupFn<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
     close: (
       w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
     ) => AccessControl.ICondition | AccessControl.IConditionGroup,
@@ -263,11 +277,7 @@ export class When<
    * w.and(a => a.attr('tier', 'eq', 'premium').env('region', 'eq', 'us'))
    * ```
    */
-  and(
-    fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-  ): this {
+  and(fn: WhenGroupFn<TAction, TResource, TRole, TScope, TContext, TActiveResource>): this {
     return this.buildNested(fn, (w) => w.buildAll())
   }
 
@@ -279,11 +289,7 @@ export class When<
    * w.or(o => o.isOwner().role('admin')) // owner OR admin
    * ```
    */
-  or(
-    fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-  ): this {
+  or(fn: WhenGroupFn<TAction, TResource, TRole, TScope, TContext, TActiveResource>): this {
     return this.buildNested(fn, (w) => w.buildAny())
   }
 
@@ -295,11 +301,7 @@ export class When<
    * w.not(n => n.attr('status', 'eq', 'banned')) // status is NOT 'banned'
    * ```
    */
-  not(
-    fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-  ): this {
+  not(fn: WhenGroupFn<TAction, TResource, TRole, TScope, TContext, TActiveResource>): this {
     return this.buildNested(fn, (w) => w.buildNone())
   }
 
