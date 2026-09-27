@@ -74,6 +74,20 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   return typeof Reflect.get(value, 'then') === 'function'
 }
 
+/**
+ * Calls an optional operator hook, swallowing any throw so a broken hook cannot break the fail-soft contract.
+ * @returns Whether `hook` was present (called or not), so the caller can fall back only when there was none.
+ */
+function tryHook<TArgs extends unknown[]>(hook: ((...args: TArgs) => void) | undefined, ...args: TArgs): boolean {
+  if (!hook) return false
+  try {
+    hook(...args)
+  } catch {
+    /* operator hook itself threw - preserve fail-soft contract */
+  }
+  return true
+}
+
 /** Replay window in ms. Signed envelopes whose `ts` is further than this from now, either way, are dropped. */
 const REPLAY_WINDOW_MS = 30_000
 
@@ -326,14 +340,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
     const key = `${kind}\u0000${channelName}`
     const state = _DROP_WARN_STATE.get(key)
     const emit = (suppressed: number, tail: string): void => {
-      if (config.onMessageDropped) {
-        try {
-          config.onMessageDropped(reason, channelName, suppressed)
-        } catch {
-          /* operator hook itself threw - preserve fail-soft contract */
-        }
-        return
-      }
+      if (tryHook(config.onMessageDropped, reason, channelName, suppressed)) return
       console.warn(
         `[@gentleduck/iam:invalidator:redis] dropping unverifiable message on channel ${JSON.stringify(redactChannel(channelName))} (${reason}). ${tail}`,
       )
@@ -362,12 +369,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
 
   function reportSubscribeFailure(err: unknown): void {
     const error = toError(err)
-    try {
-      config.onSubscribeError?.(error, channel)
-    } catch {
-      /* operator hook itself threw - preserve fail-soft contract */
-    }
-    if (!config.onSubscribeError) {
+    if (!tryHook(config.onSubscribeError, error, channel)) {
       console.warn(
         `[@gentleduck/iam:invalidator:redis] subscribe to ${JSON.stringify(redactChannel(channel))} failed (${error.message}) - this node receives no invalidations and serves stale allow decisions until a retry succeeds. A retry is attempted from publish() (at most once every ${RESUBSCRIBE_MIN_INTERVAL_MS}ms) and from any further subscribe(); an engine calls subscribe() once at setup and never again, so a node that never writes never retries. engine.healthCheck() reports \`invalidator: { subscribed: false }\` meanwhile. Pass \`onSubscribeError\` to handle this.`,
       )
@@ -443,12 +445,7 @@ export function createIamRedisInvalidator<TRole extends string = string>(
       // Non-fatal, but reported so a long outage does not desync nodes unnoticed.
       const reportPublishFailure = (err: unknown): void => {
         const error = toError(err)
-        try {
-          config.onPublishError?.(error, channel)
-        } catch {
-          /* operator hook itself threw - preserve fail-soft contract */
-        }
-        if (!config.onPublishError) {
+        if (!tryHook(config.onPublishError, error, channel)) {
           // Separate budget from inbound drops; see `reportDrop`.
           reportDrop('publish', channel, `publish failed (${error.message})`)
         }
