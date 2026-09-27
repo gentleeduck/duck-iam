@@ -153,6 +153,11 @@ function epochMs(value: Date | string | number | null | undefined): number | nul
   return value instanceof Date ? value.getTime() : new Date(value).getTime()
 }
 
+/** A JSON column's value: parsed when the driver returned it as a string (SQLite, or `'string'` mode); passed through when it arrived native (`jsonb`/`json`). */
+function readJsonColumn(value: unknown): unknown {
+  return typeof value === 'string' ? JSON.parse(value) : value
+}
+
 /** One assignment row as read back from a `RETURNING` clause. `null` is the unscoped row, as the column stores it. */
 type ReturnedTriple = { roleId: string; scope: string | null; subjectId: string }
 
@@ -317,12 +322,8 @@ export class IamDrizzleAdapter<
     let parsedTargets: unknown
     try {
       // No cast: a native column holds whatever was written, and `parsePolicyRow` below decides it is a policy.
-      parsedRules = typeof row.rules === 'string' ? JSON.parse(row.rules) : row.rules
-      parsedTargets = row.targets
-        ? typeof row.targets === 'string'
-          ? JSON.parse(row.targets)
-          : row.targets
-        : undefined
+      parsedRules = readJsonColumn(row.rules)
+      parsedTargets = row.targets ? readJsonColumn(row.targets) : undefined
     } catch (err) {
       const detail = toError(err)
       this._reportPolicyError(detail, row.id)
@@ -354,9 +355,10 @@ export class IamDrizzleAdapter<
     let inherits: unknown
     let metadata: unknown
     try {
-      permissions = typeof row.permissions === 'string' ? JSON.parse(row.permissions) : row.permissions
-      inherits = typeof row.inherits === 'string' ? JSON.parse(row.inherits) : (row.inherits ?? [])
-      metadata = row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : undefined
+      permissions = readJsonColumn(row.permissions)
+      // An absent `inherits` is stored/read as `[]`; `readJsonColumn` only needs to see it's not a string.
+      inherits = readJsonColumn(row.inherits ?? [])
+      metadata = row.metadata ? readJsonColumn(row.metadata) : undefined
     } catch (err) {
       this._reportPolicyError(toError(err), row.id)
       throw iamUnreadableRole('drizzle', row.id, toErrorMessage(err))
@@ -448,7 +450,7 @@ export class IamDrizzleAdapter<
     const rowId = row.id ?? row.subjectId
     let value: unknown
     try {
-      value = typeof raw === 'string' ? JSON.parse(raw) : raw
+      value = readJsonColumn(raw)
     } catch (err) {
       this._reportPolicyError(toError(err), rowId)
       return undefined
