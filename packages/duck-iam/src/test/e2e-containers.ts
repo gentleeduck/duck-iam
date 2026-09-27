@@ -14,6 +14,7 @@ import { connect } from 'node:net'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { toErrorMessage } from '../core/errors/normalize'
+import { DOCKER_PROBE_TIMEOUT_MS, dockerIsUp } from './e2e-env'
 
 const exec = promisify(execFile)
 
@@ -30,24 +31,9 @@ const READY_TIMEOUT_MS = 60_000
 /** Every container this run brought up, created or reused, so a half-built stack can undo itself. */
 const touched: { name: string; volume: string | null }[] = []
 
-/**
- * Timeout for `docker info`, which hangs when the daemon socket exists but nothing listens (a stopped Docker Desktop).
- * WARN: keep it generous; a loaded machine takes over 5s, and a slow probe reads as "no docker" and skips every suite.
- */
-const DOCKER_PROBE_TIMEOUT_MS = 30_000
-
 async function docker(args: string[], timeout?: number): Promise<string> {
   const { stdout } = await exec('docker', args, { encoding: 'utf8', timeout })
   return stdout.trim()
-}
-
-async function dockerAvailable(): Promise<boolean> {
-  try {
-    await docker(['info', '--format', '{{.ServerVersion}}'], DOCKER_PROBE_TIMEOUT_MS)
-    return true
-  } catch {
-    return false
-  }
 }
 
 /** `DUCKIAM_E2E_REQUIRE_DOCKER=1` makes missing docker a failure instead of a silent skip; set it on e2e runs. */
@@ -223,7 +209,7 @@ async function startPostgres(): Promise<string> {
  * A preset URL wins; missing docker skips unless `DUCKIAM_E2E_REQUIRE_DOCKER` is set. A failed start tears down.
  */
 export async function setup(): Promise<void> {
-  const hasDocker = await dockerAvailable()
+  const hasDocker = await dockerIsUp()
 
   // NOTE: sweep before the preset-URL return; suites that own their backends leak them either way.
   // Safe because the sweep is age-bounded.
