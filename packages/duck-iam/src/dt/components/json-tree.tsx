@@ -19,7 +19,7 @@ function typeOf(v: unknown): 'object' | 'array' | 'string' | 'number' | 'boolean
 function previewLen(v: unknown): string {
   if (Array.isArray(v)) return `${v.length} ${v.length === 1 ? 'item' : 'items'}`
   if (v && typeof v === 'object') {
-    const n = Object.keys(v as Record<string, unknown>).length
+    const n = Object.keys(v).length
     return `${n} ${n === 1 ? 'item' : 'items'}`
   }
   return ''
