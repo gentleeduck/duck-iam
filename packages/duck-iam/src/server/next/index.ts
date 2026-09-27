@@ -12,6 +12,7 @@ import {
   type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
+  type IamResourceAttributesContext,
   iamActionForMethod,
   iamAdminActorOptions,
   iamAuditIdOf,
@@ -44,8 +45,14 @@ export namespace IamNext {
    * Options for {@link withIamAccess}. `getUserId` is required at runtime; the rest have defaults.
    *
    * @template TScope - Constrains valid scope strings.
+   * @template TAction - Narrows `getResourceAttributes`'s `ctx.action` to {@link withIamAccess}'s own `action` type.
+   * @template TResource - Narrows `getResourceAttributes`'s `ctx.resource` to {@link withIamAccess}'s own `resourceType`.
    */
-  export interface IWithAccessOptions<TScope extends string = string> {
+  export interface IWithAccessOptions<
+    TScope extends string = string,
+    TAction extends string = string,
+    TResource extends string = string,
+  > {
     /** Extracts the current user ID from the request. */
     getUserId?: (req: Request) => string | null | Promise<string | null>
     /** Extracts environment context (IP, user-agent, etc.) from the request. */
@@ -65,7 +72,7 @@ export namespace IamNext {
     /** The resource's own attributes for the check; receives the request and the resolved tuple. */
     getResourceAttributes?: (
       req: Request,
-      ctx: { action: string; resource: string; resourceId: string | undefined; scope: TScope | undefined },
+      ctx: IamResourceAttributesContext<TAction, TResource, TScope>,
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
     onError?: OnErrorHandler
@@ -114,7 +121,7 @@ export namespace IamNext {
     /** The resource's own attributes for the check; receives the request and the resolved tuple. */
     getResourceAttributes?: (
       req: Request,
-      ctx: { action: TAction; resource: TResource; resourceId: string | undefined; scope: TScope | undefined },
+      ctx: IamResourceAttributesContext<TAction, TResource, TScope>,
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles a denied or ambiguous-path request (defaults to 403 JSON). */
     onDenied?: OnRequestHandler
@@ -188,7 +195,7 @@ export function withIamAccess<
   action: TAction,
   resourceType: TResource,
   handler: RouteHandler,
-  opts: IamNext.IWithAccessOptions<TScope> = {},
+  opts: IamNext.IWithAccessOptions<TScope, TAction, TResource> = {},
 ): RouteHandler {
   // getUserId required; header-derived identity is spoofable.
   if (!opts.getUserId) {

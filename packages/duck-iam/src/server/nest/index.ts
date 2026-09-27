@@ -13,6 +13,7 @@ import {
   type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
+  type IamResourceAttributesContext,
   iamActionForMethod,
   iamAdminActorOptions,
   iamAuditIdOf,
@@ -99,8 +100,14 @@ export namespace IamNest {
    * Options for {@link iamNestAccessGuard}; every extractor has a default.
    *
    * @template TScope - Constrains valid scope strings.
+   * @template TAction - Narrows `getResourceAttributes`'s `ctx.action` to the guard's own inferred action type.
+   * @template TResource - Narrows `getResourceAttributes`'s `ctx.resource` to the guard's own inferred resource type.
    */
-  export interface IGuardOptions<TScope extends string = string> {
+  export interface IGuardOptions<
+    TScope extends string = string,
+    TAction extends string = string,
+    TResource extends string = string,
+  > {
     /** Extracts the current user ID from the request. */
     getUserId?: (request: NestRequest) => string | null
     /** Extracts environment context (IP, user-agent, etc.) from the request. */
@@ -115,7 +122,7 @@ export namespace IamNest {
      */
     getResourceAttributes?: (
       request: NestRequest,
-      ctx: { action: string; resource: string; resourceId: string | undefined; scope: TScope | undefined },
+      ctx: IamResourceAttributesContext<TAction, TResource, TScope>,
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Defaults to a 401. */
     onUnauthorized?: RequestErrorBuilder
@@ -254,7 +261,7 @@ export function iamNestAccessGuard<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNest.IGuardOptions<TScope> = {}) {
+>(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNest.IGuardOptions<TScope, TAction, TResource> = {}) {
   const {
     getUserId = (req: NestRequest) => (req.user?.id as string) ?? (req.user?.sub as string) ?? null,
     getEnvironment = (req: NestRequest) => iamExtractEnvironment(req),
