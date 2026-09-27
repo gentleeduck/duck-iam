@@ -1,5 +1,5 @@
 /** The devtools' icons, inlined as SVG so consumers get no icon-package dependency. */
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 interface IconProps {
   size?: number
@@ -18,67 +18,83 @@ const base = {
   strokeWidth: 1.5,
 }
 
+interface StrokeIconProps {
+  size: number
+  className?: string
+  style?: CSSProperties
+  children: ReactNode
+}
+
+/** The `viewBox="0 0 16 16"` + stroke `base` every icon but {@link Dot} shares; only the path(s) differ. */
+function StrokeIcon({ size, className, style, children }: StrokeIconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
+      {children}
+    </svg>
+  )
+}
+
 /** Disclosure caret, expanded state. */
 export function ChevronDown({ size = 12, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
+    <StrokeIcon className={className} size={size} style={style}>
       <path d="M3 6l5 5 5-5" />
-    </svg>
+    </StrokeIcon>
   )
 }
 
 /** Disclosure caret, collapsed state. */
 export function ChevronRight({ size = 12, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
+    <StrokeIcon className={className} size={size} style={style}>
       <path d="M6 3l5 5-5 5" />
-    </svg>
+    </StrokeIcon>
   )
 }
 
 /** Dismiss affordance - the panel's own close control. */
 export function Close({ size = 14, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
+    <StrokeIcon className={className} size={size} style={style}>
       <path d="M3 3l10 10M13 3L3 13" />
-    </svg>
+    </StrokeIcon>
   )
 }
 
 /** Re-read affordance on panels that load from the engine on demand. */
 export function Refresh({ size = 12, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
+    <StrokeIcon className={className} size={size} style={style}>
       <path d="M13.5 7a5.5 5.5 0 1 0-1.5 4M13.5 3v4h-4" />
-    </svg>
+    </StrokeIcon>
   )
 }
 
 /** Magnifier, rendered inside {@link FilterBar}'s input rather than beside it. */
 export function Search({ size = 12, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
+    <StrokeIcon className={className} size={size} style={style}>
       <circle cx="7" cy="7" r="4.5" />
       <path d="M10.5 10.5L14 14" />
-    </svg>
+    </StrokeIcon>
   )
 }
 
 /** Forward/step marker in the decision trace. */
 export function ArrowRight({ size = 12, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
+    <StrokeIcon className={className} size={size} style={style}>
       <path d="M3 8h10M9 4l4 4-4 4" />
-    </svg>
+    </StrokeIcon>
   )
 }
 
 /** Inheritance marker in the Roles panel: the arrow before a role's `inherits` list. */
 export function CornerUpRight({ size = 12, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...base} className={className} style={style}>
+    <StrokeIcon className={className} size={size} style={style}>
       <path d="M3 12V6a2 2 0 0 1 2-2h8M10 1l4 3-4 3" />
-    </svg>
+    </StrokeIcon>
   )
 }
 
@@ -94,14 +110,8 @@ export function Dot({ size = 4, className, style }: IconProps) {
 /** The one animated icon; spins via the `.iam-dt-spin` class in `lib/styles.ts`, not an inline animation. */
 export function Spinner({ size = 12, className, style }: IconProps) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      {...base}
-      className={className ? `iam-dt-spin ${className}` : 'iam-dt-spin'}
-      style={style}>
+    <StrokeIcon className={className ? `iam-dt-spin ${className}` : 'iam-dt-spin'} size={size} style={style}>
       <path d="M8 1.5a6.5 6.5 0 1 1-6.5 6.5" />
-    </svg>
+    </StrokeIcon>
   )
 }
