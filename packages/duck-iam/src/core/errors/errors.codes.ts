@@ -40,4 +40,8 @@ export const IAM_ERRORS = {
   IAM_EVALUATE_RULE_PRIORITY_INVALID: detail<{ policyId?: string; priority?: unknown }>(500),
   IAM_EVALUATE_RULE_EFFECT_UNKNOWN: detail<{ policyId: string; ruleId: string; effect: unknown }>(500),
   IAM_EVALUATE_ALGORITHM_UNKNOWN: detail<{ policyId: string; algorithm: string }>(500),
+  IAM_BUILDER_WHEN_EMPTY_LIST: detail<{ method: 'roles' | 'scopes' | 'resourceType' }>(500),
+  IAM_BUILDER_WHEN_GROUP_CONFLICT: 500,
+  IAM_BUILDER_RULE_SCOPE_EMPTY: detail<{ ruleId: string }>(500),
+  IAM_BUILDER_RULE_UNCONFIGURED: detail<{ ruleId: string }>(500),
 } as const satisfies Record<string, number>

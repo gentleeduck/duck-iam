@@ -1,37 +1,60 @@
 import { describe, expect, it } from 'vitest'
+import { hasIamErrorCode, type IamError } from '../../errors'
 import { definePolicy, defineRule, RuleBuilder } from '..'
+
+function throwsCode(fn: () => unknown, code: IamError.Code): boolean {
+  try {
+    fn()
+    return false
+  } catch (err) {
+    return hasIamErrorCode(err, code)
+  }
+}
 
 // An untouched RuleBuilder is allow `*` on `*` unconditionally, so `build()` refuses it. `BROAD_ALLOW` is only a
 // warning, so a deliberate `.allow()` broad grant still builds.
 describe('RuleBuilder refuses an untouched builder', () => {
   it('a bare build() throws instead of returning allow-everything', () => {
-    expect(() => new RuleBuilder('r1').build()).toThrow(/never configured/)
+    expect(throwsCode(() => new RuleBuilder('r1').build(), 'IAM_BUILDER_RULE_UNCONFIGURED')).toBe(true)
   })
 
   it('defineRule(id).build() throws for the same reason', () => {
-    expect(() => defineRule('r1').build()).toThrow(/never configured/)
+    expect(throwsCode(() => defineRule('r1').build(), 'IAM_BUILDER_RULE_UNCONFIGURED')).toBe(true)
   })
 
   it('a rule() callback that configures nothing fails the policy build', () => {
-    expect(() =>
-      definePolicy('p1')
-        .rule('r1', (r) => r)
-        .build(),
-    ).toThrow(/never configured/)
+    expect(
+      throwsCode(
+        () =>
+          definePolicy('p1')
+            .rule('r1', (r) => r)
+            .build(),
+        'IAM_BUILDER_RULE_UNCONFIGURED',
+      ),
+    ).toBe(true)
   })
 
   it('a rule() callback that drops its return still fails', () => {
     // The callback mutates nothing and returns a *different* untouched builder.
-    expect(() =>
-      definePolicy('p1')
-        .rule('r1', () => new RuleBuilder('other'))
-        .build(),
-    ).toThrow(/never configured/)
+    expect(
+      throwsCode(
+        () =>
+          definePolicy('p1')
+            .rule('r1', () => new RuleBuilder('other'))
+            .build(),
+        'IAM_BUILDER_RULE_UNCONFIGURED',
+      ),
+    ).toBe(true)
   })
 
   it('description/priority/metadata alone do not count as configuring the grant', () => {
     // None of these narrow the grant, so the rule is still an unconditional allow * *.
-    expect(() => defineRule('r1').desc('todo').priority(5).meta({ owner: 'team' }).build()).toThrow(/never configured/)
+    expect(
+      throwsCode(
+        () => defineRule('r1').desc('todo').priority(5).meta({ owner: 'team' }).build(),
+        'IAM_BUILDER_RULE_UNCONFIGURED',
+      ),
+    ).toBe(true)
   })
 
   it('an explicit broad grant is still allowed - this is the opt-in', () => {
@@ -72,39 +95,51 @@ describe('RuleBuilder refuses an untouched builder', () => {
 // is allowed: `{all: []}` matches every request, `{any: []}` matches none.
 describe('the refusal gates on what the rule became, not on which methods were called', () => {
   it('forScope() with no scopes throws rather than building a global rule', () => {
-    expect(() => defineRule('r1').forScope().build()).toThrow(/no scopes/)
+    expect(throwsCode(() => defineRule('r1').forScope().build(), 'IAM_BUILDER_RULE_SCOPE_EMPTY')).toBe(true)
   })
 
   it('forScope(...[]) - the runtime-empty spread - throws for the same reason', () => {
     // The realistic shape: a tenant restriction whose list came back empty.
     const tenantIds: string[] = []
-    expect(() =>
-      defineRule('r1')
-        .forScope(...tenantIds)
-        .build(),
-    ).toThrow(/no scopes/)
+    expect(
+      throwsCode(
+        () =>
+          defineRule('r1')
+            .forScope(...tenantIds)
+            .build(),
+        'IAM_BUILDER_RULE_SCOPE_EMPTY',
+      ),
+    ).toBe(true)
   })
 
   it('an empty forScope is refused even when the grant was otherwise configured', () => {
     // `_grantShapeSet` is already true here, so only forScope's own check can catch this.
     const tenantIds: string[] = []
-    expect(() =>
-      defineRule('r1')
-        .allow()
-        .on('read')
-        .of('post')
-        .forScope(...tenantIds)
-        .build(),
-    ).toThrow(/no scopes/)
+    expect(
+      throwsCode(
+        () =>
+          defineRule('r1')
+            .allow()
+            .on('read')
+            .of('post')
+            .forScope(...tenantIds)
+            .build(),
+        'IAM_BUILDER_RULE_SCOPE_EMPTY',
+      ),
+    ).toBe(true)
   })
 
   it('when() whose callback adds nothing does not count as configuring the grant', () => {
     // Produces `{all: []}`, which matches every request - a silent broad grant.
-    expect(() =>
-      defineRule('r1')
-        .when((w) => w)
-        .build(),
-    ).toThrow(/never configured/)
+    expect(
+      throwsCode(
+        () =>
+          defineRule('r1')
+            .when((w) => w)
+            .build(),
+        'IAM_BUILDER_RULE_UNCONFIGURED',
+      ),
+    ).toBe(true)
   })
 
   it('whenAny() whose callback adds nothing is allowed - it fails closed', () => {

@@ -1,4 +1,4 @@
-import { throwIamValidationFailed } from '../errors'
+import { throwIamError, throwIamValidationFailed } from '../errors'
 import type { AccessControl, DotPath, IamPrimitives } from '../types'
 import type { IamValidate } from '../validate'
 import { validateRuleShape } from '../validate/validate.libs'
@@ -143,11 +143,7 @@ export class RuleBuilder<
   forScope(...scopes: (TScope | '*')[]): this {
     // SECURITY: a runtime-empty `...tenantIds` must not become a global rule; `'*'` is how to say "every scope".
     if (scopes.length === 0) {
-      throw new Error(
-        `[@gentleduck/iam:builder] RuleBuilder.forScope("${this._id}") was called with no scopes. ` +
-          'A scope restriction that names nothing would leave the rule global, which is the opposite ' +
-          "of the intent. Pass at least one scope, or `'*'` if the rule really is unscoped.",
-      )
+      throwIamError('IAM_BUILDER_RULE_SCOPE_EMPTY', { ruleId: this._id })
     }
     // Counted even for `'*'`: `build()` refuses silence, and `.forScope('*')` is an explicit (if non-narrowing) choice.
     this._grantShapeSet = true
@@ -222,12 +218,7 @@ export class RuleBuilder<
    */
   build(): AccessControl.IRule<TAction, TResource> {
     if (!this._grantShapeSet) {
-      throw new Error(
-        `[@gentleduck/iam:builder] RuleBuilder.build("${this._id}") was never configured - ` +
-          'no effect, action, resource, scope or condition was set. The defaults are the broadest ' +
-          'possible grant (allow * on *, unconditional), so this is refused rather than returned. ' +
-          'Call `.allow()` if a broad grant is intended.',
-      )
+      throwIamError('IAM_BUILDER_RULE_UNCONFIGURED', { ruleId: this._id })
     }
     let conditions = this._conditions
 
