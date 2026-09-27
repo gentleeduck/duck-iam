@@ -15,7 +15,6 @@ import {
   iamAdminActorOptions,
   iamAuditIdOf,
   iamExtractEnvironment,
-  iamIsSubjectId,
   iamNormalizePathname,
   iamOptionalStringField,
   iamPathIsAmbiguous,
@@ -23,6 +22,7 @@ import {
   iamRequirePathParam,
   iamRequireStringField,
   iamResolveCsrfCheck,
+  iamRunAccessCheck,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
@@ -202,35 +202,27 @@ export function withIamAccess<
   } = opts
 
   return async (req, ctx) => {
-    try {
-      // Inside the try, like every other extractor, so a throwing `getUserId` reaches `onError`.
-      const userId = await getUserId(req)
-      if (!iamIsSubjectId(userId)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-
+    // INFO: `getUserId` runs inside the shared check, like every other extractor, so a throwing `getUserId`
+    // reaches `onError`.
+    const result = await iamRunAccessCheck(req, getUserId, async (userId) => {
       const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
       const scope = staticScope ?? getScope?.(req, params)
       const resourceId = getResourceId(req, params)
-
       const attributes = getResourceAttributes
         ? await getResourceAttributes(req, { action, resource: resourceType, resourceId, scope })
         : {}
-      const allowed = await engine.can(
-        userId,
-        action,
-        { type: resourceType, id: resourceId, attributes },
-        getEnvironment(req),
-        scope,
-      )
-
-      if (!allowed) {
-        return Response.json({ error: 'Forbidden' }, { status: 403 })
-      }
-    } catch (err) {
-      return onError(toError(err), req)
+      return engine.can(userId, action, { type: resourceType, id: resourceId, attributes }, getEnvironment(req), scope)
+    })
+    if (result.phase === 'unauthorized') {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    // NOTE: outside the try, as in the hono guard, so a route's own error reaches Next and not this `onError`.
+    if (result.phase === 'denied') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    if (result.phase === 'error') {
+      return onError(result.error, req)
+    }
+    // NOTE: outside the check, as in the hono guard, so a route's own error reaches Next and not this `onError`.
     return handler(req, ctx)
   }
 }
@@ -379,13 +371,9 @@ export function createIamNextMiddleware<
 
     if (!matchedRule) return null
 
-    try {
-      // Inside the try, like every other extractor, so a throwing `getUserId` reaches `onError`.
-      const userId = await opts.getUserId(req)
-      if (!iamIsSubjectId(userId)) {
-        return onUnauthorized(req)
-      }
-
+    // INFO: `getUserId` runs inside the shared check, like every other extractor, so a throwing `getUserId`
+    // reaches `onError`.
+    const result = await iamRunAccessCheck(req, opts.getUserId, async (userId) => {
       // The method-inferred fallback is a runtime string that cannot be narrowed to the erased `TAction`, so it
       // widens through the named helper the other adapters use.
       const action: TAction = matchedRule.action ?? iamAsActionLiteral<TAction>(iamActionForMethod(req.method))
@@ -394,7 +382,7 @@ export function createIamNextMiddleware<
       const ruleCtx = { action, resource: matchedRule.resource, scope }
       const resourceId = getResourceId?.(req, ruleCtx)
       const attributes = getResourceAttributes ? await getResourceAttributes(req, { ...ruleCtx, resourceId }) : {}
-      const allowed = await engine.can(
+      return engine.can(
         userId,
         action,
         {
@@ -405,15 +393,11 @@ export function createIamNextMiddleware<
         getEnvironment(req),
         scope,
       )
-
-      if (!allowed) {
-        return onDenied(req)
-      }
-
-      return null
-    } catch (err) {
-      return onError(toError(err), req)
-    }
+    })
+    if (result.phase === 'unauthorized') return onUnauthorized(req)
+    if (result.phase === 'denied') return onDenied(req)
+    if (result.phase === 'error') return onError(result.error, req)
+    return null
   }
 }
 

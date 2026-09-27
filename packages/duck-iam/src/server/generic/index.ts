@@ -334,6 +334,58 @@ export async function iamRunAdminAuthz<TReq>(
   return { phase: 'ok', actor: undefined }
 }
 
+/** No subject id, or one `iamIsSubjectId` refuses. */
+export interface IamAccessCheckUnauthorized {
+  phase: 'unauthorized'
+}
+
+/** `engine.can` (run through the caller's `check`) returned false. */
+export interface IamAccessCheckDenied {
+  phase: 'denied'
+}
+
+/** `getUserId` or `check` threw. */
+export interface IamAccessCheckError {
+  phase: 'error'
+  error: Error
+}
+
+/** The caller may proceed. */
+export interface IamAccessCheckOk {
+  phase: 'ok'
+}
+
+/** Every outcome of the shared access gate. Exhaustive: adapters switch on `phase`. */
+export type IamAccessCheckResult =
+  | IamAccessCheckUnauthorized
+  | IamAccessCheckDenied
+  | IamAccessCheckError
+  | IamAccessCheckOk
+
+/**
+ * Runs the subject-id and `engine.can` phases shared by every access middleware/guard (`iamAccessMiddleware`,
+ * `iamGuard`, `withIamAccess`); each adapter maps the result to its own response, and decides what "ok" does
+ * (`next()`, returning the wrapped handler, or returning `null` to pass through).
+ *
+ * NOTE: `getUserId` runs inside the same try as `check`, matching every adapter's own comment that a throwing
+ * extractor must reach `onError` like a throwing check - an adapter with a synchronous `getUserId` still fits,
+ * since awaiting a non-promise value resolves to it immediately.
+ */
+export async function iamRunAccessCheck<TReq>(
+  req: TReq,
+  getUserId: (req: TReq) => string | null | Promise<string | null>,
+  check: (userId: string) => Promise<boolean>,
+): Promise<IamAccessCheckResult> {
+  try {
+    const userId = await getUserId(req)
+    if (!iamIsSubjectId(userId)) return { phase: 'unauthorized' }
+    const allowed = await check(userId)
+    return allowed ? { phase: 'ok' } : { phase: 'denied' }
+  } catch (err) {
+    return { phase: 'error', error: toError(err) }
+  }
+}
+
 /** Per-process latch so the un-nameable-actor notice fires at most once. */
 let _ACTOR_NOTICED = false
 

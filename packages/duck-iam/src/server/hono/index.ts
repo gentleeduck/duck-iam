@@ -17,12 +17,12 @@ import {
   iamAuditIdOf,
   iamDefaultResource,
   iamExtractEnvironment,
-  iamIsSubjectId,
   iamOptionalStringField,
   iamReadJsonBody,
   iamRequirePathParam,
   iamRequireStringField,
   iamResolveCsrfCheck,
+  iamRunAccessCheck,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
@@ -182,18 +182,15 @@ export function iamAccessMiddleware<
   } = opts
 
   return async (c, next) => {
-    try {
-      // Inside the try, like every other extractor, so a throwing `getUserId` reaches `onError`.
-      const userId = getUserId(c)
-      if (!iamIsSubjectId(userId)) return c.json({ error: 'Unauthorized' }, 401)
-
-      const allowed = await engine.can(userId, getAction(c), getResource(c), getEnvironment(c), getScope?.(c))
-
-      if (!allowed) return onDenied(c)
-    } catch (err) {
-      return onError(toError(err), c)
-    }
-    // NOTE: outside the try, so a route's own error reaches the app's `app.onError`, not this `onError`.
+    // INFO: `getUserId` runs inside the shared check, like every other extractor, so a throwing `getUserId`
+    // reaches `onError`.
+    const result = await iamRunAccessCheck(c, getUserId, (userId) =>
+      engine.can(userId, getAction(c), getResource(c), getEnvironment(c), getScope?.(c)),
+    )
+    if (result.phase === 'unauthorized') return c.json({ error: 'Unauthorized' }, 401)
+    if (result.phase === 'denied') return onDenied(c)
+    if (result.phase === 'error') return onError(result.error, c)
+    // NOTE: outside the check, so a route's own error reaches the app's `app.onError`, not this `onError`.
     await next()
   }
 }
@@ -455,28 +452,18 @@ export function iamGuard<
   } = opts
 
   return async (c, next) => {
-    try {
-      const userId = getUserId(c)
-      if (!iamIsSubjectId(userId)) return c.json({ error: 'Unauthorized' }, 401)
-
+    const result = await iamRunAccessCheck(c, getUserId, async (userId) => {
       const scope = staticScope ?? getScope?.(c)
       const resourceId = getResourceId(c)
       const attributes = getResourceAttributes
         ? await getResourceAttributes(c, { action, resource: resourceType, resourceId, scope })
         : {}
-      const allowed = await engine.can(
-        userId,
-        action,
-        { type: resourceType, id: resourceId, attributes },
-        getEnvironment(c),
-        scope,
-      )
-
-      if (!allowed) return onDenied(c)
-    } catch (err) {
-      return onError(toError(err), c)
-    }
-    // NOTE: outside the try, so a route's own error reaches the app's `app.onError`, not this `onError`.
+      return engine.can(userId, action, { type: resourceType, id: resourceId, attributes }, getEnvironment(c), scope)
+    })
+    if (result.phase === 'unauthorized') return c.json({ error: 'Unauthorized' }, 401)
+    if (result.phase === 'denied') return onDenied(c)
+    if (result.phase === 'error') return onError(result.error, c)
+    // NOTE: outside the check, so a route's own error reaches the app's `app.onError`, not this `onError`.
     await next()
   }
 }
