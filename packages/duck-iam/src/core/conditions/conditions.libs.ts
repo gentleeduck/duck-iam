@@ -249,7 +249,10 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     }
   }
 
-  const adjacent = findAdjacentUnboundedOverlap(pattern)
+  const atoms = scanQuantifiedAtoms(pattern)
+  const literals = literalProbeChars(pattern)
+
+  const adjacent = findAdjacentUnboundedOverlap(atoms, literals)
   if (adjacent !== null) {
     return {
       safe: false,
@@ -257,7 +260,7 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     }
   }
 
-  const chain = findOverlappingUnboundedChain(pattern)
+  const chain = findOverlappingUnboundedChain(atoms, literals)
   if (chain !== null) {
     return {
       safe: false,
@@ -306,11 +309,12 @@ function atomsOverlap(a: string, b: string, extraProbes: readonly string[]): boo
 /**
  * Finds neighbouring unbounded quantifiers whose atoms overlap (`a+a+`, `.*.*`); the input cap does not bound these.
  * Separated runs are {@link findOverlappingUnboundedChain}'s job.
+ * @param atoms - `pattern`'s atoms, from {@link scanQuantifiedAtoms}; shared with {@link findOverlappingUnboundedChain}
+ *   so `detectCatastrophicRegex` scans the pattern once for both checks.
+ * @param literals - `pattern`'s own literal characters, from {@link literalProbeChars}.
  * @returns The offending pair as `` `x` then `y` ``, or `null`.
  */
-function findAdjacentUnboundedOverlap(pattern: string): string | null {
-  const atoms = scanQuantifiedAtoms(pattern)
-  const literals = literalProbeChars(pattern)
+function findAdjacentUnboundedOverlap(atoms: readonly QuantifiedAtom[], literals: readonly string[]): string | null {
   let prev: QuantifiedAtom | undefined
   for (const cur of atoms) {
     const pair = prev
@@ -337,11 +341,12 @@ function overlapsAll(sources: readonly string[], extraProbes: readonly string[])
 /**
  * Finds more than {@link MAX_OVERLAPPING_UNBOUNDED_CHAIN} unbounded quantifiers competing for the same characters.
  * A separator links two atoms only if optional or matched with both: `.*\/.*\/.*` links, `[a-z]+@[a-z]+` does not.
+ * @param atoms - `pattern`'s atoms, from {@link scanQuantifiedAtoms}; shared with {@link findAdjacentUnboundedOverlap}
+ *   so `detectCatastrophicRegex` scans the pattern once for both checks.
+ * @param literals - `pattern`'s own literal characters, from {@link literalProbeChars}.
  * @returns The offending run as `` `x` then `y` then `z` ``, or `null`.
  */
-function findOverlappingUnboundedChain(pattern: string): string | null {
-  const atoms = scanQuantifiedAtoms(pattern)
-  const literals = literalProbeChars(pattern)
+function findOverlappingUnboundedChain(atoms: readonly QuantifiedAtom[], literals: readonly string[]): string | null {
   let chain: QuantifiedAtom[] = []
   let separators: QuantifiedAtom[] = []
   for (const atom of atoms) {
