@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import { hasIamErrorCode } from '../../core/errors'
+import { hasIamErrorCode, throwIamError } from '../../core/errors'
 import { toError } from '../../core/errors/normalize'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import {
@@ -424,7 +424,7 @@ export function createIamAdminOperations<
   TScope extends string = string,
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNest.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam:nest] createIamAdminOperations requires an `authorize` callback.')
+    throwIamError('IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED', { framework: 'nest', fn: 'createIamAdminOperations' })
   }
   const { authorize, onAdminMutation, getMutationActor, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } =
     opts
