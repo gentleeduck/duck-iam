@@ -150,38 +150,46 @@ describe('an inherited name is not an operator', () => {
   // An inherited combiner name answers an object with no `effect`, so it denies either way. What the guard adds is
   // that the policy is reported as failed instead of silently voting deny with a malformed decision.
   it.each(INHERITED)('an inherited combining algorithm %s is reported, in production', async (name) => {
-    const seen: string[] = []
+    const seen: Error[] = []
     const policy = { ...planted('c', 'eq', 'allow', 'all'), algorithm: name } as unknown as AccessControlPolicy
     const adapter = new Planted()
     adapter.extra.push(policy)
     const engine = new IamEngine({
       adapter,
       cacheTTL: 0,
-      hooks: { onPolicyError: (err) => seen.push(err.message) },
+      hooks: { onPolicyError: (err) => seen.push(err) },
       mode: 'production',
     })
     expect(await engine.can('u1', 'delete', POST)).toBe(false)
-    expect(seen.join(' | ')).toMatch(new RegExp(`Unknown combining algorithm "${name}"`))
+    expect(seen).toHaveLength(1)
+    const meta = metaOf(seen[0] as IamError<'IAM_EVALUATE_ALGORITHM_UNKNOWN'>, 'IAM_EVALUATE_ALGORITHM_UNKNOWN')
+    expect(meta.algorithm).toBe(name)
   })
 
   it.each(INHERITED)('an inherited combining algorithm %s is Indeterminate in the interpreter too', async (name) => {
     const policy = { ...planted('c', 'eq', 'allow', 'all'), algorithm: name } as unknown as AccessControlPolicy
-    expect(() => evaluatePolicy(policy, REQ as never, 'deny')).toThrow(
-      new RegExp(`Unknown combining algorithm "${name}"`),
-    )
+    try {
+      evaluatePolicy(policy, REQ as never, 'deny')
+      expect.unreachable()
+    } catch (err) {
+      const meta = metaOf(err as IamError<'IAM_EVALUATE_ALGORITHM_UNKNOWN'>, 'IAM_EVALUATE_ALGORITHM_UNKNOWN')
+      expect(meta.algorithm).toBe(name)
+    }
   })
 
   // The compiled table never holds one: `isResidualPolicy` forces it out, and `evaluatePolicyFast` refuses it.
   // That is what keeps `combiners[group.algorithm]` in the DYNAMIC cell from ever seeing an inherited name.
   it.each(INHERITED)('a compiled table keeps algorithm %s residual and reports it', (name) => {
-    const seen: string[] = []
+    const seen: Error[] = []
     const policy = { ...planted('c', 'eq', 'allow', 'all'), algorithm: name } as unknown as AccessControlPolicy
     const table = compileTable([], [policy], 'and')
     expect(table.residualPolicies.map((p) => p.id)).toEqual(['c'])
     const req = { ...REQ, subject: { ...REQ.subject, attributes: { tier: 'gold' } } }
-    const allowed = lookup(table, 0, 'delete', 'post', req as never, 'deny', (err) => seen.push(err.message))
+    const allowed = lookup(table, 0, 'delete', 'post', req as never, 'deny', (err) => seen.push(err))
     expect(allowed).toBe(false)
-    expect(seen.join(' | ')).toMatch(new RegExp(`Unknown combining algorithm "${name}"`))
+    expect(seen).toHaveLength(1)
+    const meta = metaOf(seen[0] as IamError<'IAM_EVALUATE_ALGORITHM_UNKNOWN'>, 'IAM_EVALUATE_ALGORITHM_UNKNOWN')
+    expect(meta.algorithm).toBe(name)
   })
 
   it('CONTROL: the same policy with a real algorithm compiles into the table and allows', () => {

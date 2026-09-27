@@ -10,19 +10,32 @@ const req: IamRequest.IAccessRequest = {
   subject: { attributes: {}, id: 'u1', roles: [] },
 }
 
-const FOOTGUN = /fail-open footgun/
+function footgunError(fn: () => unknown): unknown {
+  try {
+    fn()
+    throw new Error('expected fn to throw')
+  } catch (err) {
+    return err
+  }
+}
 
 describe('the evaluator applies the same fail-open opt-in as the engine', () => {
   it('iamEvaluate throws on defaultEffect allow without the opt-in', () => {
-    expect(() => Iam.iamEvaluate([], req, 'allow')).toThrow(FOOTGUN)
+    expect(
+      Iam.hasIamErrorCode(
+        footgunError(() => Iam.iamEvaluate([], req, 'allow')),
+        'IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED',
+      ),
+    ).toBe(true)
   })
 
   it('iamEvaluateFast throws on defaultEffect allow without the opt-in', () => {
-    expect(() => Iam.iamEvaluateFast([], req, 'allow')).toThrow(FOOTGUN)
-  })
-
-  it('names the package and the module in the message', () => {
-    expect(() => Iam.iamEvaluate([], req, 'allow')).toThrow(/\[@gentleduck\/iam:evaluate\]/)
+    expect(
+      Iam.hasIamErrorCode(
+        footgunError(() => Iam.iamEvaluateFast([], req, 'allow')),
+        'IAM_ENGINE_FAIL_OPEN_NOT_CONFIRMED',
+      ),
+    ).toBe(true)
   })
 
   it('allows the fail-open evaluation once intent is confirmed', () => {

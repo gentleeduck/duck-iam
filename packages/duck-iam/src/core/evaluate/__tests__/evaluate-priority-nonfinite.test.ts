@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
+import { hasIamErrorCode } from '../../errors'
 import type { AccessControl } from '../../types'
 import { combiners } from '../evaluate.libs'
 import type { Evaluate } from '../evaluate.types'
+
+function throwsPriorityInvalid(fn: () => unknown): void {
+  try {
+    fn()
+    expect.unreachable()
+  } catch (err) {
+    expect(hasIamErrorCode(err, 'IAM_EVALUATE_RULE_PRIORITY_INVALID')).toBe(true)
+  }
+}
 
 // A NaN or missing `priority` (an unvalidated adapter row) is Indeterminate under the two ranking algorithms,
 // and invisible to the other two, which never read it.
@@ -26,16 +36,14 @@ describe.each(NON_FINITE)('combiners with a %s priority', (_label, bad) => {
   it.each(RANKING)('%s: refuses it whatever the source order', (algo) => {
     const deny = rule('deny', 'deny', bad)
     const allow = rule('allow', 'allow', 1)
-    expect(() => combiners[algo](matched(deny, allow), 'allow')).toThrow(/priority must be a finite number/)
-    expect(() => combiners[algo](matched(allow, deny), 'allow')).toThrow(/priority must be a finite number/)
+    throwsPriorityInvalid(() => combiners[algo](matched(deny, allow), 'allow'))
+    throwsPriorityInvalid(() => combiners[algo](matched(allow, deny), 'allow'))
   })
 
   // The compiled fast path ranks every candidate, so a lone rule left unchecked here made the two disagree.
   // The 6000-catalog differential caught exactly that.
   it.each(RANKING)('%s: refuses a lone rule too, not just one it compares against', (algo) => {
-    expect(() => combiners[algo](matched(rule('deny', 'deny', bad)), 'allow')).toThrow(
-      /priority must be a finite number/,
-    )
+    throwsPriorityInvalid(() => combiners[algo](matched(rule('deny', 'deny', bad)), 'allow'))
   })
 
   it.each(UNRANKED)('%s never reads priority, so it is unaffected', (algo) => {

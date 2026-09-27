@@ -3,6 +3,7 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import { compileTable } from '../../engine/compiled/compiled.compile'
 import { lookup } from '../../engine/compiled/compiled.lookup'
 import { IamEngine } from '../../engine/engine'
+import { hasIamErrorCode } from '../../errors'
 import type { AccessControl, IamRequest } from '../../types'
 import { validatePolicy } from '../../validate'
 import { evaluate, evaluateFast } from '../evaluate'
@@ -153,14 +154,16 @@ describe('an unrecognised rule effect is Indeterminate, never an abstention', ()
   })
 
   it('reports the row through onPolicyError, naming the rule', async () => {
-    const seen: string[] = []
+    const seen: Error[] = []
     const engine = new IamEngine({
       adapter: new IamMemoryAdapter({ policies: [mixedPolicy('deny-overrides', BOGUS_EFFECT)] }),
-      hooks: { onPolicyError: (err) => seen.push(err.message) },
+      hooks: { onPolicyError: (err) => seen.push(err) },
       mode: 'production',
     })
     expect(await engine.authorize(REQUEST)).toBe(false)
-    expect(seen.join(' | ')).toMatch(/Unknown effect "DENY" on rule "other"/)
+    expect(seen).toHaveLength(1)
+    expect(hasIamErrorCode(seen[0], 'IAM_EVALUATE_RULE_EFFECT_UNKNOWN')).toBe(true)
+    expect(seen[0]).toMatchObject({ meta: { effect: 'DENY', ruleId: 'other' } })
   })
 
   it('end-to-end: production does not allow what development denies', async () => {
