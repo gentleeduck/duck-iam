@@ -3,7 +3,6 @@
 import { Button } from '@gentleduck/registry-ui/button'
 import { ButtonGroup } from '@gentleduck/registry-ui/button-group'
 import { FieldDescription, FieldGroup } from '@gentleduck/registry-ui/field'
-import { Input } from '@gentleduck/registry-ui/input'
 import { Textarea } from '@gentleduck/registry-ui/textarea'
 import { Save, Search, ShieldMinus, ShieldPlus, UserRound } from 'lucide-react'
 import React from 'react'
@@ -19,13 +18,13 @@ import {
   IamV2Chip,
   IamV2DetailHeader,
   IamV2EmptyDetail,
-  IamV2FieldBox,
   IamV2Notice,
   IamV2PaneBody,
   IamV2PaneHeader,
   IamV2Root,
   IamV2Section,
   IamV2Split,
+  IamV2TextField,
 } from '../components/chrome'
 import { IamV2Json } from '../components/json-view'
 import { IAM_V2_MONO } from '../lib/tone'
@@ -148,24 +147,20 @@ export function IamSubjectsPanelV2({ engine }: IamEnginePanelProps) {
                 <IamV2Section defaultOpen={false} title="Role assignment">
                   <FieldGroup className="gap-3">
                     <div className="grid grid-cols-2 gap-3">
-                      <IamV2FieldBox id={`${fieldId}-role`} label="role id">
-                        <Input
-                          className="h-8 font-mono text-xs"
-                          id={`${fieldId}-role`}
-                          onChange={(e) => setRoleId(e.target.value)}
-                          placeholder="editor"
-                          value={roleId}
-                        />
-                      </IamV2FieldBox>
-                      <IamV2FieldBox id={`${fieldId}-scope`} label="scope (optional)">
-                        <Input
-                          className="h-8 font-mono text-xs"
-                          id={`${fieldId}-scope`}
-                          onChange={(e) => setScope(e.target.value)}
-                          placeholder="org-acme"
-                          value={scope}
-                        />
-                      </IamV2FieldBox>
+                      <IamV2TextField
+                        id={`${fieldId}-role`}
+                        label="role id"
+                        onChange={setRoleId}
+                        placeholder="editor"
+                        value={roleId}
+                      />
+                      <IamV2TextField
+                        id={`${fieldId}-scope`}
+                        label="scope (optional)"
+                        onChange={setScope}
+                        placeholder="org-acme"
+                        value={scope}
+                      />
                     </div>
                     <ButtonGroup aria-label="Role assignment" className="self-start">
                       <Button className="h-8 gap-1.5" disabled={busy} onClick={() => void assign()} size="sm">
@@ -196,15 +191,13 @@ export function IamSubjectsPanelV2({ engine }: IamEnginePanelProps) {
           <>
             <IamV2PaneHeader title="Lookup" />
             <IamV2PaneBody className="gap-3">
-              <IamV2FieldBox id={`${fieldId}-subject`} label="subject id">
-                <Input
-                  className="h-8 font-mono text-xs"
-                  id={`${fieldId}-subject`}
-                  onChange={(e) => setSubjectId(e.target.value)}
-                  placeholder="user-1"
-                  value={subjectId}
-                />
-              </IamV2FieldBox>
+              <IamV2TextField
+                id={`${fieldId}-subject`}
+                label="subject id"
+                onChange={setSubjectId}
+                placeholder="user-1"
+                value={subjectId}
+              />
               <Button className="h-8 gap-1.5" disabled={busy} onClick={() => void load()} size="sm">
                 <Search size={13} />
                 load subject

@@ -3,7 +3,6 @@
 import { cn } from '@gentleduck/libs/cn'
 import { Button } from '@gentleduck/registry-ui/button'
 import { FieldDescription, FieldGroup } from '@gentleduck/registry-ui/field'
-import { Input } from '@gentleduck/registry-ui/input'
 import { Textarea } from '@gentleduck/registry-ui/textarea'
 import { Loader2, Play, ScanSearch } from 'lucide-react'
 import React from 'react'
@@ -21,6 +20,7 @@ import {
   IamV2Root,
   IamV2Section,
   IamV2Split,
+  IamV2TextField,
 } from '../components/chrome'
 import { IamV2Json } from '../components/json-view'
 import { IAM_V2_ACTION, IAM_V2_MONO, IAM_V2_RESOURCE, iamV2Decision } from '../lib/tone'
@@ -98,54 +98,44 @@ export function IamDecisionInspectorV2({
             <IamV2PaneBody className="gap-3">
               {/* One `FieldGroup` so the form shares duck-ui's field spacing and a single shortcut handler. */}
               <FieldGroup className="gap-3" onKeyDown={onFormKeyDown}>
-                <IamV2FieldBox id={`${fieldId}-subject`} label="subject id">
-                  <Input
-                    className="h-8 font-mono text-xs"
-                    id={`${fieldId}-subject`}
-                    onChange={(e) => update({ subjectId: e.target.value })}
-                    placeholder="user-1"
-                    value={input.subjectId}
-                  />
-                </IamV2FieldBox>
+                <IamV2TextField
+                  id={`${fieldId}-subject`}
+                  label="subject id"
+                  onChange={(value) => update({ subjectId: value })}
+                  placeholder="user-1"
+                  value={input.subjectId}
+                />
                 <div className="grid grid-cols-2 gap-3">
-                  <IamV2FieldBox id={`${fieldId}-action`} label="action">
-                    <Input
-                      className="h-8 font-mono text-xs"
-                      id={`${fieldId}-action`}
-                      onChange={(e) => update({ action: e.target.value })}
-                      placeholder="read"
-                      value={input.action}
-                    />
-                  </IamV2FieldBox>
-                  <IamV2FieldBox id={`${fieldId}-scope`} label="scope">
-                    <Input
-                      className="h-8 font-mono text-xs"
-                      id={`${fieldId}-scope`}
-                      onChange={(e) => update({ scope: e.target.value })}
-                      placeholder="org-acme"
-                      value={input.scope}
-                    />
-                  </IamV2FieldBox>
+                  <IamV2TextField
+                    id={`${fieldId}-action`}
+                    label="action"
+                    onChange={(value) => update({ action: value })}
+                    placeholder="read"
+                    value={input.action}
+                  />
+                  <IamV2TextField
+                    id={`${fieldId}-scope`}
+                    label="scope"
+                    onChange={(value) => update({ scope: value })}
+                    placeholder="org-acme"
+                    value={input.scope}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <IamV2FieldBox id={`${fieldId}-rtype`} label="resource type">
-                    <Input
-                      className="h-8 font-mono text-xs"
-                      id={`${fieldId}-rtype`}
-                      onChange={(e) => update({ resourceType: e.target.value })}
-                      placeholder="post"
-                      value={input.resourceType}
-                    />
-                  </IamV2FieldBox>
-                  <IamV2FieldBox id={`${fieldId}-rid`} label="resource id">
-                    <Input
-                      className="h-8 font-mono text-xs"
-                      id={`${fieldId}-rid`}
-                      onChange={(e) => update({ resourceId: e.target.value })}
-                      placeholder="p-1"
-                      value={input.resourceId}
-                    />
-                  </IamV2FieldBox>
+                  <IamV2TextField
+                    id={`${fieldId}-rtype`}
+                    label="resource type"
+                    onChange={(value) => update({ resourceType: value })}
+                    placeholder="post"
+                    value={input.resourceType}
+                  />
+                  <IamV2TextField
+                    id={`${fieldId}-rid`}
+                    label="resource id"
+                    onChange={(value) => update({ resourceId: value })}
+                    placeholder="p-1"
+                    value={input.resourceId}
+                  />
                 </div>
                 <IamV2FieldBox id={`${fieldId}-attrs`} label="resource.attributes (JSON)">
                   <Textarea
