@@ -87,4 +87,36 @@ export const IAM_ERRORS = {
   IAM_FILE_STATE_DISCARDED: 500,
   IAM_FILE_MKDIR_FAILED: detail<{ path: string; code: string }>(500),
   IAM_FILE_ASSIGNMENTS_CORRUPT: detail<{ subjectId: string }>(500),
+  IAM_HTTP_ID_INVALID: detail<{
+    field: string
+    reason: 'empty' | 'separator' | 'dot-segment' | 'too-long'
+    value?: string
+    length?: number
+  }>(400),
+  IAM_HTTP_OPTION_INVALID: detail<{ field: string; got: string; constraint: string }>(500),
+  IAM_HTTP_BASE_URL_INVALID: detail<{
+    reason: 'unparseable' | 'bad-scheme' | 'has-query-or-fragment' | 'host-not-allowed' | 'private-host'
+    baseUrl?: string
+    scheme?: string
+    host?: string
+  }>(500),
+  IAM_HTTP_RESPONSE_ERROR: detail<{ status: number; body: string }>(502),
+  IAM_HTTP_CIRCUIT_OPEN: detail<{ state: 'open' | 'half-open-busy' }>(503),
+  IAM_HTTP_RETRY_EXHAUSTED: detail<{ path: string }>(500),
+  IAM_HTTP_LIST_INVALID: detail<{ path: string; got: string }>(502),
+  IAM_HTTP_RESPONSE_TOO_LARGE: detail<{ capBytes: number }>(500),
+  IAM_HTTP_SUBJECT_ROLES_INVALID: detail<{
+    subjectId: string
+    reason: 'not-array' | 'entry-invalid'
+    index?: number
+    got?: string
+  }>(502),
+  IAM_HTTP_SUBJECT_SCOPED_ROLES_INVALID: detail<{
+    subjectId: string
+    reason: 'not-array' | 'entry-not-object' | 'entry-fields-invalid'
+    index?: number
+    got?: string
+    role?: string
+    scope?: string
+  }>(502),
 } as const satisfies Record<string, number>

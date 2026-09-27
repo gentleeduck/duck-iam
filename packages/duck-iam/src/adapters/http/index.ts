@@ -1,3 +1,4 @@
+import { fail, throwIamError } from '../../core/errors'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
@@ -212,18 +213,16 @@ const MAX_ID_LENGTH = 1024
  */
 function segment(value: string, field: string): string {
   if (typeof value !== 'string' || value === '') {
-    throw new Error(`[@gentleduck/iam:http] ${field} must be a non-empty string`)
+    throwIamError('IAM_HTTP_ID_INVALID', { field, reason: 'empty' })
   }
   if (value.includes('/') || value.includes('\\')) {
-    throw new Error(`[@gentleduck/iam:http] ${field} cannot contain a path separator`)
+    throwIamError('IAM_HTTP_ID_INVALID', { field, reason: 'separator' })
   }
   if (/^\.+$/.test(value)) {
-    throw new Error(`[@gentleduck/iam:http] ${field} cannot be a path segment of "${value}"`)
+    throwIamError('IAM_HTTP_ID_INVALID', { field, reason: 'dot-segment', value })
   }
   if (value.length > MAX_ID_LENGTH) {
-    throw new Error(
-      `[@gentleduck/iam:http] ${field} is ${value.length} characters, over the ${MAX_ID_LENGTH} this adapter will put in a URL path`,
-    )
+    throwIamError('IAM_HTTP_ID_INVALID', { field, reason: 'too-long', length: value.length })
   }
   return encodeURIComponent(value)
 }
@@ -231,7 +230,7 @@ function segment(value: string, field: string): string {
 /** Rejects an id the read path could never fetch back; `savePolicy`/`saveRole` send it in the body, not the path. */
 function assertReadableId(id: unknown, field: string): void {
   if (typeof id !== 'string') {
-    throw new Error(`[@gentleduck/iam:http] ${field} must be a non-empty string`)
+    throwIamError('IAM_HTTP_ID_INVALID', { field, reason: 'empty' })
   }
   segment(id, field)
 }
@@ -324,9 +323,11 @@ export class IamHttpAdapter<
       value >= bounds.min &&
       (bounds.integer !== true || Number.isInteger(value))
     if (!ok) {
-      throw new Error(
-        `[@gentleduck/iam:http] \`${name}\` must be a finite ${bounds.integer === true ? 'integer' : 'number'} >= ${bounds.min}, got ${JSON.stringify(value)}`,
-      )
+      throwIamError('IAM_HTTP_OPTION_INVALID', {
+        field: name,
+        got: JSON.stringify(value),
+        constraint: `finite ${bounds.integer === true ? 'integer' : 'number'} >= ${bounds.min}`,
+      })
     }
     return value
   }
@@ -340,15 +341,15 @@ export class IamHttpAdapter<
     try {
       parsed = new URL(config.baseUrl)
     } catch {
-      throw new Error(`[@gentleduck/iam:http] invalid baseUrl ${JSON.stringify(config.baseUrl)}`)
+      throwIamError('IAM_HTTP_BASE_URL_INVALID', { reason: 'unparseable', baseUrl: config.baseUrl })
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error(`[@gentleduck/iam:http] baseUrl scheme must be http: or https:, got ${parsed.protocol}`)
+      throwIamError('IAM_HTTP_BASE_URL_INVALID', { reason: 'bad-scheme', scheme: parsed.protocol })
     }
     // Tested on the raw string too: `new URL('https://h/iam?').search` is `''`, so a trailing bare `?` -
     // what a URL builder emits for empty search params - would otherwise pass this guard.
     if (parsed.search || parsed.hash || config.baseUrl.includes('?') || config.baseUrl.includes('#')) {
-      throw new Error('[@gentleduck/iam:http] baseUrl must not contain a query string or fragment')
+      throwIamError('IAM_HTTP_BASE_URL_INVALID', { reason: 'has-query-or-fragment' })
     }
     if (config.allowedHosts && config.allowedHosts.length > 0) {
       // Two arms: bare hostname (any port) vs `hostname:port` (exact match).
@@ -371,7 +372,7 @@ export class IamHttpAdapter<
       })
       const matched = normEntries.some((entry) => entry === urlHostname || entry === urlHost)
       if (!matched) {
-        throw new Error(`[@gentleduck/iam:http] baseUrl host ${JSON.stringify(parsed.host)} not in allowedHosts`)
+        throwIamError('IAM_HTTP_BASE_URL_INVALID', { reason: 'host-not-allowed', host: parsed.host })
       }
     } else if (!_ALLOWED_HOSTS_WARNED.fired) {
       _ALLOWED_HOSTS_WARNED.fired = true
@@ -380,9 +381,7 @@ export class IamHttpAdapter<
       )
     }
     if (!config.allowPrivateHosts && _isPrivateHost(parsed.hostname)) {
-      throw new Error(
-        `[@gentleduck/iam:http] baseUrl host ${JSON.stringify(parsed.hostname)} resolves to a private/loopback range - set allowPrivateHosts: true to opt in`,
-      )
+      throwIamError('IAM_HTTP_BASE_URL_INVALID', { reason: 'private-host', host: parsed.hostname })
     }
     return config.baseUrl.replace(/\/$/, '')
   }
@@ -414,7 +413,7 @@ export class IamHttpAdapter<
   private async _request(path: string, init?: IHttpInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (!res.ok) {
-      throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
+      throwIamError('IAM_HTTP_RESPONSE_ERROR', { status: res.status, body: await readBodyCapped(res) })
     }
     return readJsonCapped(res)
   }
@@ -449,10 +448,7 @@ export class IamHttpAdapter<
   private _narrowList<T>(body: unknown, path: string, narrow: (row: unknown, fallbackId: string) => T): T[] {
     if (!Array.isArray(body)) {
       const got = body === null ? 'null' : typeof body
-      const err = new Error(
-        `[@gentleduck/iam:http] expected an array from ${path}, got ${got}; refusing to read it as an empty list ` +
-          'because the list that went missing may be the one that denies.',
-      )
+      const err = fail('IAM_HTTP_LIST_INVALID', { path, got })
       this._reportPolicyError(err, path)
       throw err
     }
@@ -466,7 +462,7 @@ export class IamHttpAdapter<
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (res.status === 404) return null
     if (!res.ok) {
-      throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
+      throwIamError('IAM_HTTP_RESPONSE_ERROR', { status: res.status, body: await readBodyCapped(res) })
     }
     // A bodiless success means no row, the same answer as a 404.
     return (await readJsonCapped(res)) ?? null
@@ -483,11 +479,11 @@ export class IamHttpAdapter<
   ): Promise<Response> {
     const state = this._circuitState()
     if (state === 'open') {
-      throw new Error('[@gentleduck/iam:http] circuit open - refusing request')
+      throwIamError('IAM_HTTP_CIRCUIT_OPEN', { state: 'open' })
     }
     if (state === 'half-open') {
       if (this._cbHalfOpenInFlight) {
-        throw new Error('[@gentleduck/iam:http] circuit half-open probe in flight')
+        throwIamError('IAM_HTTP_CIRCUIT_OPEN', { state: 'half-open-busy' })
       }
       this._cbHalfOpenInFlight = true
     }
@@ -515,7 +511,7 @@ export class IamHttpAdapter<
     this._onCircuitFailure()
     // Reachable only if the loop never ran, which `_number` prevents; still never throw an unassigned `lastError`.
     if (lastError instanceof Error) throw lastError
-    throw new Error(`[@gentleduck/iam:http] request to ${path} failed and no error was recorded`, { cause: lastError })
+    throwIamError('IAM_HTTP_RETRY_EXHAUSTED', { path })
   }
 
   private async _fetchOnce(
@@ -535,7 +531,7 @@ export class IamHttpAdapter<
       const res = await this._fetch(`${this._baseUrl}${path}`, { ...init, headers, signal, redirect: 'error' })
       if (res.status >= 500) {
         const body = await readBodyCapped(res)
-        throw makeTransient(new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${body}`))
+        throw makeTransient(fail('IAM_HTTP_RESPONSE_ERROR', { status: res.status, body }))
       }
       return res
     } finally {
@@ -732,7 +728,7 @@ async function readJsonCapped(res: Response): Promise<unknown> {
       bytes += value.byteLength
       text += decoder.decode(value, { stream: true })
       if (bytes >= MAX_BYTES) {
-        throw new Error('[@gentleduck/iam:http] response body exceeds 4 MiB cap')
+        throwIamError('IAM_HTTP_RESPONSE_TOO_LARGE', { capBytes: MAX_BYTES })
       }
     }
     text += decoder.decode()
@@ -745,10 +741,7 @@ async function readJsonCapped(res: Response): Promise<unknown> {
 function parseHttpSubjectAttributes(value: unknown, subjectId: string): IamPrimitives.Attributes {
   const attrs = iamNarrowAttributes(value)
   if (attrs === null) {
-    const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
-    throw new Error(
-      `[@gentleduck/iam:http] getSubjectAttributes for "${subjectId}" returned ${got} (expected a JSON object of scalar values)`,
-    )
+    throwIamError('IAM_ATTRIBUTES_CORRUPT', { adapter: 'http', subjectId, reason: 'not-object' })
   }
   return attrs
 }
@@ -764,18 +757,19 @@ function describeEntry(entry: unknown): string {
 function parseHttpSubjectRoles<TRole extends string>(value: unknown, subjectId: string): TRole[] {
   if (!Array.isArray(value)) {
     const got = value === null ? 'null' : typeof value
-    throw new Error(`[@gentleduck/iam:http] getSubjectRoles for "${subjectId}" returned ${got} (expected JSON array)`)
+    throwIamError('IAM_HTTP_SUBJECT_ROLES_INVALID', { subjectId, reason: 'not-array', got })
   }
   const roles: TRole[] = []
   for (let i = 0; i < value.length; i++) {
-    const entry = value[i]
+    const entry: unknown = value[i]
     // SECURITY: a dropped grant retires every policy whose `targets.roles` names it, turning a deny into an allow.
     if (typeof entry !== 'string' || entry.length === 0) {
-      throw new Error(
-        `[@gentleduck/iam:http] getSubjectRoles for "${subjectId}" returned ${describeEntry(entry)} at [${i}] ` +
-          '(expected a non-empty string). A partial role list is not a smaller one: a role also carries the ' +
-          'denies that target it, so the missing entry reads as permission rather than as a failed read.',
-      )
+      throwIamError('IAM_HTTP_SUBJECT_ROLES_INVALID', {
+        subjectId,
+        reason: 'entry-invalid',
+        index: i,
+        got: describeEntry(entry),
+      })
     }
     roles.push(iamAsRoleLiteral(entry))
   }
@@ -788,28 +782,30 @@ function parseHttpSubjectScopedRoles<TRole extends string, TScope extends string
 ): IamRequest.IScopedRole<TRole, TScope>[] {
   if (!Array.isArray(value)) {
     const got = value === null ? 'null' : typeof value
-    throw new Error(
-      `[@gentleduck/iam:http] getSubjectScopedRoles for "${subjectId}" returned ${got} (expected JSON array)`,
-    )
+    throwIamError('IAM_HTTP_SUBJECT_SCOPED_ROLES_INVALID', { subjectId, reason: 'not-array', got })
   }
   const out: IamRequest.IScopedRole<TRole, TScope>[] = []
   for (let i = 0; i < value.length; i++) {
-    const entry = value[i]
+    const entry: unknown = value[i]
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-      throw new Error(
-        `[@gentleduck/iam:http] getSubjectScopedRoles for "${subjectId}" returned ${describeEntry(entry)} at [${i}] ` +
-          '(expected a {role, scope} object)',
-      )
+      throwIamError('IAM_HTTP_SUBJECT_SCOPED_ROLES_INVALID', {
+        subjectId,
+        reason: 'entry-not-object',
+        index: i,
+        got: describeEntry(entry),
+      })
     }
     const role = Reflect.get(entry, 'role')
     const scope = Reflect.get(entry, 'scope')
     // The endpoints are disjoint by contract, so an unscoped row here is the server mixing them, not a global grant.
     if (typeof role !== 'string' || role.length === 0 || typeof scope !== 'string' || scope.length === 0) {
-      throw new Error(
-        `[@gentleduck/iam:http] getSubjectScopedRoles for "${subjectId}" returned an entry at [${i}] whose ` +
-          `role is ${describeEntry(role)} and scope is ${describeEntry(scope)} (both must be non-empty strings). ` +
-          'A dropped scoped grant silently retires the denies that target that role.',
-      )
+      throwIamError('IAM_HTTP_SUBJECT_SCOPED_ROLES_INVALID', {
+        subjectId,
+        reason: 'entry-fields-invalid',
+        index: i,
+        role: describeEntry(role),
+        scope: describeEntry(scope),
+      })
     }
     out.push({ role: iamAsRoleLiteral(role), scope: iamAsScopeLiteral(scope) })
   }

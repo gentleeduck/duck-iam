@@ -1,5 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
+import { hasIamErrorCode } from '../../../core/errors'
 import { type IamHttp, IamHttpAdapter } from '../index'
+
+async function rejectsWithCode(
+  p: Promise<unknown>,
+  code: 'IAM_HTTP_RESPONSE_TOO_LARGE' | 'IAM_HTTP_RESPONSE_ERROR' | 'IAM_HTTP_CIRCUIT_OPEN',
+): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, code)
+}
 
 type A = 'read'
 type R = 'post'
@@ -89,15 +101,20 @@ describe('IamHttpAdapter I/O failure handling', () => {
         streamResponse([chunk, chunk, chunk, chunk, chunk]),
       ) as unknown as typeof globalThis.fetch
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ ...BASE, fetch, retries: 0, timeoutMs: 0 })
-      await expect(adapter.listPolicies()).rejects.toThrow(/exceeds 4 MiB cap/)
+      expect(await rejectsWithCode(adapter.listPolicies(), 'IAM_HTTP_RESPONSE_TOO_LARGE')).toBe(true)
     })
 
     it('caps a streamed error body at 200 chars', async () => {
       const chunk = new TextEncoder().encode('E'.repeat(4096))
       const fetch = vi.fn(async () => streamResponse([chunk, chunk, chunk], 400)) as unknown as typeof globalThis.fetch
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ ...BASE, fetch, retries: 0, timeoutMs: 0 })
-      await expect(adapter.listPolicies()).rejects.toThrow(/HTTP 400/)
-      await expect(adapter.listPolicies()).rejects.toThrow(/\.\.\.\(truncated\)/)
+      const err = await adapter.listPolicies().then(
+        () => undefined,
+        (e: unknown) => e,
+      )
+      if (!hasIamErrorCode(err, 'IAM_HTTP_RESPONSE_ERROR')) throw new Error('expected IAM_HTTP_RESPONSE_ERROR')
+      expect(err.meta.status).toBe(400)
+      expect(err.meta.body).toContain('...(truncated)')
     })
   })
 
@@ -193,7 +210,7 @@ describe('IamHttpAdapter I/O failure handling', () => {
       await expect(adapter.listPolicies()).rejects.toThrow(/down/)
       // Cooldown 0 -> immediately half-open. First caller takes the probe slot.
       const probe = adapter.listPolicies()
-      await expect(adapter.listPolicies()).rejects.toThrow(/half-open probe in flight/)
+      expect(await rejectsWithCode(adapter.listPolicies(), 'IAM_HTTP_CIRCUIT_OPEN')).toBe(true)
       release?.()
       expect(await probe).toEqual([])
     })

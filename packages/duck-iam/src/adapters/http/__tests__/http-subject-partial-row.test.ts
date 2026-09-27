@@ -1,7 +1,36 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamEngine } from '../../../core/engine/engine'
+import { hasIamErrorCode } from '../../../core/errors'
 import type { AccessControl } from '../../../core/types'
 import { IamHttpAdapter } from '../index'
+
+async function rejectsWithRolesInvalid(
+  p: Promise<unknown>,
+  expect_: { reason: 'not-array' | 'entry-invalid'; index?: number; got?: string },
+): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  if (!hasIamErrorCode(err, 'IAM_HTTP_SUBJECT_ROLES_INVALID')) return false
+  const meta = err.meta
+  return (
+    meta.reason === expect_.reason &&
+    (expect_.index === undefined || meta.index === expect_.index) &&
+    (expect_.got === undefined || meta.got === expect_.got)
+  )
+}
+
+async function rejectsWithScopedRolesInvalid(
+  p: Promise<unknown>,
+  reason: 'not-array' | 'entry-not-object' | 'entry-fields-invalid',
+): Promise<boolean> {
+  const err = await p.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  return hasIamErrorCode(err, 'IAM_HTTP_SUBJECT_SCOPED_ROLES_INVALID') && err.meta.reason === reason
+}
 
 // A role is not only a grant: `policyApplies` matches `targets.roles` by equality, so a deny policy rides on the
 // subject holding the role it names. Dropping one malformed entry from a grant list therefore retires that deny
@@ -74,10 +103,13 @@ describe('a partial subject grant list does not silently retire the denies it ca
 
   it('names the index and the type, never the value', async () => {
     const adapter = buildAdapter(['editor', { token: 'secret-bearer-value' }])
-    await expect(adapter.getSubjectRoles('u1')).rejects.toThrow(
-      /getSubjectRoles for "u1" returned object at \[1\] \(expected a non-empty string\)/,
-    )
-    await expect(adapter.getSubjectRoles('u1')).rejects.not.toThrow(/secret-bearer-value/)
+    expect(
+      await rejectsWithRolesInvalid(adapter.getSubjectRoles('u1'), {
+        reason: 'entry-invalid',
+        index: 1,
+        got: 'object',
+      }),
+    ).toBe(true)
   })
 
   it('rejects each malformed entry type in the unscoped list', async () => {
@@ -89,7 +121,9 @@ describe('a partial subject grant list does not silently retire the denies it ca
       [{ id: 'editor' }, 'object'],
     ] as const) {
       const adapter = buildAdapter(['editor', entry])
-      await expect(adapter.getSubjectRoles('u1')).rejects.toThrow(new RegExp(`returned ${got} at \\[1\\]`))
+      expect(
+        await rejectsWithRolesInvalid(adapter.getSubjectRoles('u1'), { reason: 'entry-invalid', index: 1, got }),
+      ).toBe(true)
     }
   })
 
@@ -101,9 +135,7 @@ describe('a partial subject grant list does not silently retire the denies it ca
   it('rejects a scoped entry that is not a {role, scope} object', async () => {
     for (const entry of [null, 42, 'contractor', []]) {
       const adapter = buildAdapter([], [{ role: 'editor', scope: 'org-1' }, entry])
-      await expect(adapter.getSubjectScopedRoles('u1')).rejects.toThrow(
-        /getSubjectScopedRoles for "u1" returned \w+( \w+)? at \[1\]/,
-      )
+      expect(await rejectsWithScopedRolesInvalid(adapter.getSubjectScopedRoles('u1'), 'entry-not-object')).toBe(true)
     }
   })
 
@@ -117,7 +149,9 @@ describe('a partial subject grant list does not silently retire the denies it ca
       { role: 'contractor', scope: '' },
     ]) {
       const adapter = buildAdapter([], [{ role: 'editor', scope: 'org-1' }, entry])
-      await expect(adapter.getSubjectScopedRoles('u1')).rejects.toThrow(/an entry at \[1\] whose role is/)
+      expect(await rejectsWithScopedRolesInvalid(adapter.getSubjectScopedRoles('u1'), 'entry-fields-invalid')).toBe(
+        true,
+      )
     }
   })
 

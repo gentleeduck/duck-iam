@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IamEngine } from '../../core/engine/engine'
-import { IamError, metaOf } from '../../core/errors'
+import { hasIamErrorCode, IamError, metaOf } from '../../core/errors'
 import { iamAssertNoAssignOptions, iamAssertValidAssignWindow } from '../../shared/assign-options'
 import { iamAssertAttributesParam } from '../../shared/attributes'
 import { iamAssertAssignableScope } from '../../shared/scope'
@@ -184,35 +184,50 @@ describe('the http adapter refuses an id it could not read back', () => {
     return { adapter, fetchSpy }
   }
 
+  async function rejectsWithIdInvalid(
+    p: Promise<unknown>,
+    reason: 'empty' | 'separator' | 'dot-segment' | 'too-long',
+  ): Promise<boolean> {
+    const err = await p.then(
+      () => undefined,
+      (e: unknown) => e,
+    )
+    return hasIamErrorCode(err, 'IAM_HTTP_ID_INVALID') && err.meta.reason === reason
+  }
+
   it('refuses the write rather than accepting one no read can surface', async () => {
     const { adapter, fetchSpy } = httpAdapter()
-    await expect(adapter.assignRole(OVERSIZED, 'admin')).rejects.toThrow(/over the 1024/)
-    await expect(adapter.revokeRole(OVERSIZED, 'admin')).rejects.toThrow(/over the 1024/)
-    await expect(adapter.setSubjectAttributes(OVERSIZED, { a: 1 })).rejects.toThrow(/over the 1024/)
+    expect(await rejectsWithIdInvalid(adapter.assignRole(OVERSIZED, 'admin'), 'too-long')).toBe(true)
+    expect(await rejectsWithIdInvalid(adapter.revokeRole(OVERSIZED, 'admin'), 'too-long')).toBe(true)
+    expect(await rejectsWithIdInvalid(adapter.setSubjectAttributes(OVERSIZED, { a: 1 }), 'too-long')).toBe(true)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('refuses the read too, rather than answering an empty result', async () => {
     const { adapter } = httpAdapter()
-    await expect(adapter.getSubjectRoles(OVERSIZED)).rejects.toThrow(/over the 1024/)
-    await expect(adapter.getSubjectScopedRoles(OVERSIZED)).rejects.toThrow(/over the 1024/)
-    await expect(adapter.getPolicy(OVERSIZED)).rejects.toThrow(/over the 1024/)
-    await expect(adapter.getRole(OVERSIZED)).rejects.toThrow(/over the 1024/)
+    expect(await rejectsWithIdInvalid(adapter.getSubjectRoles(OVERSIZED), 'too-long')).toBe(true)
+    expect(await rejectsWithIdInvalid(adapter.getSubjectScopedRoles(OVERSIZED), 'too-long')).toBe(true)
+    expect(await rejectsWithIdInvalid(adapter.getPolicy(OVERSIZED), 'too-long')).toBe(true)
+    expect(await rejectsWithIdInvalid(adapter.getRole(OVERSIZED), 'too-long')).toBe(true)
   })
 
   // SECURITY: `{}` reads as "no attributes", which is exactly what stops an ABAC deny rule from firing.
   it('does not answer `{}` for attributes, which would retire an attribute deny', async () => {
     const { adapter } = httpAdapter()
-    await expect(adapter.getSubjectAttributes(OVERSIZED)).rejects.toThrow(/over the 1024/)
+    expect(await rejectsWithIdInvalid(adapter.getSubjectAttributes(OVERSIZED), 'too-long')).toBe(true)
   })
 
   it('refuses a body-carried id that the read path could never fetch', async () => {
     const { adapter, fetchSpy } = httpAdapter()
     const policy = { algorithm: 'deny-overrides' as const, id: OVERSIZED, name: 'P', rules: [] }
-    await expect(adapter.savePolicy(policy)).rejects.toThrow(/over the 1024/)
-    await expect(adapter.saveRole({ id: OVERSIZED, name: 'R', permissions: [] })).rejects.toThrow(/over the 1024/)
+    expect(await rejectsWithIdInvalid(adapter.savePolicy(policy), 'too-long')).toBe(true)
+    expect(
+      await rejectsWithIdInvalid(adapter.saveRole({ id: OVERSIZED, name: 'R', permissions: [] }), 'too-long'),
+    ).toBe(true)
     // A path separator in a body-carried id is refused too, since every read of it would be.
-    await expect(adapter.saveRole({ id: 'a/b', name: 'R', permissions: [] })).rejects.toThrow(/path separator/)
+    expect(await rejectsWithIdInvalid(adapter.saveRole({ id: 'a/b', name: 'R', permissions: [] }), 'separator')).toBe(
+      true,
+    )
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
