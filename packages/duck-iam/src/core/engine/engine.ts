@@ -1107,7 +1107,7 @@ export class IamEngine<
     scope?: TScope,
   ): Promise<Explain.IResult> {
     if (this._mode === 'production') {
-      throw new Error('explain() is not available in production mode')
+      throw new Error('[@gentleduck/iam:engine] explain() is not available in production mode')
     }
     assertNonEmptyStringParam('explain(): subjectId', subjectId)
     const subject = await this._resolveSubject(subjectId)
