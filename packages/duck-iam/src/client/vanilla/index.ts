@@ -15,10 +15,11 @@
  */
 
 import type { IamClient } from '../../core/types'
+import { iamBuildPermissionKey } from '../../shared/keys'
 import { iamAllowedActions, iamCan, iamHasAnyOn } from '../../shared/permission-map'
 
-/** Re-exported so consumers get map introspection instead of splitting keys on `':'`. */
-export { iamAllowedActions, iamHasAnyOn }
+/** Re-exported so consumers get key escaping and introspection instead of splitting keys on `':'`. */
+export { iamAllowedActions, iamBuildPermissionKey, iamHasAnyOn }
 
 /** Listener run on {@link IamAccessClient.update} or {@link IamAccessClient.merge}. */
 type Listener<TAction extends string = string, TResource extends string = string, TScope extends string = string> = (
