@@ -77,7 +77,7 @@ export class IamAccessClient<
     const headers = new Headers(init?.headers)
     if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
     const res = await fetch(url, { ...init, headers })
-    if (!res.ok) throw new Error(`Failed to fetch permissions: ${res.status}`)
+    if (!res.ok) throw new Error(`[@gentleduck/iam:vanilla] Failed to fetch permissions: ${res.status}`)
     const perms: IamClient.PartialPermissionMap<TA, TR, TS> = await res.json()
     return new IamAccessClient<TA, TR, TS>(perms)
   }
