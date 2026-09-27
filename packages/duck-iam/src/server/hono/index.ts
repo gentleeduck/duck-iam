@@ -9,6 +9,7 @@ import {
   iamResourceAtCallerType,
 } from '../../shared/tenant-literals'
 import {
+  type IamAccessCheckResult,
   type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
@@ -56,6 +57,11 @@ export type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Respons
 
 /** Hono server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamHono {
+  /** A hook that answers a blocked request with the `Response` to send. */
+  export type OnRequestHandler = (c: HonoContext) => Response
+  /** A hook that answers a request derailed by a thrown error, with the `Response` to send. */
+  export type OnErrorHandler = (err: Error, c: HonoContext) => Response
+
   /**
    * Options for the Hono {@link iamAccessMiddleware} and {@link iamGuard}; every extractor has a default.
    *
@@ -77,9 +83,9 @@ export namespace IamHono {
     /** Determines the scope used for the access check. */
     getScope?: (c: HonoContext) => TScope | undefined
     /** Handles a denied request (defaults to 403 JSON). */
-    onDenied?: (c: HonoContext) => Response
+    onDenied?: OnRequestHandler
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
-    onError?: (err: Error, c: HonoContext) => Response
+    onError?: OnErrorHandler
     /**
      * Reads `cf-connecting-ip` as the client IP. Off by default.
      * SECURITY: trust it only when Cloudflare is the sole ingress; on a directly exposed app any client can set it.
@@ -99,9 +105,9 @@ export namespace IamHono {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
     /** Overrides the 401 unauthorized response. */
-    onUnauthorized?: (c: HonoContext) => Response
+    onUnauthorized?: OnRequestHandler
     /** Overrides the 500 internal error response. */
-    onError?: (err: Error, c: HonoContext) => Response
+    onError?: OnErrorHandler
     /** Audit hook fired after every mutation, on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
     /**
@@ -118,6 +124,22 @@ export namespace IamHono {
     post(path: string, handler: (c: HonoAdminContext) => Promise<Response> | Response): unknown
     delete(path: string, handler: (c: HonoAdminContext) => Promise<Response> | Response): unknown
   }
+}
+
+/**
+ * Maps the three failure phases from {@link iamRunAccessCheck} to the `Response` to send, or `undefined` when the
+ * caller should fall through to `next()`. Shared by {@link iamAccessMiddleware} and {@link iamGuard}.
+ */
+function respondToAccessResult(
+  result: IamAccessCheckResult,
+  c: HonoContext,
+  onDenied: IamHono.OnRequestHandler,
+  onError: IamHono.OnErrorHandler,
+): Response | undefined {
+  if (result.phase === 'unauthorized') return c.json({ error: 'Unauthorized' }, 401)
+  if (result.phase === 'denied') return onDenied(c)
+  if (result.phase === 'error') return onError(result.error, c)
+  return undefined
 }
 
 /**
@@ -187,9 +209,8 @@ export function iamAccessMiddleware<
     const result = await iamRunAccessCheck(c, getUserId, (userId) =>
       engine.can(userId, getAction(c), getResource(c), getEnvironment(c), getScope?.(c)),
     )
-    if (result.phase === 'unauthorized') return c.json({ error: 'Unauthorized' }, 401)
-    if (result.phase === 'denied') return onDenied(c)
-    if (result.phase === 'error') return onError(result.error, c)
+    const response = respondToAccessResult(result, c, onDenied, onError)
+    if (response) return response
     // NOTE: outside the check, so a route's own error reaches the app's `app.onError`, not this `onError`.
     await next()
   }
@@ -460,9 +481,8 @@ export function iamGuard<
         : {}
       return engine.can(userId, action, { type: resourceType, id: resourceId, attributes }, getEnvironment(c), scope)
     })
-    if (result.phase === 'unauthorized') return c.json({ error: 'Unauthorized' }, 401)
-    if (result.phase === 'denied') return onDenied(c)
-    if (result.phase === 'error') return onError(result.error, c)
+    const response = respondToAccessResult(result, c, onDenied, onError)
+    if (response) return response
     // NOTE: outside the check, so a route's own error reaches the app's `app.onError`, not this `onError`.
     await next()
   }

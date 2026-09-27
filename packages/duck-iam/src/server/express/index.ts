@@ -9,6 +9,7 @@ import {
   iamResourceAtCallerType,
 } from '../../shared/tenant-literals'
 import {
+  type IamAccessCheckResult,
   type IamAdminActor,
   type IamAdminAudit,
   type IamAdminAuthzAnswer,
@@ -58,6 +59,14 @@ export interface ExpressRouterLike {
 
 /** Express server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamExpress {
+  /** A hook that answers a blocked request itself, without producing a value the caller inspects. */
+  export type OnRequestHandler = (req: Req, res: Res) => void
+  /**
+   * A hook that answers a request derailed by a thrown error.
+   * SECURITY: `next` is not passed: calling it would resume the request with no decision made (fail open).
+   */
+  export type OnErrorHandler = (err: Error, req: Req, res: Res) => void
+
   /**
    * Options for {@link iamAccessMiddleware} and {@link iamGuard}; every extractor has a default.
    * WARN: `TScope` stays first, unlike the engine's order, so existing `IOptions<MyScope>` keeps binding the scope.
@@ -82,12 +91,9 @@ export namespace IamExpress {
     /** Determines the scope used for the access check. */
     getScope?: (req: Req) => TScope | undefined
     /** Handles a denied request (defaults to 403 JSON). */
-    onDenied?: (req: Req, res: Res) => void
-    /**
-     * Handles thrown errors during evaluation (defaults to 500 JSON).
-     * SECURITY: `next` is not passed: calling it would resume the request with no decision made (fail open).
-     */
-    onError?: (err: Error, req: Req, res: Res) => void
+    onDenied?: OnRequestHandler
+    /** Handles thrown errors during evaluation (defaults to 500 JSON). */
+    onError?: OnErrorHandler
   }
 
   /**
@@ -102,9 +108,9 @@ export namespace IamExpress {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
     /** Overrides the 401 unauthorized response. */
-    onUnauthorized?: (req: Req, res: Res) => void
+    onUnauthorized?: OnRequestHandler
     /** Overrides the 500 internal error response. */
-    onError?: (err: Error, req: Req, res: Res) => void
+    onError?: OnErrorHandler
     /** Audit hook fired after every mutation, on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
     /**
@@ -113,6 +119,32 @@ export namespace IamExpress {
      */
     getMutationActor?: (actor: IamAdminActor) => string | undefined
   }
+}
+
+/**
+ * Answers the three failure phases from {@link iamRunAccessCheck} and reports whether one fired, so the caller
+ * knows to stop instead of falling through to `next()`. Shared by {@link iamAccessMiddleware} and {@link iamGuard}.
+ */
+function respondToAccessResult(
+  result: IamAccessCheckResult,
+  req: Req,
+  res: Res,
+  onDenied: IamExpress.OnRequestHandler,
+  onError: IamExpress.OnErrorHandler,
+): boolean {
+  if (result.phase === 'unauthorized') {
+    res.status(401).json({ error: 'Unauthorized' })
+    return true
+  }
+  if (result.phase === 'denied') {
+    onDenied(req, res)
+    return true
+  }
+  if (result.phase === 'error') {
+    onError(result.error, req, res)
+    return true
+  }
+  return false
 }
 
 /**
@@ -160,18 +192,7 @@ export function iamAccessMiddleware<
     const result = await iamRunAccessCheck(req, getUserId, (userId) =>
       engine.can(userId, getAction(req), getResource(req), getEnvironment(req), getScope?.(req)),
     )
-    if (result.phase === 'unauthorized') {
-      res.status(401).json({ error: 'Unauthorized' })
-      return
-    }
-    if (result.phase === 'denied') {
-      onDenied(req, res)
-      return
-    }
-    if (result.phase === 'error') {
-      onError(result.error, req, res)
-      return
-    }
+    if (respondToAccessResult(result, req, res, onDenied, onError)) return
     // NOTE: outside the check, as in the hono and next guards, so a route's own error reaches Express's error
     // middleware rather than being answered here as an authorization failure.
     next()
@@ -253,18 +274,7 @@ export function iamGuard<
         : {}
       return engine.can(userId, action, { type: resourceType, id: resourceId, attributes }, getEnvironment(req), scope)
     })
-    if (result.phase === 'unauthorized') {
-      res.status(401).json({ error: 'Unauthorized' })
-      return
-    }
-    if (result.phase === 'denied') {
-      onDenied(req, res)
-      return
-    }
-    if (result.phase === 'error') {
-      onError(result.error, req, res)
-      return
-    }
+    if (respondToAccessResult(result, req, res, onDenied, onError)) return
     // NOTE: outside the check, for the same reason as the middleware above.
     next()
   }

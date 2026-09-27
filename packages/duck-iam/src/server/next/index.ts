@@ -34,6 +34,11 @@ export type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response
 
 /** Next.js server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamNext {
+  /** A hook that answers a blocked request with the `Response` to send. */
+  export type OnRequestHandler = (req: Request) => Response
+  /** A hook that answers a request derailed by a thrown error, with the `Response` to send. */
+  export type OnErrorHandler = (err: Error, req: Request) => Response
+
   /**
    * Options for {@link withIamAccess}. `getUserId` is required at runtime; the rest have defaults.
    *
@@ -62,7 +67,7 @@ export namespace IamNext {
       ctx: { action: string; resource: string; resourceId: string | undefined; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
-    onError?: (err: Error, req: Request) => Response
+    onError?: OnErrorHandler
   }
 
   /**
@@ -111,11 +116,11 @@ export namespace IamNext {
       ctx: { action: TAction; resource: TResource; resourceId: string | undefined; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles a denied or ambiguous-path request (defaults to 403 JSON). */
-    onDenied?: (req: Request) => Response
+    onDenied?: OnRequestHandler
     /** Handles a request with no user (defaults to 401 JSON). */
-    onUnauthorized?: (req: Request) => Response
+    onUnauthorized?: OnRequestHandler
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
-    onError?: (err: Error, req: Request) => Response
+    onError?: OnErrorHandler
   }
 
   /**
@@ -130,9 +135,9 @@ export namespace IamNext {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
     /** Overrides the 401 unauthorized response. */
-    onUnauthorized?: (req: Request) => Response
+    onUnauthorized?: OnRequestHandler
     /** Overrides the 500 internal error response. */
-    onError?: (err: Error, req: Request) => Response
+    onError?: OnErrorHandler
     /** Audit hook fired after every mutation, on success or failure; see {@link IamAdminAudit}. */
     onAdminMutation?: IamAdminAudit.Hook
     /**
