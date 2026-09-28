@@ -18,7 +18,7 @@ const DOC_GLOBS = [
   // The reference set: the densest import surface in the repo.
   'packages/duck-iam/docs/**/*.md',
   'guides/**/*.md',
-  'apps/duck-iam-docs/content/**/*.mdx',
+  'docs/duck-iam-docs/content/docs/**/*.mdx',
   'examples/**/README.md',
   // The example app's source, not just its README: it is the end-to-end reference.
   'examples/**/*.ts',
@@ -148,12 +148,31 @@ function isIamDoc(file: string): boolean {
   return !file.includes('duck-auth-setup.md')
 }
 
+/**
+ * Excludes the changelog from checks that assume a doc describes the CURRENT api. Its own
+ * preamble says why: "Names in each entry are the names that were current in that release" -
+ * a pre-5.0 entry legitimately imports `adminRouter` / `accessMiddleware` / subpaths that were
+ * renamed or removed since, the same names this file's own GONE list expects to find nowhere else.
+ */
+function describesCurrentApi(file: string): boolean {
+  return !file.endsWith('changelog.mdx')
+}
+
+/**
+ * TypeDoc's own output: generated from the same source these imports would be checked against, so
+ * an import-resolution or dead-shape pass over it can only ever pass. Excluded to keep a real
+ * regression in the hand-written docs from getting lost in ~200 generated files.
+ */
+function isGenerated(file: string): boolean {
+  return file.includes('/content/docs/api/generated/')
+}
+
 async function allDocFiles(): Promise<string[]> {
   const files: string[] = []
   for (const pattern of DOC_GLOBS) {
     for await (const f of glob(pattern, { cwd: REPO })) files.push(join(REPO, f))
   }
-  return files.sort()
+  return files.filter((f) => !isGenerated(f)).sort()
 }
 
 const SUBPATHS = subpathToSource()
@@ -163,7 +182,7 @@ for (const [specifier, entry] of SUBPATHS) NAMES.set(specifier, exportedNames(en
 describe('documented imports resolve', () => {
   it('every documented `@gentleduck/iam` subpath is a real export entry', async () => {
     const bad: string[] = []
-    for (const file of await allDocFiles()) {
+    for (const file of (await allDocFiles()).filter(describesCurrentApi)) {
       for (const imp of collectDocImports(file)) {
         if (!SUBPATHS.has(imp.specifier)) bad.push(`${imp.file}:${imp.line} -> ${imp.specifier}`)
       }
@@ -173,7 +192,7 @@ describe('documented imports resolve', () => {
 
   it('every symbol a doc imports is exported by the subpath it imports from', async () => {
     const bad: string[] = []
-    for (const file of await allDocFiles()) {
+    for (const file of (await allDocFiles()).filter(describesCurrentApi)) {
       for (const imp of collectDocImports(file)) {
         const known = NAMES.get(imp.specifier)
         if (known === undefined) continue // reported by the subpath test above
@@ -216,7 +235,7 @@ describe('documented imports resolve', () => {
       ['new IamRedisInvalidator', 'createIamRedisInvalidator is a factory'],
     ]
     const bad: string[] = []
-    for (const file of (await allDocFiles()).filter(isIamDoc)) {
+    for (const file of (await allDocFiles()).filter(isIamDoc).filter(describesCurrentApi)) {
       const code = codeFences(readFileSync(file, 'utf8'))
       const rel = file.slice(REPO.length + 1)
       for (const [phrase, instead] of DEAD_SHAPES) {
@@ -239,7 +258,13 @@ describe('documented imports resolve', () => {
       // bare mention and is not a call site.
       for (const m of flat.matchAll(/withIamAccess\(\s*[A-Za-z_$][\s\S]{0,400}?\n\s*(?:\)|```)/g)) {
         const call = m[0]
-        if (!call.includes('getUserId')) bad.push(`${rel}: withIamAccess(...) with no getUserId`)
+        if (call.includes('getUserId')) continue
+        // The last argument can be a shared options variable instead of an inline object
+        // literal - resolve it back to its own `const <name> = { ... }` before failing.
+        const optsVar = /,\s*([A-Za-z_$][\w$]*)\s*,?\s*\n?\s*(?:\)|```)\s*$/.exec(call)?.[1]
+        const declaresGetUserId =
+          optsVar !== undefined && new RegExp(`const ${optsVar}\\s*=\\s*\\{[^}]*getUserId`).test(flat)
+        if (!declaresGetUserId) bad.push(`${rel}: withIamAccess(...) with no getUserId`)
       }
     }
     expect(bad).toEqual([])
@@ -248,7 +273,7 @@ describe('documented imports resolve', () => {
   // `allowFailOpen` is checked before mode, so `defaultEffect: 'allow'` needs it in development too.
   it('no doc scopes the allowFailOpen requirement to production', async () => {
     const bad: string[] = []
-    for (const file of await allDocFiles()) {
+    for (const file of (await allDocFiles()).filter(describesCurrentApi)) {
       const text = readFileSync(file, 'utf8')
       const rel = file.slice(REPO.length + 1)
       for (const line of text.split('\n')) {
