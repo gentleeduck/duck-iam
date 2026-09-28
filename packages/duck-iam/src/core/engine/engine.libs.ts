@@ -739,7 +739,7 @@ export function createAdmin<
    * a per-row loop, then invalidate every requested row and emit per-row events. Only the adapter calls and the
    * event type differ between the two callers.
    */
-  const runRoleBatch = async <TRow extends IamAdapter.ITripleRow<TRole, TScope>>(
+  const runRoleBatch = async <TRow extends IActorRow<TRole, TScope>>(
     rows: readonly TRow[],
     validateIntent: 'grant' | 'lookup',
     many: (() => Promise<readonly number[] | null>) | undefined,
@@ -749,7 +749,10 @@ export function createAdmin<
     eventType: 'role.assigned' | 'role.revoked',
   ): Promise<Batch.Result<TRow, Batch.Change>> => {
     if (rows.length === 0) return batchResult([])
-    for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope, validateIntent)
+    for (const r of rows) {
+      assertTriple(r.subjectId, r.roleId, r.scope, validateIntent)
+      assertOptionalNonEmptyStringParam('actor', r.opts?.actor)
+    }
     // `null` means written, but which rows changed is unknown, as on the loop path (the single write returns void).
     let changed: readonly number[] | null = null
     const landed: TRow[] = []
@@ -779,6 +782,7 @@ export function createAdmin<
       return run((o) => adapter.getPolicy(id, o), 'admin.getPolicy')
     },
     async savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>, opts?: IamEngineTypes.IActorOptions) {
+      assertOptionalNonEmptyStringParam('actor', opts?.actor)
       const { validatePolicy } = await _getValidate()
       assertValidOrThrow('policy', validatePolicy(policy))
       await writeThenInvalidate(
@@ -789,6 +793,7 @@ export function createAdmin<
     },
     async deletePolicy(id: string, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('id', id)
+      assertOptionalNonEmptyStringParam('actor', opts?.actor)
       await writeThenInvalidate(
         () => run(() => adapter.deletePolicy(id), 'admin.deletePolicy'),
         () => engine.cache.invalidatePolicies(),
@@ -803,6 +808,7 @@ export function createAdmin<
       return run((o) => adapter.getRole(id, o), 'admin.getRole')
     },
     async saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>, opts?: IamEngineTypes.IActorOptions) {
+      assertOptionalNonEmptyStringParam('actor', opts?.actor)
       const { validateRole } = await _getValidate()
       assertValidOrThrow('role', validateRole(role))
       await writeThenInvalidate(
@@ -813,6 +819,7 @@ export function createAdmin<
     },
     async deleteRole(id: string, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('id', id)
+      assertOptionalNonEmptyStringParam('actor', opts?.actor)
       // `TRole` is erased at runtime, so there is nothing to narrow; `iamAsRoleLiteral` keeps it greppable.
       const roleId = iamAsRoleLiteral<TRole>(id)
       await writeThenInvalidate(
@@ -823,6 +830,7 @@ export function createAdmin<
     },
     async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions) {
       assertTriple(subjectId, roleId, scope)
+      assertOptionalNonEmptyStringParam('actor', opts?.actor)
       await writeThenInvalidate(
         () => run(() => adapter.assignRole(subjectId, roleId, scope, opts), 'admin.assignRole'),
         () => engine.cache.invalidateSubject(subjectId),
@@ -839,6 +847,7 @@ export function createAdmin<
     async revokeRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IRevokeOptions) {
       // `'lookup'`: a revoke addresses an existing row, so legacy `'*'` rows stay deletable.
       assertTriple(subjectId, roleId, scope, 'lookup')
+      assertOptionalNonEmptyStringParam('actor', opts?.actor)
       await writeThenInvalidate(
         () => run(() => adapter.revokeRole(subjectId, roleId, scope, opts), 'admin.revokeRole'),
         () => engine.cache.invalidateSubject(subjectId),
@@ -863,6 +872,7 @@ export function createAdmin<
       assertNonEmptyStringParam('roleId', roleId)
       assertOptionalNonEmptyStringParam('fromScope', fromScope)
       assertOptionalNonEmptyStringParam('toScope', toScope)
+      assertOptionalNonEmptyStringParam('actor', actor)
       // `'*'` may be moved off, never to.
       assertAssignableScope(fromScope, 'lookup')
       assertAssignableScope(toScope, 'grant')
@@ -900,6 +910,7 @@ export function createAdmin<
         assertNonEmptyStringParam('roleId', r.roleId)
         assertOptionalNonEmptyStringParam('fromScope', r.fromScope)
         assertOptionalNonEmptyStringParam('toScope', r.toScope)
+        assertOptionalNonEmptyStringParam('actor', r.actor)
         assertAssignableScope(r.fromScope, 'lookup')
         assertAssignableScope(r.toScope, 'grant')
       }
@@ -912,6 +923,7 @@ export function createAdmin<
     async setAttributes(subjectId: string, attrs: IamPrimitives.Attributes, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('subjectId', subjectId)
       assertAttributesParam(attrs)
+      assertOptionalNonEmptyStringParam('actor', opts?.actor)
       await writeThenInvalidate(
         () => run(() => adapter.setSubjectAttributes(subjectId, attrs, opts), 'admin.setSubjectAttributes'),
         () => engine.cache.invalidateSubject(subjectId),
@@ -940,6 +952,7 @@ export function createAdmin<
       options: IamEngineTypes.IImportOptions = {},
       opts?: IamEngineTypes.IActorOptions,
     ): Promise<IamEngineTypes.IImportResult> {
+      assertOptionalNonEmptyStringParam('actor', opts?.actor)
       if (snapshot?.schemaVersion !== 1) {
         const incoming =
           snapshot !== null && typeof snapshot === 'object' ? Reflect.get(snapshot, 'schemaVersion') : snapshot

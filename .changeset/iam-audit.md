@@ -129,7 +129,9 @@ onto the interpreter permanently using a role count the store had already
 retired, and now carries the same generation guard as the compiled table beside
 it. And the role-cache invalidation path no longer moves the hit/miss counters
 that feed `cacheHitRate`, so a replica applying broadcasts does not drift its own
-reported rate.
+reported rate. Every `engine.admin` write now checks `actor` the way it checks the
+ids beside it, so a JavaScript caller's non-string actor is refused before the write
+instead of reaching the adapter's provenance columns and the mutation event.
 
 Also removed two dead branches: an unreachable empty-scope check in the file
 adapter that duplicated the shared guard called two lines above it, and two arms
@@ -167,7 +169,9 @@ invalidator is now a constructor error. `iamNestAccessGuard` now throws instead
 of resolving `false` when no valid subject id is found; a caller relying on
 Nest's default 403-via-`false` for that case needs an exception filter (or a
 custom `onUnauthorized` returning what it wants) — the same shape
-`createIamAdminOperations` already requires. `IamAdminAudit.Target` narrows from five members to
+`createIamAdminOperations` already requires. An `actor` that is empty, longer than
+1024 characters or not a string now throws `IAM_ENGINE_PARAM_INVALID` from
+`engine.admin`; the server admin routers already drop an empty one. `IamAdminAudit.Target` narrows from five members to
 `'policy' | 'role' | 'role-assignment'`; consumers receive these events rather
 than construct them, so a narrowing removes switch arms that could never be hit,
 but it is a public type change. The release bump is left as it stands for you to
