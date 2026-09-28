@@ -30,9 +30,9 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
 
   beforeAll(async () => {
     const mysql = await import('mysql2/promise')
-    conn = await mysql.createConnection(URL as string)
+    conn = await mysql.createConnection(URL)
     handle = drizzleMysql(conn, { mode: 'default' })
-    stores = new DrizzleMysqlAdapter(URL as string)
+    stores = new DrizzleMysqlAdapter(URL)
   }, 60_000)
 
   afterAll(async () => {
@@ -64,7 +64,7 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
     () => handle,
   )
   runSessionStoreCompliance(() => stores.sessions, { identityId: OWNER, otherIdentityId: OTHER, sessionId })
-  runCredentialStoreCompliance(() => stores.credentials, { identityId: OWNER })
+  runCredentialStoreCompliance(() => stores.credentials, { identityId: OWNER, otherIdentityId: OTHER })
 
   describe('the re-SELECT that stands in for RETURNING', () => {
     it('update hands back the row as it now is, not as it was', async () => {
@@ -110,10 +110,10 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       )
       await stores.identities.link(created.id, {
         addedAt: new Date(),
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub: 'sub-mysql-1',
       })
-      const found = await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub: 'sub-mysql-1' })
+      const found = await stores.identities.find({ providerId: 'oauth:google', providerSub: 'sub-mysql-1' })
       expect(found?.id).toBe(created.id)
     })
 
@@ -284,9 +284,9 @@ suite('the exported tables hand back the types they declare (real MySQL)', () =>
 
   beforeAll(async () => {
     const mysql = await import('mysql2/promise')
-    conn = await mysql.createConnection(URL as string)
+    conn = await mysql.createConnection(URL)
     db = drizzleMysql(conn)
-    stores = new DrizzleMysqlAdapter(URL as string)
+    stores = new DrizzleMysqlAdapter(URL)
   }, 60_000)
 
   afterAll(async () => {
@@ -360,11 +360,11 @@ suite('the mysql fixture', () => {
 
   beforeAll(async () => {
     const mysql = await import('mysql2/promise')
-    conn = await mysql.createConnection(URL as string)
+    conn = await mysql.createConnection(URL)
     // Built the way the adapter builds its own.
-    pool = mysql.createPool(URL as string)
+    pool = mysql.createPool(URL)
     db = drizzleMysql(pool)
-    stores = new DrizzleMysqlAdapter(URL as string)
+    stores = new DrizzleMysqlAdapter(URL)
   }, 60_000)
 
   afterAll(async () => {

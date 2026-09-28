@@ -43,7 +43,8 @@ function gatedHandle() {
 describe('the sqlite adapter waits for foreign keys before it answers', () => {
   it('issues no query until the pragma has settled', async () => {
     const { handle, order, release } = gatedHandle()
-    const adapter = new DrizzleSqliteAdapter(handle as never)
+    // @ts-expect-error the two members the adapter calls, not a whole drizzle handle
+    const adapter = new DrizzleSqliteAdapter(handle)
 
     const pending = adapter.identities.find({ id: 'missing' }).catch(() => null)
     // Several turns, so anything that was going to run without awaiting the pragma has run by now.
@@ -63,7 +64,8 @@ describe('the sqlite adapter waits for foreign keys before it answers', () => {
       },
       select: () => chain(),
     }
-    const adapter = new DrizzleSqliteAdapter(handle as never)
+    // @ts-expect-error the two members the adapter calls, not a whole drizzle handle
+    const adapter = new DrizzleSqliteAdapter(handle)
 
     await expect(adapter.identities.find({ id: 'missing' })).rejects.toMatchObject({ code: 'AUTH_ADAPTER_FAILED' })
   })

@@ -1,35 +1,17 @@
 /** The constraints added by the schema audit, against a live database rather than the DDL text. */
 
+import Database from 'better-sqlite3'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { SQLITE_DDL as DDL } from '~/test/sqlite-schema'
 
-const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
+type Db = Database.Database
 
-type Db = { exec(sql: string): void; close?(): void }
-
-let open: () => Db
-
-beforeAll(async () => {
-  if (IS_BUN) {
-    const { Database } = (await import('bun:sqlite' as string)) as { Database: new (path: string) => Db }
-    open = () => {
-      const db = new Database(':memory:')
-      db.exec('pragma foreign_keys = on')
-      db.exec(DDL)
-      return db
-    }
-    return
-  }
-  const { default: Database } = (await import('better-sqlite3' as string)) as {
-    default: new (path: string) => Db
-  }
-  open = () => {
-    const db = new Database(':memory:')
-    db.exec('pragma foreign_keys = on')
-    db.exec(DDL)
-    return db
-  }
-})
+function open(): Db {
+  const db = new Database(':memory:')
+  db.exec('pragma foreign_keys = on')
+  db.exec(DDL)
+  return db
+}
 
 const quote = (v: string | null) => (v === null ? 'NULL' : `'${v}'`)
 

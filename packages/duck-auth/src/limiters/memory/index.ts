@@ -6,6 +6,7 @@ import { AuthError } from '~/core/errors'
 import type { Limiter } from '../limiters.types'
 
 export namespace MemoryLimiter {
+  /** The window size and its limit. */
   export type Cfg = {
     /** Max consumed weight before further consume() returns ok:false. Default 10. */
     max?: number
@@ -21,8 +22,8 @@ const SWEEP_AT = 1024
 const WINDOW_MAX_MS = 8_640_000_000_000
 
 /**
- * Token-bucket memory limiter. Dev/test only; production uses Redis.
- * Per-key independent bucket; reset() empties one bucket.
+ * Fixed-window memory limiter. Dev/test only; production uses Redis.
+ * One window per key; reset() clears one.
  *
  * WARN: the live set is still unbounded, and deliberately so - evicting a bucket that has not expired
  * hands its owner their budget back, which is the whole limit. Only elapsed ones are dropped. A
@@ -40,12 +41,8 @@ export class MemoryLimiter implements Limiter.Me {
   constructor(cfg: MemoryLimiter.Cfg = {}) {
     this._max = cfg.max ?? 10
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000
-    // SECURITY: `consume` bounds the `weight` a caller passes and the `key` it names, and these two -
-    // the numbers that decide whether it limits at all - arrived unchecked. `max` non-finite makes
-    // `count > NaN` false on every call, so the limiter answers `ok` to an unbounded number of attempts
-    // and the brute-force defence `strict()` insists on is simply off. A `windowMs` that is not a
-    // positive number never elapses, so the first budget spent is the last: `resetAt` reads
-    // `Invalid Date` and the key is locked out until the process restarts.
+    // SECURITY: a NaN `max` makes `count > max` always false, and a `windowMs` that is not a positive number
+    // never elapses.
     if (!Number.isFinite(this._max) || this._max < 1 || this._max > Number.MAX_SAFE_INTEGER) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `memoryLimiter: max must be a number between 1 and ${Number.MAX_SAFE_INTEGER} (got ${this._max})`,

@@ -80,8 +80,10 @@ describe('AuthMemoryLimiter - input bounds', () => {
 
     it('refuses non-string key without crashing', async () => {
       const l = new AuthMemoryLimiter({ max: 10, windowMs: 60_000 })
-      expect((await l.consume(null as unknown as string)).ok).toBe(false)
-      expect((await l.consume(42 as unknown as string)).ok).toBe(false)
+      // @ts-expect-error not a string
+      expect((await l.consume(null)).ok).toBe(false)
+      // @ts-expect-error not a string
+      expect((await l.consume(42)).ok).toBe(false)
     })
 
     it('bogus keys do NOT consume real-key budget', async () => {
@@ -115,8 +117,10 @@ describe('expired buckets do not stay resident', () => {
   // set of keys is whatever a request can name. Nothing ever removed one, so a flood of distinct
   // addresses grew this map for as long as the process lived, and `strict()` accepts this limiter in
   // production: it only refuses the noop one.
-  const bucketCount = (limiter: AuthMemoryLimiter): number =>
-    (limiter as unknown as { _buckets: Map<string, unknown> })._buckets.size
+  const bucketCount = (limiter: AuthMemoryLimiter): number => {
+    const buckets: unknown = Reflect.get(limiter, '_buckets')
+    return buckets instanceof Map ? buckets.size : Number.NaN
+  }
 
   it('drops them once the map has grown, rather than holding every key ever seen', async () => {
     const limiter = new AuthMemoryLimiter({ max: 5, windowMs: 10 })
