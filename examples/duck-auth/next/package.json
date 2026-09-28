@@ -1,0 +1,32 @@
+{
+  "name": "@examples/duck-auth-next",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 4800",
+    "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
+    "db:seed": "tsx --env-file=.env src/db/seed.ts",
+    "db:setup": "bun run db:migrate && bun run db:seed"
+  },
+  "dependencies": {
+    "@examples/duck-auth-shared": "workspace:*",
+    "@examples/duck-auth-ui": "workspace:*",
+    "@gentleduck/auth": "workspace:*",
+    "@gentleduck/registry-ui": "^0.5.0",
+    "drizzle-orm": "^0.45.2",
+    "next": "catalog:",
+    "pg": "^8.23.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "catalog:",
+    "@types/pg": "^8.21.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.3.0",
+    "tsx": "^4.19.4",
+    "typescript": "^7.0.2"
+  }
+}
