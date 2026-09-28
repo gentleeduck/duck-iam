@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomInt } from 'node:crypto'
 import { orNull } from '~/core/answer'
 import { resolveCompliance } from '~/core/compliance'
 import {
@@ -245,9 +245,9 @@ export class MfaImpl {
     await this._credentials.deleteByKindAndPurpose(identityId, 'recovery', RECOVERY_PURPOSES.mfaBackupCode, ctx)
     const codes: string[] = []
     for (let i = 0; i < this._cfg.backupCodeCount; i++) {
-      // SECURITY: `node:crypto`, never a `globalThis.crypto` that may be absent.
+      // SECURITY: `node:crypto`'s `randomInt` draws without the modulo bias `byte % 31` had.
       let bare = ''
-      for (const byte of randomBytes(this._cfg.backupCodeLen)) bare += ALPHABET[byte % ALPHABET.length]
+      for (let j = 0; j < this._cfg.backupCodeLen; j++) bare += ALPHABET[randomInt(ALPHABET.length)]
       // Hyphenated after the fifth character, to be readable.
       const code = `${bare.slice(0, 5)}-${bare.slice(5)}`
       codes.push(code)

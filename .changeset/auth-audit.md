@@ -104,6 +104,13 @@ reported rather than changed: no adapter mounts a WebAuthn-MFA route, nothing
 turns a WebAuthn-MFA verification into an AAL2 session, and refusing it outright
 would break adding a backup key.
 
+**Backup codes favoured eight of their 31 characters.** `regenerateBackupCodes`
+mapped each random byte with `byte % 31`, and 31 does not divide 256, so `a`
+through `h` came up 9/256 of the time against 8/256 for the rest. Measured over
+65,536 characters that was 28.3% where an even draw gives 25.8%. Characters are
+now drawn with `node:crypto`'s `randomInt`, which has no modulo bias. Codes
+already issued stay valid.
+
 **An impersonation could be cashed in for an unmarked session as the person
 being impersonated.** `impersonate()` never checked whether the session it was
 handed was itself an impersonation, and `actingAs.realIdentityId` is copied from
