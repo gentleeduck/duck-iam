@@ -1,9 +1,9 @@
 ---
-title: "Interface: IAdmin<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string>"
+title: "Interface: IAdmin"
 description: "engine.admin: manages policies, roles and subject data. Every write invalidates the caches it affects."
 ---
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:53](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L53)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:53](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L53)
 
 `engine.admin`: manages policies, roles and subject data. Every write invalidates the caches it affects.
 
@@ -39,7 +39,7 @@ Union of valid scope strings.
 
 > **assignRole**(`subjectId`: `string`, `roleId`: `TRole`, `scope?`: `TScope`, `opts?`: [`IAssignOptions`](../../IamAdapter/interfaces/IAssignOptions)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:77](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L77)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:77](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L77)
 
 Grants a role; invalidates the subject and emits `role.assigned`.
 `opts` holds temporal bounds, attributes and `actor`, which reaches a provenance column (drizzle `created_by`).
@@ -72,7 +72,7 @@ Grants a role; invalidates the subject and emits `role.assigned`.
 
 > **assignRoles**(`rows`: readonly [`IAssignRow`](../type-aliases/IAssignRow)\<`TRole`, `TScope`\>[]): `Promise`\<[`Result`](../../Batch/type-aliases/Result)\<[`IAssignRow`](../type-aliases/IAssignRow)\<`TRole`, `TScope`\>, [`Change`](../../Batch/type-aliases/Change)\>\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:98](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L98)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:98](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L98)
 
 Grants many triples: one statement via [IamAdapter.ISubjectStore.assignRoleMany](../../IamAdapter/interfaces/ISubjectStore#assignrolemany), else one call each.
 All rows are validated before any write. Every row is `ok`; `value.changed` says whether it was new.
@@ -93,7 +93,7 @@ readonly [`IAssignRow`](../type-aliases/IAssignRow)\<`TRole`, `TScope`\>[]
 
 > **deletePolicy**(`id`: `string`, `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:64](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L64)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:64](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L64)
 
 Invalidates the policy cache; emits `policy.deleted`.
 
@@ -117,7 +117,7 @@ Invalidates the policy cache; emits `policy.deleted`.
 
 > **deleteRole**(`id`: `string`, `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:71](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L71)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L71)
 
 Invalidates role + subject caches keyed on `id`; emits `role.deleted`.
 
@@ -141,7 +141,7 @@ Invalidates role + subject caches keyed on `id`; emits `role.deleted`.
 
 > **export**(): `Promise`\<[`ISnapshot`](ISnapshot)\<`TAction`, `TResource`, `TRole`, `TScope`\>\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:121](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L121)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:121](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L121)
 
 Exports policies and roles for promotion, review or backup.
 Subjects and assignments are excluded: they are per-environment user data most adapters cannot enumerate cheaply.
@@ -156,7 +156,7 @@ Subjects and assignments are excluded: they are per-environment user data most a
 
 > **getAttributes**(`subjectId`: `string`): `Promise`\<[`Attributes`](../../IamPrimitives/type-aliases/Attributes)\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:115](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L115)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:115](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L115)
 
 #### Parameters
 
@@ -174,7 +174,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:115](https://gith
 
 > **getPolicy**(`id`: `string`): `Promise`\<[`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\> \| `null`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L60)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L60)
 
 #### Parameters
 
@@ -192,7 +192,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:60](https://githu
 
 > **getRole**(`id`: `string`): `Promise`\<[`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\> \| `null`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L67)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L67)
 
 #### Parameters
 
@@ -210,7 +210,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:67](https://githu
 
 > **import**(`snapshot`: [`ISnapshot`](ISnapshot)\<`TAction`, `TResource`, `TRole`, `TScope`\>, `options?`: [`IImportOptions`](IImportOptions), `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<[`IImportResult`](IImportResult)\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:126](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L126)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:126](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L126)
 
 Imports a snapshot: `'merge'` (default) upserts; `'replace'` also deletes policies and roles not in it.
 The version and every row are validated before any write.
@@ -239,7 +239,7 @@ The version and every row are validated before any write.
 
 > **invalidateSubjects**(`subjectIds`: readonly `string`[]): `void`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:111](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L111)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:111](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L111)
 
 Invalidate several subjects at once. Duplicate ids are collapsed.
 
@@ -259,7 +259,7 @@ readonly `string`[]
 
 > **listPolicies**(): `Promise`\<[`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>[]\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:59](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L59)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:59](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L59)
 
 #### Returns
 
@@ -271,7 +271,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:59](https://githu
 
 > **listRoles**(): `Promise`\<[`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>[]\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:66](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L66)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L66)
 
 #### Returns
 
@@ -283,7 +283,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:66](https://githu
 
 > **moveRoleScopes**(`rows`: readonly [`IMoveRow`](IMoveRow)\<`TRole`, `TScope`\>[]): `Promise`\<[`Result`](../../Batch/type-aliases/Result)\<[`IMoveRow`](IMoveRow)\<`TRole`, `TScope`\>, `void`\>\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:109](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L109)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:109](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L109)
 
 Moves many assignments, one [IamEngineTypes.IAdmin.updateAssignmentScope](#updateassignmentscope) per row.
 A row fails only by throwing; every row that returns is reported applied.
@@ -304,7 +304,7 @@ readonly [`IMoveRow`](IMoveRow)\<`TRole`, `TScope`\>[]
 
 > **revokeRole**(`subjectId`: `string`, `roleId`: `TRole`, `scope?`: `TScope`, `opts?`: [`IRevokeOptions`](../../IamAdapter/interfaces/IRevokeOptions)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:82](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L82)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:82](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L82)
 
 Revokes a role; invalidates the subject and emits `role.revoked`.
 NOTE: the row is hard-deleted, so without [IHooks.onMutation](IHooks#onmutation) a revocation leaves no record.
@@ -337,7 +337,7 @@ NOTE: the row is hard-deleted, so without [IHooks.onMutation](IHooks#onmutation)
 
 > **revokeRoles**(`rows`: readonly [`IRevokeRow`](../type-aliases/IRevokeRow)\<`TRole`, `TScope`\>[]): `Promise`\<[`Result`](../../Batch/type-aliases/Result)\<[`IRevokeRow`](../type-aliases/IRevokeRow)\<`TRole`, `TScope`\>, [`Change`](../../Batch/type-aliases/Change)\>\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:102](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L102)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:102](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L102)
 
 Revokes many triples, each with an optional `opts.actor`. See [IamEngineTypes.IAdmin.assignRoles](#assignroles).
 
@@ -357,7 +357,7 @@ readonly [`IRevokeRow`](../type-aliases/IRevokeRow)\<`TRole`, `TScope`\>[]
 
 > **savePolicy**(`policy`: [`IPolicy`](../../AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>, `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L62)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L62)
 
 Invalidates the policy cache; emits `policy.saved`.
 
@@ -381,7 +381,7 @@ Invalidates the policy cache; emits `policy.saved`.
 
 > **saveRole**(`role`: [`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>, `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:69](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L69)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L69)
 
 Invalidates role + subject caches keyed on `role.id`; emits `role.saved`.
 
@@ -405,7 +405,7 @@ Invalidates role + subject caches keyed on `role.id`; emits `role.saved`.
 
 > **setAttributes**(`subjectId`: `string`, `attrs`: [`Attributes`](../../IamPrimitives/type-aliases/Attributes), `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:114](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L114)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:114](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L114)
 
 Merges into the subject's attributes; invalidates the subject and emits `attributes.set` (keys only).
 
@@ -433,7 +433,7 @@ Merges into the subject's attributes; invalidates the subject and emits `attribu
 
 > **updateAssignmentScope**(`subjectId`: `string`, `roleId`: `TRole`, `fromScope`: `TScope` \| `undefined`, `toScope`: `TScope` \| `undefined`, `actor?`: `string`): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L87)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L87)
 
 Moves an assignment from `fromScope` to `toScope`, in place when the adapter can, else by revoke + assign.
 A grant not held at `fromScope` is left alone.

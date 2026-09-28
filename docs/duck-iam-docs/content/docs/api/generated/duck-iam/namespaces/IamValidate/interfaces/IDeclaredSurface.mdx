@@ -3,7 +3,7 @@ title: "Interface: IDeclaredSurface"
 description: "The vocabulary validateRoles checks grants against and validatePolicy checks rule patterns against. An omitted or empty list leaves that axis unconstrained; it does not forbid everything."
 ---
 
-Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:54](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L54)
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:54](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/validate/validate.types.ts#L54)
 
 The vocabulary `validateRoles` checks grants against and `validatePolicy` checks rule patterns against.
 An omitted or empty list leaves that axis unconstrained; it does not forbid everything.
@@ -14,7 +14,7 @@ An omitted or empty list leaves that axis unconstrained; it does not forbid ever
 
 > `readonly` `optional` **actions?**: readonly `string`[]
 
-Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:56](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L56)
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:56](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/validate/validate.types.ts#L56)
 
 Declared actions. `'*'` in a grant is always allowed; a rule pattern is cleared if it matches any of these.
 
@@ -24,7 +24,7 @@ Declared actions. `'*'` in a grant is always allowed; a rule pattern is cleared 
 
 > `readonly` `optional` **resources?**: readonly `string`[]
 
-Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:58](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L58)
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/validate/validate.types.ts#L58)
 
 Declared resources. `'*'` in a grant is always allowed; a rule pattern is cleared the same way.
 
@@ -34,7 +34,7 @@ Declared resources. `'*'` in a grant is always allowed; a rule pattern is cleare
 
 > `readonly` `optional` **roles?**: readonly `string`[]
 
-Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L62)
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/validate/validate.types.ts#L62)
 
 Declared role ids, checked against `policy.targets.roles`. Matched by equality, never by pattern.
 
@@ -44,7 +44,7 @@ Declared role ids, checked against `policy.targets.roles`. Matched by equality, 
 
 > `readonly` `optional` **scopes?**: readonly `string`[]
 
-Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/validate/validate.types.ts#L60)
+Defined in: [packages/duck-iam/src/core/validate/validate.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/validate/validate.types.ts#L60)
 
 Declared scopes. `'*'` and an omitted scope are always allowed. Roles carry these; policies do not.
 

@@ -1,9 +1,9 @@
 ---
-title: "Interface: IamEngine<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string, TMode *extends* Mode = \"production\">"
+title: "Interface: IamEngine"
 description: "Writes go through admin, the unbound engine's write interface; reads are served from transaction-local caches. Read methods are declared explicitly, not spread, so this surface stays reviewable against the unbound one."
 ---
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:15](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L15)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L15)
 
 Writes go through `admin`, the unbound engine's write interface; reads are served from transaction-local caches.
 Read methods are declared explicitly, not spread, so this surface stays reviewable against the unbound one.
@@ -36,7 +36,7 @@ Read methods are declared explicitly, not spread, so this surface stays reviewab
 
 > `readonly` **admin**: [`IAdmin`](../../IamEngineTypes/interfaces/IAdmin)\<`TAction`, `TResource`, `TRole`, `TScope`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:23](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L23)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L23)
 
 The write surface, identical to `engine.admin` but bound to the transaction.
 
@@ -46,7 +46,7 @@ The write surface, identical to `engine.admin` but bound to the transaction.
 
 > `readonly` **engine**: [`IamEngine`](../../../../classes/IamEngine)\<`TAction`, `TResource`, `TRole`, `TScope`, `TMode`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:25](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L25)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L25)
 
 The transaction-local engine backing the reads. Reach for it only for methods not re-exposed here.
 
@@ -56,7 +56,7 @@ The transaction-local engine backing the reads. Reach for it only for methods no
 
 > `readonly` **pending**: [`Effects`](../../Pending/interfaces/Effects)\<`TRole`, `TScope`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:27](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L27)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L27)
 
 Cache invalidations withheld until the caller's transaction commits.
 
@@ -66,7 +66,7 @@ Cache invalidations withheld until the caller's transaction commits.
 
 > **authorize**(`request`: [`IAccessRequest`](../../IamRequest/interfaces/IAccessRequest)\<`TAction`, `TResource`, `TScope`\>): `Promise`\<[`ModeResult`](../../AccessControl/type-aliases/ModeResult)\<`TMode`\>\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:29](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L29)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L29)
 
 #### Parameters
 
@@ -84,7 +84,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:29](https://githu
 
 > **can**(`subjectId`: `string`, `action`: `TAction`, `resource`: [`IResource`](../../IamRequest/interfaces/IResource)\<`TResource`\>, `environment?`: [`IEnvironment`](../../IamRequest/interfaces/IEnvironment), `scope?`: `TScope`): `Promise`\<`boolean`\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:30](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L30)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L30)
 
 #### Parameters
 
@@ -118,7 +118,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:30](https://githu
 
 > **check**(`subjectId`: `string`, `action`: `TAction`, `resource`: [`IResource`](../../IamRequest/interfaces/IResource)\<`TResource`\>, `environment?`: [`IEnvironment`](../../IamRequest/interfaces/IEnvironment), `scope?`: `TScope`): `Promise`\<[`ModeResult`](../../AccessControl/type-aliases/ModeResult)\<`TMode`\>\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:37](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L37)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L37)
 
 #### Parameters
 
@@ -152,7 +152,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:37](https://githu
 
 > **explain**(`this`: `IamEngine`\<`TAction`, `TResource`, `TRole`, `TScope`, `"development"`\>, `subjectId`: `string`, `action`: `TAction`, `resource`: [`IResource`](../../IamRequest/interfaces/IResource)\<`TResource`\>, `environment?`: [`IEnvironment`](../../IamRequest/interfaces/IEnvironment), `scope?`: `TScope`): `Promise`\<[`IResult`](../../Explain/interfaces/IResult)\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:45](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L45)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L45)
 
 Mirrors the unbound `explain`, including its development-mode-only `this` constraint.
 
@@ -192,7 +192,7 @@ Mirrors the unbound `explain`, including its development-mode-only `this` constr
 
 > **getEffectiveRoles**(`subjectId`: `string`, `scope?`: `TScope`): `Promise`\<readonly `TRole`[]\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:53](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L53)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:53](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L53)
 
 #### Parameters
 
@@ -214,7 +214,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:53](https://githu
 
 > **permissions**(`subjectId`: `string`, `checks`: readonly [`IPermissionCheck`](../../IamClient/interfaces/IPermissionCheck)\<`TAction`, `TResource`, `TScope`\>[], `environment?`: [`IEnvironment`](../../IamRequest/interfaces/IEnvironment), `opts?`: \{ `telemetry?`: `boolean`; \}): `Promise`\<[`ModePermissionMap`](../../AccessControl/type-aliases/ModePermissionMap)\<`TMode`, `TAction`, `TResource`, `TScope`\>\>
 
-Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:54](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.bound.ts#L54)
+Defined in: [packages/duck-iam/src/core/engine/engine.bound.ts:54](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.bound.ts#L54)
 
 #### Parameters
 

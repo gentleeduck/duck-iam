@@ -1,9 +1,9 @@
 ---
-title: "Interface: IRoleRevokedEvent<TRole *extends* string = string, TScope *extends* string = string>"
+title: "Interface: IRoleRevokedEvent"
 description: "A role was revoked from a subject. NOTE: the row is hard-deleted, so this event is the only record of the revocation."
 ---
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:245](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L245)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:245](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L245)
 
 A role was revoked from a subject.
 NOTE: the row is hard-deleted, so this event is the only record of the revocation.
@@ -28,7 +28,7 @@ NOTE: the row is hard-deleted, so this event is the only record of the revocatio
 
 > `readonly` `optional` **actor?**: `string`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:200](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L200)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:200](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L200)
 
 Who made the change, when the caller supplied it.
 
@@ -42,7 +42,7 @@ Who made the change, when the caller supplied it.
 
 > `readonly` **at**: `number`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:198](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L198)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:198](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L198)
 
 `Date.now()` at the moment the write completed.
 
@@ -56,7 +56,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:198](https://gith
 
 > `readonly` `optional` **changed?**: `boolean`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:252](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L252)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:252](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L252)
 
 See [IRoleAssignedEvent.changed](IRoleAssignedEvent#changed).
 
@@ -66,7 +66,7 @@ See [IRoleAssignedEvent.changed](IRoleAssignedEvent#changed).
 
 > `readonly` **roleId**: `TRole`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:249](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L249)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:249](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L249)
 
 ***
 
@@ -74,7 +74,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:249](https://gith
 
 > `readonly` `optional` **scope?**: `TScope`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:250](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L250)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:250](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L250)
 
 ***
 
@@ -82,7 +82,7 @@ Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:250](https://gith
 
 > `readonly` **subjectId**: `string`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:248](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L248)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:248](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L248)
 
 ***
 
@@ -90,5 +90,5 @@ Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:248](https://gith
 
 > `readonly` **type**: `"role.revoked"`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:247](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L247)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:247](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L247)
 

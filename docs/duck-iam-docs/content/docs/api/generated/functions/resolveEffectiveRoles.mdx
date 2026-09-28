@@ -5,7 +5,7 @@ description: "Walk inherits from each assigned role into the closed set of effec
 
 > **resolveEffectiveRoles**(`assignedRoles`: `string`[], `allRoles`: [`IRole`](../duck-iam/namespaces/AccessControl/interfaces/IRole)\<`string`, `string`, `string`, `string`\>[], `reportUndefinedAssigned?`: (`roleId`: `string`) => `void`): `string`[]
 
-Defined in: [packages/duck-iam/src/core/rbac/rbac.ts:138](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/rbac/rbac.ts#L138)
+Defined in: [packages/duck-iam/src/core/rbac/rbac.ts:138](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/rbac/rbac.ts#L138)
 
 Walk `inherits` from each assigned role into the closed set of effective role IDs, bounded by
 [MAX\_INHERITANCE\_DEPTH](../variables/MAX_INHERITANCE_DEPTH). Inherited IDs with no definition are dropped; assigned IDs are kept.

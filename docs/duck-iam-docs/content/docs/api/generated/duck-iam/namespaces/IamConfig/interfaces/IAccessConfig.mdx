@@ -1,9 +1,9 @@
 ---
-title: "Interface: IAccessConfig<TAction *extends* string, TResource *extends* string, TRole *extends* string = string, TScope *extends* string = string, TContext *extends* object = IDefaultContext>"
+title: "Interface: IAccessConfig"
 description: "Typed config returned by createIam; builders accept only the declared unions, so typos do not compile."
 ---
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:55](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L55)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L55)
 
 Typed config returned by `createIam`; builders accept only the declared unions, so typos do not compile.
 
@@ -45,7 +45,7 @@ Shape of the evaluation context for typed dot-paths.
 
 > `readonly` **actions**: readonly `TAction`[]
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L62)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L62)
 
 ***
 
@@ -53,7 +53,7 @@ Defined in: [packages/duck-iam/src/core/config/config.types.ts:62](https://githu
 
 > **checks**: \<`T`\>(`checks`: `T`) => `T`
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L87)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L87)
 
 Compile-time-typed pass-through for `engine.permissions()` inputs.
 
@@ -79,7 +79,7 @@ Compile-time-typed pass-through for `engine.permissions()` inputs.
 
 > **createEngine**: \<`TMode`\>(`config`: [`IConfig`](../../IamEngineTypes/interfaces/IConfig)\<`TAction`, `TResource`, `TRole`, `TScope`, `TMode`\>) => [`IamEngine`](../../../../classes/IamEngine)\<`TAction`, `TResource`, `TRole`, `TScope`, `TMode`\>
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:82](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L82)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:82](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L82)
 
 Typed [IamEngine](../../../../classes/IamEngine); permission checks are constrained to the declared actions, resources and scopes.
 
@@ -105,7 +105,7 @@ Typed [IamEngine](../../../../classes/IamEngine); permission checks are constrai
 
 > **definePolicy**: (`id`: `string`) => [`PolicyBuilder`](../../../../classes/PolicyBuilder)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`\>
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:73](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L73)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:73](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L73)
 
 Typed [PolicyBuilder](../../../../classes/PolicyBuilder); rules constrained to declared actions/resources/roles.
 
@@ -125,7 +125,7 @@ Typed [PolicyBuilder](../../../../classes/PolicyBuilder); rules constrained to d
 
 > **defineRole**: (`id`: `TRole`) => [`RoleBuilder`](../../../../classes/RoleBuilder)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`\>
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L70)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L70)
 
 Typed [RoleBuilder](../../../../classes/RoleBuilder); role ID constrained to declared roles.
 
@@ -145,7 +145,7 @@ Typed [RoleBuilder](../../../../classes/RoleBuilder); role ID constrained to dec
 
 > **defineRule**: (`id`: `string`) => [`RuleBuilder`](../../../../classes/RuleBuilder)\<`TAction`, `TResource`, `TScope`, `TRole`, `TContext`\>
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:76](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L76)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:76](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L76)
 
 Typed standalone [RuleBuilder](../../../../classes/RuleBuilder) for composing rules across policies.
 
@@ -165,7 +165,7 @@ Typed standalone [RuleBuilder](../../../../classes/RuleBuilder) for composing ru
 
 > `readonly` **resources**: readonly `TResource`[]
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:63](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L63)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:63](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L63)
 
 ***
 
@@ -173,7 +173,7 @@ Defined in: [packages/duck-iam/src/core/config/config.types.ts:63](https://githu
 
 > `readonly` **roles**: readonly `TRole`[]
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L67)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L67)
 
 Empty array if no roles were declared.
 
@@ -183,7 +183,7 @@ Empty array if no roles were declared.
 
 > `readonly` **scopes**: readonly `TScope`[]
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:65](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L65)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:65](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L65)
 
 Empty array if no scopes were declared.
 
@@ -193,7 +193,7 @@ Empty array if no scopes were declared.
 
 > **validatePolicy**: (`input`: `unknown`) => [`IResult`](../../IamValidate/interfaces/IResult)
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:96](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L96)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:96](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L96)
 
 Deep shape and semantic checks for a policy from an untrusted source (database, API, JSON).
 
@@ -213,7 +213,7 @@ Deep shape and semantic checks for a policy from an untrusted source (database, 
 
 > **validateRoles**: (`roles`: readonly [`IRole`](../../AccessControl/interfaces/IRole)\<`string`, `string`, `string`, `string`\>[]) => [`IResult`](../../IamValidate/interfaces/IResult)
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:93](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L93)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:93](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L93)
 
 The bare `validateRoles` checks, plus grants naming an action, resource or scope this config never declared.
 NOTE: takes the unconstrained `IRole` since input is untrusted; malformed entries become `INVALID_TYPE` issues.
@@ -234,7 +234,7 @@ readonly [`IRole`](../../AccessControl/interfaces/IRole)\<`string`, `string`, `s
 
 > **when**: () => [`When`](../../../../classes/When)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`\>
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:79](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L79)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:79](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L79)
 
 Typed [When](../../../../classes/When) builder for reusable condition groups.
 
