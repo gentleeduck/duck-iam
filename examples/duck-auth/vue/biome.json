@@ -1,0 +1,6 @@
+{
+  "root": false,
+  "extends": "//",
+  "html": { "experimentalFullSupportEnabled": true },
+  "linter": { "rules": { "correctness": { "useHookAtTopLevel": "off" } } }
+}
