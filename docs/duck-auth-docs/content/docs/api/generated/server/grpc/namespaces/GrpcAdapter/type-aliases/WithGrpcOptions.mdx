@@ -1,0 +1,31 @@
+---
+title: "Type Alias: WithGrpcOptions"
+description: "ActorOptions, plus whether a call without a session is refused and where its token is read."
+---
+
+> **WithGrpcOptions**\<`Req` = `unknown`\> = [`ActorOptions`](../../../../generic/type-aliases/ActorOptions)\<[`UnaryCall`](UnaryCall)\<`Req`\>\> & \{ `headerName?`: `string`; `required?`: `boolean`; \}
+
+Defined in: [packages/duck-auth/src/server/grpc/grpc.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/grpc/grpc.types.ts#L26)
+
+[ActorOptions](../../../../generic/type-aliases/ActorOptions), plus whether a call without a session is refused and where its token is read.
+
+## Type Declaration
+
+### headerName?
+
+> `optional` **headerName?**: `string`
+
+Metadata key holding the token. Default `authorization`.
+
+### required?
+
+> `optional` **required?**: `boolean`
+
+Refuse with UNAUTHENTICATED when nothing resolves. Default `true`.
+
+## Type Parameters
+
+### Req
+
+`Req` = `unknown`
+

@@ -1,0 +1,113 @@
+---
+title: "Interface: Overrides"
+description: "What createTest lets a test replace."
+---
+
+Defined in: [packages/duck-auth/src/test/index.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L20)
+
+What `createTest` lets a test replace.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+### Tenant
+
+`Tenant` = `string`
+
+### OrgMeta
+
+`OrgMeta` = `unknown`
+
+## Properties
+
+### adapter?
+
+> `optional` **adapter?**: [`MemoryAdapter`](../../../../adapters/memory/classes/MemoryAdapter)\<`Profile`, `OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/test/index.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L22)
+
+Drop-in replacement for the bundled [MemoryAdapter](../../../../adapters/memory/classes/MemoryAdapter).
+
+***
+
+### apiKeys?
+
+> `optional` **apiKeys?**: [`CfgInput`](../../../../providers/api-key/namespaces/ApiKeys/type-aliases/CfgInput)
+
+Defined in: [packages/duck-auth/src/test/index.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L34)
+
+API-key provider tuning (prefix/randomBytes/compliance).
+
+***
+
+### baseUrl?
+
+> `optional` **baseUrl?**: `string`
+
+Defined in: [packages/duck-auth/src/test/index.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L35)
+
+***
+
+### events?
+
+> `optional` **events?**: [`IBus`](../../../../index/namespaces/Events/interfaces/IBus)
+
+Defined in: [packages/duck-auth/src/test/index.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L27)
+
+***
+
+### limiter?
+
+> `optional` **limiter?**: [`Me`](../../../../limiters/memory/namespaces/Limiter/type-aliases/Me)
+
+Defined in: [packages/duck-auth/src/test/index.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L26)
+
+***
+
+### mfa?
+
+> `optional` **mfa?**: [`CfgInput`](../../../../providers/mfa/namespaces/Mfa/type-aliases/CfgInput)
+
+Defined in: [packages/duck-auth/src/test/index.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L32)
+
+MFA provider tuning (issuer/backupCodeCount/backupCodeLen/compliance).
+
+***
+
+### passwords?
+
+> `optional` **passwords?**: `Partial`\<[`Cfg`](../../../../providers/passwords/namespaces/Passwords/type-aliases/Cfg)\>
+
+Defined in: [packages/duck-auth/src/test/index.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L30)
+
+Password provider tuning (minLength/maxLength/rejectCommon/compliance).
+
+***
+
+### providers?
+
+> `optional` **providers?**: [`IProviderEntry`](../../../../core/namespaces/AuthDefine/type-aliases/IProviderEntry)\<`Profile`, `Tenant`, `OrgMeta`\>[]
+
+Defined in: [packages/duck-auth/src/test/index.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L28)
+
+***
+
+### stores?
+
+> `optional` **stores?**: [`Stores`](../../../../index/namespaces/Engine/type-aliases/Stores)\<`Profile`, `OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/test/index.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L24)
+
+Replace the whole store bag, the way a real deployment hands the engine an adapter.
+
+***
+
+### transport?
+
+> `optional` **transport?**: [`ITransport`](../../../../index/namespaces/Transport/type-aliases/ITransport)
+
+Defined in: [packages/duck-auth/src/test/index.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L25)
+

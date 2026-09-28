@@ -1,0 +1,28 @@
+---
+title: "Function: requestSecurity()"
+description: "Build the Actor.RequestOptions that turn an actor-context wrapper into a fingerprint check as well: the anomaly detectors get a snapshot to run against, and every resolved session is compared with hijack.evaluate, which emits suspicious on any drift, even when the configured reaction is 'ignore'."
+---
+
+> **requestSecurity**(`auth`: [`HijackEvaluable`](../type-aliases/HijackEvaluable), `opts?`: [`RequestSecurityOptions`](../type-aliases/RequestSecurityOptions)): [`RequestOptions`](../../../index/namespaces/Actor/type-aliases/RequestOptions)
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:358](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L358)
+
+Build the [Actor.RequestOptions](../../../index/namespaces/Actor/type-aliases/RequestOptions) that turn an actor-context wrapper into a fingerprint
+check as well: the anomaly detectors get a snapshot to run against, and every resolved session
+is compared with `hijack.evaluate`, which emits `suspicious` on any drift, even when the
+configured reaction is `'ignore'`.
+
+## Parameters
+
+### auth
+
+[`HijackEvaluable`](../type-aliases/HijackEvaluable)
+
+### opts?
+
+[`RequestSecurityOptions`](../type-aliases/RequestSecurityOptions) = `{}`
+
+## Returns
+
+[`RequestOptions`](../../../index/namespaces/Actor/type-aliases/RequestOptions)
+

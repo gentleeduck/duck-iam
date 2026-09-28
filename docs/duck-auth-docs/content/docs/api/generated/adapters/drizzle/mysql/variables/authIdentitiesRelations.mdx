@@ -1,0 +1,12 @@
+---
+title: "Variable: authIdentitiesRelations"
+description: "The schema as drizzle's relational queries read it. Registering these is what lets a caller who passed the schema to drizzle() write db.query.authIdentities.findFirst({ with: { providers: true } })."
+---
+
+> `const` **authIdentitiesRelations**: `Relations`\<`"auth_identities"`, \{ `credentials`: `Many`\<`"auth_credentials"`\>; `providers`: `Many`\<`"auth_identity_providers"`\>; `sessions`: `Many`\<`"auth_sessions"`\>; \}\>
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/mysql/mysql.schema.ts:255](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/mysql/mysql.schema.ts#L255)
+
+The schema as drizzle's relational queries read it. Registering these is what lets a caller who passed the
+schema to `drizzle()` write `db.query.authIdentities.findFirst({ with: { providers: true } })`.
+

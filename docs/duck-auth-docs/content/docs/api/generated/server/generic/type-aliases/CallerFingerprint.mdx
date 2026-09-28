@@ -1,0 +1,37 @@
+---
+title: "Type Alias: CallerFingerprint"
+description: "The fingerprint an adapter reads off a request. ip and userAgent are what callerContext  normalises; geo is the host's own lookup, since no part of a request carries it, and it is the only  way authImpossibleTravelDetector is ever fed. The hijack policy reads the first two and ignores it."
+---
+
+> **CallerFingerprint** = \{ `geo?`: [`RequestSnapshot`](../../../index/namespaces/Anomaly/interfaces/RequestSnapshot)\[`"geo"`\]; `ip?`: `string`; `userAgent?`: `string`; \}
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:308](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L308)
+
+The fingerprint an adapter reads off a request. `ip` and `userAgent` are what [callerContext](../functions/callerContext)
+ normalises; `geo` is the host's own lookup, since no part of a request carries it, and it is the only
+ way `authImpossibleTravelDetector` is ever fed. The hijack policy reads the first two and ignores it.
+
+## Properties
+
+### geo?
+
+> `optional` **geo?**: [`RequestSnapshot`](../../../index/namespaces/Anomaly/interfaces/RequestSnapshot)\[`"geo"`\]
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:308](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L308)
+
+***
+
+### ip?
+
+> `optional` **ip?**: `string`
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:308](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L308)
+
+***
+
+### userAgent?
+
+> `optional` **userAgent?**: `string`
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:308](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L308)
+

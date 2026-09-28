@@ -1,0 +1,25 @@
+---
+title: "Function: makeCsrfGuard()"
+description: "CSRF-only guard, for routes that need the check without the auth gate."
+---
+
+> **makeCsrfGuard**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: [`GuardOptions`](../../../core/namespaces/Csrf/type-aliases/GuardOptions)): [`Guard`](../namespaces/NestAdapter/type-aliases/Guard)
+
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:292](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L292)
+
+CSRF-only guard, for routes that need the check without the auth gate.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+[`GuardOptions`](../../../core/namespaces/Csrf/type-aliases/GuardOptions) = `{}`
+
+## Returns
+
+[`Guard`](../namespaces/NestAdapter/type-aliases/Guard)
+

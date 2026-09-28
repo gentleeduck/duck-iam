@@ -1,0 +1,282 @@
+---
+title: "Class: RedisSessionImpl"
+description: "Sessions.Me.id is already the sha-256 of the sid, so the primary key and the lookup key are the  same value."
+---
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:53](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L53)
+
+`Sessions.Me.id` is already the sha-256 of the sid, so the primary key and the lookup key are the
+ same value.
+
+ WARN: `update` swaps the record with a Lua compare-and-swap, so a client whose `eval` is missing -
+ it is optional on [RedisLike.Client](../namespaces/RedisLike/type-aliases/Client) - is left with a read, a compare and a separate write.
+ Two clients can then both read, both pass the compare and both write, and the first write is lost
+ silently. On a real server that is not a corner: network latency puts both reads before either
+ write. An operator choosing a client without `eval` is choosing that.
+
+## Type Parameters
+
+### TRedis
+
+`TRedis` *extends* [`Client`](../namespaces/RedisLike/type-aliases/Client) = [`Client`](../namespaces/RedisLike/type-aliases/Client)
+
+## Implements
+
+- [`Store`](../../../index/namespaces/Sessions/type-aliases/Store)
+
+## Constructors
+
+### Constructor
+
+> **new RedisSessionImpl**\<`TRedis` *extends* [`Client`](../namespaces/RedisLike/type-aliases/Client) = [`Client`](../namespaces/RedisLike/type-aliases/Client)\>(`cfg`: [`Cfg`](../namespaces/RedisSession/type-aliases/Cfg)\<`TRedis`\>): `RedisSessionImpl`\<`TRedis`\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:59](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L59)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/RedisSession/type-aliases/Cfg)\<`TRedis`\>
+
+#### Returns
+
+`RedisSessionImpl`\<`TRedis`\>
+
+## Methods
+
+### create()
+
+> **create**(`s`: [`CreateInput`](../../../index/namespaces/Sessions/type-aliases/CreateInput)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:164](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L164)
+
+Writes the session and adds it to its identity's index.
+
+#### Parameters
+
+##### s
+
+[`CreateInput`](../../../index/namespaces/Sessions/type-aliases/CreateInput)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Sessions.Store.create`
+
+***
+
+### delete()
+
+> **delete**(`id`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:308](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L308)
+
+Removes the session and takes it out of its identity's index.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Sessions.Store.delete`
+
+***
+
+### deleteAllForIdentities()
+
+> **deleteAllForIdentities**(`identityIds`: `string`[]): `Promise`\<[`Revoked`](../../../index/namespaces/Sessions/type-aliases/Revoked)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:365](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L365)
+
+Unscoped by tenant, like the rest of the set-based forms.
+
+#### Parameters
+
+##### identityIds
+
+`string`[]
+
+#### Returns
+
+`Promise`\<[`Revoked`](../../../index/namespaces/Sessions/type-aliases/Revoked)[]\>
+
+#### Implementation of
+
+`Sessions.Store.deleteAllForIdentities`
+
+***
+
+### deleteAllForIdentity()
+
+> **deleteAllForIdentity**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:329](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L329)
+
+Removes every session for this identity, and the index itself.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Sessions.Store.deleteAllForIdentity`
+
+***
+
+### deleteMany()
+
+> **deleteMany**(`ids`: `string`[]): `Promise`\<[`Revoked`](../../../index/namespaces/Sessions/type-aliases/Revoked)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:395](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L395)
+
+The records are read first because the index entry and the expiry member are both keyed by the
+ owning identity, which only the record names.
+
+#### Parameters
+
+##### ids
+
+`string`[]
+
+#### Returns
+
+`Promise`\<[`Revoked`](../../../index/namespaces/Sessions/type-aliases/Revoked)[]\>
+
+#### Implementation of
+
+`Sessions.Store.deleteMany`
+
+***
+
+### gc()
+
+> **gc**(`now`: `number`): `Promise`\<\{ `deleted`: `number`; \}\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:430](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L430)
+
+Driven by the `{prefix}:exp` ZSet, one range query per page. `deleted` counts what `zrem` took, so a
+row swept concurrently is counted once. Serialised by a `{prefix}:gc:lease` taken with SET NX; an
+instance that misses it returns immediately.
+
+NOTE: the lease is not extended mid-sweep, so a run outlasting `gcLeaseSec` may be joined by
+another instance. Tolerated, since `del`, `srem` and `zrem` are no-ops the second time.
+
+#### Parameters
+
+##### now
+
+`number`
+
+#### Returns
+
+`Promise`\<\{ `deleted`: `number`; \}\>
+
+#### Implementation of
+
+`Sessions.Store.gc`
+
+***
+
+### getByHash()
+
+> **getByHash**(`sidHash`: `string`): `Promise`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:232](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L232)
+
+The session under this hashed id, throwing `AUTH_SESSION_REVOKED` when the key is gone.
+
+#### Parameters
+
+##### sidHash
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>
+
+#### Implementation of
+
+`Sessions.Store.getByHash`
+
+***
+
+### listByIdentity()
+
+> **listByIdentity**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:321](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L321)
+
+Every live session for this identity, dropping index entries whose row has expired.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)[]\>
+
+#### Implementation of
+
+`Sessions.Store.listByIdentity`
+
+***
+
+### update()
+
+> **update**(`id`: `string`, `patch`: `Partial`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>, `expectedUpdatedAt?`: `Date`): `Promise`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.redis.ts:242](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.redis.ts#L242)
+
+Merges a patch onto the stored session, rewriting it under the remaining TTL.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### patch
+
+`Partial`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>
+
+##### expectedUpdatedAt?
+
+`Date`
+
+#### Returns
+
+`Promise`\<[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)\>
+
+#### Implementation of
+
+`Sessions.Store.update`
+

@@ -1,0 +1,45 @@
+---
+title: "Type Alias: Evaluation"
+description: "One request's verdict: ok, or what drifted and the reaction."
+---
+
+> **Evaluation** = \{ `ok`: `true`; \} \| \{ `from`: `string`; `ok`: `false`; `reaction`: [`Reaction`](Reaction); `signal`: `"ip-change"` \| `"user-agent-change"`; `to`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/hijack/hijack.types.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/hijack/hijack.types.ts#L29)
+
+One request's verdict: ok, or what drifted and the reaction.
+
+## Union Members
+
+### Type Literal
+
+\{ `ok`: `true`; \}
+
+***
+
+### Type Literal
+
+\{ `from`: `string`; `ok`: `false`; `reaction`: [`Reaction`](Reaction); `signal`: `"ip-change"` \| `"user-agent-change"`; `to`: `string`; \}
+
+#### from
+
+> **from**: `string`
+
+#### ok
+
+> **ok**: `false`
+
+#### reaction
+
+> **reaction**: [`Reaction`](Reaction)
+
+#### signal
+
+> **signal**: `"ip-change"` \| `"user-agent-change"`
+
+Which baseline drifted.
+
+#### to
+
+> **to**: `string`
+

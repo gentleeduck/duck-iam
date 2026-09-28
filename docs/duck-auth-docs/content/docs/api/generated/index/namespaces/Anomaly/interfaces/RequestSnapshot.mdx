@@ -1,0 +1,62 @@
+---
+title: "Interface: RequestSnapshot"
+description: "What the detectors are scored against: one request, as the transport saw it. requestSecurity  in ~/server/generic builds one from an adapter's getCaller."
+---
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L24)
+
+What the detectors are scored against: one request, as the transport saw it. `requestSecurity`
+ in `~/server/generic` builds one from an adapter's `getCaller`.
+
+## Properties
+
+### geo?
+
+> `optional` **geo?**: \{ `country?`: `string`; `lat?`: `number`; `lon?`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L30)
+
+Where the request came from, when the host resolves it; it arrives through `getCaller`.
+
+#### country?
+
+> `readonly` `optional` **country?**: `string`
+
+#### lat?
+
+> `readonly` `optional` **lat?**: `number`
+
+#### lon?
+
+> `readonly` `optional` **lon?**: `number`
+
+***
+
+### ip?
+
+> `optional` **ip?**: `string`
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L26)
+
+The peer address, never a forwarded header unless the host has decided it can trust one.
+
+***
+
+### now
+
+> **now**: `number`
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L32)
+
+When the request happened, epoch ms: one instant for every detector, and pinnable by a caller.
+
+***
+
+### userAgent?
+
+> `optional` **userAgent?**: `string`
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L28)
+
+The `User-Agent`, verbatim. Absent is fingerprinted too, as `FINGERPRINT_ABSENT`.
+

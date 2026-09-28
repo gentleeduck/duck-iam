@@ -1,0 +1,97 @@
+---
+title: "Class: AuthAwsKmsProvider"
+description: "Reference Kms.Provider for AWS KMS. Lazy-loads @aws-sdk/client-kms (optional peer dep)."
+---
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aws-kms.ts:5](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aws-kms.ts#L5)
+
+Reference `Kms.Provider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep).
+
+## Implements
+
+- [`Provider`](../../../index/namespaces/Kms/type-aliases/Provider)
+
+## Constructors
+
+### Constructor
+
+> **new AuthAwsKmsProvider**(`cfg`: [`Cfg`](../namespaces/AuthAwsKmsProvider/interfaces/Cfg)): `AuthAwsKmsProvider`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aws-kms.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aws-kms.ts#L10)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/AuthAwsKmsProvider/interfaces/Cfg)
+
+#### Returns
+
+`AuthAwsKmsProvider`
+
+## Properties
+
+### id
+
+> `readonly` **id**: `"aws-kms"` = `'aws-kms'`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aws-kms.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aws-kms.ts#L6)
+
+Stable id for audit logs and strict() reporting, such as 'aws-kms' or 'gcp-kms'.
+
+#### Implementation of
+
+`Kms.Provider.id`
+
+## Methods
+
+### decryptDataKey()
+
+> **decryptDataKey**(`wrapped`: `Uint8Array`, `ctx?`: [`EncryptionContext`](../../../index/namespaces/Kms/type-aliases/EncryptionContext)): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aws-kms.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aws-kms.ts#L29)
+
+Unwraps a data key; the encryption context must match the one it was generated under.
+
+#### Parameters
+
+##### wrapped
+
+`Uint8Array`
+
+##### ctx?
+
+[`EncryptionContext`](../../../index/namespaces/Kms/type-aliases/EncryptionContext)
+
+#### Returns
+
+`Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+#### Implementation of
+
+`Kms.Provider.decryptDataKey`
+
+***
+
+### generateDataKey()
+
+> **generateDataKey**(`ctx?`: [`EncryptionContext`](../../../index/namespaces/Kms/type-aliases/EncryptionContext)): `Promise`\<[`DataKey`](../../../index/namespaces/Kms/type-aliases/DataKey)\>
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aws-kms.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aws-kms.ts#L16)
+
+One KMS round trip answering a fresh data key in both its plaintext and its wrapped form.
+
+#### Parameters
+
+##### ctx?
+
+[`EncryptionContext`](../../../index/namespaces/Kms/type-aliases/EncryptionContext)
+
+#### Returns
+
+`Promise`\<[`DataKey`](../../../index/namespaces/Kms/type-aliases/DataKey)\>
+
+#### Implementation of
+
+`Kms.Provider.generateDataKey`
+

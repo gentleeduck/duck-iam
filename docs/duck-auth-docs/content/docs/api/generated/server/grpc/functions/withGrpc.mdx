@@ -1,0 +1,41 @@
+---
+title: "Function: withGrpc()"
+description: "Wrap a unary handler with authentication: read the token from the call metadata under headerName, resolve  it onto call.session and call.identity, and under the default required: true answer UNAUTHENTICATED  without invoking the handler when nothing resolves."
+---
+
+> **withGrpc**\<`Req`, `Res`\>(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `handler`: [`UnaryHandler`](../namespaces/GrpcAdapter/type-aliases/UnaryHandler)\<`Req`, `Res`\>, `opts?`: [`WithGrpcOptions`](../namespaces/GrpcAdapter/type-aliases/WithGrpcOptions)\<`Req`\>): [`UnaryHandler`](../namespaces/GrpcAdapter/type-aliases/UnaryHandler)\<`Req`, `Res`\>
+
+Defined in: [packages/duck-auth/src/server/grpc/index.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/grpc/index.ts#L52)
+
+Wrap a unary handler with authentication: read the token from the call metadata under `headerName`, resolve
+ it onto `call.session` and `call.identity`, and under the default `required: true` answer UNAUTHENTICATED
+ without invoking the handler when nothing resolves.
+
+## Type Parameters
+
+### Req
+
+`Req`
+
+### Res
+
+`Res`
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### handler
+
+[`UnaryHandler`](../namespaces/GrpcAdapter/type-aliases/UnaryHandler)\<`Req`, `Res`\>
+
+### opts?
+
+[`WithGrpcOptions`](../namespaces/GrpcAdapter/type-aliases/WithGrpcOptions)\<`Req`\> = `{}`
+
+## Returns
+
+[`UnaryHandler`](../namespaces/GrpcAdapter/type-aliases/UnaryHandler)\<`Req`, `Res`\>
+

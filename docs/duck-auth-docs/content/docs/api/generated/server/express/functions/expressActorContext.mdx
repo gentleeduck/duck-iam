@@ -1,0 +1,26 @@
+---
+title: "Function: expressActorContext()"
+description: "Bind the request's actor scope for everything downstream; install it above your own routes,  alongside the CSRF guard. See core/actor/README.md for what runs unbound and what raises."
+---
+
+> **expressActorContext**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: [`ExpressActorOptions`](../type-aliases/ExpressActorOptions)): [`Middleware`](../namespaces/ExpressAdapter/type-aliases/Middleware)
+
+Defined in: [packages/duck-auth/src/server/express/index.ts:193](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/express/index.ts#L193)
+
+Bind the request's actor scope for everything downstream; install it above your own routes,
+ alongside the CSRF guard. See `core/actor/README.md` for what runs unbound and what raises.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+[`ExpressActorOptions`](../type-aliases/ExpressActorOptions) = `{}`
+
+## Returns
+
+[`Middleware`](../namespaces/ExpressAdapter/type-aliases/Middleware)
+

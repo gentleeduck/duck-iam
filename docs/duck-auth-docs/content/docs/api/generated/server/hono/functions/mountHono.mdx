@@ -1,0 +1,36 @@
+---
+title: "Function: mountHono()"
+description: "Register every duck-auth route on a Hono app. opts.skip omits route groups. CORS is the app's to  mount, with hono/cors. A body past 100 KiB is refused unread."
+---
+
+> **mountHono**\<`C` *extends* [`HonoCtx`](../namespaces/MountHono/type-aliases/HonoCtx) = [`HonoCtx`](../namespaces/MountHono/type-aliases/HonoCtx)\>(`app`: [`App`](../namespaces/MountHono/type-aliases/App)\<`C`\>, `auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: [`Options`](../namespaces/MountHono/type-aliases/Options)\<`C`\>): `void`
+
+Defined in: [packages/duck-auth/src/server/hono/index.ts:136](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/index.ts#L136)
+
+Register every duck-auth route on a Hono `app`. `opts.skip` omits route groups. CORS is the app's to
+ mount, with `hono/cors`. A body past 100 KiB is refused unread.
+
+## Type Parameters
+
+### C
+
+`C` *extends* [`HonoCtx`](../namespaces/MountHono/type-aliases/HonoCtx) = [`HonoCtx`](../namespaces/MountHono/type-aliases/HonoCtx)
+
+## Parameters
+
+### app
+
+[`App`](../namespaces/MountHono/type-aliases/App)\<`C`\>
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+[`Options`](../namespaces/MountHono/type-aliases/Options)\<`C`\> = `{}`
+
+## Returns
+
+`void`
+

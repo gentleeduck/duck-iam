@@ -1,0 +1,49 @@
+---
+title: "Interface: SloBeginSpInput"
+description: "What an SP-initiated logout takes."
+---
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:120](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L120)
+
+What an SP-initiated logout takes.
+
+## Properties
+
+### nameID
+
+> **nameID**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:122](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L122)
+
+The nameID of the user being logged out.
+
+***
+
+### nameIDFormat?
+
+> `optional` **nameIDFormat?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:124](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L124)
+
+The nameID's format, as the assertion gave it.
+
+***
+
+### relayState
+
+> **relayState**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:128](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L128)
+
+Echoed back on the LogoutResponse.
+
+***
+
+### sessionIndex?
+
+> `optional` **sessionIndex?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:126](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L126)
+
+The IdP session to end, from the assertion.
+

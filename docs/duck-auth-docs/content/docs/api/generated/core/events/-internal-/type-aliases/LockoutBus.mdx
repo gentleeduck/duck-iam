@@ -1,0 +1,47 @@
+---
+title: "Type Alias: LockoutBus"
+description: "Just enough bus to emit one event. Not Events.IBus: providers hold Provider.Events, a deliberately loose  emit(string, unknown) that keeps the provider surface from importing the event map. Both satisfy this, and  pinning the event name here still checks the payload against EventMap['lockout'] at every call site."
+---
+
+> **LockoutBus** = \{ `emit`: `Promise`\<`void`\>; \}
+
+Defined in: [packages/duck-auth/src/core/events/events.lockout.ts:9](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.lockout.ts#L9)
+
+Just enough bus to emit one event. Not `Events.IBus`: providers hold `Provider.Events`, a deliberately loose
+ `emit(string, unknown)` that keeps the provider surface from importing the event map. Both satisfy this, and
+ pinning the event name here still checks the payload against `EventMap['lockout']` at every call site.
+
+## Methods
+
+### emit()
+
+> **emit**(`event`: `"lockout"`, `payload`: \{ `audit?`: [`Envelope`](../../../../index/namespaces/Events/interfaces/Envelope); `identityId`: `string`; `until`: `number`; \}): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/events/events.lockout.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.lockout.ts#L11)
+
+Emits `lockout`.
+
+#### Parameters
+
+##### event
+
+`"lockout"`
+
+##### payload
+
+###### audit?
+
+[`Envelope`](../../../../index/namespaces/Events/interfaces/Envelope)
+
+###### identityId
+
+`string`
+
+###### until
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+

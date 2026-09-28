@@ -1,0 +1,42 @@
+---
+title: "Interface: IRotateOpts"
+description: "The key rotate switches signing to, and its verify-side entry."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:80](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L80)
+
+The key `rotate` switches signing to, and its verify-side entry.
+
+## Properties
+
+### signKey
+
+> **signKey**: \{ `alg?`: `"HS256"` \| `"ES256"` \| `"RS256"` \| `"EdDSA"`; `key`: `string`; `kid`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:82](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L82)
+
+Effective for every subsequent `issue()`.
+
+#### alg?
+
+> `optional` **alg?**: `"HS256"` \| `"ES256"` \| `"RS256"` \| `"EdDSA"`
+
+#### key
+
+> **key**: `string`
+
+#### kid
+
+> **kid**: `string`
+
+***
+
+### verifyKey?
+
+> `optional` **verifyKey?**: [`IVerifyKey`](IVerifyKey)
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:85](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L85)
+
+The verify-side entry for the new key. Required for asymmetric algs, where `signKey` carries
+ the private key and the ring needs its public counterpart.
+

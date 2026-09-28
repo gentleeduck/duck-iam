@@ -1,0 +1,107 @@
+---
+title: "Interface: ResolvedCaptchaCfg"
+description: "A verifier's base options, defaulted and validated once at construction."
+---
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.siteverify.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.siteverify.ts#L29)
+
+A verifier's base options, defaulted and validated once at construction.
+
+## Properties
+
+### endpoint
+
+> **endpoint**: `string`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.siteverify.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.siteverify.ts#L32)
+
+***
+
+### expectedAction
+
+> **expectedAction**: `string` \| `undefined`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.siteverify.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.siteverify.ts#L36)
+
+***
+
+### expectedHostnames
+
+> **expectedHostnames**: `string`[] \| `null`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.siteverify.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.siteverify.ts#L35)
+
+Lowercased, and `null` when the hostname is reported but not checked.
+
+***
+
+### fetch
+
+> **fetch**: \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.siteverify.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.siteverify.ts#L31)
+
+#### Call Signature
+
+> (`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`RequestInfo` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+#### Call Signature
+
+> (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`string` \| `Request` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+***
+
+### maxChallengeAgeMs
+
+> **maxChallengeAgeMs**: `number`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.siteverify.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.siteverify.ts#L37)
+
+***
+
+### secret
+
+> **secret**: `string`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.siteverify.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.siteverify.ts#L30)
+
+***
+
+### timeoutMs
+
+> **timeoutMs**: `number`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.siteverify.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.siteverify.ts#L33)
+

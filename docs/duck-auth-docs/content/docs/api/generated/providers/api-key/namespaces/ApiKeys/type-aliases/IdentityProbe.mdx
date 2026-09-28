@@ -1,0 +1,36 @@
+---
+title: "Type Alias: IdentityProbe"
+description: "The one thing ApiKeysFacet needs from the identity store: whether the key's owner is still  there. Structural rather than Identities.Store, so the facet stays non-generic, and narrow so it  cannot grow into a second way to read identities. find filters soft-deleted rows, so null means  deleted or erased."
+---
+
+> **IdentityProbe** = \{ `find`: `Promise`\<`unknown`\>; \}
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L10)
+
+The one thing [ApiKeysFacet](../../../classes/ApiKeysFacet) needs from the identity store: whether the key's owner is still
+ there. Structural rather than `Identities.Store`, so the facet stays non-generic, and narrow so it
+ cannot grow into a second way to read identities. `find` filters soft-deleted rows, so `null` means
+ deleted or erased.
+
+## Methods
+
+### find()
+
+> **find**(`by`: \{ `id`: `string`; \}): `Promise`\<`unknown`\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L12)
+
+The identity row, or rejects when there is none.
+
+#### Parameters
+
+##### by
+
+###### id
+
+`string`
+
+#### Returns
+
+`Promise`\<`unknown`\>
+

@@ -1,0 +1,150 @@
+---
+title: "Class: AuthMemoryDeviceFingerprintStore"
+description: "The store this package ships. Process-local, so a deployment running more than one process sees a  first sighting per process: implement AuthDeviceFingerprint.IStore over shared storage there."
+---
+
+Defined in: [packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts#L17)
+
+The store this package ships. Process-local, so a deployment running more than one process sees a
+ first sighting per process: implement [AuthDeviceFingerprint.IStore](../namespaces/AuthDeviceFingerprint/interfaces/IStore) over shared storage there.
+
+## Implements
+
+- [`IStore`](../namespaces/AuthDeviceFingerprint/interfaces/IStore)
+
+## Constructors
+
+### Constructor
+
+> **new AuthMemoryDeviceFingerprintStore**(`cfg?`: \{ `maxPerIdentity?`: `number`; `ttlMs?`: `number`; \}): `AuthMemoryDeviceFingerprintStore`
+
+Defined in: [packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts#L26)
+
+At most `maxPerIdentity` devices per identity, each known for `ttlMs` after its last recorded sighting.
+ NOTE: the outer map holds one entry per identity ever seen and is never swept - bounded by the user
+ base, not by traffic.
+
+#### Parameters
+
+##### cfg?
+
+###### maxPerIdentity?
+
+`number`
+
+###### ttlMs?
+
+`number`
+
+#### Returns
+
+`AuthMemoryDeviceFingerprintStore`
+
+## Methods
+
+### forget()
+
+> **forget**(`identityId`: `string`, `fingerprint`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts#L71)
+
+Undo one sighting. See [AuthDeviceFingerprint.IStore.forget](../namespaces/AuthDeviceFingerprint/interfaces/IStore#forget).
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### fingerprint
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IStore`](../namespaces/AuthDeviceFingerprint/interfaces/IStore).[`forget`](../namespaces/AuthDeviceFingerprint/interfaces/IStore#forget)
+
+***
+
+### forgetAll()
+
+> **forgetAll**(`identityId`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts#L66)
+
+See [AuthDeviceFingerprint.IStore.forgetAll](../namespaces/AuthDeviceFingerprint/interfaces/IStore#forgetall).
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IStore`](../namespaces/AuthDeviceFingerprint/interfaces/IStore).[`forgetAll`](../namespaces/AuthDeviceFingerprint/interfaces/IStore#forgetall)
+
+***
+
+### has()
+
+> **has**(`identityId`: `string`, `fingerprint`: `string`): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts#L44)
+
+Whether the fingerprint is known and inside the TTL.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### fingerprint
+
+`string`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+#### Implementation of
+
+[`IStore`](../namespaces/AuthDeviceFingerprint/interfaces/IStore).[`has`](../namespaces/AuthDeviceFingerprint/interfaces/IStore#has)
+
+***
+
+### remember()
+
+> **remember**(`identityId`: `string`, `fingerprint`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts:50](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/device-fingerprint.detector.ts#L50)
+
+Remember a sighting as the most recent, evicting the least recently seen past the cap.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### fingerprint
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IStore`](../namespaces/AuthDeviceFingerprint/interfaces/IStore).[`remember`](../namespaces/AuthDeviceFingerprint/interfaces/IStore#remember)
+

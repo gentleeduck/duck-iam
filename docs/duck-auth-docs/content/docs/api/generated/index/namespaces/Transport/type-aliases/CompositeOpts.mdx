@@ -1,0 +1,23 @@
+---
+title: "Type Alias: CompositeOpts"
+description: "How a ITransport composite behaves when its members disagree."
+---
+
+> **CompositeOpts** = \{ `onMultipleCredentials?`: `"refuse"` \| `"first"`; \}
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L60)
+
+How a [ITransport](ITransport) composite behaves when its members disagree.
+
+## Properties
+
+### onMultipleCredentials?
+
+> `optional` **onMultipleCredentials?**: `"refuse"` \| `"first"`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:64](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L64)
+
+SECURITY: what to do when one request presents a credential by more than one method. RFC 6750 section 2
+ says a client must not and a server must refuse. `'first'` lets array order pick a winner and discards
+ the rest silently, which lets anyone who can plant a cookie choose which identity the request runs as.
+

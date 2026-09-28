@@ -1,0 +1,295 @@
+---
+title: "Class: ApiKeysFacet"
+description: "Long-lived bearer keys for scripts and services, scoped and hashed at rest; the plaintext is answered  exactly once, at create, and never persisted."
+---
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L39)
+
+Long-lived bearer keys for scripts and services, scoped and hashed at rest; the plaintext is answered
+ exactly once, at create, and never persisted.
+
+## Constructors
+
+### Constructor
+
+> **new ApiKeysFacet**(`_credentials`: [`Store`](../../../index/namespaces/Credential/type-aliases/Store), `_events`: [`IBus`](../../../index/namespaces/Events/interfaces/IBus), `_crypto`: \{ `randomToken`: `string`; `sha256`: `string`; \}, `cfg?`: [`CfgInput`](../namespaces/ApiKeys/type-aliases/CfgInput), `_identities?`: [`IdentityProbe`](../namespaces/ApiKeys/type-aliases/IdentityProbe), `_sessions?`: [`Store`](../../../index/namespaces/Sessions/type-aliases/Store)): `ApiKeysFacet`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L44)
+
+#### Parameters
+
+##### \_credentials
+
+[`Store`](../../../index/namespaces/Credential/type-aliases/Store)
+
+##### \_events
+
+[`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+
+##### \_crypto
+
+###### randomToken
+
+###### sha256
+
+##### cfg?
+
+[`CfgInput`](../namespaces/ApiKeys/type-aliases/CfgInput)
+
+##### \_identities?
+
+[`IdentityProbe`](../namespaces/ApiKeys/type-aliases/IdentityProbe)
+
+Optional so a direct `new ApiKeysFacet(...)` keeps working, though `apiKeyProvider()` always
+ supplies it, and without it `verify` answers for a soft-deleted identity. Structural rather than
+ `Identities.Store`, so the facet stays non-generic and names the one call it makes.
+
+##### \_sessions?
+
+[`Store`](../../../index/namespaces/Sessions/type-aliases/Store)
+
+Where the sessions a key signed in live, so revoking the key ends them.
+
+#### Returns
+
+`ApiKeysFacet`
+
+## Properties
+
+### \_events
+
+> `readonly` **\_events**: [`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L46)
+
+***
+
+### id
+
+> `readonly` **id**: `"api-keys"` = `'api-keys'`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L40)
+
+***
+
+### kind
+
+> `readonly` **kind**: `"api-key"`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L41)
+
+## Methods
+
+### create()
+
+> **create**(`identityId`: `string`, `opts`: \{ `expiresAt?`: `number`; `name`: `string`; `scopes`: `string`[]; `tenantId?`: `string`; \}, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`CreatedApiKey`](../namespaces/ApiKeys/type-aliases/CreatedApiKey)\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L71)
+
+The plaintext comes back exactly once.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### opts
+
+###### expiresAt?
+
+`number`
+
+###### name
+
+`string`
+
+###### scopes
+
+`string`[]
+
+###### tenantId?
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`CreatedApiKey`](../namespaces/ApiKeys/type-aliases/CreatedApiKey)\>
+
+***
+
+### list()
+
+> **list**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`ApiKey`](../namespaces/ApiKeys/type-aliases/ApiKey)[]\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:123](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L123)
+
+No plaintext.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`ApiKey`](../namespaces/ApiKeys/type-aliases/ApiKey)[]\>
+
+***
+
+### requireScopes()
+
+> **requireScopes**(`have`: `string`[], `required`: `string`[]): `void`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:225](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L225)
+
+For scope enforcement at the route. Throws `AUTH_APIKEY_SCOPE_INSUFFICIENT` when the key lacks any
+ required scope.
+
+#### Parameters
+
+##### have
+
+`string`[]
+
+##### required
+
+`string`[]
+
+#### Returns
+
+`void`
+
+***
+
+### revoke()
+
+> **revoke**(`keyId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): [`Me`](../../../index/namespaces/Answer/interfaces/Me)\<[`ApiKey`](../namespaces/ApiKeys/type-aliases/ApiKey)\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:130](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L130)
+
+Revoke an api key by row id, answering with it as it stands revoked so a caller can show which
+ one went. A row that is not an api key is not one to revoke, and rejects as absent.
+
+#### Parameters
+
+##### keyId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+[`Me`](../../../index/namespaces/Answer/interfaces/Me)\<[`ApiKey`](../namespaces/ApiKeys/type-aliases/ApiKey)\>
+
+***
+
+### revokeAll()
+
+> **revokeAll**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`ApiKey`](../namespaces/ApiKeys/type-aliases/ApiKey)[]\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:144](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L144)
+
+Revoke every live api key the identity holds in one write, answering them as they stand revoked.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`ApiKey`](../namespaces/ApiKeys/type-aliases/ApiKey)[]\>
+
+***
+
+### rotate()
+
+> **rotate**(`keyId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`CreatedApiKey`](../namespaces/ApiKeys/type-aliases/CreatedApiKey)\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:152](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L152)
+
+Issues a new plaintext, exactly once, and marks the old row revoked; telling consumers to swap is
+ the caller's job.
+
+#### Parameters
+
+##### keyId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`CreatedApiKey`](../namespaces/ApiKeys/type-aliases/CreatedApiKey)\>
+
+***
+
+### verify()
+
+> **verify**(`plaintext`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<\{ `identityId`: `string`; `keyId`: `string`; `scopes`: `string`[]; `tenantId?`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:187](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L187)
+
+Answers the identity and its scopes, or throws `AUTH_APIKEY_INVALID` or `AUTH_APIKEY_REVOKED`.
+
+#### Parameters
+
+##### plaintext
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<\{ `identityId`: `string`; `keyId`: `string`; `scopes`: `string`[]; `tenantId?`: `string`; \}\>
+
+***
+
+### withClient()
+
+> **withClient**(`stores`: [`Stores`](../../../index/namespaces/Provider/type-aliases/Stores), `events`: [`IBus`](../../../index/namespaces/Events/interfaces/IBus)): `ApiKeysFacet`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L66)
+
+Re-bind to a caller's transaction. Inside the class because `_credentials`, `_crypto` and `_cfg`
+ are private. The probe comes off the same bound bag, so a key verified inside the transaction
+ sees its deletions too.
+
+#### Parameters
+
+##### stores
+
+[`Stores`](../../../index/namespaces/Provider/type-aliases/Stores)
+
+##### events
+
+[`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+
+#### Returns
+
+`ApiKeysFacet`
+

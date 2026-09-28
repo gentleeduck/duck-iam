@@ -1,0 +1,81 @@
+---
+title: "Type Alias: WebauthnMfaVerifyOpts"
+description: "What verifyWebauthnMfa takes."
+---
+
+> **WebauthnMfaVerifyOpts** = \{ `challengeKey`: `string`; `challengeStore`: [`ChallengeStore`](../../../../passkey/namespaces/Passkey/type-aliases/ChallengeStore); `expectedOrigins`: `string` \| `string`[]; `response`: `unknown`; `rpID`: `string`; `userVerification?`: `"required"` \| `"preferred"` \| `"discouraged"`; `webauthnModule?`: [`SimpleWebAuthnServerModule`](../../../../passkey/namespaces/Passkey/type-aliases/SimpleWebAuthnServerModule); \}
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:100](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L100)
+
+What `verifyWebauthnMfa` takes.
+
+## Properties
+
+### challengeKey
+
+> **challengeKey**: `string`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:108](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L108)
+
+Ties the ceremony's two calls together; the session id, typically.
+
+***
+
+### challengeStore
+
+> **challengeStore**: [`ChallengeStore`](../../../../passkey/namespaces/Passkey/type-aliases/ChallengeStore)
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:106](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L106)
+
+Where the ceremony's challenge is kept between its two calls.
+
+***
+
+### expectedOrigins
+
+> **expectedOrigins**: `string` \| `string`[]
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:104](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L104)
+
+The origins a response may come from.
+
+***
+
+### response
+
+> **response**: `unknown`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:110](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L110)
+
+The browser's `AuthenticationResponseJSON` from `navigator.credentials.get`.
+
+***
+
+### rpID
+
+> **rpID**: `string`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:102](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L102)
+
+The relying-party id: the site's registrable domain.
+
+***
+
+### userVerification?
+
+> `optional` **userVerification?**: `"required"` \| `"preferred"` \| `"discouraged"`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:112](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L112)
+
+WebAuthn user-verification requirement, passed through to the authenticator.
+
+***
+
+### webauthnModule?
+
+> `optional` **webauthnModule?**: [`SimpleWebAuthnServerModule`](../../../../passkey/namespaces/Passkey/type-aliases/SimpleWebAuthnServerModule)
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:114](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L114)
+
+Where a test injects its own library instance.
+

@@ -1,0 +1,47 @@
+---
+title: "Type Alias: State"
+description: "The session, identity and status the store holds."
+---
+
+> **State**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\> = \{ `identity`: [`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>\[`"identity"`\]; `session`: [`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>\[`"session"`\]; `status`: `"loading"` \| `"authed"` \| `"guest"`; \}
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L26)
+
+The session, identity and status the store holds.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### identity
+
+> **identity**: [`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>\[`"identity"`\]
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L30)
+
+Who it belongs to, `null` for a guest.
+
+***
+
+### session
+
+> **session**: [`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>\[`"session"`\]
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L28)
+
+The session, `null` for a guest.
+
+***
+
+### status
+
+> **status**: `"loading"` \| `"authed"` \| `"guest"`
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L32)
+
+`loading` until the first resolve settles, then `authed` or `guest`.
+

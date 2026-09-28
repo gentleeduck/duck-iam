@@ -1,0 +1,85 @@
+---
+title: "Interface: Profile"
+description: "The fields of node-saml's profile this reads, and all the hooks receive."
+---
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L40)
+
+The fields of node-saml's profile this reads, and all the hooks receive.
+
+## Properties
+
+### attributes?
+
+> `optional` **attributes?**: `Record`\<`string`, `string` \| `string`[]\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L44)
+
+***
+
+### authnContext?
+
+> `optional` **authnContext?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L46)
+
+What the IdP says it did to authenticate. Decides the session's aal; see `mfaAuthnContexts`.
+
+***
+
+### email?
+
+> `optional` **email?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:43](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L43)
+
+***
+
+### ID?
+
+> `optional` **ID?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L48)
+
+The assertion's ID, which `replayStore` consumes once.
+
+***
+
+### nameID
+
+> **nameID**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L41)
+
+***
+
+### nameIDFormat?
+
+> `optional` **nameIDFormat?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L42)
+
+***
+
+### sessionIndex?
+
+> `optional` **sessionIndex?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:49](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L49)
+
+## Methods
+
+### getAssertion()?
+
+> `optional` **getAssertion**(): `unknown`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:53](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L53)
+
+node-saml's parsed assertion. node-saml sets neither `ID` nor `authnContext` on a sign-in profile, and
+ copies every attribute onto the profile's top level, so every field above but `email` and `attributes`
+ is read from here when it is present.
+
+#### Returns
+
+`unknown`
+

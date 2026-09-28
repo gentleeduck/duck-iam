@@ -1,0 +1,28 @@
+---
+title: "Function: authCfgureOidcDiscoveryCache()"
+description: "Tune the RP-side discovery cache. Called once at boot; affects every subsequent authFetchOidcDiscovery call across the process."
+---
+
+> **authCfgureOidcDiscoveryCache**(`opts`: \{ `capacity?`: `number`; `ttlMs?`: `number`; \}): `void`
+
+Defined in: [packages/duck-auth/src/oidc/index.ts:228](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L228)
+
+Tune the RP-side discovery cache. Called once at boot; affects
+every subsequent `authFetchOidcDiscovery` call across the process.
+
+## Parameters
+
+### opts
+
+#### capacity?
+
+`number`
+
+#### ttlMs?
+
+`number`
+
+## Returns
+
+`void`
+

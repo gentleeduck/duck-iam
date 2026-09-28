@@ -1,0 +1,35 @@
+---
+title: "Function: createAuth()"
+description: "The ergonomic entry point: a fully-wired AuthEngine from one flat config."
+---
+
+> **createAuth**\<`Profile` *extends* [`ProfileMetadataBase`](../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../index/namespaces/Identities/type-aliases/ProfileMetadataBase), `Tenant` = `string`, `OrgMeta` = `unknown`\>(`config`: [`Cfg`](../namespaces/AuthDefine/interfaces/Cfg)\<`Profile`, `Tenant`, `OrgMeta`\>): [`AuthEngine`](../../index/classes/AuthEngine)\<`Profile`, `Tenant`, `OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/config/config.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/config/config.ts#L10)
+
+The ergonomic entry point: a fully-wired [AuthEngine](../../index/classes/AuthEngine) from one flat config.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+### Tenant
+
+`Tenant` = `string`
+
+### OrgMeta
+
+`OrgMeta` = `unknown`
+
+## Parameters
+
+### config
+
+[`Cfg`](../namespaces/AuthDefine/interfaces/Cfg)\<`Profile`, `Tenant`, `OrgMeta`\>
+
+## Returns
+
+[`AuthEngine`](../../index/classes/AuthEngine)\<`Profile`, `Tenant`, `OrgMeta`\>
+

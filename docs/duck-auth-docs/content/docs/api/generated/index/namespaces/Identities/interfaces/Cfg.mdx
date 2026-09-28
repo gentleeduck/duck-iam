@@ -1,0 +1,30 @@
+---
+title: "Interface: Cfg"
+description: "The identity facet's settings, set through the engine's identities option."
+---
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:93](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L93)
+
+The identity facet's settings, set through the engine's `identities` option.
+
+## Properties
+
+### profileMaxBytes?
+
+> `optional` **profileMaxBytes?**: `number`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:98](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L98)
+
+Maximum serialised profile size in UTF-8 bytes, 16 KiB by default.
+ WARN: `0` disables the cap, and an unbounded profile is a storage and read-amplification DoS.
+
+***
+
+### softDeleteGracePeriodMs
+
+> **softDeleteGracePeriodMs**: `number`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:95](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L95)
+
+How long a soft-deleted identity stays restorable, in ms. Default 7 days.
+

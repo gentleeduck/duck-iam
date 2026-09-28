@@ -1,0 +1,52 @@
+---
+title: "Type Alias: CfgInput"
+description: "Every field optional: each is coalesced to its default, so the facet never sees an  undefined."
+---
+
+> **CfgInput** = \{ `backupCodeCount?`: `number`; `backupCodeLen?`: `number`; `compliance?`: [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset) \| [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset)[]; `issuer?`: `string`; \}
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L20)
+
+Every field optional: each is coalesced to its default, so the facet never sees an
+ `undefined`.
+
+## Properties
+
+### backupCodeCount?
+
+> `optional` **backupCodeCount?**: `number`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L24)
+
+How many single-use backup codes are minted at enrollment.
+
+***
+
+### backupCodeLen?
+
+> `optional` **backupCodeLen?**: `number`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L26)
+
+In characters. Default 10.
+
+***
+
+### compliance?
+
+> `optional` **compliance?**: [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset) \| [`Preset`](../../../../../index/namespaces/Compliance/type-aliases/Preset)[]
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L28)
+
+Compliance preset(s); ratchets `backupCodeCount` up to the preset floor.
+
+***
+
+### issuer?
+
+> `optional` **issuer?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.types.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.types.ts#L22)
+
+The brand an authenticator app shows against the entry. Default 'duck-auth'.
+

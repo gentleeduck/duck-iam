@@ -1,0 +1,40 @@
+---
+title: "Interface: Cfg"
+description: "How long a replayed answer is kept, the key's header, and how long a racing request waits."
+---
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.types.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.types.ts#L6)
+
+How long a replayed answer is kept, the key's header, and how long a racing request waits.
+
+## Properties
+
+### headerName
+
+> **headerName**: `string`
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.types.ts#L10)
+
+The header a host's middleware reads the key from; nothing here reads a request.
+
+***
+
+### pollTimeoutMs
+
+> **pollTimeoutMs**: `number`
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.types.ts#L13)
+
+How long the loser of a `claim()` race waits for the winner's response before answering 409,
+ 5s by default. Raise it for an executor that legitimately runs longer.
+
+***
+
+### ttlMs
+
+> **ttlMs**: `number`
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.types.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.types.ts#L8)
+
+TTL for cached responses, ms. Default 24 hours per RFC draft.
+

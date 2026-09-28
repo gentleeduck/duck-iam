@@ -1,0 +1,68 @@
+---
+title: "Class: M2MImpl"
+description: "Wires ApiKeysFacet, SessionsImpl and a transport together. Mount a /oauth/token route that calls exchange() on { grant_type: 'client_credentials', client_id, client_secret, scope }."
+---
+
+Defined in: [packages/duck-auth/src/core/m2m/m2m.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/m2m/m2m.ts#L30)
+
+Wires `ApiKeysFacet`, `SessionsImpl` and a transport together. Mount a `/oauth/token` route that
+calls `exchange()` on `{ grant_type: 'client_credentials', client_id, client_secret, scope }`.
+
+WARN: the access token is a stateless JWT good until its `exp`, so revoking the api-key stops only
+future exchanges. For prompt revocation shorten `ttlMs`, wire a JTI denylist, or introspect.
+
+## Constructors
+
+### Constructor
+
+> **new M2MImpl**(`_apiKeys`: [`ApiKeysFacet`](../../providers/api-key/classes/ApiKeysFacet), `_sessions`: [`SessionsImpl`](../../index/-internal-/classes/SessionsImpl), `_transport`: [`ITransport`](../../index/namespaces/Transport/type-aliases/ITransport), `_limiter`: [`Me`](../../limiters/memory/namespaces/Limiter/type-aliases/Me), `_cfg?`: [`Cfg`](../../index/namespaces/M2m/type-aliases/Cfg)): `M2MImpl`
+
+Defined in: [packages/duck-auth/src/core/m2m/m2m.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/m2m/m2m.ts#L31)
+
+#### Parameters
+
+##### \_apiKeys
+
+[`ApiKeysFacet`](../../providers/api-key/classes/ApiKeysFacet)
+
+##### \_sessions
+
+[`SessionsImpl`](../../index/-internal-/classes/SessionsImpl)
+
+##### \_transport
+
+[`ITransport`](../../index/namespaces/Transport/type-aliases/ITransport)
+
+##### \_limiter
+
+[`Me`](../../limiters/memory/namespaces/Limiter/type-aliases/Me)
+
+##### \_cfg?
+
+[`Cfg`](../../index/namespaces/M2m/type-aliases/Cfg) = `DEFAULT_M2M_CONFIG`
+
+#### Returns
+
+`M2MImpl`
+
+## Methods
+
+### exchange()
+
+> **exchange**(`input`: [`ExchangeInput`](../../index/namespaces/M2m/type-aliases/ExchangeInput)): `Promise`\<[`TokenResponse`](../../index/namespaces/M2m/type-aliases/TokenResponse)\>
+
+Defined in: [packages/duck-auth/src/core/m2m/m2m.ts:47](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/m2m/m2m.ts#L47)
+
+Run the exchange, answering with the standard OAuth 2.0 token envelope. Throws
+ `AUTH_APIKEY_INVALID`, `AUTH_APIKEY_REVOKED` or `AUTH_APIKEY_SCOPE_INSUFFICIENT`.
+
+#### Parameters
+
+##### input
+
+[`ExchangeInput`](../../index/namespaces/M2m/type-aliases/ExchangeInput)
+
+#### Returns
+
+`Promise`\<[`TokenResponse`](../../index/namespaces/M2m/type-aliases/TokenResponse)\>
+

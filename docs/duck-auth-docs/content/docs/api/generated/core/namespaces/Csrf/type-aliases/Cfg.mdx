@@ -1,0 +1,55 @@
+---
+title: "Type Alias: Cfg"
+description: "The CSRF check's options."
+---
+
+> **Cfg** = \{ `allowedOrigins?`: `string`[]; `cookieName?`: `string`; `headerName?`: `string`; `mode?`: `"double-submit"` \| `"origin-only"`; \}
+
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:171](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L171)
+
+The CSRF check's options.
+
+## Properties
+
+### allowedOrigins?
+
+> `optional` **allowedOrigins?**: `string`[]
+
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:185](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L185)
+
+Allowed Origin headers for cross-site checks.
+
+***
+
+### cookieName?
+
+> `optional` **cookieName?**: `string`
+
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:173](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L173)
+
+Cookie name carrying the plaintext token. Default `__Host-duck-csrf`.
+
+***
+
+### headerName?
+
+> `optional` **headerName?**: `string`
+
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:175](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L175)
+
+Header name the client puts the token on. Default `x-csrf-token`.
+
+***
+
+### mode?
+
+> `optional` **mode?**: `"double-submit"` \| `"origin-only"`
+
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:183](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L183)
+
+- `'double-submit'` (default): header, cookie and the session-stored hash must agree.
+- `'origin-only'`: no token, Origin and Sec-Fetch-Site alone.
+
+SECURITY: `'origin-only'` is safe only for a transport with no ambient credential, since a cookie
+rides along on a cross-site request whether or not the caller meant it to.
+

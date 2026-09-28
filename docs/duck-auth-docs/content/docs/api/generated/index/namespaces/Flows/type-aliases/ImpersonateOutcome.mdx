@@ -1,0 +1,39 @@
+---
+title: "Type Alias: ImpersonateOutcome"
+description: "The impersonating session and the intents that hand it to the operator."
+---
+
+> **ImpersonateOutcome** = \{ `intents`: [`Intent`](../../Provider/type-aliases/Intent)[]; `session`: [`Me`](../../Sessions/type-aliases/Me); `sid`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:129](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L129)
+
+The impersonating session and the intents that hand it to the operator.
+
+## Properties
+
+### intents
+
+> **intents**: [`Intent`](../../Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:134](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L134)
+
+The answer to send back. WARN: the CSRF token reaches the client only in these.
+
+***
+
+### session
+
+> **session**: [`Me`](../../Sessions/type-aliases/Me)
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:130](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L130)
+
+***
+
+### sid
+
+> **sid**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:132](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L132)
+
+For the new `actingAs` session, separate from the real one.
+

@@ -1,0 +1,21 @@
+---
+title: "Function: nodeHeadersToFetch()"
+description: "Convert a Node header bag to a Web Fetch Headers; arrays expand to one append per item."
+---
+
+> **nodeHeadersToFetch**(`raw`: `Record`\<`string`, `string` \| `string`[] \| `undefined`\>): `Headers`
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:215](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L215)
+
+Convert a Node header bag to a Web Fetch `Headers`; arrays expand to one `append` per item.
+
+## Parameters
+
+### raw
+
+`Record`\<`string`, `string` \| `string`[] \| `undefined`\>
+
+## Returns
+
+`Headers`
+

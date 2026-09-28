@@ -1,0 +1,127 @@
+---
+title: "Class: AuthMemoryRefreshTokenStore"
+description: "In-memory AuthOidcOP.RefreshTokenStore. Supports RTR family revocation via revokeFamily."
+---
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L60)
+
+In-memory `AuthOidcOP.RefreshTokenStore`. Supports RTR family revocation via `revokeFamily`.
+
+## Implements
+
+- [`RefreshTokenStore`](../namespaces/AuthOidcOP/type-aliases/RefreshTokenStore)
+
+## Constructors
+
+### Constructor
+
+> **new AuthMemoryRefreshTokenStore**(): `AuthMemoryRefreshTokenStore`
+
+#### Returns
+
+`AuthMemoryRefreshTokenStore`
+
+## Methods
+
+### consume()
+
+> **consume**(`hash`: `string`, `now`: `number`): `Promise`\<[`RefreshToken`](../namespaces/AuthOidcOP/type-aliases/RefreshToken) \| `null`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L74)
+
+Mark as consumed. Returns the row or null if already consumed / missing.
+
+#### Parameters
+
+##### hash
+
+`string`
+
+##### now
+
+`number`
+
+#### Returns
+
+`Promise`\<[`RefreshToken`](../namespaces/AuthOidcOP/type-aliases/RefreshToken) \| `null`\>
+
+#### Implementation of
+
+`OidcOP.RefreshTokenStore.consume`
+
+***
+
+### findByHash()
+
+> **findByHash**(`hash`: `string`, `now`: `number`): `Promise`\<[`RefreshToken`](../namespaces/AuthOidcOP/type-aliases/RefreshToken) \| `null`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:65](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L65)
+
+The unexpired token with this hash, consumed or not, or `null`.
+
+#### Parameters
+
+##### hash
+
+`string`
+
+##### now
+
+`number`
+
+#### Returns
+
+`Promise`\<[`RefreshToken`](../namespaces/AuthOidcOP/type-aliases/RefreshToken) \| `null`\>
+
+#### Implementation of
+
+`OidcOP.RefreshTokenStore.findByHash`
+
+***
+
+### insert()
+
+> **insert**(`t`: [`RefreshToken`](../namespaces/AuthOidcOP/type-aliases/RefreshToken)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L62)
+
+Stores a token.
+
+#### Parameters
+
+##### t
+
+[`RefreshToken`](../namespaces/AuthOidcOP/type-aliases/RefreshToken)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`OidcOP.RefreshTokenStore.insert`
+
+***
+
+### revokeFamily()
+
+> **revokeFamily**(`family_id`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:86](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L86)
+
+Revoke every refresh token in this family (reuse-attack defense).
+
+#### Parameters
+
+##### family\_id
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`OidcOP.RefreshTokenStore.revokeFamily`
+

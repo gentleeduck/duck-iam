@@ -1,0 +1,90 @@
+---
+title: "Class: AuthWebhookDeliverer"
+description: "Subscribes the bus, signs and POSTs each emit to the configured endpoints, retries with exponential  backoff, and dead-letters on permanent failure."
+---
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L38)
+
+Subscribes the bus, signs and POSTs each emit to the configured endpoints, retries with exponential
+ backoff, and dead-letters on permanent failure.
+
+## Constructors
+
+### Constructor
+
+> **new AuthWebhookDeliverer**(`cfg`: [`Cfg`](../namespaces/AuthWebhookDeliverer/interfaces/Cfg)): `WebhookDeliverer`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:57](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L57)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/AuthWebhookDeliverer/interfaces/Cfg)
+
+#### Returns
+
+`WebhookDeliverer`
+
+## Methods
+
+### attach()
+
+> **attach**(`bus`: [`IBus`](../../index/namespaces/Events/interfaces/IBus)): () => `void`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:134](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L134)
+
+Attach to every relevant event on the bus, answering with a cleanup that detaches them. Attaching
+ the same bus twice is the same subscription, so a reload that skips the cleanup cannot double
+ the load on every consumer.
+
+#### Parameters
+
+##### bus
+
+[`IBus`](../../index/namespaces/Events/interfaces/IBus)
+
+#### Returns
+
+() => `void`
+
+***
+
+### deliverOne()
+
+> **deliverOne**(`name`: keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap), `payload`: `unknown`): `Promise`\<[`Delivery`](../namespaces/AuthWebhookDeliverer/interfaces/Delivery)[]\>
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:181](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L181)
+
+The per-endpoint fanout and retry loop for one (name, payload) pair, public for tests and manual
+ re-deliveries. One outcome per eligible endpoint, so an operator can see whether it landed; an
+ empty array means nothing subscribes to this event.
+
+#### Parameters
+
+##### name
+
+keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)
+
+##### payload
+
+`unknown`
+
+#### Returns
+
+`Promise`\<[`Delivery`](../namespaces/AuthWebhookDeliverer/interfaces/Delivery)[]\>
+
+***
+
+### drain()
+
+> **drain**(): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:166](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L166)
+
+Settle every delivery still in flight. For a graceful shutdown, and for tests.
+
+#### Returns
+
+`Promise`\<`void`\>
+

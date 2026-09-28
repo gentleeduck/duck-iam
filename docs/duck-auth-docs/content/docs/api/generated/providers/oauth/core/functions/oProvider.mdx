@@ -1,0 +1,28 @@
+---
+title: "Function: oProvider()"
+description: "An OAuth 2.0 provider for any IdP: an OAuthClient over its endpoints, and a fetchProfile that  reads the account. The six shipped providers are this with both filled in."
+---
+
+> **oProvider**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`opts`: [`Options`](../namespaces/OAuth/interfaces/Options)\<`Profile`\>): [`Me`](../../../../index/namespaces/Provider/interfaces/Me)\<[`BeginInput`](../namespaces/OAuth/interfaces/BeginInput), [`CompleteInput`](../namespaces/OAuth/interfaces/CompleteInput), `Profile`\>
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/provider.ts:253](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/provider.ts#L253)
+
+An OAuth 2.0 provider for any IdP: an [OAuthClient](../classes/OAuthClient) over its endpoints, and a `fetchProfile` that
+ reads the account. The six shipped providers are this with both filled in.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Parameters
+
+### opts
+
+[`Options`](../namespaces/OAuth/interfaces/Options)\<`Profile`\>
+
+## Returns
+
+[`Me`](../../../../index/namespaces/Provider/interfaces/Me)\<[`BeginInput`](../namespaces/OAuth/interfaces/BeginInput), [`CompleteInput`](../namespaces/OAuth/interfaces/CompleteInput), `Profile`\>
+

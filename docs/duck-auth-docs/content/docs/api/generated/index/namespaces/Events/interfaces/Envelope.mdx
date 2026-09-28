@@ -1,0 +1,34 @@
+---
+title: "Interface: Envelope"
+description: "Stamped onto every event whose payload declares audit. withAuditStamping(), which the engine wraps its bus in, fills it, so emitters never build one. It reads the ambient envelope from runWithAuditEnvelope() first, then the emitted session's own actingAs, and never overwrites a payload that already carries one. Absent means no impersonation was in effect rather than unknown, but only inside a runWithAuditEnvelope() scope or on an event carrying a session."
+---
+
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L14)
+
+Stamped onto every event whose payload declares `audit`. `withAuditStamping()`, which the engine wraps its
+bus in, fills it, so emitters never build one. It reads the ambient envelope from `runWithAuditEnvelope()`
+first, then the emitted session's own `actingAs`, and never overwrites a payload that already carries one.
+Absent means no impersonation was in effect rather than unknown, but only inside a `runWithAuditEnvelope()`
+scope or on an event carrying a session.
+
+## Properties
+
+### actingAs?
+
+> `optional` **actingAs?**: [`ActingAs`](../../Sessions/type-aliases/ActingAs)
+
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L16)
+
+When the session is impersonating, real subject is recorded on every event.
+
+***
+
+### actorId?
+
+> `optional` **actorId?**: `string`
+
+Defined in: [packages/duck-auth/src/core/events/events.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.types.ts#L19)
+
+Who performed the action, from the ambient actor context. The payload's `identityId` is the subject and
+ this is the operator; they differ when someone acts on another account. Absent when no actor was bound.
+

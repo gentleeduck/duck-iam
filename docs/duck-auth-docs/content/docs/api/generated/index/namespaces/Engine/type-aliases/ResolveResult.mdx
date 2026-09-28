@@ -1,0 +1,57 @@
+---
+title: "Type Alias: ResolveResult"
+description: "Result shape of resolveSession. identity is null for a guest session, one with no identityId:  an identity that could not be read rejects AUTH_SESSION_IDENTITY_ERASED instead, so the null here  states a session kind rather than a failed lookup."
+---
+
+> **ResolveResult**\<`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)\> = \{ `anomaly?`: [`Result`](../../Anomaly/type-aliases/Result); `identity`: [`Me`](../../Identities/type-aliases/Me)\<`Profile`\> \| `null`; `scope?`: `string`[]; `session`: [`Me`](../../Sessions/type-aliases/Me); \}
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:95](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L95)
+
+Result shape of `resolveSession`. `identity` is null for a guest session, one with no `identityId`:
+ an identity that could not be read rejects `AUTH_SESSION_IDENTITY_ERASED` instead, so the null here
+ states a session kind rather than a failed lookup.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### anomaly?
+
+> `optional` **anomaly?**: [`Result`](../../Anomaly/type-aliases/Result)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:101](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L101)
+
+The aggregate anomaly decision, present only when a detector is registered and
+ `opts.requestSnapshot` was supplied. Branch on `anomaly.decision`, and call `anomaly.admit()` once
+ the request is served.
+
+***
+
+### identity
+
+> **identity**: [`Me`](../../Identities/type-aliases/Me)\<`Profile`\> \| `null`
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:97](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L97)
+
+***
+
+### scope?
+
+> `optional` **scope?**: `string`[]
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:103](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L103)
+
+The scopes a self-contained access token was granted, as `m2m` mints them; absent on any other session.
+
+***
+
+### session
+
+> **session**: [`Me`](../../Sessions/type-aliases/Me)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:96](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L96)
+

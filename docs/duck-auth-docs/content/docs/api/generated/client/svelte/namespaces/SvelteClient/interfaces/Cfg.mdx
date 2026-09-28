@@ -1,0 +1,164 @@
+---
+title: "Interface: Cfg"
+description: "Client configuration."
+---
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L18)
+
+Client configuration.
+
+## Extends
+
+- [`Cfg`](../../../../vanilla/namespaces/VanillaClient/type-aliases/Cfg)
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### baseUrl?
+
+> `optional` **baseUrl?**: `string`
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L20)
+
+Mount point on the server. Default `/auth`.
+
+#### Inherited from
+
+`Cfg.baseUrl`
+
+***
+
+### client?
+
+> `optional` **client?**: [`Client`](../../../../vanilla/namespaces/VanillaClient/type-aliases/Client)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L20)
+
+Pre-built client; overrides cfg.
+
+***
+
+### csrfCookieName?
+
+> `optional` **csrfCookieName?**: `string`
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L29)
+
+Cookie carrying the plaintext CSRF token. Default `__Host-duck-csrf`.
+
+#### Inherited from
+
+`Cfg.csrfCookieName`
+
+***
+
+### csrfHeaderName?
+
+> `optional` **csrfHeaderName?**: `string`
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L31)
+
+Header the token is echoed on. Default `x-csrf-token`.
+
+#### Inherited from
+
+`Cfg.csrfHeaderName`
+
+***
+
+### fetch?
+
+> `optional` **fetch?**: \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L22)
+
+Override the fetch impl (test stubs, retry wrappers, etc.).
+
+#### Call Signature
+
+> (`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`RequestInfo` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+#### Call Signature
+
+> (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`string` \| `Request` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+#### Inherited from
+
+`Cfg.fetch`
+
+***
+
+### headers?
+
+> `optional` **headers?**: `Record`\<`string`, `string`\>
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L27)
+
+Optional headers to merge into every request (e.g. tenant header).
+
+#### Inherited from
+
+`Cfg.headers`
+
+***
+
+### noInitialFetch?
+
+> `optional` **noInitialFetch?**: `boolean`
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L22)
+
+Disable the initial automatic /session fetch on store creation.
+
+***
+
+### notifyImmediately?
+
+> `optional` **notifyImmediately?**: `boolean`
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L25)
+
+Whether `onChange` replays the current state on subscribe. Default: yes, once there is one to
+ replay - before the first read the client holds no state and notifies nothing.
+
+#### Inherited from
+
+`Cfg.notifyImmediately`
+

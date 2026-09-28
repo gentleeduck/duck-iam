@@ -1,0 +1,154 @@
+---
+title: "Class: DrizzleMysqlAdapter"
+description: "One class: the three stores share the handle, the STORE_RAISES mapper and the run boundary that names  what threw. Each is declared as its slot in Adapter.Me, so the contract states what it answers."
+---
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts#L40)
+
+One class: the three stores share the handle, the `STORE_RAISES` mapper and the `run` boundary that names
+ what threw. Each is declared as its slot in `Adapter.Me`, so the contract states what it answers.
+
+## Extends
+
+- [`AdapterStore`](../../../classes/AdapterStore)\<[`SqlFault`](../../../../core/errors/type-aliases/SqlFault)\>
+
+## Type Parameters
+
+### TSchema
+
+`TSchema` *extends* `Record`\<`string`, `unknown`\> = `Record`\<`string`, `unknown`\>
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Implements
+
+- [`Me`](../../../namespaces/Adapter/type-aliases/Me)\<`Profile`\>
+
+## Constructors
+
+### Constructor
+
+> **new DrizzleMysqlAdapter**\<`TSchema` *extends* `Record`\<`string`, `unknown`\> = `Record`\<`string`, `unknown`\>, `Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`input`: `string` \| [`MySql2PoolLike`](../namespaces/Mysql/type-aliases/MySql2PoolLike) \| `MySql2Database`\<`TSchema`\>): `DrizzleMysqlAdapter`\<`TSchema`, `Profile`\>
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts:50](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts#L50)
+
+Over a connection string, a `mysql2` pool, or a drizzle handle you already have.
+
+#### Parameters
+
+##### input
+
+`string` \| [`MySql2PoolLike`](../namespaces/Mysql/type-aliases/MySql2PoolLike) \| `MySql2Database`\<`TSchema`\>
+
+#### Returns
+
+`DrizzleMysqlAdapter`\<`TSchema`, `Profile`\>
+
+#### Overrides
+
+[`AdapterStore`](../../../classes/AdapterStore).[`constructor`](../../../classes/AdapterStore#constructor)
+
+## Properties
+
+### credentials
+
+> `readonly` **credentials**: [`Store`](../../../../index/namespaces/Credential/type-aliases/Store)
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts:450](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts#L450)
+
+#### Implementation of
+
+`Adapter.Me.credentials`
+
+***
+
+### identities
+
+> `readonly` **identities**: [`Store`](../../../../index/namespaces/Identities/type-aliases/Store)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts:204](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts#L204)
+
+#### Implementation of
+
+`Adapter.Me.identities`
+
+***
+
+### sessions
+
+> `readonly` **sessions**: [`Store`](../../../../index/namespaces/Sessions/type-aliases/Store)
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts:587](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts#L587)
+
+#### Implementation of
+
+`Adapter.Me.sessions`
+
+***
+
+### toError
+
+> `protected` `readonly` **toError**: [`ErrorMap`](../../../../core/errors/type-aliases/ErrorMap)\<`"AUTH_SESSION_REVOKED"` \| `"AUTH_STALE_WRITE"` \| `"AUTH_GRACE_EXPIRED"` \| `"AUTH_EMAIL_TAKEN"` \| `"AUTH_USERNAME_TAKEN"` \| `"AUTH_PROVIDER_TAKEN"` \| `"AUTH_MISCONFIGURED"` \| `"AUTH_IDENTITY_NOT_FOUND"` \| `"AUTH_CREDENTIAL_NOT_FOUND"` \| `"AUTH_NOT_ENOUGH_PARAMETERS"` \| `"AUTH_ADAPTER_FAILED"` \| `"AUTH_ALREADY_EXISTS"` \| `"AUTH_INVALID_PARAMETERS"` \| `"AUTH_ADAPTER_UNAVAILABLE"`\>
+
+Defined in: [packages/duck-auth/src/adapters/adapter.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/adapter.ts#L21)
+
+#### Inherited from
+
+[`AdapterStore`](../../../classes/AdapterStore).[`toError`](../../../classes/AdapterStore#toerror)
+
+## Methods
+
+### run()
+
+> `protected` **run**\<`T`\>(`call`: () => `Promise`\<`T`\>): `Promise`\<`T`\>
+
+Defined in: [packages/duck-auth/src/adapters/adapter.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/adapter.ts#L24)
+
+The call, with whatever its driver threw mapped onto a code this package declares.
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### call
+
+() => `Promise`\<`T`\>
+
+#### Returns
+
+`Promise`\<`T`\>
+
+#### Inherited from
+
+[`AdapterStore`](../../../classes/AdapterStore).[`run`](../../../classes/AdapterStore#run)
+
+***
+
+### withClient()
+
+> **withClient**(`client`: `unknown`): `DrizzleMysqlAdapter`\<`TSchema`, `Profile`\>
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts:698](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts#L698)
+
+Rebinds all three stores onto a transaction handle, so one unit of work shares it.
+
+#### Parameters
+
+##### client
+
+`unknown`
+
+#### Returns
+
+`DrizzleMysqlAdapter`\<`TSchema`, `Profile`\>
+
+#### Implementation of
+
+`Adapter.Me.withClient`
+

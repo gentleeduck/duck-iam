@@ -1,0 +1,23 @@
+---
+title: "Function: nextCaller()"
+description: "The fingerprint Next exposes, the same pair nextSignIn stamps at sign-in: User-Agent only. A Web Request carries no resolved peer address, and the forwarded header that would stand in for one is written by the caller."
+---
+
+> **nextCaller**(`req`: `Request`): [`CallerFingerprint`](../../generic/type-aliases/CallerFingerprint)
+
+Defined in: [packages/duck-auth/src/server/next/index.ts:206](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/next/index.ts#L206)
+
+The fingerprint Next exposes, the same pair [nextSignIn](nextSignIn) stamps at sign-in: User-Agent
+only. A Web `Request` carries no resolved peer address, and the forwarded header that would
+stand in for one is written by the caller.
+
+## Parameters
+
+### req
+
+`Request`
+
+## Returns
+
+[`CallerFingerprint`](../../generic/type-aliases/CallerFingerprint)
+

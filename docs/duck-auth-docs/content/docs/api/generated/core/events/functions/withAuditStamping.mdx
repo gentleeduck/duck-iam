@@ -1,0 +1,23 @@
+---
+title: "Function: withAuditStamping()"
+description: "Wrap a bus so audited events carry their envelope. It lives here because most emitters have no session in scope (IdentitiesImpl emits signup.completed without one), and threading a session into every facet to satisfy audit would be worse."
+---
+
+> **withAuditStamping**(`bus`: [`IBus`](../../../index/namespaces/Events/interfaces/IBus)): [`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+
+Defined in: [packages/duck-auth/src/core/events/events.audit.ts:73](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.audit.ts#L73)
+
+Wrap a bus so audited events carry their envelope. It lives here because most emitters
+have no session in scope (`IdentitiesImpl` emits `signup.completed` without one), and
+threading a session into every facet to satisfy audit would be worse.
+
+## Parameters
+
+### bus
+
+[`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+
+## Returns
+
+[`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+

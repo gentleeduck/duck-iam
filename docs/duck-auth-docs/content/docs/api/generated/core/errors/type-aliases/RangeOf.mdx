@@ -1,0 +1,17 @@
+---
+title: "Type Alias: RangeOf"
+description: "The range an ErrorMap draws from, so a caller reads it off the map rather than restating it."
+---
+
+> **RangeOf**\<`M`\> = `M` *extends* [`ErrorMap`](ErrorMap)\<infer C\> ? `C` : `never`
+
+Defined in: [packages/duck-auth/src/core/errors/errors.map.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/errors/errors.map.ts#L12)
+
+The range an [ErrorMap](ErrorMap) draws from, so a caller reads it off the map rather than restating it.
+
+## Type Parameters
+
+### M
+
+`M`
+

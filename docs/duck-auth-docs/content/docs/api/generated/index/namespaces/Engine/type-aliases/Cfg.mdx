@@ -1,0 +1,193 @@
+---
+title: "Type Alias: Cfg"
+description: "Configuration for an Engine instance."
+---
+
+> **Cfg**\<`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase), `Tenant` = `string`, `OrgMeta` = `unknown`\> = \{ `__tenantBrand?`: `Tenant`; `anomaly?`: `Partial`\<[`Cfg`](../../Anomaly/type-aliases/Cfg)\>; `baseUrl`: `string`; `captcha?`: [`IVerifier`](../../../../core/namespaces/AuthCaptcha/interfaces/IVerifier); `deliver?`: [`Deliver`](../../../type-aliases/Deliver); `events?`: [`IBus`](../../Events/interfaces/IBus); `hijack?`: [`Cfg`](../../Hijack/interfaces/Cfg); `identities?`: \{ `profileMaxBytes?`: `number`; `softDeleteGracePeriodMs?`: `number`; \}; `limiter?`: [`Me`](../../../../limiters/memory/namespaces/Limiter/type-aliases/Me); `providers?`: [`IProviderEntry`](../../../../core/namespaces/AuthDefine/type-aliases/IProviderEntry)\<`Profile`, `Tenant`, `OrgMeta`\>[]; `resolveActor?`: [`Resolver`](../../Actor/type-aliases/Resolver); `session?`: `Partial`\<[`Cfg`](../../Sessions/type-aliases/Cfg)\>; `stores`: [`Stores`](Stores)\<`Profile`, `OrgMeta`\>; `transport`: [`ITransport`](../../Transport/type-aliases/ITransport); \}
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L40)
+
+Configuration for an [Engine](../README) instance.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)
+
+Shape of the user profile stored on identities.
+
+### Tenant
+
+`Tenant` = `string`
+
+Tenant discriminator type.
+
+### OrgMeta
+
+`OrgMeta` = `unknown`
+
+Shape of organization metadata.
+
+## Properties
+
+### \_\_tenantBrand?
+
+> `optional` **\_\_tenantBrand?**: `Tenant`
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:89](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L89)
+
+Phantom field carrying the tenant type through inference; never assign it a value.
+
+***
+
+### anomaly?
+
+> `optional` **anomaly?**: `Partial`\<[`Cfg`](../../Anomaly/type-aliases/Cfg)\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L87)
+
+Scoring thresholds and per-signal reactions, merged over the defaults the way `hijack` is.
+
+***
+
+### baseUrl
+
+> **baseUrl**: `string`
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L46)
+
+The deployment's public origin; links and redirects are built against it.
+
+***
+
+### captcha?
+
+> `optional` **captcha?**: [`IVerifier`](../../../../core/namespaces/AuthCaptcha/interfaces/IVerifier)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L66)
+
+Surfaced as `auth.captcha`, so a host has one place to reach for it. Turnstile, hCaptcha and reCAPTCHA
+v3 ship in `core/captcha`. Omitted, every call answers
+`{ success: false, errorCodes: ['captcha-not-configured'] }`, and `authNullCaptchaVerifier()` opts
+into always-pass.
+
+SECURITY: setting this protects nothing on its own. No flow, provider or route calls `verify`, and
+`Provider.Context` carries no verifier, so the challenge is checked where the host checks it.
+A missing secret must not read as a solved challenge either, which is what the default is for.
+
+***
+
+### deliver?
+
+> `optional` **deliver?**: [`Deliver`](../../../type-aliases/Deliver)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L68)
+
+How the host sends every outbound token. Forwarded to provider thunks, magic-link among them.
+
+***
+
+### events?
+
+> `optional` **events?**: [`IBus`](../../Events/interfaces/IBus)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L70)
+
+Where lifecycle events are published; some `strict()` checks need a bus to be reachable.
+
+***
+
+### hijack?
+
+> `optional` **hijack?**: [`Cfg`](../../Hijack/interfaces/Cfg)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:85](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L85)
+
+Session-hijack policy: what counts as drift, and what to do about it.
+
+***
+
+### identities?
+
+> `optional` **identities?**: \{ `profileMaxBytes?`: `number`; `softDeleteGracePeriodMs?`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L74)
+
+Identity lifecycle: soft-delete grace and the profile size cap.
+
+#### profileMaxBytes?
+
+> `optional` **profileMaxBytes?**: `number`
+
+Max serialised profile size in UTF-8 bytes, 16 KiB by default; `0` disables the cap.
+
+#### softDeleteGracePeriodMs?
+
+> `optional` **softDeleteGracePeriodMs?**: `number`
+
+How long a soft-deleted identity stays recoverable before erasure, in ms.
+
+***
+
+### limiter?
+
+> `optional` **limiter?**: [`Me`](../../../../limiters/memory/namespaces/Limiter/type-aliases/Me)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L52)
+
+The budget the flows spend against. Default a `MemoryLimiter`, which `strict()` refuses in production.
+
+***
+
+### providers?
+
+> `optional` **providers?**: [`IProviderEntry`](../../../../core/namespaces/AuthDefine/type-aliases/IProviderEntry)\<`Profile`, `Tenant`, `OrgMeta`\>[]
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L55)
+
+Sign-in providers and attach-only facets, or thunks building one from the constructed engine and its
+ `deliver`. The constructor resolves them, so `new AuthEngine` and `createAuth` behave alike.
+
+***
+
+### resolveActor?
+
+> `optional` **resolveActor?**: [`Resolver`](../../Actor/type-aliases/Resolver)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:83](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L83)
+
+Fills `created_by`, `updated_by` and `deleted_by` when no `withActor` scope is active; wire it to the
+ request context the host framework already has. Answering `null` or `undefined` records no actor,
+ which is truthful and never swapped for a placeholder. Process-wide, see `setDefaultActorResolver`.
+
+***
+
+### session?
+
+> `optional` **session?**: `Partial`\<[`Cfg`](../../Sessions/type-aliases/Cfg)\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L72)
+
+The session windows and the per-identity cap. See [Sessions.Cfg](../../Sessions/type-aliases/Cfg).
+
+***
+
+### stores
+
+> **stores**: [`Stores`](Stores)\<`Profile`, `OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:50](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L50)
+
+The persistence contracts the engine reads and writes through.
+
+***
+
+### transport
+
+> **transport**: [`ITransport`](../../Transport/type-aliases/ITransport)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.types.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.types.ts#L48)
+
+How a session is carried on the wire: a cookie, a bearer token, or a composite of both.
+

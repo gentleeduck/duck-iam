@@ -1,0 +1,49 @@
+---
+title: "Variable: DEFAULT\\_PASSKEY\\_CONFIG"
+description: "Overridden per call through passkey(opts)."
+---
+
+> `const` **DEFAULT\_PASSKEY\_CONFIG**: \{ `attestationType`: `"none"`; `challengeTtlMs`: `number`; `limiterKeyPrefix`: `string`; `maxCredentialIdChars`: `number`; `supportedAlgorithmIDs`: `number`[]; `userVerification`: `"preferred"`; \}
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.constants.ts:2](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.constants.ts#L2)
+
+Overridden per call through `passkey(opts)`.
+
+## Type Declaration
+
+### attestationType
+
+> **attestationType**: `"none"`
+
+Attestation requested at registration.
+
+### challengeTtlMs
+
+> **challengeTtlMs**: `number`
+
+Challenge TTL in ms.
+
+### limiterKeyPrefix
+
+> **limiterKeyPrefix**: `string` = `'passkey:begin:'`
+
+Rate-limit key prefix for `begin`.
+
+### maxCredentialIdChars
+
+> **maxCredentialIdChars**: `number` = `1364`
+
+WebAuthn 7.1 caps a credential id at 1023 bytes: 1364 base64url characters.
+
+### supportedAlgorithmIDs
+
+> **supportedAlgorithmIDs**: `number`[]
+
+COSE algorithms registration offers and accepts: Ed25519, ES256 and RS256.
+
+### userVerification
+
+> **userVerification**: `"preferred"`
+
+Required user verification level.
+

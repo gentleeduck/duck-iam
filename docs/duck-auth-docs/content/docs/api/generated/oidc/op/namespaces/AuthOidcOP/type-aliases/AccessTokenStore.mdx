@@ -1,0 +1,75 @@
+---
+title: "Type Alias: AccessTokenStore"
+description: "Issued access tokens, by hash."
+---
+
+> **AccessTokenStore** = \{ `findByHash`: `Promise`\<[`AccessToken`](AccessToken) \| `null`\>; `insert`: `Promise`\<`void`\>; `revokeByHash`: `Promise`\<`void`\>; \}
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:103](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L103)
+
+Issued access tokens, by hash.
+
+## Methods
+
+### findByHash()
+
+> **findByHash**(`hash`: `string`, `now`: `number`): `Promise`\<[`AccessToken`](AccessToken) \| `null`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:107](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L107)
+
+The unexpired token with this hash, or `null`.
+
+#### Parameters
+
+##### hash
+
+`string`
+
+##### now
+
+`number`
+
+#### Returns
+
+`Promise`\<[`AccessToken`](AccessToken) \| `null`\>
+
+***
+
+### insert()
+
+> **insert**(`t`: [`AccessToken`](AccessToken)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:105](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L105)
+
+Stores a token.
+
+#### Parameters
+
+##### t
+
+[`AccessToken`](AccessToken)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### revokeByHash()
+
+> **revokeByHash**(`hash`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:109](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L109)
+
+Revokes the token with this hash.
+
+#### Parameters
+
+##### hash
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+

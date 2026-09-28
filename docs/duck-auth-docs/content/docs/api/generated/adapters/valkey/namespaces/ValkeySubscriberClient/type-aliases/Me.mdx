@@ -1,0 +1,99 @@
+---
+title: "Type Alias: Me"
+description: "The pub/sub surface a dedicated subscriber connection needs."
+---
+
+> **Me** = \{ `off`: `unknown`; `on`: `unknown`; `subscribe`: `Promise`\<`unknown`\>; `unsubscribe`: `Promise`\<`unknown`\>; \}
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:105](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L105)
+
+The pub/sub surface a dedicated subscriber connection needs.
+
+## Methods
+
+### off()
+
+> **off**(`event`: `"message"`, `listener`: (`channel`: `string`, `message`: `string`) => `void`): `unknown`
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:113](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L113)
+
+Removes a message listener.
+
+#### Parameters
+
+##### event
+
+`"message"`
+
+##### listener
+
+(`channel`: `string`, `message`: `string`) => `void`
+
+#### Returns
+
+`unknown`
+
+***
+
+### on()
+
+> **on**(`event`: `"message"`, `listener`: (`channel`: `string`, `message`: `string`) => `void`): `unknown`
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:111](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L111)
+
+Adds a message listener.
+
+#### Parameters
+
+##### event
+
+`"message"`
+
+##### listener
+
+(`channel`: `string`, `message`: `string`) => `void`
+
+#### Returns
+
+`unknown`
+
+***
+
+### subscribe()
+
+> **subscribe**(...`channels`: `string`[]): `Promise`\<`unknown`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:107](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L107)
+
+Subscribes to the channels.
+
+#### Parameters
+
+##### channels
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
+### unsubscribe()
+
+> **unsubscribe**(...`channels`: `string`[]): `Promise`\<`unknown`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:109](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L109)
+
+Unsubscribes from the channels.
+
+#### Parameters
+
+##### channels
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`unknown`\>
+

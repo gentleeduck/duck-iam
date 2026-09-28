@@ -1,0 +1,61 @@
+---
+title: "Type Alias: ContextValue"
+description: "What Provider puts in context."
+---
+
+> **ContextValue**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\> = \{ `client`: [`Client`](../../../../vanilla/namespaces/VanillaClient/type-aliases/Client)\<`Profile`\>; `state`: [`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>; `status`: `"loading"` \| `"authed"` \| `"guest"`; `refresh`: `Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<[`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>, `string`\>\>; \}
+
+Defined in: [packages/duck-auth/src/client/react/types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/types.ts#L28)
+
+What `Provider` puts in context.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### client
+
+> **client**: [`Client`](../../../../vanilla/namespaces/VanillaClient/type-aliases/Client)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/client/react/types.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/types.ts#L30)
+
+The client every hook calls through.
+
+***
+
+### state
+
+> **state**: [`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/client/react/types.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/types.ts#L32)
+
+The last session read; both fields are `null` for a guest.
+
+***
+
+### status
+
+> **status**: `"loading"` \| `"authed"` \| `"guest"`
+
+Defined in: [packages/duck-auth/src/client/react/types.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/types.ts#L34)
+
+`loading` until the first resolve settles, then `authed` or `guest`.
+
+## Methods
+
+### refresh()
+
+> **refresh**(): `Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<[`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/react/types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/types.ts#L36)
+
+Re-reads the session from the server.
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<[`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>, `string`\>\>
+

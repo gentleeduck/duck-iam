@@ -1,0 +1,508 @@
+---
+title: "Class: MfaFacet"
+description: "TOTP and backup codes. TOTP secrets live in the credentials store as kind: 'totp', base32 plaintext; backup codes are hashed under kind: 'recovery' with metadata.purpose: 'mfa-backup-code', single-use."
+---
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L36)
+
+TOTP and backup codes. TOTP secrets live in the credentials store as `kind: 'totp'`, base32
+plaintext; backup codes are hashed under `kind: 'recovery'` with
+`metadata.purpose: 'mfa-backup-code'`, single-use.
+
+WARN: that purpose is load-bearing. `recovery` is shared by six token families
+([RECOVERY\_PURPOSES](../../../core/variables/RECOVERY_PURPOSES)), so reading or deleting the kind without filtering on it lets
+regenerating backup codes void a pending password reset.
+
+## Constructors
+
+### Constructor
+
+> **new MfaFacet**(`_credentials`: [`Store`](../../../index/namespaces/Credential/type-aliases/Store), `_events`: [`IBus`](../../../index/namespaces/Events/interfaces/IBus), `cfg?`: `Partial`\<[`Cfg`](../namespaces/Mfa/type-aliases/Cfg)\>): `MfaImpl`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L41)
+
+#### Parameters
+
+##### \_credentials
+
+[`Store`](../../../index/namespaces/Credential/type-aliases/Store)
+
+##### \_events
+
+[`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+
+##### cfg?
+
+`Partial`\<[`Cfg`](../namespaces/Mfa/type-aliases/Cfg)\>
+
+#### Returns
+
+`MfaImpl`
+
+## Properties
+
+### \_credentials
+
+> `readonly` **\_credentials**: [`Store`](../../../index/namespaces/Credential/type-aliases/Store)
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L42)
+
+***
+
+### \_events
+
+> `readonly` **\_events**: [`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:43](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L43)
+
+***
+
+### cfg?
+
+> `readonly` `optional` **cfg?**: `Partial`\<[`Cfg`](../namespaces/Mfa/type-aliases/Cfg)\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L44)
+
+***
+
+### id
+
+> `readonly` **id**: `"mfa"` = `'mfa'`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L37)
+
+***
+
+### kind
+
+> `readonly` **kind**: `"mfa"`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L38)
+
+## Methods
+
+### beginTotpEnrollment()
+
+> **beginTotpEnrollment**(`identityId`: `string`, `accountName`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`TotpEnrollChallenge`](../namespaces/Mfa/type-aliases/TotpEnrollChallenge)\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:77](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L77)
+
+Answers the `otpauth://` URI to render as a QR code. The secret is persisted at once under
+ `metadata.confirmed = false`, which `confirmTotpEnrollment` flips.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### accountName
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`TotpEnrollChallenge`](../namespaces/Mfa/type-aliases/TotpEnrollChallenge)\>
+
+***
+
+### beginWebauthnMfaEnrollment()
+
+> **beginWebauthnMfaEnrollment**(`identityId`: `string`, `opts`: [`WebauthnMfaEnrollOpts`](../namespaces/Mfa/type-aliases/WebauthnMfaEnrollOpts), `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`RegistrationOptions`](../../passkey/namespaces/Passkey/type-aliases/RegistrationOptions)\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:287](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L287)
+
+Answers the registration options the client passes to `navigator.credentials.create`, persisting
+ the challenge under `opts.challengeKey` so the confirm step can verify it.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### opts
+
+[`WebauthnMfaEnrollOpts`](../namespaces/Mfa/type-aliases/WebauthnMfaEnrollOpts)
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`RegistrationOptions`](../../passkey/namespaces/Passkey/type-aliases/RegistrationOptions)\>
+
+***
+
+### beginWebauthnMfaVerify()
+
+> **beginWebauthnMfaVerify**(`identityId`: `string`, `opts`: [`WebauthnMfaVerifyBeginOpts`](../namespaces/Mfa/type-aliases/WebauthnMfaVerifyBeginOpts), `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`AuthenticationOptions`](../../passkey/namespaces/Passkey/type-aliases/AuthenticationOptions)\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:372](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L372)
+
+For an authenticated user. Answers the authentication options the client passes to
+ `navigator.credentials.get`.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### opts
+
+[`WebauthnMfaVerifyBeginOpts`](../namespaces/Mfa/type-aliases/WebauthnMfaVerifyBeginOpts)
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`AuthenticationOptions`](../../passkey/namespaces/Passkey/type-aliases/AuthenticationOptions)\>
+
+***
+
+### confirmTotpEnrollment()
+
+> **confirmTotpEnrollment**(`identityId`: `string`, `code`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<\{ `backupCodes`: `string`[]; `ok`: `true`; \} \| \{ `ok`: `false`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:119](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L119)
+
+Confirm enrollment against the first code, which is what makes TOTP count as an enrolled factor.
+ Emits `mfa.enrolled`.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### code
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<\{ `backupCodes`: `string`[]; `ok`: `true`; \} \| \{ `ok`: `false`; \}\>
+
+***
+
+### confirmWebauthnMfaEnrollment()
+
+> **confirmWebauthnMfaEnrollment**(`identityId`: `string`, `opts`: [`WebauthnMfaConfirmOpts`](../namespaces/Mfa/type-aliases/WebauthnMfaConfirmOpts), `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<\{ `credentialId`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:322](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L322)
+
+Confirms the enrollment and persists the credential row.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### opts
+
+[`WebauthnMfaConfirmOpts`](../namespaces/Mfa/type-aliases/WebauthnMfaConfirmOpts)
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<\{ `credentialId`: `string`; \}\>
+
+***
+
+### hasTotp()
+
+> **hasTotp**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:181](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L181)
+
+Confirmed enrollments only.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### hasWebauthnMfa()
+
+> **hasWebauthnMfa**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:477](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L477)
+
+Active credentials only.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### regenerateBackupCodes()
+
+> **regenerateBackupCodes**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`string`[]\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:240](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L240)
+
+Revokes the previous codes; the plaintext comes back once.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<`string`[]\>
+
+***
+
+### remainingBackupCodes()
+
+> **remainingBackupCodes**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:268](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L268)
+
+Live backup codes, for a "you have N left" prompt.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### removeBackupCodes()
+
+> **removeBackupCodes**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<\{ `removed`: `number`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:276](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L276)
+
+Removes every backup code for the identity and emits `mfa.removed`. See [MfaImpl.removeTotp](#removetotp).
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<\{ `removed`: `number`; \}\>
+
+***
+
+### removeTotp()
+
+> **removeTotp**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<\{ `removed`: `number`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:190](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L190)
+
+Removes every TOTP credential for the identity, and every remembered device, and emits `mfa.removed`.
+ Answers how many TOTP rows went, so `0` tells "turned off" from "nothing to turn off"; the rows carry
+ the shared secret and are not returned.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<\{ `removed`: `number`; \}\>
+
+***
+
+### removeWebauthnMfa()
+
+> **removeWebauthnMfa**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<\{ `removed`: `number`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:484](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L484)
+
+Remove every WebAuthn-MFA credential for the identity, and every remembered device. See
+ [MfaImpl.removeTotp](#removetotp).
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<\{ `removed`: `number`; \}\>
+
+***
+
+### verifyBackupCode()
+
+> **verifyBackupCode**(`identityId`: `string`, `code`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:203](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L203)
+
+Revokes the match atomically. The boolean is deliberately generic, so "code exists but wrong" and
+ "code unknown" cannot be told apart. Case, spaces and hyphens are forgiven.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### code
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### verifyTotp()
+
+> **verifyTotp**(`identityId`: `string`, `code`: `string`, `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:150](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L150)
+
+Against the confirmed enrollment, for step-up.
+ SECURITY: single-use within the window, per NIST SP 800-63B. The drift window spans three steps, so
+ an unspent code stays replayable for about ninety seconds.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### code
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### verifyWebauthnMfa()
+
+> **verifyWebauthnMfa**(`identityId`: `string`, `opts`: [`WebauthnMfaVerifyOpts`](../namespaces/Mfa/type-aliases/WebauthnMfaVerifyOpts), `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:400](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L400)
+
+Refuses a signature mismatch, a counter rollback and an unknown credential.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### opts
+
+[`WebauthnMfaVerifyOpts`](../namespaces/Mfa/type-aliases/WebauthnMfaVerifyOpts)
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### withClient()
+
+> **withClient**(`stores`: [`Stores`](../../../index/namespaces/Provider/type-aliases/Stores), `events`: [`IBus`](../../../index/namespaces/Events/interfaces/IBus)): `MfaImpl`
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L71)
+
+Re-bind to a caller's transaction: the credential store already on it, and a bus that buffers
+ until commit. Lives here because `_cfg` is derived in the constructor.
+
+#### Parameters
+
+##### stores
+
+[`Stores`](../../../index/namespaces/Provider/type-aliases/Stores)
+
+##### events
+
+[`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+
+#### Returns
+
+`MfaImpl`
+

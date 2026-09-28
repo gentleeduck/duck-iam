@@ -1,0 +1,37 @@
+---
+title: "Type Alias: OauthError"
+description: "An RFC 6749 error body."
+---
+
+> **OauthError** = \{ `error`: [`ErrorCode`](ErrorCode); `error_description?`: `string`; `state?`: `string`; \}
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:168](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L168)
+
+An RFC 6749 error body.
+
+## Properties
+
+### error
+
+> **error**: [`ErrorCode`](ErrorCode)
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:169](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L169)
+
+***
+
+### error\_description?
+
+> `optional` **error\_description?**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:170](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L170)
+
+***
+
+### state?
+
+> `optional` **state?**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:172](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L172)
+
+oauth state echo for redirect-bearing errors.
+

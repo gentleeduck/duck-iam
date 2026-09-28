@@ -1,0 +1,32 @@
+---
+title: "Function: valkeyPubSubAdapter()"
+description: "Adapts an ioredis/iovalkey { cmd, sub } connection pair to RedisEvents.Client. cmd carries ordinary commands and PUBLISH; sub is dedicated to SUBSCRIBE (see ValkeySubscriberClient) since a connection in subscriber mode cannot run ordinary commands. ioredis delivers every subscribed channel through one shared 'message' event rather than a per-call callback, so this filters by channel; RedisEvents.on() subscribes at most once per channel and unsubscribes at most once when its local handlers drain to zero, so it never needs concurrent listeners on the same channel."
+---
+
+> **valkeyPubSubAdapter**(`cmd`: [`Me`](../namespaces/ValkeyClient/type-aliases/Me) & \{ `publish`: `Promise`\<`number`\>; \}, `sub`: [`Me`](../namespaces/ValkeySubscriberClient/type-aliases/Me)): [`Client`](../../../core/namespaces/AuthRedisEvents/type-aliases/Client)
+
+Defined in: [packages/duck-auth/src/core/events/events.valkey.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.valkey.ts#L14)
+
+Adapts an ioredis/iovalkey `{ cmd, sub }` connection pair to [RedisEvents.Client](../../../core/namespaces/AuthRedisEvents/type-aliases/Client).
+`cmd` carries ordinary commands and `PUBLISH`; `sub` is dedicated to `SUBSCRIBE` (see
+[ValkeySubscriberClient](../namespaces/ValkeySubscriberClient/README)) since a connection in subscriber mode cannot run
+ordinary commands. ioredis delivers every subscribed channel through one shared
+`'message'` event rather than a per-call callback, so this filters by channel;
+`RedisEvents.on()` subscribes at most once per channel and unsubscribes at most once
+when its local handlers drain to zero, so it never needs concurrent listeners on the
+same channel.
+
+## Parameters
+
+### cmd
+
+[`Me`](../namespaces/ValkeyClient/type-aliases/Me) & \{ `publish`: `Promise`\<`number`\>; \}
+
+### sub
+
+[`Me`](../namespaces/ValkeySubscriberClient/type-aliases/Me)
+
+## Returns
+
+[`Client`](../../../core/namespaces/AuthRedisEvents/type-aliases/Client)
+

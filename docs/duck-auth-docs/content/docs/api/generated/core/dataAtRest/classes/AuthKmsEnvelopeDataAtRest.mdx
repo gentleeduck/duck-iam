@@ -1,0 +1,126 @@
+---
+title: "Class: AuthKmsEnvelopeDataAtRest"
+description: "Envelope encryption over any Kms.Provider: a per-record DEK and AES-256-GCM locally, with {identityId, field} pinned in the KMS encryption context (AAD) so a ciphertext cannot be relocated."
+---
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/kms-envelope.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/kms-envelope.ts#L10)
+
+Envelope encryption over any `Kms.Provider`: a per-record DEK and AES-256-GCM locally, with
+`{identityId, field}` pinned in the KMS encryption context (AAD) so a ciphertext cannot be relocated.
+
+## Implements
+
+- [`Adapter`](../../../index/namespaces/DataAtRest/type-aliases/Adapter)
+
+## Constructors
+
+### Constructor
+
+> **new AuthKmsEnvelopeDataAtRest**(`cfg`: [`Cfg`](../namespaces/AuthKmsEnvelopeDataAtRest/interfaces/Cfg)): `AuthKmsEnvelopeDataAtRest`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/kms-envelope.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/kms-envelope.ts#L14)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/AuthKmsEnvelopeDataAtRest/interfaces/Cfg)
+
+#### Returns
+
+`AuthKmsEnvelopeDataAtRest`
+
+## Properties
+
+### id
+
+> `readonly` **id**: `string`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/kms-envelope.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/kms-envelope.ts#L11)
+
+Stable id for audit logs and strict() reporting.
+
+#### Implementation of
+
+`DataAtRest.Adapter.id`
+
+## Methods
+
+### decrypt()
+
+> **decrypt**(`cipherText`: `string`, `ctx`: [`Context`](../../../index/namespaces/DataAtRest/type-aliases/Context)): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/kms-envelope.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/kms-envelope.ts#L55)
+
+Unwraps the record's own data key through KMS, then decrypts locally.
+
+#### Parameters
+
+##### cipherText
+
+`string`
+
+##### ctx
+
+[`Context`](../../../index/namespaces/DataAtRest/type-aliases/Context)
+
+#### Returns
+
+`Promise`\<`string`\>
+
+#### Implementation of
+
+`DataAtRest.Adapter.decrypt`
+
+***
+
+### encrypt()
+
+> **encrypt**(`plain`: `string`, `ctx`: [`Context`](../../../index/namespaces/DataAtRest/type-aliases/Context)): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/kms-envelope.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/kms-envelope.ts#L20)
+
+Mints a per-record data key, encrypts locally under it, and stores it wrapped alongside.
+
+#### Parameters
+
+##### plain
+
+`string`
+
+##### ctx
+
+[`Context`](../../../index/namespaces/DataAtRest/type-aliases/Context)
+
+#### Returns
+
+`Promise`\<`string`\>
+
+#### Implementation of
+
+`DataAtRest.Adapter.encrypt`
+
+***
+
+### needsReEncrypt()
+
+> **needsReEncrypt**(`_cipherText`: `string`): `boolean`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/kms-envelope.ts:110](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/kms-envelope.ts#L110)
+
+Always false: KMS rotates server-side under the same key id, and retiring a key is re-encrypted out of band.
+
+#### Parameters
+
+##### \_cipherText
+
+`string`
+
+#### Returns
+
+`boolean`
+
+#### Implementation of
+
+`DataAtRest.Adapter.needsReEncrypt`
+

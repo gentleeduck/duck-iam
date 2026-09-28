@@ -1,0 +1,77 @@
+---
+title: "Type Alias: RefreshToken"
+description: "An issued refresh token. Rotated on use; reuse triggers family revoke."
+---
+
+> **RefreshToken** = \{ `client_id`: `string`; `consumedAt`: `number` \| `null`; `exp`: `number`; `family_id`: `string`; `identity_id`: `string`; `scope`: `string`[]; `tenant_id`: `string` \| `null`; `token_hash`: `string`; \}
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L66)
+
+An issued refresh token. Rotated on use; reuse triggers family revoke.
+
+## Properties
+
+### client\_id
+
+> **client\_id**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L69)
+
+***
+
+### consumedAt
+
+> **consumedAt**: `number` \| `null`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:75](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L75)
+
+Set when this token has been used; reuse after this is set = reuse attack.
+
+***
+
+### exp
+
+> **exp**: `number`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:73](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L73)
+
+***
+
+### family\_id
+
+> **family\_id**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L68)
+
+***
+
+### identity\_id
+
+> **identity\_id**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L70)
+
+***
+
+### scope
+
+> **scope**: `string`[]
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L71)
+
+***
+
+### tenant\_id
+
+> **tenant\_id**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L72)
+
+***
+
+### token\_hash
+
+> **token\_hash**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L67)
+

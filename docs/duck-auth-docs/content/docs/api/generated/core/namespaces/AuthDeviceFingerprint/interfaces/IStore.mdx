@@ -1,0 +1,105 @@
+---
+title: "Interface: IStore"
+description: "Which devices an identity has been seen on; the detector holds no state of its own."
+---
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:105](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L105)
+
+Which devices an identity has been seen on; the detector holds no state of its own.
+
+## Methods
+
+### forget()
+
+> **forget**(`identityId`: `string`, `fingerprint`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:117](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L117)
+
+Forget one sighting.
+ WARN: a `'step-up'` that `onSession` lets through is remembered, so a route that refuses one on
+ `anomaly.decision` passes the signal's `evidence.fingerprint` here, or the retry passes as a known
+ device.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### fingerprint
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### forgetAll()
+
+> **forgetAll**(`identityId`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:112](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L112)
+
+Forget every device of an identity, after "sign out everywhere" or a credential reset. Nothing in
+ this package calls it.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### has()
+
+> **has**(`identityId`: `string`, `fingerprint`: `string`): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:107](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L107)
+
+Whether this identity was seen on `fingerprint`, within the TTL.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### fingerprint
+
+`string`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### remember()
+
+> **remember**(`identityId`: `string`, `fingerprint`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:109](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L109)
+
+Remember a sighting, or refresh one. Called once the request is let through, never for a `'deny'`.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### fingerprint
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+

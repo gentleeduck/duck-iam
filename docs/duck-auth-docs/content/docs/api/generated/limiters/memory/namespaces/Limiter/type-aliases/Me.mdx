@@ -1,0 +1,55 @@
+---
+title: "Type Alias: Me"
+description: "A rate limiter keyed by caller-chosen strings."
+---
+
+> **Me** = \{ `consume`: `Promise`\<[`Result`](Result)\>; `reset`: `Promise`\<`void`\>; \}
+
+Defined in: [packages/duck-auth/src/limiters/limiters.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/limiters.types.ts#L15)
+
+A rate limiter keyed by caller-chosen strings.
+
+## Methods
+
+### consume()
+
+> **consume**(`key`: `string`, `weight?`: `number`): `Promise`\<[`Result`](Result)\>
+
+Defined in: [packages/duck-auth/src/limiters/limiters.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/limiters.types.ts#L17)
+
+Spends `weight` (default 1) from `key`'s window.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### weight?
+
+`number`
+
+#### Returns
+
+`Promise`\<[`Result`](Result)\>
+
+***
+
+### reset()
+
+> **reset**(`key`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/limiters/limiters.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/limiters.types.ts#L19)
+
+Empties `key`'s window.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+

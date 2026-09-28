@@ -1,0 +1,24 @@
+---
+title: "Function: authTestDeliver()"
+description: "Records every message instead of sending it. The successor to the channel doubles: deliver goes on  the engine config, outbox is what it captured."
+---
+
+> **authTestDeliver**(): \{ `deliver`: [`Deliver`](../../index/type-aliases/Deliver); `outbox`: [`DeliveryMessage`](../../index/-internal-/type-aliases/DeliveryMessage) & \{ `identityId`: `string`; `tenantId`: `string` \| `null`; \}[]; \}
+
+Defined in: [packages/duck-auth/src/test/index.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/test/index.ts#L70)
+
+Records every message instead of sending it. The successor to the channel doubles: `deliver` goes on
+ the engine config, `outbox` is what it captured.
+
+## Returns
+
+\{ `deliver`: [`Deliver`](../../index/type-aliases/Deliver); `outbox`: [`DeliveryMessage`](../../index/-internal-/type-aliases/DeliveryMessage) & \{ `identityId`: `string`; `tenantId`: `string` \| `null`; \}[]; \}
+
+### deliver
+
+> **deliver**: [`Deliver`](../../index/type-aliases/Deliver)
+
+### outbox
+
+> **outbox**: [`DeliveryMessage`](../../index/-internal-/type-aliases/DeliveryMessage) & \{ `identityId`: `string`; `tenantId`: `string` \| `null`; \}[]
+

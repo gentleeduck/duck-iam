@@ -1,0 +1,120 @@
+---
+title: "Class: SamlImpl"
+description: "The standard Provider.Me shape, so it slots into AuthEngine.providers beside the password and  oauth providers."
+---
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.ts#L27)
+
+The standard `Provider.Me` shape, so it slots into `AuthEngine.providers` beside the password and
+ oauth providers.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Implements
+
+- [`Me`](../../../index/namespaces/Provider/interfaces/Me)\<[`BeginInput`](../namespaces/Saml/interfaces/BeginInput), [`CompleteInput`](../namespaces/Saml/interfaces/CompleteInput), `Profile`\>
+
+## Constructors
+
+### Constructor
+
+> **new SamlImpl**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`cfg`: [`Options`](../namespaces/Saml/interfaces/Options)): `SamlImpl`\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.ts#L35)
+
+#### Parameters
+
+##### cfg
+
+[`Options`](../namespaces/Saml/interfaces/Options)
+
+#### Returns
+
+`SamlImpl`\<`Profile`\>
+
+## Properties
+
+### id
+
+> `readonly` **id**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.ts#L30)
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`id`](../../../index/namespaces/Provider/interfaces/Me#id)
+
+***
+
+### kind
+
+> `readonly` **kind**: `"oauth"`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.ts#L33)
+
+Open string so custom providers declare their own kind without patching the type.
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`kind`](../../../index/namespaces/Provider/interfaces/Me#kind)
+
+## Methods
+
+### begin()
+
+> **begin**(`ctx`: [`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: [`BeginInput`](../namespaces/Saml/interfaces/BeginInput)): `Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.ts:95](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.ts#L95)
+
+Builds the redirect that carries an AuthnRequest to the IdP.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### input
+
+[`BeginInput`](../namespaces/Saml/interfaces/BeginInput)
+
+#### Returns
+
+`Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`begin`](../../../index/namespaces/Provider/interfaces/Me#begin)
+
+***
+
+### complete()
+
+> **complete**(`ctx`: [`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: [`CompleteInput`](../namespaces/Saml/interfaces/CompleteInput)): `Promise`\<[`InternalIntent`](../../../index/namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.ts:126](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.ts#L126)
+
+Validates the SAMLResponse against the request it answers, and opens the session.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### input
+
+[`CompleteInput`](../namespaces/Saml/interfaces/CompleteInput)
+
+#### Returns
+
+`Promise`\<[`InternalIntent`](../../../index/namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`complete`](../../../index/namespaces/Provider/interfaces/Me#complete)
+

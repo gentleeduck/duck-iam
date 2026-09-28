@@ -1,0 +1,34 @@
+---
+title: "Interface: Verified"
+description: "A proof that passed: its key thumbprint and claims."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L71)
+
+A proof that passed: its key thumbprint and claims.
+
+## Properties
+
+### claims
+
+> **claims**: [`Claims`](Claims)
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:81](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L81)
+
+***
+
+### jkt
+
+> **jkt**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:80](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L80)
+
+RFC 7638 JWK thumbprint of the key that signed this proof.
+
+ SECURITY: compare it against the access token's `cnf.jkt` - the one written by
+ [bindPayloadToDPoP](../../../functions/bindPayloadToDPoP) - before honouring the request. A proof carries the key it was signed
+ with, so the presenter always holds the key in the proof; whether it is the key the token was
+ issued against is the question, and this value is the whole answer. Skip the comparison and a
+ `verify` that does not throw means only that someone signed a well-formed proof over this token
+ for this URL, which whoever stole the token can do with a keypair of their own.
+

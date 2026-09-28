@@ -1,0 +1,12 @@
+---
+title: "Type Alias: FederationPolicy"
+description: "Policy + hook shape for the federation conflict workflow. 'link-if-verified' links only when both the  provider and the existing identity have verified the address."
+---
+
+> **FederationPolicy** = `"reject"` \| `"link-if-verified"` \| ((`ctx`: [`FederationConflict`](../interfaces/FederationConflict)) => `Promise`\<`"link"` \| `"reject"`\>)
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:160](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L160)
+
+Policy + hook shape for the federation conflict workflow. `'link-if-verified'` links only when both the
+ provider and the existing identity have verified the address.
+

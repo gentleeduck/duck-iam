@@ -1,0 +1,69 @@
+---
+title: "Type Alias: Reply"
+description: "The Fastify reply methods the adapter calls."
+---
+
+> **Reply** = \{ `header`: `Reply`; `send`: `Promise`\<`unknown`\> \| `Reply` \| `undefined`; `status`: `Reply`; \}
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L26)
+
+The Fastify reply methods the adapter calls.
+
+## Methods
+
+### header()
+
+> **header**(`key`: `string`, `value`: `string`): `Reply`
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L28)
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### value
+
+`string`
+
+#### Returns
+
+`Reply`
+
+***
+
+### send()
+
+> **send**(`payload`: `unknown`): `Promise`\<`unknown`\> \| `Reply` \| `undefined`
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L29)
+
+#### Parameters
+
+##### payload
+
+`unknown`
+
+#### Returns
+
+`Promise`\<`unknown`\> \| `Reply` \| `undefined`
+
+***
+
+### status()
+
+> **status**(`code`: `number`): `Reply`
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L27)
+
+#### Parameters
+
+##### code
+
+`number`
+
+#### Returns
+
+`Reply`
+

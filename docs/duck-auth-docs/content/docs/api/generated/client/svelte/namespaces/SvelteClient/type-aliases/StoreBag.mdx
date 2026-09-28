@@ -1,0 +1,85 @@
+---
+title: "Type Alias: StoreBag"
+description: "What createAuthStore answers: the store and its actions."
+---
+
+> **StoreBag**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\> = \{ `client`: [`Client`](../../../../vanilla/namespaces/VanillaClient/type-aliases/Client)\<`Profile`\>; `state`: [`Readable`](Readable)\<[`State`](State)\<`Profile`\>\>; `refresh`: `Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<[`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>, `string`\>\>; `signIn`: `Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<[`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>, `string`\>\>; `signOut`: `Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<`unknown`, `string`\>\>; \}
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L36)
+
+What `createAuthStore` answers: the store and its actions.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### client
+
+> **client**: [`Client`](../../../../vanilla/namespaces/VanillaClient/type-aliases/Client)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L40)
+
+The underlying vanilla client (for advanced flows).
+
+***
+
+### state
+
+> **state**: [`Readable`](Readable)\<[`State`](State)\<`Profile`\>\>
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L38)
+
+Svelte store exposing `{ session, identity, status }`.
+
+## Methods
+
+### refresh()
+
+> **refresh**(): `Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<[`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L46)
+
+Re-reads the session from the server.
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<[`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>, `string`\>\>
+
+***
+
+### signIn()
+
+> **signIn**(`opts`: [`SignInOptions`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SignInOptions)): `Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<[`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L42)
+
+`client.signIn`.
+
+#### Parameters
+
+##### opts
+
+[`SignInOptions`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SignInOptions)
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<[`SessionResult`](../../../../vanilla/namespaces/VanillaClient/type-aliases/SessionResult)\<`Profile`\>, `string`\>\>
+
+***
+
+### signOut()
+
+> **signOut**(): `Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<`unknown`, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/svelte/types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/svelte/types.ts#L44)
+
+`client.signOut`.
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../../vanilla/type-aliases/Envelope)\<`unknown`, `string`\>\>
+

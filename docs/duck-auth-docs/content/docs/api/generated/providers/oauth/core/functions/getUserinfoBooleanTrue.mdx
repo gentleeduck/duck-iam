@@ -1,0 +1,25 @@
+---
+title: "Function: getUserinfoBooleanTrue()"
+description: "True only for a literal true, so an email_verified of \"true\", 1 or [] does not read as verified."
+---
+
+> **getUserinfoBooleanTrue**(`info`: `unknown`, `key`: `string`): `boolean`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/userinfo.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/userinfo.ts#L27)
+
+True only for a literal `true`, so an `email_verified` of `"true"`, `1` or `[]` does not read as verified.
+
+## Parameters
+
+### info
+
+`unknown`
+
+### key
+
+`string`
+
+## Returns
+
+`boolean`
+

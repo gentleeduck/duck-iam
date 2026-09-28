@@ -1,0 +1,121 @@
+---
+title: "Interface: ICfgBase"
+description: "What every siteverify-style verifier accepts."
+---
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:56](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L56)
+
+What every siteverify-style verifier accepts.
+
+## Properties
+
+### allowInsecureEndpoint?
+
+> `optional` **allowInsecureEndpoint?**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L72)
+
+Dev-only: permit a plaintext `http:` endpoint, for a mock reachable by name - loopback and
+ private hosts stay refused. `strict()` refuses it in production.
+
+***
+
+### endpoint?
+
+> `optional` **endpoint?**: `string`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L62)
+
+Override the provider's siteverify URL. Refused unless it passes `assertSafeOutboundUrl`.
+
+***
+
+### expectedHostname?
+
+> `optional` **expectedHostname?**: `string` \| `string`[]
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L67)
+
+Host the widget is expected to have run on. Unset means the result reports it unchecked.
+ Compared case-insensitively, since a hostname is.
+
+***
+
+### fetch?
+
+> `optional` **fetch?**: \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L60)
+
+Override the global `fetch`, for a test double or an agent with a proxy configured.
+
+#### Call Signature
+
+> (`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`RequestInfo` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+#### Call Signature
+
+> (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`string` \| `Request` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+***
+
+### maxChallengeAgeMs?
+
+> `optional` **maxChallengeAgeMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L69)
+
+Ceiling on `challenge_ts` age. Default 5 minutes; 0 disables the check.
+
+***
+
+### secret
+
+> **secret**: `string`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L58)
+
+The provider's secret key. Posted to `endpoint`, so that URL gets the outbound-URL guard.
+
+***
+
+### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:64](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L64)
+
+Wall-clock ceiling on the provider call. Default 5s, at most 2^31-1ms.
+

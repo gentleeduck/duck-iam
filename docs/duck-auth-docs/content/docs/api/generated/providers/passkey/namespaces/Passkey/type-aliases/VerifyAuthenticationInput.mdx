@@ -1,0 +1,77 @@
+---
+title: "Type Alias: VerifyAuthenticationInput"
+description: "verifyAuthenticationResponse input, as the library types it."
+---
+
+> **VerifyAuthenticationInput** = \{ `credential`: \{ `counter`: `number`; `id`: `string`; `publicKey`: `Uint8Array`\<`ArrayBuffer`\>; `transports?`: [`Transport`](Transport)[]; \}; `expectedChallenge`: `string` \| ((`challenge`: `string`) => `boolean` \| `Promise`\<`boolean`\>); `expectedOrigin`: `string` \| `string`[]; `expectedRPID`: `string` \| `string`[]; `requireUserVerification?`: `boolean`; `response`: `any`; \}
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:91](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L91)
+
+`verifyAuthenticationResponse` input, as the library types it.
+
+## Properties
+
+### credential
+
+> **credential**: \{ `counter`: `number`; `id`: `string`; `publicKey`: `Uint8Array`\<`ArrayBuffer`\>; `transports?`: [`Transport`](Transport)[]; \}
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:97](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L97)
+
+#### counter
+
+> **counter**: `number`
+
+#### id
+
+> **id**: `string`
+
+#### publicKey
+
+> **publicKey**: `Uint8Array`\<`ArrayBuffer`\>
+
+#### transports?
+
+> `optional` **transports?**: [`Transport`](Transport)[]
+
+***
+
+### expectedChallenge
+
+> **expectedChallenge**: `string` \| ((`challenge`: `string`) => `boolean` \| `Promise`\<`boolean`\>)
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:94](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L94)
+
+***
+
+### expectedOrigin
+
+> **expectedOrigin**: `string` \| `string`[]
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:95](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L95)
+
+***
+
+### expectedRPID
+
+> **expectedRPID**: `string` \| `string`[]
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:96](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L96)
+
+***
+
+### requireUserVerification?
+
+> `optional` **requireUserVerification?**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:103](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L103)
+
+***
+
+### response
+
+> **response**: `any`
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:93](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L93)
+
+The client's JSON, unparsed: the library validates the shape its type assumes.
+
