@@ -21,3 +21,5 @@ jobs:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
           deny-licenses: AGPL-3.0, LGPL-2.0
+          # trufflehog runs only in CI and is never shipped, so its AGPL does not reach the packages.
+          allow-dependencies-licenses: pkg:githubactions/trufflesecurity/trufflehog
