@@ -21,7 +21,7 @@ import RBAC from '@rbac/rbac'
 import { AccessControl } from 'accesscontrol'
 import { newEnforcer, newModel, StringAdapter } from 'casbin'
 import EasyRBAC from 'easy-rbac'
-import { bench, describe } from 'vitest'
+import { test } from 'vitest'
 import { IamMemoryAdapter } from '../src/adapters/memory'
 import { IamEngine } from '../src/core/engine/engine'
 import { evaluate, evaluateFast, evaluatePolicy, evaluatePolicyFast } from '../src/core/evaluate'
@@ -161,121 +161,111 @@ const easyRbac = new EasyRBAC({
 
 const N = 3
 
-describe('Simple RBAC: can viewer read post?', () => {
-  bench('@gentleduck/iam - evaluateFast() [fast-path fn, not engine.can()]', () => {
-    for (let i = 0; i < N; i++) evaluateFast([simplePolicy], simpleRequest)
-  })
-
-  bench('@gentleduck/iam - evaluatePolicyFast() [fast-path fn, not engine.can()]', () => {
-    for (let i = 0; i < N; i++) evaluatePolicyFast(simplePolicy, simpleRequest)
-  })
-
-  bench('@gentleduck/iam - evaluate() [DEV]', () => {
-    for (let i = 0; i < N; i++) evaluate([simplePolicy], simpleRequest)
-  })
-
-  bench('@gentleduck/iam - evaluatePolicy() [DEV]', () => {
-    for (let i = 0; i < N; i++) evaluatePolicy(simplePolicy, simpleRequest)
-  })
-
-  bench('@casl/ability', () => {
-    for (let i = 0; i < N; i++) caslAbility.can('read', 'Post')
-  })
-
-  bench('casbin', async () => {
-    for (let i = 0; i < N; i++) await casbinEnforcer.enforce('viewer', 'post', 'read')
-  })
-
-  bench('accesscontrol', () => {
-    for (let i = 0; i < N; i++) ac.can('viewer').readAny('post')
-  })
-
-  bench('@rbac/rbac', async () => {
-    for (let i = 0; i < N; i++) await rbacRbac.can('viewer', 'post:read')
-  })
-
-  bench('easy-rbac', async () => {
-    for (let i = 0; i < N; i++) await easyRbac.can('viewer', 'post:read')
-  })
+test('Simple RBAC: can viewer read post?', async ({ bench }) => {
+  await bench.compare(
+    bench('@gentleduck/iam - evaluateFast() [fast-path fn, not engine.can()]', () => {
+      for (let i = 0; i < N; i++) evaluateFast([simplePolicy], simpleRequest)
+    }),
+    bench('@gentleduck/iam - evaluatePolicyFast() [fast-path fn, not engine.can()]', () => {
+      for (let i = 0; i < N; i++) evaluatePolicyFast(simplePolicy, simpleRequest)
+    }),
+    bench('@gentleduck/iam - evaluate() [DEV]', () => {
+      for (let i = 0; i < N; i++) evaluate([simplePolicy], simpleRequest)
+    }),
+    bench('@gentleduck/iam - evaluatePolicy() [DEV]', () => {
+      for (let i = 0; i < N; i++) evaluatePolicy(simplePolicy, simpleRequest)
+    }),
+    bench('@casl/ability', () => {
+      for (let i = 0; i < N; i++) caslAbility.can('read', 'Post')
+    }),
+    bench('casbin', async () => {
+      for (let i = 0; i < N; i++) await casbinEnforcer.enforce('viewer', 'post', 'read')
+    }),
+    bench('accesscontrol', () => {
+      for (let i = 0; i < N; i++) ac.can('viewer').readAny('post')
+    }),
+    bench('@rbac/rbac', async () => {
+      for (let i = 0; i < N; i++) await rbacRbac.can('viewer', 'post:read')
+    }),
+    bench('easy-rbac', async () => {
+      for (let i = 0; i < N; i++) await easyRbac.can('viewer', 'post:read')
+    }),
+  )
 })
 
-describe('ABAC condition: can owner update own draft?', () => {
-  bench('@gentleduck/iam - evaluateFast() [fast-path fn, not engine.can()]', () => {
-    for (let i = 0; i < N; i++) evaluateFast([conditionPolicy], conditionRequest)
-  })
-
-  bench('@gentleduck/iam - evaluate() [DEV]', () => {
-    for (let i = 0; i < N; i++) evaluate([conditionPolicy], conditionRequest)
-  })
-
-  bench('@casl/ability - subject()', () => {
-    for (let i = 0; i < N; i++) caslAbility.can('update', caslPostForCondition)
-  })
+test('ABAC condition: can owner update own draft?', async ({ bench }) => {
+  await bench.compare(
+    bench('@gentleduck/iam - evaluateFast() [fast-path fn, not engine.can()]', () => {
+      for (let i = 0; i < N; i++) evaluateFast([conditionPolicy], conditionRequest)
+    }),
+    bench('@gentleduck/iam - evaluate() [DEV]', () => {
+      for (let i = 0; i < N; i++) evaluate([conditionPolicy], conditionRequest)
+    }),
+    bench('@casl/ability - subject()', () => {
+      for (let i = 0; i < N; i++) caslAbility.can('update', caslPostForCondition)
+    }),
+  )
 
   // accesscontrol, casbin RBAC model, @rbac/rbac, easy-rbac: no ABAC conditions
 })
 
-describe('Role + condition: can admin delete post?', () => {
-  bench('@gentleduck/iam', () => {
-    for (let i = 0; i < N; i++) evaluate([simplePolicy], adminRequest)
-  })
-
-  bench('@casl/ability - subject()', () => {
-    for (let i = 0; i < N; i++) caslAbility.can('delete', caslPostForAdmin)
-  })
-
-  bench('casbin', async () => {
-    for (let i = 0; i < N; i++) await casbinEnforcer.enforce('admin', 'post', 'delete')
-  })
-
-  bench('accesscontrol', () => {
-    for (let i = 0; i < N; i++) ac.can('admin').deleteAny('post')
-  })
-
-  bench('@rbac/rbac', async () => {
-    for (let i = 0; i < N; i++) await rbacRbac.can('admin', 'post:delete')
-  })
-
-  bench('easy-rbac', async () => {
-    for (let i = 0; i < N; i++) await easyRbac.can('admin', 'post:delete')
-  })
+test('Role + condition: can admin delete post?', async ({ bench }) => {
+  await bench.compare(
+    bench('@gentleduck/iam', () => {
+      for (let i = 0; i < N; i++) evaluate([simplePolicy], adminRequest)
+    }),
+    bench('@casl/ability - subject()', () => {
+      for (let i = 0; i < N; i++) caslAbility.can('delete', caslPostForAdmin)
+    }),
+    bench('casbin', async () => {
+      for (let i = 0; i < N; i++) await casbinEnforcer.enforce('admin', 'post', 'delete')
+    }),
+    bench('accesscontrol', () => {
+      for (let i = 0; i < N; i++) ac.can('admin').deleteAny('post')
+    }),
+    bench('@rbac/rbac', async () => {
+      for (let i = 0; i < N; i++) await rbacRbac.can('admin', 'post:delete')
+    }),
+    bench('easy-rbac', async () => {
+      for (let i = 0; i < N; i++) await easyRbac.can('admin', 'post:delete')
+    }),
+  )
 })
 
-describe('Deny path: viewer cannot delete', () => {
+test('Deny path: viewer cannot delete', async ({ bench }) => {
   const denyRequest: IamRequest.IAccessRequest = { ...simpleRequest, action: 'delete' }
 
-  bench('@gentleduck/iam', () => {
-    for (let i = 0; i < N; i++) evaluate([simplePolicy], denyRequest)
-  })
-
-  bench('@casl/ability', () => {
-    for (let i = 0; i < N; i++) caslAbility.can('delete', subject('Post', {}))
-  })
-
-  bench('casbin', async () => {
-    for (let i = 0; i < N; i++) await casbinEnforcer.enforce('viewer', 'post', 'delete')
-  })
-
-  bench('@rbac/rbac', async () => {
-    for (let i = 0; i < N; i++) await rbacRbac.can('viewer', 'post:delete')
-  })
-
-  bench('easy-rbac', async () => {
-    for (let i = 0; i < N; i++) await easyRbac.can('viewer', 'post:delete').catch(() => false)
-  })
+  await bench.compare(
+    bench('@gentleduck/iam', () => {
+      for (let i = 0; i < N; i++) evaluate([simplePolicy], denyRequest)
+    }),
+    bench('@casl/ability', () => {
+      for (let i = 0; i < N; i++) caslAbility.can('delete', subject('Post', {}))
+    }),
+    bench('casbin', async () => {
+      for (let i = 0; i < N; i++) await casbinEnforcer.enforce('viewer', 'post', 'delete')
+    }),
+    bench('@rbac/rbac', async () => {
+      for (let i = 0; i < N; i++) await rbacRbac.can('viewer', 'post:delete')
+    }),
+    bench('easy-rbac', async () => {
+      for (let i = 0; i < N; i++) await easyRbac.can('viewer', 'post:delete').catch(() => false)
+    }),
+  )
 })
 
-describe('Target optimization (duck-iam only)', () => {
-  bench('target match - evaluates rules', () => {
-    for (let i = 0; i < N; i++) evaluatePolicy(policyWithTargets, simpleRequest)
-  })
-
-  bench('target skip - skips entire policy', () => {
-    for (let i = 0; i < N; i++) evaluatePolicy(policyWithTargets, adminRequest)
-  })
+test('Target optimization (duck-iam only)', async ({ bench }) => {
+  await bench.compare(
+    bench('target match - evaluates rules', () => {
+      for (let i = 0; i < N; i++) evaluatePolicy(policyWithTargets, simpleRequest)
+    }),
+    bench('target skip - skips entire policy', () => {
+      for (let i = 0; i < N; i++) evaluatePolicy(policyWithTargets, adminRequest)
+    }),
+  )
 })
 
-describe('Batch: 20 permission checks', () => {
+test('Batch: 20 permission checks', async ({ bench }) => {
   const actions = ['read', 'write', 'update', 'delete'] as const
   const checks = Array.from({ length: 20 }, (_, i) => actions[i % 4] as (typeof actions)[number])
   // Pre-allocate request objects to avoid spread overhead unfairly penalizing duck-iam
@@ -284,115 +274,109 @@ describe('Batch: 20 permission checks', () => {
     action,
   }))
 
-  bench('@gentleduck/iam - evaluateFast() x20 [fast-path fn, not engine.can()]', () => {
-    for (const req of batchRequests) evaluateFast([simplePolicy], req)
-  })
-
-  bench('@gentleduck/iam - evaluate() x20 [DEV]', () => {
-    for (const req of batchRequests) evaluate([simplePolicy], req)
-  })
-
-  bench('@casl/ability x20', () => {
-    for (const action of checks) caslAbility.can(action, 'Post')
-  })
-
-  bench('casbin x20', async () => {
-    for (const action of checks) await casbinEnforcer.enforce('viewer', 'post', action)
-  })
-
-  bench('accesscontrol x20', () => {
-    for (const action of checks) {
-      if (action === 'read') ac.can('viewer').readAny('post')
-      else if (action === 'update') ac.can('editor').updateOwn('post')
-      else if (action === 'delete') ac.can('admin').deleteAny('post')
-      else ac.can('admin').createAny('post')
-    }
-  })
-
-  bench('@rbac/rbac x20', async () => {
-    for (const action of checks) await rbacRbac.can('viewer', `post:${action}`)
-  })
-
-  bench('easy-rbac x20', async () => {
-    for (const action of checks) {
-      try {
-        await easyRbac.can('viewer', `post:${action}`)
-      } catch {
-        // deny throws
+  await bench.compare(
+    bench('@gentleduck/iam - evaluateFast() x20 [fast-path fn, not engine.can()]', () => {
+      for (const req of batchRequests) evaluateFast([simplePolicy], req)
+    }),
+    bench('@gentleduck/iam - evaluate() x20 [DEV]', () => {
+      for (const req of batchRequests) evaluate([simplePolicy], req)
+    }),
+    bench('@casl/ability x20', () => {
+      for (const action of checks) caslAbility.can(action, 'Post')
+    }),
+    bench('casbin x20', async () => {
+      for (const action of checks) await casbinEnforcer.enforce('viewer', 'post', action)
+    }),
+    bench('accesscontrol x20', () => {
+      for (const action of checks) {
+        if (action === 'read') ac.can('viewer').readAny('post')
+        else if (action === 'update') ac.can('editor').updateOwn('post')
+        else if (action === 'delete') ac.can('admin').deleteAny('post')
+        else ac.can('admin').createAny('post')
       }
-    }
-  })
+    }),
+    bench('@rbac/rbac x20', async () => {
+      for (const action of checks) await rbacRbac.can('viewer', `post:${action}`)
+    }),
+    bench('easy-rbac x20', async () => {
+      for (const action of checks) {
+        try {
+          await easyRbac.can('viewer', `post:${action}`)
+        } catch {
+          // deny throws
+        }
+      }
+    }),
+  )
 })
 
-describe('Engine.can() - cached, full stack (adapter + hooks + engine)', () => {
-  bench('@gentleduck/iam - engine.can() [mode: production]', async () => {
-    for (let i = 0; i < N; i++) await engineProd.can('user-1', 'read', { type: 'post', attributes: {} })
-  })
-  bench('@gentleduck/iam - engine.can() [mode: development]', async () => {
-    for (let i = 0; i < N; i++) await engineDev.can('user-1', 'read', { type: 'post', attributes: {} })
-  })
-  bench('@casl/ability', () => {
-    for (let i = 0; i < N; i++) caslAbility.can('read', 'Post')
-  })
+test('Engine.can() - cached, full stack (adapter + hooks + engine)', async ({ bench }) => {
+  await bench.compare(
+    bench('@gentleduck/iam - engine.can() [mode: production]', async () => {
+      for (let i = 0; i < N; i++) await engineProd.can('user-1', 'read', { type: 'post', attributes: {} })
+    }),
+    bench('@gentleduck/iam - engine.can() [mode: development]', async () => {
+      for (let i = 0; i < N; i++) await engineDev.can('user-1', 'read', { type: 'post', attributes: {} })
+    }),
+    bench('@casl/ability', () => {
+      for (let i = 0; i < N; i++) caslAbility.can('read', 'Post')
+    }),
+  )
 })
 
-describe('Cold start: build + first check', () => {
+test('Cold start: build + first check', async ({ bench }) => {
   // Production pays a compileTable() cost here that development doesn't -
   // real tradeoff, not an oversight, so both are shown rather than picking one.
-  bench('@gentleduck/iam [mode: production]', async () => {
-    const a = new IamMemoryAdapter({
-      policies: [simplePolicy],
-      roles: [{ id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] }],
-      assignments: { 'user-1': ['viewer'] },
-      attributes: { 'user-1': {} },
-    })
-    const e = new IamEngine({ adapter: a, defaultEffect: 'deny', mode: 'production' })
-    await e.can('user-1', 'read', { type: 'post', attributes: {} })
-  })
-
-  bench('@gentleduck/iam [mode: development]', async () => {
-    const a = new IamMemoryAdapter({
-      policies: [simplePolicy],
-      roles: [{ id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] }],
-      assignments: { 'user-1': ['viewer'] },
-      attributes: { 'user-1': {} },
-    })
-    const e = new IamEngine({ adapter: a, defaultEffect: 'deny' })
-    await e.can('user-1', 'read', { type: 'post', attributes: {} })
-  })
-
-  bench('@casl/ability', () => {
-    const { can, build } = new AbilityBuilder(createMongoAbility)
-    can('read', 'Post')
-    const ability = build()
-    ability.can('read', 'Post')
-  })
-
-  bench('casbin', async () => {
-    const m = newModel()
-    m.addDef('r', 'r', 'sub, obj, act')
-    m.addDef('p', 'p', 'sub, obj, act')
-    m.addDef('g', 'g', '_, _')
-    m.addDef('e', 'e', 'some(where (p.eft == allow))')
-    m.addDef('m', 'm', 'g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act')
-    const p = new StringAdapter('p, viewer, post, read')
-    const e = await newEnforcer(m, p)
-    await e.enforce('viewer', 'post', 'read')
-  })
-
-  bench('accesscontrol', () => {
-    const a = new AccessControl()
-    a.grant('viewer').readAny('post')
-    a.can('viewer').readAny('post')
-  })
-
-  bench('@rbac/rbac', async () => {
-    const r = RBAC({ enableLogger: false })({ viewer: { can: ['post:read'] } })
-    await r.can('viewer', 'post:read')
-  })
-
-  bench('easy-rbac', async () => {
-    const r = new EasyRBAC({ viewer: { can: ['post:read'] } })
-    await r.can('viewer', 'post:read')
-  })
+  await bench.compare(
+    bench('@gentleduck/iam [mode: production]', async () => {
+      const a = new IamMemoryAdapter({
+        policies: [simplePolicy],
+        roles: [{ id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] }],
+        assignments: { 'user-1': ['viewer'] },
+        attributes: { 'user-1': {} },
+      })
+      const e = new IamEngine({ adapter: a, defaultEffect: 'deny', mode: 'production' })
+      await e.can('user-1', 'read', { type: 'post', attributes: {} })
+    }),
+    bench('@gentleduck/iam [mode: development]', async () => {
+      const a = new IamMemoryAdapter({
+        policies: [simplePolicy],
+        roles: [{ id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] }],
+        assignments: { 'user-1': ['viewer'] },
+        attributes: { 'user-1': {} },
+      })
+      const e = new IamEngine({ adapter: a, defaultEffect: 'deny' })
+      await e.can('user-1', 'read', { type: 'post', attributes: {} })
+    }),
+    bench('@casl/ability', () => {
+      const { can, build } = new AbilityBuilder(createMongoAbility)
+      can('read', 'Post')
+      const ability = build()
+      ability.can('read', 'Post')
+    }),
+    bench('casbin', async () => {
+      const m = newModel()
+      m.addDef('r', 'r', 'sub, obj, act')
+      m.addDef('p', 'p', 'sub, obj, act')
+      m.addDef('g', 'g', '_, _')
+      m.addDef('e', 'e', 'some(where (p.eft == allow))')
+      m.addDef('m', 'm', 'g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act')
+      const p = new StringAdapter('p, viewer, post, read')
+      const e = await newEnforcer(m, p)
+      await e.enforce('viewer', 'post', 'read')
+    }),
+    bench('accesscontrol', () => {
+      const a = new AccessControl()
+      a.grant('viewer').readAny('post')
+      a.can('viewer').readAny('post')
+    }),
+    bench('@rbac/rbac', async () => {
+      const r = RBAC({ enableLogger: false })({ viewer: { can: ['post:read'] } })
+      await r.can('viewer', 'post:read')
+    }),
+    bench('easy-rbac', async () => {
+      const r = new EasyRBAC({ viewer: { can: ['post:read'] } })
+      await r.can('viewer', 'post:read')
+    }),
+  )
 })

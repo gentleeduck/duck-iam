@@ -1,4 +1,4 @@
-import { bench, describe } from 'vitest'
+import { test } from 'vitest'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluate, evaluateFast, evaluatePolicyFast } from '../evaluate'
 import { indexPolicy } from '../evaluate.libs'
@@ -28,66 +28,67 @@ const req: IamRequest.IAccessRequest = {
   resource: { type: 'post', attributes: {} },
 }
 
-describe('evaluatePolicyFast', () => {
+test('evaluatePolicyFast', async ({ bench }) => {
   const tiny = buildPolicy(5, false)
   const medium = buildPolicy(50, false)
   const large = buildPolicy(500, false)
   const conditional = buildPolicy(50, true)
 
-  bench('5 rules, unconditional', () => {
-    evaluatePolicyFast(tiny, req)
-  })
-
-  bench('50 rules, unconditional', () => {
-    evaluatePolicyFast(medium, req)
-  })
-
-  bench('500 rules, unconditional', () => {
-    evaluatePolicyFast(large, req)
-  })
-
-  bench('50 rules with conditions', () => {
-    evaluatePolicyFast(conditional, req)
-  })
+  await bench.compare(
+    bench('5 rules, unconditional', () => {
+      evaluatePolicyFast(tiny, req)
+    }),
+    bench('50 rules, unconditional', () => {
+      evaluatePolicyFast(medium, req)
+    }),
+    bench('500 rules, unconditional', () => {
+      evaluatePolicyFast(large, req)
+    }),
+    bench('50 rules with conditions', () => {
+      evaluatePolicyFast(conditional, req)
+    }),
+  )
 })
 
-describe('indexPolicy (cache hit)', () => {
+test('indexPolicy (cache hit)', async ({ bench }) => {
   const policy = buildPolicy(100, false)
   // Warm the cache once.
   indexPolicy(policy)
 
-  bench('cache hit', () => {
+  await bench('cache hit', () => {
     indexPolicy(policy)
-  })
+  }).run()
 })
 
-describe('indexPolicy (cold build)', () => {
-  bench('100 rules cold build', () => {
+test('indexPolicy (cold build)', async ({ bench }) => {
+  await bench('100 rules cold build', () => {
     // Use a fresh policy object each invocation to defeat the WeakMap cache.
     indexPolicy(buildPolicy(100, false))
-  })
+  }).run()
 })
 
-describe('evaluate vs evaluateFast', () => {
+test('evaluate vs evaluateFast', async ({ bench }) => {
   const policies = [buildPolicy(50, false)]
 
-  bench('evaluate (trace path)', () => {
-    evaluate(policies, req)
-  })
-
-  bench('evaluateFast (production path)', () => {
-    evaluateFast(policies, req)
-  })
+  await bench.compare(
+    bench('evaluate (trace path)', () => {
+      evaluate(policies, req)
+    }),
+    bench('evaluateFast (production path)', () => {
+      evaluateFast(policies, req)
+    }),
+  )
 })
 
-describe('cross-policy combine', () => {
+test('cross-policy combine', async ({ bench }) => {
   const policies = Array.from({ length: 10 }, () => buildPolicy(20, false))
 
-  bench('combine=and x 10 policies', () => {
-    evaluateFast(policies, req, 'deny', 'and')
-  })
-
-  bench('combine=allow-overrides x 10 policies', () => {
-    evaluateFast(policies, req, 'deny', 'allow-overrides')
-  })
+  await bench.compare(
+    bench('combine=and x 10 policies', () => {
+      evaluateFast(policies, req, 'deny', 'and')
+    }),
+    bench('combine=allow-overrides x 10 policies', () => {
+      evaluateFast(policies, req, 'deny', 'allow-overrides')
+    }),
+  )
 })
