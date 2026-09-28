@@ -1,0 +1,231 @@
+---
+title: "Class: PasskeyImpl"
+description: "The passkey sign-in provider. Sign-up goes through beginPasskeyRegistration and  completePasskeyRegistration, which are separate exports."
+---
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L58)
+
+The `passkey` sign-in provider. Sign-up goes through [beginPasskeyRegistration](../functions/beginPasskeyRegistration) and
+ [completePasskeyRegistration](../functions/completePasskeyRegistration), which are separate exports.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Implements
+
+- [`Me`](../../../index/namespaces/Provider/interfaces/Me)\<[`BeginInput`](../namespaces/Passkey/type-aliases/BeginInput), [`CompleteInput`](../namespaces/Passkey/type-aliases/CompleteInput), `Profile`\>
+
+## Constructors
+
+### Constructor
+
+> **new PasskeyImpl**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`opts`: [`Options`](../namespaces/Passkey/type-aliases/Options)): `PasskeyImpl`\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L74)
+
+#### Parameters
+
+##### opts
+
+[`Options`](../namespaces/Passkey/type-aliases/Options)
+
+#### Returns
+
+`PasskeyImpl`\<`Profile`\>
+
+## Properties
+
+### \_\_inProcessChallengeStore
+
+> `readonly` **\_\_inProcessChallengeStore**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L72)
+
+Read by `strict()`, which holds the provider and never the store. A boolean the holder computed;
+ a foreign `ChallengeStore` publishes no brand and is not judged.
+
+***
+
+### \_\_requestsDirectAttestation
+
+> `readonly` **\_\_requestsDirectAttestation**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L69)
+
+Read by `strict()` for the `webauthnAttestationDirect` compliance check, which otherwise has only
+ the operator's word for it. A boolean the holder computed; it carries nothing else.
+
+***
+
+### id
+
+> `readonly` **id**: `"passkey"` = `'passkey'`
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:61](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L61)
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`id`](../../../index/namespaces/Provider/interfaces/Me#id)
+
+***
+
+### kind
+
+> `readonly` **kind**: `"passkey"`
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L62)
+
+Open string so custom providers declare their own kind without patching the type.
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`kind`](../../../index/namespaces/Provider/interfaces/Me#kind)
+
+## Methods
+
+### begin()
+
+> **begin**(`ctx`: [`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: [`BeginInput`](../namespaces/Passkey/type-aliases/BeginInput)): `Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:104](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L104)
+
+Answers the WebAuthn challenge, for registering a passkey or for signing in with one.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### input
+
+[`BeginInput`](../namespaces/Passkey/type-aliases/BeginInput)
+
+#### Returns
+
+`Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`begin`](../../../index/namespaces/Provider/interfaces/Me#begin)
+
+***
+
+### complete()
+
+> **complete**(`ctx`: [`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: [`CompleteInput`](../namespaces/Passkey/type-aliases/CompleteInput)): `Promise`\<[`InternalIntent`](../../../index/namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:139](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L139)
+
+Verifies the authenticator's response and answers the intents that open the session.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### input
+
+[`CompleteInput`](../namespaces/Passkey/type-aliases/CompleteInput)
+
+#### Returns
+
+`Promise`\<[`InternalIntent`](../../../index/namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`complete`](../../../index/namespaces/Provider/interfaces/Me#complete)
+
+***
+
+### list()
+
+> **list**(`identityId`: `string`, `credentials`: [`Store`](../../../index/namespaces/Credential/type-aliases/Store), `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`Public`](../../../index/namespaces/Credential/type-aliases/Public)[]\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:268](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L268)
+
+The identity's passkeys that are not revoked.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### credentials
+
+[`Store`](../../../index/namespaces/Credential/type-aliases/Store)
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`Public`](../../../index/namespaces/Credential/type-aliases/Public)[]\>
+
+***
+
+### revoke()
+
+> **revoke**(`identityId`: `string`, `credentialId`: `string`, `credentials`: [`Store`](../../../index/namespaces/Credential/type-aliases/Store), `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): [`Me`](../../../index/namespaces/Answer/interfaces/Me)\<[`Public`](../../../index/namespaces/Credential/type-aliases/Public)\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:275](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L275)
+
+Revoke one passkey, answering it as it stands revoked. A row that is not a passkey this identity
+ holds rejects as absent, so an id read off another account revokes nothing.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### credentialId
+
+`string`
+
+##### credentials
+
+[`Store`](../../../index/namespaces/Credential/type-aliases/Store)
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+[`Me`](../../../index/namespaces/Answer/interfaces/Me)\<[`Public`](../../../index/namespaces/Credential/type-aliases/Public)\>
+
+***
+
+### revokeAll()
+
+> **revokeAll**(`identityId`: `string`, `credentials`: [`Store`](../../../index/namespaces/Credential/type-aliases/Store), `ctx?`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`Public`](../../../index/namespaces/Credential/type-aliases/Public)[]\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:291](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L291)
+
+Revoke every live passkey the identity holds in one write, answering them as they stand revoked.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### credentials
+
+[`Store`](../../../index/namespaces/Credential/type-aliases/Store)
+
+##### ctx?
+
+[`TenantContext`](../../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`Public`](../../../index/namespaces/Credential/type-aliases/Public)[]\>
+

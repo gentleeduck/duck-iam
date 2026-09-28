@@ -1,0 +1,71 @@
+---
+title: "Type Alias: Membership"
+description: "An identity's place in an org, and its roles there."
+---
+
+> **Membership** = \{ `identityId`: `string`; `invitedAt`: `Date` \| `null`; `joinedAt`: `Date`; `leftAt`: `Date` \| `null`; `orgId`: `string`; `roles`: `string`[]; `tenantId`: `string` \| `null`; \}
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L18)
+
+An identity's place in an org, and its roles there.
+
+## Properties
+
+### identityId
+
+> **identityId**: `string`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L19)
+
+***
+
+### invitedAt
+
+> **invitedAt**: `Date` \| `null`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L23)
+
+***
+
+### joinedAt
+
+> **joinedAt**: `Date`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L24)
+
+***
+
+### leftAt
+
+> **leftAt**: `Date` \| `null`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L25)
+
+***
+
+### orgId
+
+> **orgId**: `string`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L20)
+
+***
+
+### roles
+
+> **roles**: `string`[]
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L22)
+
+Org-scoped roles, distinct from tenant-wide identity roles.
+
+***
+
+### tenantId
+
+> **tenantId**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L27)
+
+As [Org.Me.tenantId](Me#tenantid).
+

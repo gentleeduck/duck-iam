@@ -1,0 +1,65 @@
+---
+title: "Function: createOidcOP()"
+description: "Convenience factory with sensible memory-store defaults."
+---
+
+> **createOidcOP**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`args`: \{ `auth`: [`AuthEngine`](../../../index/classes/AuthEngine)\<`Profile`\>; `config`: [`Cfg`](../namespaces/AuthOidcOP/type-aliases/Cfg); `dcr?`: [`DcrCfg`](../namespaces/AuthOidcOP/type-aliases/DcrCfg); `signIdToken`: (`payload`: `Record`\<`string`, `unknown`\>) => `string` \| `Promise`\<`string`\>; `stores?`: \{ `accessTokens?`: [`AccessTokenStore`](../namespaces/AuthOidcOP/type-aliases/AccessTokenStore); `clients?`: [`ClientStore`](../namespaces/AuthOidcOP/type-aliases/ClientStore); `codes?`: [`CodeStore`](../namespaces/AuthOidcOP/type-aliases/CodeStore); `consents?`: [`ConsentStore`](../namespaces/AuthOidcOP/type-aliases/ConsentStore); `refreshTokens?`: [`RefreshTokenStore`](../namespaces/AuthOidcOP/type-aliases/RefreshTokenStore); \}; \}): [`OidcOpRoot`](../classes/OidcOpRoot)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:722](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L722)
+
+Convenience factory with sensible memory-store defaults.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Parameters
+
+### args
+
+#### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)\<`Profile`\>
+
+#### config
+
+[`Cfg`](../namespaces/AuthOidcOP/type-aliases/Cfg)
+
+#### dcr?
+
+[`DcrCfg`](../namespaces/AuthOidcOP/type-aliases/DcrCfg)
+
+#### signIdToken
+
+(`payload`: `Record`\<`string`, `unknown`\>) => `string` \| `Promise`\<`string`\>
+
+#### stores?
+
+\{ `accessTokens?`: [`AccessTokenStore`](../namespaces/AuthOidcOP/type-aliases/AccessTokenStore); `clients?`: [`ClientStore`](../namespaces/AuthOidcOP/type-aliases/ClientStore); `codes?`: [`CodeStore`](../namespaces/AuthOidcOP/type-aliases/CodeStore); `consents?`: [`ConsentStore`](../namespaces/AuthOidcOP/type-aliases/ConsentStore); `refreshTokens?`: [`RefreshTokenStore`](../namespaces/AuthOidcOP/type-aliases/RefreshTokenStore); \}
+
+#### stores.accessTokens?
+
+[`AccessTokenStore`](../namespaces/AuthOidcOP/type-aliases/AccessTokenStore)
+
+#### stores.clients?
+
+[`ClientStore`](../namespaces/AuthOidcOP/type-aliases/ClientStore)
+
+#### stores.codes?
+
+[`CodeStore`](../namespaces/AuthOidcOP/type-aliases/CodeStore)
+
+#### stores.consents?
+
+[`ConsentStore`](../namespaces/AuthOidcOP/type-aliases/ConsentStore)
+
+#### stores.refreshTokens?
+
+[`RefreshTokenStore`](../namespaces/AuthOidcOP/type-aliases/RefreshTokenStore)
+
+## Returns
+
+[`OidcOpRoot`](../classes/OidcOpRoot)\<`Profile`\>
+

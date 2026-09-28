@@ -1,0 +1,40 @@
+---
+title: "Type Alias: NestSignInDenial"
+description: "A refusal from NestSignInOptions.onAuthenticated. detail, not message: it is forwarded  verbatim as the body's error.detail, the field every other duck-auth error uses."
+---
+
+> **NestSignInDenial** = \{ `code`: `string`; `detail?`: `string`; `status`: `number`; \}
+
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:59](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L59)
+
+A refusal from [NestSignInOptions.onAuthenticated](NestSignInOptions#onauthenticated). `detail`, not `message`: it is forwarded
+ verbatim as the body's `error.detail`, the field every other duck-auth error uses.
+
+## Properties
+
+### code
+
+> **code**: `string`
+
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:61](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L61)
+
+Machine-readable code such as `'AUTH_NOT_PERMITTED_ON_HOST'`. Free-form: your vocabulary, not the engine's.
+
+***
+
+### detail?
+
+> `optional` **detail?**: `string`
+
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:64](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L64)
+
+***
+
+### status
+
+> **status**: `number`
+
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:63](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L63)
+
+HTTP status. Must be 4xx or 5xx; anything else is coerced to 403.
+

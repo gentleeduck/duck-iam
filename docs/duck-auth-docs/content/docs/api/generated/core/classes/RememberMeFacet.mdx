@@ -1,0 +1,171 @@
+---
+title: "Class: RememberMeFacet"
+description: "Built by the host over its credential store; the engine does not mount it."
+---
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/remember-me.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/remember-me.ts#L18)
+
+Built by the host over its credential store; the engine does not mount it.
+
+## Constructors
+
+### Constructor
+
+> **new RememberMeFacet**(`_credentials`: [`Store`](../../index/namespaces/Credential/type-aliases/Store), `_crypto`: \{ `authRandomToken`: `string`; `authSha256`: `string`; \}, `_cfg?`: [`Cfg`](../namespaces/RememberMeFacet/type-aliases/Cfg)): `RememberMeFacet`
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/remember-me.ts:54](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/remember-me.ts#L54)
+
+#### Parameters
+
+##### \_credentials
+
+[`Store`](../../index/namespaces/Credential/type-aliases/Store)
+
+##### \_crypto
+
+###### authRandomToken
+
+###### authSha256
+
+##### \_cfg?
+
+[`Cfg`](../namespaces/RememberMeFacet/type-aliases/Cfg) = `DEFAULT_REMEMBER_ME_CONFIG`
+
+#### Returns
+
+`RememberMeFacet`
+
+## Methods
+
+### issue()
+
+> **issue**(`identityId`: `string`, `opts?`: \{ `metadata?`: `Record`\<`string`, `unknown`\>; \}, `ctx?`: [`TenantContext`](../../index/interfaces/TenantContext)): `Promise`\<[`Issued`](../namespaces/RememberMeFacet/type-aliases/Issued)\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/remember-me.ts:77](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/remember-me.ts#L77)
+
+Mints and persists a token, handing back the plaintext exactly once. `metadata` is the caller's,
+ usually `{ label, userAgent, ip }` for a devices list, except `purpose`, which is always this one.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### opts?
+
+###### metadata?
+
+`Record`\<`string`, `unknown`\>
+
+##### ctx?
+
+[`TenantContext`](../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<[`Issued`](../namespaces/RememberMeFacet/type-aliases/Issued)\>
+
+***
+
+### list()
+
+> **list**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../index/interfaces/TenantContext)): `Promise`\<\{ `createdAt`: `Date`; `credentialId`: `string`; `expiresAt`: `Date` \| `null`; `metadata`: `Record`\<`string`, `unknown`\> \| `null`; \}[]\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/remember-me.ts:130](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/remember-me.ts#L130)
+
+The live trusted devices for an identity, as row ids plus the caller's metadata and never the secret.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<\{ `createdAt`: `Date`; `credentialId`: `string`; `expiresAt`: `Date` \| `null`; `metadata`: `Record`\<`string`, `unknown`\> \| `null`; \}[]\>
+
+***
+
+### revoke()
+
+> **revoke**(`identityId`: `string`, `credentialId`: `string`, `ctx?`: [`TenantContext`](../../index/interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/remember-me.ts:155](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/remember-me.ts#L155)
+
+Revoke a specific trusted-device row.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### credentialId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### revokeAll()
+
+> **revokeAll**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../index/interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/remember-me.ts:168](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/remember-me.ts#L168)
+
+Wipe every trusted device for an identity in one write, an elapsed TTL included: `list` answers what
+ is live, which is not the same set, and going through it left the expired rows behind for good.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### verify()
+
+> **verify**(`token`: `string`, `ctx?`: [`TenantContext`](../../index/interfaces/TenantContext)): [`Me`](../../index/namespaces/Answer/interfaces/Me)\<[`Verified`](../namespaces/RememberMeFacet/type-aliases/Verified)\>
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/remember-me.ts:103](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/remember-me.ts#L103)
+
+Rejects `AUTH_CREDENTIAL_NOT_FOUND` on a miss, an elapsed TTL or another purpose's row, which
+ `orNull()` reads as null, and `AUTH_RECOVERY_TOKEN_INVALID` on malformed input, which it does not.
+ A success does not consume the token, which is presented on every sign-in inside the TTL.
+
+#### Parameters
+
+##### token
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../index/interfaces/TenantContext) = `{}`
+
+#### Returns
+
+[`Me`](../../index/namespaces/Answer/interfaces/Me)\<[`Verified`](../namespaces/RememberMeFacet/type-aliases/Verified)\>
+

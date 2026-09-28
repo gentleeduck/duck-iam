@@ -1,0 +1,26 @@
+---
+title: "Function: nestSignIn()"
+description: "POST sign-in, CSRF-guarded. Pass onAuthenticated to gate it on something the engine cannot  know, such as an allow-list, a suspended tenant or a per-identity block."
+---
+
+> **nestSignIn**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: [`NestSignInOptions`](../type-aliases/NestSignInOptions)): [`Handler`](../namespaces/NestAdapter/type-aliases/Handler)
+
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:104](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L104)
+
+POST sign-in, CSRF-guarded. Pass `onAuthenticated` to gate it on something the engine cannot
+ know, such as an allow-list, a suspended tenant or a per-identity block.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+[`NestSignInOptions`](../type-aliases/NestSignInOptions) = `{}`
+
+## Returns
+
+[`Handler`](../namespaces/NestAdapter/type-aliases/Handler)
+

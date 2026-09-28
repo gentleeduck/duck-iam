@@ -1,0 +1,61 @@
+---
+title: "Type Alias: Params"
+description: "scrypt cost parameters."
+---
+
+> **Params** = \{ `keylen`: `number`; `N`: `number`; `p`: `number`; `r`: `number`; `saltLen`: `number`; \}
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L8)
+
+scrypt cost parameters.
+
+## Properties
+
+### keylen
+
+> **keylen**: `number`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L16)
+
+In bytes. Default 64.
+
+***
+
+### N
+
+> **N**: `number`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L10)
+
+CPU and memory cost, and it must be a power of two. Default 2^17, 131072.
+
+***
+
+### p
+
+> **p**: `number`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L14)
+
+Default 1.
+
+***
+
+### r
+
+> **r**: `number`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L12)
+
+Default 8.
+
+***
+
+### saltLen
+
+> **saltLen**: `number`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L18)
+
+In bytes. Default 16.
+

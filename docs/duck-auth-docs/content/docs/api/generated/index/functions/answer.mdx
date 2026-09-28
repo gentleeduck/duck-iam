@@ -1,0 +1,28 @@
+---
+title: "Function: answer()"
+description: "A call with the readers on it. A thunk is taken too, so a body that refuses its arguments before its first  await rejects rather than throwing where the call is written, past the readers."
+---
+
+> **answer**\<`T`\>(`call`: `Promise`\<`T`\> \| (() => `Promise`\<`T`\>)): [`Me`](../namespaces/Answer/interfaces/Me)\<`T`\>
+
+Defined in: [packages/duck-auth/src/core/answer.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/answer.ts#L66)
+
+A call with the readers on it. A thunk is taken too, so a body that refuses its arguments before its first
+ await rejects rather than throwing where the call is written, past the readers.
+
+## Type Parameters
+
+### T
+
+`T`
+
+## Parameters
+
+### call
+
+`Promise`\<`T`\> \| (() => `Promise`\<`T`\>)
+
+## Returns
+
+[`Me`](../namespaces/Answer/interfaces/Me)\<`T`\>
+

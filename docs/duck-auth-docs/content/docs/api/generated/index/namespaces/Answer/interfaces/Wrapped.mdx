@@ -1,0 +1,54 @@
+---
+title: "Interface: Wrapped"
+description: "What wrap hands back, with the two swallowing readers still on it: absence is the same answer whether  it is swallowed before the wrap or after, so both orders are written and both mean the one thing."
+---
+
+Defined in: [packages/duck-auth/src/core/answer.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/answer.ts#L23)
+
+What `wrap` hands back, with the two swallowing readers still on it: absence is the same answer whether
+ it is swallowed before the wrap or after, so both orders are written and both mean the one thing.
+
+## Extends
+
+- `Promise`\<[`Result`](../type-aliases/Result)\<`T`\>\>
+
+## Type Parameters
+
+### T
+
+`T`
+
+## Methods
+
+### orDefault()
+
+> **orDefault**(`fallback`: `T`): `Wrapped`\<`T`\>
+
+Defined in: [packages/duck-auth/src/core/answer.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/answer.ts#L25)
+
+The same `{ data, error }`, with this value where there was no row.
+
+#### Parameters
+
+##### fallback
+
+`T`
+
+#### Returns
+
+`Wrapped`\<`T`\>
+
+***
+
+### orNull()
+
+> **orNull**(): `Wrapped`\<`T` \| `null`\>
+
+Defined in: [packages/duck-auth/src/core/answer.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/answer.ts#L27)
+
+The same `{ data, error }`, with `null` where there was no row.
+
+#### Returns
+
+`Wrapped`\<`T` \| `null`\>
+

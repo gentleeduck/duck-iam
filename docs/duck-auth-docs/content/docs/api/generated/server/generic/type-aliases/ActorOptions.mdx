@@ -1,0 +1,62 @@
+---
+title: "Type Alias: ActorOptions"
+description: "What every adapter's actor wrapper takes, over the request object that adapter's getCaller reads.  getCaller is the opt-in: without it the wrapper is a pure attribution scope that refuses nothing;  with it, each request's fingerprint is compared with the session's, running the anomaly detectors and  the hijack policy.  WARN: switching that on in a live deployment starts acting on drift for sessions already issued."
+---
+
+> **ActorOptions**\<`Req`\> = \{ `getCaller?`: (`req`: `Req`) => [`CallerFingerprint`](CallerFingerprint); `onAnomaly?`: [`RequestSecurityOptions`](RequestSecurityOptions)\[`"onAnomaly"`\]; `onHijack?`: [`RequestSecurityOptions`](RequestSecurityOptions)\[`"onHijack"`\]; \}
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:342](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L342)
+
+What every adapter's actor wrapper takes, over the request object that adapter's `getCaller` reads.
+ `getCaller` is the opt-in: without it the wrapper is a pure attribution scope that refuses nothing;
+ with it, each request's fingerprint is compared with the session's, running the anomaly detectors and
+ the hijack policy.
+ WARN: switching that on in a live deployment starts acting on drift for sessions already issued.
+
+## Type Parameters
+
+### Req
+
+`Req`
+
+## Properties
+
+### getCaller?
+
+> `optional` **getCaller?**: (`req`: `Req`) => [`CallerFingerprint`](CallerFingerprint)
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:345](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L345)
+
+Read the request fingerprint. Never from a forwarded header: see [callerContext](../functions/callerContext). A host
+ resolving geolocation returns it as `geo`; nothing else supplies one.
+
+#### Parameters
+
+##### req
+
+`Req`
+
+#### Returns
+
+[`CallerFingerprint`](CallerFingerprint)
+
+***
+
+### onAnomaly?
+
+> `optional` **onAnomaly?**: [`RequestSecurityOptions`](RequestSecurityOptions)\[`"onAnomaly"`\]
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:349](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L349)
+
+Handle the anomaly verdict yourself, including the `'step-up'` the default ignores.
+
+***
+
+### onHijack?
+
+> `optional` **onHijack?**: [`RequestSecurityOptions`](RequestSecurityOptions)\[`"onHijack"`\]
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:347](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L347)
+
+Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform.
+

@@ -1,0 +1,56 @@
+---
+title: "Interface: IVerifyInput"
+description: "One challenge to check."
+---
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L13)
+
+One challenge to check.
+
+## Properties
+
+### expectedAction?
+
+> `optional` **expectedAction?**: `string`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L25)
+
+Expected action, asserted against the one Turnstile and reCAPTCHA v3 echo back. Overrides the
+verifier's own when both are set, so one wiring distinguishes sign-in from sign-up.
+
+WARN: hCaptcha answers with no `action`, so asking for one there refuses every call.
+
+***
+
+### expectedHostname?
+
+> `optional` **expectedHostname?**: `string`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L32)
+
+Overrides the verifier's `expectedHostname` for this one call.
+
+WARN: it replaces the configured list rather than narrowing it, so a value read off the request —
+the `Host` header, a body field — turns the operator's policy off for that call.
+
+***
+
+### remoteIp?
+
+> `optional` **remoteIp?**: `string`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L18)
+
+The client address, passed to the provider as `remoteip` when supplied.
+
+***
+
+### token
+
+> **token**: `string`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.types.ts#L16)
+
+The solution the widget handed the browser. Refused unsent when not a string, or over
+ `CAPTCHA_TOKEN_MAX_LENGTH`.
+

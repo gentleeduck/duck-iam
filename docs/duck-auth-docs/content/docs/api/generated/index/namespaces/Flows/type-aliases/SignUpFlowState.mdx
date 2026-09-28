@@ -1,0 +1,97 @@
+---
+title: "Type Alias: SignUpFlowState"
+description: "A multi-stage sign-up in progress."
+---
+
+> **SignUpFlowState**\<`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)\> = \{ `absoluteExpiresAt`: `number`; `completed`: [`SignUpStage`](SignUpStage)[]; `createdAt`: `number`; `data`: `Partial`\<`Profile`\>; `expiresAt`: `number`; `id`: `string`; `identityId`: `string`; `required`: [`SignUpStage`](SignUpStage)[]; \}
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:93](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L93)
+
+A multi-stage sign-up in progress.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### absoluteExpiresAt
+
+> **absoluteExpiresAt**: `number`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:107](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L107)
+
+Hard cap (default 24 h); cannot be slid past.
+
+***
+
+### completed
+
+> **completed**: [`SignUpStage`](SignUpStage)[]
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:101](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L101)
+
+Appends are idempotent.
+
+***
+
+### createdAt
+
+> **createdAt**: `number`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:109](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L109)
+
+Wall-clock created time, ms.
+
+***
+
+### data
+
+> **data**: `Partial`\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:103](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L103)
+
+Accumulated across stages, merged into `Identity.profile` at `complete()`.
+
+***
+
+### expiresAt
+
+> **expiresAt**: `number`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:105](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L105)
+
+Sliding TTL (default 30 min).
+
+***
+
+### id
+
+> **id**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:95](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L95)
+
+Opaque flow id; surfaced to the framework adapter to put on a __Host-duck-signup cookie.
+
+***
+
+### identityId
+
+> **identityId**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:97](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L97)
+
+Created at the email-collected stage, with `emailVerified` false until `completeEmailVerification`.
+
+***
+
+### required
+
+> **required**: [`SignUpStage`](SignUpStage)[]
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:99](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L99)
+
+Ordered, and configured per signup type: passkey-only, B2B and the rest.
+

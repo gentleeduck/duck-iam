@@ -1,0 +1,89 @@
+---
+title: "Interface: Me"
+description: "A sign-in provider: begin starts its flow and complete finishes it."
+---
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:73](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L73)
+
+A sign-in provider: `begin` starts its flow and `complete` finishes it.
+
+## Type Parameters
+
+### BeginIn
+
+`BeginIn` = `unknown`
+
+### CompleteIn
+
+`CompleteIn` = `unknown`
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### id
+
+> **id**: `string`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:78](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L78)
+
+***
+
+### kind
+
+> **kind**: `string`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:80](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L80)
+
+Open string so custom providers declare their own kind without patching the type.
+
+## Methods
+
+### begin()
+
+> **begin**(`ctx`: [`Context`](../type-aliases/Context)\<`Profile`\>, `input`: `BeginIn`): `Promise`\<[`Intent`](../type-aliases/Intent)[]\>
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:82](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L82)
+
+Starts the flow; answers the intents the server adapter carries out.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](../type-aliases/Context)\<`Profile`\>
+
+##### input
+
+`BeginIn`
+
+#### Returns
+
+`Promise`\<[`Intent`](../type-aliases/Intent)[]\>
+
+***
+
+### complete()
+
+> **complete**(`ctx`: [`Context`](../type-aliases/Context)\<`Profile`\>, `input`: `CompleteIn`): `Promise`\<[`InternalIntent`](../type-aliases/InternalIntent)[]\>
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:84](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L84)
+
+Finishes the flow; answers the intents that open the session.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](../type-aliases/Context)\<`Profile`\>
+
+##### input
+
+`CompleteIn`
+
+#### Returns
+
+`Promise`\<[`InternalIntent`](../type-aliases/InternalIntent)[]\>
+

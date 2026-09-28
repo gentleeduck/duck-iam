@@ -1,0 +1,69 @@
+---
+title: "Interface: Claims"
+description: "The claims a DPoP proof carries."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L55)
+
+The claims a DPoP proof carries.
+
+## Properties
+
+### ath?
+
+> `optional` **ath?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:65](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L65)
+
+Access-token hash, sha-256 base64url, bound to this proof.
+
+***
+
+### htm
+
+> **htm**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:59](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L59)
+
+HTTP method, as the client sent it; compared to the request's case-insensitively.
+
+***
+
+### htu
+
+> **htu**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:61](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L61)
+
+Absolute URL of the request, with no query or fragment.
+
+***
+
+### iat
+
+> **iat**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:63](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L63)
+
+Issued-at, seconds since epoch.
+
+***
+
+### jti
+
+> **jti**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:57](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L57)
+
+Unique per proof, and what replay protection is keyed on.
+
+***
+
+### nonce?
+
+> `optional` **nonce?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L67)
+
+Optional server-supplied nonce echoed back for additional replay protection.
+

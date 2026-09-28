@@ -1,0 +1,29 @@
+---
+title: "Function: createAuthVuePlugin()"
+description: "Build a Vue 3 plugin that installs the auth client + composables. The returned object is plugin-shaped ({ install }) so it works with app.use(authPlugin) from a createApp boot."
+---
+
+> **createAuthVuePlugin**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`cfg?`: [`Cfg`](../namespaces/VueClient/interfaces/Cfg)\<`Profile`\>): [`Plugin`](../namespaces/VueClient/type-aliases/Plugin)
+
+Defined in: [packages/duck-auth/src/client/vue/index.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vue/index.ts#L16)
+
+Build a Vue 3 plugin that installs the auth client + composables.
+The returned object is plugin-shaped (`{ install }`) so it works
+with `app.use(authPlugin)` from a `createApp` boot.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Parameters
+
+### cfg?
+
+[`Cfg`](../namespaces/VueClient/interfaces/Cfg)\<`Profile`\> = `{}`
+
+## Returns
+
+[`Plugin`](../namespaces/VueClient/type-aliases/Plugin)
+

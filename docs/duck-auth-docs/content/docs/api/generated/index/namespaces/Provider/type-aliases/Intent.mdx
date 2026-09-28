@@ -1,0 +1,12 @@
+---
+title: "Type Alias: Intent"
+description: "The only intents a framework adapter ever sees. FlowsImpl consumes and strips the internal  startSession and requireMfa signals first."
+---
+
+> **Intent** = \{ `status?`: `302` \| `303` \| `307`; `type`: `"redirect"`; `url`: `string`; \} \| \{ `name`: `string`; `options`: [`CookieOptions`](../interfaces/CookieOptions); `type`: `"setCookie"`; `value`: `string`; \} \| \{ `name`: `string`; `options?`: [`CookieOptions`](../interfaces/CookieOptions); `type`: `"clearCookie"`; \} \| \{ `body`: `unknown`; `status`: `number`; `type`: `"json"`; \} \| \{ `code`: `string`; `detail?`: `string`; `status`: `number`; `type`: `"error"`; \}
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L16)
+
+The only intents a framework adapter ever sees. `FlowsImpl` consumes and strips the internal
+ `startSession` and `requireMfa` signals first.
+

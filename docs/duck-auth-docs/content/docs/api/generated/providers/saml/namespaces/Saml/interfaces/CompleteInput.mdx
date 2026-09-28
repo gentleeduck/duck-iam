@@ -1,0 +1,31 @@
+---
+title: "Interface: CompleteInput"
+description: "Covers both flows: SP-initiated, where the response references an InResponseTo this side issued, and  IdP-initiated, where it is unsolicited and node-saml's allowUnsolicited decides whether it lands."
+---
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:109](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L109)
+
+Covers both flows: SP-initiated, where the response references an InResponseTo this side issued, and
+ IdP-initiated, where it is unsolicited and node-saml's `allowUnsolicited` decides whether it lands.
+
+## Properties
+
+### relayState?
+
+> `optional` **relayState?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:116](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L116)
+
+RelayState the IdP echoed back. Required unless `allowUnsolicited` is set: the value `begin`
+issued as a CSRF guard had no counterpart on the way back.
+
+***
+
+### SAMLResponse
+
+> **SAMLResponse**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:111](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L111)
+
+The raw SAMLResponse param off the IdP POST.
+

@@ -1,0 +1,47 @@
+---
+title: "Type Alias: ProviderLink"
+description: "One login linked to the identity."
+---
+
+> **ProviderLink** = \{ `addedAt`: `Date`; `addedBy`: `string` \| `null`; `providerId`: `string`; `providerSub`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:7](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L7)
+
+One login linked to the identity.
+
+## Properties
+
+### addedAt
+
+> **addedAt**: `Date`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L12)
+
+***
+
+### addedBy
+
+> **addedBy**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L13)
+
+***
+
+### providerId
+
+> **providerId**: `string`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:9](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L9)
+
+Which party issued the login, namespaced: 'oauth:google', 'saml:acme', 'okta'. Ours, not theirs.
+
+***
+
+### providerSub
+
+> **providerSub**: `string`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L11)
+
+That party's own stable subject id for the account, such as a Google `sub`. Theirs, not ours.
+

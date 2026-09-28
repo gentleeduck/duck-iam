@@ -1,0 +1,66 @@
+---
+title: "Type Alias: Provider"
+description: "A KMS that mints data keys and unwraps them."
+---
+
+> **Provider** = \{ `id`: `string`; `decryptDataKey`: `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>; `generateDataKey`: `Promise`\<[`DataKey`](DataKey)\>; \}
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L17)
+
+A KMS that mints data keys and unwraps them.
+
+## Properties
+
+### id
+
+> `readonly` **id**: `string`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L19)
+
+Stable id for audit logs and strict() reporting, such as 'aws-kms' or 'gcp-kms'.
+
+## Methods
+
+### decryptDataKey()
+
+> **decryptDataKey**(`wrapped`: `Uint8Array`, `ctx?`: [`EncryptionContext`](EncryptionContext)): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L24)
+
+Must carry the same encryption context the DEK was generated with; AWS and GCP both refuse
+ the request otherwise.
+
+#### Parameters
+
+##### wrapped
+
+`Uint8Array`
+
+##### ctx?
+
+[`EncryptionContext`](EncryptionContext)
+
+#### Returns
+
+`Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+***
+
+### generateDataKey()
+
+> **generateDataKey**(`ctx?`: [`EncryptionContext`](EncryptionContext)): `Promise`\<[`DataKey`](DataKey)\>
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L21)
+
+Most providers answer (plaintext, wrapped) in one call, so there is only one failure mode.
+
+#### Parameters
+
+##### ctx?
+
+[`EncryptionContext`](EncryptionContext)
+
+#### Returns
+
+`Promise`\<[`DataKey`](DataKey)\>
+

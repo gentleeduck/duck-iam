@@ -1,0 +1,41 @@
+---
+title: "Function: elysiaWithActor()"
+description: "Wrap one handler so its writes carry the request's actor; per-handler, since Elysia composes no  next. A handler annotated with Elysia's own Context keeps it. See core/actor/README.md for  what runs unbound and what raises."
+---
+
+> **elysiaWithActor**\<`Ctx` *extends* [`Context`](../namespaces/ElysiaAdapter/type-aliases/Context), `Out`\>(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `handler`: (`ctx`: `Ctx`) => `Promise`\<`Out`\>, `opts?`: [`ElysiaActorOptions`](../type-aliases/ElysiaActorOptions)\<`Ctx`\>): (`ctx`: `Ctx`) => `Promise`\<`Out`\>
+
+Defined in: [packages/duck-auth/src/server/elysia/index.ts:123](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/elysia/index.ts#L123)
+
+Wrap one handler so its writes carry the request's actor; per-handler, since Elysia composes no
+ `next`. A handler annotated with Elysia's own `Context` keeps it. See `core/actor/README.md` for
+ what runs unbound and what raises.
+
+## Type Parameters
+
+### Ctx
+
+`Ctx` *extends* [`Context`](../namespaces/ElysiaAdapter/type-aliases/Context)
+
+### Out
+
+`Out`
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### handler
+
+(`ctx`: `Ctx`) => `Promise`\<`Out`\>
+
+### opts?
+
+[`ElysiaActorOptions`](../type-aliases/ElysiaActorOptions)\<`Ctx`\> = `{}`
+
+## Returns
+
+(`ctx`: `Ctx`) => `Promise`\<`Out`\>
+

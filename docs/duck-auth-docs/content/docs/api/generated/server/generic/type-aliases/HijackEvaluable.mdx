@@ -1,0 +1,59 @@
+---
+title: "Type Alias: HijackEvaluable"
+description: "What requestSecurity needs off the engine, structurally."
+---
+
+> **HijackEvaluable** = \{ `hijack`: \{ `applyReaction`: `Promise`\<`void`\>; `evaluate`: `Promise`\<[`Evaluation`](../../../index/namespaces/Hijack/type-aliases/Evaluation)\>; \}; \}
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:314](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L314)
+
+What [requestSecurity](../functions/requestSecurity) needs off the engine, structurally.
+
+## Properties
+
+### hijack
+
+> **hijack**: \{ `applyReaction`: `Promise`\<`void`\>; `evaluate`: `Promise`\<[`Evaluation`](../../../index/namespaces/Hijack/type-aliases/Evaluation)\>; \}
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:315](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L315)
+
+#### applyReaction()
+
+> **applyReaction**(`reaction`: [`Reaction`](../../../index/namespaces/Hijack/type-aliases/Reaction), `session`: [`Me`](../../../index/namespaces/Sessions/type-aliases/Me)): `Promise`\<`void`\>
+
+Carries out a verdict's reaction on the session.
+
+##### Parameters
+
+###### reaction
+
+[`Reaction`](../../../index/namespaces/Hijack/type-aliases/Reaction)
+
+###### session
+
+[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)
+
+##### Returns
+
+`Promise`\<`void`\>
+
+#### evaluate()
+
+> **evaluate**(`session`: [`Me`](../../../index/namespaces/Sessions/type-aliases/Me), `request`: [`CallerFingerprint`](CallerFingerprint)): `Promise`\<[`Evaluation`](../../../index/namespaces/Hijack/type-aliases/Evaluation)\>
+
+Compares the request with the session's baseline.
+
+##### Parameters
+
+###### session
+
+[`Me`](../../../index/namespaces/Sessions/type-aliases/Me)
+
+###### request
+
+[`CallerFingerprint`](CallerFingerprint)
+
+##### Returns
+
+`Promise`\<[`Evaluation`](../../../index/namespaces/Hijack/type-aliases/Evaluation)\>
+

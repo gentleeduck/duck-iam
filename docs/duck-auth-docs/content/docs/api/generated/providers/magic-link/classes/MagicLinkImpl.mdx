@@ -1,0 +1,130 @@
+---
+title: "Class: MagicLinkImpl"
+description: "Passwordless sign-in by a single-use link sent to the address."
+---
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L14)
+
+Passwordless sign-in by a single-use link sent to the address.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Implements
+
+- [`Me`](../../../index/namespaces/Provider/interfaces/Me)\<[`BeginInput`](../namespaces/MagicLink/interfaces/BeginInput), [`CompleteInput`](../namespaces/MagicLink/interfaces/CompleteInput), `Profile`\>
+
+## Constructors
+
+### Constructor
+
+> **new MagicLinkImpl**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`opts`: [`Options`](../namespaces/MagicLink/interfaces/Options)\<`Profile`\>): `MagicLinkImpl`\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L26)
+
+#### Parameters
+
+##### opts
+
+[`Options`](../namespaces/MagicLink/interfaces/Options)\<`Profile`\>
+
+#### Returns
+
+`MagicLinkImpl`\<`Profile`\>
+
+## Properties
+
+### \_\_noDeliver
+
+> `readonly` **\_\_noDeliver**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L21)
+
+Read by `strict()`, which holds the provider and not its options: with no `deliver`, `begin` refuses
+ every link request.
+
+***
+
+### id
+
+> `readonly` **id**: `"magic-link"` = `'magic-link'`
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L17)
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`id`](../../../index/namespaces/Provider/interfaces/Me#id)
+
+***
+
+### kind
+
+> `readonly` **kind**: `"magic-link"`
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L18)
+
+Open string so custom providers declare their own kind without patching the type.
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`kind`](../../../index/namespaces/Provider/interfaces/Me#kind)
+
+## Methods
+
+### begin()
+
+> **begin**(`ctx`: [`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: [`BeginInput`](../namespaces/MagicLink/interfaces/BeginInput)): `Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:49](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L49)
+
+Mints a single-use link and hands it to the host's `deliver`.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### input
+
+[`BeginInput`](../namespaces/MagicLink/interfaces/BeginInput)
+
+#### Returns
+
+`Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`begin`](../../../index/namespaces/Provider/interfaces/Me#begin)
+
+***
+
+### complete()
+
+> **complete**(`ctx`: [`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: [`CompleteInput`](../namespaces/MagicLink/interfaces/CompleteInput)): `Promise`\<[`InternalIntent`](../../../index/namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.ts:134](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.ts#L134)
+
+Spends the token and answers the intents that open the session.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### input
+
+[`CompleteInput`](../namespaces/MagicLink/interfaces/CompleteInput)
+
+#### Returns
+
+`Promise`\<[`InternalIntent`](../../../index/namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`complete`](../../../index/namespaces/Provider/interfaces/Me#complete)
+

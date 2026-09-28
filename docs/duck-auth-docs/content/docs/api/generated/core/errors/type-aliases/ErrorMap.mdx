@@ -1,0 +1,40 @@
+---
+title: "Type Alias: ErrorMap()"
+description: "A mapper and the range it draws from. codes is the same table, at runtime."
+---
+
+> **ErrorMap**\<`C` *extends* [`Code`](../../../index/namespaces/AuthError/type-aliases/Code)\> = [`AuthError`](../../../index/type-aliases/AuthError)
+
+Defined in: [packages/duck-auth/src/core/errors/errors.map.ts:4](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/errors/errors.map.ts#L4)
+
+A mapper and the range it draws from. `codes` is the same table, at runtime.
+
+## Type Parameters
+
+### C
+
+`C` *extends* [`Code`](../../../index/namespaces/AuthError/type-aliases/Code)
+
+> **ErrorMap**(`err`: `unknown`): [`AuthError`](../../../index/type-aliases/AuthError)
+
+WARN: wide on purpose, since `asAuthError` passes an already-typed error through with its own
+ code.
+
+## Parameters
+
+### err
+
+`unknown`
+
+## Returns
+
+[`AuthError`](../../../index/type-aliases/AuthError)
+
+## Properties
+
+### codes
+
+> `readonly` **codes**: `ReadonlySet`\<`C`\>
+
+Defined in: [packages/duck-auth/src/core/errors/errors.map.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/errors/errors.map.ts#L8)
+

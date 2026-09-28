@@ -1,0 +1,187 @@
+---
+title: "Interface: Payload"
+description: "The claims an issued JWT carries."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:89](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L89)
+
+The claims an issued JWT carries.
+
+## Properties
+
+### aal
+
+> **aal**: [`AAL`](../../../../index/namespaces/Sessions/type-aliases/AAL)
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:103](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L103)
+
+Session AAL.
+
+***
+
+### abs?
+
+> `optional` **abs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:116](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L116)
+
+`absoluteExpiresAt` in epoch seconds: the ceiling no renewal moves. Optional, so a token minted
+ before the claim existed still verifies — absent, `verify` falls back to `exp`.
+
+***
+
+### acting\_as?
+
+> `optional` **acting\_as?**: \{ `expiresAt`: `number`; `realIdentityId`: `string`; `reason`: `string`; `startedAt`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:109](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L109)
+
+Acting-as envelope when impersonating. Timestamps are epoch seconds on the wire.
+
+#### expiresAt
+
+> **expiresAt**: `number`
+
+#### realIdentityId
+
+> **realIdentityId**: `string`
+
+#### reason
+
+> **reason**: `string`
+
+#### startedAt
+
+> **startedAt**: `number`
+
+***
+
+### aud?
+
+> `optional` **aud?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:95](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L95)
+
+Audience (optional).
+
+***
+
+### exp
+
+> **exp**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:99](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L99)
+
+Expiry, seconds.
+
+***
+
+### factors
+
+> **factors**: (`"magic-link"` \| `"password"` \| `"passkey"` \| `"oauth"` \| `"totp"` \| `"api-key"` \| `"saml"` \| `"webauthn"` \| `"sms"` \| `"backup-code"`)[]
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:105](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L105)
+
+Method names only; the parser checks each against [Sessions.FactorMethod](../../../../index/namespaces/Sessions/type-aliases/FactorMethod).
+
+***
+
+### frsh?
+
+> `optional` **frsh?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:113](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L113)
+
+Epoch seconds, driving `session.fresh = now - rotatedAt < freshnessMs`.
+
+***
+
+### iat
+
+> **iat**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:97](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L97)
+
+Issued-at, seconds.
+
+***
+
+### ip?
+
+> `optional` **ip?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:121](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L121)
+
+The session's recorded address, the hijack policy's baseline.
+
+***
+
+### iss
+
+> **iss**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:91](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L91)
+
+Issuer.
+
+***
+
+### knd?
+
+> `optional` **knd?**: `"guest"` \| `"user"` \| `"apikey"`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:111](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L111)
+
+`'user' | 'apikey' | 'guest'`, preserved so an M2M token round-trips.
+
+***
+
+### scope?
+
+> `optional` **scope?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:119](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L119)
+
+Space-separated OAuth scope, emitted when `issue()` was given one, so a resource server
+ branches without an out-of-band lookup. What gives `M2MImpl`'s `scopeMode` wire-level effect.
+
+***
+
+### sid
+
+> **sid**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:101](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L101)
+
+Session id (hashed row key).
+
+***
+
+### sub
+
+> **sub**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:93](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L93)
+
+Subject: the identity id.
+
+***
+
+### tid?
+
+> `optional` **tid?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:107](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L107)
+
+Tenant id when present.
+
+***
+
+### ua?
+
+> `optional` **ua?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:123](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L123)
+
+The session's recorded User-Agent, the hijack policy's baseline.
+

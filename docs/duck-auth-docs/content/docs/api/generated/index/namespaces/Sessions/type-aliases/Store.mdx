@@ -1,0 +1,222 @@
+---
+title: "Type Alias: Store"
+description: "The persistence contract every session store implements."
+---
+
+> **Store** = \{ `create`: `Promise`\<`void`\>; `delete`: `Promise`\<`void`\>; `deleteAllForIdentities`: `Promise`\<[`Revoked`](Revoked)[]\>; `deleteAllForIdentity`: `Promise`\<`void`\>; `deleteMany`: `Promise`\<[`Revoked`](Revoked)[]\>; `gc`: `Promise`\<\{ `deleted`: `number`; \}\>; `getByHash`: `Promise`\<[`Me`](Me)\>; `listByIdentity`: `Promise`\<[`Me`](Me)[]\>; `update`: `Promise`\<[`Me`](Me)\>; \}
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:117](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L117)
+
+The persistence contract every session store implements.
+
+## Methods
+
+### create()
+
+> **create**(`s`: [`CreateInput`](CreateInput)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:119](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L119)
+
+Insert a new row.
+
+#### Parameters
+
+##### s
+
+[`CreateInput`](CreateInput)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### delete()
+
+> **delete**(`id`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:138](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L138)
+
+Remove one row by its hash.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### deleteAllForIdentities()
+
+> **deleteAllForIdentities**(`identityIds`: `string`[]): `Promise`\<[`Revoked`](Revoked)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:151](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L151)
+
+The deletes above over a set, each answering the sessions it removed.
+
+#### Parameters
+
+##### identityIds
+
+`string`[]
+
+#### Returns
+
+`Promise`\<[`Revoked`](Revoked)[]\>
+
+***
+
+### deleteAllForIdentity()
+
+> **deleteAllForIdentity**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:145](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L145)
+
+Sign an identity out, scoped as [Sessions.Store.listByIdentity](#listbyidentity) is.
+ WARN: unscoped it ends every session the identity has anywhere, other tenants' included.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### deleteMany()
+
+> **deleteMany**(`ids`: `string`[]): `Promise`\<[`Revoked`](Revoked)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:153](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L153)
+
+Remove the rows by hash, answering the ones that existed.
+
+#### Parameters
+
+##### ids
+
+`string`[]
+
+#### Returns
+
+`Promise`\<[`Revoked`](Revoked)[]\>
+
+***
+
+### gc()
+
+> **gc**(`now`: `number`): `Promise`\<\{ `deleted`: `number`; \}\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:148](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L148)
+
+Periodic GC, scheduled by the caller, counting each row it reconciled once. An implementation that can
+ run on several instances at once MUST serialise itself, as `RedisSessionImpl` does with a `gc:lease`.
+
+#### Parameters
+
+##### now
+
+`number`
+
+#### Returns
+
+`Promise`\<\{ `deleted`: `number`; \}\>
+
+***
+
+### getByHash()
+
+> **getByHash**(`sidHash`: `string`): `Promise`\<[`Me`](Me)\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:122](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L122)
+
+The session behind a cookie's hash. A hash matching nothing is `AUTH_SESSION_REVOKED`: one that never
+ existed and one that was ended must read the same.
+
+#### Parameters
+
+##### sidHash
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Me`](Me)\>
+
+***
+
+### listByIdentity()
+
+> **listByIdentity**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../../interfaces/TenantContext)): `Promise`\<[`Me`](Me)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:142](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L142)
+
+Every session of an identity, narrowed to one tenant by `ctx`. Identities are global, so an unfiltered
+ read hands one tenant the IP, user-agent and existence of every session another issued. A named
+ `tenantId` matches exactly, so a global (`null`) session is not visible to it.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Me`](Me)[]\>
+
+***
+
+### update()
+
+> **update**(`id`: `string`, `patch`: `Partial`\<[`Me`](Me)\>, `expectedUpdatedAt?`: `Date`): `Promise`\<[`Me`](Me)\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:136](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L136)
+
+Patch a session. `expectedUpdatedAt` is an optional optimistic guard: supplied, the write lands only
+if the stored `updatedAt` still matches, and a mismatch is `AUTH_STALE_WRITE` rather than a silent
+overwrite. Omitted, the write is unconditional, as it always was.
+
+`updatedAt` is the token rather than a `version` column, which `Me` does not have and which would be
+a migration in four dialects, and rather than `rotatedAt`, which only a rotation moves - a `touch()`
+landing on a step-up would compare equal and discard the AAL upgrade, which is the race this guards.
+Every store stamps `updatedAt` on every write, which is what makes it usable and what
+`store-compliance` already pins.
+
+WARN: `Date` is millisecond-resolution, so two writes inside one millisecond still compare equal.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### patch
+
+`Partial`\<[`Me`](Me)\>
+
+##### expectedUpdatedAt?
+
+`Date`
+
+#### Returns
+
+`Promise`\<[`Me`](Me)\>
+

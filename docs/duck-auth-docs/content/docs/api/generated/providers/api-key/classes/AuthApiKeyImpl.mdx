@@ -1,0 +1,136 @@
+---
+title: "Class: AuthApiKeyImpl"
+description: "Bearer-style sign-in for service-to-service callers: verifies the plaintext token via  ApiKeysFacet, applies the per-key rate limit and emits a startSession intent at  kind: 'apikey', aal: 1."
+---
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:258](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L258)
+
+Bearer-style sign-in for service-to-service callers: verifies the plaintext token via
+ `ApiKeysFacet`, applies the per-key rate limit and emits a `startSession` intent at
+ `kind: 'apikey'`, `aal: 1`.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Implements
+
+- [`Me`](../../../index/namespaces/Provider/interfaces/Me)\<[`BeginInput`](../namespaces/ApiKeys/interfaces/BeginInput), [`CompleteInput`](../namespaces/ApiKeys/interfaces/CompleteInput), `Profile`\>
+
+## Constructors
+
+### Constructor
+
+> **new AuthApiKeyImpl**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`opts`: [`Options`](../namespaces/ApiKeys/interfaces/Options)): `AuthApiKeyImpl`\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:265](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L265)
+
+#### Parameters
+
+##### opts
+
+[`Options`](../namespaces/ApiKeys/interfaces/Options)
+
+#### Returns
+
+`AuthApiKeyImpl`\<`Profile`\>
+
+## Properties
+
+### id
+
+> `readonly` **id**: `"api-key"` = `'api-key'`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:261](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L261)
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`id`](../../../index/namespaces/Provider/interfaces/Me#id)
+
+***
+
+### kind
+
+> `readonly` **kind**: `"api-key"`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:262](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L262)
+
+Open string so custom providers declare their own kind without patching the type.
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`kind`](../../../index/namespaces/Provider/interfaces/Me#kind)
+
+## Methods
+
+### begin()
+
+> **begin**(): `Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:276](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L276)
+
+No begin step: an api key is presented outright, not negotiated.
+
+#### Returns
+
+`Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`begin`](../../../index/namespaces/Provider/interfaces/Me#begin)
+
+***
+
+### complete()
+
+> **complete**(`ctx`: [`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: [`CompleteInput`](../namespaces/ApiKeys/interfaces/CompleteInput)): `Promise`\<[`InternalIntent`](../../../index/namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:281](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L281)
+
+Verifies the presented key and answers the intents that open the session.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](../../../index/namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### input
+
+[`CompleteInput`](../namespaces/ApiKeys/interfaces/CompleteInput)
+
+#### Returns
+
+`Promise`\<[`InternalIntent`](../../../index/namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+#### Implementation of
+
+[`Me`](../../../index/namespaces/Provider/interfaces/Me).[`complete`](../../../index/namespaces/Provider/interfaces/Me#complete)
+
+***
+
+### withClient()
+
+> **withClient**(`stores`: [`Stores`](../../../index/namespaces/Provider/type-aliases/Stores), `events`: [`IBus`](../../../index/namespaces/Events/interfaces/IBus)): `AuthApiKeyImpl`\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.ts:271](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.ts#L271)
+
+The facet is captured in `opts` rather than read from `ctx`, so re-binding the context is not
+ enough: this swaps in a facet bound to the caller's client.
+
+#### Parameters
+
+##### stores
+
+[`Stores`](../../../index/namespaces/Provider/type-aliases/Stores)
+
+##### events
+
+[`IBus`](../../../index/namespaces/Events/interfaces/IBus)
+
+#### Returns
+
+`AuthApiKeyImpl`\<`Profile`\>
+

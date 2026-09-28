@@ -1,0 +1,22 @@
+---
+title: "Function: valkeySessionImpl()"
+description: "redis never enters subscriber mode, so it can be shared with valkeyDPoPNonceStore or the cmd  side of valkeyEvents."
+---
+
+> **valkeySessionImpl**(`cfg`: `Omit`\<[`Cfg`](../../redis/namespaces/RedisSession/type-aliases/Cfg)\<[`Client`](../../redis/namespaces/RedisLike/type-aliases/Client)\>, `"redis"`\> & \{ `redis`: [`Me`](../namespaces/ValkeyClient/type-aliases/Me); \}): [`RedisSessionImpl`](../../redis/classes/RedisSessionImpl)
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.valkey.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.valkey.ts#L6)
+
+`redis` never enters subscriber mode, so it can be shared with `valkeyDPoPNonceStore` or the `cmd`
+ side of `valkeyEvents`.
+
+## Parameters
+
+### cfg
+
+`Omit`\<[`Cfg`](../../redis/namespaces/RedisSession/type-aliases/Cfg)\<[`Client`](../../redis/namespaces/RedisLike/type-aliases/Client)\>, `"redis"`\> & \{ `redis`: [`Me`](../namespaces/ValkeyClient/type-aliases/Me); \}
+
+## Returns
+
+[`RedisSessionImpl`](../../redis/classes/RedisSessionImpl)
+

@@ -1,0 +1,50 @@
+---
+title: "Interface: Signal"
+description: "One thing a detector noticed about a request, and how much it counts."
+---
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L10)
+
+One thing a detector noticed about a request, and how much it counts.
+
+## Properties
+
+### evidence
+
+> **evidence**: `Record`\<`string`, `unknown`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L17)
+
+What a human reading the audit record needs. It reaches every `suspicious` sink, so it carries
+ derived values - a fingerprint, a distance - never the address, header or position behind them.
+
+***
+
+### kind
+
+> **kind**: [`Kind`](../type-aliases/Kind)
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L12)
+
+What was noticed. Two detectors may emit the same kind; [Signal.source](#source) tells them apart.
+
+***
+
+### score
+
+> **score**: `number`
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L14)
+
+0..1; higher = more suspicious. Clamped into that range on intake.
+
+***
+
+### source?
+
+> `optional` **source?**: `string`
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L19)
+
+The id of the detector that produced this signal. Set by the facet, not by the detector.
+

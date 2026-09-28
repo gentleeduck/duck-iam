@@ -1,0 +1,68 @@
+---
+title: "Interface: Me"
+description: "A call in flight. Awaiting it throws; the readers take the failure as a value instead.  orNull and orDefault answer again, so wrap still follows either one."
+---
+
+Defined in: [packages/duck-auth/src/core/answer.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/answer.ts#L12)
+
+A call in flight. Awaiting it throws; the readers take the failure as a value instead.
+ `orNull` and `orDefault` answer again, so `wrap` still follows either one.
+
+## Extends
+
+- `Promise`\<`T`\>
+
+## Type Parameters
+
+### T
+
+`T`
+
+## Methods
+
+### orDefault()
+
+> **orDefault**(`fallback`: `T`): `Me`\<`T`\>
+
+Defined in: [packages/duck-auth/src/core/answer.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/answer.ts#L14)
+
+The value, or this one where there was no row.
+
+#### Parameters
+
+##### fallback
+
+`T`
+
+#### Returns
+
+`Me`\<`T`\>
+
+***
+
+### orNull()
+
+> **orNull**(): `Me`\<`T` \| `null`\>
+
+Defined in: [packages/duck-auth/src/core/answer.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/answer.ts#L16)
+
+The value, or `null` where there was no row.
+
+#### Returns
+
+`Me`\<`T` \| `null`\>
+
+***
+
+### wrap()
+
+> **wrap**(): [`Wrapped`](Wrapped)\<`T`\>
+
+Defined in: [packages/duck-auth/src/core/answer.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/answer.ts#L18)
+
+`{ data, error }`: `error` is null when the call ran, and what it would have thrown otherwise.
+
+#### Returns
+
+[`Wrapped`](Wrapped)\<`T`\>
+

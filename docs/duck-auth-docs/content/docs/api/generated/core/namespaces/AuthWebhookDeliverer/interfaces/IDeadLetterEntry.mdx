@@ -1,0 +1,77 @@
+---
+title: "Interface: IDeadLetterEntry"
+description: "A delivery that ran out of attempts, with its last error."
+---
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:448](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L448)
+
+A delivery that ran out of attempts, with its last error.
+
+## Properties
+
+### attempts
+
+> **attempts**: `number`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:453](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L453)
+
+***
+
+### endpointId
+
+> **endpointId**: `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:449](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L449)
+
+***
+
+### endpointUrl
+
+> **endpointUrl**: `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:450](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L450)
+
+***
+
+### eventName
+
+> **eventName**: keyof [`EventMap`](../../../../index/namespaces/Events/interfaces/EventMap)
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:451](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L451)
+
+***
+
+### firstAttemptAt
+
+> **firstAttemptAt**: `number`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:456](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L456)
+
+Epoch milliseconds.
+
+***
+
+### lastAttemptAt
+
+> **lastAttemptAt**: `number`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:458](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L458)
+
+Epoch milliseconds.
+
+***
+
+### lastError
+
+> **lastError**: `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:454](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L454)
+
+***
+
+### payload
+
+> **payload**: `unknown`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:452](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L452)
+

@@ -1,0 +1,29 @@
+---
+title: "Interface: BeginInput"
+description: "What starting a SAML sign-in takes."
+---
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:100](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L100)
+
+What starting a SAML sign-in takes.
+
+## Properties
+
+### host
+
+> **host**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:104](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L104)
+
+The app's own origin, which the IdP redirects to.
+
+***
+
+### relayState
+
+> **relayState**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:102](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L102)
+
+The CSRF guard, echoed back by the IdP.
+

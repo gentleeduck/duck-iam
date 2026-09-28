@@ -1,0 +1,165 @@
+---
+title: "Class: RedisIdempotency"
+description: "SET NX EX makes the claim atomic across processes, and the encoded per-tenant key segment means two  tenants sending one Idempotency-Key cannot collide however the host spells its tenant ids."
+---
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L8)
+
+`SET NX EX` makes the claim atomic across processes, and the encoded per-tenant key segment means two
+ tenants sending one Idempotency-Key cannot collide however the host spells its tenant ids.
+
+## Type Parameters
+
+### TRedis
+
+`TRedis` *extends* [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client) = [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client)
+
+## Implements
+
+- [`Store`](../namespaces/Idempotency/type-aliases/Store)
+
+## Constructors
+
+### Constructor
+
+> **new RedisIdempotency**\<`TRedis` *extends* [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client) = [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client)\>(`cfg`: [`Cfg`](../namespaces/RedisIdempotency/type-aliases/Cfg)\<`TRedis`\>): `RedisIdempotency`\<`TRedis`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L25)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/RedisIdempotency/type-aliases/Cfg)\<`TRedis`\>
+
+#### Returns
+
+`RedisIdempotency`\<`TRedis`\>
+
+## Methods
+
+### claim()
+
+> **claim**(`key`: `string`, `ttlMs`: `number`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L52)
+
+Writes a tombstone that `put()` later overwrites. `true` when this caller won the race, `false`
+ when a prior claim is still alive.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ttlMs
+
+`number`
+
+##### ctx
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+#### Implementation of
+
+`Idempotency.Store.claim`
+
+***
+
+### delete()
+
+> **delete**(`key`: `string`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:76](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L76)
+
+For tests and flush operations.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Idempotency.Store.delete`
+
+***
+
+### get()
+
+> **get**(`key`: `string`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L38)
+
+`AUTH_IDEMPOTENCY_MISS` on a miss, on TTL expiry, on a row that no longer parses, and while the claim
+ tombstone is still there.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)\>
+
+#### Implementation of
+
+`Idempotency.Store.get`
+
+***
+
+### put()
+
+> **put**(`key`: `string`, `response`: [`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse), `ttlMs`: `number`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.redis.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.redis.ts#L67)
+
+Overwrites the tombstone `claim()` left, resetting the TTL to `ttlMs` so the cached entry
+ survives a slow executor.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### response
+
+[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)
+
+##### ttlMs
+
+`number`
+
+##### ctx
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Idempotency.Store.put`
+

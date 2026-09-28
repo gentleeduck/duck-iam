@@ -1,0 +1,17 @@
+---
+title: "Type Alias: ProviderLinkInput"
+description: "addedAt is the table's default; only a caller restoring a link it removed brings its own."
+---
+
+> **ProviderLinkInput** = `Omit`\<[`ProviderLink`](ProviderLink), `"addedAt"` \| `"addedBy"`\> & \{ `addedAt?`: `Date`; \}
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L17)
+
+`addedAt` is the table's default; only a caller restoring a link it removed brings its own.
+
+## Type Declaration
+
+### addedAt?
+
+> `optional` **addedAt?**: `Date`
+

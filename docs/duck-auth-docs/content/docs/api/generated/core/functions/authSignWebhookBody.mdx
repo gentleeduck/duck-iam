@@ -1,0 +1,31 @@
+---
+title: "Function: authSignWebhookBody()"
+description: "Consumers verify with verifyWebhookSignature. The format is authSha256= plus a lowercase hex digest, deliberately not GitHub's and Stripe's sha256=, which carries a different payload under the same name, though the verifier accepts either spelling."
+---
+
+> **authSignWebhookBody**(`secret`: `string`, `body`: `string`, `timestamp?`: `number`): `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:330](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L330)
+
+Consumers verify with `verifyWebhookSignature`. The format is `authSha256=` plus a lowercase hex
+digest, deliberately not GitHub's and Stripe's `sha256=`, which carries a different payload under the
+same name, though the verifier accepts either spelling.
+
+## Parameters
+
+### secret
+
+`string`
+
+### body
+
+`string`
+
+### timestamp?
+
+`number`
+
+## Returns
+
+`string`
+

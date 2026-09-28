@@ -1,0 +1,32 @@
+---
+title: "Function: runWithAuditEnvelope()"
+description: "Run fn with envelope on every audited event emitted inside it. undefined clears the scope rather  than inheriting the one around it, as withActor(undefined) does."
+---
+
+> **runWithAuditEnvelope**\<`T`\>(`envelope`: [`Envelope`](../../../index/namespaces/Events/interfaces/Envelope) \| `undefined`, `fn`: () => `Promise`\<`T`\>): `Promise`\<`T`\>
+
+Defined in: [packages/duck-auth/src/core/events/events.audit.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.audit.ts#L35)
+
+Run `fn` with `envelope` on every audited event emitted inside it. `undefined` clears the scope rather
+ than inheriting the one around it, as `withActor(undefined)` does.
+
+## Type Parameters
+
+### T
+
+`T`
+
+## Parameters
+
+### envelope
+
+[`Envelope`](../../../index/namespaces/Events/interfaces/Envelope) \| `undefined`
+
+### fn
+
+() => `Promise`\<`T`\>
+
+## Returns
+
+`Promise`\<`T`\>
+

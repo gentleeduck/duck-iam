@@ -1,0 +1,65 @@
+---
+title: "Class: RedisDPoPNonceStore"
+description: "SET NX EX makes jti-replay protection atomic across pods, which the memory store cannot do."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/dpop-nonce.redis.ts:4](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop-nonce.redis.ts#L4)
+
+`SET NX EX` makes jti-replay protection atomic across pods, which the memory store cannot do.
+
+## Type Parameters
+
+### TRedis
+
+`TRedis` *extends* [`Client`](../namespaces/RedisLike/type-aliases/Client) = [`Client`](../namespaces/RedisLike/type-aliases/Client)
+
+## Implements
+
+- [`NonceStore`](../../../core/namespaces/DPoPVerifier/interfaces/NonceStore)
+
+## Constructors
+
+### Constructor
+
+> **new RedisDPoPNonceStore**\<`TRedis` *extends* [`Client`](../namespaces/RedisLike/type-aliases/Client) = [`Client`](../namespaces/RedisLike/type-aliases/Client)\>(`cfg`: [`Cfg`](../namespaces/RedisDPoPNonceStore/type-aliases/Cfg)\<`TRedis`\>): `RedisDPoPNonceStore`\<`TRedis`\>
+
+Defined in: [packages/duck-auth/src/core/transport/dpop-nonce.redis.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop-nonce.redis.ts#L21)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/RedisDPoPNonceStore/type-aliases/Cfg)\<`TRedis`\>
+
+#### Returns
+
+`RedisDPoPNonceStore`\<`TRedis`\>
+
+## Methods
+
+### recordSeen()
+
+> **recordSeen**(`jti`: `string`, `ttlMs`: `number`): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/core/transport/dpop-nonce.redis.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop-nonce.redis.ts#L31)
+
+`true` on first sight, `false` while a prior claim is still alive in the freshness window.
+
+#### Parameters
+
+##### jti
+
+`string`
+
+##### ttlMs
+
+`number`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+#### Implementation of
+
+[`NonceStore`](../../../core/namespaces/DPoPVerifier/interfaces/NonceStore).[`recordSeen`](../../../core/namespaces/DPoPVerifier/interfaces/NonceStore#recordseen)
+

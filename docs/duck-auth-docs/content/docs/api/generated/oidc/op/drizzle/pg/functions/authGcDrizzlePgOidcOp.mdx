@@ -1,0 +1,26 @@
+---
+title: "Function: authGcDrizzlePgOidcOp()"
+description: "Best-effort GC. Run on a cron to prune expired codes / access tokens / refresh tokens. Returns the number of rows removed (sum across tables)."
+---
+
+> **authGcDrizzlePgOidcOp**(`db`: [`AnyPgDatabase`](../-internal-/type-aliases/AnyPgDatabase), `now?`: `number`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/drizzle/pg.ts:350](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/drizzle/pg.ts#L350)
+
+Best-effort GC. Run on a cron to prune expired codes / access tokens /
+refresh tokens. Returns the number of rows removed (sum across tables).
+
+## Parameters
+
+### db
+
+[`AnyPgDatabase`](../-internal-/type-aliases/AnyPgDatabase)
+
+### now?
+
+`number` = `...`
+
+## Returns
+
+`Promise`\<`number`\>
+

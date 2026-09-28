@@ -1,0 +1,91 @@
+---
+title: "Class: AuthMemoryPasskeyChallengeStore"
+description: "The reference in-memory store, for tests and single-process deploys; production wires a  Redis-backed one."
+---
+
+Defined in: [packages/duck-auth/src/providers/passkey/internal/challenge-store.ts:7](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/internal/challenge-store.ts#L7)
+
+The reference in-memory store, for tests and single-process deploys; production wires a
+ Redis-backed one.
+
+## Implements
+
+- [`ChallengeStore`](../namespaces/Passkey/type-aliases/ChallengeStore)
+
+## Constructors
+
+### Constructor
+
+> **new AuthMemoryPasskeyChallengeStore**(): `MemoryPasskeyChallengeStore`
+
+#### Returns
+
+`MemoryPasskeyChallengeStore`
+
+## Properties
+
+### \_\_isInProcessChallengeStore
+
+> `readonly` **\_\_isInProcessChallengeStore**: `true`
+
+Defined in: [packages/duck-auth/src/providers/passkey/internal/challenge-store.ts:9](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/internal/challenge-store.ts#L9)
+
+Read by `strict()` through the provider, which is the only handle it has on this store.
+
+## Methods
+
+### put()
+
+> **put**(`key`: `string`, `challenge`: `string`, `ttlMs`: `number`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/internal/challenge-store.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/internal/challenge-store.ts#L13)
+
+Overwrites any prior entry: one challenge is live per key at a time.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### challenge
+
+`string`
+
+##### ttlMs
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Passkey.ChallengeStore.put`
+
+***
+
+### take()
+
+> **take**(`key`: `string`): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/internal/challenge-store.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/internal/challenge-store.ts#L25)
+
+Reads and deletes atomically, rejecting `AUTH_CREDENTIAL_NOT_FOUND` when missing, expired or already
+ consumed.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`\>
+
+#### Implementation of
+
+`Passkey.ChallengeStore.take`
+

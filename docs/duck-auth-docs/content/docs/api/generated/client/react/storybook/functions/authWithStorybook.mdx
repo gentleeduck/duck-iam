@@ -1,0 +1,28 @@
+---
+title: "Function: authWithStorybook()"
+description: "Wraps the story in <Provider> over a mock client built from defaults. live: true, top-level or through  parameters.auth.live, swaps in createAuthClient({ baseUrl }) and hits a real backend with credentials."
+---
+
+> **authWithStorybook**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`defaults?`: [`State`](../namespaces/Storybook/type-aliases/State)\<`Profile`\>): (`Story`: () => `ReactNode`, `context?`: \{ `parameters?`: \{ `auth?`: `Partial`\<[`State`](../namespaces/Storybook/type-aliases/State)\<`Profile`\>\>; \}; \}) => `Element`
+
+Defined in: [packages/duck-auth/src/client/react/storybook/index.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/storybook/index.ts#L69)
+
+Wraps the story in `<Provider>` over a mock client built from `defaults`. `live: true`, top-level or through
+ `parameters.auth.live`, swaps in `createAuthClient({ baseUrl })` and hits a real backend with credentials.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Parameters
+
+### defaults?
+
+[`State`](../namespaces/Storybook/type-aliases/State)\<`Profile`\> = `{}`
+
+## Returns
+
+(`Story`: () => `ReactNode`, `context?`: \{ `parameters?`: \{ `auth?`: `Partial`\<[`State`](../namespaces/Storybook/type-aliases/State)\<`Profile`\>\>; \}; \}) => `Element`
+

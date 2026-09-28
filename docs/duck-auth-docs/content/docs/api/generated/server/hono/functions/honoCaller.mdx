@@ -1,0 +1,31 @@
+---
+title: "Function: honoCaller()"
+description: "Hono exposes no resolved address, so ctx.ip is whatever the app chose to put there."
+---
+
+> **honoCaller**(`ctx`: \{ `ip?`: `string`; `req`: \{ `header`: (`n?`: `string`) => `unknown`; \}; \}): [`CallerFingerprint`](../../generic/type-aliases/CallerFingerprint)
+
+Defined in: [packages/duck-auth/src/server/hono/index.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/index.ts#L27)
+
+Hono exposes no resolved address, so `ctx.ip` is whatever the app chose to put there.
+
+## Parameters
+
+### ctx
+
+#### ip?
+
+`string`
+
+#### req
+
+\{ `header`: (`n?`: `string`) => `unknown`; \}
+
+#### req.header
+
+(`n?`: `string`) => `unknown`
+
+## Returns
+
+[`CallerFingerprint`](../../generic/type-aliases/CallerFingerprint)
+

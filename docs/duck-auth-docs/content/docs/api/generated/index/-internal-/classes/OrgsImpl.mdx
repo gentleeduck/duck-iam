@@ -1,0 +1,244 @@
+---
+title: "Class: OrgsImpl"
+description: "Apps with no org concept leave OrgMeta = never, and the facet tree-shakes to zero references."
+---
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L12)
+
+Apps with no org concept leave `OrgMeta = never`, and the facet tree-shakes to zero references.
+
+## Type Parameters
+
+### OrgMeta
+
+`OrgMeta` = `unknown`
+
+## Constructors
+
+### Constructor
+
+> **new OrgsImpl**\<`OrgMeta` = `unknown`\>(`_store`: [`Store`](../../namespaces/Org/type-aliases/Store)\<`OrgMeta`\>, `_events`: [`IBus`](../../namespaces/Events/interfaces/IBus)): `OrgsImpl`\<`OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L13)
+
+#### Parameters
+
+##### \_store
+
+[`Store`](../../namespaces/Org/type-aliases/Store)\<`OrgMeta`\>
+
+##### \_events
+
+[`IBus`](../../namespaces/Events/interfaces/IBus)
+
+#### Returns
+
+`OrgsImpl`\<`OrgMeta`\>
+
+## Properties
+
+### \_events
+
+> `readonly` **\_events**: [`IBus`](../../namespaces/Events/interfaces/IBus)
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L15)
+
+## Methods
+
+### addMember()
+
+> **addMember**(`input`: \{ `identityId`: `string`; `orgId`: `string`; `roles?`: `string`[]; \}, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L35)
+
+Re-adding an identity whose previous membership is marked `leftAt` is allowed; a live one is a
+ conflict on (org, identity).
+
+#### Parameters
+
+##### input
+
+###### identityId
+
+`string`
+
+###### orgId
+
+`string`
+
+###### roles?
+
+`string`[]
+
+##### ctx
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
+
+***
+
+### get()
+
+> **get**(`id`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Org/type-aliases/Me)\<`OrgMeta`\>\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L19)
+
+The org with this id.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+[`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Org/type-aliases/Me)\<`OrgMeta`\>\>
+
+***
+
+### listForIdentity()
+
+> **listForIdentity**(`identityId`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Me`](../../namespaces/Org/type-aliases/Me)\<`OrgMeta`\>[]\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L24)
+
+Every org this identity is a member of.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Me`](../../namespaces/Org/type-aliases/Me)\<`OrgMeta`\>[]\>
+
+***
+
+### listMembers()
+
+> **listMembers**(`orgId`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Membership`](../../namespaces/Org/type-aliases/Membership)[]\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L29)
+
+Every live membership in this org; a row the store answers marked `leftAt` is dropped.
+
+#### Parameters
+
+##### orgId
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Membership`](../../namespaces/Org/type-aliases/Membership)[]\>
+
+***
+
+### removeMember()
+
+> **removeMember**(`orgId`: `string`, `identityId`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L62)
+
+Marks `leftAt`, answering the membership as it stands left. An identity that was not a member
+ rejects; `orNull()` is how an idempotent caller reads that as having done nothing.
+
+#### Parameters
+
+##### orgId
+
+`string`
+
+##### identityId
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+[`Me`](../../namespaces/Answer/interfaces/Me)\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
+
+***
+
+### resolveMembership()
+
+> **resolveMembership**(`orgId`: `string`, `identityId`: `string`, `ctx`: [`TenantContext`](../../interfaces/TenantContext)): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:83](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L83)
+
+Rejects `AUTH_MEMBERSHIP_NOT_FOUND` when the identity is not a live member.
+
+#### Parameters
+
+##### orgId
+
+`string`
+
+##### identityId
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+[`Me`](../../namespaces/Answer/interfaces/Me)\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
+
+***
+
+### setRoles()
+
+> **setRoles**(`orgId`: `string`, `identityId`: `string`, `roles`: `string`[], `ctx`: [`TenantContext`](../../interfaces/TenantContext)): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.ts#L74)
+
+Answers the membership carrying the sanitized set actually stored, not the one passed in.
+ NOTE: the store decides whether a membership marked `leftAt` can still be given roles. The
+ shipped memory store allows it, and the write is unreadable - `listMembers` and
+ `resolveMembership` skip left rows, and re-adding overwrites the roles wholesale.
+
+#### Parameters
+
+##### orgId
+
+`string`
+
+##### identityId
+
+`string`
+
+##### roles
+
+`string`[]
+
+##### ctx
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+[`Me`](../../namespaces/Answer/interfaces/Me)\<[`Membership`](../../namespaces/Org/type-aliases/Membership)\>
+

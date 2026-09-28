@@ -1,0 +1,62 @@
+---
+title: "Type Alias: App"
+description: "Duck-typed Hono app: only get and post are required, so Hono is not a dependency of this  package at all. There is no use, so no middleware can be mounted through this type."
+---
+
+> **App**\<`C` *extends* [`HonoCtx`](HonoCtx) = [`HonoCtx`](HonoCtx)\> = \{ `get`: `void`; `post`: `void`; \}
+
+Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/hono.types.ts#L37)
+
+Duck-typed Hono `app`: only `get` and `post` are required, so Hono is not a dependency of this
+ package at all. There is no `use`, so no middleware can be mounted through this type.
+
+## Type Parameters
+
+### C
+
+`C` *extends* [`HonoCtx`](HonoCtx) = [`HonoCtx`](HonoCtx)
+
+## Methods
+
+### get()
+
+> **get**(`path`: `string`, `handler`: (`c`: `C`) => `Response` \| `Promise`\<`Response`\>): `void`
+
+Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/hono.types.ts#L38)
+
+#### Parameters
+
+##### path
+
+`string`
+
+##### handler
+
+(`c`: `C`) => `Response` \| `Promise`\<`Response`\>
+
+#### Returns
+
+`void`
+
+***
+
+### post()
+
+> **post**(`path`: `string`, `handler`: (`c`: `C`) => `Response` \| `Promise`\<`Response`\>): `void`
+
+Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/hono.types.ts#L39)
+
+#### Parameters
+
+##### path
+
+`string`
+
+##### handler
+
+(`c`: `C`) => `Response` \| `Promise`\<`Response`\>
+
+#### Returns
+
+`void`
+

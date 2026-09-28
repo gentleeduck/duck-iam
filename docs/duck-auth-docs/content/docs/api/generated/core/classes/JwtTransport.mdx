@@ -1,0 +1,243 @@
+---
+title: "Class: JwtTransport"
+description: "Stateless JWT transport: signs the session into the token and verifies it without a store read. The  token carries the session's ip and userAgent as the hijack policy's baseline, readable by anyone  holding it."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L28)
+
+Stateless JWT transport: signs the session into the token and verifies it without a store read. The
+ token carries the session's `ip` and `userAgent` as the hijack policy's baseline, readable by anyone
+ holding it.
+
+## Implements
+
+- [`ITransport`](../../index/namespaces/Transport/type-aliases/ITransport)
+
+## Constructors
+
+### Constructor
+
+> **new JwtTransport**(`_cfg`: [`Cfg`](../namespaces/JwtTransport/interfaces/Cfg)): `JwtTransport`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:276](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L276)
+
+#### Parameters
+
+##### \_cfg
+
+[`Cfg`](../namespaces/JwtTransport/interfaces/Cfg)
+
+#### Returns
+
+`JwtTransport`
+
+## Accessors
+
+### \_\_weakSigningKey
+
+#### Get Signature
+
+> **get** **\_\_weakSigningKey**(): `boolean`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:269](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L269)
+
+Read by `strict()`, which enforces the production floor. A boolean, never the key. Computed on
+ read: frozen at construction it went on attesting to a signing key `rotateSignKey` had replaced,
+ so a deployment that booted strict-clean and rotated to a five-byte secret still reported clean.
+
+##### Returns
+
+`boolean`
+
+## Methods
+
+### extract()
+
+> **extract**(`req`: \{ `headers`: `Headers`; \}): `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:342](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L342)
+
+The Bearer token from the `Authorization` header, and only there — the refresh cookie is the
+ host's own refresh endpoint to read. Caps at 4KB and refuses a comma-joined header.
+
+#### Parameters
+
+##### req
+
+###### headers
+
+`Headers`
+
+#### Returns
+
+`string` \| `null`
+
+#### Implementation of
+
+`Transport.ITransport.extract`
+
+***
+
+### issue()
+
+> **issue**(`sid`: `string`, `session`: [`Me`](../../index/namespaces/Sessions/type-aliases/Me), `opts`: [`IssueOpts`](../../index/namespaces/Transport/type-aliases/IssueOpts)): [`Intent`](../../index/namespaces/Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:358](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L358)
+
+Issue an access JWT and, with refresh enabled, an opaque refresh cookie carrying the plaintext
+ SID, which is what the framework adapter reads back at refresh time.
+
+#### Parameters
+
+##### sid
+
+`string`
+
+##### session
+
+[`Me`](../../index/namespaces/Sessions/type-aliases/Me)
+
+##### opts
+
+[`IssueOpts`](../../index/namespaces/Transport/type-aliases/IssueOpts)
+
+#### Returns
+
+[`Intent`](../../index/namespaces/Provider/type-aliases/Intent)[]
+
+#### Implementation of
+
+`Transport.ITransport.issue`
+
+***
+
+### jwks()
+
+> **jwks**(): \{ `keys`: `Record`\<`string`, `unknown`\>[]; \}
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:550](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L550)
+
+A JWKS document for the asymmetric verify keys, exported with their `kid`, `alg` and `use: 'sig'`.
+ SECURITY: HS256 keys are skipped, since a symmetric secret must never appear in a JWKS.
+
+#### Returns
+
+\{ `keys`: `Record`\<`string`, `unknown`\>[]; \}
+
+##### keys
+
+> **keys**: `Record`\<`string`, `unknown`\>[]
+
+***
+
+### retireVerifyKey()
+
+> **retireVerifyKey**(`kid`: `string`): `void`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:614](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L614)
+
+Remove a kid from the verify ring once its grace window has passed. Refuses the current signing
+ kid.
+
+#### Parameters
+
+##### kid
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
+### revoke()
+
+> **revoke**(): [`Intent`](../../index/namespaces/Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:427](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L427)
+
+Revokes the refresh cookie when one is in use; a no-op for the stateless JWT.
+
+#### Returns
+
+[`Intent`](../../index/namespaces/Provider/type-aliases/Intent)[]
+
+#### Implementation of
+
+`Transport.ITransport.revoke`
+
+***
+
+### rotateSignKey()
+
+> **rotateSignKey**(`opts`: [`IRotateOpts`](../namespaces/JwtTransport/interfaces/IRotateOpts)): `void`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:573](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L573)
+
+Promote a new signing key and add its public counterpart to the verify ring atomically. Older
+ keys stay under their original kid so issued tokens keep verifying, until `retireVerifyKey`.
+
+#### Parameters
+
+##### opts
+
+[`IRotateOpts`](../namespaces/JwtTransport/interfaces/IRotateOpts)
+
+#### Returns
+
+`void`
+
+***
+
+### verify()
+
+> **verify**(`token`: `string`): [`Me`](../../index/namespaces/Answer/interfaces/Me)\<[`Verified`](../../index/namespaces/Transport/type-aliases/Verified)\>
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:442](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L442)
+
+Reconstructs the session with no store hit.
+
+#### Parameters
+
+##### token
+
+`string`
+
+#### Returns
+
+[`Me`](../../index/namespaces/Answer/interfaces/Me)\<[`Verified`](../../index/namespaces/Transport/type-aliases/Verified)\>
+
+#### Implementation of
+
+`Transport.ITransport.verify`
+
+***
+
+### mintFresh()
+
+> `static` **mintFresh**(`transport`: `JwtTransport`, `sid`: `string`, `session`: [`Me`](../../index/namespaces/Sessions/type-aliases/Me)): [`Intent`](../../index/namespaces/Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:567](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L567)
+
+Mints a fresh JWT from a session without rotating the SID, for a refresh endpoint that has already
+ verified the refresh cookie.
+
+#### Parameters
+
+##### transport
+
+`JwtTransport`
+
+##### sid
+
+`string`
+
+##### session
+
+[`Me`](../../index/namespaces/Sessions/type-aliases/Me)
+
+#### Returns
+
+[`Intent`](../../index/namespaces/Provider/type-aliases/Intent)[]
+

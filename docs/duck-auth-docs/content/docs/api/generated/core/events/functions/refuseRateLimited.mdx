@@ -1,0 +1,35 @@
+---
+title: "Function: refuseRateLimited()"
+description: "Turns a spent rate-limit bucket into the refusal and the signal. Every limiter guard goes through here,  so strict()'s requirement that something subscribe to lockout is a check with an event behind it. A  caller holding an identity passes it and the event names a subject; one that does not passes null and  only the refusal happens - events may be null too, for a guard with no bus in reach, since without  a subject there is nothing to emit either way.  WARN: retryAfter floors at 1, since a Retry-After: 0 tells a client to retry immediately, from the  guard whose whole purpose is to say do not."
+---
+
+> **refuseRateLimited**(`events`: [`LockoutBus`](../-internal-/type-aliases/LockoutBus) \| `null`, `limited`: [`Result`](../../../limiters/memory/namespaces/Limiter/type-aliases/Result), `identityId`: `string` \| `null`): `Promise`\<`never`\>
+
+Defined in: [packages/duck-auth/src/core/events/events.lockout.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.lockout.ts#L21)
+
+Turns a spent rate-limit bucket into the refusal and the signal. Every limiter guard goes through here,
+ so `strict()`'s requirement that something subscribe to `lockout` is a check with an event behind it. A
+ caller holding an identity passes it and the event names a subject; one that does not passes `null` and
+ only the refusal happens - `events` may be `null` too, for a guard with no bus in reach, since without
+ a subject there is nothing to emit either way.
+ WARN: `retryAfter` floors at 1, since a `Retry-After: 0` tells a client to retry immediately, from the
+ guard whose whole purpose is to say do not.
+
+## Parameters
+
+### events
+
+[`LockoutBus`](../-internal-/type-aliases/LockoutBus) \| `null`
+
+### limited
+
+[`Result`](../../../limiters/memory/namespaces/Limiter/type-aliases/Result)
+
+### identityId
+
+`string` \| `null`
+
+## Returns
+
+`Promise`\<`never`\>
+

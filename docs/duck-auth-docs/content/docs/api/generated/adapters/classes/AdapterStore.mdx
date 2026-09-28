@@ -1,0 +1,74 @@
+---
+title: "Abstract Class: AdapterStore"
+description: "The class every adapter extends: it hands its driver's error mapper to super and calls through run."
+---
+
+Defined in: [packages/duck-auth/src/adapters/adapter.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/adapter.ts#L20)
+
+The class every adapter extends: it hands its driver's error mapper to `super` and calls through `run`.
+
+## Extended by
+
+- [`MemoryAdapter`](../memory/classes/MemoryAdapter)
+- [`DrizzlePgAdapter`](../drizzle/pg/classes/DrizzlePgAdapter)
+- [`DrizzleMysqlAdapter`](../drizzle/mysql/classes/DrizzleMysqlAdapter)
+- [`DrizzleSqliteAdapter`](../drizzle/sqlite/classes/DrizzleSqliteAdapter)
+
+## Type Parameters
+
+### C
+
+`C` *extends* [`Code`](../../index/namespaces/AuthError/type-aliases/Code) = `"AUTH_ADAPTER_FAILED"`
+
+## Constructors
+
+### Constructor
+
+> **new AdapterStore**\<`C` *extends* [`Code`](../../index/namespaces/AuthError/type-aliases/Code) = `"AUTH_ADAPTER_FAILED"`\>(`toError`: [`ErrorMap`](../../core/errors/type-aliases/ErrorMap)\<`C`\>): `AdapterStore`\<`C`\>
+
+Defined in: [packages/duck-auth/src/adapters/adapter.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/adapter.ts#L21)
+
+#### Parameters
+
+##### toError
+
+[`ErrorMap`](../../core/errors/type-aliases/ErrorMap)\<`C`\>
+
+#### Returns
+
+`AdapterStore`\<`C`\>
+
+## Properties
+
+### toError
+
+> `protected` `readonly` **toError**: [`ErrorMap`](../../core/errors/type-aliases/ErrorMap)\<`C`\>
+
+Defined in: [packages/duck-auth/src/adapters/adapter.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/adapter.ts#L21)
+
+## Methods
+
+### run()
+
+> `protected` **run**\<`T`\>(`call`: () => `Promise`\<`T`\>): `Promise`\<`T`\>
+
+Defined in: [packages/duck-auth/src/adapters/adapter.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/adapter.ts#L24)
+
+The call, with whatever its driver threw mapped onto a code this package declares.
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### call
+
+() => `Promise`\<`T`\>
+
+#### Returns
+
+`Promise`\<`T`\>
+

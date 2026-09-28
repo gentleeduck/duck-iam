@@ -1,0 +1,45 @@
+---
+title: "Type Alias: UnlinkProviderInput"
+description: "Detach a provider login from an identity."
+---
+
+> **UnlinkProviderInput** = \{ `allowLockout?`: `boolean`; `identityId`: `string`; `providerId`: `string`; `tenantId?`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:171](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L171)
+
+Detach a provider login from an identity.
+
+## Properties
+
+### allowLockout?
+
+> `optional` **allowLockout?**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:176](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L176)
+
+Bypasses the "would lock out the user" guard. For account deletion and admin overrides only.
+
+***
+
+### identityId
+
+> **identityId**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:172](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L172)
+
+***
+
+### providerId
+
+> **providerId**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:173](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L173)
+
+***
+
+### tenantId?
+
+> `optional` **tenantId?**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:174](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L174)
+

@@ -1,0 +1,599 @@
+---
+title: "Class: FlowsImpl"
+description: "The multi-step journeys: sign-in, sign-up, step-up, recovery, linking, impersonation and deletion."
+---
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L41)
+
+The multi-step journeys: sign-in, sign-up, step-up, recovery, linking, impersonation and deletion.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Constructors
+
+### Constructor
+
+> **new FlowsImpl**\<`Profile` *extends* [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`sessions`: [`SessionsImpl`](SessionsImpl), `identities`: [`IdentitiesImpl`](IdentitiesImpl)\<`Profile`\>, `providers`: [`Providers`](Providers)\<`Profile`\>, `transport`: [`ITransport`](../../namespaces/Transport/type-aliases/ITransport), `events`: [`IBus`](../../namespaces/Events/interfaces/IBus), `ctxFactory`: (`tenantId?`: `string`) => [`Context`](../../namespaces/Provider/type-aliases/Context)\<`Profile`\>, `requirePasswords`: () => [`PasswordsImpl`](../../../providers/passwords/classes/PasswordsImpl), `requireMfa`: () => [`MfaFacet`](../../../providers/mfa/classes/MfaFacet), `deliver?`: [`Deliver`](../../type-aliases/Deliver), `cfg?`: [`Cfg`](../../namespaces/Flows/interfaces/Cfg)): `FlowsImpl`\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L44)
+
+#### Parameters
+
+##### sessions
+
+[`SessionsImpl`](SessionsImpl)
+
+##### identities
+
+[`IdentitiesImpl`](IdentitiesImpl)\<`Profile`\>
+
+##### providers
+
+[`Providers`](Providers)\<`Profile`\>
+
+##### transport
+
+[`ITransport`](../../namespaces/Transport/type-aliases/ITransport)
+
+##### events
+
+[`IBus`](../../namespaces/Events/interfaces/IBus)
+
+##### ctxFactory
+
+(`tenantId?`: `string`) => [`Context`](../../namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### requirePasswords
+
+() => [`PasswordsImpl`](../../../providers/passwords/classes/PasswordsImpl)
+
+##### requireMfa
+
+() => [`MfaFacet`](../../../providers/mfa/classes/MfaFacet)
+
+##### deliver?
+
+[`Deliver`](../../type-aliases/Deliver)
+
+##### cfg?
+
+[`Cfg`](../../namespaces/Flows/interfaces/Cfg) = `DEFAULT_FLOWS_CONFIG`
+
+#### Returns
+
+`FlowsImpl`\<`Profile`\>
+
+## Accessors
+
+### deps
+
+#### Get Signature
+
+> **get** **deps**(): [`Deps`](../../namespaces/Flows/interfaces/Deps)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L71)
+
+Expose deps for testing extracted flow functions directly.
+
+##### Returns
+
+[`Deps`](../../namespaces/Flows/interfaces/Deps)\<`Profile`\>
+
+## Methods
+
+### advanceSignUp()
+
+> **advanceSignUp**(`opts`: \{ `flowToken`: `string`; `profilePatch?`: `Partial`\<`Profile`\>; `stage`: [`SignUpStage`](../../namespaces/Flows/type-aliases/SignUpStage); `tenantId?`: `string`; \}): `Promise`\<[`SignUpFlowState`](../../namespaces/Flows/type-aliases/SignUpFlowState)\<`Profile`\>\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:355](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L355)
+
+Records a completed stage and merges `profilePatch`; the flow token stays the same.
+
+#### Parameters
+
+##### opts
+
+###### flowToken
+
+`string`
+
+###### profilePatch?
+
+`Partial`\<`Profile`\>
+
+###### stage
+
+[`SignUpStage`](../../namespaces/Flows/type-aliases/SignUpStage)
+
+###### tenantId?
+
+`string`
+
+#### Returns
+
+`Promise`\<[`SignUpFlowState`](../../namespaces/Flows/type-aliases/SignUpFlowState)\<`Profile`\>\>
+
+***
+
+### beginProvider()
+
+> **beginProvider**(`providerId`: `string`, `input`: `unknown`, `opts?`: \{ `tenantId?`: `string`; \}): `Promise`\<[`Intent`](../../namespaces/Provider/type-aliases/Intent)[]\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:146](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L146)
+
+Builds the same context `signIn` does.
+
+#### Parameters
+
+##### providerId
+
+`string`
+
+##### input
+
+`unknown`
+
+##### opts?
+
+###### tenantId?
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Intent`](../../namespaces/Provider/type-aliases/Intent)[]\>
+
+***
+
+### beginSignUp()
+
+> **beginSignUp**(`opts`: \{ `email`: `string`; `initialProfile?`: `Partial`\<`Profile`\>; `required?`: [`SignUpStage`](../../namespaces/Flows/type-aliases/SignUpStage)[]; `tenantId?`: `string`; \}): `Promise`\<\{ `flow`: [`SignUpFlowState`](../../namespaces/Flows/type-aliases/SignUpFlowState)\<`Profile`\>; `flowToken`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:338](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L338)
+
+Begin a multi-step signup: create the identity with `emailVerified=false` and answer with a handle the
+caller persists and each stage advances, until `complete()` issues the session. `username` comes from the
+email local part when `initialProfile` carries none, because the type and the Postgres CHECK both demand
+one. State lives in the credentials store under `kind: 'recovery'` with `metadata.purpose: 'signup-flow'`,
+which is what tells four token kinds apart inside the one kind.
+
+WARN: rate-limited on the canonical address, but the identity row is written before anything proves
+the caller owns it. See `docs/superpowers/DECISIONS.md` D1.
+
+#### Parameters
+
+##### opts
+
+###### email
+
+`string`
+
+###### initialProfile?
+
+`Partial`\<`Profile`\>
+
+###### required?
+
+[`SignUpStage`](../../namespaces/Flows/type-aliases/SignUpStage)[]
+
+###### tenantId?
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `flow`: [`SignUpFlowState`](../../namespaces/Flows/type-aliases/SignUpFlowState)\<`Profile`\>; `flowToken`: `string`; \}\>
+
+***
+
+### cancelAccountDeletion()
+
+> **cancelAccountDeletion**(`input`: [`AccountDeletionCancelInput`](../../namespaces/Flows/type-aliases/AccountDeletionCancelInput)): `Promise`\<\{ `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:322](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L322)
+
+Undo inside the grace window, through either the undo token (the user's route) or an `authorize`
+ callback (the operator's). One or the other: both or neither is `AUTH_MISCONFIGURED`.
+
+#### Parameters
+
+##### input
+
+[`AccountDeletionCancelInput`](../../namespaces/Flows/type-aliases/AccountDeletionCancelInput)
+
+#### Returns
+
+`Promise`\<\{ `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; \}\>
+
+***
+
+### checkStepUp()
+
+> **checkStepUp**(`session`: [`Me`](../../namespaces/Sessions/type-aliases/Me), `requirement`: [`StepUpRequirement`](../../namespaces/Flows/type-aliases/StepUpRequirement)): `Promise`\<[`StepUpOutcome`](../../namespaces/Flows/type-aliases/StepUpOutcome)\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:176](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L176)
+
+Whether the session already satisfies a step-up requirement; otherwise a challenge naming the
+ methods that would.
+
+#### Parameters
+
+##### session
+
+[`Me`](../../namespaces/Sessions/type-aliases/Me)
+
+##### requirement
+
+[`StepUpRequirement`](../../namespaces/Flows/type-aliases/StepUpRequirement)
+
+#### Returns
+
+`Promise`\<[`StepUpOutcome`](../../namespaces/Flows/type-aliases/StepUpOutcome)\>
+
+***
+
+### completeAccountDeletion()
+
+> **completeAccountDeletion**(`input`: [`AccountDeletionCompleteInput`](../../namespaces/Flows/type-aliases/AccountDeletionCompleteInput)): `Promise`\<\{ `cancellationToken`: `string`; `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; `restorableUntil`: `number`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:311](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L311)
+
+Soft-deletes the identity, revokes its sessions, and mints the single-use undo token
+ `cancelAccountDeletion` accepts, handed back as plaintext once and mailed for you given `sendUndoLink`.
+
+#### Parameters
+
+##### input
+
+[`AccountDeletionCompleteInput`](../../namespaces/Flows/type-aliases/AccountDeletionCompleteInput)
+
+#### Returns
+
+`Promise`\<\{ `cancellationToken`: `string`; `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; `restorableUntil`: `number`; \}\>
+
+***
+
+### completeEmailVerification()
+
+> **completeEmailVerification**(`input`: [`EmailVerificationCompleteInput`](../../namespaces/Flows/type-aliases/EmailVerificationCompleteInput)): `Promise`\<\{ `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:296](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L296)
+
+Spends the verification token and marks the address verified.
+
+#### Parameters
+
+##### input
+
+[`EmailVerificationCompleteInput`](../../namespaces/Flows/type-aliases/EmailVerificationCompleteInput)
+
+#### Returns
+
+`Promise`\<\{ `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; \}\>
+
+***
+
+### completePasswordReset()
+
+> **completePasswordReset**(`input`: [`PasswordResetCompleteInput`](../../namespaces/Flows/type-aliases/PasswordResetCompleteInput) & \{ `currentSid?`: `string`; `tenantId?`: `string`; \}): `Promise`\<\{ `intents`: [`Intent`](../../namespaces/Provider/type-aliases/Intent)[]; `ok`: `true`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:282](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L282)
+
+Verifies the single-use token, ends every session the old password could still hold open, then sets the
+new one, in that order: a failed revoke must not leave old sessions live under the new password.
+
+SECURITY: an account with MFA enrolled needs a fresh AAL=2 session of that identity in `currentSid`, and
+repeated refusals are rate limited and eventually consume the token. `intents` is empty for the ordinary
+email-link reset; when `currentSid` names a live session it is rotated rather than swept, and its
+replacement rides there.
+
+#### Parameters
+
+##### input
+
+[`PasswordResetCompleteInput`](../../namespaces/Flows/type-aliases/PasswordResetCompleteInput) & \{ `currentSid?`: `string`; `tenantId?`: `string`; \}
+
+#### Returns
+
+`Promise`\<\{ `intents`: [`Intent`](../../namespaces/Provider/type-aliases/Intent)[]; `ok`: `true`; \}\>
+
+***
+
+### completeSignUp()
+
+> **completeSignUp**(`opts`: \{ `aal?`: [`AAL`](../../namespaces/Sessions/type-aliases/AAL); `factors?`: [`Factor`](../../namespaces/Sessions/interfaces/Factor)[]; `flowToken`: `string`; `ip?`: `string`; `previousSid?`: `string`; `tenantId?`: `string`; `userAgent?`: `string`; \}): `Promise`\<[`SignInOutcome`](../../namespaces/Flows/type-aliases/SignInOutcome)\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:365](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L365)
+
+Closes a staged sign-up: creates the identity and issues the session.
+
+#### Parameters
+
+##### opts
+
+###### aal?
+
+[`AAL`](../../namespaces/Sessions/type-aliases/AAL)
+
+###### factors?
+
+[`Factor`](../../namespaces/Sessions/interfaces/Factor)[]
+
+###### flowToken
+
+`string`
+
+###### ip?
+
+`string`
+
+###### previousSid?
+
+`string`
+
+###### tenantId?
+
+`string`
+
+###### userAgent?
+
+`string`
+
+#### Returns
+
+`Promise`\<[`SignInOutcome`](../../namespaces/Flows/type-aliases/SignInOutcome)\>
+
+***
+
+### completeStepUp()
+
+> **completeStepUp**(`opts`: \{ `code`: `string`; `method`: `"totp"` \| `"backup-code"`; \} \| \{ `method`: `"webauthn"`; `webauthn`: [`WebauthnMfaVerifyOpts`](../../../providers/mfa/namespaces/Mfa/type-aliases/WebauthnMfaVerifyOpts); \} & \{ `currentSid`: `string`; `ip?`: `string`; `userAgent?`: `string`; \}): `Promise`\<\{ `intents`: [`Intent`](../../namespaces/Provider/type-aliases/Intent)[]; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:198](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L198)
+
+Verifies the factor and rotates the session to the higher AAL with it recorded.
+
+SECURITY: the factor is looked up in the session's own tenant and no parameter can name another.
+Credentials are tenant-scoped and identities are not, so a second input would let a factor enrolled in
+tenant B satisfy a step-up in tenant A.
+
+#### Parameters
+
+##### opts
+
+\{ `code`: `string`; `method`: `"totp"` \| `"backup-code"`; \} \| \{ `method`: `"webauthn"`; `webauthn`: [`WebauthnMfaVerifyOpts`](../../../providers/mfa/namespaces/Mfa/type-aliases/WebauthnMfaVerifyOpts); \} & \{ `currentSid`: `string`; `ip?`: `string`; `userAgent?`: `string`; \}
+
+#### Returns
+
+`Promise`\<\{ `intents`: [`Intent`](../../namespaces/Provider/type-aliases/Intent)[]; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+***
+
+### getSignUpFlow()
+
+> **getSignUpFlow**(`flowToken`: `string`, `tenantId?`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`SignUpFlowState`](../../namespaces/Flows/type-aliases/SignUpFlowState)\<`Profile`\>\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:350](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L350)
+
+The sign-up flow behind `flowToken`. Rejects `AUTH_CREDENTIAL_NOT_FOUND` when there is no live flow -
+ a miss, a revoked row, an elapsed TTL and unreadable metadata are one answer, and `orNull()` reads
+ them back as null.
+
+#### Parameters
+
+##### flowToken
+
+`string`
+
+##### tenantId?
+
+`string`
+
+#### Returns
+
+[`Me`](../../namespaces/Answer/interfaces/Me)\<[`SignUpFlowState`](../../namespaces/Flows/type-aliases/SignUpFlowState)\<`Profile`\>\>
+
+***
+
+### impersonate()
+
+> **impersonate**(`opts`: [`ImpersonateOptions`](../../namespaces/Flows/type-aliases/ImpersonateOptions) & \{ `authorize`: (`realSession`: [`Me`](../../namespaces/Sessions/type-aliases/Me), `targetIdentityId`: `string`) => `Promise`\<`boolean`\>; \}): `Promise`\<[`ImpersonateOutcome`](../../namespaces/Flows/type-aliases/ImpersonateOutcome)\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:380](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L380)
+
+Refuses to issue an `actingAs` session until the supplied `authorize` callback approves it; iam
+ consumers wire `engine.authorize()` here.
+ SECURITY: never pass `() => true`, which defeats the invariant this exists to keep.
+
+#### Parameters
+
+##### opts
+
+[`ImpersonateOptions`](../../namespaces/Flows/type-aliases/ImpersonateOptions) & \{ `authorize`: (`realSession`: [`Me`](../../namespaces/Sessions/type-aliases/Me), `targetIdentityId`: `string`) => `Promise`\<`boolean`\>; \}
+
+#### Returns
+
+`Promise`\<[`ImpersonateOutcome`](../../namespaces/Flows/type-aliases/ImpersonateOutcome)\>
+
+***
+
+### linkProvider()
+
+> **linkProvider**(`opts`: [`LinkProviderInput`](../../namespaces/Flows/type-aliases/LinkProviderInput)\<`Profile`\>): `Promise`\<\{ `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; `providerId`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:390](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L390)
+
+Attach a provider identity to an existing account. `providerSub` is unverifiable from here, so
+ the mandatory `authorize` callback is where the host vouches for it.
+
+#### Parameters
+
+##### opts
+
+[`LinkProviderInput`](../../namespaces/Flows/type-aliases/LinkProviderInput)\<`Profile`\>
+
+#### Returns
+
+`Promise`\<\{ `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; `providerId`: `string`; \}\>
+
+***
+
+### releaseImpersonation()
+
+> **releaseImpersonation**(`impersonationSid`: `string`): `Promise`\<\{ `intents`: [`Intent`](../../namespaces/Provider/type-aliases/Intent)[]; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`; `sid`: `string` \| `null`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:405](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L405)
+
+Ends the impersonation and mints the operator a session of their own. `session` and `sid` are both
+ null when the operator's own account went away mid-impersonation, and the bearer is cleared instead.
+
+#### Parameters
+
+##### impersonationSid
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `intents`: [`Intent`](../../namespaces/Provider/type-aliases/Intent)[]; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me) \| `null`; `sid`: `string` \| `null`; \}\>
+
+***
+
+### requestAccountDeletion()
+
+> **requestAccountDeletion**(`opts`: [`AccountDeletionRequestInput`](../../namespaces/Flows/type-aliases/AccountDeletionRequestInput)): `Promise`\<\{ `ok`: `true`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:305](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L305)
+
+Mint and dispatch a confirmation token, leaving the identity untouched until
+ [FlowsImpl.completeAccountDeletion](#completeaccountdeletion). Single-use, TTL'd (default 30 min), and a fresh
+ request wipes the prior token so only the latest verifies.
+
+#### Parameters
+
+##### opts
+
+[`AccountDeletionRequestInput`](../../namespaces/Flows/type-aliases/AccountDeletionRequestInput)
+
+#### Returns
+
+`Promise`\<\{ `ok`: `true`; \}\>
+
+***
+
+### requestEmailVerification()
+
+> **requestEmailVerification**(`opts`: [`EmailVerificationRequestInput`](../../namespaces/Flows/type-aliases/EmailVerificationRequestInput)): `Promise`\<\{ `ok`: `true`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:291](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L291)
+
+Mint and dispatch an email-verification token, rate limited per identity so a "didn't get the
+ email" button cannot flood the channel. An already-verified identity is a no-op that answers the
+ same way, so the caller learns nothing about its status.
+
+#### Parameters
+
+##### opts
+
+[`EmailVerificationRequestInput`](../../namespaces/Flows/type-aliases/EmailVerificationRequestInput)
+
+#### Returns
+
+`Promise`\<\{ `ok`: `true`; \}\>
+
+***
+
+### requestPasswordReset()
+
+> **requestPasswordReset**(`opts`: \{ `findIdentityByEmail`: (`email`: `string`, `tenantId?`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>; `input`: [`PasswordResetRequestInput`](../../namespaces/Flows/type-aliases/PasswordResetRequestInput); `tenantId?`: `string`; \}): `Promise`\<\{ `ok`: `true`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:265](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L265)
+
+Request a password reset. Always answers successfully, so it enumerates nothing; a single-use
+ token is minted, hashed at rest and dispatched when the identity exists. `findIdentityByEmail` is
+ supplied by the host, which owns that wiring.
+
+#### Parameters
+
+##### opts
+
+###### findIdentityByEmail
+
+(`email`: `string`, `tenantId?`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>
+
+###### input
+
+[`PasswordResetRequestInput`](../../namespaces/Flows/type-aliases/PasswordResetRequestInput)
+
+###### tenantId?
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `ok`: `true`; \}\>
+
+***
+
+### signIn()
+
+> **signIn**(`opts`: [`SignInOptions`](../../namespaces/Flows/interfaces/SignInOptions)): `Promise`\<[`SignInOutcome`](../../namespaces/Flows/type-aliases/SignInOutcome)\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:76](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L76)
+
+The `startSession` intent is interpreted here; the rest flow through to the caller.
+
+#### Parameters
+
+##### opts
+
+[`SignInOptions`](../../namespaces/Flows/interfaces/SignInOptions)
+
+#### Returns
+
+`Promise`\<[`SignInOutcome`](../../namespaces/Flows/type-aliases/SignInOutcome)\>
+
+***
+
+### signOut()
+
+> **signOut**(`sid`: `string`): `Promise`\<\{ `intents`: [`Intent`](../../namespaces/Provider/type-aliases/Intent)[]; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:163](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L163)
+
+Revoke the current session and emit Transport.revoke intents.
+
+#### Parameters
+
+##### sid
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `intents`: [`Intent`](../../namespaces/Provider/type-aliases/Intent)[]; \}\>
+
+***
+
+### unlinkProvider()
+
+> **unlinkProvider**(`opts`: [`UnlinkProviderInput`](../../namespaces/Flows/type-aliases/UnlinkProviderInput)): `Promise`\<\{ `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; `providerId`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.ts:397](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.ts#L397)
+
+Drops one provider link, refusing the one that would leave the identity unable to sign in.
+
+#### Parameters
+
+##### opts
+
+[`UnlinkProviderInput`](../../namespaces/Flows/type-aliases/UnlinkProviderInput)
+
+#### Returns
+
+`Promise`\<\{ `identity`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<`Profile`\>; `identityId`: `string`; `providerId`: `string`; \}\>
+

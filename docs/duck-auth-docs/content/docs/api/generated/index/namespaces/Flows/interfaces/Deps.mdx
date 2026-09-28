@@ -1,0 +1,119 @@
+---
+title: "Interface: Deps"
+description: "Internal dependency bag passed to flow sub-functions. Not part of the public API."
+---
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L13)
+
+Internal dependency bag passed to flow sub-functions. Not part of the public API.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### cfg
+
+> **cfg**: [`Cfg`](Cfg)
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L26)
+
+***
+
+### ctxFactory
+
+> **ctxFactory**: (`tenantId?`: `string`) => [`Context`](../../Provider/type-aliases/Context)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L19)
+
+#### Parameters
+
+##### tenantId?
+
+`string`
+
+#### Returns
+
+[`Context`](../../Provider/type-aliases/Context)\<`Profile`\>
+
+***
+
+### deliver?
+
+> `optional` **deliver?**: [`Deliver`](../../../type-aliases/Deliver)
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L25)
+
+How the host sends an outbound token. Absent means the library mints tokens it cannot deliver.
+
+***
+
+### events
+
+> **events**: [`IBus`](../../Events/interfaces/IBus)
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L18)
+
+***
+
+### identities
+
+> **identities**: [`IdentitiesImpl`](../../../-internal-/classes/IdentitiesImpl)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L15)
+
+***
+
+### providers
+
+> **providers**: [`Providers`](../../../-internal-/classes/Providers)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L16)
+
+***
+
+### requireMfa
+
+> **requireMfa**: () => [`MfaFacet`](../../../../providers/mfa/classes/MfaFacet)
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L23)
+
+Resolves the mfa facet at call time, throwing when the provider is absent.
+
+#### Returns
+
+[`MfaFacet`](../../../../providers/mfa/classes/MfaFacet)
+
+***
+
+### requirePasswords
+
+> **requirePasswords**: () => [`PasswordsImpl`](../../../../providers/passwords/classes/PasswordsImpl)
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L21)
+
+Resolves the password facet at call time, throwing when the provider is absent.
+
+#### Returns
+
+[`PasswordsImpl`](../../../../providers/passwords/classes/PasswordsImpl)
+
+***
+
+### sessions
+
+> **sessions**: [`SessionsImpl`](../../../-internal-/classes/SessionsImpl)
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L14)
+
+***
+
+### transport
+
+> **transport**: [`ITransport`](../../Transport/type-aliases/ITransport)
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L17)
+

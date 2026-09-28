@@ -1,0 +1,53 @@
+---
+title: "Function: buildCsrfCookieOptions()"
+description: "The double-submit cookie carrying the plaintext token, built for the transport's cookie settings."
+---
+
+> **buildCsrfCookieOptions**(`token`: `string`, `cfg?`: [`Cfg`](../namespaces/Csrf/type-aliases/Cfg)): \{ `name`: `string`; `options`: \{ `httpOnly`: `boolean`; `path`: `string`; `sameSite`: `"strict"` \| `"lax"` \| `"none"`; `secure`: `boolean`; \}; `value`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L24)
+
+The double-submit cookie carrying the plaintext token, built for the transport's cookie settings.
+
+## Parameters
+
+### token
+
+`string`
+
+### cfg?
+
+[`Cfg`](../namespaces/Csrf/type-aliases/Cfg) = `{}`
+
+## Returns
+
+\{ `name`: `string`; `options`: \{ `httpOnly`: `boolean`; `path`: `string`; `sameSite`: `"strict"` \| `"lax"` \| `"none"`; `secure`: `boolean`; \}; `value`: `string`; \}
+
+### name
+
+> **name**: `string`
+
+### options
+
+> **options**: \{ `httpOnly`: `boolean`; `path`: `string`; `sameSite`: `"strict"` \| `"lax"` \| `"none"`; `secure`: `boolean`; \}
+
+#### options.httpOnly
+
+> **httpOnly**: `boolean`
+
+#### options.path
+
+> **path**: `string`
+
+#### options.sameSite
+
+> **sameSite**: `"strict"` \| `"lax"` \| `"none"`
+
+#### options.secure
+
+> **secure**: `boolean`
+
+### value
+
+> **value**: `string`
+

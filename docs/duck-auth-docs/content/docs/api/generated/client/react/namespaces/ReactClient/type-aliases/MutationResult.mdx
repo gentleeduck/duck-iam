@@ -1,0 +1,61 @@
+---
+title: "Type Alias: MutationResult"
+description: "What a mutation hook answers: the call, and its loading and error state."
+---
+
+> **MutationResult**\<`I`, `O`\> = \{ `error`: `unknown`; `loading`: `boolean`; `mutate`: `Promise`\<`O`\>; \}
+
+Defined in: [packages/duck-auth/src/client/react/types.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/types.ts#L60)
+
+What a mutation hook answers: the call, and its loading and error state.
+
+## Type Parameters
+
+### I
+
+`I`
+
+### O
+
+`O`
+
+## Properties
+
+### error
+
+> **error**: `unknown`
+
+Defined in: [packages/duck-auth/src/client/react/types.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/types.ts#L66)
+
+What the last call threw, cleared when the next starts. A refusal is an envelope, not a throw.
+
+***
+
+### loading
+
+> **loading**: `boolean`
+
+Defined in: [packages/duck-auth/src/client/react/types.ts:64](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/types.ts#L64)
+
+Whether a call is in flight.
+
+## Methods
+
+### mutate()
+
+> **mutate**(`input`: `I`): `Promise`\<`O`\>
+
+Defined in: [packages/duck-auth/src/client/react/types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/react/types.ts#L62)
+
+Runs the mutation.
+
+#### Parameters
+
+##### input
+
+`I`
+
+#### Returns
+
+`Promise`\<`O`\>
+

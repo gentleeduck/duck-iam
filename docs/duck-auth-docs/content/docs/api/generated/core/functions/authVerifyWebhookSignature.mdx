@@ -1,0 +1,44 @@
+---
+title: "Function: authVerifyWebhookSignature()"
+description: "Constant-time verify a webhook signature against the raw body, before the handler parses the JSON. timestamp must be the X-Duck-Timestamp value the signature covers; a stale one is refused. Default tolerance 5 minutes."
+---
+
+> **authVerifyWebhookSignature**(`secret`: `string`, `body`: `string`, `signature`: `string`, `opts?`: \{ `timestamp?`: `number`; `toleranceMs?`: `number`; \}): `boolean`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:344](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L344)
+
+Constant-time verify a webhook signature against the raw body, before the handler parses the JSON.
+`timestamp` must be the `X-Duck-Timestamp` value the signature covers; a stale one is refused.
+Default tolerance 5 minutes.
+
+WARN: that bounds a replay to the window rather than preventing one inside it. A handler that must
+act once per delivery keys an idempotency store on `X-Duck-Delivery-Id`.
+
+## Parameters
+
+### secret
+
+`string`
+
+### body
+
+`string`
+
+### signature
+
+`string`
+
+### opts?
+
+#### timestamp?
+
+`number`
+
+#### toleranceMs?
+
+`number`
+
+## Returns
+
+`boolean`
+

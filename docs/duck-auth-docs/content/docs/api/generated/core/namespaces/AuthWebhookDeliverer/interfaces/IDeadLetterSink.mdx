@@ -1,0 +1,29 @@
+---
+title: "Interface: IDeadLetterSink"
+description: "Where deliveries that ran out of attempts go."
+---
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:442](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L442)
+
+Where deliveries that ran out of attempts go.
+
+## Methods
+
+### put()
+
+> **put**(`envelope`: [`IDeadLetterEntry`](IDeadLetterEntry)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:444](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L444)
+
+Stores one failed delivery.
+
+#### Parameters
+
+##### envelope
+
+[`IDeadLetterEntry`](IDeadLetterEntry)
+
+#### Returns
+
+`Promise`\<`void`\>
+

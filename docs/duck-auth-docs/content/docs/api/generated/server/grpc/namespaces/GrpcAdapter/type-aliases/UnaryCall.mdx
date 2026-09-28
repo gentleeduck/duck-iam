@@ -1,0 +1,51 @@
+---
+title: "Type Alias: UnaryCall"
+description: "A grpc-js unary call."
+---
+
+> **UnaryCall**\<`Req` = `unknown`\> = \{ `identity?`: [`Me`](../../../../../index/namespaces/Identities/type-aliases/Me) \| `null`; `metadata`: [`Metadata`](Metadata); `request`: `Req`; `session?`: [`Me`](../../../../../index/namespaces/Sessions/type-aliases/Me); \}
+
+Defined in: [packages/duck-auth/src/server/grpc/grpc.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/grpc/grpc.types.ts#L14)
+
+A grpc-js unary call.
+
+## Type Parameters
+
+### Req
+
+`Req` = `unknown`
+
+## Properties
+
+### identity?
+
+> `optional` **identity?**: [`Me`](../../../../../index/namespaces/Identities/type-aliases/Me) \| `null`
+
+Defined in: [packages/duck-auth/src/server/grpc/grpc.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/grpc/grpc.types.ts#L19)
+
+***
+
+### metadata
+
+> **metadata**: [`Metadata`](Metadata)
+
+Defined in: [packages/duck-auth/src/server/grpc/grpc.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/grpc/grpc.types.ts#L15)
+
+***
+
+### request
+
+> **request**: `Req`
+
+Defined in: [packages/duck-auth/src/server/grpc/grpc.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/grpc/grpc.types.ts#L16)
+
+***
+
+### session?
+
+> `optional` **session?**: [`Me`](../../../../../index/namespaces/Sessions/type-aliases/Me)
+
+Defined in: [packages/duck-auth/src/server/grpc/grpc.types.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/grpc/grpc.types.ts#L18)
+
+Set once a session resolves, for the handler to read.
+

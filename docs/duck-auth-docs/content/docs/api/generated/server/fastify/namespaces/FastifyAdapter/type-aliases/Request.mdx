@@ -1,0 +1,63 @@
+---
+title: "Type Alias: Request"
+description: "The Fastify request fields the adapter reads."
+---
+
+> **Request** = \{ `body?`: `unknown`; `headers`: `Record`\<`string`, `string` \| `string`[] \| `undefined`\>; `ip?`: `string`; `method`: `string`; `params?`: `unknown`; `url`: `string`; \}
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L14)
+
+The Fastify request fields the adapter reads.
+
+## Properties
+
+### body?
+
+> `optional` **body?**: `unknown`
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L20)
+
+***
+
+### headers
+
+> **headers**: `Record`\<`string`, `string` \| `string`[] \| `undefined`\>
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L19)
+
+***
+
+### ip?
+
+> `optional` **ip?**: `string`
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L18)
+
+Resolved by the framework against its own proxy trust, never read from a header here.
+
+***
+
+### method
+
+> **method**: `string`
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L15)
+
+***
+
+### params?
+
+> `optional` **params?**: `unknown`
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L22)
+
+`unknown`, as Fastify types it for a route that declares no params.
+
+***
+
+### url
+
+> **url**: `string`
+
+Defined in: [packages/duck-auth/src/server/fastify/fastify.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/fastify.types.ts#L16)
+

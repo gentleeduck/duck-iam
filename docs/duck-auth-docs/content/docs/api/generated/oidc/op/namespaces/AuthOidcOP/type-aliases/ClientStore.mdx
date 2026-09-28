@@ -1,0 +1,51 @@
+---
+title: "Type Alias: ClientStore"
+description: "Registered clients."
+---
+
+> **ClientStore** = \{ `findById`: `Promise`\<[`Client`](Client) \| `null`\>; `insert`: `Promise`\<`void`\>; \}
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:87](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L87)
+
+Registered clients.
+
+## Methods
+
+### findById()
+
+> **findById**(`client_id`: `string`): `Promise`\<[`Client`](Client) \| `null`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:89](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L89)
+
+The client, or `null`.
+
+#### Parameters
+
+##### client\_id
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Client`](Client) \| `null`\>
+
+***
+
+### insert()
+
+> **insert**(`c`: [`Client`](Client)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:91](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L91)
+
+Registers a client; rejects a taken `client_id`.
+
+#### Parameters
+
+##### c
+
+[`Client`](Client)
+
+#### Returns
+
+`Promise`\<`void`\>
+

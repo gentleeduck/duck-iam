@@ -1,0 +1,42 @@
+---
+title: "Function: verifyCsrf()"
+description: "Throws AUTH_CSRF on failure. A safe method passes through unchecked; a Bearer/DPoP request skips  the double-submit token but is still held to the origin checks."
+---
+
+> **verifyCsrf**(`opts`: \{ `cfg?`: [`Cfg`](../namespaces/Csrf/type-aliases/Cfg); `headers`: `Headers`; `isBearer?`: `boolean`; `method`: `string`; `sessionCsrfHash?`: `string`; \}): `void`
+
+Defined in: [packages/duck-auth/src/core/csrf/csrf.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/csrf/csrf.ts#L52)
+
+Throws `AUTH_CSRF` on failure. A safe method passes through unchecked; a Bearer/DPoP request skips
+ the double-submit token but is still held to the origin checks.
+
+## Parameters
+
+### opts
+
+#### cfg?
+
+[`Cfg`](../namespaces/Csrf/type-aliases/Cfg)
+
+#### headers
+
+`Headers`
+
+#### isBearer?
+
+`boolean`
+
+True when the request authenticated via a non-ambient bearer (header, JWT, DPoP).
+
+#### method
+
+`string`
+
+#### sessionCsrfHash?
+
+`string`
+
+## Returns
+
+`void`
+

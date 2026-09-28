@@ -1,0 +1,91 @@
+---
+title: "Class: IdempotencyImpl"
+description: "The host builds one (redisIdempotency, valkeyIdempotency, or idempotency over its own store) and  calls IdempotencyImpl.handle with the request's key and an executor; the same key presented again  replays the cached response. The engine holds none, since none of its routes replays a response."
+---
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.ts#L10)
+
+The host builds one (`redisIdempotency`, `valkeyIdempotency`, or `idempotency` over its own store) and
+ calls [IdempotencyImpl.handle](#handle) with the request's key and an executor; the same key presented again
+ replays the cached response. The engine holds none, since none of its routes replays a response.
+
+## Constructors
+
+### Constructor
+
+> **new IdempotencyImpl**(`_store`: [`Store`](../namespaces/Idempotency/type-aliases/Store), `cfg?`: `Partial`\<[`Cfg`](../namespaces/Idempotency/interfaces/Cfg)\>): `IdempotencyImpl`
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.ts#L13)
+
+#### Parameters
+
+##### \_store
+
+[`Store`](../namespaces/Idempotency/type-aliases/Store)
+
+##### cfg?
+
+`Partial`\<[`Cfg`](../namespaces/Idempotency/interfaces/Cfg)\>
+
+#### Returns
+
+`IdempotencyImpl`
+
+## Accessors
+
+### headerName
+
+#### Get Signature
+
+> **get** **headerName**(): `string`
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.ts#L37)
+
+The header a host's middleware reads the key from, so it is configured once.
+
+##### Returns
+
+`string`
+
+## Methods
+
+### handle()
+
+> **handle**(`key`: `string`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext), `executor`: () => `Promise`\<[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)\>, `opts?`: \{ `fingerprint?`: `string`; `identityId?`: `string`; \}): `Promise`\<[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.ts#L46)
+
+`executor` runs once, and every repeat of `key` within `ttlMs` is answered from the cached response.
+ An executor that fails - by throwing, or by answering 5xx - caches nothing and releases the key, so
+ the retry the client makes with that same key runs for real. Pass `fingerprint`, a hash of the method,
+ path and body, and a repeat whose fingerprint differs is answered 422 instead of another request's
+ response.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+##### executor
+
+() => `Promise`\<[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)\>
+
+##### opts?
+
+###### fingerprint?
+
+`string`
+
+###### identityId?
+
+`string`
+
+#### Returns
+
+`Promise`\<[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)\>
+

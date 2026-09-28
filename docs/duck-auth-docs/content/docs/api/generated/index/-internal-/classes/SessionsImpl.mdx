@@ -1,0 +1,405 @@
+---
+title: "Class: SessionsImpl"
+description: "Every privilege-changing transition routes through SessionsImpl.rotateOrCreate, so the  fixation discipline lives in one place."
+---
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L28)
+
+Every privilege-changing transition routes through [SessionsImpl.rotateOrCreate](#rotateorcreate), so the
+ fixation discipline lives in one place.
+
+## Constructors
+
+### Constructor
+
+> **new SessionsImpl**(`_store`: [`Store`](../../namespaces/Sessions/type-aliases/Store), `_events`: [`IBus`](../../namespaces/Events/interfaces/IBus), `cfg?`: `Partial`\<[`Cfg`](../../namespaces/Sessions/type-aliases/Cfg)\>): `SessionsImpl`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L31)
+
+#### Parameters
+
+##### \_store
+
+[`Store`](../../namespaces/Sessions/type-aliases/Store)
+
+##### \_events
+
+[`IBus`](../../namespaces/Events/interfaces/IBus)
+
+##### cfg?
+
+`Partial`\<[`Cfg`](../../namespaces/Sessions/type-aliases/Cfg)\>
+
+#### Returns
+
+`SessionsImpl`
+
+## Methods
+
+### create()
+
+> **create**(`input`: [`MintInput`](../../namespaces/Sessions/type-aliases/MintInput)): `Promise`\<\{ `csrfToken`: `string`; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L70)
+
+`session.id` is the hashed row key, `sid` the plaintext for `Transport.issue()`; only the sha-256
+ of it is ever stored, and the same holds for `csrfToken`.
+ Raises `AUTH_STALE_WRITE` when the identity's sessions were revoked wholesale while this one was
+ being minted. Not retried here: the point of the refusal is that a revoke stops a sign-in already
+ in flight, and re-stamping the clock to get past it would undo exactly that. Whether to attempt
+ the sign-in again is the caller's. `createdAt` is read from the clock below, so the re-mint
+ `rotateOrCreate` does straight after its own sweep is never the one refused.
+
+#### Parameters
+
+##### input
+
+[`MintInput`](../../namespaces/Sessions/type-aliases/MintInput)
+
+#### Returns
+
+`Promise`\<\{ `csrfToken`: `string`; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+***
+
+### createGuest()
+
+> **createGuest**(`opts?`: \{ `ip?`: `string`; `tenantId?`: `string`; `userAgent?`: `string`; \}): `Promise`\<\{ `csrfToken`: `string`; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:420](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L420)
+
+Mints a session carrying no identity, for a caller who has not signed in yet.
+
+#### Parameters
+
+##### opts?
+
+###### ip?
+
+`string`
+
+###### tenantId?
+
+`string`
+
+###### userAgent?
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `csrfToken`: `string`; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+***
+
+### gc()
+
+> **gc**(): `Promise`\<\{ `deleted`: `number`; \}\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:411](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L411)
+
+The caller schedules it, under a leader lock in a distributed deployment.
+
+#### Returns
+
+`Promise`\<\{ `deleted`: `number`; \}\>
+
+***
+
+### getBySid()
+
+> **getBySid**(`sid`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Sessions/type-aliases/Me)\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:299](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L299)
+
+SECURITY: the deadline gate is here rather than in the store, which only knows "the row under this key". Two
+callers hand the answer straight to `rotateOrCreate`, so without it an expired sid is resurrected.
+`fresh` is recomputed from `rotatedAt` for the same reason.
+
+#### Parameters
+
+##### sid
+
+`string`
+
+#### Returns
+
+[`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Sessions/type-aliases/Me)\>
+
+***
+
+### listForIdentity()
+
+> **listForIdentity**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Public`](../../namespaces/Sessions/type-aliases/Public)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:404](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L404)
+
+Every live session for an identity, for an "active devices" view. An expired row, which the store keeps
+ until `gc` sweeps it, is left out.
+ `csrfHash` is stripped, as it is at every `/session` endpoint and in the GDPR export: this row is
+ built to be handed to the person it belongs to, and the browser holds the plaintext in its cookie
+ and never needs the hash. The store's `listByIdentity` still answers whole rows, which is what the
+ revoke and concurrency paths read.
+ WARN: pass a `ctx` in a multi-tenant deployment. Identities are global, so an unscoped call shows
+ tenant A the same person's tenant B sessions, IP and user-agent included.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Public`](../../namespaces/Sessions/type-aliases/Public)[]\>
+
+***
+
+### promoteGuest()
+
+> **promoteGuest**(`input`: \{ `aal`: [`AAL`](../../namespaces/Sessions/type-aliases/AAL); `actingAs?`: [`ActingAs`](../../namespaces/Sessions/type-aliases/ActingAs) \| `null`; `factors`: [`Factor`](../../namespaces/Sessions/interfaces/Factor)[]; `fingerprint?`: `string` \| `null`; `guestSid`: `string`; `identity?`: [`Me`](../../namespaces/Identities/type-aliases/Me)\<[`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase)\> \| `null`; `identityId`: `string`; `ip?`: `string`; `tenantId?`: `string`; `userAgent?`: `string`; \}): `Promise`\<\{ `csrfToken`: `string`; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:435](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L435)
+
+The SID rotates, so anything the guest owned has to move by identity.
+
+#### Parameters
+
+##### input
+
+###### aal
+
+[`AAL`](../../namespaces/Sessions/type-aliases/AAL)
+
+###### actingAs?
+
+[`ActingAs`](../../namespaces/Sessions/type-aliases/ActingAs) \| `null`
+
+###### factors
+
+[`Factor`](../../namespaces/Sessions/interfaces/Factor)[]
+
+###### fingerprint?
+
+`string` \| `null`
+
+Carried over, so guest device-binding survives promotion.
+
+###### guestSid
+
+`string`
+
+###### identity?
+
+[`Me`](../../namespaces/Identities/type-aliases/Me)\<[`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase)\> \| `null`
+
+Passthrough for a caller that already holds the row.
+
+###### identityId
+
+`string`
+
+###### ip?
+
+`string`
+
+###### tenantId?
+
+`string`
+
+###### userAgent?
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `csrfToken`: `string`; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+***
+
+### revoke()
+
+> **revoke**(`sid`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Sessions/type-aliases/Me)\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:256](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L256)
+
+Answers the row that went, so a caller can name the device. A session already gone throws, so
+ `orNull()` is how a caller asks for a repeat revoke to read as the no-op it is.
+
+#### Parameters
+
+##### sid
+
+`string`
+
+#### Returns
+
+[`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Sessions/type-aliases/Me)\>
+
+***
+
+### revokeAllExcept()
+
+> **revokeAllExcept**(`identityId`: `string`, `keepSid`: `string`, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<\{ `revoked`: `number`; \}\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:482](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L482)
+
+Every session for the identity except the one `keepSid` names - "log out all other devices".
+
+SECURITY: an unrecognised `keepSid` revokes everything. Failing closed, because the alternative is
+silently keeping a session the caller did not mean to keep, and a typo would then read as success.
+Pass a `ctx` in a multi-tenant deployment, for the reason [SessionsImpl.listForIdentity](#listforidentity) gives.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### keepSid
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<\{ `revoked`: `number`; \}\>
+
+***
+
+### revokeAllForIdentities()
+
+> **revokeAllForIdentities**(`identityIds`: `string`[]): `Promise`\<[`Revoked`](../../namespaces/Sessions/type-aliases/Revoked)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:466](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L466)
+
+One statement for the set. An identity that had none is simply absent from the answer.
+
+#### Parameters
+
+##### identityIds
+
+`string`[]
+
+#### Returns
+
+`Promise`\<[`Revoked`](../../namespaces/Sessions/type-aliases/Revoked)[]\>
+
+***
+
+### revokeAllForIdentity()
+
+> **revokeAllForIdentity**(`identityId`: `string`, `ctx?`: [`TenantContext`](../../interfaces/TenantContext)): `Promise`\<[`Me`](../../namespaces/Sessions/type-aliases/Me)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:286](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L286)
+
+Removes every row, and answers the ones that were live, so "signed out of 4 devices" needs no second query.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx?
+
+[`TenantContext`](../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Me`](../../namespaces/Sessions/type-aliases/Me)[]\>
+
+***
+
+### revokeByHash()
+
+> **revokeByHash**(`sessionId`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Sessions/type-aliases/Me)\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:265](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L265)
+
+[SessionsImpl.revoke](#revoke) for a caller holding the stored hash rather than the plaintext SID.
+
+#### Parameters
+
+##### sessionId
+
+`string`
+
+#### Returns
+
+[`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Sessions/type-aliases/Me)\>
+
+***
+
+### revokeByHashes()
+
+> **revokeByHashes**(`ids`: `string`[]): `Promise`\<[`Revoked`](../../namespaces/Sessions/type-aliases/Revoked)[]\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:498](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L498)
+
+[SessionsImpl.revokeAllForIdentities](#revokeallforidentities) keyed by session id rather than identity.
+
+#### Parameters
+
+##### ids
+
+`string`[]
+
+#### Returns
+
+`Promise`\<[`Revoked`](../../namespaces/Sessions/type-aliases/Revoked)[]\>
+
+***
+
+### rotateOrCreate()
+
+> **rotateOrCreate**(`input`: [`RotateInput`](../../namespaces/Sessions/interfaces/RotateInput)): `Promise`\<\{ `csrfToken`: `string`; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:164](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L164)
+
+One code path for every transition that changes a session's identity, AAL or privilege, so
+ fixation is structurally impossible to forget.
+
+#### Parameters
+
+##### input
+
+[`RotateInput`](../../namespaces/Sessions/interfaces/RotateInput)
+
+#### Returns
+
+`Promise`\<\{ `csrfToken`: `string`; `session`: [`Me`](../../namespaces/Sessions/type-aliases/Me); `sid`: `string`; \}\>
+
+***
+
+### touch()
+
+> **touch**(`sid`: `string`): [`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Sessions/type-aliases/Me)\>
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.ts:345](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.ts#L345)
+
+Extends `expiresAt` without rotating the SID; `fresh` still decays from `rotatedAt`.
+ `resolveSession` calls it once less than half the TTL is left.
+ SECURITY: guarded, because a host may issue one on every authenticated request and `fresh` is the
+ flag a sensitive operation re-authenticates on. Unguarded, a `touch` reading just before a
+ credential-change wrote `fresh: false` put `true` back on top of it, so the password change that was
+ meant to force a re-auth was undone by the next request the browser made. Retried once; a second
+ conflict is genuine contention and is the caller's to see.
+
+#### Parameters
+
+##### sid
+
+`string`
+
+#### Returns
+
+[`Me`](../../namespaces/Answer/interfaces/Me)\<[`Me`](../../namespaces/Sessions/type-aliases/Me)\>
+

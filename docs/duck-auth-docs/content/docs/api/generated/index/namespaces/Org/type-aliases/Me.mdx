@@ -1,0 +1,68 @@
+---
+title: "Type Alias: Me"
+description: "An org."
+---
+
+> **Me**\<`Meta` = `unknown`\> = \{ `createdAt`: `Date`; `domain`: `string` \| `null`; `id`: `string`; `metadata`: `Meta` \| `null`; `name`: `string`; `tenantId`: `string` \| `null`; \}
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L6)
+
+An org.
+
+## Type Parameters
+
+### Meta
+
+`Meta` = `unknown`
+
+## Properties
+
+### createdAt
+
+> **createdAt**: `Date`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L11)
+
+***
+
+### domain
+
+> **domain**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:9](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L9)
+
+***
+
+### id
+
+> **id**: `string`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:7](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L7)
+
+***
+
+### metadata
+
+> **metadata**: `Meta` \| `null`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L10)
+
+***
+
+### name
+
+> **name**: `string`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L8)
+
+***
+
+### tenantId
+
+> **tenantId**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L14)
+
+The tenant this row belongs to, `null` for a global one. Required so the facet can check the row
+ it got back against the scope it asked for; without it `ctx` was a promise no caller could audit.
+

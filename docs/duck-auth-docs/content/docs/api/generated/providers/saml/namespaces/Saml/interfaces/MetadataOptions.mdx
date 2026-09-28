@@ -1,0 +1,102 @@
+---
+title: "Interface: MetadataOptions"
+description: "What the SP metadata XML is built from."
+---
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:158](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L158)
+
+What the SP metadata XML is built from.
+
+## Properties
+
+### acsUrl
+
+> **acsUrl**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:162](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L162)
+
+The AssertionConsumerService URL, where the SAMLResponse is POSTed.
+
+***
+
+### decryptionCert?
+
+> `optional` **decryptionCert?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:169](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L169)
+
+Decrypts encrypted assertions. A PEM body, no markers.
+
+***
+
+### displayName?
+
+> `optional` **displayName?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:173](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L173)
+
+Shown in the IdP's UI.
+
+***
+
+### entityId
+
+> **entityId**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:160](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L160)
+
+Must match the AudienceRestriction set at the IdP.
+
+***
+
+### nameIdFormat?
+
+> `optional` **nameIdFormat?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:171](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L171)
+
+Default emailAddress.
+
+***
+
+### signingCert?
+
+> `optional` **signingCert?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:167](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L167)
+
+Signs AuthnRequests and validates encrypted assertions. A PEM body with no `-----BEGIN-----`
+ markers.
+
+***
+
+### sloUrl?
+
+> `optional` **sloUrl?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:164](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L164)
+
+Omit it when SLO is not supported.
+
+***
+
+### wantAssertionsSigned?
+
+> `optional` **wantAssertionsSigned?**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:175](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L175)
+
+Rendered as the `WantAssertionsSigned` attribute. Default true.
+
+***
+
+### wantAuthnResponseSigned?
+
+> `optional` **wantAuthnResponseSigned?**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:179](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L179)
+
+WARN: inert. `SPSSODescriptor` has no attribute for response signing, so this never reaches the
+ generated XML and both values produce the same document; ask the IdP for a signed response in
+ its own configuration. What enforces it at verification time is the node-saml client.
+

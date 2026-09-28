@@ -1,0 +1,179 @@
+---
+title: "Interface: Cfg"
+description: "The endpoints, retry policy and SSRF guard of the deliverer."
+---
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:398](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L398)
+
+The endpoints, retry policy and SSRF guard of the deliverer.
+
+## Properties
+
+### allowInsecure?
+
+> `optional` **allowInsecure?**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:413](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L413)
+
+Accept non-HTTPS endpoint URLs, leaving payloads readable on the wire. Dev-only, default false.
+ The SSRF guard still blocks loopback, private, link-local and cloud-metadata hosts regardless.
+
+***
+
+### backoffMs?
+
+> `optional` **backoffMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:404](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L404)
+
+Base backoff in ms (exponential). Default 500ms (so 0.5s, 1s, 2s, 4s, 8s).
+
+***
+
+### deadLetter?
+
+> `optional` **deadLetter?**: [`IDeadLetterSink`](IDeadLetterSink)
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:410](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L410)
+
+Where a permanently failed delivery goes.
+
+***
+
+### endpoints
+
+> **endpoints**: [`IEndpoint`](IEndpoint)[]
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:400](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L400)
+
+The receivers every event fans out to.
+
+***
+
+### fetch?
+
+> `optional` **fetch?**: \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:408](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L408)
+
+For tests.
+
+#### Call Signature
+
+> (`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`RequestInfo` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+#### Call Signature
+
+> (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`string` \| `Request` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+***
+
+### maxAttempts?
+
+> `optional` **maxAttempts?**: `number`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:402](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L402)
+
+Maximum delivery attempts before dead-lettering. Default 5.
+
+***
+
+### random?
+
+> `optional` **random?**: () => `number`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:424](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L424)
+
+Jitter source for the retry backoff. Tests pin it; nothing else should pass it.
+
+#### Returns
+
+`number`
+
+***
+
+### redact?
+
+> `optional` **redact?**: (`payload`: `unknown`) => `unknown`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:422](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L422)
+
+Redacts a payload before it is signed, sent and dead-lettered. Drops every secret-bearing key at
+ any depth by default: a `session.created` payload carries the session row and the identity, and
+ both would otherwise reach a third party verbatim.
+
+#### Parameters
+
+##### payload
+
+`unknown`
+
+#### Returns
+
+`unknown`
+
+***
+
+### resolveHost?
+
+> `optional` **resolveHost?**: (`hostname`: `string`) => `Promise`\<`string`[]\>
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:418](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L418)
+
+Resolves an endpoint hostname to its addresses, checked against the same ranges before each
+ attempt; no address is a refusal. Without it the guard sees only the host's spelling, so a name
+ pointing at 127.0.0.1 is accepted. In Node: `(await lookup(hostname, { all: true })).map((a) => a.address)`.
+ WARN: this closes the name, not the race, since `fetch` resolves again when it connects.
+
+#### Parameters
+
+##### hostname
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`[]\>
+
+***
+
+### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:406](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L406)
+
+Request timeout per delivery, ms. Default 5_000.
+

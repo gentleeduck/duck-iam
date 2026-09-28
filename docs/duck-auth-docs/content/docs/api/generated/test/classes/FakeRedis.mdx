@@ -1,0 +1,451 @@
+---
+title: "Class: FakeRedis"
+description: "In-process substitute for tests and for apps that need the adapter shape without a Redis dependency at runtime. The @upstash/redis surface, with TTLs enforced on read rather than by a timer."
+---
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L68)
+
+In-process substitute for tests and for apps that need the adapter shape without a Redis dependency at
+runtime. The `@upstash/redis` surface, with TTLs enforced on read rather than by a timer.
+
+## Implements
+
+- [`Client`](../../adapters/redis/namespaces/RedisLike/type-aliases/Client)
+
+## Constructors
+
+### Constructor
+
+> **new FakeRedis**(): `FakeRedis`
+
+#### Returns
+
+`FakeRedis`
+
+## Methods
+
+### del()
+
+> **del**(...`keys`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:115](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L115)
+
+Removes from every type, the way real `DEL` behaves. Touching `_data` alone made deleting a set or a
+ sorted set a silent no-op, and the session store's index and expiry keys are exactly those types, so
+ `runSessionStoreCompliance` asserting "the index key is gone" passed against a fake that kept it.
+
+#### Parameters
+
+##### keys
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Implementation of
+
+`RedisLike.Client.del`
+
+***
+
+### expire()
+
+> **expire**(`key`: `string`, `seconds`: `number`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:129](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L129)
+
+`0` when the key does not exist, whatever its type. Strings only, this answered `0` for the
+ session index and set no TTL, so the one call that bounds that set's lifetime did nothing.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### seconds
+
+`number`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Implementation of
+
+`RedisLike.Client.expire`
+
+***
+
+### get()
+
+> **get**(`key`: `string`): `Promise`\<`string` \| `null`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:88](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L88)
+
+`null` on a miss or an elapsed TTL.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`string` \| `null`\>
+
+#### Implementation of
+
+`RedisLike.Client.get`
+
+***
+
+### incr()
+
+> **incr**(`key`: `string`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:137](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L137)
+
+Adds one, treating a missing key as zero.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Implementation of
+
+`RedisLike.Client.incr`
+
+***
+
+### incrby()
+
+> **incrby**(`key`: `string`, `by`: `number`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:142](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L142)
+
+Adds `by`, treating a missing key as zero.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### by
+
+`number`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Implementation of
+
+`RedisLike.Client.incrby`
+
+***
+
+### mget()
+
+> **mget**(...`keys`: `string`[]): `Promise`\<(`string` \| `null`)[]\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:94](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L94)
+
+One entry per key, in the order asked, `null` for a miss or an elapsed TTL.
+
+#### Parameters
+
+##### keys
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<(`string` \| `null`)[]\>
+
+#### Implementation of
+
+`RedisLike.Client.mget`
+
+***
+
+### publish()
+
+> **publish**(`channel`: `string`, `message`: `string`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:237](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L237)
+
+Fans the payload out to every subscriber on `channel`.
+
+#### Parameters
+
+##### channel
+
+`string`
+
+##### message
+
+`string`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### sadd()
+
+> **sadd**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:152](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L152)
+
+Adds members to a set, answering how many were not already there.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### members
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Implementation of
+
+`RedisLike.Client.sadd`
+
+***
+
+### set()
+
+> **set**(`key`: `string`, `value`: `string`, `opts?`: \{ `ex?`: `number`; `nx?`: `boolean`; \}): `Promise`\<`"OK"` \| `null`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:102](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L102)
+
+`null` when the NX condition fails.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### value
+
+`string`
+
+##### opts?
+
+###### ex?
+
+`number`
+
+###### nx?
+
+`boolean`
+
+#### Returns
+
+`Promise`\<`"OK"` \| `null`\>
+
+#### Implementation of
+
+`RedisLike.Client.set`
+
+***
+
+### smembers()
+
+> **smembers**(`key`: `string`): `Promise`\<`string`[]\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:183](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L183)
+
+Every member of a set, as a fresh array.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`[]\>
+
+#### Implementation of
+
+`RedisLike.Client.smembers`
+
+***
+
+### srem()
+
+> **srem**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:170](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L170)
+
+Removes members from a set, answering how many were there.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### members
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Implementation of
+
+`RedisLike.Client.srem`
+
+***
+
+### subscribe()
+
+> **subscribe**(`channel`: `string`, `onMessage`: (`channel`: `string`, `message`: `string`) => `void` \| `Promise`\<`void`\>): `Promise`\<() => `Promise`\<`void`\>\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:247](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L247)
+
+Answers an async unsubscribe.
+
+#### Parameters
+
+##### channel
+
+`string`
+
+##### onMessage
+
+(`channel`: `string`, `message`: `string`) => `void` \| `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<() => `Promise`\<`void`\>\>
+
+***
+
+### zadd()
+
+> **zadd**(`key`: `string`, `score`: `number`, `member`: `string`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:189](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L189)
+
+Adds a member to a sorted set, or re-scores one already in it.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### score
+
+`number`
+
+##### member
+
+`string`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Implementation of
+
+`RedisLike.Client.zadd`
+
+***
+
+### zrangebyscore()
+
+> **zrangebyscore**(`key`: `string`, `min`: `string` \| `number`, `max`: `string` \| `number`, `opts?`: \{ `limit?`: \{ `count`: `number`; `offset`: `number`; \}; \}): `Promise`\<`string`[]\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:215](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L215)
+
+Ascending by score, then by member.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### min
+
+`string` \| `number`
+
+##### max
+
+`string` \| `number`
+
+##### opts?
+
+###### limit?
+
+\{ `count`: `number`; `offset`: `number`; \}
+
+###### limit.count
+
+`number`
+
+###### limit.offset
+
+`number`
+
+#### Returns
+
+`Promise`\<`string`[]\>
+
+#### Implementation of
+
+`RedisLike.Client.zrangebyscore`
+
+***
+
+### zrem()
+
+> **zrem**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:202](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L202)
+
+Removes members from a sorted set, answering how many were there.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### members
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+#### Implementation of
+
+`RedisLike.Client.zrem`
+

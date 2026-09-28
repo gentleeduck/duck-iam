@@ -1,0 +1,26 @@
+---
+title: "Function: koaActorContext()"
+description: "Bind the request's actor scope for everything downstream; install it above your own routes,  alongside the CSRF guard. See core/actor/README.md for what runs unbound and what raises."
+---
+
+> **koaActorContext**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: [`KoaActorOptions`](../type-aliases/KoaActorOptions)): [`Middleware`](../namespaces/KoaAdapter/type-aliases/Middleware)
+
+Defined in: [packages/duck-auth/src/server/koa/index.ts:167](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/koa/index.ts#L167)
+
+Bind the request's actor scope for everything downstream; install it above your own routes,
+ alongside the CSRF guard. See `core/actor/README.md` for what runs unbound and what raises.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+[`KoaActorOptions`](../type-aliases/KoaActorOptions) = `{}`
+
+## Returns
+
+[`Middleware`](../namespaces/KoaAdapter/type-aliases/Middleware)
+

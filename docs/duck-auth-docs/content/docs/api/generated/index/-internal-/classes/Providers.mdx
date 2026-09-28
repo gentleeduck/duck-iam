@@ -1,0 +1,252 @@
+---
+title: "Class: Providers"
+description: "Holds every configured capability, sign-in providers and attach-only facets like mfa and api-key alike, routing begin/complete by id and resolving facets by type through resolve."
+---
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L17)
+
+Holds every configured capability, sign-in providers and attach-only facets like mfa and api-key alike,
+routing `begin`/`complete` by id and resolving facets by type through `resolve`.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Constructors
+
+### Constructor
+
+> **new Providers**\<`Profile` *extends* [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../namespaces/Identities/type-aliases/ProfileMetadataBase)\>(`capabilities?`: [`Capability`](../../namespaces/Provider/interfaces/Capability)[]): `Providers`\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L20)
+
+#### Parameters
+
+##### capabilities?
+
+[`Capability`](../../namespaces/Provider/interfaces/Capability)[] = `[]`
+
+#### Returns
+
+`Providers`\<`Profile`\>
+
+## Accessors
+
+### size
+
+#### Get Signature
+
+> **get** **size**(): `number`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L72)
+
+How many capabilities are registered, sign-in providers and attach-only facets alike.
+
+##### Returns
+
+`number`
+
+## Methods
+
+### begin()
+
+> **begin**(`id`: `string`, `ctx`: [`Context`](../../namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: `unknown`): `Promise`\<[`Intent`](../../namespaces/Provider/type-aliases/Intent)[]\>
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:136](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L136)
+
+Runs the begin step of the sign-in provider registered under this id.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### ctx
+
+[`Context`](../../namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### input
+
+`unknown`
+
+#### Returns
+
+`Promise`\<[`Intent`](../../namespaces/Provider/type-aliases/Intent)[]\>
+
+***
+
+### complete()
+
+> **complete**(`id`: `string`, `ctx`: [`Context`](../../namespaces/Provider/type-aliases/Context)\<`Profile`\>, `input`: `unknown`): `Promise`\<[`InternalIntent`](../../namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:141](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L141)
+
+Runs the complete step of the sign-in provider registered under this id.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### ctx
+
+[`Context`](../../namespaces/Provider/type-aliases/Context)\<`Profile`\>
+
+##### input
+
+`unknown`
+
+#### Returns
+
+`Promise`\<[`InternalIntent`](../../namespaces/Provider/type-aliases/InternalIntent)[]\>
+
+***
+
+### get()
+
+> **get**(`id`: `string`): [`Capability`](../../namespaces/Provider/interfaces/Capability)
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:83](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L83)
+
+The capability registered under this id; throws when there is none.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+[`Capability`](../../namespaces/Provider/interfaces/Capability)
+
+***
+
+### has()
+
+> **has**(`id`: `string`): `boolean`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:77](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L77)
+
+Whether a provider is registered under this id, canonicalised.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`boolean`
+
+***
+
+### list()
+
+> **list**(): \{ `id`: `string`; `kind`: `string`; \}[]
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L67)
+
+Sign-in grid: only capabilities that can actually complete a sign-in.
+
+#### Returns
+
+\{ `id`: `string`; `kind`: `string`; \}[]
+
+***
+
+### register()
+
+> **register**(`cap`: [`Capability`](../../namespaces/Provider/interfaces/Capability)): `void`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L25)
+
+The runtime hook, so a plugin can add a capability after construction.
+
+#### Parameters
+
+##### cap
+
+[`Capability`](../../namespaces/Provider/interfaces/Capability)
+
+#### Returns
+
+`void`
+
+***
+
+### registerAll()
+
+> **registerAll**(`capabilities`: [`Capability`](../../namespaces/Provider/interfaces/Capability)[]): `void`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L33)
+
+Registers a whole list, or none of it. There is no way to take a capability back out, so a list
+that raises on its third entry would otherwise leave the first two behind for the engine's life.
+
+#### Parameters
+
+##### capabilities
+
+[`Capability`](../../namespaces/Provider/interfaces/Capability)[]
+
+#### Returns
+
+`void`
+
+***
+
+### resolve()
+
+> **resolve**\<`T`\>(`ctor`: (...`args`: `never`[]) => `T`): `T` \| `null`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L52)
+
+The registered capability that is an instance of `ctor`, or null.
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### ctor
+
+(...`args`: `never`[]) => `T`
+
+#### Returns
+
+`T` \| `null`
+
+***
+
+### withClient()
+
+> **withClient**(`stores`: [`Stores`](../../namespaces/Provider/type-aliases/Stores), `events`: [`IBus`](../../namespaces/Events/interfaces/IBus)): `Providers`\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/provider/provider.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.ts#L41)
+
+Re-binds every capability that knows how and keeps the rest as they are. Registration order and every
+ id survive, so `resolve()` and `list()` behave identically on the copy.
+
+#### Parameters
+
+##### stores
+
+[`Stores`](../../namespaces/Provider/type-aliases/Stores)
+
+##### events
+
+[`IBus`](../../namespaces/Events/interfaces/IBus)
+
+#### Returns
+
+`Providers`\<`Profile`\>
+

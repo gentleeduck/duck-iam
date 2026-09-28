@@ -1,0 +1,35 @@
+---
+title: "Function: mfaProvider()"
+description: "The MFA provider, ready to hand to providers."
+---
+
+> **mfaProvider**\<`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase), `Tenant` = `string`, `OrgMeta` = `unknown`\>(`cfg?`: [`CfgInput`](../namespaces/Mfa/type-aliases/CfgInput)): (`auth`: [`AuthEngine`](../../../index/classes/AuthEngine)\<`Profile`, `Tenant`, `OrgMeta`\>) => [`MfaFacet`](../classes/MfaFacet)
+
+Defined in: [packages/duck-auth/src/providers/mfa/mfa.ts:493](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/mfa.ts#L493)
+
+The MFA provider, ready to hand to `providers`.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+### Tenant
+
+`Tenant` = `string`
+
+### OrgMeta
+
+`OrgMeta` = `unknown`
+
+## Parameters
+
+### cfg?
+
+[`CfgInput`](../namespaces/Mfa/type-aliases/CfgInput)
+
+## Returns
+
+(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine)\<`Profile`, `Tenant`, `OrgMeta`\>) => [`MfaFacet`](../classes/MfaFacet)
+

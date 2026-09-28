@@ -1,0 +1,178 @@
+---
+title: "Type Alias: Store"
+description: "Every method takes the context and every row answers with the tenant it was read under, so the  facet refuses a row from another one rather than trusting the store filtered. A single-tenant host  passes {} and writes tenantId: null."
+---
+
+> **Store**\<`Meta` = `unknown`\> = \{ `addMember`: `Promise`\<[`Membership`](Membership)\>; `getOrg`: `Promise`\<[`Me`](Me)\<`Meta`\>\>; `listMembers`: `Promise`\<[`Membership`](Membership)[]\>; `listOrgsForIdentity`: `Promise`\<[`Me`](Me)\<`Meta`\>[]\>; `removeMember`: `Promise`\<[`Membership`](Membership)\>; `setRoles`: `Promise`\<[`Membership`](Membership)\>; \}
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L33)
+
+Every method takes the context and every row answers with the tenant it was read under, so the
+ facet refuses a row from another one rather than trusting the store filtered. A single-tenant host
+ passes `{}` and writes `tenantId: null`.
+
+## Type Parameters
+
+### Meta
+
+`Meta` = `unknown`
+
+## Methods
+
+### addMember()
+
+> **addMember**(`m`: `Omit`\<[`Membership`](Membership), `"joinedAt"`\>, `ctx`: [`TenantContext`](../../../interfaces/TenantContext)): `Promise`\<[`Membership`](Membership)\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L42)
+
+Adds a member, stamping `joinedAt`.
+
+#### Parameters
+
+##### m
+
+`Omit`\<[`Membership`](Membership), `"joinedAt"`\>
+
+##### ctx
+
+[`TenantContext`](../../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Membership`](Membership)\>
+
+***
+
+### getOrg()
+
+> **getOrg**(`id`: `string`, `ctx`: [`TenantContext`](../../../interfaces/TenantContext)): `Promise`\<[`Me`](Me)\<`Meta`\>\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L35)
+
+The org with this id; raises when there is none.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Me`](Me)\<`Meta`\>\>
+
+***
+
+### listMembers()
+
+> **listMembers**(`orgId`: `string`, `ctx`: [`TenantContext`](../../../interfaces/TenantContext)): `Promise`\<[`Membership`](Membership)[]\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L40)
+
+Live rows or every row; the facet drops any marked `leftAt`.
+
+#### Parameters
+
+##### orgId
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Membership`](Membership)[]\>
+
+***
+
+### listOrgsForIdentity()
+
+> **listOrgsForIdentity**(`identityId`: `string`, `ctx`: [`TenantContext`](../../../interfaces/TenantContext)): `Promise`\<[`Me`](Me)\<`Meta`\>[]\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L38)
+
+The orgs the identity is a live member of. An org row carries no membership, so this filter is the
+ store's alone.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Me`](Me)\<`Meta`\>[]\>
+
+***
+
+### removeMember()
+
+> **removeMember**(`orgId`: `string`, `identityId`: `string`, `ctx`: [`TenantContext`](../../../interfaces/TenantContext)): `Promise`\<[`Membership`](Membership)\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L46)
+
+Both answer the membership they touched, `removeMember` the row as it stands left and `setRoles` the
+ row carrying its new roles. No such membership raises, as every other store's miss does; a caller
+ wanting absence as a value asks for `orNull()`.
+
+#### Parameters
+
+##### orgId
+
+`string`
+
+##### identityId
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Membership`](Membership)\>
+
+***
+
+### setRoles()
+
+> **setRoles**(`orgId`: `string`, `identityId`: `string`, `roles`: `string`[], `ctx`: [`TenantContext`](../../../interfaces/TenantContext)): `Promise`\<[`Membership`](Membership)\>
+
+Defined in: [packages/duck-auth/src/core/orgs/orgs.types.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/orgs/orgs.types.ts#L48)
+
+Replaces the member's roles.
+
+#### Parameters
+
+##### orgId
+
+`string`
+
+##### identityId
+
+`string`
+
+##### roles
+
+`string`[]
+
+##### ctx
+
+[`TenantContext`](../../../interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`Membership`](Membership)\>
+
