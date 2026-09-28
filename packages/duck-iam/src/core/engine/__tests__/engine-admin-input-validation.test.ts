@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { hasIamErrorCode, type IamError, metaOf } from '../../errors'
+import type { AccessControl } from '../../types'
 import { IamEngine } from '../engine'
 
 function buildEngine() {
@@ -157,6 +158,66 @@ describe('engine.admin input validation', () => {
       await engine.admin.setAttributes('user-1', { tier: 'gold' })
       const attrs = await adapter.getSubjectAttributes('user-1')
       expect(attrs).toEqual({ tier: 'gold' })
+    })
+  })
+
+  describe('actor', () => {
+    const policy: AccessControl.IPolicy = {
+      algorithm: 'deny-overrides',
+      description: '',
+      id: 'p1',
+      name: 'p1',
+      rules: [
+        {
+          actions: ['read'],
+          conditions: { all: [{ field: 'action', operator: 'eq', value: 'read' }] },
+          effect: 'allow',
+          id: 'r1',
+          priority: 1,
+          resources: ['post'],
+        },
+      ],
+      version: 1,
+    }
+    // `string & number` is `never`, so the off-contract actor type-checks without a cast.
+    const opts = Object.assign({ actor: 'x' }, { actor: 42 })
+    type Admin = ReturnType<typeof buildEngine>['engine']['admin']
+    const writes: [string, (admin: Admin) => Promise<unknown>][] = [
+      ['savePolicy', (a) => a.savePolicy({ ...policy, id: 'p2' }, opts)],
+      ['deletePolicy', (a) => a.deletePolicy('p1', opts)],
+      ['saveRole', (a) => a.saveRole({ id: 'viewer', name: 'Viewer', permissions: [] }, opts)],
+      ['deleteRole', (a) => a.deleteRole('editor', opts)],
+      ['assignRole', (a) => a.assignRole('user-2', 'editor', undefined, opts)],
+      ['revokeRole', (a) => a.revokeRole('user-1', 'editor', undefined, opts)],
+      ['updateAssignmentScope', (a) => a.updateAssignmentScope('user-1', 'editor', undefined, 'org-1', opts.actor)],
+      ['assignRoles', (a) => a.assignRoles([{ opts, roleId: 'editor', subjectId: 'user-2' }])],
+      ['revokeRoles', (a) => a.revokeRoles([{ opts, roleId: 'editor', subjectId: 'user-1' }])],
+      [
+        'moveRoleScopes',
+        (a) => a.moveRoleScopes([{ actor: opts.actor, roleId: 'editor', subjectId: 'user-1', toScope: 'org-1' }]),
+      ],
+      ['setAttributes', (a) => a.setAttributes('user-1', { plan: 'pro' }, opts)],
+      [
+        'import',
+        (a) => a.import({ exportedAt: '', policies: [{ ...policy, id: 'p2' }], roles: [], schemaVersion: 1 }, {}, opts),
+      ],
+    ]
+
+    it.each(writes)('%s rejects a non-string actor before writing', async (_, write) => {
+      const { adapter, engine } = buildEngine()
+      await engine.admin.savePolicy(policy)
+      await engine.admin.assignRole('user-1', 'editor')
+      const state = async () => [
+        await adapter.listPolicies(),
+        await adapter.listRoles(),
+        await adapter.getSubjectScopedRoles('user-1'),
+        await adapter.getSubjectRoles('user-2'),
+        await adapter.getSubjectAttributes('user-1'),
+      ]
+      const before = await state()
+      const meta = await paramInvalid(write(engine.admin))
+      expect(meta).toMatchObject({ name: 'actor', reason: 'empty', got: 'number' })
+      expect(await state()).toEqual(before)
     })
   })
 
