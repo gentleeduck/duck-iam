@@ -45,7 +45,7 @@ export class IamAdminController {
   constructor(@Inject(IAM_ACCESS_ENGINE_TOKEN) engine: Engine) {
     this.h = createIamAdminOperations(engine, {
       authorize: async (req) => {
-        const userId = req.session?.identityId
+        const userId = req.identity?.id
         if (!userId) return false
         return engine.can(userId, 'read', { type: 'settings', attributes: {} })
       },

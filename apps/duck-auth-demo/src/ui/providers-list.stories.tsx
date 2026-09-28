@@ -14,16 +14,16 @@ type Story = StoryObj<typeof ProvidersList>
 export const FourProviders: Story = {
   args: {
     providers: [
-      { id: 'authGoogle', label: 'Continue with Google' },
-      { id: 'authGithub', label: 'Continue with GitHub' },
-      { id: 'authMicrosoft', label: 'Continue with Microsoft' },
-      { id: 'authApple', label: 'Continue with Apple' },
+      { id: 'oauth:google', label: 'Continue with Google' },
+      { id: 'oauth:github', label: 'Continue with GitHub' },
+      { id: 'oauth:microsoft', label: 'Continue with Microsoft' },
+      { id: 'oauth:apple', label: 'Continue with Apple' },
     ],
   },
 }
 
 export const SingleProvider: Story = {
-  args: { providers: [{ id: 'authGoogle', label: 'Continue with Google' }] },
+  args: { providers: [{ id: 'oauth:google', label: 'Continue with Google' }] },
 }
 
 /** Live backend — clicking magic-link will fire a real begin request. */
