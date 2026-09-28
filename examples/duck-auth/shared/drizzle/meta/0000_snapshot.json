@@ -1,0 +1,783 @@
+{
+  "id": "6431a993-82d4-4e2d-a5bb-0e642338ceb1",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.auth_credentials": {
+      "name": "auth_credentials",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identity_id": {
+          "name": "identity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "secret": {
+          "name": "secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "auth_credentials_identity_kind": {
+          "name": "auth_credentials_identity_kind",
+          "columns": [
+            {
+              "expression": "identity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_credentials_kind_secret": {
+          "name": "auth_credentials_kind_secret",
+          "columns": [
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "secret",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_credentials_tenant": {
+          "name": "auth_credentials_tenant",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_auth_credentials_password": {
+          "name": "uq_auth_credentials_password",
+          "columns": [
+            {
+              "expression": "identity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "kind = 'password' and tenant_id is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_auth_credentials_password_tenant": {
+          "name": "uq_auth_credentials_password_tenant",
+          "columns": [
+            {
+              "expression": "identity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "kind = 'password' and tenant_id is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_credentials_expires_at": {
+          "name": "auth_credentials_expires_at",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "expires_at IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fk_auth_credentials_identity": {
+          "name": "fk_auth_credentials_identity",
+          "tableFrom": "auth_credentials",
+          "tableTo": "auth_identities",
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "chk_auth_credentials_tenant_not_blank": {
+          "name": "chk_auth_credentials_tenant_not_blank",
+          "value": "tenant_id IS NULL OR tenant_id <> ''"
+        },
+        "chk_auth_credentials_kind": {
+          "name": "chk_auth_credentials_kind",
+          "value": "kind IN ('password', 'passkey', 'webauthn-mfa', 'oauth', 'magic-link', 'totp', 'recovery', 'api-key')"
+        },
+        "chk_auth_credentials_version": {
+          "name": "chk_auth_credentials_version",
+          "value": "version >= 1"
+        },
+        "chk_auth_credentials_secret_not_blank": {
+          "name": "chk_auth_credentials_secret_not_blank",
+          "value": "secret ~ '[^[:space:]]'"
+        },
+        "chk_auth_credentials_expires_after_created": {
+          "name": "chk_auth_credentials_expires_after_created",
+          "value": "expires_at IS NULL OR expires_at >= created_at"
+        },
+        "chk_auth_credentials_revoked_after_created": {
+          "name": "chk_auth_credentials_revoked_after_created",
+          "value": "revoked_at IS NULL OR revoked_at >= created_at"
+        },
+        "chk_auth_credentials_last_used_after_created": {
+          "name": "chk_auth_credentials_last_used_after_created",
+          "value": "last_used_at IS NULL OR last_used_at >= created_at"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.auth_identities": {
+      "name": "auth_identities",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "profile": {
+          "name": "profile",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_by": {
+          "name": "deleted_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "uq_auth_identities_email": {
+          "name": "uq_auth_identities_email",
+          "columns": [
+            {
+              "expression": "((lower(profile->>'email')))",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_auth_identities_username": {
+          "name": "uq_auth_identities_username",
+          "columns": [
+            {
+              "expression": "((lower(profile->>'username')))",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_identities_deleted_at": {
+          "name": "auth_identities_deleted_at",
+          "columns": [
+            {
+              "expression": "deleted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "deleted_at is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "chk_auth_identities_profile_shape": {
+          "name": "chk_auth_identities_profile_shape",
+          "value": "coalesce(jsonb_typeof(profile->'username'), '') = 'string' and coalesce(profile->>'username', '') <> ''\n        and coalesce(jsonb_typeof(profile->'email'), '') = 'string' and coalesce(profile->>'email', '') <> ''"
+        },
+        "chk_auth_identities_version": {
+          "name": "chk_auth_identities_version",
+          "value": "version >= 1"
+        },
+        "chk_auth_identities_email_length": {
+          "name": "chk_auth_identities_email_length",
+          "value": "length(profile->>'email') <= 320"
+        },
+        "chk_auth_identities_username_length": {
+          "name": "chk_auth_identities_username_length",
+          "value": "length(profile->>'username') <= 191"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.auth_identity_providers": {
+      "name": "auth_identity_providers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identity_id": {
+          "name": "identity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_sub": {
+          "name": "provider_sub",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "added_at": {
+          "name": "added_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "added_by": {
+          "name": "added_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "uq_auth_identity_providers_sub": {
+          "name": "uq_auth_identity_providers_sub",
+          "columns": [
+            {
+              "expression": "provider_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider_sub",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_auth_identity_providers_owned": {
+          "name": "uq_auth_identity_providers_owned",
+          "columns": [
+            {
+              "expression": "identity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_identity_providers_identity": {
+          "name": "auth_identity_providers_identity",
+          "columns": [
+            {
+              "expression": "identity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "added_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fk_auth_identity_providers_identity": {
+          "name": "fk_auth_identity_providers_identity",
+          "tableFrom": "auth_identity_providers",
+          "tableTo": "auth_identities",
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "chk_auth_identity_providers_provider_not_blank": {
+          "name": "chk_auth_identity_providers_provider_not_blank",
+          "value": "provider_id <> ''"
+        },
+        "chk_auth_identity_providers_sub_not_blank": {
+          "name": "chk_auth_identity_providers_sub_not_blank",
+          "value": "provider_sub <> ''"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.auth_sessions": {
+      "name": "auth_sessions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identity_id": {
+          "name": "identity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aal": {
+          "name": "aal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "factors": {
+          "name": "factors",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "csrf_hash": {
+          "name": "csrf_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "rotated_at": {
+          "name": "rotated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "absolute_expires_at": {
+          "name": "absolute_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fresh": {
+          "name": "fresh",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "acting_as": {
+          "name": "acting_as",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "auth_sessions_identity": {
+          "name": "auth_sessions_identity",
+          "columns": [
+            {
+              "expression": "identity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_sessions_identity_expires": {
+          "name": "auth_sessions_identity_expires",
+          "columns": [
+            {
+              "expression": "identity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_sessions_expires": {
+          "name": "auth_sessions_expires",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_sessions_absolute_expires": {
+          "name": "auth_sessions_absolute_expires",
+          "columns": [
+            {
+              "expression": "absolute_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_sessions_tenant": {
+          "name": "auth_sessions_tenant",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fk_auth_sessions_identity": {
+          "name": "fk_auth_sessions_identity",
+          "tableFrom": "auth_sessions",
+          "tableTo": "auth_identities",
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "chk_auth_sessions_tenant_not_blank": {
+          "name": "chk_auth_sessions_tenant_not_blank",
+          "value": "tenant_id IS NULL OR tenant_id <> ''"
+        },
+        "chk_auth_sessions_kind": {
+          "name": "chk_auth_sessions_kind",
+          "value": "kind IN ('guest', 'user', 'apikey')"
+        },
+        "chk_auth_sessions_aal": {
+          "name": "chk_auth_sessions_aal",
+          "value": "aal BETWEEN 1 AND 3"
+        },
+        "chk_auth_sessions_id_length": {
+          "name": "chk_auth_sessions_id_length",
+          "value": "length(id) = 64"
+        },
+        "chk_auth_sessions_expires_after_created": {
+          "name": "chk_auth_sessions_expires_after_created",
+          "value": "expires_at >= created_at"
+        },
+        "chk_auth_sessions_absolute_expires_after_expires": {
+          "name": "chk_auth_sessions_absolute_expires_after_expires",
+          "value": "absolute_expires_at >= expires_at"
+        },
+        "chk_auth_sessions_rotated_after_created": {
+          "name": "chk_auth_sessions_rotated_after_created",
+          "value": "rotated_at >= created_at"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
