@@ -21,7 +21,9 @@ export namespace Answer {
   /** What `wrap` hands back, with the two swallowing readers still on it: absence is the same answer whether
    *  it is swallowed before the wrap or after, so both orders are written and both mean the one thing. */
   export interface Wrapped<T> extends Promise<Result<T>> {
+    /** The same `{ data, error }`, with this value where there was no row. */
     orDefault(fallback: T): Wrapped<T>
+    /** The same `{ data, error }`, with `null` where there was no row. */
     orNull(): Wrapped<T | null>
   }
 }

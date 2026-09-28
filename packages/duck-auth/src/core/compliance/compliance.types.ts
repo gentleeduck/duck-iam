@@ -1,5 +1,6 @@
 /** Regulatory presets and the closed set of clauses an adapter supplies evidence for. */
 export namespace Compliance {
+  /** A regulatory preset `createAuth({ compliance })` raises the config to. */
   export type Preset = 'gdpr' | 'hipaa' | 'soc2' | 'fips'
 
   /** A closed union rather than `string`, because the assertion is driven off this list: a preset naming
@@ -25,6 +26,7 @@ export namespace Compliance {
     mailerChannel: boolean
   }
 
+  /** The config values a preset raises: the password length floor and the session lifetimes. */
   export type Overrides = {
     passwords: { minLength: number }
     sessions: { ttlMs: number; absoluteTtlMs: number; freshnessMs: number }
@@ -32,7 +34,7 @@ export namespace Compliance {
     apiKeys: { randomBytes: number }
     /** Names of strict() checks the preset insists on, sorted so two orderings resolve alike. */
     requiredStrictChecks: Check[]
-    /** Minimum AAL enforced on every session created during signin. */
+    /** Above 1, `strict()` refuses an engine with no mfa provider; sign-in itself still answers AAL 1. */
     minAal: 1 | 2 | 3
     /** When true, dataAtRest adapter required at boot. */
     requireDataAtRest: boolean

@@ -1,9 +1,10 @@
 import { AuthError } from '../errors'
 import type { Provider } from '../provider/provider.types'
 import type { Sessions } from '../sessions/sessions.types'
-import type { Transport } from '../transport/transport.types'
+import type { Transport } from './transport.types'
 
 export namespace BearerTransport {
+  /** The header and scheme the bearer token is read from. */
   export type Cfg = {
     /** Default `Authorization`. */
     header?: string

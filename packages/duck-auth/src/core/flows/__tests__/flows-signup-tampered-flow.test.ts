@@ -32,7 +32,7 @@ function build() {
 async function plantFlowRow(
   adapter: MemoryAdapter<ProfileShape>,
   identityId: string,
-  metadata: unknown,
+  metadata: Record<string, unknown>,
 ): Promise<string> {
   const token = 'tampered-token'
   await adapter.credentials.create(
@@ -40,7 +40,7 @@ async function plantFlowRow(
       identityId,
       kind: 'recovery',
       secret: sha256(token),
-      metadata: metadata as Record<string, unknown>,
+      metadata,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     }),
     {},
@@ -167,7 +167,12 @@ describe('flows signup - tampered flow metadata', () => {
     })
   })
 
-  it('rejects flow with non-finite absoluteExpiresAt', async () => {
+  it.each([
+    ['expiresAt', Number.POSITIVE_INFINITY],
+    ['absoluteExpiresAt', Number.POSITIVE_INFINITY],
+    ['createdAt', Number.POSITIVE_INFINITY],
+    ['absoluteExpiresAt', 'never'],
+  ])('rejects a flow whose %s is %s', async (field, value) => {
     const token = await plantFlowRow(adapter, identityId, {
       purpose: 'signup-flow',
       flow: {
@@ -177,8 +182,9 @@ describe('flows signup - tampered flow metadata', () => {
         completed: ['email-verified'],
         data: {},
         expiresAt: Date.now() + 60_000,
-        absoluteExpiresAt: 'never', // <- string
+        absoluteExpiresAt: Date.now() + 24 * 60 * 60_000,
         createdAt: Date.now(),
+        [field]: value,
       },
     })
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({
@@ -186,11 +192,9 @@ describe('flows signup - tampered flow metadata', () => {
     })
   })
 
-  it('rejects flow with kind !== "signup-flow"', async () => {
-    // A row keyed under `recovery` but with the wrong purpose marker
-    // (e.g. accidentally typed `signup-flux`) must NOT pass.
+  it('rejects a flow whose purpose is not signup-flow', async () => {
     const token = await plantFlowRow(adapter, identityId, {
-      kind: 'signup-flux', // typo
+      purpose: 'signup-flux',
       flow: {
         id: 'flow-1',
         identityId,

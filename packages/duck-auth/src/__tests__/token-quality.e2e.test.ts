@@ -6,7 +6,7 @@ import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { valkeyAdapter } from '~/adapters/valkey'
 import { orNull } from '~/core/answer'
 import { randomToken, sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
@@ -76,24 +76,24 @@ suite('E2E token quality on real Postgres + Redis', () => {
       input: { email },
     })
     const entry = channel.outbox.at(-1)
-    const url = (entry?.vars as { url?: string } | undefined)?.url
+    const url = entry?.vars.url
     return new URL(url as string).searchParams.get('token') as string
   }
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: PG_URL })
     await applyPgSchema(pool)
-    raw = new Redis(REDIS_URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
-    stores = new DrizzlePgAdapter(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       deliver: channel.deliver,
       limiter: new RedisLimiter({
         max: 2000,
         prefix,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
         windowMs: 60_000,
       }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
@@ -101,7 +101,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
     })
     auth.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
     const m = mfaProvider()
-    auth.providers.register(typeof m === 'function' ? m(auth as never) : m)
+    auth.providers.register(typeof m === 'function' ? m(auth) : m)
     keys = new ApiKeysFacet(stores.credentials, new InMemoryEvents(), { randomToken, sha256 })
   }, 60_000)
 
@@ -276,7 +276,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
         limiter: new RedisLimiter({
           max: 3,
           prefix: `${prefix}:rl`,
-          redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+          redis: valkeyAdapter(raw),
           windowMs: 60_000,
         }),
         stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
@@ -284,7 +284,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
       })
       limited.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
       const m = mfaProvider()
-      limited.providers.register(typeof m === 'function' ? m(limited as never) : m)
+      limited.providers.register(typeof m === 'function' ? m(limited) : m)
 
       const user = await newUser('reset-rl')
       for (let i = 0; i < 10; i++) {

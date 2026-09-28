@@ -8,11 +8,13 @@
 
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { randomToken, sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import type { Deliver } from '~/core/flows/flows.delivery'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { RememberMeFacet } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
 
@@ -116,5 +118,66 @@ describe('completePasswordReset writes the new password into the tenant it was a
       tenantId: 'tenant-b',
     })
     expect(out.session).not.toBeNull()
+  })
+})
+
+describe('a new password the policy refuses spends nothing', () => {
+  it.each([
+    ['too short', 'short'],
+    ['not a string', undefined],
+  ])('%s: the link, the sessions and the old password all survive', async (_, newPassword) => {
+    const { adapter, auth, channel } = buildAuth()
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
+    )
+    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials)
+    await auth.sessions.create({
+      aal: 1,
+      factors: [{ completedAt: new Date(), method: 'password' }],
+      identityId: ident.id,
+      kind: 'user',
+    })
+    await auth.flows.requestPasswordReset({
+      findIdentityByEmail: async () => ({ id: ident.id }),
+      input: { email: 'a@x.com' },
+    })
+    const token = decodeURIComponent(new URL(channel.urls.at(-1) ?? '').searchParams.get('token') ?? '')
+
+    await expect(
+      Reflect.apply(auth.flows.completePasswordReset, auth.flows, [{ newPassword, token }]),
+    ).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
+    expect(await auth.sessions.listForIdentity(ident.id)).toHaveLength(1)
+    const old = await auth.flows.signIn({
+      input: { email: 'a@x.com', password: 'old-password-123' },
+      providerId: 'password',
+    })
+    expect(old.session).not.toBeNull()
+
+    await auth.flows.completePasswordReset({ newPassword: 'new-password-456', token })
+    expect(await auth.sessions.listForIdentity(ident.id)).toHaveLength(0)
+    const out = await auth.flows.signIn({
+      input: { email: 'a@x.com', password: 'new-password-456' },
+      providerId: 'password',
+    })
+    expect(out.session).not.toBeNull()
+  })
+})
+
+describe('a password reset revokes every remembered device', () => {
+  it("the identity's device stops verifying, another identity's does not", async () => {
+    const { adapter, auth, channel } = buildAuth()
+    const devices = new RememberMeFacet(adapter.credentials, { authRandomToken: randomToken, authSha256: sha256 })
+    const tenant = { tenantId: 'tenant-a' }
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
+    )
+    await auth.passwords.set(ident.id, 'old-password-123', adapter.credentials, tenant)
+    const mine = await devices.issue(ident.id, {}, tenant)
+    const theirs = await devices.issue('someone-else', {}, tenant)
+
+    await resetPassword(auth, ident.id, 'a@x.com', 'new-password-456', 'tenant-a', channel)
+
+    await expect(devices.verify(mine.token, tenant)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
+    await expect(devices.verify(theirs.token, tenant)).resolves.toMatchObject({ identityId: 'someone-else' })
   })
 })

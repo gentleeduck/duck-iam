@@ -82,6 +82,20 @@ describe('IdentitiesFacet', () => {
       expect(i.profile?.email).toBe('a@x.com')
     })
 
+    it('refuses a cap or a grace period it cannot use, which a variable left unset makes NaN', () => {
+      for (const cfg of [
+        { profileMaxBytes: Number.NaN },
+        { profileMaxBytes: -1 },
+        { softDeleteGracePeriodMs: Number.NaN },
+        { softDeleteGracePeriodMs: Number.POSITIVE_INFINITY },
+      ]) {
+        expect(
+          () => new IdentitiesImpl(adapter.identities, events, { ...DEFAULT_IDENTITIES_CONFIG, ...cfg }),
+          Object.keys(cfg)[0],
+        ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+      }
+    })
+
     it('opt-out (profileMaxBytes: 0) accepts a large profile', async () => {
       const unbounded = new IdentitiesImpl<MyProfile>(adapter.identities, events, {
         softDeleteGracePeriodMs: DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
@@ -121,6 +135,47 @@ describe('IdentitiesFacet', () => {
     })
   })
 
+  describe('a verified address stays verified only while the identity holds it', () => {
+    async function verified() {
+      const i = await facet.create({ emailVerified: true, profile: { username: 'a', email: 'a@x.com' } })
+      return { id: i.id, version: i.version }
+    }
+
+    it('updateProfile clears emailVerified when the patch moves the address', async () => {
+      const i = await verified()
+      expect((await facet.updateProfile(i.id, { email: 'b@x.com' }, i.version)).emailVerified).toBe(false)
+    })
+
+    it('updateProfile keeps it for a patch that leaves the address, or restates it in another spelling', async () => {
+      const i = await verified()
+      const named = await facet.updateProfile(i.id, { name: 'Alice' }, i.version)
+      expect(named.emailVerified).toBe(true)
+      expect((await facet.updateProfile(i.id, { email: ' A@X.com ' }, named.version)).emailVerified).toBe(true)
+    })
+
+    it('updateProfileMany clears it for a moved address and keeps it for an unmoved one', async () => {
+      const a = await verified()
+      const b = await facet.create({ emailVerified: true, profile: { username: 'b', email: 'b@x.com' } })
+      const written = await facet.updateProfileMany([
+        { expectedVersion: a.version, id: a.id, patch: { email: 'moved@x.com' } },
+        { expectedVersion: b.version, id: b.id, patch: { name: 'Bee' } },
+      ])
+      expect(written.map((r) => [r.profile.email, r.emailVerified])).toEqual([
+        ['moved@x.com', false],
+        ['b@x.com', true],
+      ])
+    })
+
+    it('markEmailVerified refuses an address the identity no longer holds', async () => {
+      const i = await facet.create({ profile: { username: 'a', email: 'a@x.com' } })
+      await expect(facet.markEmailVerified(i.id, 'old@x.com')).rejects.toMatchObject({
+        code: 'AUTH_INVALID_PARAMETERS',
+      })
+      expect((await adapter.identities.find({ id: i.id })).emailVerified).toBe(false)
+      expect((await facet.markEmailVerified(i.id, 'A@x.com')).emailVerified).toBe(true)
+    })
+  })
+
   describe('link / unlink', () => {
     it('link emits identity.linked + persists the provider entry', async () => {
       const i = await facet.create({
@@ -129,18 +184,18 @@ describe('IdentitiesFacet', () => {
       })
       const handler = vi.fn()
       events.on('identity.linked', handler)
-      await facet.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'g-123' })
+      await facet.link(i.id, { providerId: 'oauth:google', providerSub: 'g-123' })
       expect(handler).toHaveBeenCalledOnce()
       const fresh = await facet.getById(i.id)
-      expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
+      expect(fresh?.providers.some((p) => p.providerId === 'oauth:google')).toBe(true)
     })
 
     it('link rejects duplicate providerId for same identity', async () => {
       const i = await facet.create({
         profile: { username: 'a@x.com', email: 'a@x.com' },
-        providers: [{ providerId: 'oauth:authGoogle', providerSub: 'local-2', addedAt: new Date() }],
+        providers: [{ providerId: 'oauth:google', providerSub: 'local-2', addedAt: new Date() }],
       })
-      await expect(facet.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'local-3' })).rejects.toMatchObject({
+      await expect(facet.link(i.id, { providerId: 'oauth:google', providerSub: 'local-3' })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
       })
     })
@@ -160,10 +215,10 @@ describe('IdentitiesFacet', () => {
         profile: { username: 'a@x.com', email: 'a@x.com' },
         providers: [
           { providerId: 'password', providerSub: 'local-5', addedAt: new Date() },
-          { providerId: 'oauth:authGoogle', providerSub: 'local-6', addedAt: new Date() },
+          { providerId: 'oauth:google', providerSub: 'local-6', addedAt: new Date() },
         ],
       })
-      const unlinked = await facet.unlink(i.id, 'oauth:authGoogle')
+      const unlinked = await facet.unlink(i.id, 'oauth:google')
       expect(unlinked.providers).toHaveLength(1)
       const fresh = await facet.getById(i.id)
       expect(fresh?.providers).toHaveLength(1)
@@ -175,13 +230,13 @@ describe('IdentitiesFacet', () => {
         providers: [{ providerId: 'password', providerSub: 'local-7', addedAt: new Date() }],
       })
 
-      const linked = await facet.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'g-1' })
+      const linked = await facet.link(i.id, { providerId: 'oauth:google', providerSub: 'g-1' })
 
       expect(linked.id).toBe(i.id)
-      expect(linked.providers.map((p) => p.providerId)).toContain('oauth:authGoogle')
+      expect(linked.providers.map((p) => p.providerId)).toContain('oauth:google')
       // The addedAt the store stamped travels back with the row, so a caller
       // that wants to show "linked just now" does not have to guess it.
-      expect(linked.providers.find((p) => p.providerId === 'oauth:authGoogle')?.addedAt).toBeInstanceOf(Date)
+      expect(linked.providers.find((p) => p.providerId === 'oauth:google')?.addedAt).toBeInstanceOf(Date)
     })
   })
 
@@ -267,13 +322,13 @@ describe('IdentitiesFacet', () => {
         [
           {
             profile: { username: 'a@x.com', email: 'a@x.com' },
-            providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: new Date(), addedBy: null }],
+            providers: [{ providerId: 'oauth:google', providerSub: 'g' }],
           },
         ],
         { mode: 'merge' },
       )
       const fresh = await facet.getById(i.id)
-      expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
+      expect(fresh?.providers.some((p) => p.providerId === 'oauth:google')).toBe(true)
     })
 
     it('replace erases pre-existing identities by email then creates fresh', async () => {
@@ -282,6 +337,42 @@ describe('IdentitiesFacet', () => {
       const survivor = await facet.getByEmail('a@x.com')
       expect(survivor?.id).not.toBe(before.id)
       expect(survivor?.profile?.name).toBe('New')
+    })
+
+    it('replace erases nothing when the row it would create is over the profile cap', async () => {
+      const capped = new IdentitiesImpl<MyProfile>(adapter.identities, events, {
+        ...DEFAULT_IDENTITIES_CONFIG,
+        profileMaxBytes: 128,
+      })
+      const before = await capped.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
+
+      const out = await capped.bulkCreate(
+        [{ profile: { username: 'a@x.com', email: 'a@x.com', name: 'x'.repeat(500) } }],
+        {
+          mode: 'replace',
+        },
+      )
+
+      expect(out).toEqual({ created: 0, skipped: 0, failed: 1 })
+      await expect(capped.getById(before.id)).resolves.toMatchObject({ id: before.id })
+    })
+
+    it('replace raises a refusal met after the erase rather than counting it, so a transaction can undo it', async () => {
+      await facet.create({
+        profile: { username: 'b@x.com', email: 'b@x.com' },
+        providers: [{ providerId: 'oauth:google', providerSub: 'g-1' }],
+      })
+      await facet.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
+      const row = {
+        profile: { username: 'a@x.com', email: 'a@x.com' },
+        providers: [{ providerId: 'oauth:google', providerSub: 'g-1' }],
+      }
+
+      await expect(facet.bulkCreate([row], { mode: 'replace' })).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+      // The same refusal on a row with nothing to erase is still a failed row.
+      await expect(
+        facet.bulkCreate([{ ...row, profile: { username: 'c@x.com', email: 'c@x.com' } }], { mode: 'replace' }),
+      ).resolves.toEqual({ created: 0, skipped: 0, failed: 1 })
     })
   })
 
@@ -402,7 +493,10 @@ describe('IdentitiesFacet', () => {
       expect(seen).toBe('op-8')
     })
 
-    it('eraseMany with no operatorId leaves the ambient actor alone, as erase does', async () => {
+    it.each([
+      ['no operatorId', {}],
+      ['an empty operatorId', { operatorId: '' }],
+    ])('eraseMany with %s leaves the ambient actor alone, as erase does', async (_, operator) => {
       const a = await facet.create({ profile: { email: 'm3@x.com', username: 'm3@x.com' } })
       const inner = adapter.identities.eraseMany.bind(adapter.identities)
       let seen: string | null = 'nothing-ran'
@@ -411,12 +505,15 @@ describe('IdentitiesFacet', () => {
         return inner(ids)
       }
 
-      await withActor('outer', () => facet.eraseMany([a.id], { reason: 'gdpr-bulk' }))
+      await withActor('outer', () => facet.eraseMany([a.id], { reason: 'gdpr-bulk', ...operator }))
 
       expect(seen).toBe('outer')
     })
 
-    it('erase with no operatorId leaves the ambient actor alone rather than clearing it', async () => {
+    it.each([
+      ['no operatorId', {}],
+      ['an empty operatorId', { operatorId: '' }],
+    ])('erase with %s leaves the ambient actor alone rather than clearing it', async (_, operator) => {
       const i = await facet.create({ profile: { email: 'e2@x.com', username: 'e2@x.com' } })
       const inner = adapter.identities.erase.bind(adapter.identities)
       let seen: string | null = 'nothing-ran'
@@ -425,9 +522,9 @@ describe('IdentitiesFacet', () => {
         return inner(id)
       }
 
-      // An omitted `operatorId` is "I did not say", not "nobody" - an outer
+      // An omitted or empty `operatorId` is "I did not say", not "nobody" - an outer
       // request-scoped actor still has to survive the call.
-      await withActor('outer', () => facet.erase(i.id, { reason: 'gdpr-request' }))
+      await withActor('outer', () => facet.erase(i.id, { reason: 'gdpr-request', ...operator }))
 
       expect(seen).toBe('outer')
     })
@@ -447,32 +544,32 @@ describe('IdentitiesFacet', () => {
     async function soleLink() {
       return facet.create({
         profile: { username: 'a@x.com', email: 'a@x.com' },
-        providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g-1', addedAt: new Date() }],
+        providers: [{ providerId: 'oauth:google', providerSub: 'g-1', addedAt: new Date() }],
       })
     }
 
     it('unlink refuses to drop the last way in', async () => {
       const i = await soleLink()
-      await expect(facet.unlink(i.id, 'oauth:authGoogle')).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
+      await expect(facet.unlink(i.id, 'oauth:google')).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
     })
 
     it('unlinkMany refuses it too, rather than stranding the account', async () => {
       const i = await soleLink()
-      const out = await facet.unlinkMany([{ identityId: i.id, providerId: 'oauth:authGoogle' }])
+      const out = await facet.unlinkMany([{ identityId: i.id, providerId: 'oauth:google' }])
       expect(out).toEqual([])
       const fresh = await facet.getById(i.id)
-      expect(fresh?.providers.map((p) => p.providerId)).toEqual(['oauth:authGoogle'])
+      expect(fresh?.providers.map((p) => p.providerId)).toEqual(['oauth:google'])
     })
 
     it('unlinkMany still drops a link when another way in remains', async () => {
       const i = await facet.create({
         profile: { username: 'b@x.com', email: 'b@x.com' },
         providers: [
-          { providerId: 'oauth:authGoogle', providerSub: 'g-2', addedAt: new Date() },
+          { providerId: 'oauth:google', providerSub: 'g-2', addedAt: new Date() },
           { providerId: 'password', providerSub: 'local-1', addedAt: new Date() },
         ],
       })
-      const out = await facet.unlinkMany([{ identityId: i.id, providerId: 'oauth:authGoogle' }])
+      const out = await facet.unlinkMany([{ identityId: i.id, providerId: 'oauth:google' }])
       expect(out).toHaveLength(1)
       const fresh = await facet.getById(i.id)
       expect(fresh?.providers.map((p) => p.providerId)).toEqual(['password'])
@@ -483,13 +580,13 @@ describe('IdentitiesFacet', () => {
       const spare = await facet.create({
         profile: { username: 'c@x.com', email: 'c@x.com' },
         providers: [
-          { providerId: 'oauth:authGoogle', providerSub: 'g-3', addedAt: new Date() },
+          { providerId: 'oauth:google', providerSub: 'g-3', addedAt: new Date() },
           { providerId: 'password', providerSub: 'local-2', addedAt: new Date() },
         ],
       })
       const out = await facet.unlinkMany([
-        { identityId: sole.id, providerId: 'oauth:authGoogle' },
-        { identityId: spare.id, providerId: 'oauth:authGoogle' },
+        { identityId: sole.id, providerId: 'oauth:google' },
+        { identityId: spare.id, providerId: 'oauth:google' },
       ])
       expect(out.map((r) => r.id)).toEqual([spare.id])
     })
@@ -528,7 +625,7 @@ describe('IdentitiesFacet', () => {
         [
           {
             profile: { username: 'mrg@x.com', email: 'mrg@x.com' },
-            providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g-9', addedAt: new Date(), addedBy: null }],
+            providers: [{ providerId: 'oauth:google', providerSub: 'g-9' }],
           },
         ],
         { mode: 'merge' },
@@ -542,14 +639,12 @@ describe('IdentitiesFacet', () => {
     it('skips a providerId the identity already has, as link refuses it', async () => {
       const i = await facet.create({
         profile: { username: 'g@x.com', email: 'g@x.com' },
-        providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g-7', addedAt: new Date() }],
+        providers: [{ providerId: 'oauth:google', providerSub: 'g-7', addedAt: new Date() }],
       })
-      const out = await facet.linkMany([
-        { identityId: i.id, link: { providerId: 'oauth:authGoogle', providerSub: 'g-8' } },
-      ])
+      const out = await facet.linkMany([{ identityId: i.id, link: { providerId: 'oauth:google', providerSub: 'g-8' } }])
       expect(out).toEqual([])
       const fresh = await facet.getById(i.id)
-      expect(fresh?.providers.filter((p) => p.providerId === 'oauth:authGoogle')).toHaveLength(1)
+      expect(fresh?.providers.filter((p) => p.providerId === 'oauth:google')).toHaveLength(1)
       expect(fresh?.providers[0]?.providerSub).toBe('g-7')
     })
   })
@@ -559,38 +654,38 @@ describe('IdentitiesFacet', () => {
       const i = await facet.create({
         profile: { username: 'd@x.com', email: 'd@x.com' },
         providers: [
-          { providerId: 'oauth:authGoogle', providerSub: 'g-4', addedAt: new Date() },
+          { providerId: 'oauth:google', providerSub: 'g-4', addedAt: new Date() },
           { providerId: 'password', providerSub: 'local-3', addedAt: new Date() },
         ],
       })
       const handler = vi.fn()
       events.on('identity.unlinked', handler)
-      await facet.unlink(i.id, 'oauth:authGoogle')
+      await facet.unlink(i.id, 'oauth:google')
       expect(handler).toHaveBeenCalledOnce()
       expect(handler.mock.calls[0]?.[0]).toMatchObject({
         allowedLockout: false,
         identityId: i.id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
       })
     })
 
     it('unlinkMany emits one per link it actually drops', async () => {
       const sole = await facet.create({
         profile: { username: 'e@x.com', email: 'e@x.com' },
-        providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g-5', addedAt: new Date() }],
+        providers: [{ providerId: 'oauth:google', providerSub: 'g-5', addedAt: new Date() }],
       })
       const spare = await facet.create({
         profile: { username: 'f@x.com', email: 'f@x.com' },
         providers: [
-          { providerId: 'oauth:authGoogle', providerSub: 'g-6', addedAt: new Date() },
+          { providerId: 'oauth:google', providerSub: 'g-6', addedAt: new Date() },
           { providerId: 'password', providerSub: 'local-5', addedAt: new Date() },
         ],
       })
       const handler = vi.fn()
       events.on('identity.unlinked', handler)
       await facet.unlinkMany([
-        { identityId: sole.id, providerId: 'oauth:authGoogle' },
-        { identityId: spare.id, providerId: 'oauth:authGoogle' },
+        { identityId: sole.id, providerId: 'oauth:google' },
+        { identityId: spare.id, providerId: 'oauth:google' },
       ])
       expect(handler).toHaveBeenCalledOnce()
       expect(handler.mock.calls[0]?.[0]).toMatchObject({ identityId: spare.id })

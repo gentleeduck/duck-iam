@@ -151,16 +151,16 @@ describe('a JWT past its exp is the same answer', () => {
     verifyKeys: [{ key: 'super-secret-key-for-tests-only', kid: 'k1' }],
   }
 
-  /** The token's own `exp` is the session's deadline where the transport is the session. */
-  function expiredToken(ttlMs: number): { t: JwtTransport; token: string } {
-    const t = new JwtTransport({ ...cfg, ttlMs })
-    const intents = t.issue('plain-sid', makeSession(), { absolute: false, fresh: true })
+  /** `exp` is bounded by the session's own deadline, so a session that has ended mints a token past it. */
+  function tokenFor(expiresAt: Date): { t: JwtTransport; token: string } {
+    const t = new JwtTransport(cfg)
+    const intents = t.issue('plain-sid', { ...makeSession(), expiresAt }, { absolute: false, fresh: true })
     const json = intents.find((i) => i.type === 'json') as { body: { access_token: string } }
     return { t, token: json.body.access_token }
   }
 
   it('reports exp as the instant, in milliseconds', async () => {
-    const { t, token } = expiredToken(-1)
+    const { t, token } = tokenFor(new Date(Date.now() - 1000))
 
     const err = await t.verify(token).catch((e: unknown) => e)
     expect(err).toMatchObject({ code: 'AUTH_SESSION_EXPIRED' })
@@ -177,7 +177,7 @@ describe('a JWT past its exp is the same answer', () => {
   })
 
   it('a live token verifies', async () => {
-    const { t, token } = expiredToken(60_000)
+    const { t, token } = tokenFor(new Date(Date.now() + 60_000))
 
     await expect(t.verify(token)).resolves.toMatchObject({ identityId: 'u' })
   })

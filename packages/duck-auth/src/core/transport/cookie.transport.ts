@@ -1,22 +1,26 @@
 import { AuthError } from '~/core/errors'
 import type { Provider } from '../provider/provider.types'
 import type { Sessions } from '../sessions/sessions.types'
-import type { Transport } from '../transport/transport.types'
+import type { Transport } from './transport.types'
 
 export namespace CookieTransport {
+  /** The session cookie's name and attributes. */
   export interface Cfg {
     /** `__Host-duck-sid` when no `domain` is set, which is the prefix browsers enforce Secure, `Path=/`
      *  and no Domain for; `duck-sid` otherwise. */
     name?: string
     /** For cross-subdomain deployments only, and forbidden alongside the `__Host-` prefix. */
     domain?: string
+    /** Default `/`, which the `__Host-` prefix requires. */
     path?: string
     /** `strict()` rejects `false` in production. The CSRF companion follows it, and drops its `__Host-`
      *  prefix along with it, since the prefix is what requires Secure. */
     secure?: boolean
+    /** `'none'` requires `secure`. */
     sameSite?: 'strict' | 'lax' | 'none'
-    /** Default 7d, capped at issue time by `Sessions.Me.expiresAt` - the sliding deadline, which each
-     *  rotation reissues the cookie against. The absolute cap is server-side, in `isSessionExpired`. */
+    /** A positive whole number of seconds, to end the cookie before the session does. Unset, it lives to
+     *  `Sessions.Me.absoluteExpiresAt`, so a session `resolveSession` slides keeps its cookie; the idle
+     *  deadline is server-side, in `isSessionExpired`. */
     maxAgeSec?: number
   }
 }
@@ -46,6 +50,12 @@ export class CookieTransport implements Transport.ITransport {
         })
       }
     }
+    // Max-Age 0 or below deletes the cookie on arrival; a fraction or NaN is ignored, leaving a browser-session cookie.
+    if (cfg.maxAgeSec !== undefined && (!Number.isSafeInteger(cfg.maxAgeSec) || cfg.maxAgeSec <= 0)) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: '@gentleduck/auth CookieTransport: maxAgeSec must be a positive whole number of seconds',
+      })
+    }
     const hasDomain = Boolean(cfg.domain)
     this._name = cfg.name ?? (hasDomain ? 'duck-sid' : '__Host-duck-sid')
     this._options = {
@@ -53,9 +63,15 @@ export class CookieTransport implements Transport.ITransport {
       secure: cfg.secure ?? true,
       sameSite: cfg.sameSite ?? 'lax',
       path: cfg.path ?? '/',
-      maxAge: (cfg.maxAgeSec ?? 7 * 24 * 60 * 60) * 1,
     }
+    if (cfg.maxAgeSec !== undefined) this._options.maxAge = cfg.maxAgeSec
     if (cfg.domain) this._options.domain = cfg.domain
+    // Browsers drop a SameSite=None cookie that is not Secure.
+    if (this._options.sameSite === 'none' && this._options.secure !== true) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: "@gentleduck/auth CookieTransport: sameSite: 'none' requires secure: true",
+      })
+    }
     // Fail-fast on __Host- violations; browsers silently drop them.
     if (this._name.startsWith('__Host-')) {
       if (cfg.domain) {
@@ -110,10 +126,10 @@ export class CookieTransport implements Transport.ITransport {
     return parseCookie(header, this._name)
   }
 
-  /** Sets the session cookie, capped by the session's own deadline, plus the CSRF companion. */
+  /** Sets the session cookie, capped by the session's absolute deadline, plus the CSRF companion. */
   issue(sid: string, session: Sessions.Me, opts: Transport.IssueOpts): Provider.Intent[] {
-    const expiresInMs = Math.max(0, session.expiresAt.getTime() - Date.now())
-    const maxAge = Math.min(this._options.maxAge ?? 0, Math.floor(expiresInMs / 1000))
+    const liveSec = Math.floor(Math.max(0, session.absoluteExpiresAt.getTime() - Date.now()) / 1000)
+    const maxAge = Math.min(this._options.maxAge ?? liveSec, liveSec)
     const intents: Provider.Intent[] = [
       {
         type: 'setCookie',

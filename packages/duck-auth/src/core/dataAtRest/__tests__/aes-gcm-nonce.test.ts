@@ -4,7 +4,7 @@
  * means the twelve-byte IV is the only thing keeping two ciphertexts apart.
  */
 import { Buffer } from 'node:buffer'
-import { createCipheriv, createHash, randomBytes } from 'node:crypto'
+import { createCipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { AuthAesGcmDataAtRest } from '../aes-gcm'
 
@@ -23,11 +23,29 @@ function legacyCiphertext(plain: string, masterKey: Buffer, kid: string, context
   return `aes-256-gcm$${kid}$${iv.toString('base64url')}$${tag.toString('base64url')}$${body.toString('base64url')}`
 }
 
+/** What the adapter wrote before `ctx.tag` was bound: HKDF over the length-prefixed identity and field only. */
+function v2Ciphertext(plain: string, masterKey: Buffer, kid: string, context: typeof ctx): string {
+  const info = Buffer.concat(
+    [context.identityId, context.field].flatMap((component) => {
+      const bytes = Buffer.from(component, 'utf8')
+      const length = Buffer.alloc(4)
+      length.writeUInt32BE(bytes.length)
+      return [length, bytes]
+    }),
+  )
+  const dek = Buffer.from(hkdfSync('sha256', masterKey, Buffer.from(kid, 'utf8'), info, 32))
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', dek, iv)
+  const body = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return `aes-256-gcm.v2$${kid}$${iv.toString('base64url')}$${tag.toString('base64url')}$${body.toString('base64url')}`
+}
+
 /** `<alg>$<kid>$<iv>$<tag>$<ct>` */
 const parts = (ciphertext: string) => ciphertext.split('$')
-const ivOf = (ciphertext: string) => parts(ciphertext)[2] as string
-const tagOf = (ciphertext: string) => parts(ciphertext)[3] as string
-const bodyOf = (ciphertext: string) => parts(ciphertext)[4] as string
+const ivOf = (ciphertext: string) => parts(ciphertext)[2] ?? ''
+const tagOf = (ciphertext: string) => parts(ciphertext)[3] ?? ''
+const bodyOf = (ciphertext: string) => parts(ciphertext)[4] ?? ''
 
 describe('the IV is fresh for every encryption', () => {
   it('never repeats across a thousand encryptions of the same value in the same context', async () => {
@@ -136,7 +154,7 @@ describe('the context separates keys', () => {
 
 describe('the legacy format is read but never written', () => {
   it('writes the versioned algorithm', async () => {
-    expect(parts(await adapter.encrypt('secret', ctx))[0]).toBe('aes-256-gcm.v2')
+    expect(parts(await adapter.encrypt('secret', ctx))[0]).toBe('aes-256-gcm.v3')
   })
 
   it('still decrypts a ciphertext written before the context was length-prefixed', async () => {
@@ -161,7 +179,31 @@ describe('the legacy format is read but never written', () => {
   it('refuses an algorithm it does not know', async () => {
     const encrypted = await adapter.encrypt('secret', ctx)
     const [, kid, iv, tag, body] = parts(encrypted)
-    await expect(adapter.decrypt(`aes-256-gcm.v3$${kid}$${iv}$${tag}$${body}`, ctx)).rejects.toThrow()
+    await expect(adapter.decrypt(`aes-256-gcm.v4$${kid}$${iv}$${tag}$${body}`, ctx)).rejects.toMatchObject({
+      code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'aes-256-gcm: malformed ciphertext' },
+    })
+  })
+})
+
+describe('the tag is bound like the identity and the field', () => {
+  const tagged = { ...ctx, tag: 'tenant-a' }
+  const mismatch = { code: 'AUTH_INVALID_PARAMETERS', meta: { detail: 'aes-256-gcm: auth-tag mismatch' } }
+
+  it('decrypts under the tag it was written with', async () => {
+    expect(await adapter.decrypt(await adapter.encrypt('secret', tagged), tagged)).toBe('secret')
+  })
+
+  it('refuses another tag, and no tag', async () => {
+    const encrypted = await adapter.encrypt('secret', tagged)
+    await expect(adapter.decrypt(encrypted, { ...ctx, tag: 'tenant-b' })).rejects.toMatchObject(mismatch)
+    await expect(adapter.decrypt(encrypted, ctx)).rejects.toMatchObject(mismatch)
+  })
+
+  it('still reads a v2 ciphertext, written before the tag was bound, and reports it for re-encryption', async () => {
+    const written = v2Ciphertext('secret', KEY_A, 'k1', ctx)
+    expect(await adapter.decrypt(written, tagged)).toBe('secret')
+    expect(adapter.needsReEncrypt(written)).toBe(true)
   })
 })
 
@@ -169,7 +211,7 @@ describe('tampering is refused', () => {
   it('refuses a flipped byte in the ciphertext body', async () => {
     const encrypted = await adapter.encrypt('secret', ctx)
     const body = Buffer.from(bodyOf(encrypted), 'base64url')
-    body[0] = (body[0] as number) ^ 0xff
+    body[0] = (body[0] ?? 0) ^ 0xff
     const [alg, kid, iv, tag] = parts(encrypted)
     await expect(adapter.decrypt(`${alg}$${kid}$${iv}$${tag}$${body.toString('base64url')}`, ctx)).rejects.toThrow()
   })
@@ -177,7 +219,7 @@ describe('tampering is refused', () => {
   it('refuses a flipped byte in the tag', async () => {
     const encrypted = await adapter.encrypt('secret', ctx)
     const tag = Buffer.from(tagOf(encrypted), 'base64url')
-    tag[0] = (tag[0] as number) ^ 0xff
+    tag[0] = (tag[0] ?? 0) ^ 0xff
     const [alg, kid, iv, , body] = parts(encrypted)
     await expect(adapter.decrypt(`${alg}$${kid}$${iv}$${tag.toString('base64url')}$${body}`, ctx)).rejects.toThrow()
   })
@@ -283,6 +325,7 @@ describe('the values it is asked to protect', () => {
   it('still refuses an envelope past what any accepted plaintext could produce', async () => {
     await expect(adapter.decrypt(`aes-256-gcm$k1$a$b$${'c'.repeat(4_200_000)}`, ctx)).rejects.toMatchObject({
       code: 'AUTH_INVALID_PARAMETERS',
+      meta: { detail: 'aes-256-gcm: ciphertext is empty or oversize' },
     })
   })
 
@@ -292,7 +335,9 @@ describe('the values it is asked to protect', () => {
 
   it('refuses a non-string', async () => {
     for (const value of [42, null, undefined, {}, []]) {
-      await expect(adapter.encrypt(value as never, ctx)).rejects.toThrow()
+      await expect(Reflect.apply(adapter.encrypt, adapter, [value, ctx])).rejects.toMatchObject({
+        code: 'AUTH_INVALID_PARAMETERS',
+      })
     }
   })
 })

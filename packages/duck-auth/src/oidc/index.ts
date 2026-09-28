@@ -55,11 +55,7 @@ export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.Cfg): AuthOidcDisc
   return doc
 }
 
-/**
- * Express / Hono / Fastify / Koa friendly handler builder. Returns a
- * factory that produces the JSON body + a JWKS body the adapter can
- * mount under `/.well-known/jwks.json` directly.
- */
+/** Builds the discovery document and the transport's JWKS as of this call, for a host to serve as JSON. */
 export function authBuildOidcRoutes(opts: {
   config: AuthOidcDiscovery.Cfg
   transport: AuthOidcDiscovery.IJwtTransport
@@ -239,7 +235,9 @@ export function authFlushOidcDiscoveryCache(): void {
   _discoveryCache.clear()
 }
 
+/** The discovery document's options and shape. */
 export namespace AuthOidcDiscovery {
+  /** What the discovery document advertises. */
   export interface Cfg {
     /** Required. Public issuer URL (no trailing slash). */
     issuer: string
@@ -258,7 +256,7 @@ export namespace AuthOidcDiscovery {
     responseTypesSupported?: string[]
     /** Default `['authorization_code', 'refresh_token', 'client_credentials']`. */
     grantTypesSupported?: string[]
-    /** Default `['public', 'pairwise']`. */
+    /** Default `['public']`. */
     subjectTypesSupported?: string[]
     /** Default `['client_secret_basic', 'client_secret_post']`; add `'none'` for PKCE-only public clients. */
     tokenEndpointAuthMethodsSupported?: string[]
@@ -283,6 +281,7 @@ export namespace AuthOidcDiscovery {
     extraClaims?: Record<string, unknown>
   }
 
+  /** The `/.well-known/openid-configuration` document. */
   export interface IDocument {
     issuer: string
     authorization_endpoint: string
@@ -303,7 +302,9 @@ export namespace AuthOidcDiscovery {
     [extra: string]: unknown
   }
 
+  /** The JWT transport surface that publishes its verify keys. */
   export interface IJwtTransport {
+    /** The public keys as a JWKS. */
     jwks(): { keys: Array<Record<string, unknown>> }
   }
 }

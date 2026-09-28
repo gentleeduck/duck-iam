@@ -28,7 +28,7 @@ export function assertStrict<
     errors.push(
       engine.cfg.limiter && Reflect.get(engine.limiter, '__isInProcessLimiter') === true
         ? 'AuthMemoryLimiter rejected in production; its buckets are per node and returned by a restart, so a fleet grants every brute-force budget once per instance'
-        : 'Limiter adapter required (brute-force protection); AuthNoopLimiter rejected in production',
+        : 'Limiter adapter required (brute-force protection); NoopLimiter rejected in production',
     )
   }
 
@@ -40,19 +40,8 @@ export function assertStrict<
     // adapter, and each dialect's facets are exactly that, so no SQL deploy could pass strict().
     if (typeof store !== 'object' || store === null) continue
     if (Reflect.get(store, '__isMemoryStore') === true) {
-      errors.push(`Memory adapter (${label}) rejected in production; use redis/drizzle/prisma`)
+      errors.push(`Memory adapter (${label}) rejected in production; use the drizzle, redis or valkey adapter`)
     }
-  }
-
-  // An omitted idempotency store falls back to the in-process one, which cannot dedupe across instances.
-  // The constructor only refuses when NODE_ENV says production, so this catches the deploy where it is
-  // unset -- for the store handed over as well as the one left out, both being the same class.
-  if (!engine.cfg.idempotency) {
-    errors.push('Idempotency store required; the in-memory fallback cannot dedupe across instances')
-  } else if (engine.idempotency.__isInProcessIdempotency) {
-    errors.push(
-      'AuthMemoryIdempotency rejected in production; its keys are per node, so a retry that lands on another instance replays the operation',
-    )
   }
 
   // Read off `cfg.events`, not `engine.events`: `withAuditStamping` wraps the bus in a fresh object
@@ -66,21 +55,28 @@ export function assertStrict<
     )
   }
 
-  // Boot, not first request: without it magic-link mints a token, stores it and answers ok with nothing
-  // sent, and the flows that throw for the same reason only do so once a user has already asked.
-  if (typeof engine.cfg.deliver !== 'function' && engine.providers.has('magic-link')) {
-    errors.push('the magic-link provider is registered with no `deliver`, so no link can ever be sent')
-  }
-
   // Always-pass, so it is the one verifier that cannot fail: every path it fronts is unprotected and says
   // nothing about it. Refused here for the same reason, and on the same NODE_ENV-unset deploy.
   if (Reflect.get(engine.captcha, '__isNullCaptcha') === true) {
     errors.push('AuthNullCaptchaVerifier passes every challenge and is rejected in production')
   }
 
+  // `allowInsecureEndpoint` cannot reach loopback - the SSRF guard refuses that whatever the flag says -
+  // so the only thing it permits is cleartext to a public host, and anyone on that path reads the secret
+  // and can mint solves with it from then on.
+  if (Reflect.get(engine.captcha, '__insecureCaptchaEndpoint') === true) {
+    errors.push('captcha siteverify endpoint is plaintext http, so the provider secret is posted in the clear')
+  }
+
+  // A composite's parts, nested ones too, are checked as if each were configured alone.
+  const transports: object[] = [engine.cfg.transport]
+  for (const t of transports) {
+    const parts = Reflect.get(t, 'transports')
+    if (Array.isArray(parts)) transports.push(...parts)
+  }
+
   // Through the public `secure` getter, never by reaching into private state.
-  const maybeSecureGetter = (engine.cfg.transport as { secure?: boolean }).secure
-  if (typeof maybeSecureGetter === 'boolean' && maybeSecureGetter === false) {
+  if (transports.some((t) => Reflect.get(t, 'secure') === false)) {
     errors.push('AuthCookieTransport secure=false rejected in production')
   }
 
@@ -88,9 +84,9 @@ export function assertStrict<
   // where a short key is merely unwise. Both brands are booleans the holder computed; neither carries
   // the secret. A transport or provider that publishes no brand is not checked, there being no way to
   // read a foreign implementation's key.
-  if (Reflect.get(engine.cfg.transport, '__weakSigningKey') === true) {
+  if (transports.some((t) => Reflect.get(t, '__weakSigningKey') === true)) {
     errors.push(
-      'AuthJwtTransport HS256 signing key is under 32 bytes; RFC 7518 requires a key at least as long as the hash',
+      'JwtTransport HS256 signing key is under 32 bytes; RFC 7518 requires a key at least as long as the hash',
     )
   }
   // Through the registry, not `cfg.providers`: a provider passed as a factory is only an instance once
@@ -114,13 +110,15 @@ export function assertStrict<
         `provider '${id}' holds AuthMemoryPasskeyChallengeStore, rejected in production; pass \`challengeStore: redisPasskeyChallengeStore({ redis })\``,
       )
     }
+    // Boot, not first request: the provider refuses every link request, and only once a user has asked.
+    // Its own `deliver`, not `cfg.deliver`, which reaches it only when a thunk passes it on.
+    if (Reflect.get(engine.providers.get(id), '__noDeliver') === true) {
+      errors.push(`provider '${id}' has no \`deliver\`, so no link can ever be sent`)
+    }
   }
 
-  // The work factor is the whole of a stored password's strength, and it is a config number like the
-  // signing key above: unwise in development, and in production the difference between a stolen table
-  // being useless and being a word list. Checked here rather than at construction for exactly that
-  // reason. Both shipped hashers publish the verdict against their own defaults; a foreign one publishes
-  // nothing and is not judged, there being no way to read another implementation's cost.
+  // The work factor is a stored password's whole strength. Both shipped hashers publish a verdict against
+  // their own defaults; a foreign hasher publishes none and is not judged.
   if (
     engine.providers.has('password') &&
     Reflect.get(engine.providers.get('password'), '__weakHasherParams') === true
@@ -142,14 +140,13 @@ export function assertStrict<
     }
   }
 
-  if ((engine.cfg.providers ?? []).length === 0 && engine.providers.list().length === 0) {
+  // Counted in the registry: `providers` drops a falsy entry and a thunk that answers nothing.
+  if (engine.providers.size === 0) {
     errors.push('no provider registered; users cannot sign in')
   }
 
-  // Through the public `listenerCount` helper. A bus without it skips the check, there being no way to
-  // enforce this against a foreign `Events.IBus`.
-  const listenerCount = (engine.events as { listenerCount?: (event: string) => number }).listenerCount
-  if (typeof listenerCount === 'function' && listenerCount.call(engine.events, 'lockout') === 0) {
+  // A bus without `listenerCount` skips the check, there being no way to enforce this against it.
+  if (engine.events.listenerCount?.('lockout') === 0) {
     errors.push('no `lockout` event handler subscribed; operators must wire one (paging, audit, etc.)')
   }
 
@@ -169,13 +166,8 @@ function assertCompliance<
 >(engine: AuthEngine<Profile, Tenant, OrgMeta>, supplied: Partial<Compliance.Wired> | undefined): void {
   const preset = readCompliancePreset(engine.cfg)
   if (preset === null) return
-  // A minimum AAL of 2 promises every session carries a second factor. Nothing compares a session's
-  // aal against it at runtime and nothing at boot could, but a deployment with no mfa provider
-  // registered cannot produce an AAL 2 session at all, and that is checkable here.
-  // SECURITY: `has`, not `list`. `list` is the sign-in grid and keeps only capabilities exposing
-  // begin/complete; `MfaImpl` exposes enroll/verify, so it is registered and never listed. The gate
-  // was therefore unsatisfiable, and hipaa and fips - the two presets that raise the floor - refused
-  // to boot in every environment, telling the operator no mfa provider was registered while one was.
+  // A deployment with no mfa provider cannot produce an AAL 2 session.
+  // SECURITY: `has`, not `list`: `list` keeps only sign-in capabilities, and `MfaImpl` is never in it.
   if (resolveCompliance(preset).minAal > 1 && !engine.providers.has('mfa')) {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'compliance: minAal above 1 requires a registered mfa provider; none is',
@@ -195,7 +187,6 @@ function engineEvidence<
   Tenant = string,
   OrgMeta = unknown,
 >(engine: AuthEngine<Profile, Tenant, OrgMeta>): Partial<Compliance.Wired> {
-  const listenerCount = (engine.events as { listenerCount?: (event: string) => number }).listenerCount
   // Only when a webauthn provider is registered: with none, there is no registration to observe and the
   // key stays absent, which `assertComplianceStrict` already treats as unsatisfied. `mfa`'s webauthn path
   // takes its `attestation` per enrollment call rather than at construction, so nothing at boot can read
@@ -213,7 +204,7 @@ function engineEvidence<
     : undefined
   return {
     limiterRequired: hasProductionLimiter(engine),
-    lockoutListener: typeof listenerCount === 'function' && listenerCount.call(engine.events, 'lockout') > 0,
+    lockoutListener: (engine.events.listenerCount?.('lockout') ?? 0) > 0,
     ...passkey,
     ...(typeof fipsHasher === 'boolean' && { fipsValidatedHasher: fipsHasher }),
   }

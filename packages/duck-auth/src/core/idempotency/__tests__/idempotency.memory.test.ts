@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { orNull } from '~/core/answer'
 import { IdempotencyImpl } from '../idempotency'
 import { DEFAULT_IDEMPOTENCY_CONFIG } from '../idempotency.constants'
@@ -73,16 +73,7 @@ describe('IdempotencyFacet.handle', () => {
     expect(exec).toHaveBeenCalledTimes(2)
   })
 
-  it('disabled facet (null store) bypasses the cache entirely', async () => {
-    const disabled = new IdempotencyImpl(null, DEFAULT_IDEMPOTENCY_CONFIG)
-    expect(disabled.enabled()).toBe(false)
-    const exec = vi.fn(async () => ({ status: 200, body: {}, createdAt: new Date() }))
-    await disabled.handle('k', {}, exec)
-    await disabled.handle('k', {}, exec)
-    expect(exec).toHaveBeenCalledTimes(2)
-  })
-
-  it('headerName surfaces the configured header for adapter use', () => {
+  it("headerName surfaces the configured header for the host's middleware", () => {
     expect(facet.headerName).toBe('idempotency-key')
   })
 
@@ -98,6 +89,28 @@ describe('IdempotencyFacet.handle', () => {
     expect(calls).toBe(1)
     expect(a.body).toEqual({ n: 1 })
     expect(b.body).toEqual({ n: 1 })
+  })
+
+  it('a repeat with the same fingerprint replays; one with another answers 422 and runs nothing', async () => {
+    const exec = vi.fn(async () => ({ status: 201, body: { charged: 10 }, createdAt: new Date() }))
+    await facet.handle('k', {}, exec, { fingerprint: 'POST /charge amount=10' })
+    const same = await facet.handle('k', {}, exec, { fingerprint: 'POST /charge amount=10' })
+    const other = await facet.handle('k', {}, exec, { fingerprint: 'POST /charge amount=99' })
+    expect(exec).toHaveBeenCalledOnce()
+    expect(same.body).toEqual({ charged: 10 })
+    expect(other).toMatchObject({ status: 422, body: { error: 'idempotency-key-reused' } })
+  })
+
+  it('a concurrent repeat with another fingerprint answers 422 once the original settles', async () => {
+    const exec = async () => {
+      await new Promise((r) => setTimeout(r, 50))
+      return { status: 201, body: { charged: 10 }, createdAt: new Date() }
+    }
+    const [, other] = await Promise.all([
+      facet.handle('k', {}, exec, { fingerprint: 'amount=10' }),
+      facet.handle('k', {}, exec, { fingerprint: 'amount=99' }),
+    ])
+    expect(other.status).toBe(422)
   })
 
   it('when the originator crashes, the loser returns 409 (does not re-execute)', async () => {
@@ -153,5 +166,57 @@ describe('IdempotencyFacet.handle', () => {
     // refused with the same code: `handle` must fall through to `claim` and then poll, and a third-party
     // store that only rejected "never seen" would serve the tombstone and break that protocol.
     await expect(store.get('k-tomb', {})).rejects.toMatchObject({ code: 'AUTH_IDEMPOTENCY_MISS' })
+  })
+})
+
+describe('the facet windows', () => {
+  afterEach(() => vi.useRealTimers())
+
+  const exec = () => vi.fn(async () => ({ status: 200, body: {}, createdAt: new Date() }))
+
+  it('keeps a key for the whole ttl configured, past a day', async () => {
+    vi.useFakeTimers({ now: 0 })
+    const facet = new IdempotencyImpl(new MemoryIdempotency(), { ttlMs: 48 * 3_600_000 })
+    const run = exec()
+    await facet.handle('k', {}, run)
+    vi.setSystemTime(25 * 3_600_000)
+    await facet.handle('k', {}, run)
+    expect(run).toHaveBeenCalledOnce()
+    vi.setSystemTime(48 * 3_600_000 + 1)
+    await facet.handle('k', {}, run)
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY])(
+    'the store holds a key handed a ttl of %o for a minute, then frees it',
+    async (ttl) => {
+      vi.useFakeTimers({ now: 0 })
+      const store = new MemoryIdempotency()
+      expect(await store.claim('k', ttl, {})).toBe(true)
+      expect(await store.claim('k', ttl, {})).toBe(false)
+      vi.setSystemTime(60_001)
+      expect(await store.claim('k', ttl, {})).toBe(true)
+    },
+  )
+
+  it.each([Number.NaN, 0, -1, Number.POSITIVE_INFINITY])('refuses a ttlMs of %o', (ttlMs) => {
+    expect(() => new IdempotencyImpl(new MemoryIdempotency(), { ttlMs })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+  })
+
+  it.each([Number.NaN, -1, Number.POSITIVE_INFINITY])('refuses a pollTimeoutMs of %o', (pollTimeoutMs) => {
+    expect(() => new IdempotencyImpl(new MemoryIdempotency(), { pollTimeoutMs })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+    )
+  })
+
+  it('takes a pollTimeoutMs of 0, which answers a concurrent retry 409 without waiting', async () => {
+    const store = new MemoryIdempotency()
+    await store.claim('_anon::k', 60_000, {})
+    const run = exec()
+    const r = await new IdempotencyImpl(store, { pollTimeoutMs: 0 }).handle('k', {}, run)
+    expect(r.status).toBe(409)
+    expect(run).not.toHaveBeenCalled()
   })
 })

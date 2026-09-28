@@ -167,6 +167,7 @@ export async function csrfGuard(
 
 /** CSRF configuration: the cookie and header names, and which strategy verifies them. */
 export namespace Csrf {
+  /** The CSRF check's options. */
   export type Cfg = {
     /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`. */
     cookieName?: string
@@ -188,7 +189,9 @@ export namespace Csrf {
   export type GuardOptions = {
     /** Forces the bearer bypass on; otherwise it is read off the Authorization header. */
     isBearer?: boolean
+    /** The cookie and header names, and the strategy. */
     cfg?: Csrf.Cfg
+    /** The tenant the session must belong to. */
     expectedTenantId?: string
   }
 }

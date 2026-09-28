@@ -1,8 +1,9 @@
 import { ApiKeysFacet } from '~/providers/api-key'
 import { MfaFacet } from '~/providers/mfa'
+import { PasskeyImpl } from '~/providers/passkey'
 import { PasswordsImpl } from '~/providers/passwords'
 import { AuthError } from '../errors'
-import type { Events } from '../events'
+import { type Events, withAuditStamping } from '../events'
 import type { FlowsImpl } from '../flows'
 import { type Identities, IdentitiesImpl } from '../identities'
 import { ORGS_NOT_CONFIGURED, OrgsImpl } from '../orgs'
@@ -29,6 +30,7 @@ export namespace Bound {
     readonly mfa: MfaFacet
     readonly apiKeys: ApiKeysFacet
     readonly passwords: PasswordsImpl
+    readonly passkeys: PasskeyImpl
     readonly providers: Providers<Profile>
     readonly stores: Engine.Stores<Profile, OrgMeta>
     readonly pending: Pending.Effects
@@ -58,7 +60,7 @@ export function buildBoundEngine<Profile extends Identities.ProfileMetadataBase,
   stores: Engine.Stores<Profile, OrgMeta>
   events: Events.IBus
   identitiesCfg: Identities.Cfg
-  sessionsCfg: Sessions.Cfg
+  sessionsCfg: Partial<Sessions.Cfg> | undefined
   /** Built on the bound stores, so a registered facet that captured a store rather than reading it off the
    *  context binds too. */
   buildProviders: (bus: Events.IBus, stores: Engine.Stores<Profile, OrgMeta>) => Providers<Profile>
@@ -72,7 +74,9 @@ export function buildBoundEngine<Profile extends Identities.ProfileMetadataBase,
 }): Bound.AuthEngine<Profile, OrgMeta> {
   const stores = rebindStores(args.stores, args.client)
 
-  const { bus, pending } = createPending(args.events)
+  const { bus: buffering, pending } = createPending(args.events)
+  // Stamped as each event is emitted, inside the caller's actor scope; `flush` runs outside it.
+  const bus = withAuditStamping(buffering)
 
   const identities = new IdentitiesImpl<Profile>(stores.identities, bus, args.identitiesCfg, stores.credentials)
   const sessions = new SessionsImpl(stores.sessions, bus, args.sessionsCfg)
@@ -80,11 +84,11 @@ export function buildBoundEngine<Profile extends Identities.ProfileMetadataBase,
   const providers = args.buildProviders(bus, stores)
   const flows = args.buildFlows({ events: bus, identities, providers, sessions, stores })
 
-  const resolveFacet = <T>(ctor: new (...a: never[]) => T, name: string): T => {
+  const resolveFacet = <T>(ctor: new (...a: never[]) => T, id: string, factory: string): T => {
     const facet = providers.resolve(ctor)
     if (!facet) {
       throw new AuthError('AUTH_PROVIDER_NOT_REGISTERED', {
-        detail: `this operation needs the '${name}' provider; add ${name}Provider() to providers[]`,
+        detail: `this operation needs the '${id}' provider; add ${factory}() to providers[]`,
       })
     }
     return facet
@@ -100,13 +104,16 @@ export function buildBoundEngine<Profile extends Identities.ProfileMetadataBase,
     // Lazy, so a facade built without the mfa provider is still usable for identities and sessions, the
     // way the engine's own getters behave.
     get mfa() {
-      return resolveFacet(MfaFacet, 'mfa')
+      return resolveFacet(MfaFacet, 'mfa', 'mfaProvider')
     },
     get apiKeys() {
-      return resolveFacet(ApiKeysFacet, 'api-key')
+      return resolveFacet(ApiKeysFacet, 'api-key', 'apiKeyProvider')
     },
     get passwords() {
-      return resolveFacet(PasswordsImpl, 'password')
+      return resolveFacet(PasswordsImpl, 'password', 'passwords')
+    },
+    get passkeys() {
+      return resolveFacet(PasskeyImpl, 'passkey', 'passkey')
     },
     // Lazy for the same reason, and throwing the same way the engine's own `orgs` getter does.
     get orgs() {

@@ -1,7 +1,7 @@
 /** E2E: RedisDPoPNonceStore against a REAL Redis. */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { valkeyAdapter } from '~/adapters/valkey'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 import { RedisDPoPNonceStore } from '../dpop-nonce.redis'
 
@@ -13,7 +13,7 @@ suite('E2E RedisDPoPNonceStore (real Redis)', () => {
   let prefix: string
 
   beforeAll(async () => {
-    raw = new Redis(URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
   })
@@ -27,7 +27,7 @@ suite('E2E RedisDPoPNonceStore (real Redis)', () => {
 
   /** A store as a separate pod would construct it: same Redis, own instance. */
   function pod(): RedisDPoPNonceStore {
-    return new RedisDPoPNonceStore({ prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me) })
+    return new RedisDPoPNonceStore({ prefix, redis: valkeyAdapter(raw) })
   }
 
   const jti = (label: string) => `${label}-${e2ePrefix()}`

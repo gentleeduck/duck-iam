@@ -1,53 +1,54 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { actorId, currentActor, resolveActor, setDefaultActorResolver, withActor } from '../actor'
+import { actorId, setDefaultActorResolver, withActor } from '../actor'
 
 afterEach(() => setDefaultActorResolver(undefined))
 
 describe('actor context', () => {
-  it('resolves explicit over ambient over configured default', () => {
+  it('answers the ambient scope over the configured default', () => {
     setDefaultActorResolver(() => 'from-config')
     expect(actorId()).toBe('from-config')
-
     withActor('from-ambient', () => {
-      // Ambient beats config: a request that named its actor is more specific
-      // than a process-wide fallback.
       expect(actorId()).toBe('from-ambient')
-      // Explicit beats both, which is what lets one call be attributed to an
-      // operator acting on someone else's row.
-      expect(actorId({ actorId: 'explicit' })).toBe('explicit')
     })
   })
 
   it('records null rather than inventing a placeholder when nothing is bound', () => {
     expect(actorId()).toBeNull()
-    expect(currentActor()).toBeUndefined()
-    expect(resolveActor()).toEqual({})
   })
 
-  it('a resolver returning null or undefined means no actor, not a broken one', () => {
-    setDefaultActorResolver(() => null)
-    expect(actorId()).toBeNull()
-    setDefaultActorResolver(() => undefined)
+  it.each([null, undefined, ''])('a resolver answering %j means no actor, not a broken one', (answer) => {
+    setDefaultActorResolver(() => answer)
     expect(actorId()).toBeNull()
   })
 
-  it('withActor(undefined) is a fence that clears the scope', async () => {
+  it.each([undefined, ''])('withActor(%j) is a fence that clears the scope across awaits', async (none) => {
     await withActor('outer', async () => {
-      // Matches `withTenant`. `erase` relies on this being a deliberate clear,
-      // which is why it binds only when it actually has an operator id.
-      await withActor(undefined, async () => {
+      await withActor(none, async () => {
+        await Promise.resolve()
         expect(actorId()).toBeNull()
       })
       expect(actorId()).toBe('outer')
     })
   })
 
+  it('a fence clears the scope, not the configured default', async () => {
+    setDefaultActorResolver(() => 'from-config')
+    await withActor('outer', () => withActor(undefined, async () => expect(actorId()).toBe('from-config')))
+  })
+
+  it('a resolver that throws is raised, and never asked while a scope is bound', () => {
+    setDefaultActorResolver(() => {
+      throw new Error('actor lookup down')
+    })
+    expect(() => actorId()).toThrow('actor lookup down')
+    withActor('bound', () => expect(actorId()).toBe('bound'))
+  })
+
   it('the configured default reaches a real store write', async () => {
     setDefaultActorResolver(() => 'svc-provisioner')
     const store = new MemoryAdapter().identities
 
-    // The point of the config hook: provenance without wrapping every call.
     const i = await store.create({ emailVerified: false, profile: { email: 'a@x', username: 'a' }, providers: [] })
     expect(i.createdBy).toBe('svc-provisioner')
   })

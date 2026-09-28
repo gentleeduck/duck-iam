@@ -1,5 +1,5 @@
-import type { Kms } from '../dataAtRest/dataAtRest.types'
 import { AuthError } from '../errors'
+import type { Kms } from './dataAtRest.types'
 
 /** Reference `Kms.Provider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
 export class AuthAwsKmsProvider implements Kms.Provider {
@@ -14,87 +14,63 @@ export class AuthAwsKmsProvider implements Kms.Provider {
 
   /** One KMS round trip answering a fresh data key in both its plaintext and its wrapped form. */
   async generateDataKey(ctx?: Kms.EncryptionContext): Promise<Kms.DataKey> {
-    const cmd = await loadCommand('GenerateDataKeyCommand')
-    const out = (await this._client.send(
-      new cmd({ KeyId: this._keyId, KeySpec: 'AES_256', EncryptionContext: ctx }),
-    )) as AuthAwsKmsProvider.IGenerateDataKeyOutput
-    if (!out.Plaintext || !out.CiphertextBlob) {
-      throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: 'aws-kms',
-        detail: 'GenerateDataKey returned no key material',
-      })
-    }
+    const out = await this._client.send(
+      await command('GenerateDataKeyCommand', { KeyId: this._keyId, KeySpec: 'AES_256', EncryptionContext: ctx }),
+    )
+    const keyId: unknown = typeof out === 'object' && out !== null ? Reflect.get(out, 'KeyId') : undefined
     return {
-      plaintext: toUint8(out.Plaintext),
-      ciphertext: toUint8(out.CiphertextBlob),
-      keyId: out.KeyId ?? this._keyId,
+      plaintext: keyBytes(out, 'Plaintext', 'GenerateDataKey'),
+      ciphertext: keyBytes(out, 'CiphertextBlob', 'GenerateDataKey'),
+      keyId: typeof keyId === 'string' ? keyId : this._keyId,
     }
   }
 
   /** Unwraps a data key; the encryption context must match the one it was generated under. */
   async decryptDataKey(wrapped: Uint8Array, ctx?: Kms.EncryptionContext): Promise<Uint8Array> {
-    const cmd = await loadCommand('DecryptCommand')
-    const out = (await this._client.send(
-      new cmd({ CiphertextBlob: wrapped, EncryptionContext: ctx, KeyId: this._keyId }),
-    )) as AuthAwsKmsProvider.IDecryptOutput
-    if (!out.Plaintext) {
-      throw new AuthError('AUTH_PROVIDER_FAILED', {
-        providerId: 'aws-kms',
-        detail: 'Decrypt returned no plaintext',
-      })
-    }
-    return toUint8(out.Plaintext)
+    const out = await this._client.send(
+      await command('DecryptCommand', { CiphertextBlob: wrapped, EncryptionContext: ctx, KeyId: this._keyId }),
+    )
+    return keyBytes(out, 'Plaintext', 'Decrypt')
   }
 }
 
-let _kmsModule: { GenerateDataKeyCommand: unknown; DecryptCommand: unknown } | null = null
-async function loadCommand<K extends 'GenerateDataKeyCommand' | 'DecryptCommand'>(
-  name: K,
-): Promise<new (input: unknown) => unknown> {
-  if (!_kmsModule) {
-    try {
-      // Dynamic, so consumers with no AWS workload never pay the @aws-sdk install cost: it is an
-      // optional peerDep.
-      // @ts-expect-error -- optional peerDep, may not be installed.
-      _kmsModule = (await import('@aws-sdk/client-kms')) as unknown as {
-        GenerateDataKeyCommand: unknown
-        DecryptCommand: unknown
-      }
-    } catch {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: 'aws-kms: @aws-sdk/client-kms not installed. `bun add @aws-sdk/client-kms` to enable.',
-      })
-    }
+let _kmsModule: Promise<object> | null = null
+/** Builds an SDK command, loading `@aws-sdk/client-kms` on first use. */
+async function command(name: 'GenerateDataKeyCommand' | 'DecryptCommand', input: object): Promise<unknown> {
+  // Dynamic, so a host with no AWS workload never installs it: it is an optional peerDep.
+  // @ts-expect-error -- optional peerDep, may not be installed.
+  _kmsModule ??= import('@aws-sdk/client-kms').catch(() => {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: 'aws-kms: @aws-sdk/client-kms not installed. `bun add @aws-sdk/client-kms` to enable.',
+    })
+  })
+  const Command: unknown = Reflect.get(await _kmsModule, name)
+  if (typeof Command !== 'function') {
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: `aws-kms: @aws-sdk/client-kms exports no ${name}` })
   }
-  return _kmsModule[name] as new (
-    input: unknown,
-  ) => unknown
+  return Reflect.construct(Command, [input])
 }
 
-function toUint8(v: Uint8Array | Buffer | ArrayBuffer): Uint8Array {
-  if (v instanceof Uint8Array) return v
-  return new Uint8Array(v as ArrayBuffer)
+/** A key field of a KMS response. The SDK answers bytes; anything else, a base64 string included, is none. */
+function keyBytes(out: unknown, field: 'CiphertextBlob' | 'Plaintext', op: string): Uint8Array {
+  const value: unknown = typeof out === 'object' && out !== null ? Reflect.get(out, field) : undefined
+  if (value instanceof Uint8Array && value.length > 0) return value
+  throw new AuthError('AUTH_PROVIDER_FAILED', { providerId: 'aws-kms', detail: `${op} returned no ${field} bytes` })
 }
 
 /** Configuration for the AWS KMS key provider, and the client surface it calls. */
 export namespace AuthAwsKmsProvider {
+  /** The one `KMSClient` method this provider calls. */
   export interface IKmsLike {
+    /** Sends a KMS command, as `KMSClient.send` does. */
     send(command: unknown): Promise<unknown>
   }
+  /** The KMS key and client the provider wraps data keys with. */
   export interface Cfg {
     /** KMS key id, ARN or alias, such as 'alias/duck-auth-data-at-rest'. */
     keyId: string
     /** A pre-configured KmsClient, or anything with a `send` method for tests. */
     client: IKmsLike
-  }
-  export interface IGenerateDataKeyOutput {
-    Plaintext?: Uint8Array | Buffer
-    CiphertextBlob?: Uint8Array | Buffer
-    KeyId?: string
-  }
-  export interface IDecryptOutput {
-    Plaintext?: Uint8Array | Buffer
-    KeyId?: string
   }
 }
 

@@ -1,8 +1,10 @@
 import type { Identities } from '../identities'
 import type { TenantContext } from '../tenant/tenant.types'
 
+/** Every session kind: a signed-out guest, a person, or a machine caller signed in by an API key. */
 export const AUTH_SESSION_KINDS = ['guest', 'user', 'apikey'] as const
 
+/** Every factor a session can record having been presented. */
 export const AUTH_SESSION_FACTOR_METHODS = [
   'password',
   'passkey',
@@ -35,15 +37,19 @@ export namespace Sessions {
   /** NIST 800-63B Authentication Assurance Levels. */
   export type AAL = 1 | 2 | 3
 
+  /** A factor the session was authenticated with. */
   export type FactorMethod = (typeof AUTH_SESSION_FACTOR_METHODS)[number]
 
+  /** One factor presented, and when. */
   export interface Factor {
     method: FactorMethod
     completedAt: Date
   }
 
+  /** Who the session is for: a guest, a user, or an API-key caller. */
   export type Kind = (typeof AUTH_SESSION_KINDS)[number]
 
+  /** An open impersonation: the operator behind the session, why, and until when. */
   export type ActingAs = {
     realIdentityId: string
     startedAt: Date
@@ -54,6 +60,7 @@ export namespace Sessions {
   /** Enough to name the session in a `session.revoked` event. */
   export type Revoked = Pick<Me, 'id' | 'identityId'>
 
+  /** A session row as the store holds it. */
   export type Me = {
     /** The sha-256 of the sid; the sid itself never reaches the store. */
     id: string
@@ -81,7 +88,8 @@ export namespace Sessions {
     updatedAt: Date
     /** Moves on every rotation; `createdAt` stays at the original sign-in. */
     rotatedAt: Date
-    /** The sliding deadline, pushed out as the session is used and never past `absoluteExpiresAt`. */
+    /** The idle deadline. `resolveSession` pushes it out through `touch` once less than half the TTL is left,
+     *  never past `absoluteExpiresAt`. */
     expiresAt: Date
     /** The hard cap, fixed at create; no rotation or touch moves it. */
     absoluteExpiresAt: Date
@@ -105,7 +113,9 @@ export namespace Sessions {
     actingAs: ActingAs | null
   }
 
+  /** The persistence contract every session store implements. */
   export type Store = {
+    /** Insert a new row. */
     create(s: CreateInput): Promise<void>
     /** The session behind a cookie's hash. A hash matching nothing is `AUTH_SESSION_REVOKED`: one that never
      *  existed and one that was ended must read the same. */
@@ -124,6 +134,7 @@ export namespace Sessions {
      * WARN: `Date` is millisecond-resolution, so two writes inside one millisecond still compare equal.
      */
     update(id: string, patch: Partial<Me>, expectedUpdatedAt?: Date): Promise<Me>
+    /** Remove one row by its hash. */
     delete(id: string): Promise<void>
     /** Every session of an identity, narrowed to one tenant by `ctx`. Identities are global, so an unfiltered
      *  read hands one tenant the IP, user-agent and existence of every session another issued. A named
@@ -138,11 +149,13 @@ export namespace Sessions {
 
     /** The deletes above over a set, each answering the sessions it removed. */
     deleteAllForIdentities(identityIds: string[]): Promise<Revoked[]>
+    /** Remove the rows by hash, answering the ones that existed. */
     deleteMany(ids: string[]): Promise<Revoked[]>
   }
 
+  /** The session windows and the per-identity cap, set through the engine's `session` option. */
   export type Cfg = {
-    /** Sliding TTL in ms. Default 7 days. */
+    /** Idle TTL in ms, slid by `resolveSession` once less than half is left. Default 7 days. */
     ttlMs: number
     /** Hard absolute cap in ms. Default 30 days. */
     absoluteTtlMs: number
@@ -160,6 +173,7 @@ export namespace Sessions {
     maxSessionsPerIdentity?: number
   }
 
+  /** What a new session is minted from; the facet fills the ids, hashes and deadlines. */
   export type MintInput = {
     identityId: string | null
     kind: Kind
@@ -171,16 +185,18 @@ export namespace Sessions {
     fingerprint?: string | null
     actingAs?: ActingAs | null
     identity?: Identities.Me | null
-    /** An upper bound on `expiresAt`, never an extension: the facet's own ttl still wins when it is sooner.
-     *  The m2m grant sets it so a session expires with the token it was minted for. */
+    /** An upper bound on both deadlines, never an extension, so `touch` cannot slide past it: the facet's own
+     *  ttl still wins when it is sooner. The m2m grant sets it so a session expires with the token it was minted for. */
     maxExpiresAt?: Date
     /** Shortens this row's whole life, `absoluteExpiresAt` included. Only ever shortens. */
     ttlMs?: number
+    /** `false` issues the row already stale, for a re-issue nothing re-authenticated. Only ever demotes. */
+    fresh?: false
   }
 
+  /** A new session replacing the one the request came in on, and why. */
   export interface RotateInput extends MintInput {
-    /** Whether the previous SID is revoked outright, downgraded (step-up keeps it alive at a lower AAL), or
-     *  left alone (impersonation runs alongside the original). */
+    /** Whether the previous SID is revoked outright or downgraded (step-up keeps it alive at a lower AAL). */
     purpose:
       | 'signin'
       | 're-auth'
@@ -194,6 +210,11 @@ export namespace Sessions {
       /** The first session of a new account. Not `guest-promotion`, since most signups have no prior session
        *  to promote, but revoked alike: whatever the caller came in on does not survive. */
       | 'sign-up'
+      /** A re-issue after the hijack policy answered `'rotate'`. Nothing was re-authenticated, so the row is
+       *  issued stale and keeps the previous one's absolute deadline and `actingAs`. */
+      | 'drift'
+    /** The SID the request came in on. Its `ip`, `userAgent` and `fingerprint` carry over to the new row
+     *  wherever this input brings none. */
     previousSid?: string
   }
 }

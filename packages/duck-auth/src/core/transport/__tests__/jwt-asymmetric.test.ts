@@ -1,5 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { isRecord } from '~/core/predicates'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { JwtTransport } from '../jwt.transport'
 
@@ -27,11 +28,13 @@ function fakeSession(): Sessions.Me {
 }
 
 function findAccessToken(intents: ReturnType<JwtTransport['issue']>): string {
-  const json = intents.find((i) => i.type === 'json') as Extract<(typeof intents)[number], { type: 'json' }>
-  return (json.body as { access_token: string }).access_token
+  const json = intents.find((i) => i.type === 'json')
+  const token = json?.type === 'json' && isRecord(json.body) ? json.body.access_token : undefined
+  if (typeof token !== 'string') return expect.unreachable('issue() emitted no access_token')
+  return token
 }
 
-describe('AuthJwtTransport - ES256', () => {
+describe('JwtTransport - ES256', () => {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
   const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
   const pubPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
@@ -79,16 +82,11 @@ describe('AuthJwtTransport - ES256', () => {
   it('jwks emits the public key with kid + alg + use', () => {
     const doc = t.jwks()
     expect(doc.keys).toHaveLength(1)
-    const k = doc.keys[0] as Record<string, unknown>
-    expect(k.kid).toBe('k-ec')
-    expect(k.alg).toBe('ES256')
-    expect(k.use).toBe('sig')
-    expect(k.kty).toBe('EC')
-    expect(k.crv).toBe('P-256')
+    expect(doc.keys[0]).toMatchObject({ alg: 'ES256', crv: 'P-256', kid: 'k-ec', kty: 'EC', use: 'sig' })
   })
 })
 
-describe('AuthJwtTransport - RS256', () => {
+describe('JwtTransport - RS256', () => {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
   const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
   const pubPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
@@ -112,13 +110,11 @@ describe('AuthJwtTransport - RS256', () => {
   it('jwks emits the RSA public key', () => {
     const doc = t.jwks()
     expect(doc.keys).toHaveLength(1)
-    const k = doc.keys[0] as Record<string, unknown>
-    expect(k.kty).toBe('RSA')
-    expect(k.alg).toBe('RS256')
+    expect(doc.keys[0]).toMatchObject({ alg: 'RS256', kty: 'RSA' })
   })
 })
 
-describe('AuthJwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => {
+describe('JwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
   const pubPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
   const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
@@ -163,7 +159,7 @@ describe('AuthJwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => 
   })
 })
 
-describe('AuthJwtTransport.jwks - HS256 keys never leak', () => {
+describe('JwtTransport.jwks - HS256 keys never leak', () => {
   it('HS256-only config returns empty keys array', () => {
     const t = new JwtTransport({
       signKey: { kid: 'k1', key: 'secret' },
@@ -174,7 +170,7 @@ describe('AuthJwtTransport.jwks - HS256 keys never leak', () => {
   })
 })
 
-describe('AuthJwtTransport - EdDSA (Ed25519)', () => {
+describe('JwtTransport - EdDSA (Ed25519)', () => {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519')
   const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
   const pubPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
@@ -213,16 +209,11 @@ describe('AuthJwtTransport - EdDSA (Ed25519)', () => {
   it('jwks emits the OKP public key with crv=Ed25519', () => {
     const doc = t.jwks()
     expect(doc.keys).toHaveLength(1)
-    const k = doc.keys[0] as Record<string, unknown>
-    expect(k.kty).toBe('OKP')
-    expect(k.crv).toBe('Ed25519')
-    expect(k.alg).toBe('EdDSA')
-    expect(k.use).toBe('sig')
-    expect(k.kid).toBe('k-ed')
+    expect(doc.keys[0]).toMatchObject({ alg: 'EdDSA', crv: 'Ed25519', kid: 'k-ed', kty: 'OKP', use: 'sig' })
   })
 })
 
-describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
+describe('JwtTransport.rotateSignKey - live JWKS rotation', () => {
   it('rotates the active sign kid; old verifyKey stays valid until retireVerifyKey', async () => {
     const a = generateKeyPairSync('ed25519')
     const b = generateKeyPairSync('ed25519')

@@ -38,7 +38,7 @@ describe('the last-factor guard, through both doors', () => {
     await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId,
-      providerId: 'authGoogle',
+      providerId: 'google',
       providerSub: 'google-1',
     })
   })
@@ -51,9 +51,9 @@ describe('the last-factor guard, through both doors', () => {
   const doors = [
     {
       name: 'flows.unlinkProvider',
-      unlink: async () => (await auth.flows.unlinkProvider({ identityId, providerId: 'authGoogle' })).identity.id,
+      unlink: async () => (await auth.flows.unlinkProvider({ identityId, providerId: 'google' })).identity.id,
     },
-    { name: 'identities.unlink', unlink: async () => (await auth.identities.unlink(identityId, 'authGoogle')).id },
+    { name: 'identities.unlink', unlink: async () => (await auth.identities.unlink(identityId, 'google')).id },
   ] as const
 
   describe.each(doors)('$name', ({ unlink }) => {

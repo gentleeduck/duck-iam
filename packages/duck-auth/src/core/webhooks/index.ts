@@ -3,9 +3,12 @@
  *  front; a self-service webhook UI is the host's to wire, reloading the subscriber on change. */
 
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { AuthError, redactSecrets } from '../errors'
+import { scrubMeta } from '@gentleduck/error'
+import { AuthError } from '../errors'
 import type { Events } from '../events'
 import { EVERY_EVENT } from '../events'
+import { isEventName } from '../events/events.constants'
+import { isRecord } from '../predicates'
 import { assertResolvedHostIsPublic, assertSafeOutboundUrl } from '../url-validators'
 import {
   BACKOFF_BASE_MAX_MS,
@@ -21,8 +24,6 @@ import {
   TOLERANCE_DEFAULT_MS,
 } from './webhooks.constants'
 
-/** Subscribes the bus, signs and POSTs each emit to the configured endpoints, retries with exponential
- *  backoff, and dead-letters on permanent failure. */
 const BYTES = new TextEncoder()
 
 /** Whether repeating the request could ever change the answer. 4xx says the request itself is wrong
@@ -32,6 +33,8 @@ function isPermanentStatus(status: number): boolean {
   return status >= 400 && status < 500
 }
 
+/** Subscribes the bus, signs and POSTs each emit to the configured endpoints, retries with exponential
+ *  backoff, and dead-letters on permanent failure. */
 export class WebhookDeliverer {
   private readonly _endpoints: Array<
     Required<Omit<WebhookDeliverer.IEndpoint, 'events' | 'signatureHeader' | 'id'>> & {
@@ -70,6 +73,12 @@ export class WebhookDeliverer {
       if (e.signatureHeader !== undefined && !HEADER_TOKEN.test(e.signatureHeader)) {
         throw new AuthError('AUTH_MISCONFIGURED', {
           detail: `AuthWebhookDeliverer signatureHeader must be a valid header name (got ${JSON.stringify(e.signatureHeader)})`,
+        })
+      }
+      // A name the bus never emits subscribes to nothing, and a string other than `'*'` to each of its characters.
+      if (e.events !== undefined && e.events !== '*' && !(Array.isArray(e.events) && e.events.every(isEventName))) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `AuthWebhookDeliverer events must be '*' or a list of known event names (got ${JSON.stringify(e.events)})`,
         })
       }
     }
@@ -114,7 +123,8 @@ export class WebhookDeliverer {
     this._fetch = cfg.fetch ?? globalThis.fetch
     this._deadLetter = cfg.deadLetter
     this._resolveHost = cfg.resolveHost
-    this._redact = cfg.redact ?? redactSecrets
+    // Event payloads are always records; anything else goes out as it came in.
+    this._redact = cfg.redact ?? ((payload) => (isRecord(payload) ? scrubMeta(payload) : payload))
     this._random = cfg.random ?? jitterSource
   }
 
@@ -204,16 +214,6 @@ export class WebhookDeliverer {
       await this._deadLetterPut(endpoint, name, payload, { attempts: 0, firstAttemptAt, lastError })
       return { attempts: 0, delivered: false, endpointId: endpoint.id, lastError }
     }
-    // The construction-time guard sees the spelling of the host and nothing else, so a name that
-    // resolves inward passes it. Checked once, before the ladder: a name pointing inward will point
-    // inward again in eight seconds, so retrying it only delays the same refusal.
-    try {
-      await this._assertEndpointResolvesOutward(endpoint.url)
-    } catch (err) {
-      lastError = err instanceof AuthError ? String(err.meta.detail ?? err.code) : String(err)
-      await this._deadLetterPut(endpoint, name, payload, { attempts: 0, firstAttemptAt, lastError })
-      return { attempts: 0, delivered: false, endpointId: endpoint.id, lastError }
-    }
     if (BYTES.encode(body).length > PAYLOAD_MAX_BYTES) {
       console.error(`[@gentleduck/auth] webhook payload for "${name}" exceeds the ${PAYLOAD_MAX_BYTES} byte cap`)
       lastError = `payload exceeds ${PAYLOAD_MAX_BYTES} byte cap`
@@ -224,6 +224,9 @@ export class WebhookDeliverer {
     while (attempt < this._maxAttempts) {
       attempt++
       try {
+        // The construction-time guard sees only the spelling of the host, so the name is resolved and
+        // checked before every attempt. A lookup that fails is then retried like a request that does.
+        await this._assertEndpointResolvesOutward(endpoint.url)
         const outcome = await this._dispatch(body, Date.now(), deliveryId, endpoint)
         if (outcome.state === 'delivered') return { attempts: attempt, delivered: true, endpointId: endpoint.id }
         lastError = outcome.reason
@@ -232,6 +235,11 @@ export class WebhookDeliverer {
         // dead letter that was always coming.
         if (outcome.state === 'permanent') break
       } catch (err) {
+        // The guard's refusal, which a retry cannot change.
+        if (err instanceof AuthError) {
+          lastError = String(err.meta.detail ?? err.code)
+          break
+        }
         lastError = err instanceof Error ? err.message : String(err)
       }
       if (attempt < this._maxAttempts) {
@@ -244,9 +252,12 @@ export class WebhookDeliverer {
 
   private async _assertEndpointResolvesOutward(url: string): Promise<void> {
     if (!this._resolveHost) return
-    for (const address of await this._resolveHost(new URL(url).hostname)) {
-      assertResolvedHostIsPublic(address, 'webhook url')
+    const addresses = await this._resolveHost(new URL(url).hostname)
+    // No address vets nothing, and `fetch` then resolves the name on its own.
+    if (addresses.length === 0) {
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'webhook url resolved to no address - refused (SSRF guard)' })
     }
+    for (const address of addresses) assertResolvedHostIsPublic(address, 'webhook url')
   }
 
   private async _deadLetterPut(
@@ -256,8 +267,9 @@ export class WebhookDeliverer {
     meta: { attempts: number; firstAttemptAt: number; lastError: string },
   ): Promise<void> {
     if (!this._deadLetter) return
-    await this._deadLetter
-      .put({
+    // Not fatal, however the sink fails: the caller is still answered with the delivery's own outcome.
+    try {
+      await this._deadLetter.put({
         attempts: meta.attempts,
         endpointId: endpoint.id,
         endpointUrl: sanitiseEndpointUrl(endpoint.url),
@@ -267,9 +279,9 @@ export class WebhookDeliverer {
         lastError: meta.lastError,
         payload: this._redact(payload),
       })
-      .catch(() => {
-        // A failing dead-letter sink is not fatal: log and drop.
-      })
+    } catch (err) {
+      console.error(`[@gentleduck/auth] webhook dead-letter sink refused "${eventName}" for ${endpoint.id}`, err)
+    }
   }
 
   private async _dispatch(
@@ -278,11 +290,8 @@ export class WebhookDeliverer {
     deliveryId: string,
     endpoint: { url: string; secret: string; signatureHeader: string },
   ): Promise<{ state: 'delivered' } | { state: 'retry' | 'permanent'; reason: string }> {
-    // SECURITY: `sentAt` is per attempt, not per delivery. `verifyWebhookSignature` refuses a stamp
-    // older than its tolerance, so a retry carrying the first attempt's stamp read as too old and the
-    // consumer answered `false` - the same answer as a wrong secret. The body's own `timestamp` stays
-    // the event time, so attempts stay byte-identical and `deliveryId` still keys idempotency; the HMAC
-    // covers both, so neither substitutes for the other.
+    // SECURITY: `sentAt` is per attempt, so a retry is not refused as too old; the body's `timestamp` stays
+    // the event time, keeping attempts byte-identical.
     const signature = signWebhookBody(endpoint.secret, body, sentAt)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this._timeoutMs)
@@ -349,7 +358,7 @@ export function verifyWebhookSignature(
   }
   if (opts.timestamp !== undefined) {
     // NaN timestamp would silently bypass `Math.abs(...) > tolerance`.
-    if (typeof opts.timestamp !== 'number' || !Number.isFinite(opts.timestamp)) return false
+    if (!Number.isFinite(opts.timestamp)) return false
     if (Math.abs(Date.now() - opts.timestamp) > tolerance) return false
   }
   const prefix = ACCEPTED_PREFIXES.find((p) => signature.startsWith(p))
@@ -385,7 +394,9 @@ export namespace WebhookDeliverer {
     lastError?: string
   }
 
+  /** The endpoints, retry policy and SSRF guard of the deliverer. */
   export interface Cfg {
+    /** The receivers every event fans out to. */
     endpoints: WebhookDeliverer.IEndpoint[]
     /** Maximum delivery attempts before dead-lettering. Default 5. */
     maxAttempts?: number
@@ -401,11 +412,11 @@ export namespace WebhookDeliverer {
      *  The SSRF guard still blocks loopback, private, link-local and cloud-metadata hosts regardless. */
     allowInsecure?: boolean
     /** Resolves an endpoint hostname to its addresses, checked against the same ranges before each
-     *  request. Without it the guard sees only the host's spelling, so a name pointing at 127.0.0.1 is
-     *  accepted; `dns.promises.lookup(hostname, { all: true })` is the Node wiring.
+     *  attempt; no address is a refusal. Without it the guard sees only the host's spelling, so a name
+     *  pointing at 127.0.0.1 is accepted. In Node: `(await lookup(hostname, { all: true })).map((a) => a.address)`.
      *  WARN: this closes the name, not the race, since `fetch` resolves again when it connects. */
     resolveHost?: (hostname: string) => Promise<string[]>
-    /** Redacts a payload before it is signed, sent and dead-lettered. Blanks every secret-bearing key at
+    /** Redacts a payload before it is signed, sent and dead-lettered. Drops every secret-bearing key at
      *  any depth by default: a `session.created` payload carries the session row and the identity, and
      *  both would otherwise reach a third party verbatim. */
     redact?: (payload: unknown) => unknown
@@ -413,6 +424,7 @@ export namespace WebhookDeliverer {
     random?: () => number
   }
 
+  /** A webhook receiver. */
   export interface IEndpoint {
     /** Absolute HTTPS URL. */
     url: string
@@ -422,14 +434,17 @@ export namespace WebhookDeliverer {
     events?: Events.EventName[] | '*'
     /** Header name carrying the HMAC. Default `'X-Duck-Signature'`. */
     signatureHeader?: string
-    /** For UI labels and audit logs. Defaults to `url`. */
+    /** For UI labels and audit logs. Defaults to the url's origin and path. */
     id?: string
   }
 
+  /** Where deliveries that ran out of attempts go. */
   export interface IDeadLetterSink {
+    /** Stores one failed delivery. */
     put(envelope: WebhookDeliverer.IDeadLetterEntry): Promise<void>
   }
 
+  /** A delivery that ran out of attempts, with its last error. */
   export interface IDeadLetterEntry {
     endpointId: string
     endpointUrl: string
@@ -437,11 +452,14 @@ export namespace WebhookDeliverer {
     payload: unknown
     attempts: number
     lastError: string
+    /** Epoch milliseconds. */
     firstAttemptAt: number
+    /** Epoch milliseconds. */
     lastAttemptAt: number
   }
 }
 
+/** Builds a {@link WebhookDeliverer}. */
 export function webhookDeliverer(cfg: WebhookDeliverer.Cfg): WebhookDeliverer {
   return new WebhookDeliverer(cfg)
 }

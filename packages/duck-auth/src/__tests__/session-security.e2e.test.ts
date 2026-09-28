@@ -3,10 +3,8 @@ import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { valkeyAdapter } from '~/adapters/valkey'
 import { AuthEngine } from '~/core/engine'
-import { redisIdempotency } from '~/core/idempotency'
-import { RedisIdempotency } from '~/core/idempotency/idempotency.redis'
 import { resolveBySid } from '~/core/sessions'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { RedisLimiter } from '~/limiters/redis'
@@ -59,18 +57,17 @@ suite('E2E session security rules on real Postgres + Redis', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: PG_URL })
     await applyPgSchema(pool)
-    raw = new Redis(REDIS_URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
-    stores = new DrizzlePgAdapter(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL)
 
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
-      idempotency: redisIdempotency({ prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me) }),
       limiter: new RedisLimiter({
         max: 200,
         prefix,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
         windowMs: 60_000,
       }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
@@ -390,7 +387,7 @@ suite('E2E session security rules on real Postgres + Redis', () => {
       })
     })
 
-    it('leaves the admin’s own session untouched', async () => {
+    it('replaces the admin’s own session, so release leaves no orphan behind', async () => {
       const admin = await newUser('admin-keeps')
       const target = await newUser('target-keeps')
       const adminSession = await auth.flows.signIn({
@@ -413,7 +410,9 @@ suite('E2E session security rules on real Postgres + Redis', () => {
         purpose: 'impersonate-start',
       })
 
-      await expect(auth.resolveSession(cookie(adminSession.sid))).resolves.toBeDefined()
+      await expect(auth.resolveSession(cookie(adminSession.sid))).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
     })
   })
 

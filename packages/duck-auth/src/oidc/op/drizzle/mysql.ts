@@ -5,6 +5,7 @@ import type { MySqlDatabase, MySqlQueryResultHKT } from 'drizzle-orm/mysql-core'
 import { bigint, index, mysqlTable, text, uniqueIndex, varchar } from 'drizzle-orm/mysql-core'
 import type { OidcOP } from '../types'
 
+/** Registered OIDC clients. */
 export const authOidcClientsTable = mysqlTable('oidc_clients', {
   clientId: varchar('client_id', { length: 255 }).primaryKey(),
   clientSecretHash: varchar('client_secret_hash', { length: 64 }),
@@ -19,6 +20,7 @@ export const authOidcClientsTable = mysqlTable('oidc_clients', {
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
 })
 
+/** Pending authorization codes. */
 export const authOidcCodesTable = mysqlTable(
   'oidc_codes',
   {
@@ -37,6 +39,7 @@ export const authOidcCodesTable = mysqlTable(
   (t) => [index('oidc_codes_exp').on(t.exp)],
 )
 
+/** Issued access tokens, by hash. */
 export const authOidcAccessTokensTable = mysqlTable(
   'oidc_access_tokens',
   {
@@ -50,6 +53,7 @@ export const authOidcAccessTokensTable = mysqlTable(
   (t) => [index('oidc_at_exp').on(t.exp)],
 )
 
+/** Issued refresh tokens, by hash. */
 export const authOidcRefreshTokensTable = mysqlTable(
   'oidc_refresh_tokens',
   {
@@ -65,6 +69,7 @@ export const authOidcRefreshTokensTable = mysqlTable(
   (t) => [index('oidc_rt_family').on(t.familyId), index('oidc_rt_exp').on(t.exp)],
 )
 
+/** Granted scopes per subject and client. */
 export const authOidcConsentsTable = mysqlTable(
   'oidc_consents',
   {
@@ -190,6 +195,7 @@ function affectedRows(result: unknown): number {
   return 0
 }
 
+/** Any drizzle database of this dialect. */
 type AnyMySqlDatabase = MySqlDatabase<MySqlQueryResultHKT, any, any>
 
 /**
@@ -369,6 +375,7 @@ export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
   }
 }
 
+/** Deletes expired codes and tokens; answers how many rows went. */
 export async function authGcDrizzleMysqlOidcOp(db: AnyMySqlDatabase, now: number = Date.now()): Promise<number> {
   const codes = await db.delete(authOidcCodesTable).where(lt(authOidcCodesTable.exp, now))
   const access = await db.delete(authOidcAccessTokensTable).where(lt(authOidcAccessTokensTable.exp, now))

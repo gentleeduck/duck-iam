@@ -1,13 +1,6 @@
-export {
-  BackupCodesFacet,
-  backupCodesFacet as AuthBackupCodesFacet,
-  DEFAULT_BACKUP_CODES_CONFIG,
-  DEFAULT_REMEMBER_ME_CONFIG,
-  RememberMeFacet,
-  rememberMeFacet,
-} from '~/providers/mfa'
+export { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet, rememberMeFacet } from '~/providers/mfa'
 export type { Actor } from './actor'
-export { actorId, currentActor, resolveActor, setDefaultActorResolver, withActor } from './actor'
+export { actorId, setDefaultActorResolver, withActor } from './actor'
 export type { Anomaly, AuthDeviceFingerprint, AuthImpossibleTravel } from './anomaly'
 export {
   AnomalyFacet,
@@ -31,6 +24,9 @@ export {
   authRecaptchaV3Verifier,
   authTurnstileVerifier,
   authUnconfiguredCaptchaVerifier,
+  CAPTCHA_MAX_AGE_DEFAULT_MS,
+  CAPTCHA_TIMEOUT_DEFAULT_MS,
+  CAPTCHA_TOKEN_MAX_LENGTH,
 } from './captcha'
 export type { Compliance } from './compliance'
 export { type AuthDefine, createAuth } from './config'
@@ -47,7 +43,6 @@ export {
 export type { DataAtRest, Kms } from './dataAtRest'
 export type { Bound, Engine } from './engine'
 export { AuthEngine } from './engine'
-export type { Envelope } from './errors'
 export { AuthError } from './errors'
 export type { Events } from './events'
 export { InMemoryEvents, inMemoryEvents as AuthInMemoryEvents, RedisEvents as AuthRedisEvents } from './events'

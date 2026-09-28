@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Credential } from '~/core/credentials'
+import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { authTestDeliver } from '~/test'
+import { credentialInput } from '~/test/store-inputs'
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -51,7 +53,7 @@ describe('FlowsImpl - email verification', () => {
     })
     expect(channel.outbox).toHaveLength(1)
     expect(channel.outbox[0]!.kind).toBe('email-verification')
-    const url = (channel.outbox[0]!.vars as { url: string }).url
+    const url = String(channel.outbox[0]!.vars.url)
     const token = new URL(url).searchParams.get('token')
     expect(token).toBeTruthy()
     const done = await auth.flows.completeEmailVerification({ token: token! })
@@ -86,7 +88,7 @@ describe('FlowsImpl - email verification', () => {
 
   it('complete is single-use: replay fails', async () => {
     await auth.flows.requestEmailVerification({ identityId })
-    const url = (channel.outbox[0]!.vars as { url: string }).url
+    const url = String(channel.outbox[0]!.vars.url)
     const token = new URL(url).searchParams.get('token')!
     await auth.flows.completeEmailVerification({ token })
     await expect(auth.flows.completeEmailVerification({ token })).rejects.toMatchObject({
@@ -121,7 +123,7 @@ describe('FlowsImpl - email verification', () => {
     })
     const ident = await engine.identities.create({ profile: { username: 'b@x.com', email: 'b@x.com' } })
     await engine.flows.requestEmailVerification({ identityId: ident.id })
-    const token = new URL((ch.outbox[0]?.vars as { url: string }).url).searchParams.get('token') as string
+    const token = new URL(String(ch.outbox[0]?.vars.url)).searchParams.get('token') ?? ''
     const [row] = await ad.credentials.listByIdentity(ident.id, 'recovery', {})
     gatedId = row?.id ?? null
 
@@ -135,6 +137,35 @@ describe('FlowsImpl - email verification', () => {
     })
     release()
     expect((await winner).identity.emailVerified).toBe(true)
+  })
+
+  it('a link mailed to an address the account has since moved off verifies nothing', async () => {
+    await auth.flows.requestEmailVerification({ identityId })
+    const token = new URL(String(channel.outbox[0]!.vars.url)).searchParams.get('token') ?? ''
+    const cur = await adapter.identities.find({ id: identityId })
+    await auth.identities.updateProfile(identityId, { email: 'victim@corp.com' }, cur.version)
+    await expect(auth.flows.completeEmailVerification({ token })).rejects.toMatchObject({
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
+    })
+    expect((await adapter.identities.find({ id: identityId })).emailVerified).toBe(false)
+  })
+
+  it('a token carrying no address is refused', async () => {
+    const token = 'no-address-token'
+    await adapter.credentials.create(
+      credentialInput({
+        expiresAt: new Date(Date.now() + 60_000),
+        identityId,
+        kind: 'recovery',
+        metadata: { purpose: 'email-verification' },
+        secret: sha256(token),
+      }),
+      {},
+    )
+    await expect(auth.flows.completeEmailVerification({ token })).rejects.toMatchObject({
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
+    })
+    expect((await adapter.identities.find({ id: identityId })).emailVerified).toBe(false)
   })
 
   it('rate-limit enforced (max 3 within window)', async () => {
@@ -156,9 +187,9 @@ describe('FlowsImpl - email verification', () => {
 
   it('resend replaces the prior token (only the latest verifies)', async () => {
     await auth.flows.requestEmailVerification({ identityId })
-    const firstToken = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    const firstToken = new URL(String(channel.outbox[0]!.vars.url)).searchParams.get('token')!
     await auth.flows.requestEmailVerification({ identityId })
-    const secondToken = new URL((channel.outbox[1]!.vars as { url: string }).url).searchParams.get('token')!
+    const secondToken = new URL(String(channel.outbox[1]!.vars.url)).searchParams.get('token')!
     expect(firstToken).not.toBe(secondToken)
     await expect(auth.flows.completeEmailVerification({ token: firstToken })).rejects.toMatchObject({
       code: 'AUTH_RECOVERY_TOKEN_INVALID',

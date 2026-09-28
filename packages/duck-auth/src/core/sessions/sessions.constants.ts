@@ -7,8 +7,8 @@ export const DEFAULT_SESSION_CONFIG: Sessions.Cfg = {
   freshnessMs: 5 * 60 * 1000,
 }
 
-/** `SessionsImpl.create` truncates to these. Anything that normalises a fingerprint must use the same
- *  lengths, or `hijack.evaluate` reads a long User-Agent as permanent drift on every request. */
+/** `SessionsImpl.create` truncates to these, and `hijack.evaluate` cuts the request's values to the same
+ *  lengths before comparing, or a long User-Agent would drift on every request. */
 export const SESSION_COLUMN_CAPS = {
   fingerprint: 256,
   /** Comfortably past an IPv6 address with a scope id. */

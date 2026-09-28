@@ -5,6 +5,7 @@ import type { Events } from './events.types'
 
 /** Exhaustive by construction: a newly audited event fails to compile until it's listed. */
 const AUDITED_EVENTS: Record<Events.AuditedEvent, true> = {
+  'identity.erased': true,
   'identity.impersonated': true,
   'identity.impersonation.ended': true,
   'identity.linked': true,
@@ -12,6 +13,9 @@ const AUDITED_EVENTS: Record<Events.AuditedEvent, true> = {
   lockout: true,
   'mfa.enrolled': true,
   'mfa.removed': true,
+  'org.member.added': true,
+  'org.member.removed': true,
+  'org.roles.set': true,
   'recovery.mfa.escalated': true,
   'recovery.password.completed': true,
   'recovery.password.requested': true,
@@ -24,14 +28,11 @@ const AUDITED_EVENTS: Record<Events.AuditedEvent, true> = {
   suspicious: true,
 }
 
-const _ambient = new AsyncLocalStorage<Events.Envelope>()
+const _ambient = new AsyncLocalStorage<Events.Envelope | undefined>()
 
-/**
- * Run `fn` with `envelope` on every audited event emitted inside it. Adapters wrap
- * request handling in this once the session is resolved:
- */
+/** Run `fn` with `envelope` on every audited event emitted inside it. `undefined` clears the scope rather
+ *  than inheriting the one around it, as `withActor(undefined)` does. */
 export function runWithAuditEnvelope<T>(envelope: Events.Envelope | undefined, fn: () => Promise<T>): Promise<T> {
-  if (envelope === undefined) return fn()
   return _ambient.run(envelope, fn)
 }
 
@@ -40,7 +41,7 @@ export function currentAuditEnvelope(): Events.Envelope | undefined {
   return _ambient.getStore()
 }
 
-/** `undefined` when not impersonating, so the wrap above costs nothing on the hot path. */
+/** The envelope a session's requests carry: its `actingAs` while impersonating, otherwise none. */
 export function auditEnvelopeFor(
   session: Pick<Sessions.Me, 'actingAs'> | null | undefined,
 ): Events.Envelope | undefined {
@@ -48,13 +49,12 @@ export function auditEnvelopeFor(
 }
 
 function stamp<K extends Events.EventName>(event: K, payload: Events.EventMap[K]): Events.EventMap[K] {
-  if (!(event in AUDITED_EVENTS)) return payload
-  if (typeof payload !== 'object' || payload === null) return payload
-  const p = payload as Events.Stampable
-  if (p.audit !== undefined) return payload
+  const sent: Events.EventMap[Events.EventName] = payload
+  if (!Object.hasOwn(AUDITED_EVENTS, event) || typeof sent !== 'object' || sent === null) return payload
+  if ('audit' in sent && sent.audit !== undefined) return payload
   // Ambient describes the request; the session fallback catches lifecycle events emitted
   // outside any wrap, which is how `impersonate-start` itself arrives.
-  const ambient = currentAuditEnvelope() ?? (p.session?.actingAs ? { actingAs: p.session.actingAs } : undefined)
+  const ambient = currentAuditEnvelope() ?? ('session' in sent ? auditEnvelopeFor(sent.session) : undefined)
   // An envelope that named the operator explicitly keeps its own answer; otherwise
   // the actor context supplies it. Without this an audited event records only the
   // subject, so "admin X revoked user Y's session" arrives indistinguishable from
@@ -71,13 +71,11 @@ function stamp<K extends Events.EventName>(event: K, payload: Events.EventMap[K]
  * threading a session into every facet to satisfy audit would be worse.
  */
 export function withAuditStamping(bus: Events.IBus): Events.IBus {
-  const wrapper: Events.IBus & { listenerCount?: (event: Events.EventName) => number } = {
+  const wrapper: Events.IBus = {
     emit: (event, payload) => bus.emit(event, stamp(event, payload)),
     on: (event, handler) => bus.on(event, handler),
   }
-  const count = (bus as { listenerCount?: (event: Events.EventName) => number }).listenerCount
-  if (typeof count === 'function') {
-    wrapper.listenerCount = (event) => count.call(bus, event)
-  }
+  const count = bus.listenerCount
+  if (count) wrapper.listenerCount = (event) => count.call(bus, event)
   return wrapper
 }

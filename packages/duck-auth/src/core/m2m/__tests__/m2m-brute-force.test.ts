@@ -1,6 +1,6 @@
 /**
  * `exchange()` is the `client_credentials` grant: it compares a caller-supplied secret against stored
- * material and mints a bearer token on a match. `ApiKeyProvider.complete` does the same comparison
+ * material and mints a bearer token on a match. `AuthApiKeyImpl.complete` does the same comparison
  * through the same `ApiKeysFacet.verify` and guards it twice — a type-and-length check so a non-string
  * cannot throw past the quota, then `limiter.consume`. This path had neither.
  */

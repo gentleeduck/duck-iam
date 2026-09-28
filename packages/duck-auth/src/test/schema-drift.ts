@@ -11,23 +11,19 @@ const read = (file: string): string => readFileSync(fileURLToPath(new URL(`./${f
 export const PG_DDL: string = read('pg-e2e-schema.sql')
 export const MYSQL_DDL: string = read('mysql-e2e-schema.sql')
 
-interface Named {
-  name: string
-}
-
 /** Every constraint a table declares, by name. Uniques are declared as `uniqueIndex`, so they arrive
  *  under `indexes` rather than `uniqueConstraints` on both dialects. */
 export function declaredNames(config: {
-  checks: unknown[]
-  foreignKeys: unknown[]
-  indexes: unknown[]
-  uniqueConstraints: unknown[]
+  checks: { name: string }[]
+  foreignKeys: { getName(): string }[]
+  indexes: { config: { name?: string } }[]
+  uniqueConstraints: { name?: string }[]
 }): string[] {
   return [
-    ...config.checks.map((c) => (c as Named).name),
-    ...config.indexes.map((i) => (i as { config: Named }).config.name),
-    ...config.uniqueConstraints.map((u) => (u as Named).name),
-    ...config.foreignKeys.map((f) => (f as { getName(): string }).getName()),
+    ...config.checks.map((c) => c.name),
+    ...config.indexes.map((i) => i.config.name ?? '(unnamed index)'),
+    ...config.uniqueConstraints.map((u) => u.name ?? '(unnamed unique)'),
+    ...config.foreignKeys.map((f) => f.getName()),
   ]
 }
 

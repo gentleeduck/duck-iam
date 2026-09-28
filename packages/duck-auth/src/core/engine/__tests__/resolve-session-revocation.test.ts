@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { orNull } from '~/core/answer'
 import { createAuth } from '~/core/config/config'
+import { makeSession } from '~/test/store-inputs'
 import type { Adapter } from '../../../adapters/adapter'
 import type { Anomaly } from '../../anomaly/anomaly.types'
 import { AuthError } from '../../errors'
@@ -43,8 +44,9 @@ const session = (identityId: string | null, tenantId: string | null = null): Ses
   createdAt: new Date(0),
   updatedAt: new Date(0),
   rotatedAt: new Date(0),
-  expiresAt: new Date(Date.now() + 60_000),
-  absoluteExpiresAt: new Date(Date.now() + 600_000),
+  // A fresh sign-in's deadlines, so no case here is due a slide.
+  expiresAt: new Date(Date.now() + 7 * 86_400_000),
+  absoluteExpiresAt: new Date(Date.now() + 30 * 86_400_000),
   fresh: true,
   actingAs: null,
 })
@@ -364,7 +366,9 @@ describe('AuthEngine.resolveSession readers', () => {
     await expect(auth.resolveSession(cookie(sid)).orNull()).rejects.toMatchObject({
       code: 'AUTH_SESSION_IDENTITY_ERASED',
     })
-    await expect(auth.resolveSession(cookie(sid)).orDefault({ identity: null, session: {} as never })).rejects.toThrow()
+    await expect(
+      auth.resolveSession(cookie(sid)).orDefault({ identity: null, session: makeSession() }),
+    ).rejects.toThrow()
   })
 
   it('wrap() hands the refusal back as a value rather than throwing it', async () => {

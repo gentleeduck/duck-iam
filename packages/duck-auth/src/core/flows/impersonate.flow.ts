@@ -30,11 +30,8 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
   if (!real?.identityId) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
-  // SECURITY: `realSid` is documented as the real subject's, and an impersonating session's subject is the
-  // target. Nesting took `actingAs.realIdentityId` from `real.identityId`, so hop two named the previous
-  // target as the accountable human and `releaseImpersonation` then handed out a session as them with
-  // `actingAs: null` and the full session lifetime - a sixty-minute audited impersonation laundered into an
-  // unmarked week-long one, with `identity.impersonated` recording the wrong operator on the way through.
+  // SECURITY: nesting would name the previous target as the accountable human, and releasing it would
+  // hand out an unmarked session as them.
   if (real.actingAs) {
     throw new AuthError('AUTH_IMPERSONATE_FORBIDDEN', { reason: 'cannot impersonate from an impersonated session' })
   }

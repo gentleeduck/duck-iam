@@ -63,7 +63,7 @@ function bound(v: number | string, fallback: number): number {
 
 /**
  * In-process substitute for tests and for apps that need the adapter shape without a Redis dependency at
- * runtime. Same surface as ioredis and upstash, with TTLs enforced on read rather than by a timer.
+ * runtime. The `@upstash/redis` surface, with TTLs enforced on read rather than by a timer.
  */
 export class FakeRedis implements RedisLike.Client {
   private readonly _data = new Map<string, string>()

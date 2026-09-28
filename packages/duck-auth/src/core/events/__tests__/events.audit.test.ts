@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Sessions } from '~/core/sessions/sessions.types'
+import { makeSession } from '~/test/store-inputs'
 import { auditEnvelopeFor, runWithAuditEnvelope, withAuditStamping } from '../events.audit'
 import { InMemoryEvents } from '../events.memory'
 
@@ -20,7 +21,7 @@ describe('withAuditStamping', () => {
 
     await bus.emit('session.created', {
       identity: null,
-      session: { actingAs: actingAs('admin-1'), id: 's1' } as Sessions.Me,
+      session: makeSession({ actingAs: actingAs('admin-1') }),
     })
 
     expect(handler.mock.calls[0]?.[0].audit?.actingAs?.realIdentityId).toBe('admin-1')
@@ -31,7 +32,7 @@ describe('withAuditStamping', () => {
     const handler = vi.fn()
     bus.on('session.created', handler)
 
-    await bus.emit('session.created', { identity: null, session: { actingAs: null, id: 's1' } as Sessions.Me })
+    await bus.emit('session.created', { identity: null, session: makeSession({ actingAs: null }) })
 
     expect(handler.mock.calls[0]?.[0].audit).toBeUndefined()
   })
@@ -62,6 +63,18 @@ describe('withAuditStamping', () => {
     })
 
     expect(handler.mock.calls[0]?.[0].audit?.actingAs?.realIdentityId).toBe('explicit')
+  })
+
+  it('stamps a payload whose audit is present but undefined, as one that left it out', async () => {
+    const bus = withAuditStamping(new InMemoryEvents())
+    const handler = vi.fn()
+    bus.on('mfa.enrolled', handler)
+
+    await runWithAuditEnvelope({ actingAs: actingAs('admin-5') }, async () => {
+      await bus.emit('mfa.enrolled', { audit: undefined, identityId: 'user-1', method: 'totp' })
+    })
+
+    expect(handler.mock.calls[0]?.[0].audit?.actingAs?.realIdentityId).toBe('admin-5')
   })
 
   it('does not stamp events whose payload has no audit field', async () => {
@@ -100,10 +113,10 @@ describe('withAuditStamping', () => {
 
   it('forwards listenerCount so AuthEngine.strict keeps its lockout gate', async () => {
     const inner = new InMemoryEvents()
-    const bus = withAuditStamping(inner) as typeof inner
-    expect(bus.listenerCount('lockout')).toBe(0)
+    const bus = withAuditStamping(inner)
+    expect(bus.listenerCount?.('lockout')).toBe(0)
     bus.on('lockout', vi.fn())
-    expect(bus.listenerCount('lockout')).toBe(1)
+    expect(bus.listenerCount?.('lockout')).toBe(1)
   })
 })
 

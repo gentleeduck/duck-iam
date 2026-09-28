@@ -253,6 +253,36 @@ suite('E2E withTransaction on real Postgres', () => {
     expect(published).toEqual([])
   })
 
+  it('a replace whose new row is refused leaves the identity it would have erased', async () => {
+    const replaced = await engine.identities.create({ profile: { email: 'rp@x', username: 'rp' } })
+    const oversize = await engine.identities.create({ profile: { email: 'cap@x', username: 'cap' } })
+    const providers = [{ providerId: 'oauth:google', providerSub: 'g-1' }]
+    await engine.identities.create({ profile: { email: 'held@x', username: 'held' }, providers })
+
+    // Refused by the store after the erase: raised, so the transaction takes the erase back with it.
+    await expect(
+      db.transaction(async (tx) => {
+        const auth = engine.withTransaction(tx)
+        await auth.identities.bulkCreate([{ profile: { email: 'rp@x', username: 'rp' }, providers }], {
+          mode: 'replace',
+        })
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
+    // Refused by the profile cap before it: a failed row, and a commit with nothing erased.
+    await db.transaction(async (tx) => {
+      const auth = engine.withTransaction(tx)
+      const row = { profile: { bio: 'x'.repeat(20_000), email: 'cap@x', username: 'cap' } }
+      expect(await auth.identities.bulkCreate([row], { mode: 'replace' })).toEqual({
+        created: 0,
+        failed: 1,
+        skipped: 0,
+      })
+    })
+
+    await expect(engine.identities.getById(replaced.id)).resolves.toMatchObject({ id: replaced.id })
+    await expect(engine.identities.getById(oversize.id)).resolves.toMatchObject({ id: oversize.id })
+  })
+
   it('a soft failure does not roll the batch back', async () => {
     const a = await engine.identities.create({ profile: { email: 'sa@x', username: 'sa' } })
     const b = await engine.identities.create({ profile: { email: 'sb@x', username: 'sb' } })

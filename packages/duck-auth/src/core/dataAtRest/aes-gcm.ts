@@ -1,9 +1,14 @@
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto'
-import type { DataAtRest } from '../dataAtRest/dataAtRest.types'
 import { AuthError } from '../errors'
+import { CIPHERTEXT_MAX_LENGTH, PLAINTEXT_MAX_LENGTH } from './dataAtRest.constants'
+import type { DataAtRest } from './dataAtRest.types'
 
 /** What every new ciphertext is written as. */
-const ALG_CURRENT = 'aes-256-gcm.v2'
+const ALG_CURRENT = 'aes-256-gcm.v3'
+
+/** Read but never written. Its DEK left out `ctx.tag`, so a ciphertext decrypted under any tag;
+ *  `needsReEncrypt` reports every ciphertext still in it. */
+const ALG_V2 = 'aes-256-gcm.v2'
 
 /** The original format, read but never written. Its DEK is `sha256(masterKey || identityId || field)` with
  *  nothing between the components, so ('ab', 'c') and ('a', 'bc') derive one key. Kept readable so the change is
@@ -11,15 +16,6 @@ const ALG_CURRENT = 'aes-256-gcm.v2'
 const ALG_LEGACY = 'aes-256-gcm'
 
 const DEK_BYTES = 32
-
-/** Real PII fields are tens to hundreds of bytes; this is generous, and it bounds the encrypt cycle. */
-const PLAINTEXT_MAX_LENGTH = 1_048_576
-
-/** What encrypting the largest accepted plaintext produces: three UTF-8 bytes per UTF-16 unit, then
- *  base64url's four characters per three bytes, plus the prefix, kid, IV and tag.
- *  WARN: not the plaintext cap, which let a value over ~786,000 characters encrypt and store, then fail
- *  every read of itself as oversize. */
-const CIPHERTEXT_MAX_LENGTH = PLAINTEXT_MAX_LENGTH * 4 + 256
 
 /** AES-256-GCM `DataAtRest.Adapter`. Per-field DEK derived from the master key and the context; each encrypt
  *  samples a fresh 12-byte IV. Rotation goes through `previousKeys`, so old ciphertexts stay readable until they
@@ -52,7 +48,8 @@ export class AuthAesGcmDataAtRest implements DataAtRest.Adapter {
     if (alg === ALG_LEGACY) {
       return createHash('sha256').update(masterKey).update(ctx.identityId).update(ctx.field).digest()
     }
-    return Buffer.from(hkdfSync('sha256', masterKey, Buffer.from(kid, 'utf8'), contextInfo(ctx), DEK_BYTES))
+    const info = contextInfo(alg === ALG_V2 ? [ctx.identityId, ctx.field] : [ctx.identityId, ctx.field, ctx.tag ?? ''])
+    return Buffer.from(hkdfSync('sha256', masterKey, Buffer.from(kid, 'utf8'), info, DEK_BYTES))
   }
 
   /** Encrypts under the current key, tagging the ciphertext with its `kid`. */
@@ -79,11 +76,9 @@ export class AuthAesGcmDataAtRest implements DataAtRest.Adapter {
     }
     const parts = cipherText.split('$')
     const alg = parts[0]
-    if (parts.length !== 5 || (alg !== ALG_CURRENT && alg !== ALG_LEGACY)) {
+    if (parts.length !== 5 || (alg !== ALG_CURRENT && alg !== ALG_V2 && alg !== ALG_LEGACY)) {
       throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'aes-256-gcm: malformed ciphertext' })
     }
-    // No cast: the length and kind check above leaves five strings, and the guards below reject an
-    // empty or malformed component.
     const kid = parts[1]
     const ivB64 = parts[2]
     const tagB64 = parts[3]
@@ -112,7 +107,7 @@ export class AuthAesGcmDataAtRest implements DataAtRest.Adapter {
     }
     const decipher = createDecipheriv('aes-256-gcm', dek, iv)
     decipher.setAuthTag(tag)
-    // Wrapped so an auth-tag mismatch surfaces as AUTH_MISCONFIGURED, not Node's ERR_OSSL_* internals.
+    // Wrapped so an auth-tag mismatch surfaces as AUTH_INVALID_PARAMETERS, not Node's own error.
     let plain: Buffer
     try {
       plain = Buffer.concat([decipher.update(ct), decipher.final()])
@@ -131,9 +126,9 @@ export class AuthAesGcmDataAtRest implements DataAtRest.Adapter {
 }
 
 /** Each component behind its own length, so no two contexts flatten to the same bytes. */
-function contextInfo(ctx: DataAtRest.Context): Buffer {
+function contextInfo(components: string[]): Buffer {
   const out: Buffer[] = []
-  for (const component of [ctx.identityId, ctx.field]) {
+  for (const component of components) {
     const bytes = Buffer.from(String(component), 'utf8')
     const length = Buffer.alloc(4)
     length.writeUInt32BE(bytes.length)
@@ -170,6 +165,7 @@ function normalizeKey(masterKey: Buffer | string): Buffer {
 
 /** Configuration for the AES-GCM field encryptor. */
 export namespace AuthAesGcmDataAtRest {
+  /** The key the AES-GCM encryptor seals with, and the id it is written under. */
   export interface Cfg {
     /** Stable key id; written into every ciphertext. Used for rotation. */
     kid: string

@@ -10,6 +10,8 @@ import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import { canonicalEmail, type Identities } from '~/core/identities'
+import { assertIdentityAllowed } from '~/core/identities/identities.constants'
+import { isFiniteNumber, isRecord } from '~/core/predicates'
 import type { Provider } from '~/core/provider/provider.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import type { Flows } from './flows.types'
@@ -42,8 +44,8 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   // about or lock; looking one up would only add a read to a refused request.
   if (!limited.ok) await refuseRateLimited(ctx.events, limited, null)
 
-  const initial = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
-  // Totalled, not cast: `username` is required by the type, by a CHECK and by a unique index, and only
+  const initial = isRecord(opts.initialProfile) ? opts.initialProfile : {}
+  // Totalled before the cast: `username` is required by the type, by a CHECK and by a unique index, and only
   // pg enforces it, the sqlite conformance DDL omitting CHECKs and memory and Redis having no schema.
   const profile = buildSignUpProfile<Profile>(initial, opts.email)
 
@@ -67,6 +69,8 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
         await ctx.stores.credentials.revoke(c.id, {})
       }
     }
+    // A sign-up completed without a verified address leaves the row abandoned and its session live.
+    await deps.sessions.revokeAllForIdentity(existing.id)
     identityId = (await deps.identities.updateProfile(existing.id, profile, existing.version)).id
   } else {
     identityId = (
@@ -80,7 +84,7 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
 
   const flowToken = ctx.crypto.authRandomToken(32)
   const flowTokenHash = ctx.crypto.authSha256(flowToken)
-  const dataInit: Partial<Profile> = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
+  const dataInit: Partial<Profile> = isRecord(opts.initialProfile) ? opts.initialProfile : {}
   const data: Partial<Profile> = { ...dataInit, email: opts.email }
   // The cap the identity row is held to, applied where the bytes are actually staged: credential
   // metadata has no size limit of its own and is re-read on every stage for up to 24 hours.
@@ -171,6 +175,15 @@ export async function advanceSignUp<Profile extends Identities.ProfileMetadataBa
   const ctx = deps.ctxFactory(opts.tenantId)
   const { flow, row } = await liveSignUpFlow<Profile>(ctx, opts.flowToken, 'AUTH_SIGNUP_TOKEN_INVALID')
 
+  // SECURITY: the address is the flow's, fixed at `beginSignUp`. A patch moving it would carry an
+  // `email-verified` stage proven for one address onto another.
+  if (
+    opts.profilePatch !== undefined &&
+    'email' in opts.profilePatch &&
+    canonicalEmail(opts.profilePatch.email) !== canonicalEmail(flow.data.email)
+  ) {
+    throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'signup: the email is fixed when the flow begins' })
+  }
   const next: Flows.SignUpFlowState<Profile> = {
     ...flow,
     completed: flow.completed.includes(opts.stage) ? flow.completed : [...flow.completed, opts.stage],
@@ -220,6 +233,8 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
 
   const identity = await orNull(ctx.stores.identities.find({ id: flow.identityId }))
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
+  // The staged profile against the store's login rules while the flow can still be advanced to fix it.
+  assertIdentityAllowed({ profile: { ...identity.profile, ...flow.data } })
 
   // A CAS claim that also burns the token, placed after the validation so a refused completion leaves
   // the token usable, and before the first write so every write below is covered by it. The revoke at
@@ -242,7 +257,7 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
   // SECURITY: written from the stage the host completed, so the row leaves the abandoned state the
   // moment it stops being abandoned; an unrecorded `emailVerified` keeps it reclaimable forever.
   const settled = flow.completed.includes('email-verified')
-    ? await deps.identities.markEmailVerified(identity.id)
+    ? await deps.identities.markEmailVerified(identity.id, merged.profile.email)
     : merged
   await ctx.stores.credentials.revoke(row.id, ctx.tenant)
 
@@ -287,10 +302,6 @@ async function isAbandonedSignUp<Profile extends Identities.ProfileMetadataBase>
   return credentials.every((c) => isRevoked(c) || getCredentialPurpose(c) === RECOVERY_PURPOSES.signupFlow)
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
 /**
  * Total a caller's partial profile into one the identity store will accept. `username` is required by
  * the type and by the Postgres CHECK while `initialProfile` is optional, so it is derived here and
@@ -324,19 +335,19 @@ function isSignUpStage(v: string): v is Flows.SignUpStage {
 function parseSignUpFlow<Profile extends Identities.ProfileMetadataBase>(
   meta: unknown,
 ): Flows.SignUpFlowState<Profile> | null {
-  if (!isPlainObject(meta)) return null
+  if (!isRecord(meta)) return null
   // `purpose`, the one discriminator every flow writes. This row was the odd one out with `kind`, so
   // `getCredentialPurpose`, the helper the deletes and the guards read, answered `undefined` for it.
   if (meta.purpose !== 'signup-flow') return null
   const flow = meta.flow
-  if (!isPlainObject(flow)) return null
+  if (!isRecord(flow)) return null
   if (typeof flow.id !== 'string' || flow.id.length === 0) return null
   if (typeof flow.identityId !== 'string' || flow.identityId.length === 0) return null
   if (!Array.isArray(flow.required)) return null
   if (!Array.isArray(flow.completed)) return null
-  if (typeof flow.expiresAt !== 'number' || !Number.isFinite(flow.expiresAt)) return null
-  if (typeof flow.absoluteExpiresAt !== 'number' || !Number.isFinite(flow.absoluteExpiresAt)) return null
-  if (typeof flow.createdAt !== 'number' || !Number.isFinite(flow.createdAt)) return null
+  if (!isFiniteNumber(flow.expiresAt)) return null
+  if (!isFiniteNumber(flow.absoluteExpiresAt)) return null
+  if (!isFiniteNumber(flow.createdAt)) return null
   const required: Flows.SignUpStage[] = []
   for (const s of flow.required) {
     if (typeof s !== 'string' || !isSignUpStage(s)) return null
@@ -346,13 +357,13 @@ function parseSignUpFlow<Profile extends Identities.ProfileMetadataBase>(
   for (const s of flow.completed) {
     if (typeof s === 'string' && isSignUpStage(s)) completed.push(s)
   }
-  const data = isPlainObject(flow.data) ? flow.data : {}
+  const data = isRecord(flow.data) ? flow.data : {}
   return {
     id: flow.id,
     identityId: flow.identityId,
     required,
     completed,
-    data: data as Partial<Profile> & { email: string },
+    data: data as Partial<Profile>,
     expiresAt: flow.expiresAt,
     absoluteExpiresAt: flow.absoluteExpiresAt,
     createdAt: flow.createdAt,

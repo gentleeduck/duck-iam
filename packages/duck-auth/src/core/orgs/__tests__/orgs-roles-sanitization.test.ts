@@ -10,8 +10,6 @@ describe('OrgsFacet roles sanitization', () => {
   beforeEach(() => {
     adapter = new MemoryAdapter()
     facet = new OrgsImpl(adapter.orgs, new InMemoryEvents())
-    const orgsMap = (adapter as unknown as { _orgs: Map<string, unknown> })._orgs
-    orgsMap.set('org-1', { id: 'org-1', name: 'Acme', createdAt: Date.now() })
   })
 
   describe('addMember', () => {
@@ -21,7 +19,8 @@ describe('OrgsFacet roles sanitization', () => {
     })
 
     it('drops non-string entries', async () => {
-      const roles = ['admin', 42, null, undefined, true, { x: 1 }, [], 'editor'] as unknown as string[]
+      // @ts-expect-error not strings
+      const roles: string[] = ['admin', 42, null, undefined, true, { x: 1 }, [], 'editor']
       const m = await facet.addMember({ orgId: 'org-1', identityId: 'u', roles }, {})
       expect(m.roles).toEqual(['admin', 'editor'])
     })
@@ -55,7 +54,8 @@ describe('OrgsFacet roles sanitization', () => {
         {
           orgId: 'org-1',
           identityId: 'u',
-          roles: 'admin' as unknown as string[],
+          // @ts-expect-error not an array
+          roles: 'admin',
         },
         {},
       )
@@ -75,7 +75,8 @@ describe('OrgsFacet roles sanitization', () => {
     })
 
     it('drops mixed-type entries on replacement', async () => {
-      const roles = ['admin', null, 42, 'editor'] as unknown as string[]
+      // @ts-expect-error not strings
+      const roles: string[] = ['admin', null, 42, 'editor']
       await facet.setRoles('org-1', 'u', roles, {})
       const m = await facet.resolveMembership('org-1', 'u', {})
       expect(m.roles).toEqual(['admin', 'editor'])

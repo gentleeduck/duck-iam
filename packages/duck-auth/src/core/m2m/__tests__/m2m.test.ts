@@ -65,7 +65,7 @@ describe('M2MFacet - client_credentials grant', () => {
     expect(result.scope).toContain('read:users')
   })
 
-  it('access_token verifies via the AuthJwtTransport (round-trip)', async () => {
+  it('access_token verifies via the JwtTransport (round-trip)', async () => {
     const result = await env.m2m.exchange({ clientId, clientSecret })
     const session = await env.transport.verify(result.access_token)
     expect(session).not.toBeNull()
@@ -87,6 +87,15 @@ describe('M2MFacet - client_credentials grant', () => {
     const [, payloadB64] = result.access_token.split('.')
     const payload = JSON.parse(Buffer.from(payloadB64!, 'base64url').toString('utf8'))
     expect(payload.scope).toBe('read:users')
+  })
+
+  it('a resource server resolving the token reads the scopes it was granted', async () => {
+    const result = await env.m2m.exchange({ clientId, clientSecret, scope: 'read:users read:orders' })
+    const resolved = await env.auth.resolveSession({
+      headers: new Headers({ authorization: `Bearer ${result.access_token}` }),
+    })
+    expect(resolved?.scope).toEqual(['read:users', 'read:orders'])
+    expect(resolved?.session).not.toHaveProperty('scope')
   })
 
   it('strict mode: requested scope superset triggers SCOPE_INSUFFICIENT', async () => {

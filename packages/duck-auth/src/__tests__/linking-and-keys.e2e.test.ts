@@ -41,7 +41,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL })
     await applyPgSchema(pool)
-    stores = new DrizzlePgAdapter(URL as string)
+    stores = new DrizzlePgAdapter(URL)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
@@ -68,11 +68,11 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
 
-      const found = await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })
+      const found = await stores.identities.find({ providerId: 'oauth:google', providerSub })
       expect(found?.id).toBe(id)
     })
 
@@ -83,18 +83,18 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub: g,
       })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGithub',
+        providerId: 'oauth:github',
         providerSub: gh,
       })
 
       const row = await stores.identities.find({ id })
-      expect(row?.providers.map((p) => p.providerId).sort()).toEqual(['oauth:authGithub', 'oauth:authGoogle'])
+      expect(row?.providers.map((p) => p.providerId).sort()).toEqual(['oauth:github', 'oauth:google'])
     })
 
     it('is idempotent: linking the same pair twice does not duplicate it', async () => {
@@ -103,18 +103,18 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
 
       const row = await stores.identities.find({ id })
-      expect(row?.providers.filter((p) => p.providerId === 'oauth:authGoogle')).toHaveLength(1)
+      expect(row?.providers.filter((p) => p.providerId === 'oauth:google')).toHaveLength(1)
     })
 
     it('refuses to attach one provider account to a second identity', async () => {
@@ -126,7 +126,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: mine,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
 
@@ -134,7 +134,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         auth.flows.linkProvider({
           authorize: ALLOW_LINK,
           identityId: theirs,
-          providerId: 'oauth:authGoogle',
+          providerId: 'oauth:google',
           providerSub,
         }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
@@ -145,7 +145,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         auth.flows.linkProvider({
           authorize: ALLOW_LINK,
           identityId: '00000000-0000-4000-8000-000000000000',
-          providerId: 'oauth:authGoogle',
+          providerId: 'oauth:google',
           providerSub: sub('ghost'),
         }),
       ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
@@ -169,7 +169,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         auth.flows.linkProvider({
           authorize: ALLOW_LINK,
           identityId: id,
-          providerId: 'oauth:authGoogle',
+          providerId: 'oauth:google',
           providerSub: 'y'.repeat(600),
         }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
@@ -181,12 +181,12 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
       await stores.identities.softDelete(id, 60_000)
 
-      await expect(stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).rejects.toMatchObject({
+      await expect(stores.identities.find({ providerId: 'oauth:google', providerSub })).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
     })
@@ -201,7 +201,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: first,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
       await stores.identities.softDelete(first, 60_000)
@@ -210,7 +210,7 @@ suite('E2E provider linking and API keys on real Postgres', () => {
         auth.flows.linkProvider({
           authorize: ALLOW_LINK,
           identityId: second,
-          providerId: 'oauth:authGoogle',
+          providerId: 'oauth:google',
           providerSub,
         }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_TAKEN' })
@@ -225,22 +225,22 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub: g,
       })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGithub',
+        providerId: 'oauth:github',
         providerSub: gh,
       })
 
-      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
+      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google' })
 
-      await expect(stores.identities.find({ providerId: 'oauth:authGoogle', providerSub: g })).rejects.toMatchObject({
+      await expect(stores.identities.find({ providerId: 'oauth:google', providerSub: g })).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
-      expect((await stores.identities.find({ providerId: 'oauth:authGithub', providerSub: gh }))?.id).toBe(id)
+      expect((await stores.identities.find({ providerId: 'oauth:github', providerSub: gh }))?.id).toBe(id)
     })
 
     it('lets the provider sub be linked again afterwards', async () => {
@@ -250,24 +250,24 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGithub',
+        providerId: 'oauth:github',
         providerSub: sub('gh'),
       })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
-      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
+      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google' })
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
 
-      expect((await stores.identities.find({ providerId: 'oauth:authGoogle', providerSub }))?.id).toBe(id)
+      expect((await stores.identities.find({ providerId: 'oauth:google', providerSub }))?.id).toBe(id)
     })
 
     it('refuses to unlink the last way into an account', async () => {
@@ -277,13 +277,13 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub: sub('only'),
       })
 
-      await expect(auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })).rejects.toMatchObject(
-        { code: 'AUTH_PROVIDER_FAILED' },
-      )
+      await expect(auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google' })).rejects.toMatchObject({
+        code: 'AUTH_PROVIDER_FAILED',
+      })
     })
 
     it('allows the lockout when the caller says so explicitly', async () => {
@@ -292,12 +292,12 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
 
-      await auth.flows.unlinkProvider({ allowLockout: true, identityId: id, providerId: 'oauth:authGoogle' })
-      await expect(stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).rejects.toMatchObject({
+      await auth.flows.unlinkProvider({ allowLockout: true, identityId: id, providerId: 'oauth:google' })
+      await expect(stores.identities.find({ providerId: 'oauth:google', providerSub })).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
     })
@@ -308,13 +308,13 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       await auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: id,
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
         providerSub,
       })
       await auth.passwords.set(id, 'correct-horse-battery', stores.credentials)
 
-      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
-      await expect(stores.identities.find({ providerId: 'oauth:authGoogle', providerSub })).rejects.toMatchObject({
+      await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:google' })
+      await expect(stores.identities.find({ providerId: 'oauth:google', providerSub })).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
       })
     })

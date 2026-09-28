@@ -1,8 +1,4 @@
-/**
- * Every optional integration is loaded with `await import('name' as string)`, which hides it from the
- * bundler on purpose. It also hides it from `package.json`: five of these were imported at runtime,
- * told the user to install a "peerDep", and were declared in no dependency field at all.
- */
+/** What the source loads, checked against what `package.json` declares, in both directions. */
 import { globSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,45 +6,63 @@ import { describe, expect, it } from 'vitest'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const PKG = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8'))
+const PEERS: Record<string, string> = PKG.peerDependencies ?? {}
+const DECLARED = new Set([...Object.keys(PKG.dependencies ?? {}), ...Object.keys(PEERS)])
 
-/** Loaded from disk by path, not resolved from node_modules, so they are not dependencies. */
-const NOT_A_PACKAGE = /^[./]|^~\//
+/** Loaded from disk by path or built into the runtime, so they are not dependencies. */
+const NOT_A_PACKAGE = /^[./]|^~\/|^node:/
 
-const specifiers = new Set<string>()
+const packageOf = (spec: string) => spec.split('/', spec.startsWith('@') ? 2 : 1).join('/')
+
+/** Loaded on first use, through `import()` or a `createRequire` require. */
+const lazy = new Set<string>()
+const loaded = new Set<string>()
 for (const file of globSync('src/**/*.ts', { cwd: ROOT })) {
   if (file.includes('__tests__') || file.startsWith('test/') || file.includes('/test/')) continue
+  // Without comments, so a doc example's `from 'svelte/store'` does not count as loading svelte.
   const src = readFileSync(resolve(ROOT, file), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
   // Only a literal specifier: `await import(absolute)` is a runtime path, not a package.
-  for (const m of src.matchAll(/\bimport\(\s*'([^']+)'(?:\s+as\s+string)?\s*\)/g)) {
-    const spec = m[1] ?? ''
-    if (!NOT_A_PACKAGE.test(spec)) specifiers.add(spec)
+  for (const m of src.matchAll(/\bimport\(\s*'([^']+)'(?:\s+as\s+string)?\s*\)|\b\w*[Rr]equire\(\s*'([^']+)'\s*\)/g)) {
+    const spec = m[1] ?? m[2] ?? ''
+    if (!NOT_A_PACKAGE.test(spec)) lazy.add(packageOf(spec))
+  }
+  for (const m of src.matchAll(/\bfrom\s+'([^']+)'|^\s*import\s+'([^']+)'/gm)) {
+    const spec = m[1] ?? m[2] ?? ''
+    if (!NOT_A_PACKAGE.test(spec)) loaded.add(packageOf(spec))
   }
 }
+for (const name of lazy) loaded.add(name)
 
-describe('packages loaded by dynamic import', () => {
-  it('finds them, so a parse that matched nothing cannot read as a clean sweep', () => {
-    expect(specifiers.size).toBeGreaterThan(2)
-    expect(specifiers.has('@simplewebauthn/server')).toBe(true)
+describe('the packages the source loads', () => {
+  it('are found, so a parse that matched nothing cannot read as a clean sweep', () => {
+    expect(lazy).toContain('@simplewebauthn/server')
+    expect(lazy).toContain('pg')
+    expect(loaded).toContain('react')
   })
 
-  it('declares every one as an optional peer dependency', () => {
-    const peers = PKG.peerDependencies ?? {}
+  it('are each a dependency or a peer', () => {
+    expect([...loaded].filter((name) => !DECLARED.has(name)).sort()).toEqual([])
+  })
+
+  it('are optional peers when loaded lazily', () => {
     const meta = PKG.peerDependenciesMeta ?? {}
-    const undeclared = [...specifiers].filter((s) => !(s in peers)).sort()
-    expect(undeclared).toEqual([])
-    const notOptional = [...specifiers].filter((s) => meta[s]?.optional !== true).sort()
-    expect(notOptional).toEqual([])
+    expect([...lazy].filter((name) => meta[name]?.optional !== true).sort()).toEqual([])
   })
 
-  it('tells the user to install the same name it imports', () => {
-    // The install hint is the only contract a consumer sees at runtime, so it has to name a real package.
+  it('cover every peer, so none is declared for nothing', () => {
+    expect(Object.keys(PEERS).filter((name) => !loaded.has(name))).toEqual([])
+  })
+
+  it('are the names the install hints tell the user to install', () => {
     const wrong: string[] = []
     for (const file of globSync('src/**/*.ts', { cwd: ROOT })) {
       if (file.includes('__tests__')) continue
       const src = readFileSync(resolve(ROOT, file), 'utf8')
       for (const m of src.matchAll(/`([^`]+)` peerDep/g)) {
         const named = m[1] ?? ''
-        if (!(named in (PKG.peerDependencies ?? {}))) wrong.push(`${file}: ${named}`)
+        if (!(named in PEERS)) wrong.push(`${file}: ${named}`)
       }
     }
     expect(wrong).toEqual([])

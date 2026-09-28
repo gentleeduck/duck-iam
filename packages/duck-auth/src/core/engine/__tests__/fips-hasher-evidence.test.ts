@@ -41,9 +41,9 @@ function boot(hasher: Hasher.Me, wired: Partial<Compliance.Wired>, preset: Compl
         providers: [passwords({ hasher }), mfaProvider()],
         stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
         transport: new CookieTransport({ name: 'sid', secure: true }),
-      } as never,
+      },
       preset,
-    ) as never,
+    ),
   )
   try {
     auth.strict({ compliance: wired, env: 'test' })

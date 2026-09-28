@@ -10,15 +10,15 @@ type FieldKind = 'date' | 'date|null' | 'number' | 'number|null' | 'boolean' | '
 export type FieldSpec = Record<string, FieldKind>
 
 function reach(row: unknown, path: string[]): unknown[] {
-  if (path.length === 0) return [row]
   const [head, ...rest] = path
+  if (head === undefined) return [row]
   if (row === null || row === undefined) return []
   if (head === '[]') {
     if (!Array.isArray(row)) return []
     return row.flatMap((item) => reach(item, rest))
   }
   if (typeof row !== 'object') return []
-  return reach(Reflect.get(row, head as string), rest)
+  return reach(Reflect.get(row, head), rest)
 }
 
 function check(value: unknown, kind: FieldKind, where: string): void {
@@ -29,7 +29,7 @@ function check(value: unknown, kind: FieldKind, where: string): void {
       expect(value, `${where} must be a Date, got ${describe(value)}`).toBeInstanceOf(Date)
       // A `Date` built from an unparseable string is still a `Date`. Every
       // comparison against it is `false`, so an expired row reads as live.
-      expect(Number.isFinite((value as Date).getTime()), `${where} is an Invalid Date`).toBe(true)
+      expect(value instanceof Date && Number.isFinite(value.getTime()), `${where} is an Invalid Date`).toBe(true)
       return
     }
     case 'number':

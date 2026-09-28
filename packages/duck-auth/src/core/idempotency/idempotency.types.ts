@@ -2,10 +2,11 @@ import type { TenantContext } from '~/core/tenant/tenant.types'
 
 /** Idempotency configuration and the store that remembers a replayed request's answer. */
 export namespace Idempotency {
+  /** How long a replayed answer is kept, the key's header, and how long a racing request waits. */
   export interface Cfg {
     /** TTL for cached responses, ms. Default 24 hours per RFC draft. */
     ttlMs: number
-    /** When provided, requests carry the header value as the idempotency key. */
+    /** The header a host's middleware reads the key from; nothing here reads a request. */
     headerName: string
     /** How long the loser of a `claim()` race waits for the winner's response before answering 409,
      *  5s by default. Raise it for an executor that legitimately runs longer. */
@@ -22,8 +23,11 @@ export namespace Idempotency {
     headers?: Record<string, string>
     /** Wall-clock createdAt for diagnostics. */
     createdAt: Date
+    /** The fingerprint of the request this answered, when the host passed one to `handle`. */
+    fingerprint?: string
   }
 
+  /** Remembers the answer each idempotency key got. */
   export type Store = {
     /** The response cached under the key. Rejects `AUTH_IDEMPOTENCY_MISS` for a key never seen, a key whose
      *  TTL has elapsed, a row that no longer parses, and a key still holding the tombstone `claim()` wrote.

@@ -38,8 +38,8 @@ const deliver: Deliver = async ({ identity, kind, vars }) => {
 }
 
 /** Stands in for the mailer a deployment would reach for; a real one would throw on a refusal. */
-async function mail(to: unknown, subject: string, body: string): Promise<void> {
-  console.log(`-> ${String(to)} | ${subject}\n   ${body}`)
+async function mail(to: string, subject: string, body: string): Promise<void> {
+  console.log(`-> ${to} | ${subject}\n   ${body}`)
 }
 
 export const auth = createAuth({
@@ -61,8 +61,10 @@ export const auth = createAuth({
         findIdentityByEmail: (email) => orNull(adapter.identities.find({ email })),
       }),
   ],
-  idempotency: memoryIdempotency(),
 })
+
+// Held by the host, not the engine: only the routes that replay a response use it.
+const idem = memoryIdempotency()
 
 void auth.passwords
 void auth.mfa
@@ -72,7 +74,7 @@ void auth.events.emit
 let chargesExecuted = 0
 
 export async function chargeOnce(idempotencyKey: string, tenant: TenantContext, identityId: string) {
-  return auth.idempotency.handle(
+  return idem.handle(
     idempotencyKey,
     tenant,
     async (): Promise<Idempotency.CachedResponse> => {
@@ -94,7 +96,7 @@ async function main(): Promise<void> {
   console.log('first :', first.status, JSON.stringify(first.body))
   console.log('replay:', replay.status, JSON.stringify(replay.body))
   console.log('executor runs:', chargesExecuted) // -> 1, despite two calls
-  console.log('idempotency header:', auth.idempotency.headerName)
+  console.log('idempotency header:', idem.headerName)
 
   // Both answer `{ ok: true }` and both get a link: `autoCreateIdentity` makes this one flow for
   // signing in and signing up. Drop it and the unknown address still answers `{ ok: true }` - the

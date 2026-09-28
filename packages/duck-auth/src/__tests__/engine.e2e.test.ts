@@ -3,15 +3,14 @@ import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { valkeyAdapter } from '~/adapters/valkey'
 import { verifyCsrf } from '~/core/csrf'
 import { AuthEngine } from '~/core/engine'
-import { redisIdempotency } from '~/core/idempotency'
-import { RedisIdempotency } from '~/core/idempotency/idempotency.redis'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { RedisLimiter } from '~/limiters/redis'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { makeGuard } from '~/server/nestjs'
+import { makeGuard, type NestAdapter } from '~/server/nestjs'
+import { nestCtx } from '~/test/adapter-fakes'
 import { applyPgSchema, databaseUrl, dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
 
 const PG_URL = databaseUrl()
@@ -28,15 +27,10 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
   let stores: DrizzlePgAdapter
 
   /** Everything a Nest guard reads off the request, from a cookie header. */
-  const requestFor = (cookie: string, method = 'GET') => ({
-    headers: { cookie } as Record<string, string | string[] | undefined>,
+  const requestFor = (cookie: string): NestAdapter.Request => ({
+    headers: { cookie },
     identity: null,
-    method,
-    session: null,
-  })
-
-  const ctxFor = (req: ReturnType<typeof requestFor>) => ({
-    switchToHttp: () => ({ getRequest: <T>(): T => req as T }),
+    method: 'GET',
   })
 
   /**
@@ -64,18 +58,17 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: PG_URL })
     await applyPgSchema(pool)
-    raw = new Redis(REDIS_URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
 
-    stores = new DrizzlePgAdapter(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
-      idempotency: redisIdempotency({ prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me) }),
       limiter: new RedisLimiter({
         max: 50,
         prefix,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
         windowMs: 60_000,
       }),
       providers: [],
@@ -143,18 +136,13 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
       providerId: 'password',
     })
     const csrfToken = csrfTokenFrom(intents)
-    expect(csrfToken).toBeTypeOf('string')
-
-    const stored = await stores.sessions.getByHash(session?.id as string)
-    expect(stored?.csrfHash).toBeTruthy()
-
+    if (csrfToken === undefined || !session) return expect.unreachable('signIn should set a CSRF cookie')
     // Re-read from the database, not from the in-memory object we just minted.
+    const csrfHash = (await stores.sessions.getByHash(session.id)).csrfHash
+    if (!csrfHash) return expect.unreachable('the stored session should carry a CSRF hash')
+
     expect(() =>
-      verifyCsrf({
-        headers: new Headers({ 'x-csrf-token': csrfToken as string }),
-        method: 'POST',
-        sessionCsrfHash: stored?.csrfHash as string,
-      }),
+      verifyCsrf({ headers: new Headers({ 'x-csrf-token': csrfToken }), method: 'POST', sessionCsrfHash: csrfHash }),
     ).not.toThrow()
   })
 
@@ -165,15 +153,17 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
       input: { email, password: 'correct-horse-battery' },
       providerId: 'password',
     })
-    const stored = await stores.sessions.getByHash(session?.id as string)
+    if (!session) return expect.unreachable('signIn should answer a session')
+    const csrfHash = (await stores.sessions.getByHash(session.id)).csrfHash
+    if (!csrfHash) return expect.unreachable('the stored session should carry a CSRF hash')
 
     expect(() =>
       verifyCsrf({
         headers: new Headers({ 'x-csrf-token': 'not-the-token' }),
         method: 'POST',
-        sessionCsrfHash: stored?.csrfHash as string,
+        sessionCsrfHash: csrfHash,
       }),
-    ).toThrow()
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_CSRF' }))
   })
 
   it('makeGuard admits a live session and populates the request', async () => {
@@ -185,8 +175,8 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
     })
 
     const req = requestFor(`duck-sid=${sid}`)
-    expect(await makeGuard(auth as never).canActivate(ctxFor(req))).toBe(true)
-    expect((req.session as { identityId?: string } | null)?.identityId).toBe(identityId)
+    expect(await makeGuard(auth).canActivate(nestCtx(req))).toBe(true)
+    expect(req.identity?.id).toBe(identityId)
   })
 
   it('makeGuard refuses once the session row is gone', async () => {
@@ -199,7 +189,7 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
 
     await auth.sessions.revoke(sid)
 
-    await expect(makeGuard(auth as never).canActivate(ctxFor(requestFor(`duck-sid=${sid}`)))).rejects.toMatchObject({
+    await expect(makeGuard(auth).canActivate(nestCtx(requestFor(`duck-sid=${sid}`)))).rejects.toMatchObject({
       code: 'AUTH_UNAUTHENTICATED',
     })
   })

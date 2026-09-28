@@ -1,6 +1,5 @@
 /** Child process for the multi-instance revocation e2e test. */
 import Redis from 'ioredis'
-import type { ValkeyClient, ValkeySubscriberClient } from '~/adapters/valkey'
 import { RedisEvents } from '~/core/events/events.redis'
 import { valkeyPubSubAdapter } from '~/core/events/events.valkey'
 
@@ -22,19 +21,13 @@ const LIFETIME_MS = 15_000
 async function main(): Promise<void> {
   const cmd = new Redis(redisUrl)
   const sub = new Redis(redisUrl)
-  const bus = new RedisEvents({
-    redis: valkeyPubSubAdapter(
-      cmd as unknown as ValkeyClient.Me & { publish(channel: string, message: string): Promise<number> },
-      sub as unknown as ValkeySubscriberClient.Me,
-    ),
-  })
+  const bus = new RedisEvents({ redis: valkeyPubSubAdapter(cmd, sub) })
 
   // The registry this simulates: identityId -> revocation instant.
   const revoked = new Map<string, number>()
 
-  bus.on('authz.revoked', (p) => {
+  bus.on('authz.revoked', (payload) => {
     const at = Date.now()
-    const payload = p as unknown as { identityId: string; at: number }
     revoked.set(payload.identityId, payload.at)
     void cmd.rpush(
       RESULT_KEY,

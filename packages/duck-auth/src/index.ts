@@ -16,7 +16,6 @@ export type {
   Deliver,
   DeliveryKind,
   Engine,
-  Envelope,
   Events,
   Flows,
   Hijack,
@@ -30,7 +29,7 @@ export type {
   TenantContext,
   Transport,
 } from './core'
-export { actorId, currentActor, resolveActor, setDefaultActorResolver, withActor } from './core/actor'
+export { actorId, setDefaultActorResolver, withActor } from './core/actor'
 export { ABSENT, answer, orNull } from './core/answer'
 export { AuthEngine, authEngine } from './core/engine'
 export { AuthError, rethrowAuthError, throwAuthError } from './core/errors'

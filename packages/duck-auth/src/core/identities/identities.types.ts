@@ -3,8 +3,9 @@ import type { Sessions } from '~/core/sessions/sessions.types'
 
 /** The identity row, its provider links, and the store contract over them. */
 export namespace Identities {
+  /** One login linked to the identity. */
   export type ProviderLink = {
-    /** Which party issued the login, namespaced: 'oauth:authGoogle', 'saml:acme', 'okta'. Ours, not theirs. */
+    /** Which party issued the login, namespaced: 'oauth:google', 'saml:acme', 'okta'. Ours, not theirs. */
     providerId: string
     /** That party's own stable subject id for the account, such as a Google `sub`. Theirs, not ours. */
     providerSub: string
@@ -15,12 +16,14 @@ export namespace Identities {
   /** `addedAt` is the table's default; only a caller restoring a link it removed brings its own. */
   export type ProviderLinkInput = Omit<ProviderLink, 'addedAt' | 'addedBy'> & { addedAt?: Date }
 
+  /** The two profile fields every identity has; the host adds its own beside them. */
   export type ProfileMetadataBase = {
     username: string
     email: string
     [key: string]: unknown
   }
 
+  /** An identity row as the store holds it. */
   export type Me<Profile extends ProfileMetadataBase = ProfileMetadataBase> = {
     id: string
     /** The host's own user fields; `username` and `email` are the only two this package reads. */
@@ -43,15 +46,20 @@ export namespace Identities {
     updatedBy: string | null
   }
 
+  /** What a new identity is created from. */
   export type CreateInput<Profile> = {
     profile: Profile
     providers: ProviderLinkInput[]
     emailVerified: boolean
   }
 
+  /** The persistence contract every identity store implements. */
   export type Store<Profile extends ProfileMetadataBase> = {
+    /** The live row by id, email or provider login; a soft-deleted row reads as absent. */
     find(by: { id: string } | { email: string } | { providerId: string; providerSub: string }): Promise<Me<Profile>>
+    /** Insert a new row; a taken email, username or login is refused. */
     create(input: CreateInput<Profile>): Promise<Me<Profile>>
+    /** Patch `emailVerified` or `profile`; a stale `expectedVersion` is `AUTH_STALE_WRITE`. */
     update(
       id: string,
       patch: Partial<Pick<Me<Profile>, 'emailVerified' | 'profile'>>,
@@ -72,6 +80,7 @@ export namespace Identities {
 
     /** {@link Identities.Store.softDelete} and {@link Identities.Store.erase} for the admin and compliance paths. */
     softDeleteMany(ids: string[], gracePeriodMs: number): Promise<Me<Profile>[]>
+    /** Hard-deletes every row named, answering the ones that existed. */
     eraseMany(ids: string[]): Promise<Me<Profile>[]>
 
     /** Hard-deletes every row whose grace window closed before `now`, which is what makes a soft delete a
@@ -80,8 +89,9 @@ export namespace Identities {
     gc(now: number): Promise<{ deleted: number }>
   }
 
+  /** The identity facet's settings, set through the engine's `identities` option. */
   export interface Cfg {
-    /** Default 7 days. */
+    /** How long a soft-deleted identity stays restorable, in ms. Default 7 days. */
     softDeleteGracePeriodMs: number
     /** Maximum serialised profile size in UTF-8 bytes, 16 KiB by default.
      *  WARN: `0` disables the cap, and an unbounded profile is a storage and read-amplification DoS. */
@@ -95,6 +105,7 @@ export namespace Identities {
     /** Empty when the caller skips the sessions store. */
     sessions: Sessions.Public[]
     schemaVersion: '1'
+    /** Epoch milliseconds, unlike the `Date` fields it carries. */
     exportedAt: number
   }
 }

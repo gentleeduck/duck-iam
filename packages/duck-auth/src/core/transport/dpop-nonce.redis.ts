@@ -2,8 +2,9 @@ import type { RedisLike } from '~/core/drivers/redis-like'
 import type { DPoPVerifier } from './dpop.transport'
 
 export namespace RedisDPoPNonceStore {
+  /** The Redis DPoP nonce store's options. */
   export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
-    /** An ioredis, @upstash/redis or FakeRedis client. */
+    /** An `@upstash/redis`-shaped client or `FakeRedis`; wrap ioredis and iovalkey with `valkeyAdapter`. */
     redis: TRedis
     /** Default `auth:dpop:jti`. */
     prefix?: string

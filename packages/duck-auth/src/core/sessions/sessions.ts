@@ -12,6 +12,7 @@ import { isFactorMethod, type Sessions } from './sessions.types'
  *  error until someone decides. */
 const ACTING_AS_SURVIVES_ROTATION: Record<Sessions.RotateInput['purpose'], boolean> = {
   'credential-change': true,
+  drift: true,
   'guest-promotion': false,
   'impersonate-release': false,
   'impersonate-start': false,
@@ -42,6 +43,21 @@ export class SessionsImpl {
         maxSessionsPerIdentity: this.cfg.maxSessionsPerIdentity,
       }),
     }
+    // NaN, which `Number()` makes of an unset variable, dates every session unreadably, so each one is
+    // expired on arrival, and lifts the cap.
+    for (const key of ['ttlMs', 'absoluteTtlMs', 'freshnessMs'] as const) {
+      if (!Number.isFinite(this._cfg[key]) || this._cfg[key] <= 0) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `sessions: ${key} must be a finite positive number (got ${this._cfg[key]})`,
+        })
+      }
+    }
+    const cap = this._cfg.maxSessionsPerIdentity
+    if (cap !== undefined && !(Number.isInteger(cap) && cap > 0)) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `sessions: maxSessionsPerIdentity must be a whole number above 0 (got ${cap})`,
+      })
+    }
   }
 
   /** `session.id` is the hashed row key, `sid` the plaintext for `Transport.issue()`; only the sha-256
@@ -58,14 +74,14 @@ export class SessionsImpl {
         detail: 'sessions.create: factors must be an array <=16',
       })
     }
-    // Contents, not just the shape: the Redis reader drops an unlisted method or a non-Date
+    // Contents, not just the shape: the Redis reader drops an unlisted method and replaces an unreadable
     // `completedAt`, so an unchecked row would not read back intact.
     for (const f of input.factors) {
       if (
         typeof f !== 'object' ||
         f === null ||
         !('method' in f && isFactorMethod(f.method)) ||
-        !('completedAt' in f && f.completedAt instanceof Date)
+        !('completedAt' in f && f.completedAt instanceof Date && Number.isFinite(f.completedAt.getTime()))
       ) {
         throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'sessions.create: each factor must be { method: FactorMethod, completedAt: Date }',
@@ -82,12 +98,21 @@ export class SessionsImpl {
         })
       }
     }
+    // Both only ever shorten, so one that cannot be read is refused rather than dropped for the full TTL.
+    if (input.ttlMs !== undefined && !(isFiniteNumber(input.ttlMs) && input.ttlMs > 0)) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'sessions.create: ttlMs must be a positive number' })
+    }
+    if (
+      input.maxExpiresAt !== undefined &&
+      !(input.maxExpiresAt instanceof Date && Number.isFinite(input.maxExpiresAt.getTime()))
+    ) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'sessions.create: maxExpiresAt must be a valid Date' })
+    }
     const sid = randomToken(32)
     const csrfToken = randomToken(32)
     const now = Date.now()
     const nowDate = new Date(now)
-    // Both only ever shorten; the configured TTLs stay the ceiling.
-    const capMs = isFiniteNumber(input.ttlMs) && input.ttlMs > 0 ? now + input.ttlMs : Number.POSITIVE_INFINITY
+    const capMs = input.ttlMs === undefined ? Number.POSITIVE_INFINITY : now + input.ttlMs
     const maxExpiresAtMs = input.maxExpiresAt === undefined ? Number.POSITIVE_INFINITY : input.maxExpiresAt.getTime()
     const session: Sessions.Me = {
       id: sha256(sid),
@@ -112,8 +137,8 @@ export class SessionsImpl {
       updatedAt: nowDate,
       rotatedAt: nowDate,
       expiresAt: new Date(Math.min(now + this._cfg.ttlMs, maxExpiresAtMs, capMs)),
-      absoluteExpiresAt: new Date(Math.min(now + this._cfg.absoluteTtlMs, capMs)),
-      fresh: true,
+      absoluteExpiresAt: new Date(Math.min(now + this._cfg.absoluteTtlMs, maxExpiresAtMs, capMs)),
+      fresh: input.fresh !== false,
     }
 
     await this._store.create(session)
@@ -145,10 +170,35 @@ export class SessionsImpl {
         ? sha256(previousSid)
         : null
     const prev = prevHash === null ? null : await orNull(this._store.getByHash(prevHash))
-    const minted =
-      input.actingAs === undefined && prev?.actingAs && ACTING_AS_SURVIVES_ROTATION[input.purpose]
-        ? { ...input, actingAs: prev.actingAs }
-        : input
+    // A promotion hands the row's device baseline to a new identity, which is only a guest's to hand over.
+    if (input.purpose === 'guest-promotion' && prev && prev.kind !== 'guest') {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'guestSid names a session that is not a guest' })
+    }
+    // A fresh row on every drift let a stolen session pass a freshness gate, and outlive its absolute cap,
+    // by changing address.
+    let drifted: Pick<Sessions.MintInput, 'fresh' | 'ttlMs'> = {}
+    if (input.purpose === 'drift') {
+      const now = Date.now()
+      if (!prev) throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'no session for that sid' })
+      if (isSessionExpired(prev, now)) {
+        throw new AuthError('AUTH_SESSION_EXPIRED', { expiredAt: expiredAtMs(prev, now) })
+      }
+      const remainingMs = deadlineMs(prev.absoluteExpiresAt) - now
+      drifted = { fresh: false, ttlMs: Math.min(input.ttlMs ?? remainingMs, remainingMs) }
+    }
+    const minted = {
+      ...input,
+      ...drifted,
+      // The client holding the previous sid is the one re-issued, so its baseline carries over unless the
+      // caller brings the request's own; `||`, since `create` stores an empty one as none. Without a
+      // baseline the hijack policy softens every drift.
+      ip: input.ip || prev?.ip,
+      userAgent: input.userAgent || prev?.userAgent,
+      fingerprint: input.fingerprint || prev?.fingerprint,
+      ...(input.actingAs === undefined &&
+        prev?.actingAs &&
+        ACTING_AS_SURVIVES_ROTATION[input.purpose] && { actingAs: prev.actingAs }),
+    }
     if (input.purpose === 'credential-change') {
       if (input.identityId) {
         const identityId = input.identityId
@@ -166,31 +216,26 @@ export class SessionsImpl {
     }
 
     const fresh = await this.create(minted)
-    if (prevHash !== null) {
+    // Only a row that exists: a stale cookie names none, and its revoke would be an audit event for nothing.
+    if (prev) {
       switch (input.purpose) {
         case 'signin':
         case 're-auth':
+        case 'drift':
         case 'guest-promotion':
         case 'sign-up':
         case 'step-down':
+        case 'impersonate-start':
         case 'impersonate-release':
-          await this._store.delete(prevHash)
-          await this._events.emit('session.revoked', {
-            sessionId: prevHash,
-            identityId: input.identityId,
-          })
+          await this._store.delete(prev.id)
+          await this._events.emit('session.revoked', { sessionId: prev.id, identityId: prev.identityId })
           break
         case 'step-up': {
           // Downgraded, not deleted, so long-lived tabs keep working at the prior AAL with
           // `fresh: false`. A privileged op has to step up again. Reuses the row read above.
-          if (prev) {
-            await this._store.update(prev.id, { aal: prev.aal, fresh: false })
-          }
+          await this._store.update(prev.id, { aal: prev.aal, fresh: false })
           break
         }
-        case 'impersonate-start':
-          // The real session runs alongside the impersonating one.
-          break
         default: {
           // A new purpose without a revocation decision is a build error, not a silent no-op.
           const _exhaustive: never = input.purpose
@@ -199,10 +244,7 @@ export class SessionsImpl {
           })
         }
       }
-      await this._events.emit('session.rotated', {
-        session: fresh.session,
-        previousSessionId: prevHash,
-      })
+      await this._events.emit('session.rotated', { session: fresh.session, previousSessionId: prev.id })
       return fresh
     }
     await this._events.emit('session.rotated', { session: fresh.session })
@@ -240,12 +282,13 @@ export class SessionsImpl {
     return s
   }
 
-  /** Answers the rows, so "signed out of 4 devices" needs no second query. */
+  /** Removes every row, and answers the ones that were live, so "signed out of 4 devices" needs no second query. */
   async revokeAllForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
     const all = await this._store.listByIdentity(identityId, ctx)
     await this._store.deleteAllForIdentity(identityId, ctx)
     await Promise.all(all.map((s) => this._events.emit('session.revoked', { sessionId: s.id, identityId })))
-    return all
+    const now = Date.now()
+    return all.filter((s) => !isSessionExpired(s, now))
   }
 
   /**
@@ -293,7 +336,8 @@ export class SessionsImpl {
   }
 
   /** Extends `expiresAt` without rotating the SID; `fresh` still decays from `rotatedAt`.
-   *  SECURITY: guarded, because almost every authenticated request issues one of these and `fresh` is the
+   *  `resolveSession` calls it once less than half the TTL is left.
+   *  SECURITY: guarded, because a host may issue one on every authenticated request and `fresh` is the
    *  flag a sensitive operation re-authenticates on. Unguarded, a `touch` reading just before a
    *  credential-change wrote `fresh: false` put `true` back on top of it, so the password change that was
    *  meant to force a re-auth was undone by the next request the browser made. Retried once; a second
@@ -349,9 +393,8 @@ export class SessionsImpl {
     })
   }
 
-  /** Every session the store holds for an identity, for an "active devices" view.
-   *  WARN: not filtered by deadline — an outright-expired row still appears here until `gc` sweeps it.
-   *  An impersonation no longer does, because its row now dies with its window.
+  /** Every live session for an identity, for an "active devices" view. An expired row, which the store keeps
+   *  until `gc` sweeps it, is left out.
    *  `csrfHash` is stripped, as it is at every `/session` endpoint and in the GDPR export: this row is
    *  built to be handed to the person it belongs to, and the browser holds the plaintext in its cookie
    *  and never needs the hash. The store's `listByIdentity` still answers whole rows, which is what the
@@ -360,7 +403,8 @@ export class SessionsImpl {
    *  tenant A the same person's tenant B sessions, IP and user-agent included. */
   async listForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Public[]> {
     const rows = await this._store.listByIdentity(identityId, ctx)
-    return rows.map(({ csrfHash: _csrfHash, ...view }) => view)
+    const now = Date.now()
+    return rows.filter((row) => !isSessionExpired(row, now)).map(({ csrfHash: _csrfHash, ...view }) => view)
   }
 
   /** The caller schedules it, under a leader lock in a distributed deployment. */
@@ -441,8 +485,11 @@ export class SessionsImpl {
     const keepHash =
       typeof keepSid === 'string' && keepSid.length > 0 && keepSid.length <= 4096 ? sha256(keepSid) : null
     const all = await this._store.listByIdentity(identityId, ctx)
-    const gone = await this.revokeByHashes(all.filter((s) => s.id !== keepHash).map((s) => s.id))
-    // What the store actually removed, not what was asked for: a row that expired in between was not
+    const now = Date.now()
+    // The live devices only: an expired row signs nothing in, and sweeping it stays `gc`'s job.
+    const others = all.filter((s) => s.id !== keepHash && !isSessionExpired(s, now))
+    const gone = await this.revokeByHashes(others.map((s) => s.id))
+    // What the store actually removed, not what was asked for: a row swept in between was not
     // revoked by this call and should not be counted as though it were.
     return { revoked: gone.length }
   }
@@ -458,7 +505,6 @@ export class SessionsImpl {
   }
 }
 
-/** Epoch ms, or `NaN` when the value is not a readable date. */
 /** `sha256` throws on a non-string, and a multi-MB one would bloat the hash. */
 function assertSid(sid: string): void {
   if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) {
@@ -466,6 +512,7 @@ function assertSid(sid: string): void {
   }
 }
 
+/** Epoch ms, or `NaN` when the value is not a readable date. */
 function deadlineMs(v: unknown): number {
   if (v instanceof Date) return v.getTime()
   return isFiniteNumber(v) ? v : Number.NaN

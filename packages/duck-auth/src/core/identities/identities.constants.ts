@@ -70,9 +70,10 @@ export function assertIdentityAllowed(write: {
   profile?: unknown
   providers?: readonly Identities.ProviderLinkInput[]
 }): void {
-  if (write.profile !== undefined) {
+  const { profile } = write
+  if (profile !== undefined) {
     for (const key of ['username', 'email'] as const) {
-      const value = (write.profile as Record<string, unknown> | null)?.[key]
+      const value: unknown = typeof profile === 'object' && profile !== null ? Reflect.get(profile, key) : undefined
       if (typeof value !== 'string' || value === '') {
         throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: `profile.${key} must be a non-empty string` })
       }

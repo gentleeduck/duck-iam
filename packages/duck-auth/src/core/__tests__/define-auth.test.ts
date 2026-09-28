@@ -115,16 +115,16 @@ describe('createAuth', () => {
           findIdentityByEmail: (email) => storage.identities.find({ email }),
         }),
         google({
-          clientId: 'authGoogle-client',
-          clientSecret: 'authGoogle-secret',
-          redirectUri: 'http://x/AUTH/providers/authGoogle/callback',
+          clientId: 'google-client',
+          clientSecret: 'google-secret',
+          redirectUri: 'http://x/AUTH/providers/google/callback',
           stateSigningSecret: 'state-secret',
           allowStateReplay: true,
         }),
         github({
-          clientId: 'authGithub-client',
-          clientSecret: 'authGithub-secret',
-          redirectUri: 'http://x/AUTH/providers/authGithub/callback',
+          clientId: 'github-client',
+          clientSecret: 'github-secret',
+          redirectUri: 'http://x/AUTH/providers/github/callback',
           stateSigningSecret: 'state-secret',
           allowStateReplay: true,
         }),
@@ -141,8 +141,8 @@ describe('createAuth', () => {
     expect(auth.providers.list().map((p) => p.id)).toEqual([
       'password',
       'magic-link',
-      'oauth:authGoogle',
-      'oauth:authGithub',
+      'oauth:google',
+      'oauth:github',
       'passkey',
     ])
   })

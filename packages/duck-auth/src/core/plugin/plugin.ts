@@ -10,6 +10,7 @@ export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tena
   private readonly _plugins = new Map<string, PluginRegistry.Plugin<Profile, Tenant, OrgMeta>>()
   private readonly _eventUnsubs: Array<() => void> = []
 
+  /** The installed plugins, by id. */
   get installed(): ReadonlyMap<string, PluginRegistry.Plugin<Profile, Tenant, OrgMeta>> {
     return this._plugins
   }
@@ -81,6 +82,7 @@ export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tena
 }
 
 export namespace PluginRegistry {
+  /** A plugin: an id, and the providers, listeners, install hook and facet it brings. */
   export interface Plugin<Profile extends Identities.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
     /** Stable id; library refuses duplicate ids. */
     id: string

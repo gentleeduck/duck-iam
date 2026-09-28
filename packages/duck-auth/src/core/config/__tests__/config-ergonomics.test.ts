@@ -5,21 +5,13 @@
  * change that reintroduces a wrapper step fails here rather than in a consumer's
  * editor.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AnomalyFacet, anomalyFacet, authMemoryDeviceFingerprintStore } from '~/core/anomaly'
 import { fakeRedis } from '~/core/drivers/redis-like'
 import { InMemoryEvents } from '~/core/events'
 import { HijackFacet, hijackFacet } from '~/core/hijack'
-import {
-  IdempotencyImpl,
-  idempotency,
-  MemoryIdempotency,
-  memoryIdempotency,
-  RedisIdempotency,
-  redisIdempotency,
-  resolveIdempotency,
-} from '~/core/idempotency'
+import { idempotency, MemoryIdempotency, memoryIdempotency, redisIdempotency } from '~/core/idempotency'
 import { bearerTransport } from '~/core/transport'
 import { WebhookDeliverer, webhookDeliverer } from '~/core/webhooks'
 import { memoryLimiter } from '~/limiters/memory'
@@ -29,23 +21,7 @@ import { createAuth } from '../config'
 const stores = () => new MemoryAdapter()
 const base = () => ({ baseUrl: 'https://app.test', stores: stores() })
 
-describe('idempotency is configured the way the limiter is', () => {
-  it('one call builds a ready-to-use facet, with no wrapper step', () => {
-    const auth = createAuth({ ...base(), idempotency: memoryIdempotency() })
-    expect(auth.idempotency).toBeInstanceOf(IdempotencyImpl)
-    expect(auth.idempotency.enabled()).toBe(true)
-  })
-
-  it('the redis spelling reads like the redis limiter beside it', () => {
-    const redis = fakeRedis()
-    const auth = createAuth({
-      ...base(),
-      idempotency: redisIdempotency({ prefix: 'auth:idem', redis }),
-      limiter: memoryLimiter({ max: 10, windowMs: 60_000 }),
-    })
-    expect(auth.idempotency.enabled()).toBe(true)
-  })
-
+describe('idempotency is built the way the limiter is, and held by the host', () => {
   it('store knobs and facet knobs share the one object', () => {
     const redis = fakeRedis()
     const facet = redisIdempotency({ headerName: 'x-request-id', prefix: 'auth:idem', redis, ttlMs: 60_000 })
@@ -56,46 +32,39 @@ describe('idempotency is configured the way the limiter is', () => {
     expect(memoryIdempotency({ headerName: 'x-key' }).headerName).toBe('x-key')
   })
 
-  it('a bare store is accepted too, and wrapped by the engine', () => {
-    const auth = createAuth({ ...base(), idempotency: new MemoryIdempotency({ development: true }) })
-    expect(auth.idempotency).toBeInstanceOf(IdempotencyImpl)
-    expect(auth.idempotency.enabled()).toBe(true)
+  it('wraps a store the host wrote', () => {
+    expect(idempotency(new MemoryIdempotency(), { headerName: 'x-custom' }).headerName).toBe('x-custom')
   })
 
-  it('an explicitly wrapped store still works, for a custom implementation', () => {
-    const wrapped = idempotency(new MemoryIdempotency({ development: true }), { headerName: 'x-custom' })
-    const auth = createAuth({ ...base(), idempotency: wrapped })
-    expect(auth.idempotency).toBe(wrapped)
-    expect(auth.idempotency.headerName).toBe('x-custom')
-  })
-
-  it('wrapping something already wrapped is a no-op rather than an error', () => {
-    const once = memoryIdempotency()
-    expect(idempotency(once)).toBe(once)
-    expect(resolveIdempotency(once)).toBe(once)
-  })
-
-  it('omitting the key still yields a working in-memory facet', () => {
-    expect(createAuth(base()).idempotency.enabled()).toBe(true)
-  })
-
-  it('the redis store is still constructible on its own for custom wiring', () => {
-    expect(new RedisIdempotency({ redis: fakeRedis() })).toBeInstanceOf(RedisIdempotency)
-  })
-
-  it('the facet actually dedupes through whichever spelling built it', async () => {
-    const auth = createAuth({ ...base(), idempotency: redisIdempotency({ redis: fakeRedis() }) })
+  it('dedupes on its own, with no engine behind it', async () => {
+    const idem = redisIdempotency({ redis: fakeRedis() })
     let runs = 0
     const executor = async () => {
       runs++
       return { body: { ok: true }, createdAt: new Date(), status: 201 }
     }
 
-    const first = await auth.idempotency.handle('key-1', {}, executor)
-    const replay = await auth.idempotency.handle('key-1', {}, executor)
+    const first = await idem.handle('key-1', {}, executor)
+    const replay = await idem.handle('key-1', {}, executor)
 
     expect(runs).toBe(1)
     expect(replay.body).toEqual(first.body)
+  })
+
+  it('is no longer a createAuth key, and passing one says so', () => {
+    expect(() => createAuth(Object.assign(base(), { idempotency: memoryIdempotency() }))).toThrow(
+      expect.objectContaining({ meta: { detail: expect.stringContaining('idempotency') } }),
+    )
+  })
+
+  it('builds an engine under NODE_ENV=production without a store it never uses', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      expect(() => createAuth({ ...base(), strict: false })).not.toThrow()
+      expect(() => memoryIdempotency()).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })
 
@@ -128,13 +97,13 @@ describe('every config-position class has a factory beside it', () => {
 
   it('the facets the engine builds are also constructible by function', () => {
     expect(anomalyFacet(events)).toBeInstanceOf(AnomalyFacet)
-    expect(hijackFacet(events, { onIpChange: 'revoke' })).toBeInstanceOf(HijackFacet)
+    expect(hijackFacet(events, createAuth(base()).sessions, { onIpChange: 'revoke' })).toBeInstanceOf(HijackFacet)
   })
 
   it('the webhook deliverer has one', () => {
     const deliverer = webhookDeliverer({
       endpoints: [{ secret: 's', url: 'https://hooks.example.com/h' }],
-      fetch: (async () => new Response()) as never,
+      fetch: async () => new Response(),
     })
     expect(deliverer).toBeInstanceOf(WebhookDeliverer)
   })
