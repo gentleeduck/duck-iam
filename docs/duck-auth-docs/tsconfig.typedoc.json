@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../packages/duck-auth/tsconfig.json",
+  "include": ["../../packages/duck-auth/src/**/*"],
+  "exclude": [
+    "../../packages/duck-auth/node_modules",
+    "../../packages/duck-auth/dist",
+    "../../packages/duck-auth/src/**/*.bun.ts",
+    "../../packages/duck-auth/src/**/__tests__/**",
+    "../../packages/duck-auth/src/**/*.test.ts",
+    "../../packages/duck-auth/src/**/*.e2e.test.ts"
+  ]
+}

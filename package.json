@@ -54,7 +54,7 @@
     "postinstall": "bun run lint:ws || true",
     "prepare": "husky",
     "check-types": "turbo run check-types",
-    "docs:api": "bun run --cwd docs/duck-iam-docs docs:api",
+    "docs:api": "bun run --cwd docs/duck-iam-docs docs:api && bun run --cwd docs/duck-auth-docs docs:api",
     "sync-docs": "bash scripts/sync-docs-to-duck-ui.sh",
     "scorecard": "bash scripts/scorecard.sh",
     "scorecard:local": "bash scripts/scorecard.sh --local"
@@ -121,6 +121,7 @@
     "packages": [
       "apps/duck-auth-demo",
       "docs/duck-iam-docs",
+      "docs/duck-auth-docs",
       "packages/*",
       "tooling/*",
       "examples/*",
