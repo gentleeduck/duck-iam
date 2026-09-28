@@ -529,7 +529,7 @@
         "internal-audit",
         "regression"
       ],
-      "proves": "The actor wrappers inside the frameworks they are written for rather than fakes of them: honoActorContext on a Hono app, nestActorContext applied through a Nest 11 MiddlewareConsumer, expressActorContext on Express 5, koaActorContext on Koa 3, fastifyWithActor on Fastify 5, elysiaWithActor on Elysia 1.4 and withGrpc on a grpc-js server, with no error handler of the host's own except Hono's. Each serves a signed-in request as its identity and an anonymous one as nobody, answers a session whose identity is gone at 401 or UNAUTHENTICATED, and raises a store outage to the framework's own error layer, the handler never running for either. Pins findings 213, 214, 216 and 221: Nest dropping the middleware, Hono answering a refusal 500, and withGrpc and the Fastify adapter not compiling against their frameworks."
+      "proves": "The actor wrappers inside the frameworks they are written for rather than fakes of them: honoActorContext on a Hono app, nestActorContext applied through a Nest 12 MiddlewareConsumer behind NestExceptionFilter, expressActorContext on Express 5, koaActorContext on Koa 3, fastifyWithActor on Fastify 5, elysiaWithActor on Elysia 1.4 and withGrpc on a grpc-js server, with no error handler of the host's own except Hono's (Nest 12's default filter answers any AuthError 500). Each serves a signed-in request as its identity and an anonymous one as nobody, answers a session whose identity is gone at 401 or UNAUTHENTICATED, and raises a store outage to the framework's own error layer, the handler never running for either. Pins findings 213, 214, 216 and 221: Nest dropping the middleware, Hono answering a refusal 500, and withGrpc and the Fastify adapter not compiling against their frameworks."
     },
     {
       "file": "src/server/nestjs/__tests__/nestjs.e2e.test.ts",
@@ -541,7 +541,7 @@
         "internal-audit",
         "regression"
       ],
-      "proves": "The Nest handlers mounted as the example app mounts them, on a Nest 11 controller behind NestExceptionFilter on platform-express, rather than on a hand-built reply. A sign-in answers with its session and CSRF cookies and Cache-Control: no-store, and a refused one answers 401 once, with the filter leaving that answer alone and nothing logged. Pins finding 251: the filter wrote a second answer, and Nest logged ERR_HTTP_HEADERS_SENT in place of the auth error."
+      "proves": "The Nest handlers mounted as the example app mounts them, on a Nest 12 controller behind NestExceptionFilter on platform-express, rather than on a hand-built reply. A sign-in answers with its session and CSRF cookies and Cache-Control: no-store, and a refused one answers 401 once, with the filter leaving that answer alone and nothing logged. Pins finding 251: the filter wrote a second answer, and Nest logged ERR_HTTP_HEADERS_SENT in place of the auth error."
     },
     {
       "file": "src/core/hijack/__tests__/hijack-policy.test.ts",

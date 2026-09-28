@@ -207,6 +207,12 @@ the filter on the controller, as the example app mounts it, every refused sign-i
 `ERR_HTTP_HEADERS_SENT` in place of the auth error. The filter now leaves an answered
 response alone.
 
+**Nest 12 is supported, and needs `NestExceptionFilter`.** The `@nestjs/common` peer range
+is now `>=10 <13`. Nest 12's default exception filter no longer reads `statusCode` off an
+error it does not own, so without the filter every `AuthError` from `nestActorContext` or
+`makeGuard` answers 500. Register it globally, `app.useGlobalFilters(new NestExceptionFilter())`
+or an `APP_FILTER` provider, and a refusal answers at its own status again.
+
 **On Hono and Next, a refusal from the actor wrapper answered 500.** A step-up the
 hijack policy asked for, a session it revoked and a request the anomaly detectors
 denied all left `honoActorContext` and `nextWithActor` as a throw, and Hono's default
