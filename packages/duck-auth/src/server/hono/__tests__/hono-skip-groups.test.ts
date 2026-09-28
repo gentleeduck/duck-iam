@@ -4,6 +4,7 @@
  * name does not say.
  */
 
+import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
@@ -27,19 +28,11 @@ function buildAuth() {
   })
 }
 
-/** Mount against a recorder rather than a real Hono, which this package does not depend on. */
+/** The paths a real Hono app holds once mounted with `opts`, one per method. */
 function pathsWith(opts: MountHono.Options): string[] {
-  const seen: string[] = []
-  const app: MountHono.App = {
-    get(p) {
-      seen.push(p)
-    },
-    post(p) {
-      seen.push(p)
-    },
-  }
+  const app = new Hono()
   mountHono(app, buildAuth(), opts)
-  return seen.sort()
+  return app.routes.map((route) => route.path).sort()
 }
 
 /** Mounted whatever is skipped: a host cannot opt out of sign-in. */
@@ -54,9 +47,8 @@ describe('mountHono opts.skip', () => {
   })
 
   it.each([
-    // Twice: the recorder logs one entry per method, and the oauth callback is mounted on GET and on
-    // POST, the latter for `response_mode=form_post`.
-    ['oauth', ['/auth/providers/:provider/callback', '/auth/providers/:provider/callback']],
+    // Twice: the oauth callback is mounted on GET and on POST, the latter for `response_mode=form_post`.
+    ['oauth', ['/auth/providers/:id/callback', '/auth/providers/:id/callback']],
     ['magic-link', ['/auth/magic-link/verify']],
     ['passkey', ['/auth/passkey/begin', '/auth/passkey/complete']],
     [

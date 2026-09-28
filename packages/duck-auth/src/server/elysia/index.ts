@@ -16,8 +16,10 @@ import {
   executeIntents,
   isValidProviderId,
   jsonResponse,
+  oauthCallback,
   parseProviderBeginBody,
   parseSignInBody,
+  redirectForScript,
   requestSecurity,
 } from '../generic'
 
@@ -35,6 +37,7 @@ export function elysiaSignIn(auth: AuthEngine): ElysiaAdapter.Handler {
       const result = await auth.flows.signIn({
         ...parsed,
         ...elysiaCaller(ctx),
+        previousSid: auth.transport.extract(ctx.request) ?? undefined,
       })
       return executeIntents(result.intents)
     } catch (err) {
@@ -86,8 +89,20 @@ export function elysiaProviderBegin(auth: AuthEngine): ElysiaAdapter.Handler {
       if (body === null) {
         return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
       }
-      const intents = await auth.flows.beginProvider(id, body)
-      return executeIntents(intents)
+      return executeIntents(redirectForScript(await auth.flows.beginProvider(id, body), ctx.request.headers))
+    } catch (err) {
+      return errorResponse(err)
+    }
+  }
+}
+
+/** Elysia handler for the oauth callback, GET and POST. See {@link oauthCallback}. */
+export function elysiaProviderCallback(auth: AuthEngine): ElysiaAdapter.Handler {
+  return async (ctx) => {
+    try {
+      const { headers, method, url } = ctx.request
+      const request = { body: ctx.body, cookie: headers.get('cookie'), method, url }
+      return executeIntents(await oauthCallback(auth, ctx.params?.id, request, elysiaCaller(ctx)))
     } catch (err) {
       return errorResponse(err)
     }
@@ -99,15 +114,17 @@ export function elysiaCaller(ctx: ElysiaAdapter.Context): CallerFingerprint {
   return callerContext({ ip: ctx.ip, userAgent: ctx.request.headers.get('user-agent') ?? undefined })
 }
 
-export type ElysiaActorOptions = ActorOptions<ElysiaAdapter.Context>
+/** {@link ActorOptions} over Elysia's context. */
+export type ElysiaActorOptions<Ctx extends ElysiaAdapter.Context = ElysiaAdapter.Context> = ActorOptions<Ctx>
 
 /** Wrap one handler so its writes carry the request's actor; per-handler, since Elysia composes no
- *  `next`. See `core/actor/README.md` for what runs unbound and what raises. */
-export function elysiaWithActor(
+ *  `next`. A handler annotated with Elysia's own `Context` keeps it. See `core/actor/README.md` for
+ *  what runs unbound and what raises. */
+export function elysiaWithActor<Ctx extends ElysiaAdapter.Context, Out>(
   auth: AuthEngine,
-  handler: ElysiaAdapter.Handler,
-  opts: ElysiaActorOptions = {},
-): ElysiaAdapter.Handler {
+  handler: (ctx: Ctx) => Promise<Out>,
+  opts: ElysiaActorOptions<Ctx> = {},
+): (ctx: Ctx) => Promise<Out> {
   return (ctx) =>
     withRequestActor(
       auth,

@@ -5,17 +5,19 @@ import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
+import type { Provider } from '~/core/provider/provider.types'
 import {
   type ActorOptions,
   type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
-  extractSetCookies,
   isValidProviderId,
   nodeHeadersToFetch,
+  oauthCallback,
   parseProviderBeginBody,
   parseSignInBody,
+  redirectForScript,
   requestSecurity,
 } from '../generic'
 
@@ -28,11 +30,12 @@ function toCsrfRequest(ctx: KoaAdapter.Context): { method: string; headers: Head
   return { headers: toFetchHeaders(ctx.request.headers), method: ctx.request.method }
 }
 
-/** Forward `executeIntents`' `Response` onto a Koa ctx, keeping Set-Cookie multiplicity through
- *  `append()` where the Koa version has it and a string array otherwise. */
-async function forward(response: Response, ctx: KoaAdapter.Context): Promise<void> {
+/** Write the intents a flow returned onto a Koa ctx, for a host's own routes. Set-Cookie keeps one header
+ *  per cookie, through `append()` where the Koa version has it and a string array otherwise. */
+export async function koaApplyIntents(intents: Provider.Intent[], ctx: KoaAdapter.Context): Promise<void> {
+  const response = executeIntents(intents)
   ctx.status = response.status
-  const cookies = extractSetCookies(response)
+  const cookies = response.headers.getSetCookie()
   if (cookies.length > 0) {
     if (ctx.append) {
       for (const c of cookies) ctx.append('set-cookie', c)
@@ -59,16 +62,18 @@ function handleError(err: unknown, ctx: KoaAdapter.Context): void {
 export function koaSignIn(auth: AuthEngine): KoaAdapter.Handler {
   return async (ctx) => {
     try {
-      await csrfGuard(auth, toCsrfRequest(ctx))
+      const req = toCsrfRequest(ctx)
+      await csrfGuard(auth, req)
       const parsed = parseSignInBody(ctx.request.body)
       if (!parsed) {
-        return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), ctx)
+        return koaApplyIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }], ctx)
       }
       const result = await auth.flows.signIn({
         ...parsed,
         ...koaCaller(ctx),
+        previousSid: auth.transport.extract(req) ?? undefined,
       })
-      await forward(executeIntents(result.intents), ctx)
+      await koaApplyIntents(result.intents, ctx)
     } catch (err) {
       handleError(err, ctx)
     }
@@ -82,11 +87,11 @@ export function koaSignOut(auth: AuthEngine): KoaAdapter.Handler {
       await csrfGuard(auth, toCsrfRequest(ctx))
       const sid = auth.transport.extract({ headers: toFetchHeaders(ctx.request.headers) })
       if (!sid) {
-        await forward(executeIntents(auth.transport.revoke()), ctx)
+        await koaApplyIntents(auth.transport.revoke(), ctx)
         return
       }
       const { intents } = await auth.flows.signOut(sid)
-      await forward(executeIntents(intents), ctx)
+      await koaApplyIntents(intents, ctx)
     } catch (err) {
       handleError(err, ctx)
     }
@@ -114,19 +119,35 @@ export function koaSession(auth: AuthEngine): KoaAdapter.Handler {
 export function koaProviderBegin(auth: AuthEngine): KoaAdapter.Handler {
   return async (ctx) => {
     try {
-      await csrfGuard(auth, toCsrfRequest(ctx))
+      const req = toCsrfRequest(ctx)
+      await csrfGuard(auth, req)
       const id = ctx.params?.id
       if (!isValidProviderId(id)) {
-        await forward(executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }]), ctx)
+        await koaApplyIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }], ctx)
         return
       }
       const body = parseProviderBeginBody(ctx.request.body)
       if (body === null) {
-        await forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), ctx)
+        await koaApplyIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }], ctx)
         return
       }
-      const intents = await auth.flows.beginProvider(id, body)
-      await forward(executeIntents(intents), ctx)
+      await koaApplyIntents(redirectForScript(await auth.flows.beginProvider(id, body), req.headers), ctx)
+    } catch (err) {
+      handleError(err, ctx)
+    }
+  }
+}
+
+/** Koa handler for the oauth callback, GET and POST. A form post needs a body parser that reads forms, as
+ *  `koa-bodyparser` does by default. See {@link oauthCallback}. */
+export function koaProviderCallback(auth: AuthEngine): KoaAdapter.Handler {
+  return async (ctx) => {
+    try {
+      const { body, headers, method, url } = ctx.request
+      await koaApplyIntents(
+        await oauthCallback(auth, ctx.params?.id, { body, cookie: headers.cookie, method, url }, koaCaller(ctx)),
+        ctx,
+      )
     } catch (err) {
       handleError(err, ctx)
     }
@@ -138,6 +159,7 @@ export function koaCaller(ctx: KoaAdapter.Context): CallerFingerprint {
   return callerContext({ ip: ctx.request.ip, userAgent: ctx.request.headers['user-agent'] })
 }
 
+/** {@link ActorOptions} over Koa's context. */
 export type KoaActorOptions = ActorOptions<KoaAdapter.Context>
 
 /** Bind the request's actor scope for everything downstream; install it above your own routes,

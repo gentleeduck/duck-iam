@@ -2,21 +2,24 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { AuthMemoryDeviceFingerprintStore, deviceFingerprintDetector } from '~/core/anomaly'
 import type { Anomaly } from '~/core/anomaly/anomaly.types'
 import { AuthEngine } from '~/core/engine'
 import type { Hijack } from '~/core/hijack'
 import { SESSION_COLUMN_CAPS } from '~/core/sessions'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { mfaProvider, totpAt } from '~/providers/mfa'
 import { elysiaCaller, elysiaWithActor } from '~/server/elysia'
-import { expressActorContext, expressCaller } from '~/server/express'
+import { type ExpressAdapter, expressActorContext, expressCaller } from '~/server/express'
 import { fastifyCaller, fastifyWithActor } from '~/server/fastify'
-import { callerContext, callerSnapshot } from '~/server/generic'
-import { GRPC_STATUS, grpcCaller, withGrpc } from '~/server/grpc'
+import { type CallerFingerprint, callerContext, requestSecurity } from '~/server/generic'
+import { GRPC_STATUS, type GrpcAdapter, grpcCaller, withGrpc } from '~/server/grpc'
 import { honoActorContext, honoCaller } from '~/server/hono'
 import { koaActorContext, koaCaller } from '~/server/koa'
 import { nestActorContext, nestCaller } from '~/server/nestjs'
-import { nextCaller, nextWithActor } from '~/server/next'
+import { type NextActorOptions, nextCaller, nextWithActor } from '~/server/next'
+import { expressRes, fastifyReply, honoCtx, koaCtx } from '~/test/adapter-fakes'
 
 type Profile = { username: string; email: string }
 
@@ -55,7 +58,7 @@ async function signIn(auth: AuthEngine<Profile>): Promise<string> {
 const cookieHeader = (sid: string) => ({ cookie: `duck-sid=${sid}` })
 
 /** An Express request stub carrying an arbitrary fingerprint. */
-function expressReq(sid: string, caller: { ip?: string; userAgent?: string }) {
+function expressReq(sid: string, caller: { ip?: string; userAgent?: string }): ExpressAdapter.Request {
   return {
     headers: { ...cookieHeader(sid), ...(caller.userAgent && { 'user-agent': caller.userAgent }) },
     ...(caller.ip && { ip: caller.ip }),
@@ -63,9 +66,6 @@ function expressReq(sid: string, caller: { ip?: string; userAgent?: string }) {
     url: '/me',
   }
 }
-
-// biome-ignore lint/suspicious/noExplicitAny: the middleware never touches the response.
-const noRes = {} as any
 
 describe('the fingerprint check is off until an adapter is given a getCaller', () => {
   it('runs a drifted request untouched when getCaller is omitted', async () => {
@@ -75,8 +75,7 @@ describe('the fingerprint check is off until an adapter is given a getCaller', (
     auth.events.on('suspicious', suspicious)
 
     let ran = false
-    // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
-    await expressActorContext(auth)(expressReq(sid, { ip: '203.0.113.9', userAgent: 'curl/8' }) as any, noRes, () => {
+    await expressActorContext(auth)(expressReq(sid, { ip: '203.0.113.9', userAgent: 'curl/8' }), expressRes, () => {
       ran = true
     })
 
@@ -96,14 +95,9 @@ describe('the fingerprint check is off until an adapter is given a getCaller', (
     auth.events.on('suspicious', suspicious)
 
     let ran = false
-    await expressActorContext(auth, { getCaller: expressCaller })(
-      // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
-      expressReq(sid, {}) as any,
-      noRes,
-      () => {
-        ran = true
-      },
-    )
+    await expressActorContext(auth, { getCaller: expressCaller })(expressReq(sid, {}), expressRes, () => {
+      ran = true
+    })
     expect(ran).toBe(true)
     expect(suspicious.mock.calls.map(([p]) => p.signal)).toEqual(['ip-change', 'user-agent-change'])
   })
@@ -117,9 +111,8 @@ describe('a supplied getCaller reaches the hijack policy', () => {
     let ran = false
     let refusal: unknown
     await expressActorContext(auth, { getCaller: expressCaller })(
-      // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
-      expressReq(sid, { ...SIGNED_IN, userAgent: 'curl/8.7.1' }) as any,
-      noRes,
+      expressReq(sid, { ...SIGNED_IN, userAgent: 'curl/8.7.1' }),
+      expressRes,
       (err) => {
         if (err) refusal = err
         else ran = true
@@ -132,6 +125,44 @@ describe('a supplied getCaller reaches the hijack policy', () => {
     expect(ran).toBe(false)
   })
 
+  it('ends the session on revoke, so the cookie is dead from the address that signed in too', async () => {
+    const auth = buildAuth({ onIpChange: 'revoke' })
+    const sid = await signIn(auth)
+    const revoked = vi.fn()
+    auth.events.on('session.revoked', revoked)
+
+    let refusal: unknown
+    await expressActorContext(auth, { getCaller: expressCaller })(
+      expressReq(sid, { ...SIGNED_IN, ip: '203.0.113.9' }),
+      expressRes,
+      (err) => {
+        refusal = err
+      },
+    )
+    expect(refusal).toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    expect(revoked).toHaveBeenCalledOnce()
+    await expect(auth.sessions.getBySid(sid).orNull()).resolves.toBeNull()
+  })
+
+  it('leaves the session live on mfa, which asks for a step-up rather than ending it', async () => {
+    const auth = buildAuth({ onIpChange: 'mfa' })
+    const sid = await signIn(auth)
+    const revoked = vi.fn()
+    auth.events.on('session.revoked', revoked)
+
+    let refusal: unknown
+    await expressActorContext(auth, { getCaller: expressCaller })(
+      expressReq(sid, { ...SIGNED_IN, ip: '203.0.113.9' }),
+      expressRes,
+      (err) => {
+        refusal = err
+      },
+    )
+    expect(refusal).toMatchObject({ code: 'AUTH_STEP_UP_REQUIRED' })
+    expect(revoked).not.toHaveBeenCalled()
+    await expect(auth.sessions.getBySid(sid)).resolves.toMatchObject({ ip: SIGNED_IN.ip })
+  })
+
   it('emits suspicious on drift the policy chose to ignore, and still runs the handler', async () => {
     const auth = buildAuth({ onIpChange: 'ignore', onUserAgentChange: 'ignore' })
     const sid = await signIn(auth)
@@ -140,9 +171,8 @@ describe('a supplied getCaller reaches the hijack policy', () => {
 
     let ran = false
     await expressActorContext(auth, { getCaller: expressCaller })(
-      // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
-      expressReq(sid, { ip: '203.0.113.9', userAgent: 'curl/8.7.1' }) as any,
-      noRes,
+      expressReq(sid, { ip: '203.0.113.9', userAgent: 'curl/8.7.1' }),
+      expressRes,
       () => {
         ran = true
       },
@@ -165,14 +195,9 @@ describe('a supplied getCaller reaches the hijack policy', () => {
       onHijack: (drift) => {
         seen.push({ reaction: drift.reaction, signal: drift.signal })
       },
-    })(
-      // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
-      expressReq(sid, { ...SIGNED_IN, userAgent: 'curl/8.7.1' }) as any,
-      noRes,
-      () => {
-        ran = true
-      },
-    )
+    })(expressReq(sid, { ...SIGNED_IN, userAgent: 'curl/8.7.1' }), expressRes, () => {
+      ran = true
+    })
 
     expect(seen).toEqual([{ reaction: 'mfa', signal: 'user-agent-change' }])
     expect(ran).toBe(true)
@@ -185,12 +210,34 @@ describe('a supplied getCaller reaches the hijack policy', () => {
     auth.events.on('suspicious', suspicious)
 
     let ran = false
-    // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
-    await expressActorContext(auth, { getCaller: expressCaller })(expressReq(sid, SIGNED_IN) as any, noRes, () => {
+    await expressActorContext(auth, { getCaller: expressCaller })(expressReq(sid, SIGNED_IN), expressRes, () => {
       ran = true
     })
     expect(ran).toBe(true)
     expect(suspicious).not.toHaveBeenCalled()
+  })
+})
+
+describe('a device is remembered only once the request is let through', () => {
+  it.each([
+    ['the browser that signed in, served', SIGNED_IN.userAgent, true],
+    ['another browser, refused by the hijack policy', 'Mozilla/5.0 (a stolen cookie)', false],
+  ])('%s: known afterwards is %s', async (_, userAgent, known) => {
+    const auth = buildAuth()
+    const sid = await signIn(auth)
+    const store = new AuthMemoryDeviceFingerprintStore()
+    auth.anomaly.register(deviceFingerprintDetector({ compose: (req) => req.userAgent ?? null, store }))
+    let ran = false
+    await nextWithActor(
+      auth,
+      async () => {
+        ran = true
+        return new Response('ok')
+      },
+      { getCaller: nextCaller },
+    )(new Request('https://x/me', { headers: { ...cookieHeader(sid), 'user-agent': userAgent } }))
+    const { identityId } = await auth.sessions.getBySid(sid)
+    expect({ known: await store.has(String(identityId), userAgent), ran }).toEqual({ known, ran: known })
   })
 })
 
@@ -208,13 +255,76 @@ describe('a supplied getCaller reaches the anomaly detectors', () => {
     })
 
     const before = Date.now()
-    // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
-    await expressActorContext(auth, { getCaller: expressCaller })(expressReq(sid, SIGNED_IN) as any, noRes, () => {})
+    await expressActorContext(auth, { getCaller: expressCaller })(expressReq(sid, SIGNED_IN), expressRes, () => {})
 
     // Without a snapshot the detectors never run at all, which is the state this fixes.
     expect(snapshots).toHaveLength(1)
     expect(snapshots[0]).toMatchObject(SIGNED_IN)
     expect(snapshots[0]?.now).toBeGreaterThanOrEqual(before)
+  })
+
+  /** One request on a session that has not drifted, so only a detector scoring `score` can refuse it. */
+  async function verdict(score: number, opts: NextActorOptions = {}): Promise<{ outcome: unknown; ran: boolean }> {
+    const auth = buildAuth({ onIpChange: 'ignore', onUserAgentChange: 'ignore' })
+    const sid = await signIn(auth)
+    auth.anomaly.register({ evaluate: async () => [{ evidence: {}, kind: 'scored', score }], id: 'scored' })
+    let ran = false
+    const handler = async () => {
+      ran = true
+      return new Response('ok')
+    }
+    const outcome = await nextWithActor(auth, handler, { getCaller: nextCaller, ...opts })(
+      new Request('https://x/me', { headers: { ...cookieHeader(sid), 'user-agent': SIGNED_IN.userAgent } }),
+    ).then(
+      async (res) => (ran ? 'served' : res.json()),
+      (err: unknown) => err,
+    )
+    return { outcome, ran }
+  }
+
+  it('refuses a deny with AUTH_ANOMALY_DENIED and its score, before the handler runs', async () => {
+    expect(await verdict(0.99)).toEqual({
+      outcome: { error: { code: 'AUTH_ANOMALY_DENIED', score: 0.99, status: 403 }, ok: false },
+      ran: false,
+    })
+    expect(await verdict(0.1)).toEqual({ outcome: 'served', ran: true })
+  })
+
+  it('serves a step-up by default: the device detector scores one at every first sighting', async () => {
+    expect(await verdict(0.8)).toEqual({ outcome: 'served', ran: true })
+  })
+
+  it('hands every verdict but allow to onAnomaly, in place of the default refusal', async () => {
+    const seen: string[] = []
+    const onAnomaly = ({ decision, score }: Anomaly.Result) => {
+      seen.push(`${decision}@${score}`)
+    }
+    expect(await verdict(0.99, { onAnomaly })).toEqual({ outcome: 'served', ran: true })
+    expect(await verdict(0.8, { onAnomaly })).toEqual({ outcome: 'served', ran: true })
+    expect(await verdict(0.1, { onAnomaly })).toEqual({ outcome: 'served', ran: true })
+    expect(seen).toEqual(['deny@0.99', 'step-up@0.8'])
+  })
+
+  it('refuses when onAnomaly throws, which is how a host acts on a step-up', async () => {
+    const stepUp = new Error('step up first')
+    const onAnomaly = () => {
+      throw stepUp
+    }
+    expect(await verdict(0.8, { onAnomaly })).toEqual({ outcome: stepUp, ran: false })
+  })
+
+  it('audits the drift on a request the verdict refuses first', async () => {
+    const auth = buildAuth()
+    const sid = await signIn(auth)
+    auth.anomaly.register({ evaluate: async () => [{ evidence: {}, kind: 'scored', score: 0.99 }], id: 'scored' })
+    const suspicious = vi.fn()
+    auth.events.on('suspicious', suspicious)
+
+    const answer = await nextWithActor(auth, async () => new Response('ok'), { getCaller: nextCaller })(
+      new Request('https://x/me', { headers: { ...cookieHeader(sid), 'user-agent': 'curl/8.7.1' } }),
+    )
+    expect(await answer.json()).toMatchObject({ error: { code: 'AUTH_ANOMALY_DENIED', status: 403 } })
+    expect(suspicious.mock.calls.map(([e]) => e.signal)).toContain('user-agent-change')
   })
 })
 
@@ -227,25 +337,16 @@ describe('every adapter can read its own fingerprint', () => {
   it('reads the framework-resolved pair, never a forwarded header', () => {
     const spoofed = { 'user-agent': 'ua/1', 'x-forwarded-for': '1.2.3.4' }
 
-    // biome-ignore lint/suspicious/noExplicitAny: minimal per-adapter request stubs.
-    expect(expressCaller({ headers: spoofed, ip: '10.0.0.1' } as any)).toEqual({ ip: '10.0.0.1', userAgent: 'ua/1' })
-    // biome-ignore lint/suspicious/noExplicitAny: minimal per-adapter request stubs.
-    expect(fastifyCaller({ headers: spoofed, ip: '10.0.0.1' } as any)).toEqual({ ip: '10.0.0.1', userAgent: 'ua/1' })
-    // biome-ignore lint/suspicious/noExplicitAny: minimal per-adapter request stubs.
-    expect(nestCaller({ headers: spoofed, ip: '10.0.0.1' } as any)).toEqual({ ip: '10.0.0.1', userAgent: 'ua/1' })
-    // biome-ignore lint/suspicious/noExplicitAny: minimal per-adapter request stubs.
-    expect(koaCaller({ request: { headers: spoofed, ip: '10.0.0.1' } } as any)).toEqual({
-      ip: '10.0.0.1',
-      userAgent: 'ua/1',
-    })
-    expect(
-      honoCaller({ ip: '10.0.0.1', req: { header: (n?: string) => (n === 'user-agent' ? 'ua/1' : undefined) } }),
-    ).toEqual({ ip: '10.0.0.1', userAgent: 'ua/1' })
-    // biome-ignore lint/suspicious/noExplicitAny: minimal per-adapter request stubs.
-    expect(elysiaCaller({ ip: '10.0.0.1', request: new Request('https://x', { headers: spoofed }) } as any)).toEqual({
-      ip: '10.0.0.1',
-      userAgent: 'ua/1',
-    })
+    const req = { headers: spoofed, identity: null, ip: '10.0.0.1', method: 'GET', session: null, url: '/' }
+    const raw = new Request('https://x', { headers: spoofed })
+    const read = { ip: '10.0.0.1', userAgent: 'ua/1' }
+
+    expect(expressCaller(req)).toEqual(read)
+    expect(fastifyCaller(req)).toEqual(read)
+    expect(nestCaller(req)).toEqual(read)
+    expect(koaCaller(koaCtx(req))).toEqual(read)
+    expect(honoCaller(honoCtx(raw, req.ip))).toEqual(read)
+    expect(elysiaCaller({ ip: req.ip, request: raw })).toEqual(read)
     // A Web Request has no resolved peer, and the header that would stand in for one is written
     // by the caller - so Next reports the UA and declines to guess an IP.
     expect(nextCaller(new Request('https://x', { headers: spoofed }))).toEqual({ userAgent: 'ua/1' })
@@ -259,41 +360,42 @@ describe('every adapter can read its own fingerprint', () => {
     const koaSid = await signIn(koa)
     await expect(
       koaActorContext(koa, { getCaller: koaCaller })(
-        // biome-ignore lint/suspicious/noExplicitAny: only `request` is read.
-        { request: { headers: { ...cookieHeader(koaSid), 'user-agent': drifted }, ip: SIGNED_IN.ip } } as any,
+        koaCtx({
+          headers: { ...cookieHeader(koaSid), 'user-agent': drifted },
+          ip: SIGNED_IN.ip,
+          method: 'POST',
+          url: '/me',
+        }),
         async () => {},
       ),
     ).rejects.toMatchObject(stepUp)
 
+    // Hono and Next answer the refusal themselves, since each makes any throw a 500.
+    let reached = false
     const hono = buildAuth()
     const honoSid = await signIn(hono)
-    await expect(
-      honoActorContext(hono, { getCaller: honoCaller })(
-        {
-          ip: SIGNED_IN.ip,
-          req: {
-            header: (n?: string) => (n === 'user-agent' ? drifted : undefined),
-            raw: new Request('https://x/me', { headers: cookieHeader(honoSid) }),
-          },
-          // biome-ignore lint/suspicious/noExplicitAny: a HonoAdapter.Context stub.
-        } as any,
-        async () => {},
+    const honoAnswer = await honoActorContext(hono, { getCaller: honoCaller })(
+      honoCtx(
+        new Request('https://x/me', { headers: { ...cookieHeader(honoSid), 'user-agent': drifted } }),
+        SIGNED_IN.ip,
       ),
-    ).rejects.toMatchObject(stepUp)
+      async () => {
+        reached = true
+      },
+    )
+    expect(honoAnswer?.status).toBe(401)
+    expect(await honoAnswer?.json()).toMatchObject({ error: stepUp })
 
     const nest = buildAuth()
     const nestSid = await signIn(nest)
     let nestRefusal: unknown
-    await nestActorContext(nest, { getCaller: nestCaller }).use(
-      // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
+    await nestActorContext(nest, { getCaller: nestCaller })(
       {
         headers: { ...cookieHeader(nestSid), 'user-agent': drifted },
         identity: null,
         ip: SIGNED_IN.ip,
         method: 'POST',
-        session: null,
-        // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
-      } as any,
+      },
       {},
       (err) => {
         nestRefusal = err
@@ -304,20 +406,29 @@ describe('every adapter can read its own fingerprint', () => {
 
     const next = buildAuth()
     const nextSid = await signIn(next)
-    await expect(
-      nextWithActor(next, async () => new Response('ok'), { getCaller: nextCaller })(
-        new Request('https://x/me', { headers: { ...cookieHeader(nextSid), 'user-agent': drifted } }),
-      ),
-    ).rejects.toMatchObject(stepUp)
+    const nextAnswer = await nextWithActor(
+      next,
+      async () => {
+        reached = true
+        return new Response('ok')
+      },
+      { getCaller: nextCaller },
+    )(new Request('https://x/me', { headers: { ...cookieHeader(nextSid), 'user-agent': drifted } }))
+    expect(nextAnswer.status).toBe(401)
+    expect(await nextAnswer.json()).toMatchObject({ error: stepUp })
+    expect(reached).toBe(false)
 
     const fastify = buildAuth()
     const fastifySid = await signIn(fastify)
     await expect(
       fastifyWithActor(fastify, async () => {}, { getCaller: fastifyCaller })(
-        // biome-ignore lint/suspicious/noExplicitAny: only `headers` and `ip` are read.
-        { headers: { ...cookieHeader(fastifySid), 'user-agent': drifted }, ip: SIGNED_IN.ip, method: 'POST' } as any,
-        // biome-ignore lint/suspicious/noExplicitAny: the wrapper never touches the reply.
-        {} as any,
+        {
+          headers: { ...cookieHeader(fastifySid), 'user-agent': drifted },
+          ip: SIGNED_IN.ip,
+          method: 'POST',
+          url: '/me',
+        },
+        fastifyReply,
       ),
     ).rejects.toMatchObject(stepUp)
 
@@ -327,45 +438,16 @@ describe('every adapter can read its own fingerprint', () => {
       elysiaWithActor(elysia, async () => new Response('ok'), { getCaller: elysiaCaller })({
         ip: SIGNED_IN.ip,
         request: new Request('https://x/me', { headers: { ...cookieHeader(elysiaSid), 'user-agent': drifted } }),
-        // biome-ignore lint/suspicious/noExplicitAny: an ElysiaAdapter.Context stub.
-      } as any),
+      }),
     ).rejects.toMatchObject(stepUp)
-  })
-
-  /**
-   * The Nest guard leaves its resolved session on the request so the pair costs one
-   * `resolveSession` rather than two. That shortcut must not also skip the fingerprint check.
-   */
-  it('still checks the fingerprint on the session nest reused from its guard', async () => {
-    const auth = buildAuth()
-    const sid = await signIn(auth)
-    const resolved = await auth.resolveSession({ headers: new Headers(cookieHeader(sid)) })
-
-    let refusal: unknown
-    await nestActorContext(auth, { getCaller: nestCaller }).use(
-      {
-        headers: { 'user-agent': 'curl/8.7.1' },
-        identity: null,
-        ip: SIGNED_IN.ip,
-        method: 'POST',
-        session: resolved.session,
-        // biome-ignore lint/suspicious/noExplicitAny: a NestAdapter.Request stub.
-      } as any,
-      {},
-      (err) => {
-        refusal = err
-      },
-    )
-    expect(refusal).toMatchObject({ code: 'AUTH_STEP_UP_REQUIRED' })
   })
 })
 
 describe('a fingerprint is normalised to the same lengths the session row stores', () => {
   /**
-   * `SessionsImpl.create` truncates `userAgent` to 512 and `ip` to 64. If `callerContext`
-   * normalised to anything else, the value compared on a later request would never equal the
-   * value on the row, and a client with a long User-Agent would read as drift on every single
-   * request it ever sent - a permanent step-up loop.
+   * `SessionsImpl.create` truncates `userAgent` to 512 and `ip` to 64, and `hijack.evaluate` cuts the
+   * request's values the same way, so a long User-Agent is the same browser on every request whichever
+   * `getCaller` read it, rather than a permanent step-up loop.
    */
   it('truncates to the session column caps, so a stamped value compares equal to itself', () => {
     const long = `Mozilla/5.0 ${'x'.repeat(4000)}`
@@ -377,15 +459,48 @@ describe('a fingerprint is normalised to the same lengths the session row stores
     expect(callerContext(stamped)).toEqual(stamped)
   })
 
+  it('compares a getCaller reading the raw header by what the row kept', async () => {
+    const auth = buildAuth()
+    const identity = await auth.identities.create({
+      emailVerified: true,
+      profile: { email: 'long@x.com', username: 'a' },
+    })
+    const long = `${SIGNED_IN.userAgent} ${'x'.repeat(600)}`
+    const { sid } = await auth.sessions.create({
+      aal: 1,
+      factors: [],
+      identityId: identity.id,
+      kind: 'user',
+      userAgent: long,
+    })
+    const serve = (userAgent: string) =>
+      nextWithActor(auth, async () => new Response('ok'), {
+        getCaller: (req) => ({ userAgent: req.headers.get('user-agent') ?? undefined }),
+      })(new Request('https://x/me', { headers: { ...cookieHeader(sid), 'user-agent': userAgent } }))
+
+    expect((await serve(long)).status).toBe(200)
+    // A browser that differs inside the column still drifts, and the default steps it up.
+    expect((await serve(`curl/8 ${'x'.repeat(600)}`)).status).toBe(401)
+  })
+
   it('drops an empty value rather than recording one', () => {
     expect(callerContext({ ip: '', userAgent: '' })).toEqual({})
     // A non-string UA (Node's header bag can hand back an array) is not a fingerprint.
     expect(callerContext({ userAgent: ['a', 'b'] })).toEqual({})
   })
 
-  it('lifts a fingerprint into a snapshot without inventing fields', () => {
-    expect(callerSnapshot({ userAgent: 'ua/1' }, 123)).toEqual({ now: 123, userAgent: 'ua/1' })
-    expect(callerSnapshot({}, 123)).toEqual({ now: 123 })
+  it('lifts the fingerprint into the snapshot, stamped now, without inventing fields', () => {
+    const auth = buildAuth()
+    const snapshot = (caller: CallerFingerprint) => requestSecurity(auth, { caller }).requestSnapshot
+    const now = vi.spyOn(Date, 'now').mockReturnValue(123)
+    try {
+      expect(snapshot({ userAgent: 'ua/1' })).toEqual({ now: 123, userAgent: 'ua/1' })
+      expect(snapshot({})).toEqual({ now: 123 })
+      // The only way a position reaches `impossible-travel`.
+      expect(snapshot({ geo: { lat: 1, lon: 2 } })).toEqual({ geo: { lat: 1, lon: 2 }, now: 123 })
+    } finally {
+      now.mockRestore()
+    }
   })
 })
 
@@ -400,23 +515,23 @@ describe('a caller that supplies no fingerprint at all still meets the policy', 
     const auth = buildAuth(STRICT)
     const sid = await signIn(auth)
 
-    await expect(
-      nextWithActor(auth, async () => new Response('ok'), { getCaller: nextCaller })(
-        new Request('https://x/me', { headers: cookieHeader(sid) }),
-      ),
-    ).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    const answer = await nextWithActor(auth, async () => new Response('ok'), { getCaller: nextCaller })(
+      new Request('https://x/me', { headers: cookieHeader(sid) }),
+    )
+    expect(answer.status).toBe(401)
+    expect(await answer.json()).toMatchObject({ error: { code: 'AUTH_SESSION_REVOKED' } })
   })
 
   it('refuses a gRPC call that dropped the only signal gRPC reads', async () => {
     const auth = buildAuth(STRICT)
     const sid = await signIn(auth)
-    const metadata = { get: (n: string) => (n === 'cookie' ? [`duck-sid=${sid}`] : []) }
+    const metadata: GrpcAdapter.Metadata = { get: (n) => (n === 'cookie' ? [`duck-sid=${sid}`] : []) }
 
     await expect(
       new Promise((resolve, reject) => {
-        // biome-ignore lint/suspicious/noExplicitAny: a GrpcAdapter.UnaryCall stub.
-        withGrpc(auth, (_c, cb) => cb(null, {}), { getCaller: grpcCaller })({ metadata } as any, (err: unknown) =>
-          err ? reject(err) : resolve(null),
+        withGrpc(auth, (_c, cb) => cb(null, {}), { getCaller: grpcCaller })(
+          { metadata, request: {} },
+          (err: unknown) => (err ? reject(err) : resolve(null)),
         )
       }),
       // The gRPC adapter maps the refusal to a status before the caller ever sees an `AuthError`.
@@ -430,10 +545,9 @@ describe('a caller that supplies no fingerprint at all still meets the policy', 
     const sid = await signIn(auth)
 
     let refusal: unknown
-    // biome-ignore lint/suspicious/noExplicitAny: an ExpressAdapter.Request stub.
     await expressActorContext(auth, { getCaller: expressCaller })(
-      expressReq(sid, { ip: SIGNED_IN.ip }) as any,
-      noRes,
+      expressReq(sid, { ip: SIGNED_IN.ip }),
+      expressRes,
       (err) => {
         refusal = err
       },
@@ -488,5 +602,75 @@ describe('a caller that supplies no fingerprint at all still meets the policy', 
 
     expect(res.status).toBe(200)
     expect(suspicious).not.toHaveBeenCalled()
+  })
+})
+
+describe('a rotated session answers to the browser the one before it was issued to', () => {
+  const THIEF = { ...SIGNED_IN, userAgent: 'curl/8.7.1' }
+
+  function buildRotatingAuth(): AuthEngine<Profile> {
+    const adapter = new MemoryAdapter<Profile>()
+    return new AuthEngine<Profile>({
+      baseUrl: 'https://x',
+      hijack: { onUserAgentChange: 'revoke' },
+      limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
+      providers: [mfaProvider()],
+      stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+      transport: new CookieTransport({ name: 'duck-sid', secure: false }),
+    })
+  }
+
+  /** `'served'`, or what the wrapper refused the request with. */
+  async function answer(auth: AuthEngine<Profile>, sid: string, caller: CallerFingerprint): Promise<unknown> {
+    let outcome: unknown = 'served'
+    await expressActorContext(auth, { getCaller: expressCaller })(expressReq(sid, caller), expressRes, (err) => {
+      if (err) outcome = err
+    })
+    return outcome
+  }
+
+  async function stepUp(auth: AuthEngine<Profile>, sid: string, caller: CallerFingerprint = {}): Promise<string> {
+    const { identityId } = await auth.sessions.getBySid(sid)
+    const { secret } = await auth.mfa.beginTotpEnrollment(identityId ?? '', 'a@x.com')
+    const step = Math.floor(Date.now() / 30_000)
+    await auth.mfa.confirmTotpEnrollment(identityId ?? '', totpAt(secret, step))
+    const code = totpAt(secret, step + 1)
+    return (await auth.flows.completeStepUp({ code, currentSid: sid, method: 'totp', ...caller })).sid
+  }
+
+  async function impersonate(auth: AuthEngine<Profile>, sid: string): Promise<string> {
+    const target = await auth.identities.create({ profile: { email: 'target@x.com', username: 'target' } })
+    const authorize = async () => true
+    return (await auth.flows.impersonate({ authorize, realSid: sid, reason: 'support', targetIdentityId: target.id }))
+      .sid
+  }
+
+  const ROTATIONS: Array<[string, (auth: AuthEngine<Profile>, sid: string) => Promise<string>]> = [
+    ['a step-up', (auth, sid) => stepUp(auth, sid)],
+    ['an impersonation', impersonate],
+    [
+      'the release of one',
+      async (auth, sid) => (await auth.flows.releaseImpersonation(await impersonate(auth, sid))).sid ?? '',
+    ],
+  ]
+
+  it.each(ROTATIONS)('holds %s to the browser that signed in', async (_, rotate) => {
+    const auth = buildRotatingAuth()
+    const sid = await rotate(auth, await signIn(auth))
+
+    expect(await answer(auth, sid, SIGNED_IN)).toBe('served')
+    expect(await answer(auth, sid, THIEF)).toMatchObject({
+      code: 'AUTH_SESSION_REVOKED',
+      meta: { reason: 'hijack-policy' },
+    })
+  })
+
+  it('moves the baseline to the browser that proved the factor, once completeStepUp is handed it', async () => {
+    const auth = buildRotatingAuth()
+    const updated = { ...SIGNED_IN, userAgent: 'Mozilla/5.0 (the same browser, updated)' }
+    const sid = await stepUp(auth, await signIn(auth), updated)
+
+    expect(await answer(auth, sid, updated)).toBe('served')
+    expect(await answer(auth, sid, SIGNED_IN)).toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
   })
 })

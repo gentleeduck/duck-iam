@@ -6,17 +6,19 @@ import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
+import { isRecord } from '~/core/predicates'
 import {
   type ActorOptions,
   type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
-  extractSetCookies,
   isValidProviderId,
   nodeHeadersToFetch,
+  oauthCallback,
   parseProviderBeginBody,
   parseSignInBody,
+  redirectForScript,
   requestSecurity,
 } from '../generic'
 
@@ -29,7 +31,7 @@ const toFetchHeaders: (headers: FastifyAdapter.Request['headers']) => Headers = 
  *  the reply, so a handler can `return` it straight. */
 async function forward(response: Response, reply: FastifyAdapter.Reply): Promise<FastifyAdapter.Reply> {
   reply.status(response.status)
-  for (const cookie of extractSetCookies(response)) {
+  for (const cookie of response.headers.getSetCookie()) {
     reply.header('set-cookie', cookie)
   }
   response.headers.forEach((value, key) => {
@@ -54,7 +56,8 @@ function handleError(err: unknown, reply: FastifyAdapter.Reply): FastifyAdapter.
 export function fastifySignIn(auth: AuthEngine): FastifyAdapter.Handler {
   return async (req, reply) => {
     try {
-      await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method })
+      const headers = toFetchHeaders(req.headers)
+      await csrfGuard(auth, { headers, method: req.method })
       const parsed = parseSignInBody(req.body)
       if (!parsed) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), reply)
@@ -62,6 +65,7 @@ export function fastifySignIn(auth: AuthEngine): FastifyAdapter.Handler {
       const result = await auth.flows.signIn({
         ...parsed,
         ...fastifyCaller(req),
+        previousSid: auth.transport.extract({ headers }) ?? undefined,
       })
       return forward(executeIntents(result.intents), reply)
     } catch (err) {
@@ -112,8 +116,9 @@ export function fastifySession(auth: AuthEngine): FastifyAdapter.Handler {
 export function fastifyProviderBegin(auth: AuthEngine): FastifyAdapter.Handler {
   return async (req, reply) => {
     try {
-      await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method })
-      const id = req.params?.id
+      const headers = toFetchHeaders(req.headers)
+      await csrfGuard(auth, { headers, method: req.method })
+      const id = isRecord(req.params) ? req.params.id : undefined
       if (!isValidProviderId(id)) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }]), reply)
       }
@@ -121,8 +126,21 @@ export function fastifyProviderBegin(auth: AuthEngine): FastifyAdapter.Handler {
       if (body === null) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), reply)
       }
-      const intents = await auth.flows.beginProvider(id, body)
-      return forward(executeIntents(intents), reply)
+      return forward(executeIntents(redirectForScript(await auth.flows.beginProvider(id, body), headers)), reply)
+    } catch (err) {
+      return handleError(err, reply)
+    }
+  }
+}
+
+/** Fastify handler for the oauth callback, GET and POST. A form post needs a urlencoded body parser,
+ *  `@fastify/formbody` or your own, or Fastify answers it 415. See {@link oauthCallback}. */
+export function fastifyProviderCallback(auth: AuthEngine): FastifyAdapter.Handler {
+  return async (req, reply) => {
+    try {
+      const id = isRecord(req.params) ? req.params.id : undefined
+      const request = { body: req.body, cookie: req.headers.cookie, method: req.method, url: req.url }
+      return forward(executeIntents(await oauthCallback(auth, id, request, fastifyCaller(req))), reply)
     } catch (err) {
       return handleError(err, reply)
     }
@@ -144,6 +162,8 @@ export function registerFastify(
   fastify.post(`${prefix}/signout`, fastifySignOut(auth))
   fastify.get(`${prefix}/session`, fastifySession(auth))
   fastify.post(`${prefix}/providers/:id/begin`, fastifyProviderBegin(auth))
+  fastify.get(`${prefix}/providers/:id/callback`, fastifyProviderCallback(auth))
+  fastify.post(`${prefix}/providers/:id/callback`, fastifyProviderCallback(auth))
 }
 
 /** The fingerprint Fastify resolved, the same pair {@link fastifySignIn} stamps at sign-in. */
@@ -151,15 +171,17 @@ export function fastifyCaller(req: FastifyAdapter.Request): CallerFingerprint {
   return callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] })
 }
 
-export type FastifyActorOptions = ActorOptions<FastifyAdapter.Request>
+/** {@link ActorOptions} over Fastify's request. */
+export type FastifyActorOptions<Req extends FastifyAdapter.Request = FastifyAdapter.Request> = ActorOptions<Req>
 
 /** Wrap one handler so its writes carry the request's actor; per-handler, since Fastify composes no
- *  `next`. See `core/actor/README.md` for what runs unbound and what raises. */
-export function fastifyWithActor(
+ *  `next`. A handler annotated with Fastify's own request and reply types keeps them. See
+ *  `core/actor/README.md` for what runs unbound and what raises. */
+export function fastifyWithActor<Req extends FastifyAdapter.Request, Reply extends FastifyAdapter.Reply, Out>(
   auth: AuthEngine,
-  handler: FastifyAdapter.Handler,
-  opts: FastifyActorOptions = {},
-): FastifyAdapter.Handler {
+  handler: (req: Req, reply: Reply) => Promise<Out>,
+  opts: FastifyActorOptions<Req> = {},
+): (req: Req, reply: Reply) => Promise<Out> {
   return (req, reply) =>
     withRequestActor(
       auth,
@@ -175,11 +197,8 @@ export function fastifyCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): Fas
     try {
       await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method }, opts)
     } catch (err) {
-      // SECURITY: `await`, because Fastify's Reply is thenable and awaiting it is what waits for the send.
-      // Dropping it resolved the hook with the response still in flight, Fastify ran the chain on, and the
-      // protected handler executed after the 403 had been written - the request refused on the wire and the
-      // write performed anyway, which is the whole of what a CSRF attack is after. Returning the reply does
-      // not help; only awaiting it does.
+      // SECURITY: `await`: Fastify's Reply is thenable, and only awaiting it stops the handler running after
+      // the 403.
       await handleError(err, reply)
     }
   }

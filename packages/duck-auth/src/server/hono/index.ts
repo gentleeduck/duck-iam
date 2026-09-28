@@ -12,22 +12,22 @@ import {
   executeIntents,
   isValidProviderId,
   jsonResponse,
+  oauthCallback,
   parseBodyStringField,
   parseProviderBeginBody,
   parseSignInBody,
+  readBodyJson,
+  readBodyText,
+  redirectForScript,
   requestSecurity,
 } from '../generic'
+import type { HonoAdapter, MountHono } from './hono.types'
 
 /** Hono exposes no resolved address, so `ctx.ip` is whatever the app chose to put there. */
 export function honoCaller(ctx: { ip?: string; req: { header: (n?: string) => unknown } }): CallerFingerprint {
   const ua = ctx.req.header('user-agent')
   return callerContext({ ip: ctx.ip, userAgent: typeof ua === 'string' ? ua : undefined })
 }
-
-import type { HonoAdapter, MountHono } from './hono.types'
-
-/** Apple's form post is 1-2KB; the cap is what stops a public route buffering an arbitrary body. */
-const OAUTH_FORM_POST_MAX_BYTES = 8 * 1024
 
 function reqHeaders(ctx: HonoAdapter.Context): Headers {
   return ctx.req.raw.headers
@@ -42,11 +42,15 @@ export function honoSignIn(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
       await csrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
-      const parsed = parseSignInBody(await ctx.req.json().catch(() => null))
+      const parsed = parseSignInBody(await readBodyJson(ctx.req.raw))
       if (!parsed) {
         return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
       }
-      const result = await auth.flows.signIn({ ...parsed, ...honoCaller(ctx) })
+      const result = await auth.flows.signIn({
+        ...parsed,
+        ...honoCaller(ctx),
+        previousSid: auth.transport.extract({ headers: reqHeaders(ctx) }) ?? undefined,
+      })
       return executeIntents(result.intents)
     } catch (err) {
       return errorResponse(err)
@@ -93,12 +97,11 @@ export function honoProviderBegin(auth: AuthEngine): HonoAdapter.Handler {
       if (!isValidProviderId(id)) {
         return executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }])
       }
-      const body = parseProviderBeginBody(await ctx.req.json().catch(() => null))
+      const body = parseProviderBeginBody(await readBodyJson(ctx.req.raw))
       if (body === null) {
         return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
       }
-      const intents = await auth.flows.beginProvider(id, body)
-      return executeIntents(intents)
+      return executeIntents(redirectForScript(await auth.flows.beginProvider(id, body), reqHeaders(ctx)))
     } catch (err) {
       return errorResponse(err)
     }
@@ -106,19 +109,10 @@ export function honoProviderBegin(auth: AuthEngine): HonoAdapter.Handler {
 }
 
 /** Convert a native Hono Context into the structural {@link HonoAdapter.Context}. */
-export function toHonoAdapterCtx(c: {
-  req: {
-    method: string
-    url: string
-    raw: Request
-    json: () => Promise<unknown>
-    param: (n: string) => string | undefined
-    header: (n?: string) => unknown
-  }
-}): HonoAdapter.Context {
+export function toHonoAdapterCtx(c: MountHono.HonoCtx): HonoAdapter.Context {
   return {
     req: {
-      header: ((name?: string) => {
+      header: (name?: string) => {
         if (name === undefined) {
           const out: Record<string, string> = {}
           c.req.raw.headers.forEach((v, k) => {
@@ -126,68 +120,47 @@ export function toHonoAdapterCtx(c: {
           })
           return out
         }
-        return c.req.header(name) as string | undefined
-      }) as HonoAdapter.Context['req']['header'],
-      json: () => c.req.json(),
+        const value = c.req.header(name)
+        return typeof value === 'string' ? value : undefined
+      },
       method: c.req.method,
-      param: (n: string) => c.req.param(n) as string | undefined,
+      param: (n: string) => c.req.param(n),
       raw: c.req.raw,
       url: c.req.url,
     },
   }
 }
 
-/** Register every duck-auth route on a Hono `app`. `opts.skip` omits route groups. `opts.cors` is inert:
- *  mount `hono/cors` on the app yourself. */
-export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.Options = {}): void {
+/** Register every duck-auth route on a Hono `app`. `opts.skip` omits route groups. CORS is the app's to
+ *  mount, with `hono/cors`. A body past 100 KiB is refused unread. */
+export function mountHono<C extends MountHono.HonoCtx = MountHono.HonoCtx>(
+  app: MountHono.App<C>,
+  auth: AuthEngine,
+  opts: MountHono.Options<C> = {},
+): void {
   const prefix = opts.prefix ?? '/auth'
   const skip = new Set(opts.skip ?? [])
 
-  app.post(`${prefix}/signin`, (c) => honoSignIn(auth)(toHonoAdapterCtx(c)))
+  app.post(`${prefix}/signin`, (c) => honoSignIn(auth)({ ...toHonoAdapterCtx(c), ip: opts.ip?.(c) }))
   app.post(`${prefix}/signout`, (c) => honoSignOut(auth)(toHonoAdapterCtx(c)))
   app.get(`${prefix}/session`, (c) => honoSession(auth)(toHonoAdapterCtx(c)))
   app.post(`${prefix}/providers/:id/begin`, (c) => honoProviderBegin(auth)(toHonoAdapterCtx(c)))
 
   if (!skip.has('oauth')) {
-    const oauthCallback = async (c: MountHono.HonoCtx): Promise<Response> => {
-      const provider = c.req.param('provider')
-      if (typeof provider !== 'string' || provider.length === 0) {
-        return executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }])
-      }
-      const url = new URL(c.req.url)
-      let code = url.searchParams.get('code') ?? ''
-      let state = url.searchParams.get('state') ?? ''
-      if (c.req.method === 'POST') {
-        // `response_mode=form_post`, which Apple uses as soon as any scope is requested: the parameters
-        // arrive as a urlencoded body rather than a query string, and no adapter mounted a POST that could
-        // receive one. Capped because this is a public route and `text()` is otherwise unbounded; a
-        // truncated body fails the state check, which is the direction to fail in.
-        const body = await c.req.raw.text().catch(() => '')
-        const form = new URLSearchParams(body.slice(0, OAUTH_FORM_POST_MAX_BYTES))
-        code = form.get('code') ?? ''
-        state = form.get('state') ?? ''
-      }
-      // The provider reads its own cookie out of this. Without it every callback is refused, which
-      // is the right direction to fail but not a good way to find out.
-      const cookie = c.req.header('cookie')
-      const cookieHeader = typeof cookie === 'string' ? cookie : ''
+    const callback = async (c: C): Promise<Response> => {
       try {
-        const result = await auth.flows.signIn({
-          input: { code, cookieHeader, state },
-          providerId: provider,
-          ...honoCaller(c),
-        })
-        return executeIntents(result.intents)
+        const body = c.req.method === 'POST' ? ((await readBodyText(c.req.raw)) ?? '') : undefined
+        const req = { body, cookie: c.req.header('cookie'), method: c.req.method, url: c.req.url }
+        return executeIntents(
+          await oauthCallback(auth, c.req.param('id'), req, honoCaller({ ip: opts.ip?.(c), req: c.req })),
+        )
       } catch (err) {
         return errorResponse(err)
       }
     }
-    app.get(`${prefix}/providers/:provider/callback`, oauthCallback)
-    // SECURITY: deliberately not behind `csrfGuard`. This POST is cross-site by construction - it is the
-    // IdP's form submitting to us - so an origin check refuses every real Apple sign-in. What authenticates
-    // it is the signed `state` plus the `binding` cookie digest inside it, which is the same proof the GET
-    // callback rests on and does not depend on the request's origin.
-    app.post(`${prefix}/providers/:provider/callback`, oauthCallback)
+    // Not CSRF-guarded, the POST included: see `oauthCallback`.
+    app.get(`${prefix}/providers/:id/callback`, callback)
+    app.post(`${prefix}/providers/:id/callback`, callback)
   }
 
   if (!skip.has('magic-link')) {
@@ -195,7 +168,12 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
       const url = new URL(c.req.url)
       const token = url.searchParams.get('token') ?? ''
       try {
-        const result = await auth.flows.signIn({ input: { token }, providerId: 'magic-link', ...honoCaller(c) })
+        const result = await auth.flows.signIn({
+          input: { token },
+          providerId: 'magic-link',
+          ...honoCaller({ ip: opts.ip?.(c), req: c.req }),
+          previousSid: auth.transport.extract(c.req.raw) ?? undefined,
+        })
         return executeIntents(result.intents)
       } catch (err) {
         return errorResponse(err)
@@ -209,7 +187,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         // Guarded like `/signin` and `/providers/:id/begin`, which these two mirror. An unauthenticated
         // request still gets the double-submit check, against the cookie alone.
         await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
-        const body = parseProviderBeginBody(await c.req.json().catch(() => null))
+        const body = parseProviderBeginBody(await readBodyJson(c.req.raw))
         if (body === null) {
           return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
         }
@@ -222,8 +200,13 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     app.post(`${prefix}/passkey/complete`, async (c) => {
       try {
         await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
-        const body: unknown = await c.req.json().catch(() => ({}))
-        const result = await auth.flows.signIn({ input: body, providerId: 'passkey', ...honoCaller(c) })
+        const body = (await readBodyJson(c.req.raw)) ?? {}
+        const result = await auth.flows.signIn({
+          input: body,
+          providerId: 'passkey',
+          ...honoCaller({ ip: opts.ip?.(c), req: c.req }),
+          previousSid: auth.transport.extract(c.req.raw) ?? undefined,
+        })
         return executeIntents(result.intents)
       } catch (err) {
         return errorResponse(err)
@@ -240,7 +223,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
-        const raw = await c.req.json().catch(() => null)
+        const raw = await readBodyJson(c.req.raw)
         const label = parseBodyStringField(raw, 'label', 128)
         if (label === null) {
           return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
@@ -261,7 +244,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
-        const raw = await c.req.json().catch(() => null)
+        const raw = await readBodyJson(c.req.raw)
         const code = parseBodyStringField(raw, 'code', 64)
         if (code === null) {
           return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
@@ -280,7 +263,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
-        const raw = await c.req.json().catch(() => null)
+        const raw = await readBodyJson(c.req.raw)
         const code = parseBodyStringField(raw, 'code', 64)
         if (code === null) {
           return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
@@ -342,18 +325,26 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
   }
 }
 
+/** {@link ActorOptions} over Hono's context. */
 export type HonoActorOptions = ActorOptions<HonoAdapter.Context>
 
 /** Bind the request's actor scope for everything downstream; install it above your own routes,
  *  alongside the CSRF guard. See `core/actor/README.md` for what runs unbound and what raises. */
 export function honoActorContext(auth: AuthEngine, opts: HonoActorOptions = {}): HonoAdapter.Middleware {
   return async (ctx, next) => {
-    await withRequestActor(
-      auth,
-      { headers: ctx.req.raw.headers },
-      () => next(),
-      requestSecurity(auth, { caller: opts.getCaller?.(ctx), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
-    )
+    try {
+      await withRequestActor(
+        auth,
+        { headers: ctx.req.raw.headers },
+        () => next(),
+        requestSecurity(auth, { caller: opts.getCaller?.(ctx), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
+      )
+    } catch (err) {
+      // A refusal is answered here, since Hono's default `onError` answers any throw with a 500. A
+      // failure is still raised to it.
+      if (err instanceof AuthError && err.status < 500) return errorResponse(err)
+      throw err
+    }
     return undefined
   }
 }

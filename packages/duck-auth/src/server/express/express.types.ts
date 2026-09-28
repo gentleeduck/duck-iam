@@ -8,6 +8,8 @@ export namespace ExpressAdapter {
     ip?: string
     headers: Record<string, string | string[] | undefined>
     body?: unknown
+    /** Route params, percent-decoded by Express. A wildcard's is an array. */
+    params?: Record<string, string | string[]>
   }
 
   /** Minimal duck-typed Express response subset. */

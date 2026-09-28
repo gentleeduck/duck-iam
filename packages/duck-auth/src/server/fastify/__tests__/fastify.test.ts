@@ -82,7 +82,7 @@ describe('Fastify adapter', () => {
   it('signIn rejects missing providerId with INVALID_CREDENTIALS 400', async () => {
     const handler = fastifySignIn(auth)
     const reply = makeReply()
-    await handler({ method: 'POST', url: '/AUTH/signin', headers: {}, body: {} } as FastifyAdapter.Request, reply)
+    await handler({ method: 'POST', url: '/AUTH/signin', headers: {}, body: {} }, reply)
     expect(reply._status).toBe(400)
     expect(reply._body).toContain('AUTH_INVALID_CREDENTIALS')
   })
@@ -103,7 +103,7 @@ describe('Fastify adapter', () => {
           providerId: 'password',
           input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
         },
-      } as FastifyAdapter.Request,
+      },
       reply,
     )
     expect(reply._status).toBe(200)
@@ -115,7 +115,7 @@ describe('Fastify adapter', () => {
   it('session returns null body when no cookie', async () => {
     const handler = fastifySession(auth)
     const reply = makeReply()
-    await handler({ method: 'GET', url: '/AUTH/session', headers: {} } as FastifyAdapter.Request, reply)
+    await handler({ method: 'GET', url: '/AUTH/session', headers: {} }, reply)
     expect(reply._status).toBe(200)
     expect(JSON.parse(reply._body!)).toEqual({ session: null, identity: null })
   })
@@ -123,7 +123,7 @@ describe('Fastify adapter', () => {
   it('signOut clears the cookie even without a session', async () => {
     const handler = fastifySignOut(auth)
     const reply = makeReply()
-    await handler({ method: 'POST', url: '/AUTH/signout', headers: {} } as FastifyAdapter.Request, reply)
+    await handler({ method: 'POST', url: '/AUTH/signout', headers: {} }, reply)
     const cookies = reply._headers.get('set-cookie') ?? []
     expect(cookies.length).toBeGreaterThan(0)
     expect(cookies[0]).toMatch(/Max-Age=0/i)
@@ -139,7 +139,7 @@ describe('Fastify adapter', () => {
         headers: {},
         body: {},
         params: {},
-      } as FastifyAdapter.Request,
+      },
       reply,
     )
     expect(reply._status).toBe(400)

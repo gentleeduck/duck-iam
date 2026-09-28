@@ -1,10 +1,12 @@
 /** The Koa context surface the adapter touches. */
 export namespace KoaAdapter {
+  /** A route handler. */
   export type Handler = (ctx: KoaAdapter.Context) => Promise<void>
 
   /** Koa middleware. Skipping `next()` halts the chain. */
   export type Middleware = (ctx: KoaAdapter.Context, next: () => Promise<void>) => Promise<void>
 
+  /** The Koa context fields the adapter reads and writes. */
   export type Context = {
     request: {
       method: string
