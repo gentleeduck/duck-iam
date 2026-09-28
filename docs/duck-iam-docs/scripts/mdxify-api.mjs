@@ -33,8 +33,10 @@ function toPlainText(line) {
 }
 
 // Drops the type parameter list: `Class: Foo<T extends ...>` reads as `Class: Foo`, inside the site's 99-char title cap.
+// A heading that is only `<internal>` keeps it, or the page ends up with no title.
 function unescapeTitle(line) {
-  return toPlainText(line.replace(/^#\s+/, '')).replace(/<.*>$/, '')
+  const plain = toPlainText(line.replace(/^#\s+/, ''))
+  return plain.replace(/<.*>$/, '') || plain
 }
 
 function yamlString(value) {
