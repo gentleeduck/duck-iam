@@ -1,0 +1,28 @@
+{
+  "name": "@examples/duck-auth-shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./schema": "./src/schema.ts",
+    "./auth": "./src/auth.ts",
+    "./seed": "./src/seed.ts",
+    "./body": "./src/body.ts",
+    "./db": "./src/db.ts",
+    "./session": "./src/session.ts",
+    "./signup": "./src/signup.ts"
+  },
+  "scripts": {
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@gentleduck/auth": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.21.0",
+    "bun-types": "^1.3.10",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^7.0.2"
+  }
+}
