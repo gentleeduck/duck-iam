@@ -30,9 +30,8 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
     fetch: opts.fetch,
   })
   return oProvider<Profile>({
-    providerId: 'authMicrosoft',
+    providerId: 'microsoft',
     client,
-    endpoints,
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     nonceStore: opts.nonceStore,
@@ -46,7 +45,7 @@ export function microsoft<Profile extends Identities.ProfileMetadataBase = Ident
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
-          providerId: 'authMicrosoft',
+          providerId: 'microsoft',
           detail: 'Microsoft userinfo missing sub',
         })
       }

@@ -30,14 +30,14 @@ function makeClient(over: Partial<Saml.Client> = {}): Saml.Client {
     getAuthorizeUrlAsync: vi.fn(async () => 'https://idp.example/sso?SAMLRequest=AAA'),
     validatePostResponseAsync: vi.fn(async () => ({
       loggedOut: false,
-      profile: { nameID: 'sso-user-1' } as Saml.Profile,
+      profile: { nameID: 'sso-user-1' },
     })),
     ...over,
   }
 }
 
 /** A provider plus the calls its onSignIn hook received. */
-function makeProvider(over: Partial<Saml.Options<MyProfile>> = {}, client = makeClient()) {
+function makeProvider(over: Partial<Saml.Options> = {}, client = makeClient()) {
   const signIns: Array<{ profile: Saml.Profile; tenantId?: string }> = []
   const provider = saml<MyProfile>({
     // The suite's default is the unsolicited flow, so every test that is not about the binding can
@@ -114,7 +114,7 @@ describe('what ties a response to the request that started it', () => {
     const client = makeClient({
       validatePostResponseAsync: vi.fn(async () => ({
         loggedOut: false,
-        profile: { ID: '_assertion-1', nameID: 'sso-user-1' } as Saml.Profile,
+        profile: { ID: '_assertion-1', nameID: 'sso-user-1' },
       })),
     })
     const { provider, signIns } = makeProvider(
@@ -161,7 +161,7 @@ describe('what ties a response to the request that started it', () => {
       makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
           loggedOut: false,
-          profile: { ID: '   ', nameID: 'sso-user-1' } as Saml.Profile,
+          profile: { ID: '   ', nameID: 'sso-user-1' },
         })),
       }),
     )
@@ -212,7 +212,7 @@ describe('the assurance level the session is given', () => {
       makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
           loggedOut: false,
-          profile: { ...(authnContext !== undefined && { authnContext }), nameID: 'sso-user-1' } as Saml.Profile,
+          profile: { ...(authnContext !== undefined && { authnContext }), nameID: 'sso-user-1' },
         })),
       })
 
@@ -246,7 +246,8 @@ describe('the assurance level the session is given', () => {
 
 describe('the profile the IdP asserts', () => {
   const withProfile = (profile: unknown) =>
-    makeClient({ validatePostResponseAsync: vi.fn(async () => ({ loggedOut: false, profile: profile as never })) })
+    // @ts-expect-error whatever the IdP asserts, not only a well-formed profile
+    makeClient({ validatePostResponseAsync: vi.fn(async () => ({ loggedOut: false, profile })) })
 
   it('refuses a blank or oversize nameID', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
@@ -287,32 +288,12 @@ describe('the profile the IdP asserts', () => {
     await expect(opted.complete(ctxFor(adapter), { SAMLResponse: 'x' })).resolves.toBeDefined()
   })
 
-  it('calls profileToIdentityProfile, and refuses the sign-in when it rejects the profile', async () => {
-    const adapter = new MemoryAdapter<MyProfile>()
-    const project = vi.fn(() => ({}) as MyProfile)
-    const { provider, signIns } = makeProvider({ profileToIdentityProfile: project })
-
-    await provider.complete(ctxFor(adapter), { SAMLResponse: 'x' })
-    expect(project).toHaveBeenCalledWith(expect.objectContaining({ nameID: 'sso-user-1' }))
-    expect(signIns[0]?.profile).toMatchObject({ nameID: 'sso-user-1' })
-
-    const refusing = makeProvider({
-      profileToIdentityProfile: () => {
-        throw new Error('attribute set is not one this app accepts')
-      },
-    }).provider
-    await expect(refusing.complete(ctxFor(adapter), { SAMLResponse: 'x' })).rejects.toMatchObject({
-      code: 'AUTH_PROVIDER_FAILED',
-    })
-  })
-
   it('passes only the attributes the SP declared, once it declares any', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const attributes = { email: 'victim@corp.example', isAdmin: 'true', roles: ['owner', 'billing'] }
     const client = withProfile({ attributes, nameID: 'sso-user-1' })
 
-    // Absent a declaration, everything the assertion carried still reaches the hooks, which is what
-    // `profileToIdentityProfile` is now called to sanitise.
+    // Absent a declaration, everything the assertion carried still reaches the hooks.
     const open = makeProvider({}, client)
     await open.provider.complete(ctxFor(adapter), { SAMLResponse: 'x' })
     expect(open.signIns[0]?.profile.attributes).toEqual(attributes)
@@ -430,7 +411,7 @@ describe('what a failed attempt tells the caller', () => {
     const events = new InMemoryEvents()
     const seen: Array<{ reason: string }> = []
     events.on('signin.failed', (p) => {
-      seen.push(p as never)
+      seen.push(p)
     })
     const { provider } = makeProvider(
       {},
@@ -484,7 +465,7 @@ describe('what a failed attempt tells the caller', () => {
     const events = new InMemoryEvents()
     const seen: Array<{ reason: string }> = []
     events.on('signin.failed', (p) => {
-      seen.push(p as never)
+      seen.push(p)
     })
     const { provider } = makeProvider({
       onSignIn: async () => {

@@ -9,9 +9,11 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import type { Identities } from '~/core/identities'
+import type { Provider } from '~/core/provider/provider.types'
 import { MemoryLimiter } from '~/limiters/memory'
 import { ScryptHasher } from '../hashers/scrypt'
 import { passwordsImpl } from '../passwords'
+import type { Passwords } from '../passwords.types'
 
 interface ProfileShape extends Identities.ProfileMetadataBase {}
 
@@ -19,11 +21,15 @@ const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
 
 describe('the sign-in cap follows maxLength', () => {
   let adapter: MemoryAdapter<ProfileShape>
-  let ctx: Record<string, unknown>
+  let ctx: Provider.Context<ProfileShape>
 
   beforeEach(async () => {
     adapter = new MemoryAdapter<ProfileShape>()
-    await adapter.identities.create({ profile: { email: 'alice@x.com', username: 'alice' }, providers: [] } as never)
+    await adapter.identities.create({
+      emailVerified: false,
+      profile: { email: 'alice@x.com', username: 'alice' },
+      providers: [],
+    })
     ctx = {
       baseUrl: 'https://x',
       crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
@@ -43,22 +49,55 @@ describe('the sign-in cap follows maxLength', () => {
     const long = 'x'.repeat(1500)
     await provider.set(identity.id, long, adapter.credentials)
 
-    await expect(provider.complete(ctx as never, { email: 'alice@x.com', password: long })).resolves.toMatchObject([
+    await expect(provider.complete(ctx, { email: 'alice@x.com', password: long })).resolves.toMatchObject([
       { identityId: identity.id, type: 'startSession' },
     ])
   })
 
   it('still refuses one past the default when the setting is left alone', async () => {
     const provider = passwordsImpl({ hasher: fastHasher })
-    await expect(
-      provider.complete(ctx as never, { email: 'alice@x.com', password: 'x'.repeat(1025) }),
-    ).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
+    await expect(provider.complete(ctx, { email: 'alice@x.com', password: 'x'.repeat(1025) })).rejects.toMatchObject({
+      code: 'AUTH_INVALID_CREDENTIALS',
+    })
   })
 
   it('refuses one past a lowered setting', async () => {
     const provider = passwordsImpl({ hasher: fastHasher, maxLength: 64 })
-    await expect(
-      provider.complete(ctx as never, { email: 'alice@x.com', password: 'x'.repeat(65) }),
-    ).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
+    await expect(provider.complete(ctx, { email: 'alice@x.com', password: 'x'.repeat(65) })).rejects.toMatchObject({
+      code: 'AUTH_INVALID_CREDENTIALS',
+    })
+  })
+})
+
+describe('a length it cannot enforce is refused', () => {
+  it('refuses one that is not a whole number, which a variable left unset makes NaN', () => {
+    const cases: Array<Partial<Passwords.Cfg>> = [
+      { minLength: Number.NaN },
+      { compliance: 'hipaa', minLength: Number.NaN },
+      { maxLength: Number.NaN },
+      { minLength: 8.5 },
+      { minLength: 0 },
+      { maxLength: 7 },
+    ]
+    for (const cfg of cases) {
+      expect(() => passwordsImpl({ hasher: fastHasher, ...cfg }), String(Object.entries(cfg))).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+    }
+  })
+
+  it('holds a compliance floor over a lower minLength', async () => {
+    const adapter = new MemoryAdapter<ProfileShape>()
+    const identity = await adapter.identities.create({
+      emailVerified: false,
+      profile: { email: 'bob@x.com', username: 'bob' },
+      providers: [],
+    })
+    const provider = passwordsImpl({ compliance: 'hipaa', hasher: fastHasher, minLength: 8 })
+    await expect(provider.set(identity.id, 'x'.repeat(11), adapter.credentials)).rejects.toMatchObject({
+      code: 'AUTH_INVALID_CREDENTIALS',
+    })
+    await provider.set(identity.id, 'x'.repeat(12), adapter.credentials)
+    await expect(provider.verify(identity.id, 'x'.repeat(12), adapter.credentials)).resolves.toMatchObject({ ok: true })
   })
 })

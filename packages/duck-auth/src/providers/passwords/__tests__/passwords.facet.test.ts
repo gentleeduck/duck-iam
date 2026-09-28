@@ -23,6 +23,12 @@ describe('PasswordsFacet', () => {
       })
     })
 
+    it('rejects a password that is not a string as AUTH_INVALID_CREDENTIALS, not a TypeError', async () => {
+      await expect(Reflect.apply(facet.set, facet, ['u', undefined, adapter.credentials])).rejects.toMatchObject({
+        code: 'AUTH_INVALID_CREDENTIALS',
+      })
+    })
+
     it('rejects common passwords as AUTH_INVALID_CREDENTIALS', async () => {
       await expect(facet.set('u', 'password1', adapter.credentials)).rejects.toMatchObject({
         code: 'AUTH_INVALID_CREDENTIALS',

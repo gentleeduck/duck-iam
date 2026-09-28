@@ -20,7 +20,7 @@ async function enrolled(): Promise<{
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
   identityId: string
-  codes: string[]
+  code: string
   escalations: Events.EventMap['recovery.mfa.escalated'][]
 }> {
   const adapter = new MemoryAdapter<MyProfile>()
@@ -37,16 +37,16 @@ async function enrolled(): Promise<{
   })
   const email = `a${seq++}@x.com`
   const ident = await auth.identities.create({ profile: { email, username: email } })
-  const codes = await auth.mfa.regenerateBackupCodes(ident.id)
-  return { adapter, auth, codes, escalations, identityId: ident.id }
+  const [code = ''] = await auth.mfa.regenerateBackupCodes(ident.id)
+  return { adapter, auth, code, escalations, identityId: ident.id }
 }
 
 describe('spending a backup code reaches the bus', () => {
   it('emits recovery.mfa.escalated naming the identity and the code that was spent', async () => {
-    const { adapter, auth, codes, escalations, identityId } = await enrolled()
+    const { adapter, auth, code, escalations, identityId } = await enrolled()
     const before = await adapter.credentials.listByIdentity(identityId, 'recovery', {})
 
-    expect(await auth.mfa.verifyBackupCode(identityId, codes[0] as string)).toBe(true)
+    expect(await auth.mfa.verifyBackupCode(identityId, code)).toBe(true)
 
     expect(escalations).toHaveLength(1)
     expect(escalations[0]?.identityId).toBe(identityId)
@@ -57,7 +57,7 @@ describe('spending a backup code reaches the bus', () => {
     // Read inside the handler, because the bus awaits it: a subscriber that acts on this event sees the
     // row as it stands here. Asserting after `verifyBackupCode` resolves would pass just as well with the
     // emit moved above the claim, which is the ordering that would hand a live code to a webhook.
-    const { adapter, auth, codes, identityId } = await enrolled()
+    const { adapter, auth, code, identityId } = await enrolled()
     const before = await adapter.credentials.listByIdentity(identityId, 'recovery', {})
     const secrets = new Map(before.map((r) => [r.id, r.secret]))
     let atEmit: { credentialId: string; revokedAt: unknown; secret: string } | undefined
@@ -68,11 +68,11 @@ describe('spending a backup code reaches the bus', () => {
       if (row) atEmit = { credentialId: p.credentialId, revokedAt: row.revokedAt, secret: row.secret }
     })
 
-    await auth.mfa.verifyBackupCode(identityId, codes[0] as string)
+    await auth.mfa.verifyBackupCode(identityId, code)
 
-    expect(atEmit).toBeDefined()
-    expect(atEmit?.revokedAt).not.toBeNull()
-    expect(atEmit?.secret).not.toBe(secrets.get(atEmit?.credentialId as string))
+    if (!atEmit) throw new Error('the handler saw no row for the spent code')
+    expect(atEmit.revokedAt).not.toBeNull()
+    expect(atEmit.secret).not.toBe(secrets.get(atEmit.credentialId))
   })
 
   it('stays silent on a code that matches nothing', async () => {
@@ -84,8 +84,7 @@ describe('spending a backup code reaches the bus', () => {
   })
 
   it('emits once when two verifications race for one code, not once per attempt', async () => {
-    const { auth, codes, escalations, identityId } = await enrolled()
-    const code = codes[0] as string
+    const { auth, code, escalations, identityId } = await enrolled()
 
     const both = await Promise.all([
       auth.mfa.verifyBackupCode(identityId, code),
@@ -97,7 +96,7 @@ describe('spending a backup code reaches the bus', () => {
   })
 
   it('carries through completeStepUp, which is the path a user without their device takes', async () => {
-    const { auth, codes, escalations, identityId } = await enrolled()
+    const { auth, code, escalations, identityId } = await enrolled()
     const { sid } = await auth.sessions.create({
       identityId,
       kind: 'user',
@@ -105,11 +104,7 @@ describe('spending a backup code reaches the bus', () => {
       factors: [{ method: 'password', completedAt: new Date() }],
     })
 
-    const stepped = await auth.flows.completeStepUp({
-      code: codes[0] as string,
-      currentSid: sid,
-      method: 'backup-code',
-    })
+    const stepped = await auth.flows.completeStepUp({ code, currentSid: sid, method: 'backup-code' })
 
     expect(stepped.session.aal).toBe(2)
     expect(escalations).toHaveLength(1)

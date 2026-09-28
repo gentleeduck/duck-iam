@@ -6,28 +6,30 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
+import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
-import type { Identities } from '~/core/identities'
+import type { Provider } from '~/core/provider/provider.types'
 import type { Limiter } from '~/limiters/limiters.types'
-import { apiKeysFacet, authApiKeyImpl } from '../api-key'
-import { DEFAULT_APIKEYS_CONFIG } from '../api-key.constants'
-
-interface ProfileShape extends Identities.ProfileMetadataBase {}
+import { apiKeysFacet, authApiKey } from '../api-key'
 
 /** A host limiter that reports `resetAt` as epoch milliseconds, which is what a redis or http-backed one
  *  deserialises to unless it remembers to revive the Date. */
 const epochMsLimiter: Limiter.Me = {
-  consume: async () => ({ ok: false, remaining: 0, resetAt: (Date.now() + 30_000) as unknown as Date }),
+  // @ts-expect-error epoch milliseconds where the contract says Date
+  consume: async () => ({ ok: false, remaining: 0, resetAt: Date.now() + 30_000 }),
   reset: async () => undefined,
 }
 
+/** The refusal's `retryAfter`, since only an `AuthError` carries one. */
+const retryAfter = (err: unknown): unknown => (err instanceof AuthError ? err.meta.retryAfter : undefined)
+
 describe('a spent bucket is a refusal, whatever shape the limiter reports it in', () => {
   const build = () => {
-    const adapter = new MemoryAdapter<ProfileShape>()
+    const adapter = new MemoryAdapter()
     const events = new InMemoryEvents()
-    const facet = apiKeysFacet(adapter.credentials, events, { randomToken, sha256 }, DEFAULT_APIKEYS_CONFIG)
-    const provider = authApiKeyImpl({ apiKeys: facet })
-    const ctx = {
+    const facet = apiKeysFacet(adapter.credentials, events, { randomToken, sha256 })
+    const provider = authApiKey({ apiKeys: facet })
+    const ctx: Provider.Context = {
       baseUrl: 'https://x',
       crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
       events,
@@ -40,15 +42,15 @@ describe('a spent bucket is a refusal, whatever shape the limiter reports it in'
 
   it('answers AUTH_RATE_LIMITED rather than a TypeError out of the guard', async () => {
     const { ctx, provider } = build()
-    await expect(provider.complete(ctx as never, { token: 'ak_live_whatever' })).rejects.toMatchObject({
+    await expect(provider.complete(ctx, { token: 'ak_live_whatever' })).rejects.toMatchObject({
       code: 'AUTH_RATE_LIMITED',
     })
   })
 
   it('still carries a usable retryAfter, floored at one second', async () => {
     const { ctx, provider } = build()
-    const err = await provider.complete(ctx as never, { token: 'ak_live_whatever' }).catch((e: unknown) => e)
-    expect((err as { meta?: { retryAfter?: number } }).meta?.retryAfter).toBeGreaterThanOrEqual(1)
+    const err = await provider.complete(ctx, { token: 'ak_live_whatever' }).catch((e: unknown) => e)
+    expect(retryAfter(err)).toBeGreaterThanOrEqual(1)
   })
 
   it('a well-behaved Date limiter is unchanged', async () => {
@@ -57,8 +59,8 @@ describe('a spent bucket is a refusal, whatever shape the limiter reports it in'
       consume: async () => ({ ok: false, remaining: 0, resetAt: new Date(Date.now() + 30_000) }),
       reset: async () => undefined,
     }
-    const err = await provider.complete(ctx as never, { token: 'ak_live_whatever' }).catch((e: unknown) => e)
+    const err = await provider.complete(ctx, { token: 'ak_live_whatever' }).catch((e: unknown) => e)
     expect(err).toMatchObject({ code: 'AUTH_RATE_LIMITED' })
-    expect((err as { meta?: { retryAfter?: number } }).meta?.retryAfter).toBeGreaterThan(1)
+    expect(retryAfter(err)).toBeGreaterThan(1)
   })
 })

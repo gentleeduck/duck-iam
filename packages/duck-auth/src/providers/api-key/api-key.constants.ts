@@ -13,25 +13,31 @@ export const DEFAULT_APIKEYS_CONFIG: ApiKeys.Cfg = {
  *  presented, so an attacker trying a different key each time never meets the same bucket twice. */
 export const APIKEY_MIN_RANDOM_BYTES = 16
 
+/** The longest key `verify` accepts, which bounds the hashing a presented token costs. */
+export const APIKEY_MAX_LENGTH = 512
+
 /** Fills every {@link ApiKeys.Cfg} field from the optional input and the defaults. A `compliance`
  *  preset ratchets `randomBytes` up to that preset's floor, which a caller's own value can raise
  *  further but never drop below. */
 export function toApiKeysCfg(cfg?: ApiKeys.CfgInput): ApiKeys.Cfg {
   const requested = cfg?.randomBytes ?? DEFAULT_APIKEYS_CONFIG.randomBytes
-  // SECURITY: refused here rather than floored quietly, so the mistake is answered where it was made.
-  // `randomToken(0)` returns `''` without complaint, which makes every key this facet mints the literal
-  // prefix - a constant printed in the docs - and a handful of bytes is the same problem wearing a
-  // number. Keys already issued are untouched: `verify` compares a hash and never reads a length.
+  // SECURITY: refused, not floored: `randomToken(0)` answers `''`, so every key would be the bare prefix.
   if (!Number.isInteger(requested) || requested < APIKEY_MIN_RANDOM_BYTES) {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `apiKeys: randomBytes must be a whole number of bytes >= ${APIKEY_MIN_RANDOM_BYTES}, got ${String(requested)}`,
     })
   }
   const floor = cfg?.compliance ? resolveCompliance(cfg.compliance).apiKeys.randomBytes : 0
-  return {
-    prefix: cfg?.prefix ?? DEFAULT_APIKEYS_CONFIG.prefix,
-    randomBytes: Math.max(requested, floor),
+  const prefix = cfg?.prefix ?? DEFAULT_APIKEYS_CONFIG.prefix
+  const randomBytes = Math.max(requested, floor)
+  // A longer key would be minted and then refused by `verify`.
+  const length = prefix.length + Math.ceil((randomBytes * 4) / 3)
+  if (length > APIKEY_MAX_LENGTH) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `apiKeys: prefix and randomBytes make a ${length}-character key, over the ${APIKEY_MAX_LENGTH} verify accepts`,
+    })
   }
+  return { prefix, randomBytes }
 }
 
 /**

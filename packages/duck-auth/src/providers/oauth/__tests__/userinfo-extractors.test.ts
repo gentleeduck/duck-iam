@@ -7,7 +7,7 @@ describe('getUserinfoString', () => {
   })
 
   it.each<[unknown]>([[null], [undefined], ['oops'], [42], [true], [[{ sub: 'abc' }]]])(
-    'returns undefined when info is not a plain object: %p',
+    'returns undefined when info is not a plain object: %o',
     (info) => {
       expect(getUserinfoString(info, 'sub')).toBeUndefined()
     },
@@ -21,7 +21,7 @@ describe('getUserinfoString', () => {
     [['array']],
     [{ nested: 'object' }],
     [''], // empty-string fails the non-empty contract
-  ])('returns undefined when the value is %p (non-string or empty)', (val) => {
+  ])('returns undefined when the value is %o (non-string or empty)', (val) => {
     expect(getUserinfoString({ sub: val }, 'sub')).toBeUndefined()
   })
 
@@ -66,11 +66,11 @@ describe('getUserinfoBooleanTrue', () => {
     ['yes'],
     [{}],
     [[true]],
-  ])('returns false for truthy-but-non-boolean: %p', (val) => {
+  ])('returns false for truthy-but-non-boolean: %o', (val) => {
     expect(getUserinfoBooleanTrue({ verified: val }, 'verified')).toBe(false)
   })
 
-  it.each<[unknown]>([[false], [0], [null], [undefined], ['']])('returns false for falsy values: %p', (val) => {
+  it.each<[unknown]>([[false], [0], [null], [undefined], ['']])('returns false for falsy values: %o', (val) => {
     expect(getUserinfoBooleanTrue({ verified: val }, 'verified')).toBe(false)
   })
 

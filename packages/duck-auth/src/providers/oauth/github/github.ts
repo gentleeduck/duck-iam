@@ -28,7 +28,7 @@ const GITHUB_EMAILS_ENDPOINT = 'https://api.github.com/user/emails'
 async function primaryVerifiedEmail(c: OAuthClient, accessToken: string): Promise<string | undefined> {
   let rows: unknown
   try {
-    rows = await c.authedJson(GITHUB_EMAILS_ENDPOINT, accessToken, 'authGithub')
+    rows = await c.authedJson(GITHUB_EMAILS_ENDPOINT, accessToken, 'github')
   } catch {
     return undefined
   }
@@ -53,9 +53,8 @@ export function github<Profile extends Identities.ProfileMetadataBase = Identiti
     fetch: opts.fetch,
   })
   return oProvider<Profile>({
-    providerId: 'authGithub',
+    providerId: 'github',
     client,
-    endpoints: GITHUB_ENDPOINTS,
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     nonceStore: opts.nonceStore,
@@ -70,7 +69,7 @@ export function github<Profile extends Identities.ProfileMetadataBase = Identiti
       const sub = getUserinfoNumericIdAsString(info, 'id')
       if (sub === undefined) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
-          providerId: 'authGithub',
+          providerId: 'github',
           detail: 'GitHub userinfo missing numeric id',
         })
       }

@@ -3,8 +3,9 @@ import { AuthError } from '~/core/errors'
 import type { Passkey } from '../passkey.types'
 
 export namespace RedisPasskeyChallengeStore {
+  /** The Redis challenge store's options. */
   export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
-    /** An ioredis, @upstash/redis or FakeRedis client. */
+    /** An `@upstash/redis`-shaped client or `FakeRedis`; wrap ioredis and iovalkey with `valkeyAdapter`. */
     redis: TRedis
     /** Default `auth:passkey:challenge`. */
     prefix?: string

@@ -2,6 +2,7 @@ import type { Deliver } from '~/core/flows/flows.delivery'
 
 /** Magic-link options: how the link is sent, and the token's lifetime. */
 export namespace MagicLink {
+  /** How the link is sent, how long it lives, and how an address maps to an identity. */
   export interface Options<Profile = unknown> {
     /** How the host sends the link. `createAuth` forwards `cfg.deliver` to a provider thunk. */
     deliver?: Deliver
@@ -20,10 +21,12 @@ export namespace MagicLink {
     callbackPath?: string
   }
 
+  /** What requesting a link takes. */
   export interface BeginInput {
     email: string
   }
 
+  /** What redeeming a link takes. */
   export interface CompleteInput {
     token: string
   }

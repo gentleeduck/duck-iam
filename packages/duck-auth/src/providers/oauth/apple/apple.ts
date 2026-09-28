@@ -7,6 +7,7 @@
 import { createSign } from 'node:crypto'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
+import { isRecord } from '~/core/predicates/predicates'
 import type { Provider } from '~/core/provider/provider.types'
 import { OAuthClient } from '../core/client'
 import type { OAuth } from '../core/oauth.types'
@@ -112,9 +113,8 @@ export function apple<Profile extends Identities.ProfileMetadataBase = Identitie
       }),
   })
   return oProvider<Profile>({
-    providerId: 'authApple',
+    providerId: 'apple',
     client,
-    endpoints: APPLE_ENDPOINTS,
     // Apple switches to a form post as soon as any scope is requested, and the default scopes are
     // `['name', 'email']`. Without this the callback never arrives in the shape the flow expects.
     responseMode: 'form_post',
@@ -126,14 +126,14 @@ export function apple<Profile extends Identities.ProfileMetadataBase = Identitie
     onSignIn: opts.onSignIn,
     onFederationConflict: opts.onFederationConflict,
     profileToIdentityProfile: opts.profileToIdentityProfile,
-    async fetchProfile(tokens) {
+    async fetchProfile(tokens, _client, input) {
       // Apple has no userinfo endpoint; everything is in id_token.
       if (!tokens.id_token) {
         return { sub: '' }
       }
       const claims = decodeIdToken(tokens.id_token)
       if (!claims) return { sub: '' }
-      const out: { sub: string; email?: string; emailVerified?: boolean } = { sub: claims.sub }
+      const out: { sub: string; email?: string; emailVerified?: boolean; name?: string } = { sub: claims.sub }
       if (claims.email !== undefined) {
         out.email = claims.email
         // SECURITY: the claim Apple sent, never an absent one read as `true`. This is the flag
@@ -141,6 +141,17 @@ export function apple<Profile extends Identities.ProfileMetadataBase = Identitie
         // presents its address, so defaulting it open linked on the strength of a claim that was not
         // there.
         if (claims.email_verified === true) out.emailVerified = true
+      }
+      // The `name` scope's only answer. Its `email` is not read: the id_token's is the one Apple signs.
+      if (typeof input.user === 'string') {
+        try {
+          const user: unknown = JSON.parse(input.user)
+          const n = isRecord(user) ? user.name : undefined
+          const name = [getUserinfoString(n, 'firstName'), getUserinfoString(n, 'lastName')].filter(Boolean).join(' ')
+          if (name) out.name = name
+        } catch {
+          // Unparseable: signed in without a name, as every later authorization is.
+        }
       }
       return out
     },

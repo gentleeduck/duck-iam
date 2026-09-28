@@ -1,6 +1,5 @@
 import { orNull } from '~/core/answer'
-import { toCredentialCreate } from '~/core/credentials/credentials'
-import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
+import { sha256, timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
@@ -87,12 +86,11 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
   }
 
   async begin(_ctx: Provider.Context<Profile>, input: OAuth.BeginInput): Promise<Provider.Intent[]> {
+    // SECURITY: the state travels to the IdP and back in URLs, so it carries only a digest. The PKCE
+    // verifier is the cookie, which never leaves this browser and this server.
     const pkce = generatePkce()
-    // The state is signed but not secret: it travels to the IdP and back in a URL, so it says who
-    // began a flow and not who is finishing one. This cookie is the half the IdP never sees.
-    const binding = randomToken(32)
-    const statePayload = authBuildState(this.id, pkce.verifier, {
-      binding: sha256(binding),
+    const statePayload = authBuildState(this.id, {
+      binding: sha256(pkce.verifier),
       ...(input?.returnTo !== undefined && { returnTo: input.returnTo }),
     })
     const state = signState(statePayload, this.opts.stateSigningSecret)
@@ -103,7 +101,7 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
       ...(this.opts.responseMode === 'form_post' && { extraParams: { response_mode: 'form_post' } }),
     })
     return [
-      { type: 'setCookie', name: this._cookieName, value: binding, options: this._cookieOptions },
+      { type: 'setCookie', name: this._cookieName, value: pkce.verifier, options: this._cookieOptions },
       { type: 'redirect', url, status: 302 },
     ]
   }
@@ -139,13 +137,13 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
     const tokens = await this.opts.client.exchangeCode({
       code: input.code,
       redirectUri: this.opts.redirectUri,
-      codeVerifier: verified.verifier,
+      codeVerifier: presented,
     })
     // Every refusal below is a refusal *after* the code was spent, so these tokens are live at the IdP for
     // a sign-in that is not happening. They used to be dropped on the floor, working, until they expired -
     // and the default `onFederationConflict` is `'reject'`, so that is the common path, not a corner.
     try {
-      const profile = await this.opts.fetchProfile(tokens, this.opts.client)
+      const profile = await this.opts.fetchProfile(tokens, this.opts.client, input)
       if (!profile.sub || profile.sub.length === 0) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId: this.id,
@@ -191,6 +189,7 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
             // Email matches but no sub link; silent auto-link is ATO bait.
             const policy = this.opts.onFederationConflict ?? 'reject'
             const verdict = await resolveFederationConflict(policy, {
+              existingEmailVerified: byEmail.emailVerified === true,
               existingIdentityId: byEmail.id,
               profile,
               providerId: this.id,
@@ -226,24 +225,6 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
         }
       }
 
-      if (tokens.refresh_token) {
-        const familyId = `${this.id}:${profile.sub}:${sha256(input.code).slice(0, 16)}`
-        await ctx.stores.credentials.create(
-          toCredentialCreate({
-            identityId,
-            kind: 'oauth',
-            secret: sha256(tokens.refresh_token),
-            metadata: {
-              provider: this.id,
-              sub: profile.sub,
-              familyId,
-              generation: 1,
-            } satisfies OAuth.CredentialMetadata,
-          }),
-          ctx.tenant,
-        )
-      }
-
       return [
         // Spent. The state stays verifiable until it ages out, so leaving the cookie behind leaves a
         // callback URL that still works if it is recovered from history or a referrer.
@@ -267,21 +248,23 @@ export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Iden
   }
 }
 
+/** An OAuth 2.0 provider for any IdP: an {@link OAuthClient} over its endpoints, and a `fetchProfile` that
+ *  reads the account. The six shipped providers are this with both filled in. */
 export function oProvider<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.Options<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
   return new OProviderImpl(opts)
 }
 
-/** Module-local so no caller can bypass `'link-if-verified'`, which needs both an `emailVerified` of true and
- *  an unambiguous email match. */
+/** Module-local so no caller can bypass `'link-if-verified'`, which needs the address verified on both sides.
+ *  The provider's claim alone links a victim's sign-in to an account a squatter registered on their address. */
 async function resolveFederationConflict(
   policy: OAuth.FederationPolicy,
-  ctx: { existingIdentityId: string; profile: OAuth.Profile; providerId: string },
+  ctx: OAuth.FederationConflict,
 ): Promise<'link' | 'reject'> {
   if (policy === 'reject') return 'reject'
   if (policy === 'link-if-verified') {
-    return ctx.profile.emailVerified === true ? 'link' : 'reject'
+    return ctx.profile.emailVerified === true && ctx.existingEmailVerified ? 'link' : 'reject'
   }
   // Anything other than the documented `'link' | 'reject'` is refused, so a typo'd return cannot fall through
   // to 'link', which is the dangerous one.

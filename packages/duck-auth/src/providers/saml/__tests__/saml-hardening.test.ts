@@ -30,7 +30,7 @@ function makeClient(overrides: Partial<Saml.Client> = {}): Saml.Client {
     validatePostResponseAsync: vi.fn(async () => ({
       // The default nameIDFormat is emailAddress, so an email that disagrees with the nameID is a
       // refusal, not a fixture.
-      profile: { nameID: 'user@x.com', email: 'user@x.com' } as Saml.Profile,
+      profile: { nameID: 'user@x.com', email: 'user@x.com' },
       loggedOut: false,
     })),
     ...overrides,
@@ -127,7 +127,7 @@ describe('samlProvider - input caps', () => {
       })
       await expect(
         // simulate a malformed body parsed as { relayState: 42, host: 'app.test' }
-        provider.begin(ctxFor(adapter), { relayState: 42 as unknown as string, host: 'app.test' }),
+        provider.begin(ctxFor(adapter), JSON.parse('{"relayState":42,"host":"app.test"}')),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
   })
@@ -194,9 +194,7 @@ describe('samlProvider - input caps', () => {
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
       })
-      await expect(
-        provider.complete(ctxFor(adapter), { SAMLResponse: null as unknown as string }),
-      ).rejects.toMatchObject({
+      await expect(provider.complete(ctxFor(adapter), JSON.parse('{"SAMLResponse":null}'))).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'SAMLResponse rejected' },
       })
@@ -293,7 +291,7 @@ describe('samlProvider - input caps', () => {
     it('rejects profile with empty nameID (JIT-collapse defense)', async () => {
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
-          profile: { nameID: '', email: 'u@x.com' } as Saml.Profile,
+          profile: { nameID: '', email: 'u@x.com' },
           loggedOut: false,
         })),
       })
@@ -318,7 +316,7 @@ describe('samlProvider - input caps', () => {
     it('rejects profile with non-string nameID', async () => {
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
-          profile: { nameID: 42 as unknown as string } as Saml.Profile,
+          profile: JSON.parse('{"nameID":42}'),
           loggedOut: false,
         })),
       })
@@ -345,7 +343,7 @@ describe('samlProvider - input caps', () => {
       })
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
-          profile: { nameID: '' } as Saml.Profile,
+          profile: { nameID: '' },
           loggedOut: false,
         })),
       })
@@ -369,7 +367,7 @@ describe('samlProvider - input caps', () => {
       )
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
-          profile: { nameID: 'u@x.com', email: 'u@x.com' } as Saml.Profile,
+          profile: { nameID: 'u@x.com', email: 'u@x.com' },
           loggedOut: false,
         })),
       })

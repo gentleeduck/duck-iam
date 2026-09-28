@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { orNull } from '~/core/answer'
@@ -7,6 +7,7 @@ import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
 import { Identities } from '~/core/identities'
 import { MemoryLimiter } from '~/limiters/memory'
+import { type SoftAuthenticator, softAuthenticator } from '~/test/soft-authenticator'
 import { identityInput } from '~/test/store-inputs'
 import {
   AuthMemoryPasskeyChallengeStore,
@@ -132,7 +133,26 @@ describe('passkey provider - registration', () => {
     const list = await adapter.credentials.listByIdentity(identityId, 'passkey', {})
     expect(list).toHaveLength(1)
     expect(list[0]!.secret).toBe('webauthn-cred-1')
-    expect((list[0]!.metadata as { publicKey: string }).publicKey).toBeTruthy()
+    expect(list[0]?.metadata?.publicKey).toBeTruthy()
+  })
+
+  it('completeRegistration stores the transports the library names, once each, whatever the client sent', async () => {
+    vi.mocked(mockWebauthn.verifyRegistrationResponse).mockResolvedValueOnce({
+      registrationInfo: {
+        credential: {
+          counter: 0,
+          id: 'webauthn-cred-1',
+          publicKey: new Uint8Array([1, 2, 3, 4]),
+          transports: JSON.parse('["usb", {"x": 1}, "usb", "nfc", 7]'),
+        },
+      },
+      verified: true,
+    })
+    const input = { credentialStore: adapter.credentials, identityId, sessionId: 's1', tenant: {} }
+    await beginPasskeyRegistration(opts, { ...input, userName: 'a@b.com' })
+    await completePasskeyRegistration(opts, { ...input, response: { id: 'webauthn-cred-1' } })
+    const [row] = await adapter.credentials.listByIdentity(identityId, 'passkey', {})
+    expect(row?.metadata).toMatchObject({ transports: ['usb', 'nfc'] })
   })
 
   it('completeRegistration without prior begin throws AUTH_PASSKEY_MISMATCH', async () => {
@@ -193,6 +213,120 @@ describe('passkey provider - registration', () => {
   })
 })
 
+describe('passkey provider - a credential id already registered', () => {
+  it('is refused, so the account that holds it can still sign in with it', async () => {
+    const adapter = new MemoryAdapter<ProfileShape>()
+    const owner = await adapter.identities.create(
+      identityInput({ profile: { email: 'owner@b.com', username: 'owner' }, providers: [] }),
+    )
+    const other = await adapter.identities.create(
+      identityInput({ profile: { email: 'other@b.com', username: 'other' }, providers: [] }),
+    )
+    const store = new AuthMemoryPasskeyChallengeStore()
+    let challenge = ''
+    const opts: Passkey.Options = {
+      challengeStore: {
+        put: (key, value, ttlMs) => {
+          challenge = value
+          return store.put(key, value, ttlMs)
+        },
+        take: (key) => store.take(key),
+      },
+      expectedOrigins: 'https://app.test',
+      findIdentityByEmail: async () => ({ id: owner.id }),
+      rpID: 'app.test',
+      rpName: 'Test App',
+    }
+    const register = async (identityId: string, key: SoftAuthenticator): Promise<string> => {
+      const input = { credentialStore: adapter.credentials, identityId, sessionId: identityId, tenant: {} }
+      await beginPasskeyRegistration(opts, { ...input, userName: identityId })
+      return completePasskeyRegistration(opts, { ...input, response: key.register(challenge) })
+    }
+    const owned = softAuthenticator('app.test', 'https://app.test')
+    await register(owner.id, owned)
+
+    // The id is no secret: `begin` offers it to anyone who names the owner's address.
+    const claimed = softAuthenticator('app.test', 'https://app.test', { id: owned.id })
+    await expect(register(other.id, claimed)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    await expect(register(other.id, softAuthenticator('app.test', 'https://app.test'))).resolves.toBeTruthy()
+
+    const provider = passkey(opts)
+    const ctx = makeContext(adapter)
+    await provider.begin(ctx, { email: 'owner@b.com', sessionId: 'login' })
+    await expect(provider.complete(ctx, { response: owned.assert(challenge, 1), sessionId: 'login' })).resolves.toEqual(
+      [expect.objectContaining({ identityId: owner.id, type: 'startSession' })],
+    )
+  })
+})
+
+describe('passkey provider - with the real verifier', () => {
+  let adapter: MemoryAdapter<ProfileShape>
+  let opts: Passkey.Options
+  let challenge = ''
+
+  beforeEach(() => {
+    adapter = new MemoryAdapter<ProfileShape>()
+    const store = new AuthMemoryPasskeyChallengeStore()
+    opts = {
+      challengeStore: {
+        put: (key, value, ttlMs) => {
+          challenge = value
+          return store.put(key, value, ttlMs)
+        },
+        take: (key) => store.take(key),
+      },
+      expectedOrigins: 'https://app.test',
+      findIdentityByEmail: async () => null,
+      rpID: 'app.test',
+      rpName: 'Test App',
+    }
+  })
+
+  const register = async (key: SoftAuthenticator): Promise<string> => {
+    const input = { credentialStore: adapter.credentials, identityId: 'u1', sessionId: 'reg', tenant: {} }
+    await beginPasskeyRegistration(opts, { ...input, userName: 'u1' })
+    return completePasskeyRegistration(opts, { ...input, response: key.register(challenge) })
+  }
+
+  it('refuses a key under an algorithm it did not offer, and takes one it did', async () => {
+    // ES512 is an algorithm the verifier knows and registration does not offer.
+    const es512 = softAuthenticator('app.test', 'https://app.test', { curve: 'P-521' })
+    await expect(register(es512)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    await expect(register(softAuthenticator('app.test', 'https://app.test'))).resolves.toBeTruthy()
+  })
+
+  it('takes a credential id of 1023 bytes, which then signs in, and refuses one of 1024', async () => {
+    const over = softAuthenticator('app.test', 'https://app.test', { id: randomBytes(1024).toString('base64url') })
+    await expect(register(over)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    expect(await adapter.credentials.listByIdentity('u1', 'passkey', {})).toEqual([])
+
+    const longest = softAuthenticator('app.test', 'https://app.test', { id: randomBytes(1023).toString('base64url') })
+    await register(longest)
+    const provider = passkey(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'login' })
+    await expect(
+      provider.complete(makeContext(adapter), { response: longest.assert(challenge, 1), sessionId: 'login' }),
+    ).resolves.toEqual([expect.objectContaining({ identityId: 'u1', type: 'startSession' })])
+  })
+
+  it('signs in at AAL 2 when the authenticator verified the user, and at AAL 1 on presence alone', async () => {
+    const key = softAuthenticator('app.test', 'https://app.test')
+    await register(key)
+    const provider = passkey(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'verified' })
+    await expect(
+      provider.complete(makeContext(adapter), { response: key.assert(challenge, 1), sessionId: 'verified' }),
+    ).resolves.toEqual([expect.objectContaining({ aal: 2 })])
+    await provider.begin(makeContext(adapter), { sessionId: 'present' })
+    await expect(
+      provider.complete(makeContext(adapter), {
+        response: key.assert(challenge, 2, { verified: false }),
+        sessionId: 'present',
+      }),
+    ).resolves.toEqual([expect.objectContaining({ aal: 1 })])
+  })
+})
+
 describe('passkey provider - sign-in', () => {
   let adapter: MemoryAdapter<ProfileShape>
   let identityId: string
@@ -239,30 +373,23 @@ describe('passkey provider - sign-in', () => {
       sessionId: 'login-1',
     })
     expect(intents).toHaveLength(1)
-    expect(intents[0]!.type).toBe('json')
-    const body = (intents[0] as { body: { challenge: string } }).body
-    expect(body.challenge).toMatch(/^auth-challenge-/)
     const stored = await challengeStore.take('auth:login-1')
-    expect(stored).toBe(body.challenge)
+    expect(stored).toMatch(/^auth-challenge-/)
+    expect(intents[0]).toMatchObject({ body: { challenge: stored }, type: 'json' })
   })
 
   it('begin omits allowCredentials when no email hint', async () => {
     const provider = passkey<ProfileShape>(opts)
     await provider.begin(makeContext(adapter), { sessionId: 'login-2' })
-    const call = (mockWebauthn.generateAuthenticationOptions as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
-      allowCredentials?: unknown[]
-    }
-    expect(call.allowCredentials).toEqual([])
+    expect(vi.mocked(mockWebauthn.generateAuthenticationOptions).mock.calls[0]?.[0].allowCredentials).toEqual([])
   })
 
   it('begin populates allowCredentials when email hint resolves an identity', async () => {
     const provider = passkey<ProfileShape>(opts)
     await provider.begin(makeContext(adapter), { email: 'a@b.com', sessionId: 'login-3' })
-    const call = (mockWebauthn.generateAuthenticationOptions as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
-      allowCredentials?: Array<{ id: string }>
-    }
-    expect(call.allowCredentials).toHaveLength(1)
-    expect(call.allowCredentials![0]!.id).toBe('webauthn-cred-1')
+    expect(vi.mocked(mockWebauthn.generateAuthenticationOptions).mock.calls[0]?.[0].allowCredentials).toEqual([
+      expect.objectContaining({ id: 'webauthn-cred-1' }),
+    ])
   })
 
   it('complete emits startSession intent on verified assertion', async () => {
@@ -272,10 +399,7 @@ describe('passkey provider - sign-in', () => {
       sessionId: 'login-4',
       response: { id: 'webauthn-cred-1' },
     })
-    expect(intents).toHaveLength(1)
-    expect(intents[0]!.type).toBe('startSession')
-    expect((intents[0] as { identityId: string }).identityId).toBe(identityId)
-    expect((intents[0] as { aal: number }).aal).toBe(2)
+    expect(intents).toEqual([expect.objectContaining({ aal: 2, identityId, type: 'startSession' })])
   })
 
   it('complete without prior begin throws AUTH_PASSKEY_MISMATCH', async () => {
@@ -297,6 +421,18 @@ describe('passkey provider - sign-in', () => {
         response: { id: 'not-registered' },
       }),
     ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+  })
+
+  it.each([null, undefined, 'webauthn-cred-1'])('complete refuses a response of %o as a mismatch', async (response) => {
+    const provider = passkey<ProfileShape>(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'login-7' })
+    await expect(provider.complete(makeContext(adapter), { response, sessionId: 'login-7' })).rejects.toMatchObject({
+      code: 'AUTH_PASSKEY_MISMATCH',
+    })
+    await provider.begin(makeContext(adapter), { sessionId: 'login-8' })
+    await expect(
+      provider.complete(makeContext(adapter), { response: { id: 'webauthn-cred-1' }, sessionId: 'login-8' }),
+    ).resolves.toHaveLength(1)
   })
 
   it('complete with verified:false throws AUTH_PASSKEY_MISMATCH', async () => {
@@ -355,10 +491,7 @@ describe('passkey provider - sign-in', () => {
 
     await provider.begin(makeContext(adapter), { email: 'nobody@x.com', sessionId: 'login-absent' })
 
-    const call = (mockWebauthn.generateAuthenticationOptions as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
-      allowCredentials?: unknown[]
-    }
-    expect(call.allowCredentials).toEqual([])
+    expect(vi.mocked(mockWebauthn.generateAuthenticationOptions).mock.calls[0]?.[0].allowCredentials).toEqual([])
   })
 
   it('complete answers a rejecting host lookup as a mismatch, not as a missing identity', async () => {
@@ -414,7 +547,7 @@ describe('passkey provider - sign-in', () => {
     await expect(
       provider.complete(makeContext(adapter), {
         sessionId: 'login-handle',
-        response: { id: 'webauthn-cred-1', response: { userHandle: bogusHandle } } as never,
+        response: { id: 'webauthn-cred-1', response: { userHandle: bogusHandle } },
       }),
     ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
@@ -431,7 +564,7 @@ describe('passkey provider - sign-in', () => {
     await expect(
       provider.complete(makeContext(adapter), {
         sessionId: 'login-handle-type',
-        response: { id: 'webauthn-cred-1', response: { userHandle: 12345 } } as never,
+        response: { id: 'webauthn-cred-1', response: { userHandle: 12345 } },
       }),
     ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
@@ -447,7 +580,7 @@ describe('passkey provider - sign-in', () => {
     await expect(
       provider.complete(makeContext(adapter), {
         sessionId: 'login-handle-ok',
-        response: { id: 'webauthn-cred-1', response: { userHandle: handle } } as never,
+        response: { id: 'webauthn-cred-1', response: { userHandle: handle } },
       }),
     ).resolves.toBeDefined()
   })
@@ -462,7 +595,8 @@ describe('passkey provider - sign-in', () => {
 
     it('begin refuses a non-string sessionId', async () => {
       const provider = passkey<ProfileShape>(opts)
-      await expect(provider.begin(makeContext(adapter), { sessionId: 42 as unknown as string })).rejects.toMatchObject({
+      // @ts-expect-error a number where the contract takes a string
+      await expect(provider.begin(makeContext(adapter), { sessionId: 42 })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
     })
@@ -479,7 +613,7 @@ describe('passkey provider - sign-in', () => {
       await expect(
         provider.complete(makeContext(adapter), {
           sessionId: 'x'.repeat(257),
-          response: { id: 'webauthn-cred-1' } as never,
+          response: { id: 'webauthn-cred-1' },
         }),
       ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
     })
@@ -504,6 +638,65 @@ describe('passkey provider - sign-in', () => {
     await expect(
       provider.complete(ctx, { sessionId: 'login-revoked', response: { id: 'webauthn-cred-1' } }),
     ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+  })
+})
+
+describe('passkey provider - the challenge lifetime', () => {
+  const opts = {
+    expectedOrigins: 'https://app.test',
+    findIdentityByEmail: async () => null,
+    rpID: 'app.test',
+    rpName: 'Test App',
+  }
+
+  function recordingStore(): Passkey.ChallengeStore & { ttls: number[] } {
+    const ttls: number[] = []
+    return {
+      ttls,
+      async put(_key, _challenge, ttlMs) {
+        ttls.push(ttlMs)
+      },
+      async take() {
+        throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+      },
+    }
+  }
+
+  const register = (challengeStore: Passkey.ChallengeStore, challengeTtlMs: number) =>
+    beginPasskeyRegistration(
+      { ...opts, challengeStore, challengeTtlMs, webauthnModule: makeMockWebAuthn() },
+      {
+        credentialStore: new MemoryAdapter<ProfileShape>().credentials,
+        identityId: 'id-1',
+        sessionId: 's1',
+        tenant: {},
+        userName: 'a@b.com',
+      },
+    )
+
+  it.each([Number.NaN, 0, -1, Number.POSITIVE_INFINITY])(
+    'refuses challengeTtlMs %o at construction and before registering',
+    async (challengeTtlMs) => {
+      expect(() => passkey<ProfileShape>({ ...opts, challengeTtlMs })).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+      const store = recordingStore()
+      await expect(register(store, challengeTtlMs)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+      expect(store.ttls).toEqual([])
+    },
+  )
+
+  it('stores both ceremonies for the lifetime it was given', async () => {
+    const store = recordingStore()
+    const provider = passkey<ProfileShape>({
+      ...opts,
+      challengeStore: store,
+      challengeTtlMs: 60_000,
+      webauthnModule: makeMockWebAuthn(),
+    })
+    await provider.begin(makeContext(new MemoryAdapter<ProfileShape>()), { sessionId: 's1' })
+    await register(store, 60_000)
+    expect(store.ttls).toEqual([60_000, 60_000])
   })
 })
 

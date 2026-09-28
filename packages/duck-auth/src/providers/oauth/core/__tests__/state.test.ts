@@ -1,7 +1,7 @@
 /**
- * The OAuth `state` parameter is this client's CSRF defence, its PKCE verifier
- * carrier, and its mix-up defence, all in one HMAC-signed string that makes a
- * round trip through an authorization server the client does not control.
+ * The OAuth `state` parameter is this client's CSRF defence and its mix-up
+ * defence, in one HMAC-signed string that makes a round trip through an
+ * authorization server the client does not control.
  */
 import { Buffer } from 'node:buffer'
 import { createHmac } from 'node:crypto'
@@ -16,12 +16,13 @@ const COOKIE = 'pre-auth-cookie-value'
 const BINDING = sha256(COOKIE)
 
 const build = (over: Record<string, unknown> = {}) => ({
-  ...authBuildState('oauth:authGoogle', 'pkce-verifier-value', { binding: BINDING }),
+  ...authBuildState('oauth:google', { binding: BINDING }),
   ...over,
 })
 
 /** Re-sign an arbitrary payload, the way the library would. */
-const sign = (payload: unknown, secret = SECRET) => signState(payload as never, secret)
+// @ts-expect-error any shape, including the ones `StatePayload` refuses
+const sign = (payload: unknown, secret = SECRET) => signState(payload, secret)
 
 /** Forge the `body.sig` shape directly, for cases signState will not produce. */
 function forge(bodyJson: string, secret = SECRET): string {
@@ -34,15 +35,11 @@ describe('a state the library signed comes back intact', () => {
   it('round-trips the payload', () => {
     const payload = build()
     const verified = authVerifyState(sign(payload), SECRET)
-    expect(verified).toMatchObject({
-      nonce: payload.nonce,
-      providerId: 'oauth:authGoogle',
-      verifier: 'pkce-verifier-value',
-    })
+    expect(verified).toEqual({ binding: BINDING, iat: payload.iat, nonce: payload.nonce, providerId: 'oauth:google' })
   })
 
   it('carries returnTo when one was set', () => {
-    const payload = authBuildState('oauth:authGoogle', 'v', { binding: BINDING, returnTo: '/dashboard' })
+    const payload = authBuildState('oauth:google', { binding: BINDING, returnTo: '/dashboard' })
     expect(authVerifyState(sign(payload), SECRET)?.returnTo).toBe('/dashboard')
   })
 
@@ -52,15 +49,13 @@ describe('a state the library signed comes back intact', () => {
 
   it('mints a fresh nonce every time', () => {
     const nonces = new Set<string>()
-    for (let i = 0; i < 1000; i++) nonces.add(authBuildState('p', 'v', { binding: BINDING }).nonce)
+    for (let i = 0; i < 1000; i++) nonces.add(authBuildState('p', { binding: BINDING }).nonce)
     expect(nonces.size).toBe(1000)
   })
 
   it('survives unicode in returnTo', () => {
     const returnTo = '/dashboard/naïve/🦆'
-    expect(authVerifyState(sign(authBuildState('p', 'v', { binding: BINDING, returnTo })), SECRET)?.returnTo).toBe(
-      returnTo,
-    )
+    expect(authVerifyState(sign(authBuildState('p', { binding: BINDING, returnTo })), SECRET)?.returnTo).toBe(returnTo)
   })
 })
 
@@ -135,8 +130,10 @@ describe('shapes that are not a state at all', () => {
     ['a boolean', true],
   ] as const) {
     it(`refuses ${label} without throwing`, () => {
-      expect(() => authVerifyState(value as never, SECRET)).not.toThrow()
-      expect(authVerifyState(value as never, SECRET)).toBeNull()
+      // @ts-expect-error not a string
+      expect(() => authVerifyState(value, SECRET)).not.toThrow()
+      // @ts-expect-error not a string
+      expect(authVerifyState(value, SECRET)).toBeNull()
     })
   }
 
@@ -148,9 +145,7 @@ describe('shapes that are not a state at all', () => {
 
   it('accepts a state just under the cap', () => {
     const returnTo = '/x'.repeat(500)
-    expect(authVerifyState(sign(authBuildState('p', 'v', { binding: BINDING, returnTo })), SECRET)?.returnTo).toBe(
-      returnTo,
-    )
+    expect(authVerifyState(sign(authBuildState('p', { binding: BINDING, returnTo })), SECRET)?.returnTo).toBe(returnTo)
   })
 })
 
@@ -171,14 +166,12 @@ describe('a correctly signed body that is not a valid payload', () => {
   }
 
   /** Every other field present and well-formed, so each row below is refused for the field it names. */
-  const wholePayload = { binding: BINDING, iat: Date.now(), nonce: 'n', providerId: 'p', verifier: 'v' }
+  const wholePayload = { binding: BINDING, iat: Date.now(), nonce: 'n', providerId: 'p' }
 
   for (const [label, over] of [
     ['a missing nonce', { nonce: undefined }],
     ['an empty nonce', { nonce: '' }],
     ['a non-string nonce', { nonce: 42 }],
-    ['a missing verifier', { verifier: undefined }],
-    ['an empty verifier', { verifier: '' }],
     ['a missing providerId', { providerId: undefined }],
     ['an empty providerId', { providerId: '' }],
     ['a missing binding', { binding: undefined }],
@@ -222,12 +215,6 @@ describe('age', () => {
     expect(authVerifyState(sign(payload), SECRET)).not.toBeNull()
   })
 
-  it('honours a caller-supplied window', () => {
-    const payload = build({ iat: Date.now() - 5000 })
-    expect(authVerifyState(sign(payload), SECRET, { maxAgeMs: 1000 })).toBeNull()
-    expect(authVerifyState(sign(payload), SECRET, { maxAgeMs: 60_000 })).not.toBeNull()
-  })
-
   it('refuses a state stamped far enough in the future to outlive its window', () => {
     // `now - iat > maxAge` alone reads a future stamp as a negative age and passes it forever, so a
     // clock that jumps backwards makes every state minted before the jump immortal.
@@ -237,7 +224,7 @@ describe('age', () => {
 
   it('still allows the small forward skew a two-machine deployment produces', () => {
     const payload = build({ iat: Date.now() + 1000 })
-    expect(authVerifyState(sign(payload), SECRET, { maxAgeMs: 60_000 })).not.toBeNull()
+    expect(authVerifyState(sign(payload), SECRET)).not.toBeNull()
   })
 })
 
@@ -245,18 +232,18 @@ describe('binding to one provider, which is the mix-up defence', () => {
   it('reports the provider the state was minted for', () => {
     // The callback compares this against its own id and refuses a mismatch, so a
     // state issued for one authorization server cannot be replayed at another.
-    expect(
-      authVerifyState(sign(authBuildState('oauth:authGoogle', 'v', { binding: BINDING })), SECRET)?.providerId,
-    ).toBe('oauth:authGoogle')
-    expect(
-      authVerifyState(sign(authBuildState('oauth:authGithub', 'v', { binding: BINDING })), SECRET)?.providerId,
-    ).toBe('oauth:authGithub')
+    expect(authVerifyState(sign(authBuildState('oauth:google', { binding: BINDING })), SECRET)?.providerId).toBe(
+      'oauth:google',
+    )
+    expect(authVerifyState(sign(authBuildState('oauth:github', { binding: BINDING })), SECRET)?.providerId).toBe(
+      'oauth:github',
+    )
   })
 
   it('a state cannot be re-pointed at another provider without breaking the signature', () => {
-    const [body, sig] = sign(authBuildState('oauth:authGoogle', 'v', { binding: BINDING })).split('.')
+    const [body, sig] = sign(authBuildState('oauth:google', { binding: BINDING })).split('.')
     const decoded = JSON.parse(Buffer.from(body as string, 'base64url').toString()) as Record<string, unknown>
-    const repointed = Buffer.from(JSON.stringify({ ...decoded, providerId: 'oauth:authGithub' })).toString('base64url')
+    const repointed = Buffer.from(JSON.stringify({ ...decoded, providerId: 'oauth:github' })).toString('base64url')
     expect(authVerifyState(`${repointed}.${sig}`, SECRET)).toBeNull()
   })
 })
@@ -269,17 +256,5 @@ describe('the state is stateless, so it verifies as many times as it is presente
     // going anywhere.
     const state = sign(build())
     for (let i = 0; i < 5; i++) expect(authVerifyState(state, SECRET)).not.toBeNull()
-  })
-})
-
-describe('the verifier it carries', () => {
-  it('comes back byte for byte, since PKCE fails on any drift', () => {
-    const verifier = 'A'.repeat(43)
-    expect(authVerifyState(sign(authBuildState('p', verifier, { binding: BINDING })), SECRET)?.verifier).toBe(verifier)
-  })
-
-  it('survives a verifier containing base64url punctuation', () => {
-    const verifier = 'abc-_123.~'
-    expect(authVerifyState(sign(authBuildState('p', verifier, { binding: BINDING })), SECRET)?.verifier).toBe(verifier)
   })
 })

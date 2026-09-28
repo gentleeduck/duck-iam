@@ -5,7 +5,7 @@ import type { Hasher } from './hashers/hashers.types'
 export namespace Passwords {
   /** Total: every field explicit. */
   export type Cfg = {
-    /** Default 8; the compliance presets force it to 12 or more. */
+    /** Default 8; the hipaa preset raises it to 12 and fips to 14. */
     minLength: number
     /** Default 1024.
      *  SECURITY: caps the argon2 and scrypt DoS surface. */
@@ -27,6 +27,7 @@ export namespace Passwords {
     email: string
   }
 
+  /** What a password sign-in takes. */
   export type CompleteInput = {
     email: string
     password: string

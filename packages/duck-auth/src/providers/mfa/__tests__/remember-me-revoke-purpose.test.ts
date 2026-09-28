@@ -87,4 +87,23 @@ describe('RememberMeFacet list and revokeAll agree about what a device is', () =
     await facet.revokeAll(identityId)
     expect(await orNull(adapter.credentials.findById(issued.credentialId, {}))).toBeNull()
   })
+
+  it('revokeAll leaves the backup codes and a pending reset token, which share the kind', async () => {
+    const facet = new RememberMeFacet(adapter.credentials, CRYPTO)
+    const kept = await Promise.all(
+      [RECOVERY_PURPOSES.mfaBackupCode, RECOVERY_PURPOSES.passwordReset].map((purpose) =>
+        adapter.credentials.create(
+          credentialInput({ identityId, kind: 'recovery', metadata: { purpose }, secret: sha256(purpose) }),
+          {},
+        ),
+      ),
+    )
+    const { credentialId } = await facet.issue(identityId)
+
+    await facet.revokeAll(identityId)
+    expect(await orNull(adapter.credentials.findById(credentialId, {}))).toBeNull()
+    expect((await adapter.credentials.listByIdentity(identityId, 'recovery', {})).map((c) => c.id).sort()).toEqual(
+      kept.map((c) => c.id).sort(),
+    )
+  })
 })

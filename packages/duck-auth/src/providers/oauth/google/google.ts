@@ -25,9 +25,8 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
     fetch: opts.fetch,
   })
   return oProvider<Profile>({
-    providerId: 'authGoogle',
+    providerId: 'google',
     client,
-    endpoints: GOOGLE_ENDPOINTS,
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     nonceStore: opts.nonceStore,
@@ -42,7 +41,7 @@ export function google<Profile extends Identities.ProfileMetadataBase = Identiti
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
-          providerId: 'authGoogle',
+          providerId: 'google',
           detail: 'Google userinfo missing sub',
         })
       }
