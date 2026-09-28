@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bfcb6818-0105-43d6-ba3a-348fdc698939",
+  "id": "5d7a8f6a-ee9f-4df2-a331-42df8844711f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "auth_credentials": {
@@ -77,7 +77,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
+          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
         },
         "updated_at": {
           "name": "updated_at",
@@ -85,7 +85,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
+          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
         },
         "last_used_at": {
           "name": "last_used_at",
@@ -115,12 +115,6 @@
           "columns": ["identity_id", "kind"],
           "isUnique": false
         },
-        "auth_credentials_oauth": {
-          "name": "auth_credentials_oauth",
-          "columns": ["(metadata ->> '$.provider')", "(metadata ->> '$.sub')"],
-          "isUnique": false,
-          "where": "kind = 'oauth'"
-        },
         "auth_credentials_kind_secret": {
           "name": "auth_credentials_kind_secret",
           "columns": ["kind", "secret"],
@@ -130,6 +124,18 @@
           "name": "auth_credentials_tenant",
           "columns": ["tenant_id"],
           "isUnique": false
+        },
+        "uq_auth_credentials_password": {
+          "name": "uq_auth_credentials_password",
+          "columns": ["identity_id"],
+          "isUnique": true,
+          "where": "kind = 'password' and tenant_id is null"
+        },
+        "uq_auth_credentials_password_tenant": {
+          "name": "uq_auth_credentials_password_tenant",
+          "columns": ["identity_id", "tenant_id"],
+          "isUnique": true,
+          "where": "kind = 'password' and tenant_id is not null"
         },
         "auth_credentials_expires_at": {
           "name": "auth_credentials_expires_at",
@@ -179,134 +185,6 @@
         "chk_auth_credentials_last_used_after_created": {
           "name": "chk_auth_credentials_last_used_after_created",
           "value": "last_used_at IS NULL OR last_used_at >= created_at"
-        }
-      }
-    },
-    "auth_events": {
-      "name": "auth_events",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "identity_id": {
-          "name": "identity_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "event": {
-          "name": "event",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "method": {
-          "name": "method",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ip": {
-          "name": "ip",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "user_agent": {
-          "name": "user_agent",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "actor_id": {
-          "name": "actor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
-        }
-      },
-      "indexes": {
-        "auth_events_identity_created": {
-          "name": "auth_events_identity_created",
-          "columns": ["identity_id", "created_at"],
-          "isUnique": false
-        },
-        "auth_events_tenant_created": {
-          "name": "auth_events_tenant_created",
-          "columns": ["tenant_id", "created_at"],
-          "isUnique": false
-        },
-        "auth_events_actor_created": {
-          "name": "auth_events_actor_created",
-          "columns": ["actor_id", "created_at"],
-          "isUnique": false
-        },
-        "auth_events_created": {
-          "name": "auth_events_created",
-          "columns": ["created_at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "fk_auth_events_identity": {
-          "name": "fk_auth_events_identity",
-          "tableFrom": "auth_events",
-          "tableTo": "auth_identities",
-          "columnsFrom": ["identity_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "chk_auth_events_tenant_not_blank": {
-          "name": "chk_auth_events_tenant_not_blank",
-          "value": "tenant_id IS NULL OR tenant_id <> ''"
-        },
-        "chk_auth_events_method": {
-          "name": "chk_auth_events_method",
-          "value": "method IS NULL OR method IN ('password', 'passkey', 'webauthn-mfa', 'oauth', 'magic-link', 'totp', 'recovery', 'api-key')"
         }
       }
     },
@@ -363,7 +241,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
+          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
         },
         "updated_at": {
           "name": "updated_at",
@@ -371,7 +249,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
+          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
         },
         "deleted_at": {
           "name": "deleted_at",
@@ -398,6 +276,12 @@
           "name": "uq_auth_identities_username",
           "columns": ["(lower(profile ->> '$.username'))"],
           "isUnique": true
+        },
+        "auth_identities_deleted_at": {
+          "name": "auth_identities_deleted_at",
+          "columns": ["deleted_at"],
+          "isUnique": false,
+          "where": "deleted_at is not null"
         }
       },
       "foreignKeys": {},
@@ -411,6 +295,14 @@
         "chk_auth_identities_version": {
           "name": "chk_auth_identities_version",
           "value": "version >= 1"
+        },
+        "chk_auth_identities_email_length": {
+          "name": "chk_auth_identities_email_length",
+          "value": "length(profile ->> '$.email') <= 320"
+        },
+        "chk_auth_identities_username_length": {
+          "name": "chk_auth_identities_username_length",
+          "value": "length(profile ->> '$.username') <= 191"
         }
       }
     },
@@ -451,7 +343,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
+          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
+        },
+        "added_by": {
+          "name": "added_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -575,7 +474,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
+          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
         },
         "updated_at": {
           "name": "updated_at",
@@ -583,7 +482,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
+          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
         },
         "rotated_at": {
           "name": "rotated_at",
@@ -1118,16 +1017,6 @@
   },
   "internal": {
     "indexes": {
-      "auth_credentials_oauth": {
-        "columns": {
-          "(metadata ->> '$.provider')": {
-            "isExpression": true
-          },
-          "(metadata ->> '$.sub')": {
-            "isExpression": true
-          }
-        }
-      },
       "uq_auth_identities_email": {
         "columns": {
           "(lower(profile ->> '$.email'))": {

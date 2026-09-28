@@ -15,8 +15,8 @@ export default meta
 type Story = StoryObj<typeof AuthLayout>
 
 const PROVIDERS = [
-  { id: 'authGoogle', label: 'Continue with Google' },
-  { id: 'authGithub', label: 'Continue with GitHub' },
+  { id: 'oauth:google', label: 'Continue with Google' },
+  { id: 'oauth:github', label: 'Continue with GitHub' },
 ]
 
 export const FullSignInPage: Story = {

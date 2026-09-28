@@ -48,7 +48,7 @@ export interface NestRequest {
   route?: { path?: string }
   headers?: Record<string, string | string[] | undefined>
   ip?: string
-  /** Populated by auth middleware (e.g. duck-auth). */
+  /** Populated by session middleware (e.g. express-session). */
   session?: { identityId?: string; id?: string; [key: string]: unknown }
   /** Populated by auth middleware (e.g. duck-auth). */
   identity?: { id?: string; [key: string]: unknown } | null

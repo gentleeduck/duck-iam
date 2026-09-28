@@ -1,6 +1,5 @@
 export {
   authCredentials,
-  authEvents,
   authIdentities,
   authIdentityProviders,
   authSessions,

@@ -4,8 +4,8 @@
  */
 
 import { useSignIn } from '@gentleduck/auth/client/react'
-import type { VanillaClient } from '@gentleduck/auth/client/vanilla'
-import type { Envelope, Identities } from '@gentleduck/auth/core'
+import type { Envelope, VanillaClient } from '@gentleduck/auth/client/vanilla'
+import type { Identities } from '@gentleduck/auth/core'
 import { cn } from '@gentleduck/libs/cn'
 import { Alert, AlertDescription, AlertTitle } from '@gentleduck/registry-ui/alert'
 import { Button } from '@gentleduck/registry-ui/button'
