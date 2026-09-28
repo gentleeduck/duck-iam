@@ -125,7 +125,8 @@
       "packages/*",
       "tooling/*",
       "examples/*",
-      "examples/tanstack-start/*"
+      "examples/tanstack-start/*",
+      "examples/duck-iam/*"
     ],
     "catalog": {
       "@gentleduck/calendar": "0.3.1",
