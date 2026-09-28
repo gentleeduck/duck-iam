@@ -1,0 +1,53 @@
+---
+title: "Type Alias: IssueOpts"
+description: "What issue needs besides the session."
+---
+
+> **IssueOpts** = \{ `absolute`: `boolean`; `csrfToken?`: `string`; `fresh`: `boolean`; `scope?`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L21)
+
+What `issue` needs besides the session.
+
+## Properties
+
+### absolute
+
+> **absolute**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L25)
+
+Hitting the absolute TTL forces re-auth rather than a refresh.
+
+***
+
+### csrfToken?
+
+> `optional` **csrfToken?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L31)
+
+Plaintext CSRF token to emit beside the session cookie, minted by `SessionsImpl.create` with its hash on
+ the session row. `CookieTransport.issue` emits it as the CSRF companion cookie, not httpOnly so JS can
+ read it back for the `x-csrf-token` header; every other transport ignores it.
+
+***
+
+### fresh
+
+> **fresh**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L23)
+
+Newly created or just rotated; drives the cookie `Max-Age` and the JWT `exp`.
+
+***
+
+### scope?
+
+> `optional` **scope?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L27)
+
+Embedded in the bearer as the JWT `scope` claim; CookieTransport ignores it.
+

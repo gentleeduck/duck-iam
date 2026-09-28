@@ -1,0 +1,83 @@
+---
+title: "Interface: IDeps"
+description: "The engine and stores the OP runs on."
+---
+
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L38)
+
+The engine and stores the OP runs on.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### accessTokens
+
+> **accessTokens**: [`AccessTokenStore`](../../namespaces/AuthOidcOP/type-aliases/AccessTokenStore)
+
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L42)
+
+***
+
+### auth
+
+> **auth**: [`AuthEngine`](../../../../index/classes/AuthEngine)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L39)
+
+***
+
+### clients
+
+> **clients**: [`ClientStore`](../../namespaces/AuthOidcOP/type-aliases/ClientStore)
+
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L40)
+
+***
+
+### codes
+
+> **codes**: [`CodeStore`](../../namespaces/AuthOidcOP/type-aliases/CodeStore)
+
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L41)
+
+***
+
+### consents
+
+> **consents**: [`ConsentStore`](../../namespaces/AuthOidcOP/type-aliases/ConsentStore)
+
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L44)
+
+***
+
+### refreshTokens
+
+> **refreshTokens**: [`RefreshTokenStore`](../../namespaces/AuthOidcOP/type-aliases/RefreshTokenStore)
+
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:43](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L43)
+
+***
+
+### signIdToken
+
+> **signIdToken**: (`payload`: `Record`\<`string`, `unknown`\>) => `string` \| `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/index.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/index.ts#L46)
+
+Signs an ID-token. Returns the encoded JWT string.
+
+#### Parameters
+
+##### payload
+
+`Record`\<`string`, `unknown`\>
+
+#### Returns
+
+`string` \| `Promise`\<`string`\>
+

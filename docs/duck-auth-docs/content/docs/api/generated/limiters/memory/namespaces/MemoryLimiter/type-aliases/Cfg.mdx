@@ -1,0 +1,31 @@
+---
+title: "Type Alias: Cfg"
+description: "The window size and its limit."
+---
+
+> **Cfg** = \{ `max?`: `number`; `windowMs?`: `number`; \}
+
+Defined in: [packages/duck-auth/src/limiters/memory/index.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/memory/index.ts#L10)
+
+The window size and its limit.
+
+## Properties
+
+### max?
+
+> `optional` **max?**: `number`
+
+Defined in: [packages/duck-auth/src/limiters/memory/index.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/memory/index.ts#L12)
+
+Max consumed weight before further consume() returns ok:false. Default 10.
+
+***
+
+### windowMs?
+
+> `optional` **windowMs?**: `number`
+
+Defined in: [packages/duck-auth/src/limiters/memory/index.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/memory/index.ts#L14)
+
+Window size in ms. Default 15 minutes.
+

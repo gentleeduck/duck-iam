@@ -1,0 +1,11 @@
+---
+title: "Type Alias: Reader"
+description: "What a read needs of a handle: db itself, or the tx a transaction hands its callback."
+---
+
+> **Reader** = `Pick`\<`MySql2Database`\<`Record`\<`string`, `unknown`\>\>, `"select"`\>
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/mysql/mysql.ts#L31)
+
+What a read needs of a handle: `db` itself, or the `tx` a transaction hands its callback.
+

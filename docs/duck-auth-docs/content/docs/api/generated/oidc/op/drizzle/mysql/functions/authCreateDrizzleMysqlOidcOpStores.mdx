@@ -1,0 +1,43 @@
+---
+title: "Function: authCreateDrizzleMysqlOidcOpStores()"
+description: "consume takes two SQL statements rather than a single DELETE ... RETURNING, which MySQL has no equivalent for: a SELECT then a DELETE inside a transaction. Net throughput is unchanged at the OP's request volume, codes being single-use and low-rate."
+---
+
+> **authCreateDrizzleMysqlOidcOpStores**(`db`: [`AnyMySqlDatabase`](../-internal-/type-aliases/AnyMySqlDatabase)): \{ `accessTokens`: [`AccessTokenStore`](../../../namespaces/AuthOidcOP/type-aliases/AccessTokenStore); `clients`: [`ClientStore`](../../../namespaces/AuthOidcOP/type-aliases/ClientStore); `codes`: [`CodeStore`](../../../namespaces/AuthOidcOP/type-aliases/CodeStore); `consents`: [`ConsentStore`](../../../namespaces/AuthOidcOP/type-aliases/ConsentStore); `refreshTokens`: [`RefreshTokenStore`](../../../namespaces/AuthOidcOP/type-aliases/RefreshTokenStore); \}
+
+Defined in: [packages/duck-auth/src/oidc/op/drizzle/mysql.ts:206](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/drizzle/mysql.ts#L206)
+
+`consume` takes two SQL statements rather than a single `DELETE ... RETURNING`, which MySQL has no
+equivalent for: a SELECT then a DELETE inside a transaction. Net throughput is unchanged at the
+OP's request volume, codes being single-use and low-rate.
+
+## Parameters
+
+### db
+
+[`AnyMySqlDatabase`](../-internal-/type-aliases/AnyMySqlDatabase)
+
+## Returns
+
+\{ `accessTokens`: [`AccessTokenStore`](../../../namespaces/AuthOidcOP/type-aliases/AccessTokenStore); `clients`: [`ClientStore`](../../../namespaces/AuthOidcOP/type-aliases/ClientStore); `codes`: [`CodeStore`](../../../namespaces/AuthOidcOP/type-aliases/CodeStore); `consents`: [`ConsentStore`](../../../namespaces/AuthOidcOP/type-aliases/ConsentStore); `refreshTokens`: [`RefreshTokenStore`](../../../namespaces/AuthOidcOP/type-aliases/RefreshTokenStore); \}
+
+### accessTokens
+
+> **accessTokens**: [`AccessTokenStore`](../../../namespaces/AuthOidcOP/type-aliases/AccessTokenStore)
+
+### clients
+
+> **clients**: [`ClientStore`](../../../namespaces/AuthOidcOP/type-aliases/ClientStore)
+
+### codes
+
+> **codes**: [`CodeStore`](../../../namespaces/AuthOidcOP/type-aliases/CodeStore)
+
+### consents
+
+> **consents**: [`ConsentStore`](../../../namespaces/AuthOidcOP/type-aliases/ConsentStore)
+
+### refreshTokens
+
+> **refreshTokens**: [`RefreshTokenStore`](../../../namespaces/AuthOidcOP/type-aliases/RefreshTokenStore)
+

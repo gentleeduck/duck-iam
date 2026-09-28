@@ -1,0 +1,73 @@
+---
+title: "Type Alias: JsonWebKey"
+description: "RFC 7517, re-declared because @types/node does not export JsonWebKey from node:crypto."
+---
+
+> **JsonWebKey** = \{\[`key`: `string`\]: `unknown`; `crv?`: `string`; `d?`: `string`; `e?`: `string`; `kty`: `"EC"` \| `"OKP"` \| `"RSA"`; `n?`: `string`; `x?`: `string`; `y?`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L18)
+
+RFC 7517, re-declared because @types/node does not export `JsonWebKey` from `node:crypto`.
+
+## Indexable
+
+> \[`key`: `string`\]: `unknown`
+
+## Properties
+
+### crv?
+
+> `optional` **crv?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L20)
+
+***
+
+### d?
+
+> `optional` **d?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L26)
+
+A private-key component, which RFC 9449 forbids in a proof.
+
+***
+
+### e?
+
+> `optional` **e?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L24)
+
+***
+
+### kty
+
+> **kty**: `"EC"` \| `"OKP"` \| `"RSA"`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L19)
+
+***
+
+### n?
+
+> `optional` **n?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L23)
+
+***
+
+### x?
+
+> `optional` **x?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L21)
+
+***
+
+### y?
+
+> `optional` **y?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L22)
+

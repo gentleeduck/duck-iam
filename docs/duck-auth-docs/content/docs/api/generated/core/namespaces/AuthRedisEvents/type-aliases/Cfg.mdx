@@ -1,0 +1,31 @@
+---
+title: "Type Alias: Cfg"
+description: "The Redis event bus's options."
+---
+
+> **Cfg** = \{ `prefix?`: `string`; `redis`: [`Client`](Client); \}
+
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L19)
+
+The Redis event bus's options.
+
+## Properties
+
+### prefix?
+
+> `optional` **prefix?**: `string`
+
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L23)
+
+Channel prefix. Final channel is `${prefix}:${eventName}`. Default `auth:events`.
+
+***
+
+### redis
+
+> **redis**: [`Client`](Client)
+
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L21)
+
+Pub/sub-capable Redis client.
+

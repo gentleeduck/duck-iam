@@ -1,0 +1,112 @@
+---
+title: "Interface: AuthEngine"
+description: "Everything on this facade runs on the client passed to withTransaction, and every event it would have emitted lands in AuthEngine.pending instead."
+---
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L23)
+
+Everything on this facade runs on the client passed to `withTransaction`,
+and every event it would have emitted lands in [AuthEngine.pending](#pending)
+instead.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)
+
+### OrgMeta
+
+`OrgMeta`
+
+## Properties
+
+### apiKeys
+
+> `readonly` **apiKeys**: [`ApiKeysFacet`](../../../../providers/api-key/classes/ApiKeysFacet)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L31)
+
+***
+
+### flows
+
+> `readonly` **flows**: [`FlowsImpl`](../../../-internal-/classes/FlowsImpl)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L27)
+
+***
+
+### identities
+
+> `readonly` **identities**: [`IdentitiesImpl`](../../../-internal-/classes/IdentitiesImpl)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L24)
+
+***
+
+### mfa
+
+> `readonly` **mfa**: [`MfaFacet`](../../../../providers/mfa/classes/MfaFacet)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L30)
+
+Resolved from the bound registry the way the engine's own getters resolve from its registry, and
+ throwing the same `AUTH_PROVIDER_NOT_REGISTERED` when the provider was never added.
+
+***
+
+### orgs
+
+> `readonly` **orgs**: [`OrgsImpl`](../../../-internal-/classes/OrgsImpl)\<`OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L26)
+
+***
+
+### passkeys
+
+> `readonly` **passkeys**: [`PasskeyImpl`](../../../../providers/passkey/classes/PasskeyImpl)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L33)
+
+***
+
+### passwords
+
+> `readonly` **passwords**: [`PasswordsImpl`](../../../../providers/passwords/classes/PasswordsImpl)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L32)
+
+***
+
+### pending
+
+> `readonly` **pending**: [`Effects`](../../Pending/interfaces/Effects)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L36)
+
+***
+
+### providers
+
+> `readonly` **providers**: [`Providers`](../../../-internal-/classes/Providers)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L34)
+
+***
+
+### sessions
+
+> `readonly` **sessions**: [`SessionsImpl`](../../../-internal-/classes/SessionsImpl)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L25)
+
+***
+
+### stores
+
+> `readonly` **stores**: [`Stores`](../../Engine/type-aliases/Stores)\<`Profile`, `OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.bound.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.bound.ts#L35)
+

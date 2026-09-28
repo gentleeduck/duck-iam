@@ -1,0 +1,62 @@
+---
+title: "Class: AuthUnconfiguredCaptchaVerifier"
+description: "What auth.captcha is when cfg.captcha was not supplied: every call fails captcha-not-configured."
+---
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:131](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L131)
+
+What `auth.captcha` is when `cfg.captcha` was not supplied: every call fails `captcha-not-configured`.
+
+## Implements
+
+- [`IVerifier`](../namespaces/AuthCaptcha/interfaces/IVerifier)
+
+## Constructors
+
+### Constructor
+
+> **new AuthUnconfiguredCaptchaVerifier**(): `AuthUnconfiguredCaptchaVerifier`
+
+#### Returns
+
+`AuthUnconfiguredCaptchaVerifier`
+
+## Properties
+
+### id
+
+> `readonly` **id**: `"unconfigured"` = `'unconfigured'`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:132](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L132)
+
+Stable per implementation - `'turnstile'`, `'hcaptcha'`, `'recaptcha-v3'`, `'null'`,
+ `'unconfigured'`. A caller-visible string, so it is not what `strict()` keys its null check on.
+
+#### Implementation of
+
+[`IVerifier`](../namespaces/AuthCaptcha/interfaces/IVerifier).[`id`](../namespaces/AuthCaptcha/interfaces/IVerifier#id)
+
+## Methods
+
+### verify()
+
+> **verify**(`_input`: [`IVerifyInput`](../namespaces/AuthCaptcha/interfaces/IVerifyInput)): `Promise`\<[`IVerifyResult`](../namespaces/AuthCaptcha/interfaces/IVerifyResult)\>
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:133](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L133)
+
+Never throws: a network fault, a timeout and a provider rejection are all `success: false`.
+
+#### Parameters
+
+##### \_input
+
+[`IVerifyInput`](../namespaces/AuthCaptcha/interfaces/IVerifyInput)
+
+#### Returns
+
+`Promise`\<[`IVerifyResult`](../namespaces/AuthCaptcha/interfaces/IVerifyResult)\>
+
+#### Implementation of
+
+[`IVerifier`](../namespaces/AuthCaptcha/interfaces/IVerifier).[`verify`](../namespaces/AuthCaptcha/interfaces/IVerifier#verify)
+

@@ -1,0 +1,26 @@
+---
+title: "Interface: BeginInput"
+description: "What starting an OAuth sign-in takes."
+---
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:166](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L166)
+
+What starting an OAuth sign-in takes.
+
+## Properties
+
+### returnTo?
+
+> `optional` **returnTo?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:177](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L177)
+
+Carried through the signed state and handed back to nothing: `complete` answers with
+`clearCookie` + `startSession`, so the post-login redirect is still the host's to perform.
+
+SECURITY: if this ever becomes a `redirect` intent it has to go through `isSafeCallbackPath`
+first. The value reaches the state from whatever the host passed to `begin`, which is normally
+a query parameter, and the signature proves only that this library minted it - an attacker who
+calls `begin` themselves gets a signed state for any target they like. `parseStatePayload`
+caps the length and nothing else.
+

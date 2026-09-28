@@ -1,0 +1,81 @@
+---
+title: "Type Alias: Cfg"
+description: "Configuration for the OP."
+---
+
+> **Cfg** = \{ `accessTokenTtl?`: `number`; `allowHttp?`: `boolean`; `codeTtl?`: `number`; `idTokenTtl?`: `number`; `issuer`: `string`; `refreshTokenTtl?`: `number`; `supportedScopes`: `string`[]; \}
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:133](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L133)
+
+Configuration for the OP.
+
+## Properties
+
+### accessTokenTtl?
+
+> `optional` **accessTokenTtl?**: `number`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:139](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L139)
+
+Default access-token TTL in seconds. Default 3600.
+
+***
+
+### allowHttp?
+
+> `optional` **allowHttp?**: `boolean`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:147](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L147)
+
+Allow http issuer for dev. Production OPs must be https.
+
+***
+
+### codeTtl?
+
+> `optional` **codeTtl?**: `number`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:143](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L143)
+
+Auth-code TTL in seconds. Default 600.
+
+***
+
+### idTokenTtl?
+
+> `optional` **idTokenTtl?**: `number`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:145](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L145)
+
+ID-token TTL in seconds. Default 3600.
+
+***
+
+### issuer
+
+> **issuer**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:135](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L135)
+
+Issuer URL. Must match the discovery doc.
+
+***
+
+### refreshTokenTtl?
+
+> `optional` **refreshTokenTtl?**: `number`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:141](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L141)
+
+Default refresh-token TTL in seconds. Default 30 days.
+
+***
+
+### supportedScopes
+
+> **supportedScopes**: `string`[]
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:137](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L137)
+
+Supported scopes. Always includes `openid`.
+

@@ -1,0 +1,57 @@
+---
+title: "Type Alias: Cfg"
+description: "The Redis client, window size and limit."
+---
+
+> **Cfg**\<`TRedis` *extends* [`Client`](../../../../../adapters/redis/namespaces/RedisLike/type-aliases/Client) = [`Client`](../../../../../adapters/redis/namespaces/RedisLike/type-aliases/Client)\> = \{ `max?`: `number`; `prefix?`: `string`; `redis`: `TRedis`; `windowMs?`: `number`; \}
+
+Defined in: [packages/duck-auth/src/limiters/redis/index.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/redis/index.ts#L23)
+
+The Redis client, window size and limit.
+
+## Type Parameters
+
+### TRedis
+
+`TRedis` *extends* [`Client`](../../../../../adapters/redis/namespaces/RedisLike/type-aliases/Client) = [`Client`](../../../../../adapters/redis/namespaces/RedisLike/type-aliases/Client)
+
+## Properties
+
+### max?
+
+> `optional` **max?**: `number`
+
+Defined in: [packages/duck-auth/src/limiters/redis/index.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/redis/index.ts#L27)
+
+Max consumed weight per window. Default 10.
+
+***
+
+### prefix?
+
+> `optional` **prefix?**: `string`
+
+Defined in: [packages/duck-auth/src/limiters/redis/index.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/redis/index.ts#L31)
+
+Key namespace prefix. Default `auth:rl`.
+
+***
+
+### redis
+
+> **redis**: `TRedis`
+
+Defined in: [packages/duck-auth/src/limiters/redis/index.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/redis/index.ts#L25)
+
+An `@upstash/redis`-shaped client or `FakeRedis`; wrap ioredis and iovalkey with `valkeyAdapter`.
+
+***
+
+### windowMs?
+
+> `optional` **windowMs?**: `number`
+
+Defined in: [packages/duck-auth/src/limiters/redis/index.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/redis/index.ts#L29)
+
+Window size in ms. Default 15 minutes.
+

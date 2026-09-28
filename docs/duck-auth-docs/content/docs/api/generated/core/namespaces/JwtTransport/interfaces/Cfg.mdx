@@ -1,0 +1,127 @@
+---
+title: "Interface: Cfg"
+description: "The signing key, verify keys and claims the JWT transport uses."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L30)
+
+The signing key, verify keys and claims the JWT transport uses.
+
+## Properties
+
+### audience?
+
+> `optional` **audience?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L40)
+
+Written as `aud` when set, and a token whose `aud` differs is refused.
+
+***
+
+### clockSkewSec?
+
+> `optional` **clockSkewSec?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:50](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L50)
+
+Seconds of leeway on `exp` and `abs`, for instances that disagree on the time. Default 0.
+ WARN: it widens the window an expired token is accepted in. The forward bound on `iat` allows a
+ fixed 60s on top of this.
+
+***
+
+### freshnessMs?
+
+> `optional` **freshnessMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L46)
+
+Freshness window in ms: a round trip reconstructs the session with
+ `fresh = (now - rotatedAt) < freshnessMs`. Default 5 minutes, matching `Sessions.Cfg`.
+ WARN: privileged operations branch on `fresh`, so too high a value disables the gate.
+
+***
+
+### issuer
+
+> **issuer**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L38)
+
+Written as `iss`, and a token whose `iss` differs is refused.
+
+***
+
+### refresh?
+
+> `optional` **refresh?**: \{ `cookieName?`: `string`; `sameSite?`: `"strict"` \| `"lax"` \| `"none"`; `ttlMs?`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L52)
+
+Optional refresh cookie shape.
+
+#### cookieName?
+
+> `optional` **cookieName?**: `string`
+
+Cookie name carrying the opaque refresh token.
+
+#### sameSite?
+
+> `optional` **sameSite?**: `"strict"` \| `"lax"` \| `"none"`
+
+Default `'strict'`; `'lax'` for a refresh endpoint reached by a top-level navigation.
+ WARN: `'none'` sends this cookie, which carries the plaintext SID, on every cross-site
+ request. An SPA on a different origin to its API needs it; nothing else does.
+
+#### ttlMs?
+
+> `optional` **ttlMs?**: `number`
+
+Refresh TTL in ms. Default 7 days.
+
+***
+
+### signKey
+
+> **signKey**: \{ `alg?`: `"HS256"` \| `"ES256"` \| `"RS256"` \| `"EdDSA"`; `key`: `string`; `kid`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L33)
+
+`key` is the secret for HS256 and the PEM-encoded private key for ES256 and RS256. `alg` defaults
+ to HS256.
+
+#### alg?
+
+> `optional` **alg?**: `"HS256"` \| `"ES256"` \| `"RS256"` \| `"EdDSA"`
+
+#### key
+
+> **key**: `string`
+
+#### kid
+
+> **kid**: `string`
+
+***
+
+### ttlMs?
+
+> `optional` **ttlMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L42)
+
+JWT TTL in ms. Default 15 minutes.
+
+***
+
+### verifyKeys
+
+> **verifyKeys**: [`IVerifyKey`](IVerifyKey)[]
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L36)
+
+Every currently-valid verify key, `signKey` included. During rotation the previous keys stay
+ for an overlap window, so already-issued tokens keep verifying.
+

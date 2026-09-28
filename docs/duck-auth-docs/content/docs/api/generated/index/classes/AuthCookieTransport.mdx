@@ -1,0 +1,157 @@
+---
+title: "Class: AuthCookieTransport"
+description: "An opaque session id in an HttpOnly cookie, the default for web apps. verify is unset, so the  caller resolves the id through Sessions.Store.getByHash()."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L6)
+
+An opaque session id in an HttpOnly cookie, the default for web apps. `verify` is unset, so the
+ caller resolves the id through `Sessions.Store.getByHash()`.
+
+## Implements
+
+- [`ITransport`](../namespaces/Transport/type-aliases/ITransport)
+
+## Constructors
+
+### Constructor
+
+> **new AuthCookieTransport**(`cfg?`: [`Cfg`](../namespaces/AuthCookieTransport/interfaces/Cfg)): `CookieTransport`
+
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L36)
+
+#### Parameters
+
+##### cfg?
+
+[`Cfg`](../namespaces/AuthCookieTransport/interfaces/Cfg) = `{}`
+
+#### Returns
+
+`CookieTransport`
+
+## Accessors
+
+### cookieName
+
+#### Get Signature
+
+> **get** **cookieName**(): `string`
+
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:118](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L118)
+
+For tests, and for a framework adapter that renders the name in user-facing output.
+
+##### Returns
+
+`string`
+
+***
+
+### csrfCookieName
+
+#### Get Signature
+
+> **get** **csrfCookieName**(): `string`
+
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:108](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L108)
+
+The companion CSRF cookie's name, which drops the `__Host-` prefix when the transport's own settings
+ forbid it. This is what a client passes as `csrfCookieName`.
+
+##### Returns
+
+`string`
+
+***
+
+### secure
+
+#### Get Signature
+
+> **get** **secure**(): `boolean`
+
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:113](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L113)
+
+Read by `AuthEngine.strict()` to assert a production deployment set `secure: true`.
+
+##### Returns
+
+`boolean`
+
+## Methods
+
+### extract()
+
+> **extract**(`req`: \{ `headers`: `Headers`; \}): `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:123](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L123)
+
+The session id out of the `Cookie` header, or `null` when it is absent or ambiguous.
+
+#### Parameters
+
+##### req
+
+###### headers
+
+`Headers`
+
+#### Returns
+
+`string` \| `null`
+
+#### Implementation of
+
+`Transport.ITransport.extract`
+
+***
+
+### issue()
+
+> **issue**(`sid`: `string`, `session`: [`Me`](../namespaces/Sessions/type-aliases/Me), `opts`: [`IssueOpts`](../namespaces/Transport/type-aliases/IssueOpts)): [`Intent`](../namespaces/Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:130](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L130)
+
+Sets the session cookie, capped by the session's absolute deadline, plus the CSRF companion.
+
+#### Parameters
+
+##### sid
+
+`string`
+
+##### session
+
+[`Me`](../namespaces/Sessions/type-aliases/Me)
+
+##### opts
+
+[`IssueOpts`](../namespaces/Transport/type-aliases/IssueOpts)
+
+#### Returns
+
+[`Intent`](../namespaces/Provider/type-aliases/Intent)[]
+
+#### Implementation of
+
+`Transport.ITransport.issue`
+
+***
+
+### revoke()
+
+> **revoke**(): [`Intent`](../namespaces/Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/transport/cookie.transport.ts:155](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/cookie.transport.ts#L155)
+
+Clears both cookies it sets.
+
+#### Returns
+
+[`Intent`](../namespaces/Provider/type-aliases/Intent)[]
+
+#### Implementation of
+
+`Transport.ITransport.revoke`
+

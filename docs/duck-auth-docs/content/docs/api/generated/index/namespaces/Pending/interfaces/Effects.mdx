@@ -1,0 +1,71 @@
+---
+title: "Interface: Effects"
+description: "The buffer a transaction's events wait in until it commits."
+---
+
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L14)
+
+The buffer a transaction's events wait in until it commits.
+
+## Properties
+
+### size
+
+> `readonly` **size**: `number`
+
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L16)
+
+Number of buffered events awaiting publication.
+
+## Methods
+
+### discard()
+
+> **discard**(): \{ `discarded`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L28)
+
+Drop everything buffered without publishing. For an explicit rollback path.
+
+#### Returns
+
+\{ `discarded`: `number`; \}
+
+##### discarded
+
+> **discarded**: `number`
+
+***
+
+### flush()
+
+> **flush**(): `Promise`\<\{ `failed`: `Error`[]; `published`: `number`; \}\>
+
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L26)
+
+Publishes in emit order, then empties the buffer. Idempotent, and it never rejects: a throwing listener
+does not stop the drain, and its error comes back in `failed`.
+
+WARN: deliberately so. This runs after the transaction committed and empties the buffer either way, so
+throwing would hand a committed write back as a 500 whose one promise, that the write did not happen, is
+false. The write happened and an announcement of it did not; a caller wanting those treated alike can
+`if (failed.length) throw new AggregateError(failed)`, which is not available in reverse.
+
+#### Returns
+
+`Promise`\<\{ `failed`: `Error`[]; `published`: `number`; \}\>
+
+***
+
+### peek()
+
+> **peek**(): readonly [`Event`](../type-aliases/Event)[]
+
+Defined in: [packages/duck-auth/src/core/pending/pending.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/pending/pending.types.ts#L30)
+
+Inspect the buffer without draining it. For tests and custom routing.
+
+#### Returns
+
+readonly [`Event`](../type-aliases/Event)[]
+

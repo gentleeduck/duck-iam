@@ -1,0 +1,121 @@
+---
+title: "Type Alias: ITransport"
+description: "How a session travels: read from a request, written to a response."
+---
+
+> **ITransport** = \{ `authoritative?`: `boolean`; `maxTokenLength?`: `number`; `extract`: `string` \| `null`; `issue`: [`Intent`](../../Provider/type-aliases/Intent)[]; `revoke`: [`Intent`](../../Provider/type-aliases/Intent)[]; `verify?`: `Promise`\<[`Verified`](Verified)\>; \}
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L38)
+
+How a session travels: read from a request, written to a response.
+
+## Properties
+
+### authoritative?
+
+> `optional` **authoritative?**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:56](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L56)
+
+SECURITY: a refusal here ends verification instead of falling through. A composite verifies by
+ disjunction, so putting DPoP beside a plain bearer adds nothing on its own, the unbound path still
+ answering for every token the bound one rejects. Set this and the strict transport's refusal is a
+ veto.
+
+***
+
+### maxTokenLength?
+
+> `optional` **maxTokenLength?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:51](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L51)
+
+The longest token this transport accepts. A composite takes the largest its members declare rather than
+ carrying its own constant, which silently clamped any member with a wider ceiling.
+
+## Methods
+
+### extract()
+
+> **extract**(`req`: \{ `headers`: `Headers`; \}): `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L40)
+
+The cookie value, header token or JWT carried by an inbound request.
+
+#### Parameters
+
+##### req
+
+###### headers
+
+`Headers`
+
+#### Returns
+
+`string` \| `null`
+
+***
+
+### issue()
+
+> **issue**(`sid`: `string`, `session`: [`Me`](../../Sessions/type-aliases/Me), `opts`: [`IssueOpts`](IssueOpts)): [`Intent`](../../Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L44)
+
+Build the Intent that persists the bearer for later requests. `sid` is the plaintext identifier the
+ client sends back; `session` carries the row metadata. SECURITY: `session.id` is the hashed row key and
+ never goes on the wire. Cookie transport emits a setCookie; JWT emits setCookie plus a json access token.
+
+#### Parameters
+
+##### sid
+
+`string`
+
+##### session
+
+[`Me`](../../Sessions/type-aliases/Me)
+
+##### opts
+
+[`IssueOpts`](IssueOpts)
+
+#### Returns
+
+[`Intent`](../../Provider/type-aliases/Intent)[]
+
+***
+
+### revoke()
+
+> **revoke**(): [`Intent`](../../Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L46)
+
+The response Intent that revokes any persisted bearer.
+
+#### Returns
+
+[`Intent`](../../Provider/type-aliases/Intent)[]
+
+***
+
+### verify()?
+
+> `optional` **verify**(`token`: `string`): `Promise`\<[`Verified`](Verified)\>
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L48)
+
+`CookieTransport` has no `verify` at all and leaves the caller to the `Sessions.Store` lookup.
+
+#### Parameters
+
+##### token
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Verified`](Verified)\>
+

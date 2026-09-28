@@ -1,0 +1,35 @@
+---
+title: "Function: authImpossibleTravelDetector()"
+description: "Emits impossible-travel when the distance from the last position over the time since implies a speed above maxKmPerHour. It reads positions and never writes them: getLastSeen answers from wherever the host records one, and req.geo arrives through getCaller."
+---
+
+> **authImpossibleTravelDetector**(`opts`: \{ `config?`: `Partial`\<[`Cfg`](../namespaces/AuthImpossibleTravel/interfaces/Cfg)\>; `getLastSeen`: (`identityId`: `string`) => `Promise`\<\{ `at`: `number`; `lat`: `number`; `lon`: `number`; \} \| `null`\>; \}): [`Detector`](../../index/namespaces/Anomaly/type-aliases/Detector)
+
+Defined in: [packages/duck-auth/src/core/anomaly/impossible-travel.detector.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/impossible-travel.detector.ts#L32)
+
+Emits `impossible-travel` when the distance from the last position over the time since implies a
+speed above `maxKmPerHour`. It reads positions and never writes them: `getLastSeen` answers from
+wherever the host records one, and `req.geo` arrives through `getCaller`.
+
+WARN: never record a position from a denied request. It moves "last seen" to the attacker, and their
+next request is no travel at all.
+
+## Parameters
+
+### opts
+
+#### config?
+
+`Partial`\<[`Cfg`](../namespaces/AuthImpossibleTravel/interfaces/Cfg)\>
+
+#### getLastSeen
+
+(`identityId`: `string`) => `Promise`\<\{ `at`: `number`; `lat`: `number`; `lon`: `number`; \} \| `null`\>
+
+The last position the host recorded for the identity. `at` is epoch ms, like `req.now`: seconds read
+ as a trip of decades, and nothing ever scores.
+
+## Returns
+
+[`Detector`](../../index/namespaces/Anomaly/type-aliases/Detector)
+

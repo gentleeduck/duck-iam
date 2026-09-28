@@ -1,0 +1,59 @@
+---
+title: "Type Alias: HonoCtx"
+description: "The subset of Hono's Context the handlers touch."
+---
+
+> **HonoCtx** = \{ `req`: \{ `header`: (`n?`: `string`) => `unknown`; `method`: `string`; `param`: (`n`: `string`) => `string` \| `undefined`; `raw`: `Request`; `url`: `string`; \}; \}
+
+Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/hono.types.ts#L26)
+
+The subset of Hono's `Context` the handlers touch.
+
+## Properties
+
+### req
+
+> **req**: \{ `header`: (`n?`: `string`) => `unknown`; `method`: `string`; `param`: (`n`: `string`) => `string` \| `undefined`; `raw`: `Request`; `url`: `string`; \}
+
+Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/hono.types.ts#L27)
+
+#### header
+
+> **header**: (`n?`: `string`) => `unknown`
+
+##### Parameters
+
+###### n?
+
+`string`
+
+##### Returns
+
+`unknown`
+
+#### method
+
+> **method**: `string`
+
+#### param
+
+> **param**: (`n`: `string`) => `string` \| `undefined`
+
+##### Parameters
+
+###### n
+
+`string`
+
+##### Returns
+
+`string` \| `undefined`
+
+#### raw
+
+> **raw**: `Request`
+
+#### url
+
+> **url**: `string`
+

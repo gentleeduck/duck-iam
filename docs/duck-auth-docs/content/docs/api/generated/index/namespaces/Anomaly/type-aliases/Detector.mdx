@@ -1,0 +1,68 @@
+---
+title: "Type Alias: Detector"
+description: "The plugin contract. A detector is registered once and called per request."
+---
+
+> **Detector** = \{ `id`: `string`; `evaluate`: `Promise`\<[`Signal`](../interfaces/Signal)[]\>; `record?`: `Promise`\<`void`\>; \}
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L39)
+
+The plugin contract. A detector is registered once and called per request.
+
+## Properties
+
+### id
+
+> `readonly` **id**: `string`
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L41)
+
+Unique across the facet, and what a `reactions` entry is scoped by. `'*'` is reserved.
+
+## Methods
+
+### evaluate()
+
+> **evaluate**(`ctx`: [`Context`](Context)): `Promise`\<[`Signal`](../interfaces/Signal)[]\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L44)
+
+Answer the signals this request earns, or `[]`. Throwing, overrunning `detectorTimeoutMs` or
+ returning anything else is logged and skipped - the other detectors still decide.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](Context)
+
+#### Returns
+
+`Promise`\<[`Signal`](../interfaces/Signal)[]\>
+
+***
+
+### record()?
+
+> `optional` **record**(`ctx`: [`Context`](Context), `decision`: [`Decision`](Decision)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L48)
+
+Called by [Anomaly.Result.admit](Result#admit) once the request is let through, under the same deadline:
+ what was learned from a refused request belongs to the attacker. Skipped when `evaluate` never
+ answered; a throw here is logged.
+
+#### Parameters
+
+##### ctx
+
+[`Context`](Context)
+
+##### decision
+
+[`Decision`](Decision)
+
+#### Returns
+
+`Promise`\<`void`\>
+

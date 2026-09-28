@@ -1,0 +1,41 @@
+---
+title: "Function: authFetchOidcDiscovery()"
+description: "RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects non-HTTPS unless allowHttp."
+---
+
+> **authFetchOidcDiscovery**(`issuer`: `string`, `opts?`: \{ `allowHttp?`: `boolean`; `bypassCache?`: `boolean`; `fetch?`: \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}; `ttlMs?`: `number`; \}): `Promise`\<[`IDocument`](../namespaces/AuthOidcDiscovery/interfaces/IDocument)\>
+
+Defined in: [packages/duck-auth/src/oidc/index.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/index.ts#L72)
+
+RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects non-HTTPS unless `allowHttp`.
+
+## Parameters
+
+### issuer
+
+`string`
+
+### opts?
+
+#### allowHttp?
+
+`boolean`
+
+#### bypassCache?
+
+`boolean`
+
+Skip the cache lookup; still writes the result. Use for forced refresh.
+
+#### fetch?
+
+\{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}
+
+#### ttlMs?
+
+`number`
+
+## Returns
+
+`Promise`\<[`IDocument`](../namespaces/AuthOidcDiscovery/interfaces/IDocument)\>
+

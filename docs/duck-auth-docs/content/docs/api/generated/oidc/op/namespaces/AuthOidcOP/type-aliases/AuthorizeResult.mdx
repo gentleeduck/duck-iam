@@ -1,0 +1,17 @@
+---
+title: "Type Alias: AuthorizeResult"
+description: "/authorize result the host app routes on."
+---
+
+> **AuthorizeResult**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\> = \{ `kind`: `"redirect"`; `url`: `string`; \} \| \{ `kind`: `"login_required"`; `reason`: `"no_session"` \| `"prompt_login"` \| `"max_age_exceeded"`; \} \| \{ `client`: [`Client`](Client); `identity`: [`Me`](../../../../../index/namespaces/Identities/type-aliases/Me)\<`Profile`\>; `kind`: `"consent_required"`; `scope`: `string`[]; \} \| \{ `body`: [`OauthError`](OauthError); `kind`: `"error"`; `redirectUri?`: `string`; `status`: `number`; \}
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:189](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L189)
+
+/authorize result the host app routes on.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+

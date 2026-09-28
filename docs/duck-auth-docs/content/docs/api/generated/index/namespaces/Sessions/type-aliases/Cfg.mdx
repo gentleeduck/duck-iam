@@ -1,0 +1,57 @@
+---
+title: "Type Alias: Cfg"
+description: "The session windows and the per-identity cap, set through the engine's session option."
+---
+
+> **Cfg** = \{ `absoluteTtlMs`: `number`; `freshnessMs`: `number`; `maxSessionsPerIdentity?`: `number`; `ttlMs`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:157](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L157)
+
+The session windows and the per-identity cap, set through the engine's `session` option.
+
+## Properties
+
+### absoluteTtlMs
+
+> **absoluteTtlMs**: `number`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:161](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L161)
+
+Hard absolute cap in ms. Default 30 days.
+
+***
+
+### freshnessMs
+
+> **freshnessMs**: `number`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:163](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L163)
+
+Window in ms where a session counts as "fresh" since the last factor. Default 5 min.
+
+***
+
+### maxSessionsPerIdentity?
+
+> `optional` **maxSessionsPerIdentity?**: `number`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:173](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L173)
+
+Most concurrent sessions one identity may hold. Over the cap, the oldest by `createdAt` is revoked
+to make room. Unset means unlimited, which is the historical behaviour and the default.
+
+Guests are not counted: `identityId === null` is not an identity to scope a limit to.
+
+WARN: setting it puts a `listByIdentity` on every sign-in. An operator turning it on is choosing
+that read.
+
+***
+
+### ttlMs
+
+> **ttlMs**: `number`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:159](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L159)
+
+Idle TTL in ms, slid by `resolveSession` once less than half is left. Default 7 days.
+

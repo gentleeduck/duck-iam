@@ -1,0 +1,121 @@
+---
+title: "Type Alias: Me"
+description: "An identity row as the store holds it."
+---
+
+> **Me**\<`Profile` *extends* [`ProfileMetadataBase`](ProfileMetadataBase) = [`ProfileMetadataBase`](ProfileMetadataBase)\> = \{ `createdAt`: `Date`; `createdBy`: `string` \| `null`; `deletedAt`: `Date` \| `null`; `deletedBy`: `string` \| `null`; `emailVerified`: `boolean`; `id`: `string`; `profile`: `Profile`; `providers`: [`ProviderLink`](ProviderLink)[]; `updatedAt`: `Date`; `updatedBy`: `string` \| `null`; `version`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L27)
+
+An identity row as the store holds it.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](ProfileMetadataBase) = [`ProfileMetadataBase`](ProfileMetadataBase)
+
+## Properties
+
+### createdAt
+
+> **createdAt**: `Date`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L37)
+
+***
+
+### createdBy
+
+> **createdBy**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L44)
+
+The actor the create was attributed to, or `null` where none was bound.
+
+***
+
+### deletedAt
+
+> **deletedAt**: `Date` \| `null`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L40)
+
+Set by a soft delete; the row is hidden but recoverable until the grace period elapses.
+
+***
+
+### deletedBy
+
+> **deletedBy**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L42)
+
+The actor the soft delete was attributed to, or `null` where none was bound.
+
+***
+
+### emailVerified
+
+> **emailVerified**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L36)
+
+Whether an address was proven, not merely asserted by a federated IdP.
+
+***
+
+### id
+
+> **id**: `string`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:28](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L28)
+
+***
+
+### profile
+
+> **profile**: `Profile`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L30)
+
+The host's own user fields; `username` and `email` are the only two this package reads.
+
+***
+
+### providers
+
+> **providers**: [`ProviderLink`](ProviderLink)[]
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L32)
+
+Every linked provider; unlinking the last one that can sign in is refused.
+
+***
+
+### updatedAt
+
+> **updatedAt**: `Date`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L38)
+
+***
+
+### updatedBy
+
+> **updatedBy**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L46)
+
+The actor the last write was attributed to, or `null` where none was bound.
+
+***
+
+### version
+
+> **version**: `number`
+
+Defined in: [packages/duck-auth/src/core/identities/identities.types.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/identities/identities.types.ts#L34)
+
+Optimistic-concurrency counter; a write passes it as `expectedVersion` to refuse a stale edit.
+

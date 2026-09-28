@@ -1,0 +1,47 @@
+---
+title: "Type Alias: Params"
+description: "The code length, step and hash every authenticator app assumes."
+---
+
+> **Params** = \{ `algorithm`: `"sha1"`; `digits`: `6`; `driftSteps`: `number`; `periodSec`: `30`; \}
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/totp.ts:7](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/totp.ts#L7)
+
+The code length, step and hash every authenticator app assumes.
+
+## Properties
+
+### algorithm
+
+> **algorithm**: `"sha1"`
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/totp.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/totp.ts#L11)
+
+***
+
+### digits
+
+> **digits**: `6`
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/totp.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/totp.ts#L8)
+
+***
+
+### driftSteps
+
+> **driftSteps**: `number`
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/totp.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/totp.ts#L13)
+
+Acceptable drift windows on either side of the current step.
+
+***
+
+### periodSec
+
+> **periodSec**: `30`
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/totp.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/totp.ts#L10)
+
+Pinned at 30s, which is what every authenticator app assumes.
+

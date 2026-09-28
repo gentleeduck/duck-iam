@@ -1,0 +1,37 @@
+---
+title: "Type Alias: CreateInput"
+description: "Every nullable column explicit; SessionsImpl.create coalesces MintInput into it."
+---
+
+> **CreateInput** = `Omit`\<[`Me`](Me), `"tenantId"` \| `"csrfHash"` \| `"ip"` \| `"userAgent"` \| `"fingerprint"` \| `"actingAs"`\> & \{ `actingAs`: [`ActingAs`](ActingAs) \| `null`; `csrfHash`: `string` \| `null`; `fingerprint`: `string` \| `null`; `ip`: `string` \| `null`; `tenantId`: `string` \| `null`; `userAgent`: `string` \| `null`; \}
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:107](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L107)
+
+Every nullable column explicit; `SessionsImpl.create` coalesces [MintInput](MintInput) into it.
+
+## Type Declaration
+
+### actingAs
+
+> **actingAs**: [`ActingAs`](ActingAs) \| `null`
+
+### csrfHash
+
+> **csrfHash**: `string` \| `null`
+
+### fingerprint
+
+> **fingerprint**: `string` \| `null`
+
+### ip
+
+> **ip**: `string` \| `null`
+
+### tenantId
+
+> **tenantId**: `string` \| `null`
+
+### userAgent
+
+> **userAgent**: `string` \| `null`
+

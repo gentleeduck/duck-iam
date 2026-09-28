@@ -1,0 +1,45 @@
+---
+title: "Function: fastifyWithActor()"
+description: "Wrap one handler so its writes carry the request's actor; per-handler, since Fastify composes no  next. A handler annotated with Fastify's own request and reply types keeps them. See  core/actor/README.md for what runs unbound and what raises."
+---
+
+> **fastifyWithActor**\<`Req` *extends* [`Request`](../namespaces/FastifyAdapter/type-aliases/Request), `Reply` *extends* [`Reply`](../namespaces/FastifyAdapter/type-aliases/Reply), `Out`\>(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `handler`: (`req`: `Req`, `reply`: `Reply`) => `Promise`\<`Out`\>, `opts?`: [`FastifyActorOptions`](../type-aliases/FastifyActorOptions)\<`Req`\>): (`req`: `Req`, `reply`: `Reply`) => `Promise`\<`Out`\>
+
+Defined in: [packages/duck-auth/src/server/fastify/index.ts:180](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/index.ts#L180)
+
+Wrap one handler so its writes carry the request's actor; per-handler, since Fastify composes no
+ `next`. A handler annotated with Fastify's own request and reply types keeps them. See
+ `core/actor/README.md` for what runs unbound and what raises.
+
+## Type Parameters
+
+### Req
+
+`Req` *extends* [`Request`](../namespaces/FastifyAdapter/type-aliases/Request)
+
+### Reply
+
+`Reply` *extends* [`Reply`](../namespaces/FastifyAdapter/type-aliases/Reply)
+
+### Out
+
+`Out`
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### handler
+
+(`req`: `Req`, `reply`: `Reply`) => `Promise`\<`Out`\>
+
+### opts?
+
+[`FastifyActorOptions`](../type-aliases/FastifyActorOptions)\<`Req`\> = `{}`
+
+## Returns
+
+(`req`: `Req`, `reply`: `Reply`) => `Promise`\<`Out`\>
+

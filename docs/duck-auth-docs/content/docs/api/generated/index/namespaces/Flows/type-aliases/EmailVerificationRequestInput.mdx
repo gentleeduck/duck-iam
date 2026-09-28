@@ -1,0 +1,49 @@
+---
+title: "Type Alias: EmailVerificationRequestInput"
+description: "Who to send a verification link to, and where it lands."
+---
+
+> **EmailVerificationRequestInput** = \{ `callbackPath?`: `string`; `identityId`: `string`; `tenantId?`: `string`; `ttlMs?`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:180](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L180)
+
+Who to send a verification link to, and where it lands.
+
+## Properties
+
+### callbackPath?
+
+> `optional` **callbackPath?**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:186](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L186)
+
+The library appends `?token=`. Default `/auth/verify-email`.
+
+***
+
+### identityId
+
+> **identityId**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:182](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L182)
+
+Identity to verify.
+
+***
+
+### tenantId?
+
+> `optional` **tenantId?**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:187](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L187)
+
+***
+
+### ttlMs?
+
+> `optional` **ttlMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:184](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L184)
+
+Default 30 minutes.
+

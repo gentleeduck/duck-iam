@@ -1,0 +1,61 @@
+---
+title: "Type Alias: AccessToken"
+description: "An issued opaque access token."
+---
+
+> **AccessToken** = \{ `client_id`: `string`; `exp`: `number`; `identity_id`: `string`; `scope`: `string`[]; `tenant_id`: `string` \| `null`; `token_hash`: `string`; \}
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L55)
+
+An issued opaque access token.
+
+## Properties
+
+### client\_id
+
+> **client\_id**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L58)
+
+***
+
+### exp
+
+> **exp**: `number`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L62)
+
+***
+
+### identity\_id
+
+> **identity\_id**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:59](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L59)
+
+***
+
+### scope
+
+> **scope**: `string`[]
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L60)
+
+***
+
+### tenant\_id
+
+> **tenant\_id**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:61](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L61)
+
+***
+
+### token\_hash
+
+> **token\_hash**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:57](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L57)
+
+Hashed token (authSha256). Plaintext is only ever returned at issue time.
+

@@ -1,0 +1,43 @@
+---
+title: "Type Alias: Context"
+description: "What a ciphertext is bound to; it decrypts only under the same context."
+---
+
+> **Context** = \{ `field`: `string`; `identityId`: `string`; `tag?`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L31)
+
+What a ciphertext is bound to; it decrypts only under the same context.
+
+## Properties
+
+### field
+
+> **field**: `string`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L33)
+
+Field name in Identity.profile that's being encrypted.
+
+***
+
+### identityId
+
+> **identityId**: `string`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L36)
+
+Lets an adapter tie keys to subjects, so GDPR right-to-erasure is met by destroying the
+ per-subject DEK.
+
+***
+
+### tag?
+
+> `optional` **tag?**: `string`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/dataAtRest.types.ts#L39)
+
+Opaque tag for a tenant or row revision, bound like the other two: a ciphertext decrypts only under
+ the tag it was written with.
+

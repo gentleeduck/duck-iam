@@ -1,0 +1,36 @@
+---
+title: "Function: makeGuard()"
+description: "Auth guard for your own routes. CSRF is checked by default, since an app mounting only this guard  would otherwise have no CSRF defence; pass csrf: false only if something upstream did it."
+---
+
+> **makeGuard**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: \{ `cfg?`: [`Cfg`](../../../core/namespaces/Csrf/type-aliases/Cfg); `csrf?`: `boolean`; `required?`: `boolean`; \}): [`Guard`](../namespaces/NestAdapter/type-aliases/Guard)
+
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:213](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L213)
+
+Auth guard for your own routes. CSRF is checked by default, since an app mounting only this guard
+ would otherwise have no CSRF defence; pass `csrf: false` only if something upstream did it.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+#### cfg?
+
+[`Cfg`](../../../core/namespaces/Csrf/type-aliases/Cfg)
+
+#### csrf?
+
+`boolean`
+
+#### required?
+
+`boolean`
+
+## Returns
+
+[`Guard`](../namespaces/NestAdapter/type-aliases/Guard)
+

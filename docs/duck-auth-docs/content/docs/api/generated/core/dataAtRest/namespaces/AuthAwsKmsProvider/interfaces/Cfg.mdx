@@ -1,0 +1,29 @@
+---
+title: "Interface: Cfg"
+description: "The KMS key and client the provider wraps data keys with."
+---
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aws-kms.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aws-kms.ts#L69)
+
+The KMS key and client the provider wraps data keys with.
+
+## Properties
+
+### client
+
+> **client**: [`IKmsLike`](IKmsLike)
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aws-kms.ts:73](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aws-kms.ts#L73)
+
+A pre-configured KmsClient, or anything with a `send` method for tests.
+
+***
+
+### keyId
+
+> **keyId**: `string`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aws-kms.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aws-kms.ts#L71)
+
+KMS key id, ARN or alias, such as 'alias/duck-auth-data-at-rest'.
+

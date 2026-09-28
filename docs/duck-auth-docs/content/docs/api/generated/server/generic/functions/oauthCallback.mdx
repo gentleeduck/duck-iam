@@ -1,0 +1,52 @@
+---
+title: "Function: oauthCallback()"
+description: "Sign in from an OAuth callback: the query on a redirect, the urlencoded body on a POST, which is how Apple answers. body is the framework's parsed form, or the raw text where it parses none."
+---
+
+> **oauthCallback**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `id`: `unknown`, `req`: \{ `body?`: `unknown`; `cookie?`: `unknown`; `method`: `string`; `url`: `string`; \}, `caller`: [`CallerFingerprint`](../type-aliases/CallerFingerprint)): `Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+
+Defined in: [packages/duck-auth/src/server/generic/index.ts:153](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/generic/index.ts#L153)
+
+Sign in from an OAuth callback: the query on a redirect, the urlencoded body on a POST, which is how Apple
+answers. `body` is the framework's parsed form, or the raw text where it parses none.
+
+SECURITY: never CSRF-guarded. A form post is the IdP's page submitting cross-site, so an origin check refuses
+every real one; the signed `state` and the pre-auth cookie bound into it are the proof. Only an `oauth`
+provider is driven, so this unguarded route signs nobody in through any other.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### id
+
+`unknown`
+
+### req
+
+#### body?
+
+`unknown`
+
+#### cookie?
+
+`unknown`
+
+#### method
+
+`string`
+
+#### url
+
+`string`
+
+### caller
+
+[`CallerFingerprint`](../type-aliases/CallerFingerprint)
+
+## Returns
+
+`Promise`\<[`Intent`](../../../index/namespaces/Provider/type-aliases/Intent)[]\>
+

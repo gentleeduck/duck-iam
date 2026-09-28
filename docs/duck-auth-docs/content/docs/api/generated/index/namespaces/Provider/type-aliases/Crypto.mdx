@@ -1,0 +1,75 @@
+---
+title: "Type Alias: Crypto"
+description: "So a provider need not import node:crypto itself."
+---
+
+> **Crypto** = \{ `authRandomToken`: `string`; `authSha256`: `string`; `authTimingSafeEqual`: `boolean`; \}
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L40)
+
+So a provider need not import `node:crypto` itself.
+
+## Methods
+
+### authRandomToken()
+
+> **authRandomToken**(`bytes`: `number`): `string`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L42)
+
+`bytes` random bytes, base64url.
+
+#### Parameters
+
+##### bytes
+
+`number`
+
+#### Returns
+
+`string`
+
+***
+
+### authSha256()
+
+> **authSha256**(`s`: `string`): `string`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L44)
+
+The hex sha256 of `s`.
+
+#### Parameters
+
+##### s
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### authTimingSafeEqual()
+
+> **authTimingSafeEqual**(`a`: `string`, `b`: `string`): `boolean`
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L46)
+
+Compares two strings in constant time.
+
+#### Parameters
+
+##### a
+
+`string`
+
+##### b
+
+`string`
+
+#### Returns
+
+`boolean`
+

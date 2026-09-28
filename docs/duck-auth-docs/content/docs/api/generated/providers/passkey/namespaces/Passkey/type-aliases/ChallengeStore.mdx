@@ -1,0 +1,62 @@
+---
+title: "Type Alias: ChallengeStore"
+description: "Short-lived challenge persistence. Both begin paths store a fresh challenge, keyed by userId for  registration and sessionId for authentication, and complete consumes it."
+---
+
+> **ChallengeStore** = \{ `put`: `Promise`\<`void`\>; `take`: `Promise`\<`string`\>; \}
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:115](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L115)
+
+Short-lived challenge persistence. Both begin paths store a fresh challenge, keyed by `userId` for
+ registration and `sessionId` for authentication, and complete consumes it.
+
+## Methods
+
+### put()
+
+> **put**(`key`: `string`, `challenge`: `string`, `ttlMs`: `number`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:117](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L117)
+
+Stores `challenge` under `key` for `ttlMs`.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### challenge
+
+`string`
+
+##### ttlMs
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### take()
+
+> **take**(`key`: `string`): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:121](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L121)
+
+Reads and deletes in one step. Rejects `AUTH_CREDENTIAL_NOT_FOUND` for a key never put, an elapsed
+ TTL and a challenge already consumed; all three are a replay as far as the caller is concerned, and
+ it answers `AUTH_PASSKEY_MISMATCH` for every one.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`\>
+

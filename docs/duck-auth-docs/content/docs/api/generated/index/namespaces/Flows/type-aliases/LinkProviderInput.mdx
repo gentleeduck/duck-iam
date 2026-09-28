@@ -1,0 +1,91 @@
+---
+title: "Type Alias: LinkProviderInput"
+description: "Attach a provider login to an identity, behind the host's own authorization."
+---
+
+> **LinkProviderInput**\<`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)\> = \{ `authorize`: (`input`: \{ `identity`: [`Me`](../../Identities/type-aliases/Me)\<`Profile`\>; `providerId`: `string`; `providerSub`: `string`; \}) => `Promise`\<`boolean`\>; `identityId`: `string`; `providerId`: `string`; `providerSub`: `string`; `tenantId?`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:147](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L147)
+
+Attach a provider login to an identity, behind the host's own authorization.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)
+
+## Properties
+
+### authorize
+
+> **authorize**: (`input`: \{ `identity`: [`Me`](../../Identities/type-aliases/Me)\<`Profile`\>; `providerId`: `string`; `providerSub`: `string`; \}) => `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:161](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L161)
+
+SECURITY: mandatory, and the only thing standing between this call and an account takeover. `providerSub`
+is whatever the host passed and a link is a permanent authentication factor, so wiring this to a route
+that trusts a request body lets an attacker link their own Google account to a victim and sign in as them.
+Answer `false` unless the `providerSub` came from a token exchange your own code performed, and never
+`async () => true`.
+
+#### Parameters
+
+##### input
+
+###### identity
+
+[`Me`](../../Identities/type-aliases/Me)\<`Profile`\>
+
+###### providerId
+
+`string`
+
+###### providerSub
+
+`string`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### identityId
+
+> **identityId**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:149](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L149)
+
+Identity to attach the provider link to.
+
+***
+
+### providerId
+
+> **providerId**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:151](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L151)
+
+The id the provider signs in under, such as `'oauth:google'`; sign-in finds no link under any other.
+
+***
+
+### providerSub
+
+> **providerSub**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:153](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L153)
+
+Verified by the oauth dance the caller just completed.
+
+***
+
+### tenantId?
+
+> `optional` **tenantId?**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:167](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L167)
+
+Tenant scope.
+

@@ -1,0 +1,71 @@
+---
+title: "Class: AuthMemoryClientStore"
+description: "In-memory AuthOidcOP.ClientStore. Maps client_id → registered client."
+---
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L11)
+
+In-memory `AuthOidcOP.ClientStore`. Maps `client_id` → registered client.
+
+## Implements
+
+- [`ClientStore`](../namespaces/AuthOidcOP/type-aliases/ClientStore)
+
+## Constructors
+
+### Constructor
+
+> **new AuthMemoryClientStore**(): `AuthMemoryClientStore`
+
+#### Returns
+
+`AuthMemoryClientStore`
+
+## Methods
+
+### findById()
+
+> **findById**(`client_id`: `string`): `Promise`\<[`Client`](../namespaces/AuthOidcOP/type-aliases/Client) \| `null`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L13)
+
+The client, or `null`.
+
+#### Parameters
+
+##### client\_id
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Client`](../namespaces/AuthOidcOP/type-aliases/Client) \| `null`\>
+
+#### Implementation of
+
+`OidcOP.ClientStore.findById`
+
+***
+
+### insert()
+
+> **insert**(`c`: [`Client`](../namespaces/AuthOidcOP/type-aliases/Client)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L16)
+
+Registers a client; rejects a taken `client_id`.
+
+#### Parameters
+
+##### c
+
+[`Client`](../namespaces/AuthOidcOP/type-aliases/Client)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`OidcOP.ClientStore.insert`
+

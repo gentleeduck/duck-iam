@@ -1,0 +1,30 @@
+---
+title: "Function: orNull()"
+description: "Absence alone as a value, for a caller inside the engine with no answer to put readers on."
+---
+
+> **orNull**\<`T`\>(`call`: `Promise`\<`T`\>): `Promise`\<`T` \| `null`\>
+
+Defined in: [packages/duck-auth/src/core/answer.ts:51](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/answer.ts#L51)
+
+Absence alone as a value, for a caller inside the engine with no answer to put readers on.
+
+SECURITY: every other failure still throws, so a store that is down cannot be read as a row that is not
+there — which is how a signup reads a timed-out lookup as a free email address.
+
+## Type Parameters
+
+### T
+
+`T`
+
+## Parameters
+
+### call
+
+`Promise`\<`T`\>
+
+## Returns
+
+`Promise`\<`T` \| `null`\>
+

@@ -1,0 +1,282 @@
+---
+title: "Interface: AppleOptions"
+description: "Apple-specific options. No clientSecret: one is minted per request from the team, key and private key."
+---
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:242](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L242)
+
+Apple-specific options. No `clientSecret`: one is minted per request from the team, key and private key.
+
+## Extends
+
+- `Omit`\<[`OptionsBase`](OptionsBase)\<`AppProfile`\>, `"clientSecret"`\>
+
+## Type Parameters
+
+### AppProfile
+
+`AppProfile` = `unknown`
+
+## Properties
+
+### allowStateReplay?
+
+> `optional` **allowStateReplay?**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L66)
+
+Accepts a state nothing burns. See [OAuth.Options.allowStateReplay](Options#allowstatereplay).
+
+#### Inherited from
+
+[`LinkedinOptions`](LinkedinOptions).[`allowStateReplay`](LinkedinOptions#allowstatereplay)
+
+***
+
+### clientId
+
+> **clientId**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:54](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L54)
+
+oauth client id assigned by the IdP.
+
+#### Inherited from
+
+[`LinkedinOptions`](LinkedinOptions).[`clientId`](LinkedinOptions#clientid)
+
+***
+
+### fetch?
+
+> `optional` **fetch?**: \{(`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>; \}
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L70)
+
+Override fetch impl (test stubs).
+
+#### Call Signature
+
+> (`input`: `RequestInfo` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`RequestInfo` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+#### Call Signature
+
+> (`input`: `string` \| `Request` \| `URL`, `init?`: `RequestInit`): `Promise`\<`Response`\>
+
+[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)
+
+##### Parameters
+
+###### input
+
+`string` \| `Request` \| `URL`
+
+###### init?
+
+`RequestInit`
+
+##### Returns
+
+`Promise`\<`Response`\>
+
+#### Inherited from
+
+`Omit.fetch`
+
+***
+
+### keyId
+
+> **keyId**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:246](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L246)
+
+Key ID associated with the AuthKey_*.p8 file.
+
+***
+
+### nonceStore?
+
+> `optional` **nonceStore?**: [`NonceStore`](NonceStore)
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:64](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L64)
+
+Burns the state's nonce at `complete`. See [OAuth.Options.nonceStore](Options#noncestore).
+
+#### Inherited from
+
+[`LinkedinOptions`](LinkedinOptions).[`nonceStore`](LinkedinOptions#noncestore)
+
+***
+
+### onFederationConflict?
+
+> `optional` **onFederationConflict?**: [`FederationPolicy`](../type-aliases/FederationPolicy)
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:77](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L77)
+
+What to do when the profile's email already belongs to an identity with no link to this provider. See
+ [OAuth.Options.onFederationConflict](Options#onfederationconflict); the default is `'reject'`.
+
+#### Inherited from
+
+`Omit.onFederationConflict`
+
+***
+
+### onSignIn?
+
+> `optional` **onSignIn?**: (`ctx`: \{ `createIdentity`: (`profile`: `AppProfile`) => `Promise`\<\{ `id`: `string`; \}\>; `findByEmail`: (`email`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>; `findByProviderSub`: (`providerSub`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>; `linkProvider`: (`identityId`: `string`, `providerSub`: `string`) => `Promise`\<`void`\>; `profile`: [`Profile`](Profile); \}) => `Promise`\<\{ `identityId`: `string`; \} \| `null`\>
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L72)
+
+Customise identity resolution at signin time.
+
+#### Parameters
+
+##### ctx
+
+###### createIdentity
+
+(`profile`: `AppProfile`) => `Promise`\<\{ `id`: `string`; \}\>
+
+###### findByEmail
+
+(`email`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>
+
+###### findByProviderSub
+
+(`providerSub`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>
+
+###### linkProvider
+
+(`identityId`: `string`, `providerSub`: `string`) => `Promise`\<`void`\>
+
+###### profile
+
+[`Profile`](Profile)
+
+#### Returns
+
+`Promise`\<\{ `identityId`: `string`; \} \| `null`\>
+
+#### Inherited from
+
+`Omit.onSignIn`
+
+***
+
+### privateKey
+
+> **privateKey**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:248](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L248)
+
+The contents of the AuthKey_*.p8 file, an ES256 private key in PEM. Load it from a secrets manager.
+
+***
+
+### profileToIdentityProfile?
+
+> `optional` **profileToIdentityProfile?**: (`p`: [`Profile`](Profile)) => `AppProfile` \| `null`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L74)
+
+Project canonical Profile into the consumer's Profile shape.
+
+#### Parameters
+
+##### p
+
+[`Profile`](Profile)
+
+#### Returns
+
+`AppProfile` \| `null`
+
+#### Inherited from
+
+`Omit.profileToIdentityProfile`
+
+***
+
+### redirectUri
+
+> **redirectUri**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L58)
+
+Exact callback URL registered with the IdP. Must match.
+
+#### Inherited from
+
+[`LinkedinOptions`](LinkedinOptions).[`redirectUri`](LinkedinOptions#redirecturi)
+
+***
+
+### scopes?
+
+> `optional` **scopes?**: `string`[]
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:250](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L250)
+
+Default `['name', 'email']`.
+
+#### Overrides
+
+`Omit.scopes`
+
+***
+
+### stateCookie?
+
+> `optional` **stateCookie?**: [`StateCookie`](StateCookie)
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L62)
+
+Binds a callback to the browser that began the flow. See [OAuth.StateCookie](StateCookie).
+
+#### Inherited from
+
+[`LinkedinOptions`](LinkedinOptions).[`stateCookie`](LinkedinOptions#statecookie)
+
+***
+
+### stateSigningSecret
+
+> **stateSigningSecret**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:60](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L60)
+
+Per-AuthEngine signing secret for the oauth `state` parameter.
+
+#### Inherited from
+
+[`LinkedinOptions`](LinkedinOptions).[`stateSigningSecret`](LinkedinOptions#statesigningsecret)
+
+***
+
+### teamId
+
+> **teamId**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:244](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L244)
+
+Apple Developer Team ID (10-char alphanumeric).
+

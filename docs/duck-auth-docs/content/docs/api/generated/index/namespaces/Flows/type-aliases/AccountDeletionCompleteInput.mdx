@@ -1,0 +1,50 @@
+---
+title: "Type Alias: AccountDeletionCompleteInput"
+description: "The confirmation token, and whether to send the undo link."
+---
+
+> **AccountDeletionCompleteInput** = \{ `callbackPath?`: `string`; `sendUndoLink?`: `boolean`; `tenantId?`: `string`; `token`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:210](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L210)
+
+The confirmation token, and whether to send the undo link.
+
+## Properties
+
+### callbackPath?
+
+> `optional` **callbackPath?**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:217](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L217)
+
+Path on the app that handles the undo. Default `/auth/cancel-deletion`.
+
+***
+
+### sendUndoLink?
+
+> `optional` **sendUndoLink?**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:215](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L215)
+
+Whether the library sends the undo link itself. Leave it false and `cancellationToken` comes back
+ in the result for the host to deliver, or to drop, which is how undo is turned off.
+
+***
+
+### tenantId?
+
+> `optional` **tenantId?**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:218](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L218)
+
+***
+
+### token
+
+> **token**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:212](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L212)
+
+Token from the confirmation link.
+

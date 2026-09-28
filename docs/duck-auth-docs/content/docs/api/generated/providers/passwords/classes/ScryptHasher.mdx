@@ -1,0 +1,144 @@
+---
+title: "Class: ScryptHasher"
+description: "Node's own, and the one hasher that needs no dependency. DEFAULT_PASSWORDS_CONFIG selects  Argon2id; this is what the CLI, the examples and the test harness pass explicitly."
+---
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L6)
+
+Node's own, and the one hasher that needs no dependency. `DEFAULT_PASSWORDS_CONFIG` selects
+ Argon2id; this is what the CLI, the examples and the test harness pass explicitly.
+
+## Implements
+
+- [`Me`](../namespaces/Hasher/type-aliases/Me)
+
+## Constructors
+
+### Constructor
+
+> **new ScryptHasher**(`params?`: `Partial`\<[`Params`](../namespaces/ScryptHasher/type-aliases/Params)\>): `ScryptHasher`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L74)
+
+#### Parameters
+
+##### params?
+
+`Partial`\<[`Params`](../namespaces/ScryptHasher/type-aliases/Params)\> = `{}`
+
+#### Returns
+
+`ScryptHasher`
+
+## Properties
+
+### \_\_fipsParams
+
+> `readonly` **\_\_fipsParams**: `false` = `false`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L68)
+
+Never, whatever the parameters: the `fipsValidatedHasher` check names Argon2id. Published rather
+ than left off so the answer is "no" and not "no opinion".
+
+***
+
+### \_\_weakHasherParams
+
+> `readonly` **\_\_weakHasherParams**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L71)
+
+Below N = 2^14, r = 8 or a 32-byte key. Refused by `AuthEngine.strict()` in production only, since a
+ cheap KDF is what a test suite wants and what a production deployment cannot have.
+
+***
+
+### id
+
+> `readonly` **id**: `"scrypt"` = `'scrypt'`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:65](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L65)
+
+Names the algorithm and parameter set encoded into the hash.
+
+#### Implementation of
+
+`Hasher.Me.id`
+
+## Methods
+
+### hash()
+
+> **hash**(`plaintext`: `string`): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:115](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L115)
+
+Hashes under a fresh salt, encoding the parameters into the result.
+
+#### Parameters
+
+##### plaintext
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`\>
+
+#### Implementation of
+
+`Hasher.Me.hash`
+
+***
+
+### needsRehash()
+
+> **needsRehash**(`encoded`: `string`): `boolean`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:145](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L145)
+
+True when the encoded parameters are weaker than the configured ones, or unreadable.
+
+#### Parameters
+
+##### encoded
+
+`string`
+
+#### Returns
+
+`boolean`
+
+#### Implementation of
+
+`Hasher.Me.needsRehash`
+
+***
+
+### verify()
+
+> **verify**(`plaintext`: `string`, `encoded`: `string`): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/scrypt.ts:127](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/scrypt.ts#L127)
+
+Constant-time compare; an unparseable or foreign-format hash is false, not an error.
+
+#### Parameters
+
+##### plaintext
+
+`string`
+
+##### encoded
+
+`string`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+#### Implementation of
+
+`Hasher.Me.verify`
+

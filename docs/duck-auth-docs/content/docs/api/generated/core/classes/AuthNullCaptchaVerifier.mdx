@@ -1,0 +1,83 @@
+---
+title: "Class: AuthNullCaptchaVerifier"
+description: "Always-pass verifier for tests. Refuses to construct under NODE_ENV=production without  development: a verifier that cannot fail looks exactly like one that works."
+---
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:111](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L111)
+
+Always-pass verifier for tests. Refuses to construct under `NODE_ENV=production` without
+ `development`: a verifier that cannot fail looks exactly like one that works.
+
+## Implements
+
+- [`IVerifier`](../namespaces/AuthCaptcha/interfaces/IVerifier)
+
+## Constructors
+
+### Constructor
+
+> **new AuthNullCaptchaVerifier**(`cfg?`: \{ `development?`: `boolean`; \}): `AuthNullCaptchaVerifier`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:116](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L116)
+
+#### Parameters
+
+##### cfg?
+
+###### development?
+
+`boolean`
+
+#### Returns
+
+`AuthNullCaptchaVerifier`
+
+## Properties
+
+### \_\_isNullCaptcha
+
+> `readonly` **\_\_isNullCaptcha**: `true`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:114](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L114)
+
+Read by `strict()`: `id` is a caller-visible string a foreign verifier may also use.
+
+***
+
+### id
+
+> `readonly` **id**: `"null"` = `'null'`
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:112](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L112)
+
+Stable per implementation - `'turnstile'`, `'hcaptcha'`, `'recaptcha-v3'`, `'null'`,
+ `'unconfigured'`. A caller-visible string, so it is not what `strict()` keys its null check on.
+
+#### Implementation of
+
+[`IVerifier`](../namespaces/AuthCaptcha/interfaces/IVerifier).[`id`](../namespaces/AuthCaptcha/interfaces/IVerifier#id)
+
+## Methods
+
+### verify()
+
+> **verify**(`_input`: [`IVerifyInput`](../namespaces/AuthCaptcha/interfaces/IVerifyInput)): `Promise`\<[`IVerifyResult`](../namespaces/AuthCaptcha/interfaces/IVerifyResult)\>
+
+Defined in: [packages/duck-auth/src/core/captcha/captcha.ts:125](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/captcha/captcha.ts#L125)
+
+Always succeeds.
+
+#### Parameters
+
+##### \_input
+
+[`IVerifyInput`](../namespaces/AuthCaptcha/interfaces/IVerifyInput)
+
+#### Returns
+
+`Promise`\<[`IVerifyResult`](../namespaces/AuthCaptcha/interfaces/IVerifyResult)\>
+
+#### Implementation of
+
+[`IVerifier`](../namespaces/AuthCaptcha/interfaces/IVerifier).[`verify`](../namespaces/AuthCaptcha/interfaces/IVerifier#verify)
+

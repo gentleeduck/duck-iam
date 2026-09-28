@@ -1,0 +1,103 @@
+---
+title: "Type Alias: ApiKey"
+description: "An api key as stored, without its secret."
+---
+
+> **ApiKey** = \{ `createdAt`: `Date`; `expiresAt?`: `Date`; `id`: `string`; `identityId`: `string`; `lastUsedAt?`: `Date`; `name`: `string`; `revokedAt?`: `Date`; `scopes`: `string`[]; `tenantId?`: `string`; `updatedAt`: `Date`; \}
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L35)
+
+An api key as stored, without its secret.
+
+## Properties
+
+### createdAt
+
+> **createdAt**: `Date`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:43](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L43)
+
+***
+
+### expiresAt?
+
+> `optional` **expiresAt?**: `Date`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:49](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L49)
+
+Absent means it does not expire of its own accord.
+
+***
+
+### id
+
+> **id**: `string`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L36)
+
+***
+
+### identityId
+
+> **identityId**: `string`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L37)
+
+***
+
+### lastUsedAt?
+
+> `optional` **lastUsedAt?**: `Date`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:47](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L47)
+
+Absent until the key is first presented.
+
+***
+
+### name
+
+> **name**: `string`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L40)
+
+***
+
+### revokedAt?
+
+> `optional` **revokedAt?**: `Date`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:51](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L51)
+
+Set once revoked; the row is kept, so a replay is refused rather than missed.
+
+***
+
+### scopes
+
+> **scopes**: `string`[]
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L42)
+
+What the key may do; an exchange refuses a scope the key does not carry.
+
+***
+
+### tenantId?
+
+> `optional` **tenantId?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L39)
+
+Absent on a key `create` left unscoped; `exchange` reports the same tenant back.
+
+***
+
+### updatedAt
+
+> **updatedAt**: `Date`
+
+Defined in: [packages/duck-auth/src/providers/api-key/api-key.types.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/api-key/api-key.types.ts#L45)
+
+Moves on every write to the backing credential, a rotation or a revoke included.
+

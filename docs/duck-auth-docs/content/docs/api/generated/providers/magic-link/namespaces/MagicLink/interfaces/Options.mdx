@@ -1,0 +1,110 @@
+---
+title: "Interface: Options"
+description: "How the link is sent, how long it lives, and how an address maps to an identity."
+---
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.types.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.types.ts#L6)
+
+How the link is sent, how long it lives, and how an address maps to an identity.
+
+## Type Parameters
+
+### Profile
+
+`Profile` = `unknown`
+
+## Properties
+
+### autoCreateIdentity?
+
+> `optional` **autoCreateIdentity?**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.types.ts#L13)
+
+Creates an identity when no one matches the email. Default false.
+
+***
+
+### autoCreateProfile?
+
+> `optional` **autoCreateProfile?**: (`email`: `string`) => `Profile`
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.types.ts#L15)
+
+The `profile` payload used when auto-creating.
+
+#### Parameters
+
+##### email
+
+`string`
+
+#### Returns
+
+`Profile`
+
+***
+
+### callbackPath?
+
+> `optional` **callbackPath?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.types.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.types.ts#L21)
+
+Where the link lands; the token is appended as `?token=`.
+
+***
+
+### deliver?
+
+> `optional` **deliver?**: [`Deliver`](../../../../../index/type-aliases/Deliver)
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.types.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.types.ts#L8)
+
+How the host sends the link. `createAuth` forwards `cfg.deliver` to a provider thunk.
+
+***
+
+### findIdentityByEmail
+
+> **findIdentityByEmail**: (`email`: `string`, `tenantId?`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.types.ts#L11)
+
+How the library finds an identity from an email. Returning `null` and rejecting with an absence
+ code both read as "no such address", so `auth.identities.getByEmail` wires straight in.
+
+#### Parameters
+
+##### email
+
+`string`
+
+##### tenantId?
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `id`: `string`; \} \| `null`\>
+
+***
+
+### limiterKeyPrefix?
+
+> `optional` **limiterKeyPrefix?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.types.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.types.ts#L19)
+
+Default 'magic-link:request:'.
+
+***
+
+### ttlMs?
+
+> `optional` **ttlMs?**: `number`
+
+Defined in: [packages/duck-auth/src/providers/magic-link/magic-link.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/magic-link/magic-link.types.ts#L17)
+
+Default 10 minutes.
+

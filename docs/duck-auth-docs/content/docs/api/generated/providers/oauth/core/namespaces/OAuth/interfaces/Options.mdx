@@ -1,0 +1,206 @@
+---
+title: "Interface: Options"
+description: "Full options surface consumed by oProvider."
+---
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:99](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L99)
+
+Full options surface consumed by `oProvider`.
+
+## Type Parameters
+
+### AppProfile
+
+`AppProfile` = `unknown`
+
+## Properties
+
+### allowStateReplay?
+
+> `optional` **allowStateReplay?**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:117](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L117)
+
+Accepts a state nothing burns. Default false: the nonce is minted and signed either way, so an
+ absent store reads as replay protection that is present and off.
+
+***
+
+### client
+
+> **client**: [`OAuthClient`](../../../classes/OAuthClient)
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:103](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L103)
+
+The client that talks to the provider.
+
+***
+
+### fetchProfile
+
+> **fetchProfile**: (`tokens`: \{ `access_token`: `string`; `id_token?`: `string`; \}, `client`: [`OAuthClient`](../../../classes/OAuthClient), `input`: [`CompleteInput`](CompleteInput)) => `Promise`\<[`Profile`](Profile)\>
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:127](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L127)
+
+Extract a canonical profile from the token response, the userinfo endpoint or the callback itself.
+
+#### Parameters
+
+##### tokens
+
+###### access_token
+
+`string`
+
+###### id_token?
+
+`string`
+
+##### client
+
+[`OAuthClient`](../../../classes/OAuthClient)
+
+##### input
+
+[`CompleteInput`](CompleteInput)
+
+#### Returns
+
+`Promise`\<[`Profile`](Profile)\>
+
+***
+
+### nonceStore?
+
+> `optional` **nonceStore?**: [`NonceStore`](NonceStore)
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:114](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L114)
+
+Burns `StatePayload.nonce` at `complete`, so one signed state completes exactly once.
+ SECURITY: without it a callback URL recovered from browser history, a `Referer` or a proxy log
+ completes again for the rest of the state's ten minutes, from any browser still holding the
+ binding cookie — which a failed completion leaves in place, since only the success path clears it.
+
+***
+
+### onFederationConflict?
+
+> `optional` **onFederationConflict?**: [`FederationPolicy`](../type-aliases/FederationPolicy)
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:146](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L146)
+
+What to do when the profile's email matches an identity that has no link to this provider yet. Defaults to
+`'reject'`, because a provider that does not verify the address makes this account takeover by squatting.
+
+***
+
+### onSignIn?
+
+> `optional` **onSignIn?**: (`ctx`: \{ `createIdentity`: (`profile`: `AppProfile`) => `Promise`\<\{ `id`: `string`; \}\>; `findByEmail`: (`email`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>; `findByProviderSub`: (`providerSub`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>; `linkProvider`: (`identityId`: `string`, `providerSub`: `string`) => `Promise`\<`void`\>; `profile`: [`Profile`](Profile); \}) => `Promise`\<\{ `identityId`: `string`; \} \| `null`\>
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:135](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L135)
+
+Identity-resolution override; null return refuses sign-in.
+
+#### Parameters
+
+##### ctx
+
+###### createIdentity
+
+(`profile`: `AppProfile`) => `Promise`\<\{ `id`: `string`; \}\>
+
+###### findByEmail
+
+(`email`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>
+
+###### findByProviderSub
+
+(`providerSub`: `string`) => `Promise`\<\{ `id`: `string`; \} \| `null`\>
+
+###### linkProvider
+
+(`identityId`: `string`, `providerSub`: `string`) => `Promise`\<`void`\>
+
+###### profile
+
+[`Profile`](Profile)
+
+#### Returns
+
+`Promise`\<\{ `identityId`: `string`; \} \| `null`\>
+
+***
+
+### profileToIdentityProfile?
+
+> `optional` **profileToIdentityProfile?**: (`p`: [`Profile`](Profile)) => `AppProfile` \| `null`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:133](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L133)
+
+Map Profile -> consumer Profile shape on first sign-in; `null` refuses it. Unset refuses every first sign-in.
+
+#### Parameters
+
+##### p
+
+[`Profile`](Profile)
+
+#### Returns
+
+`AppProfile` \| `null`
+
+***
+
+### providerId
+
+> **providerId**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:101](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L101)
+
+Stable id, which the library prefixes with `oauth:`.
+
+***
+
+### redirectUri
+
+> **redirectUri**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:105](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L105)
+
+The callback URL registered with the provider.
+
+***
+
+### responseMode?
+
+> `optional` **responseMode?**: `"query"` \| `"form_post"`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:125](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L125)
+
+How the IdP returns the authorisation code. `'query'` is the default and the redirect every other
+provider performs. `'form_post'` (OAuth 2.0 Form Post Response Mode) is what Apple requires as soon
+as any scope is requested, and it changes two things at once, which is why it is one flag: the
+authorize request carries `response_mode=form_post`, and the pre-auth cookie has to be
+`SameSite=None` to survive a cross-site POST. Set by the provider module, not by the host.
+
+***
+
+### stateCookie?
+
+> `optional` **stateCookie?**: [`StateCookie`](StateCookie)
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:109](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L109)
+
+Binds a callback to the browser that began the flow. See [OAuth.StateCookie](StateCookie).
+
+***
+
+### stateSigningSecret
+
+> **stateSigningSecret**: `string`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/oauth.types.ts:107](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/oauth.types.ts#L107)
+
+Secret used to sign the oauth `state` parameter.
+

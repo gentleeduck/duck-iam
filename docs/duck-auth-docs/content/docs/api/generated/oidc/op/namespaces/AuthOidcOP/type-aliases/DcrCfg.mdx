@@ -1,0 +1,44 @@
+---
+title: "Type Alias: DcrCfg"
+description: "DCR controller config."
+---
+
+> **DcrCfg** = \{ `enabled`: `boolean`; `initialAccessToken?`: `string`; `maxRedirectUris?`: `number`; \}
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:268](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L268)
+
+DCR controller config.
+
+## Properties
+
+### enabled
+
+> **enabled**: `boolean`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:270](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L270)
+
+Master switch. Default false.
+
+***
+
+### initialAccessToken?
+
+> `optional` **initialAccessToken?**: `string`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:277](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L277)
+
+Required bearer token for /register. When set, callers must
+present `Authorization: Bearer <token>` matching this value.
+When unset, /register is OPEN registration (use behind a VPN /
+private network only).
+
+***
+
+### maxRedirectUris?
+
+> `optional` **maxRedirectUris?**: `number`
+
+Defined in: [packages/duck-auth/src/oidc/op/types.ts:279](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/types.ts#L279)
+
+Cap how many redirect_uris a DCR client may register. Default 20.
+

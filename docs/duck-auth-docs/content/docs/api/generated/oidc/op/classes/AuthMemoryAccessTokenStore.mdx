@@ -1,0 +1,99 @@
+---
+title: "Class: AuthMemoryAccessTokenStore"
+description: "In-memory AuthOidcOP.AccessTokenStore. Keyed by token_hash; expired tokens evicted lazily on read."
+---
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L40)
+
+In-memory `AuthOidcOP.AccessTokenStore`. Keyed by `token_hash`; expired tokens evicted lazily on read.
+
+## Implements
+
+- [`AccessTokenStore`](../namespaces/AuthOidcOP/type-aliases/AccessTokenStore)
+
+## Constructors
+
+### Constructor
+
+> **new AuthMemoryAccessTokenStore**(): `AuthMemoryAccessTokenStore`
+
+#### Returns
+
+`AuthMemoryAccessTokenStore`
+
+## Methods
+
+### findByHash()
+
+> **findByHash**(`hash`: `string`, `now`: `number`): `Promise`\<[`AccessToken`](../namespaces/AuthOidcOP/type-aliases/AccessToken) \| `null`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L45)
+
+The unexpired token with this hash, or `null`.
+
+#### Parameters
+
+##### hash
+
+`string`
+
+##### now
+
+`number`
+
+#### Returns
+
+`Promise`\<[`AccessToken`](../namespaces/AuthOidcOP/type-aliases/AccessToken) \| `null`\>
+
+#### Implementation of
+
+`OidcOP.AccessTokenStore.findByHash`
+
+***
+
+### insert()
+
+> **insert**(`t`: [`AccessToken`](../namespaces/AuthOidcOP/type-aliases/AccessToken)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L42)
+
+Stores a token.
+
+#### Parameters
+
+##### t
+
+[`AccessToken`](../namespaces/AuthOidcOP/type-aliases/AccessToken)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`OidcOP.AccessTokenStore.insert`
+
+***
+
+### revokeByHash()
+
+> **revokeByHash**(`hash`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/oidc/op/stores.ts:54](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/oidc/op/stores.ts#L54)
+
+Revokes the token with this hash.
+
+#### Parameters
+
+##### hash
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`OidcOP.AccessTokenStore.revokeByHash`
+

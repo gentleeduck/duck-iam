@@ -1,0 +1,204 @@
+---
+title: "Interface: Options"
+description: "The SAML client, and how an assertion maps to an identity."
+---
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:57](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L57)
+
+The SAML client, and how an assertion maps to an identity.
+
+## Properties
+
+### allowedAttributes?
+
+> `optional` **allowedAttributes?**: readonly `string`[]
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:91](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L91)
+
+The attributes `onSignIn` sees; absent means every attribute the IdP sent.
+
+***
+
+### allowedNameIdFormats?
+
+> `optional` **allowedNameIdFormats?**: readonly `string`[]
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L87)
+
+NameID formats the SP accepts. Defaults to the one `DEFAULT_SAML_CONFIG` asks for. A transient
+nameID changes on every login, so provisioning keyed on it creates a new account each time.
+
+***
+
+### allowReplay?
+
+> `optional` **allowReplay?**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:82](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L82)
+
+Accepts responses with no replay protection at all. Default false: without a store one captured
+ POST body mints a fresh session on every repeat, for as long as the assertion's own
+ `NotOnOrAfter` window lasts, which node-saml's `acceptedClockSkewMs` widens.
+
+***
+
+### allowUnsolicited?
+
+> `optional` **allowUnsolicited?**: `boolean`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:73](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L73)
+
+Accepts a response carrying no relay state, the IdP-initiated flow. Default false, since nothing
+ binds an unsolicited assertion to a request or a tenant.
+
+***
+
+### callbackUrl
+
+> **callbackUrl**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L66)
+
+Where the IdP POSTs the SAMLResponse, matching the AssertionConsumerService URL registered with it.
+ Checked against the client's own `callbackUrl` at construction, since the client is what validates
+ `Destination` and `Recipient`, and the two disagreeing leaves this a presence test and nothing more.
+
+***
+
+### client
+
+> **client**: [`Client`](Client)
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L62)
+
+A built `@node-saml/node-saml` instance: SAML config is too varied to express declaratively
+ without depending on that library's types.
+
+***
+
+### limiterKey?
+
+> `optional` **limiterKey?**: (`ctx`: \{ `tenantId?`: `string`; \}, `phase`: `"begin"` \| `"complete"`) => `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:93](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L93)
+
+For both phases. One budget per tenant by default: coarse, but bounded.
+
+#### Parameters
+
+##### ctx
+
+###### tenantId?
+
+`string`
+
+##### phase
+
+`"begin"` \| `"complete"`
+
+#### Returns
+
+`string`
+
+***
+
+### mfaAuthnContexts?
+
+> `optional` **mfaAuthnContexts?**: readonly `string`[]
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:89](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L89)
+
+AuthnContextClassRefs that earn aal 2. Defaults to `SAML_MFA_AUTHN_CONTEXTS`.
+
+***
+
+### onSignIn
+
+> **onSignIn**: (`input`: \{ `profile`: [`Profile`](Profile); `tenantId?`: `string`; \}) => `Promise`\<\{ `identityId`: `string`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:96](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L96)
+
+Fires after a valid SAMLResponse. Where just-in-time provisioning goes: look the identity up by `nameID`
+ or `email`, create it if missing, answer with its id.
+
+#### Parameters
+
+##### input
+
+###### profile
+
+[`Profile`](Profile)
+
+###### tenantId?
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `identityId`: `string`; \}\>
+
+***
+
+### providerId?
+
+> `optional` **providerId?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:59](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L59)
+
+Reported back to consumers, such as `'okta'` or `'azure-saml'`. Default `'saml'`.
+
+***
+
+### replayStore?
+
+> `optional` **replayStore?**: \{ `consume`: (`assertionId`: `string`) => `Promise`\<`boolean`\>; \}
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:78](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L78)
+
+Consumes an assertion id exactly once, answering false when it has been seen.
+ SECURITY: the only replay protection this wrapper requires. The client's InResponseTo cache is
+ neither configured nor mandatory here, so without this one captured POST body mints a fresh session
+ per repeat.
+
+#### consume
+
+> **consume**: (`assertionId`: `string`) => `Promise`\<`boolean`\>
+
+##### Parameters
+
+###### assertionId
+
+`string`
+
+##### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### verifyRelayState?
+
+> `optional` **verifyRelayState?**: (`input`: \{ `relayState`: `string`; `tenantId?`: `string`; \}) => `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L70)
+
+Check the relay state the IdP echoed back against the one `begin` issued and the tenant consuming it.
+ SECURITY: without it, an assertion the attacker obtained for their own account and POSTed into a victim's
+ browser is indistinguishable from one the victim asked for, under any tenant the instance serves.
+
+#### Parameters
+
+##### input
+
+###### relayState
+
+`string`
+
+###### tenantId?
+
+`string`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+

@@ -1,0 +1,48 @@
+---
+title: "Interface: Cfg"
+description: "The key the AES-GCM encryptor seals with, and the id it is written under."
+---
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aes-gcm.ts:169](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aes-gcm.ts#L169)
+
+The key the AES-GCM encryptor seals with, and the id it is written under.
+
+## Properties
+
+### kid
+
+> **kid**: `string`
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aes-gcm.ts:171](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aes-gcm.ts#L171)
+
+Stable key id; written into every ciphertext. Used for rotation.
+
+***
+
+### masterKey
+
+> **masterKey**: `string` \| `Buffer`\<`ArrayBufferLike`\>
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aes-gcm.ts:173](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aes-gcm.ts#L173)
+
+32-byte symmetric master key; a UTF-8 string is accepted and encoded here.
+
+***
+
+### previousKeys?
+
+> `optional` **previousKeys?**: \{ `kid`: `string`; `masterKey`: `string` \| `Buffer`\<`ArrayBufferLike`\>; \}[]
+
+Defined in: [packages/duck-auth/src/core/dataAtRest/aes-gcm.ts:176](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/dataAtRest/aes-gcm.ts#L176)
+
+Each entry's `kid` must match the one embedded in the ciphertexts it decrypts. Remove an entry
+ only once every ciphertext under that kid is re-encrypted, which `needsReEncrypt` reports.
+
+#### kid
+
+> **kid**: `string`
+
+#### masterKey
+
+> **masterKey**: `string` \| `Buffer`\<`ArrayBufferLike`\>
+

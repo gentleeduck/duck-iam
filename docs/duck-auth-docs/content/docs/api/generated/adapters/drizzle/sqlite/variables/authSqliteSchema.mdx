@@ -1,0 +1,65 @@
+---
+title: "Variable: authSqliteSchema"
+description: "Pass this whole object to drizzle(client, { schema: authSqliteSchema }). Drizzle keys its relational queries off the object's own names, so spreading this one is what makes db.query.authIdentities resolve."
+---
+
+> `const` **authSqliteSchema**: \{ `authCredentials`: `SQLiteTableWithColumns`\<\{ \}\>; `authCredentialsRelations`: `Relations`\<`"auth_credentials"`, \{ `identity`: `One`\<`"auth_identities"`, `true`\>; \}\>; `authIdentities`: `SQLiteTableWithColumns`\<\{ \}\>; `authIdentitiesRelations`: `Relations`\<`"auth_identities"`, \{ `credentials`: `Many`\<`"auth_credentials"`\>; `providers`: `Many`\<`"auth_identity_providers"`\>; `sessions`: `Many`\<`"auth_sessions"`\>; \}\>; `authIdentityProviders`: `SQLiteTableWithColumns`\<\{ \}\>; `authIdentityProvidersRelations`: `Relations`\<`"auth_identity_providers"`, \{ `identity`: `One`\<`"auth_identities"`, `true`\>; \}\>; `authSessions`: `SQLiteTableWithColumns`\<\{ \}\>; `authSessionsRelations`: `Relations`\<`"auth_sessions"`, \{ `identity`: `One`\<`"auth_identities"`, `false`\>; \}\>; \}
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.schema.ts:241](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/sqlite/sqlite.schema.ts#L241)
+
+Pass this whole object to `drizzle(client, { schema: authSqliteSchema })`. Drizzle keys its relational queries off
+the object's own names, so spreading this one is what makes `db.query.authIdentities` resolve.
+
+## Type Declaration
+
+### authCredentials
+
+> **authCredentials**: `SQLiteTableWithColumns`\<\{ \}\>
+
+One row per credential: password, passkey, TOTP, api-key and every recovery purpose.
+
+### authCredentialsRelations
+
+> **authCredentialsRelations**: `Relations`\<`"auth_credentials"`, \{ `identity`: `One`\<`"auth_identities"`, `true`\>; \}\>
+
+Drizzle relations for the query API; the foreign keys themselves live on the tables.
+
+### authIdentities
+
+> **authIdentities**: `SQLiteTableWithColumns`\<\{ \}\>
+
+The identity row. Every other table cascades from it.
+
+### authIdentitiesRelations
+
+> **authIdentitiesRelations**: `Relations`\<`"auth_identities"`, \{ `credentials`: `Many`\<`"auth_credentials"`\>; `providers`: `Many`\<`"auth_identity_providers"`\>; `sessions`: `Many`\<`"auth_sessions"`\>; \}\>
+
+The schema as drizzle's relational queries read it. Registering these is what lets a caller who passed the
+schema to `drizzle()` write `db.query.authIdentities.findFirst({ with: { providers: true } })`.
+
+### authIdentityProviders
+
+> **authIdentityProviders**: `SQLiteTableWithColumns`\<\{ \}\>
+
+One external login, one row. The unique on the pair is what makes a sub un-stealable: the database
+refuses the second writer outright, rather than every writer having to check first and hope. A credential
+kept here, a password, a magic link or a passkey, is an `auth_credentials` row and never one of these.
+
+### authIdentityProvidersRelations
+
+> **authIdentityProvidersRelations**: `Relations`\<`"auth_identity_providers"`, \{ `identity`: `One`\<`"auth_identities"`, `true`\>; \}\>
+
+Drizzle relations for the query API; the foreign keys themselves live on the tables.
+
+### authSessions
+
+> **authSessions**: `SQLiteTableWithColumns`\<\{ \}\>
+
+The session row, keyed by the hash of the session id rather than the id itself.
+
+### authSessionsRelations
+
+> **authSessionsRelations**: `Relations`\<`"auth_sessions"`, \{ `identity`: `One`\<`"auth_identities"`, `false`\>; \}\>
+
+Drizzle relations for the query API; the foreign keys themselves live on the tables.
+

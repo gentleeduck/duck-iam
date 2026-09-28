@@ -1,0 +1,220 @@
+---
+title: "Variable: AUTH\\_ERRORS"
+description: "Every code this package raises, at its HTTP status, carrying what the code itself cannot say."
+---
+
+> `const` **AUTH\_ERRORS**: \{ `AUTH_ADAPTER_FAILED`: `Fault`; `AUTH_ADAPTER_UNAVAILABLE`: `Fault`; `AUTH_ALREADY_EXISTS`: `number` & \{ \} & \{ \}; `AUTH_ANOMALY_DENIED`: `Carries`\<\{ `score`: `number`; \}\>; `AUTH_APIKEY_INVALID`: `401`; `AUTH_APIKEY_REVOKED`: `401`; `AUTH_APIKEY_SCOPE_INSUFFICIENT`: `Carries`\<\{ `missing`: `string`[]; `required`: `string`[]; \}\>; `AUTH_CREDENTIAL_NOT_FOUND`: `Fault`; `AUTH_CSRF`: `403`; `AUTH_DPOP_INVALID`: `Carries`\<\{ `reason`: `string`; \}\>; `AUTH_EMAIL_TAKEN`: `Fault`; `AUTH_GRACE_EXPIRED`: `Fault`; `AUTH_IDEMPOTENCY_MISS`: `Fault`; `AUTH_IDENTITY_NOT_FOUND`: `Fault`; `AUTH_IMPERSONATE_EXPIRED`: `401`; `AUTH_IMPERSONATE_FORBIDDEN`: `Carries`\<\{ `reason`: `string`; \}\>; `AUTH_IMPERSONATE_WINDOW_CLOSED`: `Carries`\<\{ `closedAt`: `number`; \}\>; `AUTH_INVALID_CREDENTIALS`: `Carries`\<\{ `detail?`: `string`; \}\>; `AUTH_INVALID_PARAMETERS`: `number` & \{ \} & \{ \}; `AUTH_JWT_INVALID`: `Carries`\<\{ `reason`: `string`; \}\>; `AUTH_JWT_KEY_UNKNOWN`: `Carries`\<\{ `kid`: `string`; \}\>; `AUTH_MEMBERSHIP_NOT_FOUND`: `Fault`; `AUTH_MFA_REQUIRED`: `Carries`\<\{ `methods`: `string`[]; \}\>; `AUTH_MISCONFIGURED`: `number` & \{ \} & \{ \}; `AUTH_NOT_ENOUGH_PARAMETERS`: `number` & \{ \} & \{ \}; `AUTH_OAUTH_NONCE_REPLAY`: `400`; `AUTH_OAUTH_STATE_MISMATCH`: `400`; `AUTH_ORG_NOT_FOUND`: `Fault`; `AUTH_PASSKEY_MISMATCH`: `401`; `AUTH_PROVIDER_FAILED`: `Carries`\<\{ `detail?`: `string`; `providerId`: `string`; \}\>; `AUTH_PROVIDER_NOT_REGISTERED`: `Carries`\<\{ `detail`: `string`; \}\>; `AUTH_PROVIDER_TAKEN`: `number` & \{ \} & \{ \}; `AUTH_PROVIDER_UNSUPPORTED`: `Carries`\<\{ `detail?`: `string`; `providerId`: `string`; \}\>; `AUTH_RATE_LIMITED`: `Carries`\<\{ `retryAfter`: `number`; \}\>; `AUTH_RECOVERY_REQUIRES_MFA`: `Carries`\<\{ `methods`: `string`[]; \}\>; `AUTH_RECOVERY_TOKEN_EXPIRED`: `410`; `AUTH_RECOVERY_TOKEN_INVALID`: `400`; `AUTH_SESSION_EXPIRED`: `Carries`\<\{ `expiredAt`: `number`; \}\>; `AUTH_SESSION_IDENTITY_ERASED`: `401`; `AUTH_SESSION_REVOKED`: `number` & \{ \} & \{ \}; `AUTH_SIGNUP_INCOMPLETE`: `Carries`\<\{ `missing`: `string`[]; \}\>; `AUTH_SIGNUP_TOKEN_INVALID`: `400`; `AUTH_STALE_WRITE`: `number` & \{ \} & \{ \}; `AUTH_STEP_UP_REQUIRED`: `Carries`\<\{ `challenge`: `unknown`; \}\>; `AUTH_TENANT_SCOPE_VIOLATION`: `number` & \{ \} & \{ \}; `AUTH_UNAUTHENTICATED`: `401`; `AUTH_USERNAME_TAKEN`: `Fault`; \}
+
+Defined in: [packages/duck-auth/src/core/errors/errors.codes.ts:4](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/errors/errors.codes.ts#L4)
+
+Every code this package raises, at its HTTP status, carrying what the code itself cannot say.
+
+## Type Declaration
+
+### AUTH\_ADAPTER\_FAILED
+
+> `readonly` **AUTH\_ADAPTER\_FAILED**: `Fault`
+
+### AUTH\_ADAPTER\_UNAVAILABLE
+
+> `readonly` **AUTH\_ADAPTER\_UNAVAILABLE**: `Fault`
+
+### AUTH\_ALREADY\_EXISTS
+
+> `readonly` **AUTH\_ALREADY\_EXISTS**: `number` & \{ \} & \{ \}
+
+### AUTH\_ANOMALY\_DENIED
+
+> `readonly` **AUTH\_ANOMALY\_DENIED**: `Carries`\<\{ `score`: `number`; \}\>
+
+The adaptive-detector verdict, distinct from `AUTH_SESSION_REVOKED`, which the hijack policy raises
+ about a fingerprint that drifted. 403, not 401: the session is valid and the request is refused on
+ score, so presenting the same credential again changes nothing.
+ SECURITY: deliberately outside the absent set. A refusal must not read back through `orNull()` as
+ "no session", which is how a denial becomes an anonymous request that is served anyway.
+
+### AUTH\_APIKEY\_INVALID
+
+> `readonly` **AUTH\_APIKEY\_INVALID**: `401` = `401`
+
+### AUTH\_APIKEY\_REVOKED
+
+> `readonly` **AUTH\_APIKEY\_REVOKED**: `401` = `401`
+
+### AUTH\_APIKEY\_SCOPE\_INSUFFICIENT
+
+> `readonly` **AUTH\_APIKEY\_SCOPE\_INSUFFICIENT**: `Carries`\<\{ `missing`: `string`[]; `required`: `string`[]; \}\>
+
+### AUTH\_CREDENTIAL\_NOT\_FOUND
+
+> `readonly` **AUTH\_CREDENTIAL\_NOT\_FOUND**: `Fault`
+
+### AUTH\_CSRF
+
+> `readonly` **AUTH\_CSRF**: `403` = `403`
+
+### AUTH\_DPOP\_INVALID
+
+> `readonly` **AUTH\_DPOP\_INVALID**: `Carries`\<\{ `reason`: `string`; \}\>
+
+### AUTH\_EMAIL\_TAKEN
+
+> `readonly` **AUTH\_EMAIL\_TAKEN**: `Fault`
+
+### AUTH\_GRACE\_EXPIRED
+
+> `readonly` **AUTH\_GRACE\_EXPIRED**: `Fault`
+
+### AUTH\_IDEMPOTENCY\_MISS
+
+> `readonly` **AUTH\_IDEMPOTENCY\_MISS**: `Fault`
+
+### AUTH\_IDENTITY\_NOT\_FOUND
+
+> `readonly` **AUTH\_IDENTITY\_NOT\_FOUND**: `Fault`
+
+### AUTH\_IMPERSONATE\_EXPIRED
+
+> `readonly` **AUTH\_IMPERSONATE\_EXPIRED**: `401` = `401`
+
+### AUTH\_IMPERSONATE\_FORBIDDEN
+
+> `readonly` **AUTH\_IMPERSONATE\_FORBIDDEN**: `Carries`\<\{ `reason`: `string`; \}\>
+
+### AUTH\_IMPERSONATE\_WINDOW\_CLOSED
+
+> `readonly` **AUTH\_IMPERSONATE\_WINDOW\_CLOSED**: `Carries`\<\{ `closedAt`: `number`; \}\>
+
+The verify-time verdict, distinct from `AUTH_IMPERSONATE_EXPIRED`, which `releaseImpersonation`
+ raises about a session that is not an impersonation at all. This one is absence-shaped and in the
+ absent set; that one is a refusal the caller asked for and must stay loud through every reader.
+
+### AUTH\_INVALID\_CREDENTIALS
+
+> `readonly` **AUTH\_INVALID\_CREDENTIALS**: `Carries`\<\{ `detail?`: `string`; \}\>
+
+### AUTH\_INVALID\_PARAMETERS
+
+> `readonly` **AUTH\_INVALID\_PARAMETERS**: `number` & \{ \} & \{ \}
+
+### AUTH\_JWT\_INVALID
+
+> `readonly` **AUTH\_JWT\_INVALID**: `Carries`\<\{ `reason`: `string`; \}\>
+
+### AUTH\_JWT\_KEY\_UNKNOWN
+
+> `readonly` **AUTH\_JWT\_KEY\_UNKNOWN**: `Carries`\<\{ `kid`: `string`; \}\>
+
+### AUTH\_MEMBERSHIP\_NOT\_FOUND
+
+> `readonly` **AUTH\_MEMBERSHIP\_NOT\_FOUND**: `Fault`
+
+### AUTH\_MFA\_REQUIRED
+
+> `readonly` **AUTH\_MFA\_REQUIRED**: `Carries`\<\{ `methods`: `string`[]; \}\>
+
+### AUTH\_MISCONFIGURED
+
+> `readonly` **AUTH\_MISCONFIGURED**: `number` & \{ \} & \{ \}
+
+### AUTH\_NOT\_ENOUGH\_PARAMETERS
+
+> `readonly` **AUTH\_NOT\_ENOUGH\_PARAMETERS**: `number` & \{ \} & \{ \}
+
+### AUTH\_OAUTH\_NONCE\_REPLAY
+
+> `readonly` **AUTH\_OAUTH\_NONCE\_REPLAY**: `400` = `400`
+
+### AUTH\_OAUTH\_STATE\_MISMATCH
+
+> `readonly` **AUTH\_OAUTH\_STATE\_MISMATCH**: `400` = `400`
+
+### AUTH\_ORG\_NOT\_FOUND
+
+> `readonly` **AUTH\_ORG\_NOT\_FOUND**: `Fault`
+
+### AUTH\_PASSKEY\_MISMATCH
+
+> `readonly` **AUTH\_PASSKEY\_MISMATCH**: `401` = `401`
+
+### AUTH\_PROVIDER\_FAILED
+
+> `readonly` **AUTH\_PROVIDER\_FAILED**: `Carries`\<\{ `detail?`: `string`; `providerId`: `string`; \}\>
+
+### AUTH\_PROVIDER\_NOT\_REGISTERED
+
+> `readonly` **AUTH\_PROVIDER\_NOT\_REGISTERED**: `Carries`\<\{ `detail`: `string`; \}\>
+
+### AUTH\_PROVIDER\_TAKEN
+
+> `readonly` **AUTH\_PROVIDER\_TAKEN**: `number` & \{ \} & \{ \}
+
+### AUTH\_PROVIDER\_UNSUPPORTED
+
+> `readonly` **AUTH\_PROVIDER\_UNSUPPORTED**: `Carries`\<\{ `detail?`: `string`; `providerId`: `string`; \}\>
+
+### AUTH\_RATE\_LIMITED
+
+> `readonly` **AUTH\_RATE\_LIMITED**: `Carries`\<\{ `retryAfter`: `number`; \}\>
+
+### AUTH\_RECOVERY\_REQUIRES\_MFA
+
+> `readonly` **AUTH\_RECOVERY\_REQUIRES\_MFA**: `Carries`\<\{ `methods`: `string`[]; \}\>
+
+### AUTH\_RECOVERY\_TOKEN\_EXPIRED
+
+> `readonly` **AUTH\_RECOVERY\_TOKEN\_EXPIRED**: `410` = `410`
+
+### AUTH\_RECOVERY\_TOKEN\_INVALID
+
+> `readonly` **AUTH\_RECOVERY\_TOKEN\_INVALID**: `400` = `400`
+
+### AUTH\_SESSION\_EXPIRED
+
+> `readonly` **AUTH\_SESSION\_EXPIRED**: `Carries`\<\{ `expiredAt`: `number`; \}\>
+
+### AUTH\_SESSION\_IDENTITY\_ERASED
+
+> `readonly` **AUTH\_SESSION\_IDENTITY\_ERASED**: `401` = `401`
+
+SECURITY: deliberately outside the absent set, so `orNull()` cannot read a live session whose
+ identity was erased as a plain sign-out. Absence is `AUTH_SESSION_REVOKED`; this is a data-integrity
+ violation and stays loud through every reader.
+
+### AUTH\_SESSION\_REVOKED
+
+> `readonly` **AUTH\_SESSION\_REVOKED**: `number` & \{ \} & \{ \}
+
+### AUTH\_SIGNUP\_INCOMPLETE
+
+> `readonly` **AUTH\_SIGNUP\_INCOMPLETE**: `Carries`\<\{ `missing`: `string`[]; \}\>
+
+### AUTH\_SIGNUP\_TOKEN\_INVALID
+
+> `readonly` **AUTH\_SIGNUP\_TOKEN\_INVALID**: `400` = `400`
+
+### AUTH\_STALE\_WRITE
+
+> `readonly` **AUTH\_STALE\_WRITE**: `number` & \{ \} & \{ \}
+
+### AUTH\_STEP\_UP\_REQUIRED
+
+> `readonly` **AUTH\_STEP\_UP\_REQUIRED**: `Carries`\<\{ `challenge`: `unknown`; \}\>
+
+### AUTH\_TENANT\_SCOPE\_VIOLATION
+
+> `readonly` **AUTH\_TENANT\_SCOPE\_VIOLATION**: `number` & \{ \} & \{ \}
+
+A store answered a row scoped to a tenant other than the one asked for. 500 because it is the store
+ breaking its contract, not the caller asking wrongly.
+ SECURITY: deliberately outside the absent set. A cross-tenant row must not read back through
+ `orNull()` as "no row", which is how a disclosure becomes a 404 nobody looks at.
+
+### AUTH\_UNAUTHENTICATED
+
+> `readonly` **AUTH\_UNAUTHENTICATED**: `401` = `401`
+
+### AUTH\_USERNAME\_TAKEN
+
+> `readonly` **AUTH\_USERNAME\_TAKEN**: `Fault`
+

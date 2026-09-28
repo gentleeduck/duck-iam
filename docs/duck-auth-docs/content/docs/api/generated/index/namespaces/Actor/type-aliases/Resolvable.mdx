@@ -1,0 +1,39 @@
+---
+title: "Type Alias: Resolvable"
+description: "As much of AuthEngine as withRequestActor needs; structural, so this module imports no engine."
+---
+
+> **Resolvable** = \{ `resolveSession`: `Promise`\<\{ `anomaly?`: [`Result`](../../Anomaly/type-aliases/Result); `session`: [`Me`](../../Sessions/type-aliases/Me); \}\>; \}
+
+Defined in: [packages/duck-auth/src/core/actor/actor.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/actor/actor.types.ts#L10)
+
+As much of `AuthEngine` as `withRequestActor` needs; structural, so this module imports no engine.
+
+## Methods
+
+### resolveSession()
+
+> **resolveSession**(`req`: \{ `headers`: `Headers`; \}, `opts?`: \{ `requestSnapshot?`: [`RequestSnapshot`](../../Anomaly/interfaces/RequestSnapshot); \}): `Promise`\<\{ `anomaly?`: [`Result`](../../Anomaly/type-aliases/Result); `session`: [`Me`](../../Sessions/type-aliases/Me); \}\>
+
+Defined in: [packages/duck-auth/src/core/actor/actor.types.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/actor/actor.types.ts#L12)
+
+Resolves the request's session, as `AuthEngine.resolveSession` does.
+
+#### Parameters
+
+##### req
+
+###### headers
+
+`Headers`
+
+##### opts?
+
+###### requestSnapshot?
+
+[`RequestSnapshot`](../../Anomaly/interfaces/RequestSnapshot)
+
+#### Returns
+
+`Promise`\<\{ `anomaly?`: [`Result`](../../Anomaly/type-aliases/Result); `session`: [`Me`](../../Sessions/type-aliases/Me); \}\>
+

@@ -1,0 +1,347 @@
+---
+title: "Type Alias: Me"
+description: "The client surface the Valkey-backed stores call."
+---
+
+> **Me** = \{ `del`: `Promise`\<`number`\>; `eval?`: `Promise`\<`any`\>; `expire`: `Promise`\<`number`\>; `get`: `Promise`\<`string` \| `null`\>; `incr`: `Promise`\<`number`\>; `incrby`: `Promise`\<`number`\>; `mget`: `Promise`\<(`string` \| `null`)[]\>; `sadd`: `Promise`\<`number`\>; `set`: `Promise`\<`any`\>; `smembers`: `Promise`\<`string`[]\>; `srem`: `Promise`\<`number`\>; `zadd`: `Promise`\<`any`\>; `zrangebyscore`: `Promise`\<`any`\>; `zrem`: `Promise`\<`number`\>; \}
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:9](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L9)
+
+The client surface the Valkey-backed stores call.
+
+## Methods
+
+### del()
+
+> **del**(...`keys`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L15)
+
+Removes keys, answering how many existed.
+
+#### Parameters
+
+##### keys
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### eval()?
+
+> `optional` **eval**(`script`: `string`, `numkeys`: `number`, ...`args`: (`string` \| `number`)[]): `Promise`\<`any`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L30)
+
+Runs a Lua script. Optional so a hand-rolled client is not forced to declare one it never runs;
+ ioredis and iovalkey both have it, and the adapter forwards it when it is there.
+
+#### Parameters
+
+##### script
+
+`string`
+
+##### numkeys
+
+`number`
+
+##### args
+
+...(`string` \| `number`)[]
+
+#### Returns
+
+`Promise`\<`any`\>
+
+***
+
+### expire()
+
+> **expire**(`key`: `string`, `seconds`: `number`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L17)
+
+Sets the key's TTL, in seconds.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### seconds
+
+`number`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### get()
+
+> **get**(`key`: `string`): `Promise`\<`string` \| `null`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L11)
+
+The string at this key, or `null` when it is unset.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`string` \| `null`\>
+
+***
+
+### incr()
+
+> **incr**(`key`: `string`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L19)
+
+Adds one, treating a missing key as zero.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### incrby()
+
+> **incrby**(`key`: `string`, `by`: `number`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L21)
+
+Adds `by`, treating a missing key as zero.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### by
+
+`number`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### mget()
+
+> **mget**(...`keys`: `string`[]): `Promise`\<(`string` \| `null`)[]\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L13)
+
+One entry per key, in the order asked, `null` where unset.
+
+#### Parameters
+
+##### keys
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<(`string` \| `null`)[]\>
+
+***
+
+### sadd()
+
+> **sadd**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L23)
+
+Adds members to a set, answering how many were not already there.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### members
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### set()
+
+> **set**(`key`: `string`, `value`: `string`, ...`args`: `any`[]): `Promise`\<`any`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L40)
+
+`set`/`zadd`/`zrangebyscore` are declared loosely on purpose:
+ioredis's long overload lists aren't assignable to any single variadic
+signature, so pinning one here would make a real ioredis client fail to
+type-check against its own adapter.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### value
+
+`string`
+
+##### args
+
+...`any`[]
+
+#### Returns
+
+`Promise`\<`any`\>
+
+***
+
+### smembers()
+
+> **smembers**(`key`: `string`): `Promise`\<`string`[]\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L27)
+
+Every member of a set.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`[]\>
+
+***
+
+### srem()
+
+> **srem**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L25)
+
+Removes members from a set, answering how many were there.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### members
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### zadd()
+
+> **zadd**(`key`: `string`, ...`args`: `any`[]): `Promise`\<`any`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L42)
+
+Adds members to a sorted set.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### args
+
+...`any`[]
+
+#### Returns
+
+`Promise`\<`any`\>
+
+***
+
+### zrangebyscore()
+
+> **zrangebyscore**(`key`: `string`, `min`: `string` \| `number`, `max`: `string` \| `number`, ...`args`: `any`[]): `Promise`\<`any`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L44)
+
+The members of a sorted set whose score falls between `min` and `max`.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### min
+
+`string` \| `number`
+
+##### max
+
+`string` \| `number`
+
+##### args
+
+...`any`[]
+
+#### Returns
+
+`Promise`\<`any`\>
+
+***
+
+### zrem()
+
+> **zrem**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/valkey-like.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/valkey-like.ts#L32)
+
+Removes members from a sorted set, answering how many were there.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### members
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+

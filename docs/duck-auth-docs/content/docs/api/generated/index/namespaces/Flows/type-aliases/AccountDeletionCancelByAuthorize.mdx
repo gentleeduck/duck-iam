@@ -1,0 +1,60 @@
+---
+title: "Type Alias: AccountDeletionCancelByAuthorize"
+description: "Cancel on someone else's behalf with no token in hand, the way an operator restores an account from  a support queue."
+---
+
+> **AccountDeletionCancelByAuthorize** = \{ `authorize`: (`identityId`: `string`) => `Promise`\<`boolean`\>; `identityId`: `string`; `tenantId?`: `string`; `token?`: `never`; \}
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:234](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L234)
+
+Cancel on someone else's behalf with no token in hand, the way an operator restores an account from
+ a support queue.
+
+## Properties
+
+### authorize
+
+> **authorize**: (`identityId`: `string`) => `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:240](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L240)
+
+SECURITY: mandatory, and the only gate on this branch, where a cancel restores an account from an id
+ alone. The identity is soft-deleted here so it cannot be loaded and handed over; resolve the caller
+ from your own request context and answer for that.
+
+#### Parameters
+
+##### identityId
+
+`string`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### identityId
+
+> **identityId**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:236](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L236)
+
+Identity to restore.
+
+***
+
+### tenantId?
+
+> `optional` **tenantId?**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:241](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L241)
+
+***
+
+### token?
+
+> `optional` **token?**: `never`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:242](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L242)
+

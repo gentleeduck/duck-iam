@@ -1,0 +1,84 @@
+---
+title: "Type Alias: SimpleWebAuthnServerModule"
+description: "The subset of @simplewebauthn/server this depends on, checked against the library where  loadWebAuthn imports it."
+---
+
+> **SimpleWebAuthnServerModule** = \{ `generateAuthenticationOptions`: (`opts`: [`AuthenticationOptionsInput`](AuthenticationOptionsInput)) => `Promise`\<[`AuthenticationOptions`](AuthenticationOptions)\>; `generateRegistrationOptions`: (`opts`: [`RegistrationOptionsInput`](RegistrationOptionsInput)) => `Promise`\<[`RegistrationOptions`](RegistrationOptions)\>; `verifyAuthenticationResponse`: (`opts`: [`VerifyAuthenticationInput`](VerifyAuthenticationInput)) => `Promise`\<\{ `authenticationInfo`: [`AuthenticationInfo`](AuthenticationInfo); `verified`: `boolean`; \}\>; `verifyRegistrationResponse`: (`opts`: [`VerifyRegistrationInput`](VerifyRegistrationInput)) => `Promise`\<\{ `registrationInfo?`: [`RegistrationInfo`](RegistrationInfo); `verified`: `boolean`; \}\>; \}
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:5](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L5)
+
+The subset of `@simplewebauthn/server` this depends on, checked against the library where
+ `loadWebAuthn` imports it.
+
+## Properties
+
+### generateAuthenticationOptions
+
+> **generateAuthenticationOptions**: (`opts`: [`AuthenticationOptionsInput`](AuthenticationOptionsInput)) => `Promise`\<[`AuthenticationOptions`](AuthenticationOptions)\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L10)
+
+#### Parameters
+
+##### opts
+
+[`AuthenticationOptionsInput`](AuthenticationOptionsInput)
+
+#### Returns
+
+`Promise`\<[`AuthenticationOptions`](AuthenticationOptions)\>
+
+***
+
+### generateRegistrationOptions
+
+> **generateRegistrationOptions**: (`opts`: [`RegistrationOptionsInput`](RegistrationOptionsInput)) => `Promise`\<[`RegistrationOptions`](RegistrationOptions)\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L6)
+
+#### Parameters
+
+##### opts
+
+[`RegistrationOptionsInput`](RegistrationOptionsInput)
+
+#### Returns
+
+`Promise`\<[`RegistrationOptions`](RegistrationOptions)\>
+
+***
+
+### verifyAuthenticationResponse
+
+> **verifyAuthenticationResponse**: (`opts`: [`VerifyAuthenticationInput`](VerifyAuthenticationInput)) => `Promise`\<\{ `authenticationInfo`: [`AuthenticationInfo`](AuthenticationInfo); `verified`: `boolean`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L11)
+
+#### Parameters
+
+##### opts
+
+[`VerifyAuthenticationInput`](VerifyAuthenticationInput)
+
+#### Returns
+
+`Promise`\<\{ `authenticationInfo`: [`AuthenticationInfo`](AuthenticationInfo); `verified`: `boolean`; \}\>
+
+***
+
+### verifyRegistrationResponse
+
+> **verifyRegistrationResponse**: (`opts`: [`VerifyRegistrationInput`](VerifyRegistrationInput)) => `Promise`\<\{ `registrationInfo?`: [`RegistrationInfo`](RegistrationInfo); `verified`: `boolean`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:7](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L7)
+
+#### Parameters
+
+##### opts
+
+[`VerifyRegistrationInput`](VerifyRegistrationInput)
+
+#### Returns
+
+`Promise`\<\{ `registrationInfo?`: [`RegistrationInfo`](RegistrationInfo); `verified`: `boolean`; \}\>
+

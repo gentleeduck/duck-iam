@@ -1,0 +1,25 @@
+---
+title: "Function: fastifyCsrf()"
+description: "CSRF guard for your own routes: fastify.addHook('preHandler', fastifyCsrf(auth))."
+---
+
+> **fastifyCsrf**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: [`GuardOptions`](../../../core/namespaces/Csrf/type-aliases/GuardOptions)): [`PreHandler`](../namespaces/FastifyAdapter/type-aliases/PreHandler)
+
+Defined in: [packages/duck-auth/src/server/fastify/index.ts:195](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/fastify/index.ts#L195)
+
+CSRF guard for your own routes: `fastify.addHook('preHandler', fastifyCsrf(auth))`.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+[`GuardOptions`](../../../core/namespaces/Csrf/type-aliases/GuardOptions) = `{}`
+
+## Returns
+
+[`PreHandler`](../namespaces/FastifyAdapter/type-aliases/PreHandler)
+

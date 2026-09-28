@@ -1,0 +1,27 @@
+---
+title: "Type Alias: IProviderEntry"
+description: "Skipped-or-included provider entry. Falsy values silently dropped. Thunks receive the constructed AuthEngine and the host's deliver, so magic-link and OTP can bind both without repeating config."
+---
+
+> **IProviderEntry**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase), `Tenant` = `string`, `OrgMeta` = `unknown`\> = [`Capability`](../../../../index/namespaces/Provider/interfaces/Capability) \| `false` \| `null` \| `undefined` \| `""` \| ((`auth`: [`AuthEngine`](../../../../index/classes/AuthEngine)\<`Profile`, `Tenant`, `OrgMeta`\>, `deliver`: [`Deliver`](../../../../index/type-aliases/Deliver) \| `undefined`) => [`Capability`](../../../../index/namespaces/Provider/interfaces/Capability) \| `false` \| `null` \| `undefined` \| `""`)
+
+Defined in: [packages/duck-auth/src/core/config/config.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/config/config.types.ts#L15)
+
+Skipped-or-included provider entry. Falsy values silently dropped.
+Thunks receive the constructed `AuthEngine` and the host's `deliver`, so magic-link and OTP can bind
+both without repeating config.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+### Tenant
+
+`Tenant` = `string`
+
+### OrgMeta
+
+`OrgMeta` = `unknown`
+

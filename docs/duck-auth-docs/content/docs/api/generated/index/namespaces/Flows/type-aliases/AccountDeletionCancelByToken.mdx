@@ -1,0 +1,47 @@
+---
+title: "Type Alias: AccountDeletionCancelByToken"
+description: "Cancel by presenting the undo token completeAccountDeletion minted. The token names its own subject,  so holding it is the authorization and no callback is consulted: this is the branch a user clicking  \"undo\" in their mail takes, with no admin rights at all."
+---
+
+> **AccountDeletionCancelByToken** = \{ `authorize?`: `never`; `identityId?`: `never`; `tenantId?`: `string`; `token`: `string`; \}
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:224](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L224)
+
+Cancel by presenting the undo token `completeAccountDeletion` minted. The token names its own subject,
+ so holding it is the authorization and no callback is consulted: this is the branch a user clicking
+ "undo" in their mail takes, with no admin rights at all.
+
+## Properties
+
+### authorize?
+
+> `optional` **authorize?**: `never`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:229](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L229)
+
+***
+
+### identityId?
+
+> `optional` **identityId?**: `never`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:228](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L228)
+
+***
+
+### tenantId?
+
+> `optional` **tenantId?**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:227](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L227)
+
+***
+
+### token
+
+> **token**: `string`
+
+Defined in: [packages/duck-auth/src/core/flows/flows.types.ts:226](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/flows/flows.types.ts#L226)
+
+Single-use, expires when the grace window does.
+

@@ -1,0 +1,25 @@
+---
+title: "Function: koaCsrf()"
+description: "CSRF guard for your own routes: app.use(koaCsrf(auth)). Skips next on failure."
+---
+
+> **koaCsrf**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: [`GuardOptions`](../../../core/namespaces/Csrf/type-aliases/GuardOptions)): [`Middleware`](../namespaces/KoaAdapter/type-aliases/Middleware)
+
+Defined in: [packages/duck-auth/src/server/koa/index.ts:179](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/koa/index.ts#L179)
+
+CSRF guard for your own routes: `app.use(koaCsrf(auth))`. Skips `next` on failure.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+[`GuardOptions`](../../../core/namespaces/Csrf/type-aliases/GuardOptions) = `{}`
+
+## Returns
+
+[`Middleware`](../namespaces/KoaAdapter/type-aliases/Middleware)
+

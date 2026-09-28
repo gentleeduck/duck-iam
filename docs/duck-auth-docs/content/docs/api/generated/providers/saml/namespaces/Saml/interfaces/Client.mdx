@@ -1,0 +1,189 @@
+---
+title: "Interface: Client"
+description: "The subset of @node-saml/node-saml this depends on, which its SAML instance satisfies."
+---
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:4](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L4)
+
+The subset of `@node-saml/node-saml` this depends on, which its `SAML` instance satisfies.
+
+## Methods
+
+### generateServiceProviderMetadata()?
+
+> `optional` **generateServiceProviderMetadata**(`decryptionCert?`: `string` \| `null`, `signingCert?`: `string` \| `null`): `string`
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L13)
+
+node-saml exposes this one synchronously.
+
+#### Parameters
+
+##### decryptionCert?
+
+`string` \| `null`
+
+##### signingCert?
+
+`string` \| `null`
+
+#### Returns
+
+`string`
+
+***
+
+### getAuthorizeUrlAsync()
+
+> **getAuthorizeUrlAsync**(`relayState`: `string`, `host`: `string`, `opts`: `Record`\<`string`, `unknown`\>): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L6)
+
+The IdP URL an AuthnRequest redirects to.
+
+#### Parameters
+
+##### relayState
+
+`string`
+
+##### host
+
+`string`
+
+##### opts
+
+`Record`\<`string`, `unknown`\>
+
+#### Returns
+
+`Promise`\<`string`\>
+
+***
+
+### getLogoutResponseUrlAsync()?
+
+> `optional` **getLogoutResponseUrlAsync**(`request`: [`Profile`](Profile), `relayState`: `string`, `opts`: `Record`\<`string`, `unknown`\>, `success`: `boolean`): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L24)
+
+Builds the LogoutResponse URL answering an IdP-initiated logout, `InResponseTo` the request's `ID`.
+
+#### Parameters
+
+##### request
+
+[`Profile`](Profile)
+
+##### relayState
+
+`string`
+
+##### opts
+
+`Record`\<`string`, `unknown`\>
+
+##### success
+
+`boolean`
+
+#### Returns
+
+`Promise`\<`string`\>
+
+***
+
+### getLogoutUrlAsync()?
+
+> `optional` **getLogoutUrlAsync**(`user`: [`LogoutUser`](LogoutUser), `relayState`: `string`, `opts`: `Record`\<`string`, `unknown`\>): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:15](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L15)
+
+Builds an SP-initiated LogoutRequest URL over the HTTP-Redirect binding.
+
+#### Parameters
+
+##### user
+
+[`LogoutUser`](LogoutUser)
+
+##### relayState
+
+`string`
+
+##### opts
+
+`Record`\<`string`, `unknown`\>
+
+#### Returns
+
+`Promise`\<`string`\>
+
+***
+
+### validatePostRequestAsync()?
+
+> `optional` **validatePostRequestAsync**(`body`: \{ `SAMLRequest`: `string`; \}): `Promise`\<\{ `loggedOut`: `boolean`; `profile`: [`Profile`](Profile) \| `null`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L22)
+
+Validates an IdP-sent LogoutRequest over HTTP-POST, which is rare.
+
+#### Parameters
+
+##### body
+
+###### SAMLRequest
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `loggedOut`: `boolean`; `profile`: [`Profile`](Profile) \| `null`; \}\>
+
+***
+
+### validatePostResponseAsync()
+
+> **validatePostResponseAsync**(`body`: \{ `SAMLResponse`: `string`; \}): `Promise`\<\{ `loggedOut`: `boolean`; `profile`: [`Profile`](Profile) \| `null`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L8)
+
+Validates a POSTed SAMLResponse and answers its profile.
+
+#### Parameters
+
+##### body
+
+###### SAMLResponse
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `loggedOut`: `boolean`; `profile`: [`Profile`](Profile) \| `null`; \}\>
+
+***
+
+### validateRedirectAsync()?
+
+> `optional` **validateRedirectAsync**(`query`: `Record`\<`string`, `string`\>, `originalQuery`: `string`): `Promise`\<\{ `loggedOut`: `boolean`; `profile`: [`Profile`](Profile) \| `null`; \}\>
+
+Defined in: [packages/duck-auth/src/providers/saml/saml.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/saml/saml.types.ts#L17)
+
+Validates an IdP-sent LogoutRequest or LogoutResponse over the Redirect binding.
+
+#### Parameters
+
+##### query
+
+`Record`\<`string`, `string`\>
+
+##### originalQuery
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `loggedOut`: `boolean`; `profile`: [`Profile`](Profile) \| `null`; \}\>
+

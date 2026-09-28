@@ -1,0 +1,13 @@
+---
+title: "Variable: authIdentityProviders"
+description: "One external login, one row. The unique on the pair is what makes a sub un-stealable: the database refuses the second writer outright, rather than every writer having to check first and hope. A credential kept here, a password, a magic link or a passkey, is an auth_credentials row and never one of these."
+---
+
+> `const` **authIdentityProviders**: `MySqlTableWithColumns`\<\{ \}\>
+
+Defined in: [packages/duck-auth/src/adapters/drizzle/mysql/mysql.schema.ts:105](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/drizzle/mysql/mysql.schema.ts#L105)
+
+One external login, one row. The unique on the pair is what makes a sub un-stealable: the database
+refuses the second writer outright, rather than every writer having to check first and hope. A credential
+kept here, a password, a magic link or a passkey, is an `auth_credentials` row and never one of these.
+

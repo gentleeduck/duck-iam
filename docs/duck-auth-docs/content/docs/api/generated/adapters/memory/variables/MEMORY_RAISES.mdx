@@ -1,0 +1,13 @@
+---
+title: "Variable: MEMORY\\_RAISES"
+description: "The codes the in-memory store raises itself. It maps no driver, so this is its whole range. WARN: a throw new AuthError(...) in the store whose code is missing here is re-labelled AUTH_ADAPTER_FAILED by run(); add it in the same change. declared-range.test.ts catches the drift."
+---
+
+> `const` **MEMORY\_RAISES**: [`ErrorMap`](../../../core/errors/type-aliases/ErrorMap)\<`"AUTH_SESSION_REVOKED"` \| `"AUTH_STALE_WRITE"` \| `"AUTH_GRACE_EXPIRED"` \| `"AUTH_EMAIL_TAKEN"` \| `"AUTH_USERNAME_TAKEN"` \| `"AUTH_PROVIDER_TAKEN"` \| `"AUTH_IDENTITY_NOT_FOUND"` \| `"AUTH_CREDENTIAL_NOT_FOUND"` \| `"AUTH_ORG_NOT_FOUND"` \| `"AUTH_MEMBERSHIP_NOT_FOUND"` \| `"AUTH_ADAPTER_FAILED"` \| `"AUTH_TENANT_SCOPE_VIOLATION"` \| `"AUTH_ALREADY_EXISTS"` \| `"AUTH_INVALID_PARAMETERS"`\>
+
+Defined in: [packages/duck-auth/src/adapters/memory/memory.constants.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/adapters/memory/memory.constants.ts#L8)
+
+The codes the in-memory store raises itself. It maps no driver, so this is its whole range.
+WARN: a `throw new AuthError(...)` in the store whose code is missing here is re-labelled
+AUTH_ADAPTER_FAILED by `run()`; add it in the same change. `declared-range.test.ts` catches the drift.
+

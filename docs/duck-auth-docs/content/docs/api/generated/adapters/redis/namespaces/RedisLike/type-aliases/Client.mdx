@@ -1,0 +1,370 @@
+---
+title: "Type Alias: Client"
+description: "Minimal Redis interface the auth adapters consume, shaped after @upstash/redis. ioredis/iovalkey take set options variadically instead, so passing one straight through silently drops every TTL and NX guard; wrap those with adapters/valkey first."
+---
+
+> **Client** = \{ `del`: `Promise`\<`number`\>; `eval?`: `Promise`\<`unknown`\>; `expire`: `Promise`\<`number`\>; `get`: `Promise`\<`string` \| `null`\>; `incr`: `Promise`\<`number`\>; `incrby?`: `Promise`\<`number`\>; `mget?`: `Promise`\<(`string` \| `null`)[]\>; `sadd`: `Promise`\<`number`\>; `set`: `Promise`\<`"OK"` \| `null`\>; `smembers`: `Promise`\<`string`[]\>; `srem`: `Promise`\<`number`\>; `zadd`: `Promise`\<`number`\>; `zrangebyscore`: `Promise`\<`string`[]\>; `zrem`: `Promise`\<`number`\>; \}
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L12)
+
+Minimal Redis interface the auth adapters consume, shaped after `@upstash/redis`.
+`ioredis`/`iovalkey` take `set` options variadically instead, so passing one
+straight through silently drops every TTL and NX guard; wrap those with
+`adapters/valkey` first.
+
+## Methods
+
+### del()
+
+> **del**(...`keys`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L27)
+
+DEL key... -> count
+
+#### Parameters
+
+##### keys
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### eval()?
+
+> `optional` **eval**(`script`: `string`, `keys`: `string`[], `args`: (`string` \| `number`)[]): `Promise`\<`unknown`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L23)
+
+EVAL script numkeys=KEYS.length KEYS ARGV -> whatever the script returns.
+Optional: a client without it leaves `RedisSessionImpl.update` on a read-compare-write, where two
+clients can both read, both pass the compare and both write. See that class's doc.
+
+#### Parameters
+
+##### script
+
+`string`
+
+##### keys
+
+`string`[]
+
+##### args
+
+(`string` \| `number`)[]
+
+#### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
+### expire()
+
+> **expire**(`key`: `string`, `seconds`: `number`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L29)
+
+EXPIRE key seconds -> 1 | 0
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### seconds
+
+`number`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### get()
+
+> **get**(`key`: `string`): `Promise`\<`string` \| `null`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L14)
+
+GET key -> value | null
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`string` \| `null`\>
+
+***
+
+### incr()
+
+> **incr**(`key`: `string`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L31)
+
+INCR key -> new value (creates key=1 if missing)
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### incrby()?
+
+> `optional` **incrby**(`key`: `string`, `by`: `number`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L33)
+
+INCRBY key n -> new value. Optional: a client without it is served by repeated `incr`.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### by
+
+`number`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### mget()?
+
+> `optional` **mget**(...`keys`: `string`[]): `Promise`\<(`string` \| `null`)[]\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L17)
+
+MGET key... -> one value per key in order, null per miss. Optional: a client without it is
+ served by concurrent `get`s, which costs one round trip per key instead of one for all.
+
+#### Parameters
+
+##### keys
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<(`string` \| `null`)[]\>
+
+***
+
+### sadd()
+
+> **sadd**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L35)
+
+SADD key member... -> added count
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### members
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### set()
+
+> **set**(`key`: `string`, `value`: `string`, `opts?`: \{ `ex?`: `number`; `nx?`: `boolean`; \}): `Promise`\<`"OK"` \| `null`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L25)
+
+SET key value [EX seconds] [NX] -> 'OK' | null (null = NX failed)
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### value
+
+`string`
+
+##### opts?
+
+###### ex?
+
+`number`
+
+###### nx?
+
+`boolean`
+
+#### Returns
+
+`Promise`\<`"OK"` \| `null`\>
+
+***
+
+### smembers()
+
+> **smembers**(`key`: `string`): `Promise`\<`string`[]\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L39)
+
+SMEMBERS key -> array of members (empty when key missing)
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`[]\>
+
+***
+
+### srem()
+
+> **srem**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L37)
+
+SREM key member... -> removed count
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### members
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### zadd()
+
+> **zadd**(`key`: `string`, `score`: `number`, `member`: `string`): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L41)
+
+ZADD key score member -> 1 when added, 0 when an existing member was re-scored
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### score
+
+`number`
+
+##### member
+
+`string`
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### zrangebyscore()
+
+> **zrangebyscore**(`key`: `string`, `min`: `string` \| `number`, `max`: `string` \| `number`, `opts?`: \{ `limit?`: \{ `count`: `number`; `offset`: `number`; \}; \}): `Promise`\<`string`[]\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L48)
+
+ZRANGEBYSCORE key min max [LIMIT offset count] -> members in score order.
+`min`/`max` accept `'-inf'` and `'+inf'`, and are inclusive.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### min
+
+`string` \| `number`
+
+##### max
+
+`string` \| `number`
+
+##### opts?
+
+###### limit?
+
+\{ `count`: `number`; `offset`: `number`; \}
+
+###### limit.count
+
+`number`
+
+###### limit.offset
+
+`number`
+
+#### Returns
+
+`Promise`\<`string`[]\>
+
+***
+
+### zrem()
+
+> **zrem**(`key`: `string`, ...`members`: `string`[]): `Promise`\<`number`\>
+
+Defined in: [packages/duck-auth/src/core/drivers/redis-like.ts:43](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/drivers/redis-like.ts#L43)
+
+ZREM key member... -> removed count
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### members
+
+...`string`[]
+
+#### Returns
+
+`Promise`\<`number`\>
+

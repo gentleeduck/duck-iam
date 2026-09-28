@@ -1,0 +1,37 @@
+---
+title: "Type Alias: Cfg"
+description: "The Redis DPoP nonce store's options."
+---
+
+> **Cfg**\<`TRedis` *extends* [`Client`](../../RedisLike/type-aliases/Client) = [`Client`](../../RedisLike/type-aliases/Client)\> = \{ `prefix?`: `string`; `redis`: `TRedis`; \}
+
+Defined in: [packages/duck-auth/src/core/transport/dpop-nonce.redis.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop-nonce.redis.ts#L6)
+
+The Redis DPoP nonce store's options.
+
+## Type Parameters
+
+### TRedis
+
+`TRedis` *extends* [`Client`](../../RedisLike/type-aliases/Client) = [`Client`](../../RedisLike/type-aliases/Client)
+
+## Properties
+
+### prefix?
+
+> `optional` **prefix?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop-nonce.redis.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop-nonce.redis.ts#L10)
+
+Default `auth:dpop:jti`.
+
+***
+
+### redis
+
+> **redis**: `TRedis`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop-nonce.redis.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop-nonce.redis.ts#L8)
+
+An `@upstash/redis`-shaped client or `FakeRedis`; wrap ioredis and iovalkey with `valkeyAdapter`.
+

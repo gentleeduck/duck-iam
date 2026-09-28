@@ -1,0 +1,16 @@
+---
+title: "Function: actorId()"
+description: "The scope's actor, then the configured default, then null.  WARN: a resolver that throws is not caught - a broken actor lookup is a wiring bug, not a null."
+---
+
+> **actorId**(): `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/actor/actor.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/actor/actor.ts#L19)
+
+The scope's actor, then the configured default, then `null`.
+ WARN: a resolver that throws is not caught - a broken actor lookup is a wiring bug, not a `null`.
+
+## Returns
+
+`string` \| `null`
+

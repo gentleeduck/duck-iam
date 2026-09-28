@@ -1,0 +1,104 @@
+---
+title: "Class: AuthBearerTransport"
+description: "An Authorization: Bearer <opaque> header, for native, mobile and API-key callers. Issue answers a  JSON intent carrying the token, and persisting it is the client's job."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/bearer.transport.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/bearer.transport.ts#L6)
+
+An `Authorization: Bearer <opaque>` header, for native, mobile and API-key callers. Issue answers a
+ JSON intent carrying the token, and persisting it is the client's job.
+
+## Implements
+
+- [`ITransport`](../namespaces/Transport/type-aliases/ITransport)
+
+## Constructors
+
+### Constructor
+
+> **new AuthBearerTransport**(`cfg?`: [`Cfg`](../namespaces/AuthBearerTransport/type-aliases/Cfg)): `BearerTransport`
+
+Defined in: [packages/duck-auth/src/core/transport/bearer.transport.ts:22](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/bearer.transport.ts#L22)
+
+#### Parameters
+
+##### cfg?
+
+[`Cfg`](../namespaces/AuthBearerTransport/type-aliases/Cfg) = `{}`
+
+#### Returns
+
+`BearerTransport`
+
+## Methods
+
+### extract()
+
+> **extract**(`req`: \{ `headers`: `Headers`; \}): `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/transport/bearer.transport.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/bearer.transport.ts#L41)
+
+The token out of the configured header, or `null` when the scheme does not match.
+
+#### Parameters
+
+##### req
+
+###### headers
+
+`Headers`
+
+#### Returns
+
+`string` \| `null`
+
+#### Implementation of
+
+`Transport.ITransport.extract`
+
+***
+
+### issue()
+
+> **issue**(`sid`: `string`, `session`: [`Me`](../namespaces/Sessions/type-aliases/Me)): [`Intent`](../namespaces/Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/transport/bearer.transport.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/bearer.transport.ts#L58)
+
+Answers the token in the response body; persisting it is the client's job.
+
+#### Parameters
+
+##### sid
+
+`string`
+
+##### session
+
+[`Me`](../namespaces/Sessions/type-aliases/Me)
+
+#### Returns
+
+[`Intent`](../namespaces/Provider/type-aliases/Intent)[]
+
+#### Implementation of
+
+`Transport.ITransport.issue`
+
+***
+
+### revoke()
+
+> **revoke**(): [`Intent`](../namespaces/Provider/type-aliases/Intent)[]
+
+Defined in: [packages/duck-auth/src/core/transport/bearer.transport.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/bearer.transport.ts#L69)
+
+Nothing to clear on the client beyond the token itself, so this only acknowledges.
+
+#### Returns
+
+[`Intent`](../namespaces/Provider/type-aliases/Intent)[]
+
+#### Implementation of
+
+`Transport.ITransport.revoke`
+

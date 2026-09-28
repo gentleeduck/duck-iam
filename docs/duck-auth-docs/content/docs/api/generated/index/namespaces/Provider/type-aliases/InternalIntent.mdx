@@ -1,0 +1,56 @@
+---
+title: "Type Alias: InternalIntent"
+description: "The full union Me.complete() answers with. WARN: startSession and requireMfa are for  FlowsImpl and must never reach a framework adapter."
+---
+
+> **InternalIntent** = [`Intent`](Intent) \| \{ `aal`: [`AAL`](../../Sessions/type-aliases/AAL); `endOtherSessions?`: `boolean`; `factors`: [`Factor`](../../Sessions/interfaces/Factor)[]; `identityId`: `string`; `kind?`: [`Kind`](../../Sessions/type-aliases/Kind); `type`: `"startSession"`; \} \| \{ `identityId`: `string`; `methods`: `string`[]; `type`: `"requireMfa"`; \}
+
+Defined in: [packages/duck-auth/src/core/provider/provider.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/provider/provider.types.ts#L25)
+
+The full union `Me.complete()` answers with. WARN: `startSession` and `requireMfa` are for
+ `FlowsImpl` and must never reach a framework adapter.
+
+## Union Members
+
+[`Intent`](Intent)
+
+***
+
+### Type Literal
+
+\{ `aal`: [`AAL`](../../Sessions/type-aliases/AAL); `endOtherSessions?`: `boolean`; `factors`: [`Factor`](../../Sessions/interfaces/Factor)[]; `identityId`: `string`; `kind?`: [`Kind`](../../Sessions/type-aliases/Kind); `type`: `"startSession"`; \}
+
+#### aal
+
+> **aal**: [`AAL`](../../Sessions/type-aliases/AAL)
+
+#### endOtherSessions?
+
+> `optional` **endOtherSessions?**: `boolean`
+
+Ends every other session the identity holds once this one is open.
+
+#### factors
+
+> **factors**: [`Factor`](../../Sessions/interfaces/Factor)[]
+
+#### identityId
+
+> **identityId**: `string`
+
+#### kind?
+
+> `optional` **kind?**: [`Kind`](../../Sessions/type-aliases/Kind)
+
+`'user'` when absent.
+
+#### type
+
+> **type**: `"startSession"`
+
+***
+
+### Type Literal
+
+\{ `identityId`: `string`; `methods`: `string`[]; `type`: `"requireMfa"`; \}
+

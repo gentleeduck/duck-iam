@@ -1,0 +1,25 @@
+---
+title: "Function: honoCsrf()"
+description: "CSRF guard for your own routes: app.use('*', honoCsrf(auth))."
+---
+
+> **honoCsrf**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: [`GuardOptions`](../../../core/namespaces/Csrf/type-aliases/GuardOptions)): [`Middleware`](../namespaces/HonoAdapter/type-aliases/Middleware)
+
+Defined in: [packages/duck-auth/src/server/hono/index.ts:353](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/index.ts#L353)
+
+CSRF guard for your own routes: `app.use('*', honoCsrf(auth))`.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+[`GuardOptions`](../../../core/namespaces/Csrf/type-aliases/GuardOptions) = `{}`
+
+## Returns
+
+[`Middleware`](../namespaces/HonoAdapter/type-aliases/Middleware)
+

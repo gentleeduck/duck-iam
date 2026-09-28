@@ -1,0 +1,161 @@
+---
+title: "Class: MemoryIdempotency"
+description: "Dev and test only: production needs the Redis store, whose SET NX EX claim is atomic across processes. Keys are scoped by an encoded tenantId, so two tenants sending one Idempotency-Key cannot collide however the host spells its tenant ids."
+---
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:13](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L13)
+
+Dev and test only: production needs the Redis store, whose `SET NX EX` claim is atomic across
+processes. Keys are scoped by an encoded tenantId, so two tenants sending one Idempotency-Key cannot
+collide however the host spells its tenant ids.
+
+## Implements
+
+- [`Store`](../namespaces/Idempotency/type-aliases/Store)
+
+## Constructors
+
+### Constructor
+
+> **new MemoryIdempotency**(`cfg?`: \{ `development?`: `boolean`; \}): `MemoryIdempotency`
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L19)
+
+#### Parameters
+
+##### cfg?
+
+###### development?
+
+`boolean`
+
+Escape hatch to allow this store under `NODE_ENV=production`.
+
+#### Returns
+
+`MemoryIdempotency`
+
+## Methods
+
+### claim()
+
+> **claim**(`key`: `string`, `ttlMs`: `number`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:56](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L56)
+
+Takes the key for this caller, answering false when someone else already holds it.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ttlMs
+
+`number`
+
+##### ctx
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+#### Implementation of
+
+`Idempotency.Store.claim`
+
+***
+
+### delete()
+
+> **delete**(`key`: `string`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:84](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L84)
+
+Drops the key, so the next request carrying it runs for real.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Idempotency.Store.delete`
+
+***
+
+### get()
+
+> **get**(`key`: `string`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L40)
+
+The cached response, throwing `AUTH_IDEMPOTENCY_MISS` when the key holds none.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)\>
+
+#### Implementation of
+
+`Idempotency.Store.get`
+
+***
+
+### put()
+
+> **put**(`key`: `string`, `response`: [`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse), `ttlMs`: `number`, `ctx`: [`TenantContext`](../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.memory.ts:72](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.memory.ts#L72)
+
+Stores the response, so a replay of the key answers from cache.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### response
+
+[`CachedResponse`](../namespaces/Idempotency/type-aliases/CachedResponse)
+
+##### ttlMs
+
+`number`
+
+##### ctx
+
+[`TenantContext`](../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Idempotency.Store.put`
+

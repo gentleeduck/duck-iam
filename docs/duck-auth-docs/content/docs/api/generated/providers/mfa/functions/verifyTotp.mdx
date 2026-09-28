@@ -1,0 +1,36 @@
+---
+title: "Function: verifyTotp()"
+description: "Constant-time across every candidate step, so the response cannot be timed to find where in the drift window the legitimate code lives."
+---
+
+> **verifyTotp**(`secretB32`: `string`, `code`: `string`, `opts?`: \{ `nowMs?`: `number`; `params?`: [`Params`](../namespaces/Totp/type-aliases/Params); \}): `boolean`
+
+Defined in: [packages/duck-auth/src/providers/mfa/internal/totp.ts:128](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/mfa/internal/totp.ts#L128)
+
+Constant-time across every candidate step, so the response cannot be timed to find where in the drift
+window the legitimate code lives.
+
+## Parameters
+
+### secretB32
+
+`string`
+
+### code
+
+`string`
+
+### opts?
+
+#### nowMs?
+
+`number`
+
+#### params?
+
+[`Params`](../namespaces/Totp/type-aliases/Params)
+
+## Returns
+
+`boolean`
+

@@ -1,0 +1,97 @@
+---
+title: "Class: RedisLimiter"
+description: "Fixed-window counter: the key's TTL is the window, and resetAt is when it runs out."
+---
+
+Defined in: [packages/duck-auth/src/limiters/redis/index.ts:21](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/redis/index.ts#L21)
+
+Fixed-window counter: the key's TTL is the window, and `resetAt` is when it runs out.
+
+WARN: a client without `eval` gets `INCRBY` then `EXPIRE` as two commands. An `EXPIRE` lost between
+them leaves a counter that never resets, locking its key out for good, and `resetAt` there is a full
+window from now rather than the window's end.
+
+## Type Parameters
+
+### TRedis
+
+`TRedis` *extends* [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client) = [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client)
+
+## Implements
+
+- [`Me`](../../memory/namespaces/Limiter/type-aliases/Me)
+
+## Constructors
+
+### Constructor
+
+> **new RedisLimiter**\<`TRedis` *extends* [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client) = [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client)\>(`cfg`: [`Cfg`](../namespaces/RedisLimiter/type-aliases/Cfg)\<`TRedis`\>): `RedisLimiter`\<`TRedis`\>
+
+Defined in: [packages/duck-auth/src/limiters/redis/index.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/redis/index.ts#L48)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/RedisLimiter/type-aliases/Cfg)\<`TRedis`\>
+
+#### Returns
+
+`RedisLimiter`\<`TRedis`\>
+
+## Methods
+
+### consume()
+
+> **consume**(`key`: `string`, `weight?`: `number`): `Promise`\<[`Result`](../../memory/namespaces/Limiter/type-aliases/Result)\>
+
+Defined in: [packages/duck-auth/src/limiters/redis/index.ts:79](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/redis/index.ts#L79)
+
+Adds `weight` to the key's count for this window.
+
+PERF: one command whatever the weight. Looping `weight` INCRs instead makes `consume(key, 1e6)`
+a caller-controlled flood of a million sequential commands, and leaves the count atomic only
+for a weight of one. A client with no INCRBY still loops, but stops once the budget is gone.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### weight?
+
+`number` = `1`
+
+#### Returns
+
+`Promise`\<[`Result`](../../memory/namespaces/Limiter/type-aliases/Result)\>
+
+#### Implementation of
+
+`Limiter.Me.consume`
+
+***
+
+### reset()
+
+> **reset**(`key`: `string`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/limiters/redis/index.ts:114](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/limiters/redis/index.ts#L114)
+
+Drop a bucket. Used by tests + explicit unlock paths.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Limiter.Me.reset`
+

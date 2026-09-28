@@ -1,0 +1,31 @@
+---
+title: "Type Alias: BeginInput"
+description: "What starting a passkey sign-in takes."
+---
+
+> **BeginInput** = \{ `email?`: `string`; `sessionId`: `string`; \}
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:152](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L152)
+
+What starting a passkey sign-in takes.
+
+## Properties
+
+### email?
+
+> `optional` **email?**: `string`
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:154](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L154)
+
+Narrows `allowCredentials` to that user.
+
+***
+
+### sessionId
+
+> **sessionId**: `string`
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.types.ts:156](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.types.ts#L156)
+
+Caller-supplied stable session id; the challenge is keyed by it.
+

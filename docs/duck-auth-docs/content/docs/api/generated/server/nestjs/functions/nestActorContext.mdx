@@ -1,0 +1,28 @@
+---
+title: "Function: nestActorContext()"
+description: "Bind the request's actor scope for everything downstream:  consumer.apply(nestActorContext(auth)).forRoutes('*'). Middleware, since it runs ahead of the guards,  which an interceptor would leave unbound. makeGuard reuses what it resolved, so the pair costs one  resolveSession."
+---
+
+> **nestActorContext**(`auth`: [`AuthEngine`](../../../index/classes/AuthEngine), `opts?`: [`NestActorOptions`](../type-aliases/NestActorOptions)): (`req`: [`Request`](../namespaces/NestAdapter/type-aliases/Request), `res`: `unknown`, `next`: (`err?`: `unknown`) => `void`) => `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/server/nestjs/index.ts:263](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/nestjs/index.ts#L263)
+
+Bind the request's actor scope for everything downstream:
+ `consumer.apply(nestActorContext(auth)).forRoutes('*')`. Middleware, since it runs ahead of the guards,
+ which an interceptor would leave unbound. `makeGuard` reuses what it resolved, so the pair costs one
+ `resolveSession`.
+
+## Parameters
+
+### auth
+
+[`AuthEngine`](../../../index/classes/AuthEngine)
+
+### opts?
+
+[`NestActorOptions`](../type-aliases/NestActorOptions) = `{}`
+
+## Returns
+
+(`req`: [`Request`](../namespaces/NestAdapter/type-aliases/Request), `res`: `unknown`, `next`: (`err?`: `unknown`) => `void`) => `Promise`\<`void`\>
+

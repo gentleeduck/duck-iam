@@ -1,0 +1,47 @@
+---
+title: "Interface: Delivery"
+description: "What one endpoint made of one event. Returned by deliverOne."
+---
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:387](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L387)
+
+What one endpoint made of one event. Returned by `deliverOne`.
+
+## Properties
+
+### attempts
+
+> **attempts**: `number`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:392](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L392)
+
+Attempts actually made, including the successful one.
+
+***
+
+### delivered
+
+> **delivered**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:390](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L390)
+
+True when an attempt got a 2xx; false when every attempt was spent.
+
+***
+
+### endpointId
+
+> **endpointId**: `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:388](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L388)
+
+***
+
+### lastError?
+
+> `optional` **lastError?**: `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:394](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L394)
+
+Why the last attempt failed. Absent on a delivered event.
+

@@ -1,0 +1,13 @@
+---
+title: "Type Alias: Reaction"
+description: "'revoke' ends the session and refuses, 'mfa' refuses with a step-up, 'rotate' is the caller's to  perform, and 'ignore' records the drift alone. 'mfa' refuses every request an actor wrapper covers, so  the route completing the step-up sits outside it and hands completeStepUp the request's fingerprint."
+---
+
+> **Reaction** = `"ignore"` \| `"rotate"` \| `"mfa"` \| `"revoke"`
+
+Defined in: [packages/duck-auth/src/core/hijack/hijack.types.ts:26](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/hijack/hijack.types.ts#L26)
+
+`'revoke'` ends the session and refuses, `'mfa'` refuses with a step-up, `'rotate'` is the caller's to
+ perform, and `'ignore'` records the drift alone. `'mfa'` refuses every request an actor wrapper covers, so
+ the route completing the step-up sits outside it and hands `completeStepUp` the request's fingerprint.
+

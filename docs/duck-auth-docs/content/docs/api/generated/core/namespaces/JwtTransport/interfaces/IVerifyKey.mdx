@@ -1,0 +1,48 @@
+---
+title: "Interface: IVerifyKey"
+description: "A key tokens are verified against, by kid."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:65](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L65)
+
+A key tokens are verified against, by `kid`.
+
+## Properties
+
+### alg?
+
+> `optional` **alg?**: `"HS256"` \| `"ES256"` \| `"RS256"` \| `"EdDSA"`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L68)
+
+`'HS256'` by default, for backwards compatibility; ES256 and RS256 callers set it explicitly.
+
+***
+
+### key
+
+> **key**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:71](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L71)
+
+The UTF-8 secret for `HS256`, and the PEM-encoded public key (SPKI or RSA-PUBLIC) for `ES256`
+ and `RS256`.
+
+***
+
+### kid
+
+> **kid**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L66)
+
+***
+
+### notAfter?
+
+> `optional` **notAfter?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/jwt.transport.ts:73](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/jwt.transport.ts#L73)
+
+Rotation cutoff: verify-only past this point.
+

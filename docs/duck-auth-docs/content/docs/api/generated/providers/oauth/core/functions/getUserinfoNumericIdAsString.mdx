@@ -1,0 +1,28 @@
+---
+title: "Function: getUserinfoNumericIdAsString()"
+description: "Coerces a numeric id field to a string, for GitHub, whose info.id is a numeric snowflake."
+---
+
+> **getUserinfoNumericIdAsString**(`info`: `unknown`, `key`: `string`): `string` \| `undefined`
+
+Defined in: [packages/duck-auth/src/providers/oauth/core/userinfo.ts:19](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/oauth/core/userinfo.ts#L19)
+
+Coerces a numeric id field to a string, for GitHub, whose `info.id` is a numeric snowflake.
+
+SECURITY: anything that is not a finite number answers `undefined`. Coercing blindly would make
+`String(null)` the id `'null'`, collapsing every such account onto one identity.
+
+## Parameters
+
+### info
+
+`unknown`
+
+### key
+
+`string`
+
+## Returns
+
+`string` \| `undefined`
+

@@ -1,0 +1,62 @@
+---
+title: "Class: DPoPVerifier"
+description: "Per-request DPoP verifier, stateless apart from the nonce store. Throws AUTH_DPOP_INVALID on  any failure, so an adapter wraps it in one try/catch."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L16)
+
+Per-request DPoP verifier, stateless apart from the nonce store. Throws `AUTH_DPOP_INVALID` on
+ any failure, so an adapter wraps it in one try/catch.
+
+## Constructors
+
+### Constructor
+
+> **new DPoPVerifier**(`cfg?`: [`Cfg`](../namespaces/DPoPVerifier/interfaces/Cfg)): `DPoPVerifier`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:94](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L94)
+
+#### Parameters
+
+##### cfg?
+
+[`Cfg`](../namespaces/DPoPVerifier/interfaces/Cfg) = `{}`
+
+#### Returns
+
+`DPoPVerifier`
+
+## Methods
+
+### verify()
+
+> **verify**(`dpopHeader`: `string`, `request`: \{ `method`: `string`; `url`: `string`; \}, `accessToken?`: `string`): `Promise`\<[`Verified`](../namespaces/DPoPVerifier/interfaces/Verified)\>
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:114](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L114)
+
+Verifies the proof against this method and URL; comparing its `jkt` is the caller's job.
+
+#### Parameters
+
+##### dpopHeader
+
+`string`
+
+##### request
+
+###### method
+
+`string`
+
+###### url
+
+`string`
+
+##### accessToken?
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Verified`](../namespaces/DPoPVerifier/interfaces/Verified)\>
+

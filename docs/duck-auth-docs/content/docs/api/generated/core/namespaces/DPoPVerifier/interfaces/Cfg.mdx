@@ -1,0 +1,60 @@
+---
+title: "Interface: Cfg"
+description: "How strictly DPoP proofs are checked."
+---
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L40)
+
+How strictly DPoP proofs are checked.
+
+## Properties
+
+### acceptedAlgs?
+
+> `optional` **acceptedAlgs?**: (`"ES256"` \| `"RS256"` \| `"EdDSA"` \| `"PS256"`)[]
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L48)
+
+`['ES256', 'EdDSA']` by default, RFC 9449 section 4.2 forbidding symmetric algorithms.
+
+***
+
+### clockSkewMs?
+
+> `optional` **clockSkewMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L42)
+
+Tolerated clock skew between client and server, ms. Default 30s.
+
+***
+
+### expectedNonce?
+
+> `optional` **expectedNonce?**: `string` \| (() => `string` \| `Promise`\<`string`\>)
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:51](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L51)
+
+RFC 9449 §8-9: when set, the proof's `nonce` must match. A string for a static one, a thunk for a
+ rotating one, which helps where jti-store latency leaves a local replay window porous.
+
+***
+
+### freshnessMs?
+
+> `optional` **freshnessMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L44)
+
+Applied to `iat` in ms, after `clockSkewMs` is subtracted. Default 60s.
+
+***
+
+### nonceStore?
+
+> `optional` **nonceStore?**: [`NonceStore`](NonceStore)
+
+Defined in: [packages/duck-auth/src/core/transport/dpop.transport.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/dpop.transport.ts#L46)
+
+In-memory by default; production wires the Redis-backed store.
+

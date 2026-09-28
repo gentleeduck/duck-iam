@@ -1,0 +1,197 @@
+---
+title: "Interface: RotateInput"
+description: "A new session replacing the one the request came in on, and why."
+---
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:198](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L198)
+
+A new session replacing the one the request came in on, and why.
+
+## Extends
+
+- [`MintInput`](../type-aliases/MintInput)
+
+## Properties
+
+### aal
+
+> **aal**: [`AAL`](../type-aliases/AAL)
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:180](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L180)
+
+#### Inherited from
+
+`MintInput.aal`
+
+***
+
+### actingAs?
+
+> `optional` **actingAs?**: [`ActingAs`](../type-aliases/ActingAs) \| `null`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:186](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L186)
+
+#### Inherited from
+
+`MintInput.actingAs`
+
+***
+
+### factors
+
+> **factors**: [`Factor`](Factor)[]
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:181](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L181)
+
+#### Inherited from
+
+`MintInput.factors`
+
+***
+
+### fingerprint?
+
+> `optional` **fingerprint?**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:185](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L185)
+
+#### Inherited from
+
+`MintInput.fingerprint`
+
+***
+
+### fresh?
+
+> `optional` **fresh?**: `false`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:194](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L194)
+
+`false` issues the row already stale, for a re-issue nothing re-authenticated. Only ever demotes.
+
+#### Inherited from
+
+`MintInput.fresh`
+
+***
+
+### identity?
+
+> `optional` **identity?**: [`Me`](../../Identities/type-aliases/Me)\<[`ProfileMetadataBase`](../../Identities/type-aliases/ProfileMetadataBase)\> \| `null`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:187](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L187)
+
+#### Inherited from
+
+`MintInput.identity`
+
+***
+
+### identityId
+
+> **identityId**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:178](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L178)
+
+#### Inherited from
+
+`MintInput.identityId`
+
+***
+
+### ip?
+
+> `optional` **ip?**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:183](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L183)
+
+#### Inherited from
+
+`MintInput.ip`
+
+***
+
+### kind
+
+> **kind**: `"guest"` \| `"user"` \| `"apikey"`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:179](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L179)
+
+#### Inherited from
+
+`MintInput.kind`
+
+***
+
+### maxExpiresAt?
+
+> `optional` **maxExpiresAt?**: `Date`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:190](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L190)
+
+An upper bound on both deadlines, never an extension, so `touch` cannot slide past it: the facet's own
+ ttl still wins when it is sooner. The m2m grant sets it so a session expires with the token it was minted for.
+
+#### Inherited from
+
+`MintInput.maxExpiresAt`
+
+***
+
+### previousSid?
+
+> `optional` **previousSid?**: `string`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:218](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L218)
+
+The SID the request came in on. Its `ip`, `userAgent` and `fingerprint` carry over to the new row
+ wherever this input brings none.
+
+***
+
+### purpose
+
+> **purpose**: `"step-up"` \| `"signin"` \| `"re-auth"` \| `"step-down"` \| `"credential-change"` \| `"impersonate-start"` \| `"impersonate-release"` \| `"guest-promotion"` \| `"sign-up"` \| `"drift"`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:200](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L200)
+
+Whether the previous SID is revoked outright or downgraded (step-up keeps it alive at a lower AAL).
+
+***
+
+### tenantId?
+
+> `optional` **tenantId?**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:182](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L182)
+
+#### Inherited from
+
+`MintInput.tenantId`
+
+***
+
+### ttlMs?
+
+> `optional` **ttlMs?**: `number`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:192](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L192)
+
+Shortens this row's whole life, `absoluteExpiresAt` included. Only ever shortens.
+
+#### Inherited from
+
+`MintInput.ttlMs`
+
+***
+
+### userAgent?
+
+> `optional` **userAgent?**: `string` \| `null`
+
+Defined in: [packages/duck-auth/src/core/sessions/sessions.types.ts:184](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/sessions/sessions.types.ts#L184)
+
+#### Inherited from
+
+`MintInput.userAgent`
+

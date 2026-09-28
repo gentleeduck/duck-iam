@@ -1,0 +1,12 @@
+---
+title: "Type Alias: SkipGroup"
+description: "Group identifiers that opts.skip understands. 'totp' gates every MFA route, backup-code  regeneration included, so there is no way to skip one without the other."
+---
+
+> **SkipGroup** = `"oauth"` \| `"magic-link"` \| `"passkey"` \| `"totp"`
+
+Defined in: [packages/duck-auth/src/server/hono/hono.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/server/hono/hono.types.ts#L44)
+
+Group identifiers that `opts.skip` understands. `'totp'` gates every MFA route, backup-code
+ regeneration included, so there is no way to skip one without the other.
+

@@ -1,0 +1,85 @@
+---
+title: "Type Alias: Me"
+description: "A password hasher."
+---
+
+> **Me** = \{ `id`: `string`; `hash`: `Promise`\<`string`\>; `needsRehash`: `boolean`; `verify`: `Promise`\<`boolean`\>; \}
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts:4](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts#L4)
+
+A password hasher.
+
+## Properties
+
+### id
+
+> `readonly` **id**: `string`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts#L6)
+
+Names the algorithm and parameter set encoded into the hash.
+
+## Methods
+
+### hash()
+
+> **hash**(`plaintext`: `string`): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts#L8)
+
+Hashes with a fresh salt; the answer encodes the algorithm and parameters.
+
+#### Parameters
+
+##### plaintext
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`\>
+
+***
+
+### needsRehash()
+
+> **needsRehash**(`encoded`: `string`): `boolean`
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts#L12)
+
+True when `encoded` came from an older or weaker parameter set than the current one.
+
+#### Parameters
+
+##### encoded
+
+`string`
+
+#### Returns
+
+`boolean`
+
+***
+
+### verify()
+
+> **verify**(`plaintext`: `string`, `encoded`: `string`): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passwords/hashers/hashers.types.ts#L10)
+
+Whether `plaintext` matches, compared in constant time.
+
+#### Parameters
+
+##### plaintext
+
+`string`
+
+##### encoded
+
+`string`
+
+#### Returns
+
+`Promise`\<`boolean`\>
+

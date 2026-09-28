@@ -1,0 +1,124 @@
+---
+title: "Type Alias: Store"
+description: "Remembers the answer each idempotency key got."
+---
+
+> **Store** = \{ `claim`: `Promise`\<`boolean`\>; `delete`: `Promise`\<`void`\>; `get`: `Promise`\<[`CachedResponse`](CachedResponse)\>; `put`: `Promise`\<`void`\>; \}
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.types.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.types.ts#L31)
+
+Remembers the answer each idempotency key got.
+
+## Methods
+
+### claim()
+
+> **claim**(`key`: `string`, `ttlMs`: `number`, `ctx`: [`TenantContext`](../../../../../index/interfaces/TenantContext)): `Promise`\<`boolean`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.types.ts#L40)
+
+`true` when this caller claimed first. `false` means a previous claim exists, and the caller
+ reads the cached response with `get()` to replay it.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ttlMs
+
+`number`
+
+##### ctx
+
+[`TenantContext`](../../../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+***
+
+### delete()
+
+> **delete**(`key`: `string`, `ctx`: [`TenantContext`](../../../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.types.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.types.ts#L44)
+
+For tests and flush operations.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### get()
+
+> **get**(`key`: `string`, `ctx`: [`TenantContext`](../../../../../index/interfaces/TenantContext)): `Promise`\<[`CachedResponse`](CachedResponse)\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.types.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.types.ts#L37)
+
+The response cached under the key. Rejects `AUTH_IDEMPOTENCY_MISS` for a key never seen, a key whose
+ TTL has elapsed, a row that no longer parses, and a key still holding the tombstone `claim()` wrote.
+ One code because the facet branches on all four identically: it falls through to `claim()`, and the
+ loser of that race polls here until the winner's `put()` lands. A store that serves the tombstone as
+ a real response breaks that protocol. A store that is down rejects its own code and stays loud.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### ctx
+
+[`TenantContext`](../../../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<[`CachedResponse`](CachedResponse)\>
+
+***
+
+### put()
+
+> **put**(`key`: `string`, `response`: [`CachedResponse`](CachedResponse), `ttlMs`: `number`, `ctx`: [`TenantContext`](../../../../../index/interfaces/TenantContext)): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/idempotency/idempotency.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/idempotency/idempotency.types.ts#L42)
+
+Stores it under the key this caller already claimed.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### response
+
+[`CachedResponse`](CachedResponse)
+
+##### ttlMs
+
+`number`
+
+##### ctx
+
+[`TenantContext`](../../../../../index/interfaces/TenantContext)
+
+#### Returns
+
+`Promise`\<`void`\>
+

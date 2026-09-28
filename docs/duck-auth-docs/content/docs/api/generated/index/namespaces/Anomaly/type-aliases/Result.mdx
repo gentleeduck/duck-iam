@@ -1,0 +1,57 @@
+---
+title: "Type Alias: Result"
+description: "What evaluate answers, and what rides along to onSession as resolveSession's anomaly."
+---
+
+> **Result** = \{ `admit`: () => `Promise`\<`void`\>; `decision`: [`Decision`](Decision); `score`: `number`; `signals`: [`Signal`](../interfaces/Signal)[]; \}
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:74](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L74)
+
+What `evaluate` answers, and what rides along to `onSession` as `resolveSession`'s `anomaly`.
+
+## Properties
+
+### admit
+
+> **admit**: () => `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:84](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L84)
+
+Runs the `record` of each detector that answered, under `decision`. Call it once the request is let
+ through: `withRequestActor` and `withResolvedActor` do, after `onSession` passes, so a request refused
+ there teaches the detectors nothing. Never rejects.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### decision
+
+> **decision**: [`Decision`](Decision)
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:80](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L80)
+
+Callers may override it, but should log when they do.
+
+***
+
+### score
+
+> **score**: `number`
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:76](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L76)
+
+The signals combined noisy-or and saturating at 1, not summed: see `combineScores`.
+
+***
+
+### signals
+
+> **signals**: [`Signal`](../interfaces/Signal)[]
+
+Defined in: [packages/duck-auth/src/core/anomaly/anomaly.types.ts:78](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/anomaly/anomaly.types.ts#L78)
+
+The signals that contributed to it; one muted by an `'allow'` reaction is not among them.
+

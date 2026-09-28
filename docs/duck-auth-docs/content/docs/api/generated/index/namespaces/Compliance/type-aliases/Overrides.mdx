@@ -1,0 +1,107 @@
+---
+title: "Type Alias: Overrides"
+description: "The config values a preset raises: the password length floor and the session lifetimes."
+---
+
+> **Overrides** = \{ `apiKeys`: \{ `randomBytes`: `number`; \}; `mfa`: \{ `backupCodeCount`: `number`; \}; `minAal`: `1` \| `2` \| `3`; `passwords`: \{ `minLength`: `number`; \}; `requireChannelForReset`: `boolean`; `requireDataAtRest`: `boolean`; `requiredStrictChecks`: [`Check`](Check)[]; `sessions`: \{ `absoluteTtlMs`: `number`; `freshnessMs`: `number`; `ttlMs`: `number`; \}; \}
+
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L30)
+
+The config values a preset raises: the password length floor and the session lifetimes.
+
+## Properties
+
+### apiKeys
+
+> **apiKeys**: \{ `randomBytes`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L34)
+
+#### randomBytes
+
+> **randomBytes**: `number`
+
+***
+
+### mfa
+
+> **mfa**: \{ `backupCodeCount`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L33)
+
+#### backupCodeCount
+
+> **backupCodeCount**: `number`
+
+***
+
+### minAal
+
+> **minAal**: `1` \| `2` \| `3`
+
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L38)
+
+Above 1, `strict()` refuses an engine with no mfa provider; sign-in itself still answers AAL 1.
+
+***
+
+### passwords
+
+> **passwords**: \{ `minLength`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L31)
+
+#### minLength
+
+> **minLength**: `number`
+
+***
+
+### requireChannelForReset
+
+> **requireChannelForReset**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L42)
+
+When true, mailer / channel adapter required for any provider that needs it.
+
+***
+
+### requireDataAtRest
+
+> **requireDataAtRest**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L40)
+
+When true, dataAtRest adapter required at boot.
+
+***
+
+### requiredStrictChecks
+
+> **requiredStrictChecks**: [`Check`](Check)[]
+
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L36)
+
+Names of strict() checks the preset insists on, sorted so two orderings resolve alike.
+
+***
+
+### sessions
+
+> **sessions**: \{ `absoluteTtlMs`: `number`; `freshnessMs`: `number`; `ttlMs`: `number`; \}
+
+Defined in: [packages/duck-auth/src/core/compliance/compliance.types.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/compliance/compliance.types.ts#L32)
+
+#### absoluteTtlMs
+
+> **absoluteTtlMs**: `number`
+
+#### freshnessMs
+
+> **freshnessMs**: `number`
+
+#### ttlMs
+
+> **ttlMs**: `number`
+

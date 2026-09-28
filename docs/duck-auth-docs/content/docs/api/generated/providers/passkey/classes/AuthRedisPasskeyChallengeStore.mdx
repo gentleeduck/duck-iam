@@ -1,0 +1,97 @@
+---
+title: "Class: AuthRedisPasskeyChallengeStore"
+description: "Shared across a fleet, which the memory store cannot be: a challenge the memory store consumes on  one node stays live on every other, which is a replay window for the whole TTL."
+---
+
+Defined in: [packages/duck-auth/src/providers/passkey/internal/challenge-store.redis.ts:5](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/internal/challenge-store.redis.ts#L5)
+
+Shared across a fleet, which the memory store cannot be: a challenge the memory store consumes on
+ one node stays live on every other, which is a replay window for the whole TTL.
+
+## Type Parameters
+
+### TRedis
+
+`TRedis` *extends* [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client) = [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client)
+
+## Implements
+
+- [`ChallengeStore`](../namespaces/Passkey/type-aliases/ChallengeStore)
+
+## Constructors
+
+### Constructor
+
+> **new AuthRedisPasskeyChallengeStore**\<`TRedis` *extends* [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client) = [`Client`](../../../adapters/redis/namespaces/RedisLike/type-aliases/Client)\>(`cfg`: [`Cfg`](../namespaces/AuthRedisPasskeyChallengeStore/type-aliases/Cfg)\<`TRedis`\>): `RedisPasskeyChallengeStore`\<`TRedis`\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/internal/challenge-store.redis.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/internal/challenge-store.redis.ts#L23)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/AuthRedisPasskeyChallengeStore/type-aliases/Cfg)\<`TRedis`\>
+
+#### Returns
+
+`RedisPasskeyChallengeStore`\<`TRedis`\>
+
+## Methods
+
+### put()
+
+> **put**(`key`: `string`, `challenge`: `string`, `ttlMs`: `number`): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/internal/challenge-store.redis.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/internal/challenge-store.redis.ts#L34)
+
+Overwrites any prior entry: one challenge is live per key at a time. The TTL is what expires it,
+ so there is no sweep to do and no non-finite `expiresAt` to slip past a comparison.
+
+#### Parameters
+
+##### key
+
+`string`
+
+##### challenge
+
+`string`
+
+##### ttlMs
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+`Passkey.ChallengeStore.put`
+
+***
+
+### take()
+
+> **take**(`key`: `string`): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/internal/challenge-store.redis.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/internal/challenge-store.redis.ts#L41)
+
+SECURITY: `DEL` is the claim, not the read. Concurrent takes all see the same challenge, and only
+ the one whose `DEL` actually removed a key may use it, so the ceremony stays single-use across the
+ fleet rather than per node.
+
+#### Parameters
+
+##### key
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`\>
+
+#### Implementation of
+
+`Passkey.ChallengeStore.take`
+

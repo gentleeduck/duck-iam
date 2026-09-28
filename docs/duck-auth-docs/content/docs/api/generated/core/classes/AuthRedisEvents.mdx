@@ -1,0 +1,131 @@
+---
+title: "Class: AuthRedisEvents"
+description: "Publishes each emit to a per-event channel, so every on() subscriber across the fleet receives  it. Local handlers fire synchronously off the publish, so a call site does not pay a Redis  round trip to observe its own emit."
+---
+
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:5](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L5)
+
+Publishes each emit to a per-event channel, so every `on()` subscriber across the fleet receives
+ it. Local handlers fire synchronously off the publish, so a call site does not pay a Redis
+ round trip to observe its own emit.
+
+## Implements
+
+- [`IBus`](../../index/namespaces/Events/interfaces/IBus)
+
+## Constructors
+
+### Constructor
+
+> **new AuthRedisEvents**(`cfg`: [`Cfg`](../namespaces/AuthRedisEvents/type-aliases/Cfg)): `RedisEvents`
+
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L37)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/AuthRedisEvents/type-aliases/Cfg)
+
+#### Returns
+
+`RedisEvents`
+
+## Methods
+
+### emit()
+
+> **emit**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`, `payload`: [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\[`K`\]): `Promise`\<`void`\>
+
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:110](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L110)
+
+Publishes the event so every subscribed node runs its local handlers, this one included.
+
+#### Type Parameters
+
+##### K
+
+`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)
+
+#### Parameters
+
+##### event
+
+`K`
+
+##### payload
+
+[`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\[`K`\]
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IBus`](../../index/namespaces/Events/interfaces/IBus).[`emit`](../../index/namespaces/Events/interfaces/IBus#emit)
+
+***
+
+### listenerCount()
+
+> **listenerCount**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`): `number`
+
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:141](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L141)
+
+Used by Engine.strict()'s boot-time gates.
+
+#### Type Parameters
+
+##### K
+
+`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)
+
+#### Parameters
+
+##### event
+
+`K`
+
+#### Returns
+
+`number`
+
+#### Implementation of
+
+[`IBus`](../../index/namespaces/Events/interfaces/IBus).[`listenerCount`](../../index/namespaces/Events/interfaces/IBus#listenercount)
+
+***
+
+### on()
+
+> **on**\<`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)\>(`event`: `K`, `handler`: [`Handler`](../../index/namespaces/Events/type-aliases/Handler)\<`K`\>): [`Unsubscribe`](../../index/namespaces/Events/type-aliases/Unsubscribe)
+
+Defined in: [packages/duck-auth/src/core/events/events.redis.ts:50](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/events/events.redis.ts#L50)
+
+Registers a local handler, subscribing to the channel on the first one for that event.
+
+#### Type Parameters
+
+##### K
+
+`K` *extends* keyof [`EventMap`](../../index/namespaces/Events/interfaces/EventMap)
+
+#### Parameters
+
+##### event
+
+`K`
+
+##### handler
+
+[`Handler`](../../index/namespaces/Events/type-aliases/Handler)\<`K`\>
+
+#### Returns
+
+[`Unsubscribe`](../../index/namespaces/Events/type-aliases/Unsubscribe)
+
+#### Implementation of
+
+[`IBus`](../../index/namespaces/Events/interfaces/IBus).[`on`](../../index/namespaces/Events/interfaces/IBus#on)
+

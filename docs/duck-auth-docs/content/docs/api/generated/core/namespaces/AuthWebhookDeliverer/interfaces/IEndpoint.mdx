@@ -1,0 +1,59 @@
+---
+title: "Interface: IEndpoint"
+description: "A webhook receiver."
+---
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:428](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L428)
+
+A webhook receiver.
+
+## Properties
+
+### events?
+
+> `optional` **events?**: keyof [`EventMap`](../../../../index/namespaces/Events/interfaces/EventMap)[] \| `"*"`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:434](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L434)
+
+Event names this endpoint receives. Default `'*'` -> every event.
+
+***
+
+### id?
+
+> `optional` **id?**: `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:438](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L438)
+
+For UI labels and audit logs. Defaults to the url's origin and path.
+
+***
+
+### secret
+
+> **secret**: `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:432](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L432)
+
+Signs the HMAC header; confidential.
+
+***
+
+### signatureHeader?
+
+> `optional` **signatureHeader?**: `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:436](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L436)
+
+Header name carrying the HMAC. Default `'X-Duck-Signature'`.
+
+***
+
+### url
+
+> **url**: `string`
+
+Defined in: [packages/duck-auth/src/core/webhooks/index.ts:430](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/webhooks/index.ts#L430)
+
+Absolute HTTPS URL.
+

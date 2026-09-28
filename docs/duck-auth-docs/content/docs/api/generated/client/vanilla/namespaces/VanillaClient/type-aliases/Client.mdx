@@ -1,0 +1,154 @@
+---
+title: "Type Alias: Client"
+description: "The framework-free client surface."
+---
+
+> **Client**\<`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)\> = \{ `beginProvider`: `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<`unknown`, `string`\>\>; `getSession`: `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<[`SessionResult`](SessionResult)\<`Profile`\>, `string`\>\>; `onChange`: () => `void`; `refresh`: `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<[`SessionResult`](SessionResult)\<`Profile`\>, `string`\>\>; `signIn`: `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<[`SessionResult`](SessionResult)\<`Profile`\>, `string`\>\>; `signOut`: `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<`unknown`, `string`\>\>; `signUp`: `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<`unknown`, `string`\>\>; \}
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:87](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L87)
+
+The framework-free client surface.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../../../../../index/namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+## Methods
+
+### beginProvider()
+
+> **beginProvider**(`id`: `string`, `input?`: `unknown`): `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<`unknown`, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:106](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L106)
+
+POST /auth/providers/:id/begin. A redirect flow (OAuth, SAML) answers `{ url }`, and in a browser
+ the page is sent there; the others answer their own body, such as a passkey's options.
+
+#### Parameters
+
+##### id
+
+`string`
+
+##### input?
+
+`unknown`
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<`unknown`, `string`\>\>
+
+***
+
+### getSession()
+
+> **getSession**(): `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<[`SessionResult`](SessionResult)\<`Profile`\>, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:103](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L103)
+
+GET /auth/session
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<[`SessionResult`](SessionResult)\<`Profile`\>, `string`\>\>
+
+***
+
+### onChange()
+
+> **onChange**(`handler`: (`state`: [`SessionResult`](SessionResult)\<`Profile`\>) => `void`): () => `void`
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:108](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L108)
+
+Observe session changes. Returned function unsubscribes.
+
+#### Parameters
+
+##### handler
+
+(`state`: [`SessionResult`](SessionResult)\<`Profile`\>) => `void`
+
+#### Returns
+
+() => `void`
+
+***
+
+### refresh()
+
+> **refresh**(): `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<[`SessionResult`](SessionResult)\<`Profile`\>, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:110](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L110)
+
+Force a session refetch + notify observers.
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<[`SessionResult`](SessionResult)\<`Profile`\>, `string`\>\>
+
+***
+
+### signIn()
+
+> **signIn**(`opts`: [`SignInOptions`](SignInOptions)): `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<[`SessionResult`](SessionResult)\<`Profile`\>, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:89](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L89)
+
+POST /auth/signin → resolves to the resulting session envelope.
+
+#### Parameters
+
+##### opts
+
+[`SignInOptions`](SignInOptions)
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<[`SessionResult`](SessionResult)\<`Profile`\>, `string`\>\>
+
+***
+
+### signOut()
+
+> **signOut**(): `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<`unknown`, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:101](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L101)
+
+POST /auth/signout. Clears the local session whatever happens, and reports what the server did:
+ a refused or unreachable signout leaves the session live, which the caller has to be able to see.
+ `data` is `null` on success, because the route answers with a cookie and an empty body.
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<`unknown`, `string`\>\>
+
+***
+
+### signUp()
+
+> **signUp**(`input`: `unknown`, `opts?`: [`SignUpOptions`](SignUpOptions)): `Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<`unknown`, `string`\>\>
+
+Defined in: [packages/duck-auth/src/client/vanilla/types.ts:97](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/client/vanilla/types.ts#L97)
+
+POST to your own registration route, `/signup` by default. Registration is app-shaped (the
+profile fields are yours), so no adapter mounts a route for it and `input` is opaque, with the
+response `data` echoed back. What this buys over a bare `fetch` is the rest of the client's
+transport: same-origin credentials, the CSRF header, and the envelope. Does not create a
+session; follow with `signIn` if desired.
+
+#### Parameters
+
+##### input
+
+`unknown`
+
+##### opts?
+
+[`SignUpOptions`](SignUpOptions)
+
+#### Returns
+
+`Promise`\<[`Envelope`](../../../type-aliases/Envelope)\<`unknown`, `string`\>\>
+

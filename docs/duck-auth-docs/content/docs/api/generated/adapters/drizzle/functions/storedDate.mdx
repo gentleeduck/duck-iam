@@ -1,0 +1,22 @@
+---
+title: "Function: storedDate()"
+description: "ISO string, epoch number or Date in, a usable Date or null out. Unparseable is null, not the  Invalid Date that new Date(value) gives, which every guard accepts and every comparison rejects."
+---
+
+> **storedDate**(`value`: `unknown`): `Date` \| `null`
+
+Defined in: [packages/duck-auth/src/core/predicates/predicates.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/predicates/predicates.ts#L12)
+
+ISO string, epoch number or `Date` in, a usable `Date` or `null` out. Unparseable is `null`, not the
+ `Invalid Date` that `new Date(value)` gives, which every guard accepts and every comparison rejects.
+
+## Parameters
+
+### value
+
+`unknown`
+
+## Returns
+
+`Date` \| `null`
+

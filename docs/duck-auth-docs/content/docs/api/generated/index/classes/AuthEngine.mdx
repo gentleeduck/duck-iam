@@ -1,0 +1,326 @@
+---
+title: "Class: AuthEngine"
+description: "The authentication root: a composition surface only, since every operation lives on a facet."
+---
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:30](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L30)
+
+The authentication root: a composition surface only, since every operation lives on a facet.
+
+## Type Parameters
+
+### Profile
+
+`Profile` *extends* [`ProfileMetadataBase`](../namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../namespaces/Identities/type-aliases/ProfileMetadataBase)
+
+### Tenant
+
+`Tenant` = `string`
+
+### OrgMeta
+
+`OrgMeta` = `unknown`
+
+## Constructors
+
+### Constructor
+
+> **new AuthEngine**\<`Profile` *extends* [`ProfileMetadataBase`](../namespaces/Identities/type-aliases/ProfileMetadataBase) = [`ProfileMetadataBase`](../namespaces/Identities/type-aliases/ProfileMetadataBase), `Tenant` = `string`, `OrgMeta` = `unknown`\>(`cfg`: [`Cfg`](../namespaces/Engine/type-aliases/Cfg)\<`Profile`, `Tenant`, `OrgMeta`\>): `AuthEngine`\<`Profile`, `Tenant`, `OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:95](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L95)
+
+#### Parameters
+
+##### cfg
+
+[`Cfg`](../namespaces/Engine/type-aliases/Cfg)\<`Profile`, `Tenant`, `OrgMeta`\>
+
+#### Returns
+
+`AuthEngine`\<`Profile`, `Tenant`, `OrgMeta`\>
+
+## Properties
+
+### anomaly
+
+> `readonly` **anomaly**: [`AnomalyFacet`](../../core/classes/AnomalyFacet)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:47](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L47)
+
+***
+
+### captcha
+
+> `readonly` **captcha**: [`IVerifier`](../../core/namespaces/AuthCaptcha/interfaces/IVerifier)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L45)
+
+The configured captcha verifier, or one that refuses every call. Never throws: failure is in the
+ result, so a caller answers 400 rather than 500.
+
+***
+
+### cfg
+
+> `readonly` **cfg**: [`Cfg`](../namespaces/Engine/type-aliases/Cfg)\<`Profile`, `Tenant`, `OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L35)
+
+***
+
+### events
+
+> `readonly` **events**: [`IBus`](../namespaces/Events/interfaces/IBus)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L36)
+
+***
+
+### flows
+
+> `readonly` **flows**: [`FlowsImpl`](../-internal-/classes/FlowsImpl)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L41)
+
+***
+
+### hijack
+
+> `readonly` **hijack**: [`HijackFacet`](../-internal-/classes/HijackFacet)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L46)
+
+***
+
+### identities
+
+> `readonly` **identities**: [`IdentitiesImpl`](../-internal-/classes/IdentitiesImpl)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L39)
+
+***
+
+### limiter
+
+> `readonly` **limiter**: [`Me`](../../limiters/memory/namespaces/Limiter/type-aliases/Me)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:42](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L42)
+
+***
+
+### plugins
+
+> `readonly` **plugins**: [`PluginRegistry`](../-internal-/classes/PluginRegistry)\<`Profile`, `Tenant`, `OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:48](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L48)
+
+***
+
+### providers
+
+> `readonly` **providers**: [`Providers`](../-internal-/classes/Providers)\<`Profile`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L40)
+
+***
+
+### sessions
+
+> `readonly` **sessions**: [`SessionsImpl`](../-internal-/classes/SessionsImpl)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L38)
+
+***
+
+### transport
+
+> `readonly` **transport**: [`ITransport`](../namespaces/Transport/type-aliases/ITransport)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L37)
+
+## Accessors
+
+### apiKeys
+
+#### Get Signature
+
+> **get** **apiKeys**(): [`ApiKeysFacet`](../../providers/api-key/classes/ApiKeysFacet)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:76](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L76)
+
+API-key facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when apiKeyProvider() was not added.
+
+##### Returns
+
+[`ApiKeysFacet`](../../providers/api-key/classes/ApiKeysFacet)
+
+***
+
+### mfa
+
+#### Get Signature
+
+> **get** **mfa**(): [`MfaFacet`](../../providers/mfa/classes/MfaFacet)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:69](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L69)
+
+MFA facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when mfaProvider() was not added.
+
+##### Returns
+
+[`MfaFacet`](../../providers/mfa/classes/MfaFacet)
+
+***
+
+### orgs
+
+#### Get Signature
+
+> **get** **orgs**(): [`OrgsImpl`](../-internal-/classes/OrgsImpl)\<`OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:84](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L84)
+
+Orgs facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when no org store was configured - a capability
+ wired through `stores`, so it does not go through `_providerMissing`, whose text names a provider.
+
+##### Returns
+
+[`OrgsImpl`](../-internal-/classes/OrgsImpl)\<`OrgMeta`\>
+
+***
+
+### passkeys
+
+#### Get Signature
+
+> **get** **passkeys**(): [`PasskeyImpl`](../../providers/passkey/classes/PasskeyImpl)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:62](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L62)
+
+Passkey facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when passkey() was not added.
+
+##### Returns
+
+[`PasskeyImpl`](../../providers/passkey/classes/PasskeyImpl)
+
+***
+
+### passwords
+
+#### Get Signature
+
+> **get** **passwords**(): [`PasswordsImpl`](../../providers/passwords/classes/PasswordsImpl)
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L55)
+
+Password facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when passwords() was not added.
+
+##### Returns
+
+[`PasswordsImpl`](../../providers/passwords/classes/PasswordsImpl)
+
+## Methods
+
+### resolveSession()
+
+> **resolveSession**(`req`: \{ `headers`: `Headers`; \}, `opts?`: \{ `expectedTenantId?`: `string`; `requestSnapshot?`: [`RequestSnapshot`](../namespaces/Anomaly/interfaces/RequestSnapshot); \}): [`Me`](../namespaces/Answer/interfaces/Me)\<[`ResolveResult`](../namespaces/Engine/type-aliases/ResolveResult)\<`Profile`\>\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:207](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L207)
+
+The current session, verified statelessly where the transport can and otherwise read from
+ `Sessions.Store`. Rejects `AUTH_SESSION_REVOKED` where the request carries no token or it matches no
+ live session, which `orNull()` reads back as null - and `AUTH_SESSION_IDENTITY_ERASED`, which it does
+ not, so a session outliving its identity stays loud however this is read.
+
+#### Parameters
+
+##### req
+
+###### headers
+
+`Headers`
+
+##### opts?
+
+###### expectedTenantId?
+
+`string`
+
+###### requestSnapshot?
+
+[`RequestSnapshot`](../namespaces/Anomaly/interfaces/RequestSnapshot)
+
+#### Returns
+
+[`Me`](../namespaces/Answer/interfaces/Me)\<[`ResolveResult`](../namespaces/Engine/type-aliases/ResolveResult)\<`Profile`\>\>
+
+***
+
+### strict()
+
+> **strict**(`opts`: \{ `compliance?`: `Partial`\<[`Wired`](../namespaces/Compliance/type-aliases/Wired)\>; `env`: `"development"` \| `"production"` \| `"test"`; \}): `void`
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:226](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L226)
+
+Boot-time strict validation; throws `AUTH_MISCONFIGURED` on any production footgun.
+
+#### Parameters
+
+##### opts
+
+###### compliance?
+
+`Partial`\<[`Wired`](../namespaces/Compliance/type-aliases/Wired)\>
+
+###### env
+
+`"development"` \| `"production"` \| `"test"`
+
+#### Returns
+
+`void`
+
+***
+
+### use()
+
+> **use**(`plugin`: [`Plugin`](../-internal-/namespaces/PluginRegistry/interfaces/Plugin)\<`Profile`, `Tenant`, `OrgMeta`\>): `Promise`\<`AuthEngine`\<`Profile`, `Tenant`, `OrgMeta`\>\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:220](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L220)
+
+Install a plugin: its event handlers, its facet under `plugins.facets[id]`, its `install` hook,
+ then its providers. All of it or none of it - providers go last because registering one cannot be
+ undone, so nothing that can throw may follow.
+
+#### Parameters
+
+##### plugin
+
+[`Plugin`](../-internal-/namespaces/PluginRegistry/interfaces/Plugin)\<`Profile`, `Tenant`, `OrgMeta`\>
+
+#### Returns
+
+`Promise`\<`AuthEngine`\<`Profile`, `Tenant`, `OrgMeta`\>\>
+
+***
+
+### withTransaction()
+
+> **withTransaction**(`client`: `unknown`): [`AuthEngine`](../namespaces/Bound/interfaces/AuthEngine)\<`Profile`, `OrgMeta`\>
+
+Defined in: [packages/duck-auth/src/core/engine/engine.ts:162](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/engine/engine.ts#L162)
+
+A view of this engine whose stores run on `client`, a driver transaction handle, and whose events
+buffer into `pending` rather than publishing at once. The client is opaque, handed straight to each
+store's `withClient`. Throws `AUTH_MISCONFIGURED` naming a store that cannot join a transaction.
+
+#### Parameters
+
+##### client
+
+`unknown`
+
+#### Returns
+
+[`AuthEngine`](../namespaces/Bound/interfaces/AuthEngine)\<`Profile`, `OrgMeta`\>
+

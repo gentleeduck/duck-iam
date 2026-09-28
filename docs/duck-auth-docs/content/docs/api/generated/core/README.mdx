@@ -1,0 +1,286 @@
+---
+title: "core"
+description: "Generated API reference for @gentleduck/auth — core."
+---
+
+## Modules
+
+- [\<internal\>](-internal-/README)
+
+## Namespaces
+
+- [AuthCaptcha](namespaces/AuthCaptcha/README)
+- [AuthDefine](namespaces/AuthDefine/README)
+- [AuthDeviceFingerprint](namespaces/AuthDeviceFingerprint/README)
+- [AuthImpossibleTravel](namespaces/AuthImpossibleTravel/README)
+- [AuthRedisEvents](namespaces/AuthRedisEvents/README)
+- [AuthWebhookDeliverer](namespaces/AuthWebhookDeliverer/README)
+- [Csrf](namespaces/Csrf/README)
+- [DPoPVerifier](namespaces/DPoPVerifier/README)
+- [JwtTransport](namespaces/JwtTransport/README)
+- [RememberMeFacet](namespaces/RememberMeFacet/README)
+
+## Classes
+
+- [AnomalyFacet](classes/AnomalyFacet)
+- [AuthHCaptchaVerifier](classes/AuthHCaptchaVerifier)
+- [AuthMemoryDeviceFingerprintStore](classes/AuthMemoryDeviceFingerprintStore)
+- [AuthNullCaptchaVerifier](classes/AuthNullCaptchaVerifier)
+- [AuthRecaptchaV3Verifier](classes/AuthRecaptchaV3Verifier)
+- [AuthRedisEvents](classes/AuthRedisEvents)
+- [AuthTurnstileVerifier](classes/AuthTurnstileVerifier)
+- [AuthUnconfiguredCaptchaVerifier](classes/AuthUnconfiguredCaptchaVerifier)
+- [AuthWebhookDeliverer](classes/AuthWebhookDeliverer)
+- [DPoPVerifier](classes/DPoPVerifier)
+- [InMemoryEvents](classes/InMemoryEvents)
+- [JwtTransport](classes/JwtTransport)
+- [M2MImpl](classes/M2MImpl)
+- [MemoryDPoPNonceStore](classes/MemoryDPoPNonceStore)
+- [RememberMeFacet](classes/RememberMeFacet)
+
+## Variables
+
+- [AUTH\_CREDENTIAL\_KINDS](variables/AUTH_CREDENTIAL_KINDS)
+- [CAPTCHA\_MAX\_AGE\_DEFAULT\_MS](variables/CAPTCHA_MAX_AGE_DEFAULT_MS)
+- [CAPTCHA\_TIMEOUT\_DEFAULT\_MS](variables/CAPTCHA_TIMEOUT_DEFAULT_MS)
+- [CAPTCHA\_TOKEN\_MAX\_LENGTH](variables/CAPTCHA_TOKEN_MAX_LENGTH)
+- [DEFAULT\_ANOMALY\_CONFIG](variables/DEFAULT_ANOMALY_CONFIG)
+- [DEFAULT\_M2M\_CONFIG](variables/DEFAULT_M2M_CONFIG)
+- [DEFAULT\_REMEMBER\_ME\_CONFIG](variables/DEFAULT_REMEMBER_ME_CONFIG)
+- [RECOVERY\_PURPOSES](variables/RECOVERY_PURPOSES)
+
+## Functions
+
+- [anomalyFacet](functions/anomalyFacet)
+- [authHCaptchaVerifier](functions/authHCaptchaVerifier)
+- [authImpossibleTravelDetector](functions/authImpossibleTravelDetector)
+- [AuthInMemoryEvents](functions/AuthInMemoryEvents)
+- [authMemoryDeviceFingerprintStore](functions/authMemoryDeviceFingerprintStore)
+- [authNullCaptchaVerifier](functions/authNullCaptchaVerifier)
+- [authRecaptchaV3Verifier](functions/authRecaptchaV3Verifier)
+- [authSignWebhookBody](functions/authSignWebhookBody)
+- [authTurnstileVerifier](functions/authTurnstileVerifier)
+- [authUnconfiguredCaptchaVerifier](functions/authUnconfiguredCaptchaVerifier)
+- [authVerifyWebhookSignature](functions/authVerifyWebhookSignature)
+- [bearerTransport](functions/bearerTransport)
+- [bindPayloadToDPoP](functions/bindPayloadToDPoP)
+- [buildCsrfCookieOptions](functions/buildCsrfCookieOptions)
+- [compositeTransport](functions/compositeTransport)
+- [computeJwkThumbprint](functions/computeJwkThumbprint)
+- [cookieTransport](functions/cookieTransport)
+- [createAuth](functions/createAuth)
+- [csrfGuard](functions/csrfGuard)
+- [currentTenant](functions/currentTenant)
+- [deviceFingerprintDetector](functions/deviceFingerprintDetector)
+- [dPoPVerifier](functions/dPoPVerifier)
+- [issueCsrfToken](functions/issueCsrfToken)
+- [jwtTransport](functions/jwtTransport)
+- [m2m](functions/m2m)
+- [memoryDPoPNonceStore](functions/memoryDPoPNonceStore)
+- [parseCookie](functions/parseCookie)
+- [randomToken](functions/randomToken)
+- [rememberMeFacet](functions/rememberMeFacet)
+- [resolveTenant](functions/resolveTenant)
+- [sha256](functions/sha256)
+- [timingSafeEqual](functions/timingSafeEqual)
+- [verifyCsrf](functions/verifyCsrf)
+- [withTenant](functions/withTenant)
+
+## References
+
+### ABSENT
+
+Re-exports [ABSENT](../index/variables/ABSENT)
+
+***
+
+### Actor
+
+Re-exports [Actor](../index/namespaces/Actor/README)
+
+***
+
+### actorId
+
+Re-exports [actorId](../index/functions/actorId)
+
+***
+
+### Anomaly
+
+Re-exports [Anomaly](../index/namespaces/Anomaly/README)
+
+***
+
+### answer
+
+Re-exports [answer](../index/functions/answer)
+
+***
+
+### Answer
+
+Re-exports [Answer](../index/namespaces/Answer/README)
+
+***
+
+### AuthEngine
+
+Re-exports [AuthEngine](../index/classes/AuthEngine)
+
+***
+
+### AuthError
+
+Re-exports [AuthError](../index/variables/AuthError)
+
+***
+
+### BearerTransport
+
+Renames and re-exports [AuthBearerTransport](../index/classes/AuthBearerTransport)
+
+***
+
+### Bound
+
+Re-exports [Bound](../index/namespaces/Bound/README)
+
+***
+
+### Compliance
+
+Re-exports [Compliance](../index/namespaces/Compliance/README)
+
+***
+
+### CompositeTransport
+
+Renames and re-exports [AuthCompositeTransport](../index/classes/AuthCompositeTransport)
+
+***
+
+### CookieTransport
+
+Renames and re-exports [AuthCookieTransport](../index/classes/AuthCookieTransport)
+
+***
+
+### Credential
+
+Re-exports [Credential](../index/namespaces/Credential/README)
+
+***
+
+### DataAtRest
+
+Re-exports [DataAtRest](../index/namespaces/DataAtRest/README)
+
+***
+
+### Deliver
+
+Re-exports [Deliver](../index/type-aliases/Deliver)
+
+***
+
+### DeliveryKind
+
+Re-exports [DeliveryKind](../index/type-aliases/DeliveryKind)
+
+***
+
+### Engine
+
+Re-exports [Engine](../index/namespaces/Engine/README)
+
+***
+
+### Events
+
+Re-exports [Events](../index/namespaces/Events/README)
+
+***
+
+### Flows
+
+Re-exports [Flows](../index/namespaces/Flows/README)
+
+***
+
+### Hijack
+
+Re-exports [Hijack](../index/namespaces/Hijack/README)
+
+***
+
+### Identities
+
+Re-exports [Identities](../index/namespaces/Identities/README)
+
+***
+
+### Kms
+
+Re-exports [Kms](../index/namespaces/Kms/README)
+
+***
+
+### M2m
+
+Re-exports [M2m](../index/namespaces/M2m/README)
+
+***
+
+### Org
+
+Re-exports [Org](../index/namespaces/Org/README)
+
+***
+
+### orNull
+
+Re-exports [orNull](../index/functions/orNull)
+
+***
+
+### Pending
+
+Re-exports [Pending](../index/namespaces/Pending/README)
+
+***
+
+### Provider
+
+Re-exports [Provider](../index/namespaces/Provider/README)
+
+***
+
+### Sessions
+
+Re-exports [Sessions](../index/namespaces/Sessions/README)
+
+***
+
+### setDefaultActorResolver
+
+Re-exports [setDefaultActorResolver](../index/functions/setDefaultActorResolver)
+
+***
+
+### TenantContext
+
+Re-exports [TenantContext](../index/interfaces/TenantContext)
+
+***
+
+### Transport
+
+Re-exports [Transport](../index/namespaces/Transport/README)
+
+***
+
+### withActor
+
+Re-exports [withActor](../index/functions/withActor)
+

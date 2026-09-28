@@ -1,0 +1,35 @@
+---
+title: "Function: declares()"
+description: "An ErrorMap widened by the codes a store throws itself rather than mapping from its driver."
+---
+
+> **declares**\<`C` *extends* [`Code`](../../../index/namespaces/AuthError/type-aliases/Code), `E` *extends* readonly [`Code`](../../../index/namespaces/AuthError/type-aliases/Code)[]\>(`map`: [`ErrorMap`](../type-aliases/ErrorMap)\<`C`\>, `extra`: `E`): [`ErrorMap`](../type-aliases/ErrorMap)\<`C` \| `E`\[`number`\]\>
+
+Defined in: [packages/duck-auth/src/core/errors/errors.map.ts:23](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/errors/errors.map.ts#L23)
+
+An [ErrorMap](../type-aliases/ErrorMap) widened by the codes a store throws itself rather than mapping from its driver.
+
+## Type Parameters
+
+### C
+
+`C` *extends* [`Code`](../../../index/namespaces/AuthError/type-aliases/Code)
+
+### E
+
+`E` *extends* readonly [`Code`](../../../index/namespaces/AuthError/type-aliases/Code)[]
+
+## Parameters
+
+### map
+
+[`ErrorMap`](../type-aliases/ErrorMap)\<`C`\>
+
+### extra
+
+`E`
+
+## Returns
+
+[`ErrorMap`](../type-aliases/ErrorMap)\<`C` \| `E`\[`number`\]\>
+

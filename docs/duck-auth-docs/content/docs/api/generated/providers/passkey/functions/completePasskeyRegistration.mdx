@@ -1,0 +1,48 @@
+---
+title: "Function: completePasskeyRegistration()"
+description: "Verifies the response from navigator.credentials.create(), stores it as a passkey credential and  answers the row's id."
+---
+
+> **completePasskeyRegistration**(`opts`: [`Options`](../namespaces/Passkey/type-aliases/Options), `input`: \{ `credentialStore`: [`Store`](../../../index/namespaces/Credential/type-aliases/Store); `identityId`: `string`; `response`: `unknown`; `sessionId`: `string`; `tenant`: \{ `tenantId?`: `string`; \}; \}): `Promise`\<`string`\>
+
+Defined in: [packages/duck-auth/src/providers/passkey/passkey.ts:351](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/providers/passkey/passkey.ts#L351)
+
+Verifies the response from `navigator.credentials.create()`, stores it as a `passkey` credential and
+ answers the row's id.
+
+## Parameters
+
+### opts
+
+[`Options`](../namespaces/Passkey/type-aliases/Options)
+
+### input
+
+#### credentialStore
+
+[`Store`](../../../index/namespaces/Credential/type-aliases/Store)
+
+#### identityId
+
+`string`
+
+#### response
+
+`unknown`
+
+#### sessionId
+
+`string`
+
+#### tenant
+
+\{ `tenantId?`: `string`; \}
+
+#### tenant.tenantId?
+
+`string`
+
+## Returns
+
+`Promise`\<`string`\>
+

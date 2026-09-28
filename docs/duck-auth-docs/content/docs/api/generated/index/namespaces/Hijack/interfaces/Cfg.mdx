@@ -1,0 +1,47 @@
+---
+title: "Interface: Cfg"
+description: "How the hijack check reacts to each kind of drift."
+---
+
+Defined in: [packages/duck-auth/src/core/hijack/hijack.types.ts:4](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/hijack/hijack.types.ts#L4)
+
+How the hijack check reacts to each kind of drift.
+
+## Properties
+
+### onIpChange?
+
+> `optional` **onIpChange?**: [`Reaction`](../type-aliases/Reaction)
+
+Defined in: [packages/duck-auth/src/core/hijack/hijack.types.ts:6](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/hijack/hijack.types.ts#L6)
+
+Reaction on IP change. Default 'rotate'.
+
+***
+
+### onMissingSignal?
+
+> `optional` **onMissingSignal?**: `"strict"` \| `"soften"`
+
+Defined in: [packages/duck-auth/src/core/hijack/hijack.types.ts:18](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/hijack/hijack.types.ts#L18)
+
+What to do when the request omits a value the session recorded. Default `'soften'`, which
+drops a `'revoke'` or `'mfa'` to `'rotate'` so a proxy that strips a header cannot revoke every
+session behind it.
+
+SECURITY: sending no header is entirely the caller's choice, so `'soften'` is also a free way
+for an attacker holding a stolen session to turn a `revoke` into a `rotate`. A deployment
+whose proxies are known to preserve these headers should set `'strict'`, which carries the
+configured reaction in full. A missing *baseline* is softened either way: a session recorded
+before the value was captured is a deployment artifact no caller can influence.
+
+***
+
+### onUserAgentChange?
+
+> `optional` **onUserAgentChange?**: [`Reaction`](../type-aliases/Reaction)
+
+Defined in: [packages/duck-auth/src/core/hijack/hijack.types.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/hijack/hijack.types.ts#L20)
+
+Reaction on User-Agent change. Default 'mfa'.
+

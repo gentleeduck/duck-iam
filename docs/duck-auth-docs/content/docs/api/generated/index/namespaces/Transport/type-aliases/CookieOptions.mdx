@@ -1,0 +1,75 @@
+---
+title: "Type Alias: CookieOptions"
+description: "Cookie attributes a transport sets."
+---
+
+> **CookieOptions** = \{ `domain?`: `string`; `expires?`: `Date`; `httpOnly?`: `boolean`; `maxAge?`: `number`; `path?`: `string`; `sameSite?`: `"strict"` \| `"lax"` \| `"none"`; `secure?`: `boolean`; \}
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L8)
+
+Cookie attributes a transport sets.
+
+## Extended by
+
+- [`CookieOptions`](../../Provider/interfaces/CookieOptions)
+
+## Properties
+
+### domain?
+
+> `optional` **domain?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:9](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L9)
+
+***
+
+### expires?
+
+> `optional` **expires?**: `Date`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:17](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L17)
+
+***
+
+### httpOnly?
+
+> `optional` **httpOnly?**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:11](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L11)
+
+***
+
+### maxAge?
+
+> `optional` **maxAge?**: `number`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:16](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L16)
+
+Lifetime in **seconds**, the unit Set-Cookie takes, not the ms used elsewhere.
+
+***
+
+### path?
+
+> `optional` **path?**: `string`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:10](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L10)
+
+***
+
+### sameSite?
+
+> `optional` **sameSite?**: `"strict"` \| `"lax"` \| `"none"`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:14](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L14)
+
+Cross-site policy written onto the cookie; `none` is only valid alongside `secure`.
+
+***
+
+### secure?
+
+> `optional` **secure?**: `boolean`
+
+Defined in: [packages/duck-auth/src/core/transport/transport.types.ts:12](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-auth/src/core/transport/transport.types.ts#L12)
+
