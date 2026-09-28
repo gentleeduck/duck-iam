@@ -296,7 +296,7 @@ Mutations write `req.method` and `req.path ?? req.url ?? ''` into the audit even
 The last four are the shared `IamAdminAudit.IOptions`; their exact semantics, the event shape, and the CSRF predicate are documented once on the [generic helpers page](/duck-iam/integrations/server/generic).
 
 <Callout tone="warning" title="authorize is mandatory">
-`iamAdminRouter` throws at construction when `opts.authorize` is not a function: `[@gentleduck/iam] iamAdminRouter requires an authorize callback. Mounting admin endpoints unauthenticated is never safe.` The router writes policies, roles, and assignments straight to the adapter, so there is no useful unauthenticated mode.
+`iamAdminRouter` throws at construction when `opts.authorize` is not a function: the coded `IamError` `IAM_SERVER_ADMIN_AUTHORIZE_REQUIRED` (`meta: { framework: 'express', fn: 'iamAdminRouter' }`). The router writes policies, roles, and assignments straight to the adapter, so there is no useful unauthenticated mode.
 </Callout>
 
 <Callout tone="warning" title="CSRF check is on by default">
