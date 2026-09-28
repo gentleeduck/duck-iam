@@ -262,7 +262,9 @@ suite('IamRedisAdapter against a real server', () => {
     it('a scope holding a NUL byte cannot forge a different grant', async () => {
       reset()
       await adapter.saveRole({ id: 'editor', name: 'E', permissions: [] })
-      await expect(adapter.assignRole('u1', 'editor', `org${NUL}1`)).rejects.toThrow(/NUL/)
+      await expect(adapter.assignRole('u1', 'editor', `org${NUL}1`)).rejects.toMatchObject({
+        code: 'IAM_REDIS_ASSIGNMENT_ENCODING_INVALID',
+      })
       expect(await adapter.getSubjectRoles('u1')).toEqual([])
       expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
     })
