@@ -1,0 +1,21 @@
+---
+title: Memory
+description: Every store in process memory, for tests and local runs
+section: Adapters
+---
+```ts
+import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
+
+const stores = new MemoryAdapter()
+createAuth({ /* ... */ stores })
+```
+
+It holds identities, credentials, sessions and orgs in `Map`s and keeps the same contract as the SQL adapters, tenancy and uniqueness included, so a test against it exercises the engine as production runs it.
+
+- Nothing survives a restart, and nothing is shared between processes. `strict({ env: 'production' })` refuses it.
+- It has no `withClient`, so `withTransaction` refuses it.
+- `seedOrg(row)` plants an org, since the orgs store only reads.
+- `raw` hands a test the `Map`s themselves, to plant a row no store call would write.
+- A fresh `new MemoryAdapter()` per test is a clean database.
+
+`createTest()` from `@gentleduck/auth/test` builds an engine over it for you; see [Testing](/duck-auth/advanced/testing).

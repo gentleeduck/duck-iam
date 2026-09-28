@@ -1,0 +1,52 @@
+---
+title: Compliance presets
+description: The gdpr, hipaa, soc2 and fips presets, what each one raises, and how strict() holds a deployment to them
+section: Core
+---
+A preset is a floor. `createAuth({ compliance })` shortens the session lifetimes to it, and `strict()` refuses to run until the deployment shows it meets the rest. It certifies nothing; it catches configuration that contradicts the regime you named.
+
+```ts
+const auth = createAuth({
+  // ...
+  compliance: 'hipaa', // or a list, such as ['gdpr', 'soc2']
+  providers: [passwords({ compliance: 'hipaa' }), mfaProvider({ compliance: 'hipaa' })],
+  strict: false, // checked below, once the listeners exist
+})
+
+auth.events.on('lockout', alertOnLockout)
+auth.strict({
+  env: 'production',
+  compliance: { auditLogRetained7y: true, baaCompliantChannel: true, dataAtRest: true, mailerChannel: true },
+})
+```
+
+- A list composes by taking the stricter value of every field.
+- The checks run in every env, not only production, and one error lists every gap.
+- `strict: false` defers them: `createAuth` runs `strict()` as it returns, before you have subscribed anything, and it has no way to take your attestations.
+
+## What each preset sets
+
+| | gdpr | hipaa | soc2 | fips |
+| --- | --- | --- | --- | --- |
+| Sliding session | 7 days | 1 hour | 7 days | 4 hours |
+| Absolute session | 30 days | 8 hours | 30 days | 12 hours |
+| Password minimum | 8 | 12 | 8 | 14 |
+| API key bytes | 32 | 32 | 32 | 48 |
+| Needs `mfaProvider()` | no | yes | no | yes |
+| Checks | `dataAtRest`, `mailerChannel`, `exportAvailable`, `softDeleteEnabled` | `dataAtRest`, `mailerChannel`, `baaCompliantChannel`, `auditLogRetained7y` | `lockoutListener`, `limiterRequired`, `auditLogRetained7y` | `dataAtRest`, `mailerChannel`, `fipsValidatedHasher`, `webauthnAttestationDirect` |
+
+The session lifetimes only ever shorten what you set. The password, backup-code and API key floors belong to the providers, so pass the same preset to `passwords({ compliance })`, `mfaProvider({ compliance })` and `apiKeyProvider({ compliance })`; `createAuth` cannot reach providers that are already built.
+
+hipaa and fips refuse an engine with no mfa provider. Sign-in still answers AAL 1; demanding the second factor is your `checkStepUp`, as in [step-up](/duck-auth/core/flows#step-up).
+
+## The checks
+
+| Check | Answered by |
+| --- | --- |
+| `limiterRequired` | The engine: a limiter you supplied that is neither the noop nor an in-process one. |
+| `lockoutListener` | The engine: a `lockout` listener is subscribed when `strict()` runs. |
+| `webauthnAttestationDirect` | The engine, when a passkey provider is registered. Otherwise you. |
+| `fipsValidatedHasher` | The engine, from a shipped password hasher. A hasher of your own: you. |
+| `dataAtRest`, `mailerChannel`, `baaCompliantChannel`, `auditLogRetained7y`, `exportAvailable`, `softDeleteEnabled` | You, in `strict({ compliance })`. |
+
+What the engine sees overrides what you attest, so `limiterRequired: true` over a `MemoryLimiter` still fails. A check nobody answers fails.

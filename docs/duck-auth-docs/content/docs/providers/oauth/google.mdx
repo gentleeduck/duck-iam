@@ -1,0 +1,27 @@
+---
+title: Google
+description: Sign in with Google over OpenID Connect, with the address marked verified when Google says it is
+section: Providers
+---
+1. Create an OAuth client of type **Web application** in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2. Add `https://app.example.com/auth/providers/oauth:google/callback` under **Authorized redirect URIs**.
+3. Copy the client id and secret.
+
+```ts
+import { google } from '@gentleduck/auth/providers/oauth/google'
+
+google({
+  clientId: process.env.GOOGLE_CLIENT_ID ?? '',
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+  redirectUri: 'https://app.example.com/auth/providers/oauth:google/callback',
+  stateSigningSecret: process.env.OAUTH_STATE_SECRET ?? '',
+  nonceStore,
+  profileToIdentityProfile: (p) => (p.email ? { email: p.email, username: `google:${p.sub}`, name: p.name } : null),
+})
+```
+
+The provider id is `oauth:google`, and the default scopes are `openid email profile`.
+
+The profile comes from Google's userinfo endpoint: `sub`, `email`, `name` and `picture` as `avatarUrl`. `emailVerified` is set only when Google answers `email_verified: true`, which makes `onFederationConflict: 'link-if-verified'` usable here.
+
+The routes, the options every provider shares and account linking are on the [OAuth](/duck-auth/providers/oauth) page.

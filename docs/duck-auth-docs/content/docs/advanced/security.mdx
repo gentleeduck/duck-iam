@@ -1,0 +1,53 @@
+---
+title: Production hardening
+description: A production engine, the order it has to be built in, and everything strict() refuses in production
+section: Advanced
+---
+```ts
+import { drizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
+import { valkeyEvents, valkeySessionImpl } from '@gentleduck/auth/adapters/valkey'
+import { createAuth } from '@gentleduck/auth/core'
+import { valkeyLimiter } from '@gentleduck/auth/limiters/valkey'
+import { passwords } from '@gentleduck/auth/providers/passwords'
+import Redis from 'ioredis'
+
+const redis = new Redis(process.env.REDIS_URL ?? '')
+const sql = drizzlePgAdapter(process.env.DATABASE_URL ?? '')
+
+export const auth = createAuth({
+  baseUrl: 'https://app.example.com',
+  stores: { identities: sql.identities, credentials: sql.credentials, sessions: valkeySessionImpl({ redis }) },
+  limiter: valkeyLimiter({ redis }),
+  events: valkeyEvents({ cmd: redis, sub: new Redis(process.env.REDIS_URL ?? '') }),
+  providers: [passwords()],
+  strict: false,
+})
+
+auth.events.on('lockout', (event) => alertOps(event))
+auth.strict({ env: 'production' })
+```
+
+`createAuth` runs `strict()` as it returns, for the env named by `strict` or else `NODE_ENV`, falling back to `development`. Production requires a `lockout` listener, which cannot exist before `createAuth` returns, so a production engine opts out there and calls `strict()` once it is subscribed.
+
+Outside production, `strict()` checks only the [compliance preset](/duck-auth/core/compliance), if one is set. A failure throws one `AUTH_MISCONFIGURED` whose `meta.detail` lists every problem.
+
+## What production refuses
+
+| Area | Refused |
+| --- | --- |
+| Limiter | None, `NoopLimiter`, or the in-process `MemoryLimiter`. |
+| Stores | A memory store in any `stores` slot. |
+| Events | No bus, or the in-process one. |
+| Captcha | The null verifier, which passes everything, or a siteverify endpoint over `http`. |
+| Transport | A cookie transport with `secure: false`, or a JWT transport signing HS256 with a key under 32 bytes. A composite's parts are checked one by one. |
+| OAuth | A `stateSigningSecret` under 32 bytes, or `allowStateReplay: true`. |
+| Passkey | The in-process challenge store. |
+| Magic link | No `deliver`, so no link could be sent. |
+| Passwords | A hasher below its own defaults: scrypt `N` under 2^14, `r` under 8 or `keylen` under 32; Argon2id `memoryCost` under 19456, `timeCost` under 2 or `hashLength` under 32. |
+| Engine | A `baseUrl` that is not `https`, no provider, or no `lockout` listener. |
+
+A store, transport, provider or hasher of your own publishes none of the markers these checks read, so it is not judged.
+
+The in-process pieces are refused because a second instance cannot see them: a limiter budget is granted once per instance, and a revocation, OAuth `state` or passkey challenge used on one instance stays live on the others. [Redis and Valkey](/duck-auth/adapters/redis) has the shared versions.
+
+Reporting, scope and a deployment checklist are in [SECURITY.md](https://github.com/gentleeduck/duck-iam/blob/main/packages/duck-auth/SECURITY.md).

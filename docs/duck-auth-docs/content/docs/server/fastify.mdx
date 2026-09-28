@@ -1,0 +1,40 @@
+---
+title: Fastify
+description: Registering the auth routes on Fastify, guarding your own routes with a preHandler, and binding the actor per handler
+section: Server
+---
+```ts
+import { registerFastify } from '@gentleduck/auth/server/fastify'
+import Fastify from 'fastify'
+
+const app = Fastify()
+registerFastify(app, auth)
+```
+
+`registerFastify` mounts every route under `/auth`; pass `{ prefix: '/api/auth' }` to move them. To mount only some, register the handlers yourself: `fastifySignIn`, `fastifySignOut`, `fastifySession`, `fastifyProviderBegin` and `fastifyProviderCallback`, with `:id` in the provider paths.
+
+- Fastify's `trustProxy` option decides which IP `req.ip` answers, and so what the session records. Set it to the proxies in front of you.
+- Apple posts its callback as a form, which Fastify refuses with a 415 unless a parser such as `@fastify/formbody` is registered.
+- The callback answers the session cookies and an empty 200. To land the browser on a page, write the callback yourself, as on the [OAuth page](/duck-auth/providers/oauth#the-routes).
+
+## Your own routes
+
+```ts
+import { fastifyCsrf, fastifyWithActor } from '@gentleduck/auth/server/fastify'
+import { nodeHeadersToFetch } from '@gentleduck/auth/server/generic'
+
+app.register(async (api) => {
+  api.addHook('preHandler', fastifyCsrf(auth))
+
+  api.get(
+    '/api/me',
+    fastifyWithActor(auth, async (req, reply) => {
+      const resolved = await auth.resolveSession({ headers: nodeHeadersToFetch(req.headers) }).orNull()
+      if (!resolved) return reply.status(401).send({ error: 'unauthenticated' })
+      return resolved.identity
+    }),
+  )
+})
+```
+
+Fastify composes no `next`, so the actor scope wraps each handler instead of sitting in front of them. `fastifyCaller(req)` is the IP and User-Agent to pass to a flow you call yourself.

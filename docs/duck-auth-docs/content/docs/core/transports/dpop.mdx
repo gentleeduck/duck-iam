@@ -1,0 +1,30 @@
+---
+title: DPoP
+description: Verifying RFC 9449 proof-of-possession headers, so a token stolen from a client is useless without that client's private key
+section: Core
+---
+DPoP binds a token to a key pair the client holds. Each request carries a `DPoP` header: a short JWT, signed with the client's private key, naming the method and URL. `DPoPVerifier` checks one.
+
+It is a building block for your own resource server, not a transport: the built-in transports do not bind their tokens to a key. Your token issuer puts the key's thumbprint in the token as `cnf.jkt` (`bindPayloadToDPoP(payload, jkt)` does that), and each request's proof must match it.
+
+```ts
+import { dPoPVerifier } from '@gentleduck/auth/core/transport'
+import { redisDPoPNonceStore } from '@gentleduck/auth/adapters/redis'
+
+const dpop = dPoPVerifier({ nonceStore: redisDPoPNonceStore({ redis }) })
+
+const { jkt } = await dpop.verify(request.headers.get('dpop') ?? '', { method: request.method, url: request.url }, accessToken)
+if (jkt !== token.cnf.jkt) throw new AuthError('AUTH_DPOP_INVALID', { reason: 'key mismatch' })
+```
+
+`verify` checks the signature, that the proof's key fits its algorithm, the method and URL, the age of the proof, the `ath` hash of the access token when one is passed, and that its `jti` was not seen before. Any failure throws `AUTH_DPOP_INVALID`.
+
+| Option | Default |
+| --- | --- |
+| `acceptedAlgs` | `['ES256', 'EdDSA']`; `RS256` and `PS256` can be added |
+| `freshnessMs` | 60 seconds |
+| `clockSkewMs` | 30 seconds |
+| `nonceStore` | in memory; use `redisDPoPNonceStore` or `valkeyDPoPNonceStore` across instances |
+| `expectedNonce` | none; a string or a function answering the server nonce the proof must carry |
+
+The in-memory `jti` store only sees its own instance, so across a fleet a proof could be replayed against another one.

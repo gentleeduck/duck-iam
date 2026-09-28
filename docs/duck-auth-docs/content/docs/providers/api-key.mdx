@@ -1,0 +1,79 @@
+---
+title: API key
+description: Long-lived keys for scripts and services, hashed at rest, scoped, rotated, and exchanged for short-lived tokens
+section: Providers
+---
+```ts
+import { apiKeyProvider, authApiKey } from '@gentleduck/auth/providers/api-key'
+
+const auth = createAuth({
+  // ...
+  providers: [apiKeyProvider(), (engine) => authApiKey({ apiKeys: engine.apiKeys })],
+})
+```
+
+`apiKeyProvider()` gives you `auth.apiKeys`, which creates and checks keys. `authApiKey` is the sign-in provider over it; leave it out if keys are only checked per request.
+
+## Creating a key
+
+```ts
+const { key, plaintext } = await auth.apiKeys.create(identityId, { name: 'CI', scopes: ['deploy'] })
+```
+
+`plaintext` is `ak_live_` and 43 random characters. It is answered this once and stored only as a hash, so show it to the user now. `key` is the record without it. Pass `expiresAt`, in epoch ms, for a key that expires.
+
+Scopes are your own strings, up to 64 per key, in the OAuth scope grammar: no spaces, quotes or backslashes.
+
+## Checking a key
+
+```ts
+const token = req.headers.authorization?.replace(/^Bearer /, '') ?? ''
+const { identityId, scopes } = await auth.apiKeys.verify(token)
+auth.apiKeys.requireScopes(scopes, ['deploy'])
+```
+
+- An unknown key throws `AUTH_APIKEY_INVALID`; a revoked or expired one `AUTH_APIKEY_REVOKED`. A key whose owner was deleted is unknown.
+- `requireScopes` throws `AUTH_APIKEY_SCOPE_INSUFFICIENT` with the `missing` scopes, never the ones the key holds.
+
+## Signing in with a key
+
+`auth.flows.signIn({ providerId: 'api-key', input: { token } })` opens a session of kind `apikey` at AAL 1, rate-limited per key. Pass `requireScopes` to `authApiKey` to refuse any key without them.
+
+## Listing, rotating, revoking
+
+```ts
+await auth.apiKeys.list(identityId)
+const next = await auth.apiKeys.rotate(key.id)
+await auth.apiKeys.revoke(key.id)
+await auth.apiKeys.revokeAll(identityId)
+```
+
+`rotate` revokes the key and answers a new one with the same name, scopes and expiry. Revoking, rotating or revoking all also ends every `apikey` session of that identity.
+
+## Client credentials
+
+`m2m` implements the OAuth 2.0 `client_credentials` grant: a service trades its key for a short-lived JWT. The key's `id` is the client id and its plaintext the secret.
+
+```ts
+import { m2m } from '@gentleduck/auth/core'
+import { jwtTransport } from '@gentleduck/auth/core/transport'
+
+const tokens = m2m(auth.apiKeys, auth.sessions, jwtTransport(jwtOptions), limiter, { ttlMs: 60 * 60 * 1000, scopeMode: 'intersect' })
+
+app.post('/oauth/token', express.urlencoded({ extended: false }), async (req, res) => {
+  res.json(await tokens.exchange({ clientId: req.body.client_id, clientSecret: req.body.client_secret, scope: req.body.scope }))
+})
+```
+
+- `scopeMode: 'intersect'` grants the requested scopes the key holds; `'strict'` refuses a request naming one it lacks. No `scope` grants all of them.
+- The token lives the shorter of `ttlMs` and the JWT transport's own `ttlMs`, and revoking the key does not end one already issued.
+
+## Options
+
+| | Option | Default | Effect |
+| --- | --- | --- | --- |
+| `apiKeyProvider` | `prefix` | `'ak_live_'` | Starts every key, and must start any key presented. |
+| | `randomBytes` | 32 | Entropy per key, at least 16. |
+| | `compliance` | none | Raises `randomBytes` to the preset's floor: 48 for fips. |
+| `authApiKey` | `requireScopes` | none | Scopes every key signing in must hold. |
+| | `limiterKeyPrefix` | `'signin:api-key:'` | The limiter bucket prefix. |

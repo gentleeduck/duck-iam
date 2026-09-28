@@ -1,0 +1,26 @@
+---
+title: BearerTransport
+description: The session id in the Authorization header, answered in the response body, for native apps, mobile clients and scripts
+section: Core
+---
+The session id travels as `Authorization: Bearer <sid>`. Sign-in answers it in the JSON body, and the client stores and sends it.
+
+```ts
+import { bearerTransport } from '@gentleduck/auth/core/transport'
+
+createAuth({
+  // ...
+  transport: bearerTransport(),
+})
+```
+
+A sign-in answers `{ token, expiresAt }`; sign-out answers `{ revoked: true }` and the client forgets the token. The session is still a row in the store, so revoking it takes effect on the next request.
+
+| Option | Default |
+| --- | --- |
+| `header` | `authorization` |
+| `scheme` | `Bearer` |
+
+The token is refused, reading as no session, when the scheme does not match, the header joins several values with commas, or the token is over 4 KB.
+
+Bearer requests carry no ambient credential a third-party page could ride, so the CSRF check exempts a request that has a bearer header and no session cookie.
