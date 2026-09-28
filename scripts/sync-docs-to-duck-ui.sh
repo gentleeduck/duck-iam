@@ -32,6 +32,7 @@ for pkg in duck-iam duck-auth; do
   mkdir -p "$DEST"
 
   count=0
+  # Skips api/: the TypeDoc reference's ~1100 pages double duck-ui's prerendered output and fail its Netlify build.
   while IFS= read -r -d '' f; do
     rel="${f#"$SRC"/}"
     # The docs root's own index.mdx is unreachable at its site route (the package
@@ -43,7 +44,7 @@ for pkg in duck-iam duck-auth; do
     mkdir -p "$DEST/$(dirname "$rel")"
     cp "$f" "$DEST/$rel"
     count=$((count + 1))
-  done < <(find "$SRC" -name "*.mdx" -print0)
+  done < <(find "$SRC" -path "$SRC/api" -prune -o -name "*.mdx" -print0)
 
   echo "[sync-docs] synced $count files to $DEST"
 done
