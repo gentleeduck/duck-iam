@@ -39,13 +39,15 @@ createAuth({
 
 ## Transactions
 
-`auth.withTransaction(tx)` answers the engine bound to your transaction handle, so its writes commit or roll back with yours:
+`auth.withTransaction(tx)` answers the engine bound to your transaction handle, so its writes commit or roll back with yours. Its events wait in `pending`, so flush them once the transaction commits:
 
 ```ts
 await db.transaction(async (tx) => {
-  const ada = await auth.withTransaction(tx).identities.create({ profile: { email: 'ada@example.com', username: 'ada' } })
+  const bound = auth.withTransaction(tx)
+  const ada = await bound.identities.create({ profile: { email: 'ada@example.com', username: 'ada' } })
   await tx.insert(accounts).values({ ownerId: ada.id })
-})
+  return bound.pending
+}).then((pending) => pending.flush())
 ```
 
 Only a Drizzle adapter passed whole can join one. A hand-built mix and the memory adapter throw `AUTH_MISCONFIGURED`.

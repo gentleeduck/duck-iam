@@ -43,8 +43,15 @@ export class AuthController {
   callback(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
     return nestProviderCallback(auth)(req, res)
   }
+
+  @Post('providers/:id/callback')
+  formCallback(@Req() req: NestAdapter.Request, @Res() res: NestAdapter.Response) {
+    return nestProviderCallback(auth)(req, res)
+  }
 }
 ```
+
+- Apple returns the browser with a form POST, so the callback is mounted for both GET and POST. Nest parses the form body by default.
 
 - The IP the session records is `req.ip`, so set Express's `trust proxy` through `app.set('trust proxy', 1)` on the Nest app.
 - The callback answers the session cookies and an empty 200. To land the browser on a page, write the callback yourself, as on the [OAuth page](/duck-auth/providers/oauth#the-routes).

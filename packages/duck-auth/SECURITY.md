@@ -270,8 +270,9 @@ sid if you count operator sessions.
 ### 13. Anomaly detectors
 
 `authImpossibleTravelDetector` and `deviceFingerprintDetector` ship as
-detectors. A flagged request emits `suspicious`; nothing blocks by default,
-and the route reads `resolved.anomaly` to decide (step-up, deny, log only).
+detectors. A flagged request emits `suspicious`. Without `onAnomaly` the
+server adapters refuse a `deny` with `AUTH_ANOMALY_DENIED` and admit a
+`step-up`; the route reads `resolved.anomaly` to decide the rest.
 Always wire `suspicious` to the audit sink. The shipped fingerprint store is
 process-local, so a multi-process deployment implements
 `AuthDeviceFingerprint.IStore` over shared storage, or every node sees a

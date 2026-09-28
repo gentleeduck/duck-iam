@@ -75,7 +75,7 @@ const result = await auth.flows.signIn({
 // result.session, result.sid, result.intents[]
 ```
 
-`createAuth` is the factory that wires the facets, picks sane defaults (CookieTransport, AuthScryptHasher, AuthInMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
+`createAuth` is the factory that wires the facets, picks sane defaults (a `CookieTransport` named `duck-sid`, `InMemoryEvents`), and registers the providers you pass. `passwords()` hashes with `Argon2idHasher` unless you pass `hasher`, so install `@node-rs/argon2` or pass `ScryptHasher`. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
 
 ## Architecture
 

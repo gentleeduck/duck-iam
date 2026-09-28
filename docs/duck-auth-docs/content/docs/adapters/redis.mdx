@@ -79,22 +79,26 @@ Session updates are a compare-and-swap in Lua, so give the client `eval`. Withou
 `redisIdempotency` and `valkeyIdempotency` from `@gentleduck/auth/core/idempotency` replay a response for a repeated `Idempotency-Key`. The engine holds none; your route calls it:
 
 ```ts
+import { createHash } from 'node:crypto'
 import { valkeyIdempotency } from '@gentleduck/auth/core/idempotency'
 
 const idempotency = valkeyIdempotency({ redis })
 
 app.post('/payments', async (req, res) => {
-  const key = req.get(idempotency.headerName) ?? ''
+  const key = req.get(idempotency.headerName)
+  if (!key || key.length > 256) return res.status(400).json({ error: 'idempotency-key-required' })
+  const fingerprint = createHash('sha256').update(`POST /payments ${JSON.stringify(req.body)}`).digest('hex')
   const response = await idempotency.handle(
     key,
     {},
     async () => ({ status: 201, body: await charge(req.body), createdAt: new Date() }),
-    { identityId: req.user?.id },
+    { identityId: req.user?.id, fingerprint },
   )
   res.status(response.status).json(response.body)
 })
 ```
 
+- A missing key, or one over 256 characters, runs the executor uncached, so a route that must not repeat refuses it first.
 - The executor runs once per key, and a repeat within `ttlMs` (a day by default) answers the cached response.
 - A thrown error or a 5xx caches nothing, so the client's retry runs for real.
 - A repeat arriving while the first is still running waits up to `pollTimeoutMs` (5s) for it, then answers 409.
