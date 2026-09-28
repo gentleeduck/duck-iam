@@ -1,10 +1,13 @@
+import express, { type RequestHandler } from 'express'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
+import type { Provider } from '~/core/provider/provider.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { applyIntents, expressCsrf, mountSession, mountSignIn, mountSignOut, toHeaders } from '../index'
+import { executeIntents, oauthCallback } from '~/server/generic'
+import { applyIntents, expressCaller, expressCsrf, mountSession, mountSignIn, mountSignOut, toHeaders } from '../index'
 
 type MyProfile = {
   username: string
@@ -121,6 +124,40 @@ describe('applyIntents', () => {
     const r = mockRes()
     applyIntents([{ type: 'redirect', url: '/foo', status: 303 }], r.res)
     expect(r.redirected).toEqual({ status: 303, location: '/foo' })
+  })
+
+  it.each<[string, Provider.Intent[]]>([
+    ['an error', [{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }]],
+    ['an error with a detail', [{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 404, detail: 'unknown' }]],
+    ['an unsafe redirect', [{ type: 'redirect', url: 'javascript:alert(1)' }]],
+  ])('answers %s with the status and body executeIntents does', async (_, intents) => {
+    const r = mockRes()
+    applyIntents(intents, r.res)
+    const web = executeIntents(intents)
+    expect(r.status).toBe(web.status)
+    expect(r.body).toEqual(await web.json())
+    expect(r.body).toMatchObject({ error: { code: expect.any(String), status: web.status }, ok: false })
+  })
+})
+
+describe('a stock Express 5 app', () => {
+  it("hands its own RequestHandler's request to the adapter", async () => {
+    const { auth } = buildAuth()
+    const callback: RequestHandler = async (req, res) => {
+      const request = { body: req.body, cookie: req.headers.cookie, method: req.method, url: req.url }
+      applyIntents(await oauthCallback(auth, req.params.id, request, expressCaller(req)), res)
+    }
+    const server = express().get('/auth/providers/:id/callback', callback).listen(0, '127.0.0.1')
+    await new Promise((resolve) => server.once('listening', resolve))
+    const address = server.address()
+    if (typeof address !== 'object' || address === null) throw new Error('the server has no port')
+    try {
+      const res = await fetch(`http://127.0.0.1:${address.port}/auth/providers/nope/callback`)
+      expect(res.status).toBe(400)
+      expect(await res.json()).toMatchObject({ error: { code: 'AUTH_PROVIDER_FAILED' }, ok: false })
+    } finally {
+      server.close()
+    }
   })
 })
 

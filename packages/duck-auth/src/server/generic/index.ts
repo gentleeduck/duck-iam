@@ -1,7 +1,10 @@
 import type { Actor } from '~/core/actor'
 import type { Anomaly } from '~/core/anomaly/anomaly.types'
+import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Hijack } from '~/core/hijack/hijack.types'
+import { isRecord } from '~/core/predicates'
+import { canonicalProviderId } from '~/core/provider/provider.constants'
 import type { Provider } from '~/core/provider/provider.types'
 import { SESSION_COLUMN_CAPS } from '~/core/sessions/sessions.constants'
 import type { Sessions } from '~/core/sessions/sessions.types'
@@ -32,10 +35,8 @@ export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Re
           // next intent reassigned `status` and `body` and the refusal was gone - a following `json`
           // answered 200, and a following safe redirect answered 302 with a Location.
           headers.set('content-type', 'application/json; charset=utf-8')
-          return new Response(JSON.stringify({ code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected' }), {
-            headers,
-            status: 500,
-          })
+          const error = { code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected', status: 500 }
+          return new Response(JSON.stringify({ error, ok: false }), { headers, status: 500 })
         }
         status = intent.status ?? 302
         headers.set('location', intent.url)
@@ -78,10 +79,57 @@ export function parseProviderBeginBody(raw: unknown): object | null {
   return raw
 }
 
-const PROVIDER_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/
-/** Whether a string is a well-formed provider id. */
+/** The begin route's answer to a script, which cannot follow a redirect to the IdP: a request accepting
+ *  JSON gets `{ url }` to navigate to, with the same cookies. An unsafe URL stays a redirect for the
+ *  executor to refuse. */
+export function redirectForScript(intents: Provider.Intent[], headers: Headers): Provider.Intent[] {
+  if (!headers.get('accept')?.includes('application/json')) return intents
+  return intents.map((i) =>
+    i.type === 'redirect' && isSafeRedirectUrl(i.url) ? { body: { url: i.url }, status: 200, type: 'json' } : i,
+  )
+}
+
+/** Express's body-parser default, so a body refused on one adapter is refused on all of them. */
+const MAX_BODY_BYTES = 100 * 1024
+
+/** A Fetch request's body as text, read no further than 100 KiB; `null` past that or when the read fails.
+ *  For Hono and Next, which read a body whole; Express, Fastify and Koa cap theirs in the body parser. */
+export async function readBodyText(req: Request): Promise<string | null> {
+  if (Number(req.headers.get('content-length')) > MAX_BODY_BYTES) return null
+  const reader = req.body?.getReader()
+  if (!reader) return ''
+  const decoder = new TextDecoder()
+  let text = ''
+  let size = 0
+  try {
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+      size += chunk.value.byteLength
+      if (size > MAX_BODY_BYTES) {
+        await reader.cancel()
+        return null
+      }
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+  } catch {
+    return null
+  }
+  return text + decoder.decode()
+}
+
+/** {@link readBodyText} parsed as JSON; `null` for a body too large, unreadable or malformed. */
+export async function readBodyJson(req: Request): Promise<unknown> {
+  const text = await readBodyText(req)
+  if (text === null) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/** Whether a string is a well-formed provider id, by the rule the engine registers ids under. */
 export function isValidProviderId(value: unknown): value is string {
-  return typeof value === 'string' && PROVIDER_ID_RE.test(value)
+  return canonicalProviderId(value) !== null
 }
 
 /** Extract a non-empty bounded string field from a JSON body. */
@@ -92,6 +140,49 @@ export function parseBodyStringField(raw: unknown, field: string, maxLength = 25
   if (typeof value !== 'string' || value.length === 0) return null
   if (value.length > maxLength) return null
   return value
+}
+
+/**
+ * Sign in from an OAuth callback: the query on a redirect, the urlencoded body on a POST, which is how Apple
+ * answers. `body` is the framework's parsed form, or the raw text where it parses none.
+ *
+ * SECURITY: never CSRF-guarded. A form post is the IdP's page submitting cross-site, so an origin check refuses
+ * every real one; the signed `state` and the pre-auth cookie bound into it are the proof. Only an `oauth`
+ * provider is driven, so this unguarded route signs nobody in through any other.
+ */
+export async function oauthCallback(
+  auth: AuthEngine,
+  id: unknown,
+  req: { method: string; url: string; body?: unknown; cookie?: unknown },
+  caller: CallerFingerprint,
+): Promise<Provider.Intent[]> {
+  if (!isValidProviderId(id) || !auth.providers.has(id) || auth.providers.get(id).kind !== 'oauth') {
+    return [{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }]
+  }
+  const params =
+    req.method !== 'POST'
+      ? new URL(req.url, 'http://localhost').searchParams
+      : typeof req.body === 'string'
+        ? new URLSearchParams(req.body)
+        : new URLSearchParams(
+            isRecord(req.body)
+              ? Object.entries(req.body).filter((e): e is [string, string] => typeof e[1] === 'string')
+              : [],
+          )
+  const user = params.get('user')
+  const cookie = typeof req.cookie === 'string' ? req.cookie : ''
+  const { intents } = await auth.flows.signIn({
+    input: {
+      code: params.get('code') ?? '',
+      cookieHeader: cookie,
+      state: params.get('state') ?? '',
+      ...(user !== null && { user }),
+    },
+    providerId: id,
+    ...caller,
+    previousSid: auth.transport.extract({ headers: new Headers({ cookie }) }) ?? undefined,
+  })
+  return intents
 }
 
 /** Validate a redirect URL: http(s) absolute or same-origin path; rejects CTL, protocol-relative, oversize. */
@@ -120,20 +211,6 @@ function hasControlChar(s: string): boolean {
   return false
 }
 
-/** Extract `Set-Cookie` headers preserving multiplicity; `[]` on runtimes without `getSetCookie`. */
-export function extractSetCookies(response: Response): string[] {
-  const headers: Headers = response.headers
-  const candidate: unknown = Reflect.get(headers, 'getSetCookie')
-  if (typeof candidate !== 'function') return []
-  const result: unknown = Reflect.apply(candidate, headers, [])
-  if (!Array.isArray(result)) return []
-  const out: string[] = []
-  for (const v of result) {
-    if (typeof v === 'string') out.push(v)
-  }
-  return out
-}
-
 /** Convert a Node header bag to a Web Fetch `Headers`; arrays expand to one `append` per item. */
 export function nodeHeadersToFetch(raw: Record<string, string | string[] | undefined>): Headers {
   const h = new Headers()
@@ -148,8 +225,9 @@ export function nodeHeadersToFetch(raw: Record<string, string | string[] | undef
   return h
 }
 
-/** Convert any thrown error into a wire-safe `{ status, body }`. */
+/** Convert any thrown error into a wire-safe `{ status, body }`, logging a 5xx's cause, which the body withholds. */
 export function errorToHttp(err: unknown): { status: number; body: object } {
+  if (!(err instanceof AuthError) || err.status >= 500) console.error('[@gentleduck/auth] request failed:', err)
   if (err instanceof AuthError) {
     return { status: err.status, body: err.toJSON() }
   }
@@ -224,16 +302,10 @@ export function callerContext(input: { ip?: string; userAgent?: unknown }): { ip
   }
 }
 
-/** The fingerprint an adapter reads off a request, as {@link callerContext} normalises it. */
-export type CallerFingerprint = { ip?: string; userAgent?: string }
-
-/**
- * Lift a {@link callerContext} fingerprint into the snapshot the anomaly detectors take.
- * `now` is a parameter so a caller can pin it; detectors compare it against session timestamps.
- */
-export function callerSnapshot(caller: CallerFingerprint, now: number = Date.now()): Anomaly.RequestSnapshot {
-  return { ...caller, now }
-}
+/** The fingerprint an adapter reads off a request. `ip` and `userAgent` are what {@link callerContext}
+ *  normalises; `geo` is the host's own lookup, since no part of a request carries it, and it is the only
+ *  way `authImpossibleTravelDetector` is ever fed. The hijack policy reads the first two and ignores it. */
+export type CallerFingerprint = { ip?: string; userAgent?: string; geo?: Anomaly.RequestSnapshot['geo'] }
 
 /** Drift that `hijack.evaluate` refused to pass. */
 export type HijackDrift = Extract<Hijack.Evaluation, { ok: false }>
@@ -241,8 +313,10 @@ export type HijackDrift = Extract<Hijack.Evaluation, { ok: false }>
 /** What {@link requestSecurity} needs off the engine, structurally. */
 export type HijackEvaluable = {
   hijack: {
+    /** Compares the request with the session's baseline. */
     evaluate(session: Sessions.Me, request: CallerFingerprint): Promise<Hijack.Evaluation>
-    applyReaction(reaction: Hijack.Reaction): void
+    /** Carries out a verdict's reaction on the session. */
+    applyReaction(reaction: Hijack.Reaction, session: Sessions.Me): Promise<void>
   }
 }
 
@@ -266,7 +340,8 @@ export type RequestSecurityOptions = {
  *  the hijack policy.
  *  WARN: switching that on in a live deployment starts acting on drift for sessions already issued. */
 export type ActorOptions<Req> = {
-  /** Read the request fingerprint. Never from a forwarded header: see {@link callerContext}. */
+  /** Read the request fingerprint. Never from a forwarded header: see {@link callerContext}. A host
+   *  resolving geolocation returns it as `geo`; nothing else supplies one. */
   getCaller?: (req: Req) => CallerFingerprint
   /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
   onHijack?: RequestSecurityOptions['onHijack']
@@ -287,21 +362,21 @@ export function requestSecurity(auth: HijackEvaluable, opts: RequestSecurityOpti
   if (!caller) return {}
   return {
     onSession: async (session, anomaly) => {
-      // Before the hijack check: this is the verdict `resolveSession` already paid the detectors for.
+      // Evaluated first, so the drift is on record whichever refusal wins.
+      const evaluation = await auth.hijack.evaluate(session, caller)
       if (anomaly && anomaly.decision !== 'allow') {
         if (opts.onAnomaly) await opts.onAnomaly(anomaly, session)
         else if (anomaly.decision === 'deny') {
           throw new AuthError('AUTH_ANOMALY_DENIED', { score: anomaly.score })
         }
       }
-      const evaluation = await auth.hijack.evaluate(session, caller)
       if (evaluation.ok) return
       if (opts.onHijack) {
         await opts.onHijack(evaluation, session)
         return
       }
-      auth.hijack.applyReaction(evaluation.reaction)
+      await auth.hijack.applyReaction(evaluation.reaction, session)
     },
-    requestSnapshot: callerSnapshot(caller),
+    requestSnapshot: { ...caller, now: Date.now() },
   }
 }
