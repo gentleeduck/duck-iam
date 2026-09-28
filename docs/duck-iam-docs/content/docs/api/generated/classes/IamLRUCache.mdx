@@ -1,9 +1,9 @@
 ---
-title: "Class: IamLRUCache<V>"
+title: "Class: IamLRUCache"
 description: "LRU cache with TTL expiry, ordered by Map insertion. Used by IamEngine for policies, roles and subjects."
 ---
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:8](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L8)
+Defined in: [packages/duck-iam/src/shared/cache.ts:8](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L8)
 
 LRU cache with TTL expiry, ordered by `Map` insertion. Used by [IamEngine](IamEngine) for policies, roles and subjects.
 
@@ -21,7 +21,7 @@ Type of cached values.
 
 > **new IamLRUCache**\<`V`\>(`maxSize`: `number`, `ttlMs`: `number`): `IamLRUCache`\<`V`\>
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:20](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L20)
+Defined in: [packages/duck-iam/src/shared/cache.ts:20](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L20)
 
 #### Parameters
 
@@ -53,7 +53,7 @@ Time-to-live per entry, in milliseconds.
 
 > **get** **size**(): `number`
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:117](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L117)
+Defined in: [packages/duck-iam/src/shared/cache.ts:117](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L117)
 
 ##### Returns
 
@@ -67,7 +67,7 @@ Defined in: [packages/duck-iam/src/shared/cache.ts:117](https://github.com/gentl
 
 > **get** **stats**(): \{ `hits`: `number`; `misses`: `number`; `size`: `number`; \}
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:75](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L75)
+Defined in: [packages/duck-iam/src/shared/cache.ts:75](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L75)
 
 Hit/miss counters + current size.
 
@@ -93,7 +93,7 @@ Hit/miss counters + current size.
 
 > **clear**(): `void`
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:113](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L113)
+Defined in: [packages/duck-iam/src/shared/cache.ts:113](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L113)
 
 Clears entries without resetting stat counters.
 
@@ -107,7 +107,7 @@ Clears entries without resetting stat counters.
 
 > **delete**(`key`: `string`): `boolean`
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:108](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L108)
+Defined in: [packages/duck-iam/src/shared/cache.ts:108](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L108)
 
 Removes one entry; `true` when it existed.
 
@@ -127,7 +127,7 @@ Removes one entry; `true` when it existed.
 
 > **entries**(): `IterableIterator`\<\[`string`, `V`\]\>
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:122](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L122)
+Defined in: [packages/duck-iam/src/shared/cache.ts:122](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L122)
 
 Iterates non-expired entries without refreshing LRU order, all judged against one snapshot instant.
 
@@ -141,7 +141,7 @@ Iterates non-expired entries without refreshing LRU order, all judged against on
 
 > **expiresAt**(`key`: `string`): `number` \| `undefined`
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:68](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L68)
+Defined in: [packages/duck-iam/src/shared/cache.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L68)
 
 Epoch ms the entry under `key` expires at, or `undefined` when absent or lapsed. Moves neither LRU order nor stats.
 NOTE: lets a derived cache inherit its source's expiry via [IamLRUCache.set](#set)'s `notAfter` instead of a fresh full TTL.
@@ -162,7 +162,7 @@ NOTE: lets a derived cache inherit its source's expiry via [IamLRUCache.set](#se
 
 > **get**(`key`: `string`): `V` \| `undefined`
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:41](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L41)
+Defined in: [packages/duck-iam/src/shared/cache.ts:41](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L41)
 
 Returns the value and marks it most recently used; `undefined` when missing or expired.
 
@@ -182,7 +182,7 @@ Returns the value and marks it most recently used; `undefined` when missing or e
 
 > **peek**(`key`: `string`): `V` \| `undefined`
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:58](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L58)
+Defined in: [packages/duck-iam/src/shared/cache.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L58)
 
 The value under `key`, or `undefined` when absent or lapsed. Moves neither LRU order nor stats.
 NOTE: for internal reads a request did not ask for; `get` would record a hit or miss that skews `cacheHitRate`.
@@ -203,7 +203,7 @@ NOTE: for internal reads a request did not ask for; `get` would record a hit or 
 
 > **resetStats**(): `void`
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:80](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L80)
+Defined in: [packages/duck-iam/src/shared/cache.ts:80](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L80)
 
 Zeroes the hit and miss counters without clearing stored entries.
 
@@ -217,7 +217,7 @@ Zeroes the hit and miss counters without clearing stored entries.
 
 > **set**(`key`: `string`, `value`: `V`, `notAfter?`: `number`): `void`
 
-Defined in: [packages/duck-iam/src/shared/cache.ts:92](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/shared/cache.ts#L92)
+Defined in: [packages/duck-iam/src/shared/cache.ts:92](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/shared/cache.ts#L92)
 
 Stores `value` with a fresh TTL, evicting the least recently used entry at capacity.
 

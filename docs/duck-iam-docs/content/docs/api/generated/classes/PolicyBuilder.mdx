@@ -1,9 +1,9 @@
 ---
-title: "Class: PolicyBuilder<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string, TContext *extends* object = IDefaultContext>"
+title: "Class: PolicyBuilder"
 description: "Chainable builder for an ABAC AccessControl.IPolicy: time windows, geo-fencing, maintenance guards. .algorithm() resolves conflicts between its rules; AccessControl.PolicyCombine merges policies."
 ---
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:34](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L34)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L34)
 
 Chainable builder for an ABAC [AccessControl.IPolicy](../duck-iam/namespaces/AccessControl/interfaces/IPolicy): time windows, geo-fencing, maintenance guards.
 `.algorithm()` resolves conflicts between its rules; [AccessControl.PolicyCombine](../duck-iam/namespaces/AccessControl/type-aliases/PolicyCombine) merges policies.
@@ -65,7 +65,7 @@ Shape of the full evaluation context for typed dot-paths.
 
 > **new PolicyBuilder**\<`TAction` *extends* `string` = `string`, `TResource` *extends* `string` = `string`, `TRole` *extends* `string` = `string`, `TScope` *extends* `string` = `string`, `TContext` *extends* `object` = [`IDefaultContext`](../duck-iam/namespaces/DotPath/interfaces/IDefaultContext)\>(`id`: `string`): `PolicyBuilder`\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`\>
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:49](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L49)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:49](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L49)
 
 #### Parameters
 
@@ -83,7 +83,7 @@ Defined in: [packages/duck-iam/src/core/builder/policy.ts:49](https://github.com
 
 > **addRule**(`rule`: [`IRule`](../duck-iam/namespaces/AccessControl/interfaces/IRule)\<`TAction`, `TResource`\>): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:142](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L142)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:142](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L142)
 
 Adds a pre-built [AccessControl.IRule](../duck-iam/namespaces/AccessControl/interfaces/IRule), e.g. one from `defineRule`.
 
@@ -118,7 +118,7 @@ definePolicy('post-access').addRule(denyDrafts)
 
 > **algorithm**(`a`: [`CombiningAlgorithm`](../duck-iam/namespaces/AccessControl/type-aliases/CombiningAlgorithm)): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:76](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L76)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:76](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L76)
 
 Sets how conflicts between this policy's rules resolve; defaults to `'deny-overrides'`.
 See [AccessControl.CombiningAlgorithm](../duck-iam/namespaces/AccessControl/type-aliases/CombiningAlgorithm) for what each algorithm does.
@@ -139,7 +139,7 @@ See [AccessControl.CombiningAlgorithm](../duck-iam/namespaces/AccessControl/type
 
 > **build**(): [`IPolicy`](../duck-iam/namespaces/AccessControl/interfaces/IPolicy)\<`TAction`, `TResource`, `TRole`\>
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:152](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L152)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:152](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L152)
 
 Returns the plain [AccessControl.IPolicy](../duck-iam/namespaces/AccessControl/interfaces/IPolicy), ready for an adapter or the engine.
 
@@ -157,7 +157,7 @@ If the policy fails validation
 
 > **desc**(`d`: `string`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:61](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L61)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:61](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L61)
 
 Sets the description.
 
@@ -177,7 +177,7 @@ Sets the description.
 
 > **name**(`n`: `string`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:55](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L55)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L55)
 
 Sets the display name; defaults to the policy ID.
 
@@ -197,7 +197,7 @@ Sets the display name; defaults to the policy ID.
 
 > **rule**(`id`: `string`, `fn`: (`r`: [`RuleBuilder`](RuleBuilder)\<`TAction`, `TResource`, `TScope`, `TRole`, `TContext`\>) => [`RuleBuilder`](RuleBuilder)\<`TAction`, `TResource`, `TScope`, `TRole`, `TContext`, `any`\>): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:112](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L112)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:112](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L112)
 
 Adds a rule built by an inline [RuleBuilder](RuleBuilder) callback.
 
@@ -233,7 +233,7 @@ definePolicy('ip-guard')
 
 > **target**(`t`: \{ `actions?`: readonly (`TAction` \| `"*"`)[]; `resources?`: readonly (`TResource` \| `"*"`)[]; `roles?`: readonly `TRole`[]; \}): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:93](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L93)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:93](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L93)
 
 Limits the policy to requests matching all given targets; any other request skips its rules entirely.
 
@@ -273,7 +273,7 @@ definePolicy('write-restrictions')
 
 > **version**(`v`: `number`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/policy.ts:67](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/policy.ts#L67)
+Defined in: [packages/duck-iam/src/core/builder/policy.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/policy.ts#L67)
 
 Sets a version number for tracking changes.
 

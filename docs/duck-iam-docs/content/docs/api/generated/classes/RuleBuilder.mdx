@@ -1,9 +1,9 @@
 ---
-title: "Class: RuleBuilder<TAction *extends* string = string, TResource *extends* string = string, TScope *extends* string = string, TRole *extends* string = string, TContext *extends* object = IDefaultContext, TActiveResource *extends* string = string>"
+title: "Class: RuleBuilder"
 description: "Chainable builder for an AccessControl.IRule: an effect, the actions and resources it covers, an optional scope and a condition tree. Its PolicyBuilder's algorithm resolves conflicts."
 ---
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:32](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L32)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L32)
 
 Chainable builder for an [AccessControl.IRule](../duck-iam/namespaces/AccessControl/interfaces/IRule): an effect, the actions and resources it covers,
 an optional scope and a condition tree. Its `PolicyBuilder`'s algorithm resolves conflicts.
@@ -67,7 +67,7 @@ The narrowed resource selected via `.of()` (used by typed `resourceAttr`)
 
 > **new RuleBuilder**\<`TAction` *extends* `string` = `string`, `TResource` *extends* `string` = `string`, `TScope` *extends* `string` = `string`, `TRole` *extends* `string` = `string`, `TContext` *extends* `object` = [`IDefaultContext`](../duck-iam/namespaces/DotPath/interfaces/IDefaultContext), `TActiveResource` *extends* `string` = `string`\>(`id`: `string`): `RuleBuilder`\<`TAction`, `TResource`, `TScope`, `TRole`, `TContext`, `TActiveResource`\>
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:56](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L56)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:56](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L56)
 
 #### Parameters
 
@@ -85,7 +85,7 @@ Defined in: [packages/duck-iam/src/core/builder/rule.ts:56](https://github.com/g
 
 > **allow**(): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:70](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L70)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L70)
 
 Sets the effect to `allow` (the default). Also the explicit opt-in that lets a broad `allow * *` rule build.
 
@@ -99,7 +99,7 @@ Sets the effect to `allow` (the default). Also the explicit opt-in that lets a b
 
 > **build**(): [`IRule`](../duck-iam/namespaces/AccessControl/interfaces/IRule)\<`TAction`, `TResource`\>
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:219](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L219)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:219](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L219)
 
 Returns the plain [AccessControl.IRule](../duck-iam/namespaces/AccessControl/interfaces/IRule), prepending any `.forScope()` condition to the group.
 
@@ -117,7 +117,7 @@ If the builder was never configured, or the rule fails validation
 
 > **deny**(): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:79](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L79)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:79](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L79)
 
 Sets the effect to `deny`. It wins under `deny-overrides`; under `allow-overrides`, only if no allow matches.
 
@@ -131,7 +131,7 @@ Sets the effect to `deny`. It wins under `deny-overrides`; under `allow-override
 
 > **desc**(`d`: `string`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:86](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L86)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:86](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L86)
 
 Attaches a description, shown in explain output; no effect on evaluation.
 
@@ -151,7 +151,7 @@ Attaches a description, shown in explain output; no effect on evaluation.
 
 > **forScope**(...`scopes`: (`"*"` \| `TScope`)[]): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:143](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L143)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:143](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L143)
 
 Restricts the rule to requests in one of `scopes` (e.g. tenants). `'*'` adds no condition; no scopes throws.
 Composes with `.when()` / `.whenAny()` in either order.
@@ -182,7 +182,7 @@ defineRule('org1.post.update')
 
 > **meta**(`m`: [`Attributes`](../duck-iam/namespaces/IamPrimitives/type-aliases/Attributes)): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:209](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L209)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:209](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L209)
 
 Attaches metadata for app bookkeeping (audit logs, dashboards); never used in evaluation.
 
@@ -202,7 +202,7 @@ Attaches metadata for app bookkeeping (audit logs, dashboards); never used in ev
 
 > **of**\<`R` *extends* `string`\>(...`resources`: `R`[]): `RuleBuilder`\<`TAction`, `TResource`, `TScope`, `TRole`, `TContext`, `R`\>
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:123](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L123)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:123](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L123)
 
 Sets the resources this rule covers; `'*'` matches all. Also types `resourceAttr` for them.
 
@@ -236,7 +236,7 @@ defineRule('content.read')
 
 > **on**(...`actions`: (`"*"` \| `TAction`)[]): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:107](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L107)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:107](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L107)
 
 Sets the actions this rule covers; `'*'` matches all.
 
@@ -264,7 +264,7 @@ defineRule('post.read-write')
 
 > **priority**(`p`: `number`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:92](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L92)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:92](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L92)
 
 Sets the priority (default `10`). Under `first-match` and `highest-priority` the highest matching rule wins.
 
@@ -284,7 +284,7 @@ Sets the priority (default `10`). Under `first-match` and `highest-priority` the
 
 > **when**(`fn`: [`WhenGroupFn`](../type-aliases/WhenGroupFn)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:174](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L174)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:174](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L174)
 
 Adds an AND group: every condition built in `fn` must hold. Repeated calls AND together.
 
@@ -317,7 +317,7 @@ defineRule('expense.approve')
 
 > **whenAny**(`fn`: [`WhenGroupFn`](../type-aliases/WhenGroupFn)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `TActiveResource`\>): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/rule.ts:199](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/rule.ts#L199)
+Defined in: [packages/duck-iam/src/core/builder/rule.ts:199](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/rule.ts#L199)
 
 Adds an OR group: at least one condition built in `fn` must hold. Repeated calls AND together.
 

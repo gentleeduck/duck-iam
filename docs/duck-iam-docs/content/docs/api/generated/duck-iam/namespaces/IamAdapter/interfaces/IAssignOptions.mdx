@@ -3,7 +3,7 @@ title: "Interface: IAssignOptions"
 description: "Optional extras for ISubjectStore.assignRole: temporal bounds, per-grant attributes, and who is making the grant."
 ---
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:44](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L44)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:44](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L44)
 
 Optional extras for [ISubjectStore.assignRole](ISubjectStore#assignrole): temporal bounds,
 per-grant attributes, and who is making the grant.
@@ -14,7 +14,7 @@ per-grant attributes, and who is making the grant.
 
 > `readonly` `optional` **actor?**: `string`
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:52](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L52)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:52](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L52)
 
 Who is making this grant: fills `created_by` where the schema has it, and rides on the `role.assigned` event.
 NOTE: unlike the other fields, an adapter that cannot store it does not throw (see `ASSIGN_OPTION_FIELDS`).
@@ -25,7 +25,7 @@ NOTE: unlike the other fields, an adapter that cannot store it does not throw (s
 
 > `readonly` `optional` **attributes?**: [`Attributes`](../../IamPrimitives/type-aliases/Attributes)
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:47](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L47)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:47](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L47)
 
 ***
 
@@ -33,7 +33,7 @@ Defined in: [packages/duck-iam/src/core/types/adapter.ts:47](https://github.com/
 
 > `readonly` `optional` **expiresAt?**: `Date`
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:46](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L46)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:46](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L46)
 
 ***
 
@@ -41,5 +41,5 @@ Defined in: [packages/duck-iam/src/core/types/adapter.ts:46](https://github.com/
 
 > `readonly` `optional` **startsAt?**: `Date`
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:45](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L45)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:45](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L45)
 

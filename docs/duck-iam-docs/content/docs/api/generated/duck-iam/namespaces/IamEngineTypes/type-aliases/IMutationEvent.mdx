@@ -1,11 +1,11 @@
 ---
-title: "Type Alias: IMutationEvent<TRole *extends* string = string, TScope *extends* string = string>"
+title: "Type Alias: IMutationEvent"
 description: "Every write engine.admin performs, keyed on type. Closed, so a switch on type stays exhaustive; application events belong on the application's own bus."
 ---
 
 > **IMutationEvent**\<`TRole` *extends* `string` = `string`, `TScope` *extends* `string` = `string`\> = [`IPolicySavedEvent`](../interfaces/IPolicySavedEvent) \| [`IPolicyDeletedEvent`](../interfaces/IPolicyDeletedEvent) \| [`IRoleSavedEvent`](../interfaces/IRoleSavedEvent)\<`TRole`\> \| [`IRoleDeletedEvent`](../interfaces/IRoleDeletedEvent)\<`TRole`\> \| [`IRoleAssignedEvent`](../interfaces/IRoleAssignedEvent)\<`TRole`, `TScope`\> \| [`IRoleRevokedEvent`](../interfaces/IRoleRevokedEvent)\<`TRole`, `TScope`\> \| [`IRoleScopeChangedEvent`](../interfaces/IRoleScopeChangedEvent)\<`TRole`, `TScope`\> \| [`IAttributesSetEvent`](../interfaces/IAttributesSetEvent)
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:282](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L282)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:282](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L282)
 
 Every write `engine.admin` performs, keyed on `type`.
 Closed, so a `switch` on `type` stays exhaustive; application events belong on the application's own bus.

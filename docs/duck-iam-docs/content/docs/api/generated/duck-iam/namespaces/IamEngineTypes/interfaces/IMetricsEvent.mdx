@@ -1,9 +1,9 @@
 ---
-title: "Interface: IMetricsEvent<TAction *extends* string = string, TResource *extends* string = string>"
+title: "Interface: IMetricsEvent"
 description: "Primitive-only event emitted after every evaluation, so production mode gets telemetry without a decision object."
 ---
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:172](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L172)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:172](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L172)
 
 Primitive-only event emitted after every evaluation, so production mode gets telemetry without a decision object.
 
@@ -27,7 +27,7 @@ Union of valid resource strings.
 
 > `readonly` **action**: `TAction`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:176](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L176)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:176](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L176)
 
 The action that was checked.
 
@@ -37,7 +37,7 @@ The action that was checked.
 
 > `readonly` **allowed**: `boolean`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:180](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L180)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:180](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L180)
 
 Final allow / deny verdict.
 
@@ -47,7 +47,7 @@ Final allow / deny verdict.
 
 > `readonly` **durationMs**: `number`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:182](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L182)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:182](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L182)
 
 Wall-clock duration of the evaluation in milliseconds.
 
@@ -57,7 +57,7 @@ Wall-clock duration of the evaluation in milliseconds.
 
 > `readonly` **failOpen**: `boolean`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:189](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L189)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:189](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L189)
 
 `true` when an allow rests on the `defaultEffect: 'allow'` fallback rather than a rule; always `false` on deny.
 Chart it to catch a broken policy set that the verdict alone hides.
@@ -68,7 +68,7 @@ Chart it to catch a broken policy set that the verdict alone hides.
 
 > `readonly` **mode**: [`Mode`](../../AccessControl/type-aliases/Mode)
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:184](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L184)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:184](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L184)
 
 Engine mode in effect (`'production'` or `'development'`).
 
@@ -78,7 +78,7 @@ Engine mode in effect (`'production'` or `'development'`).
 
 > `readonly` **resource**: `TResource`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:178](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L178)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:178](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L178)
 
 The resource type that was checked.
 
@@ -88,7 +88,7 @@ The resource type that was checked.
 
 > `readonly` **subjectId**: `string`
 
-Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:174](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/engine/engine.types.ts#L174)
+Defined in: [packages/duck-iam/src/core/engine/engine.types.ts:174](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/engine/engine.types.ts#L174)
 
 The subject ID the check ran against.
 

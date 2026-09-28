@@ -1,9 +1,9 @@
 ---
-title: "Interface: IPermissionCheck<TAction *extends* string = string, TResource *extends* string = string, TScope *extends* string = string>"
+title: "Interface: IPermissionCheck"
 description: "One check for batch evaluation via engine.permissions() or access.checks()."
 ---
 
-Defined in: [packages/duck-iam/src/core/types/client.ts:58](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/client.ts#L58)
+Defined in: [packages/duck-iam/src/core/types/client.ts:58](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/client.ts#L58)
 
 One check for batch evaluation via `engine.permissions()` or `access.checks()`.
 
@@ -33,7 +33,7 @@ Union of valid scope strings.
 
 > `readonly` **action**: `TAction`
 
-Defined in: [packages/duck-iam/src/core/types/client.ts:64](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/client.ts#L64)
+Defined in: [packages/duck-iam/src/core/types/client.ts:64](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/client.ts#L64)
 
 The action to check.
 
@@ -43,7 +43,7 @@ The action to check.
 
 > `readonly` `optional` **attributes?**: [`Attributes`](../../IamPrimitives/type-aliases/Attributes)
 
-Defined in: [packages/duck-iam/src/core/types/client.ts:76](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/client.ts#L76)
+Defined in: [packages/duck-iam/src/core/types/client.ts:76](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/client.ts#L76)
 
 The instance's own attributes, as `can()` would receive them.
 SECURITY: omitting them evaluates the check against a resource that has none, so a rule conditioned on
@@ -55,7 +55,7 @@ SECURITY: omitting them evaluates the check against a resource that has none, so
 
 > `readonly` **resource**: `TResource`
 
-Defined in: [packages/duck-iam/src/core/types/client.ts:66](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/client.ts#L66)
+Defined in: [packages/duck-iam/src/core/types/client.ts:66](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/client.ts#L66)
 
 The resource type to check.
 
@@ -65,7 +65,7 @@ The resource type to check.
 
 > `readonly` `optional` **resourceId?**: `string`
 
-Defined in: [packages/duck-iam/src/core/types/client.ts:68](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/client.ts#L68)
+Defined in: [packages/duck-iam/src/core/types/client.ts:68](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/client.ts#L68)
 
 Optional specific resource instance ID.
 
@@ -75,7 +75,7 @@ Optional specific resource instance ID.
 
 > `readonly` `optional` **scope?**: `TScope`
 
-Defined in: [packages/duck-iam/src/core/types/client.ts:70](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/client.ts#L70)
+Defined in: [packages/duck-iam/src/core/types/client.ts:70](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/client.ts#L70)
 
 Optional scope for multi-tenant checks.
 

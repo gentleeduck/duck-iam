@@ -1,9 +1,9 @@
 ---
-title: "Interface: ISubject<TRole *extends* string = string, TScope *extends* string = string>"
+title: "Interface: ISubject"
 description: "Authenticated user or service making the request; the engine builds it via resolveSubject(subjectId)."
 ---
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:31](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L31)
+Defined in: [packages/duck-iam/src/core/types/request.ts:31](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L31)
 
 Authenticated user or service making the request; the engine builds it via `resolveSubject(subjectId)`.
 
@@ -27,7 +27,7 @@ Union of valid scope strings.
 
 > `readonly` **attributes**: `Readonly`\<[`Attributes`](../../IamPrimitives/type-aliases/Attributes)\>
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:39](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L39)
+Defined in: [packages/duck-iam/src/core/types/request.ts:39](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L39)
 
 Subject attributes available to conditions.
 
@@ -37,7 +37,7 @@ Subject attributes available to conditions.
 
 > `readonly` **id**: `string`
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:33](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L33)
+Defined in: [packages/duck-iam/src/core/types/request.ts:33](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L33)
 
 Unique identifier (user ID, service account ID).
 
@@ -47,7 +47,7 @@ Unique identifier (user ID, service account ID).
 
 > `readonly` **roles**: readonly `TRole`[]
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:35](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L35)
+Defined in: [packages/duck-iam/src/core/types/request.ts:35](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L35)
 
 Effective roles after inheritance resolution.
 
@@ -57,7 +57,7 @@ Effective roles after inheritance resolution.
 
 > `readonly` `optional` **scopedRoles?**: readonly [`IScopedRole`](IScopedRole)\<`TRole`, `TScope`\>[]
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:37](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L37)
+Defined in: [packages/duck-iam/src/core/types/request.ts:37](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L37)
 
 Scoped role assignments for multi-tenant authorization.
 

@@ -1,9 +1,9 @@
 ---
-title: "Interface: IAccessConfigInput<TActions *extends* readonly string[], TResources *extends* readonly string[], TRoles *extends* readonly string[] = readonly string[], TScopes *extends* readonly string[] = readonly string[], TContext *extends* object = IDefaultContext>"
+title: "Interface: IAccessConfigInput"
 description: "Input for createIam. Pass as const arrays so their unions reach every builder method."
 ---
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L24)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:24](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L24)
 
 Input for `createIam`. Pass `as const` arrays so their unions reach every builder method.
 
@@ -54,7 +54,7 @@ Shape of the evaluation context for typed dot-paths.
 
 > `readonly` **actions**: `TActions`
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:32](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L32)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:32](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L32)
 
 Actions your application supports (`['create', 'read', ...]`). `as const`.
 
@@ -64,7 +64,7 @@ Actions your application supports (`['create', 'read', ...]`). `as const`.
 
 > `readonly` `optional` **context?**: `TContext`
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:43](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L43)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:43](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L43)
 
 Phantom field, never read at runtime: pass `{} as unknown as YourContext` for typed dot-paths
 on `.attr()`, `.resourceAttr()`, `.env()` and `.check()`.
@@ -75,7 +75,7 @@ on `.attr()`, `.resourceAttr()`, `.env()` and `.check()`.
 
 > `readonly` **resources**: `TResources`
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:34](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L34)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L34)
 
 Resource types your application manages. `as const`.
 
@@ -85,7 +85,7 @@ Resource types your application manages. `as const`.
 
 > `readonly` `optional` **roles?**: `TRoles`
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L38)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L38)
 
 Role IDs to constrain role builders. `as const`.
 
@@ -95,7 +95,7 @@ Role IDs to constrain role builders. `as const`.
 
 > `readonly` `optional` **scopes?**: `TScopes`
 
-Defined in: [packages/duck-iam/src/core/config/config.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/config/config.types.ts#L36)
+Defined in: [packages/duck-iam/src/core/config/config.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/config/config.types.ts#L36)
 
 Scope strings for multi-tenant authorization. `as const`.
 

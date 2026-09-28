@@ -1,9 +1,9 @@
 ---
-title: "Interface: IRoleStore<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string>"
+title: "Interface: IRoleStore"
 description: "Storage interface for RBAC roles."
 ---
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:99](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L99)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:99](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L99)
 
 Storage interface for RBAC roles.
 
@@ -43,7 +43,7 @@ Union of valid scope strings.
 
 > **deleteRole**(`id`: `string`): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:115](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L115)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:115](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L115)
 
 Removes the role and every grant that named it. Engine invalidates its role cache after this call.
 SECURITY: the cascade is contract; a leftover grant comes back to life if a role is recreated under the same id.
@@ -64,7 +64,7 @@ SECURITY: the cascade is contract; a leftover grant comes back to life if a role
 
 > **getRole**(`id`: `string`, `opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\> \| `null`\>
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:108](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L108)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:108](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L108)
 
 Returns a single role by ID, or `null` if not found.
 
@@ -88,7 +88,7 @@ Returns a single role by ID, or `null` if not found.
 
 > **listRoles**(`opts?`: [`IReadOptions`](IReadOptions)): `Promise`\<[`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>[]\>
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:106](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L106)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:106](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L106)
 
 Returns all stored roles. Called by the engine on cache miss.
 
@@ -108,7 +108,7 @@ Returns all stored roles. Called by the engine on cache miss.
 
 > **saveRole**(`role`: [`IRole`](../../AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>, `opts?`: [`IActorOptions`](IActorOptions)): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/types/adapter.ts:110](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/adapter.ts#L110)
+Defined in: [packages/duck-iam/src/core/types/adapter.ts:110](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/adapter.ts#L110)
 
 Engine invalidates its role cache after this call.
 
