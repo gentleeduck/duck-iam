@@ -11,8 +11,10 @@ import {
   isSafeRedirectUrl,
   isValidProviderId,
   nodeHeadersToFetch,
+  oauthCallback,
   parseProviderBeginBody,
   parseSignInBody,
+  redirectForScript,
   requestSecurity,
   serializeCookie,
 } from '../generic'
@@ -47,7 +49,8 @@ export function applyIntents(intents: Provider.Intent[], res: ExpressAdapter.Res
       case 'redirect': {
         // see isSafeRedirectUrl in server/generic for rationale.
         if (!isSafeRedirectUrl(intent.url)) {
-          res.status(500).json({ code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected' })
+          const error = { code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected', status: 500 }
+          res.status(500).json({ error, ok: false })
           return
         }
         res.redirect(intent.status ?? 302, intent.url)
@@ -61,7 +64,8 @@ export function applyIntents(intents: Provider.Intent[], res: ExpressAdapter.Res
       }
       case 'error': {
         status = intent.status
-        body = { code: intent.code, detail: intent.detail }
+        const { code, detail } = intent
+        body = { error: { code, status, ...(detail !== undefined && { detail }) }, ok: false }
         hasBody = true
         break
       }
@@ -87,6 +91,7 @@ export function mountSignIn(auth: AuthEngine): ExpressAdapter.Handler {
       const result = await auth.flows.signIn({
         ...parsed,
         ...expressCaller(req),
+        previousSid: auth.transport.extract({ headers }) ?? undefined,
       })
       applyIntents(result.intents, res, 200)
     } catch (err) {
@@ -120,7 +125,7 @@ export function mountProviderBegin(auth: AuthEngine): ExpressAdapter.Handler {
     try {
       const headers = toHeaders(req.headers)
       await csrfGuard(auth, { method: req.method ?? 'POST', headers })
-      const id = providerIdFromUrl(req.url, 'begin')
+      const id = req.params?.id
       if (!isValidProviderId(id)) {
         applyIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }], res)
         return
@@ -130,8 +135,20 @@ export function mountProviderBegin(auth: AuthEngine): ExpressAdapter.Handler {
         applyIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }], res)
         return
       }
-      const intents = await auth.flows.beginProvider(id, body)
-      applyIntents(intents, res, 200)
+      applyIntents(redirectForScript(await auth.flows.beginProvider(id, body), headers), res, 200)
+    } catch (err) {
+      handleError(err, res)
+    }
+  }
+}
+
+/** GET and POST /auth/providers/:id/callback, where the IdP returns the browser. A form post needs
+ *  `express.urlencoded()` ahead of it. See {@link oauthCallback}. */
+export function mountProviderCallback(auth: AuthEngine): ExpressAdapter.Handler {
+  return async (req, res) => {
+    try {
+      const request = { body: req.body, cookie: req.headers.cookie, method: req.method, url: req.url }
+      applyIntents(await oauthCallback(auth, req.params?.id, request, expressCaller(req)), res, 200)
     } catch (err) {
       handleError(err, res)
     }
@@ -163,19 +180,12 @@ function handleError(err: unknown, res: ExpressAdapter.Response): void {
   res.status(status).json(body)
 }
 
-function providerIdFromUrl(url: string, suffix: string): string | null {
-  const path = url.split('?')[0] ?? ''
-  const parts = path.split('/').filter(Boolean)
-  if (parts.length < 4) return null
-  if (parts[parts.length - 1] !== suffix) return null
-  return parts[parts.length - 2] ?? null
-}
-
 /** The fingerprint Express resolved, the same pair {@link mountSignIn} stamps at sign-in. */
 export function expressCaller(req: ExpressAdapter.Request): CallerFingerprint {
   return callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] })
 }
 
+/** {@link ActorOptions} over Express's request. */
 export type ExpressActorOptions = ActorOptions<ExpressAdapter.Request>
 
 /** Bind the request's actor scope for everything downstream; install it above your own routes,
@@ -194,10 +204,8 @@ export function expressActorContext(auth: AuthEngine, opts: ExpressActorOptions 
         requestSecurity(auth, { caller: opts.getCaller?.(req), onAnomaly: opts.onAnomaly, onHijack: opts.onHijack }),
       )
     } catch (err) {
-      // SECURITY: Express 4 does not forward a rejected async middleware anywhere - the socket is simply
-      // held until something times out. `onHijack` and the `revoke` reaction refuse by throwing, so on
-      // Express 4 that refusal reached neither the error handler nor the client. Only errors raised before
-      // `next()` arrive here: a downstream throw is caught by its own layer, so this cannot double-dispatch.
+      // SECURITY: Express 4 holds the socket on a rejected async middleware, so every raise is passed on.
+      // Only one from before `next()` lands here: a downstream throw is caught by its own layer.
       next(err)
     }
   }

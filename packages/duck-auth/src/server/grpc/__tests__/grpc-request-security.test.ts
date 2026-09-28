@@ -9,7 +9,7 @@ import { AuthEngine } from '~/core/engine'
 import type { Hijack } from '~/core/hijack'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
-import { grpcCaller, withGrpc } from '..'
+import { GRPC_STATUS, grpcCaller, withGrpc } from '..'
 import type { GrpcAdapter } from '../grpc.types'
 
 type Profile = { username: string; email: string }
@@ -49,12 +49,7 @@ function call(sid: string, userAgent: string): GrpcAdapter.UnaryCall {
     cookie: [`duck-sid=${sid}`],
     'user-agent': [userAgent],
   }
-  return {
-    identity: null,
-    metadata: { get: (k: string) => bag[k] ?? [], set: () => undefined },
-    request: {},
-    session: null,
-  }
+  return { metadata: { get: (k: string) => bag[k] ?? [] }, request: {} }
 }
 
 const run = (h: GrpcAdapter.UnaryHandler, c: GrpcAdapter.UnaryCall) =>
@@ -150,6 +145,6 @@ describe('grpc request security', () => {
     )
 
     expect(ran).toBe(false)
-    expect(err?.message).toBe('AUTH_MISCONFIGURED')
+    expect(err).toEqual({ code: GRPC_STATUS.UNKNOWN, message: 'Unknown error' })
   })
 })

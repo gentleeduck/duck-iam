@@ -1,10 +1,9 @@
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext } from '@nestjs/common'
 import { Catch, createParamDecorator } from '@nestjs/common'
 import { withResolvedActor } from '~/core/actor'
-import type { Anomaly } from '~/core/anomaly/anomaly.types'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard, verifyCsrf } from '~/core/csrf'
-import type { AuthEngine } from '~/core/engine'
+import type { AuthEngine, Engine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Flows } from '~/core/flows'
 import type { Identities } from '~/core/identities/identities.types'
@@ -16,11 +15,12 @@ import {
   callerContext,
   errorToHttp,
   executeIntents,
-  extractSetCookies,
   isValidProviderId,
   nodeHeadersToFetch,
+  oauthCallback,
   parseProviderBeginBody,
   parseSignInBody,
+  redirectForScript,
   requestSecurity,
 } from '../generic'
 
@@ -28,17 +28,17 @@ import type { NestAdapter } from './nestjs.types'
 
 const toFetchHeaders: (headers: NestAdapter.Request['headers']) => Headers = nodeHeadersToFetch
 
+/** What duck-auth resolved for a request, shared by the middleware, the guard and the param decorators.
+ *  Held here rather than on `req.session`, which is the host's session middleware's: express-session fills it
+ *  on every request, and skips itself on finding it filled. */
+const resolvedByRequest = new WeakMap<object, Engine.ResolveResult<Identities.ProfileMetadataBase> | null>()
+
 async function forward(response: Response, reply: NestAdapter.Response): Promise<unknown> {
   reply.status(response.status)
-  const cookies = extractSetCookies(response)
-  if (cookies.length > 0) {
-    if (reply.setHeader) reply.setHeader('set-cookie', cookies)
-    else if (reply.set) reply.set('set-cookie', cookies)
-  }
+  const cookies = response.headers.getSetCookie()
+  if (cookies.length > 0) reply.setHeader('set-cookie', cookies)
   response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === 'set-cookie') return
-    if (reply.setHeader) reply.setHeader(key, value)
-    else if (reply.set) reply.set(key, value)
+    if (key !== 'set-cookie') reply.setHeader(key, value)
   })
   const body = response.body ? await response.text() : ''
   return reply.send(body)
@@ -47,13 +47,10 @@ async function forward(response: Response, reply: NestAdapter.Response): Promise
 function handleError(err: unknown, reply: NestAdapter.Response): never {
   const { status, body } = errorToHttp(err)
   reply.status(status)
-  if (reply.setHeader) {
-    reply.setHeader('cache-control', 'no-store')
-    reply.setHeader('content-type', 'application/json; charset=utf-8')
-  }
+  reply.setHeader('cache-control', 'no-store')
+  reply.setHeader('content-type', 'application/json; charset=utf-8')
   reply.send(JSON.stringify(body))
-  // rethrow so NestJS exception filter can log to Loki; filter's res.headersSent
-  // check prevents double-send
+  // Rethrown for the host's exception filters to see; `NestExceptionFilter` leaves the answered response alone.
   throw err
 }
 
@@ -62,7 +59,7 @@ function handleError(err: unknown, reply: NestAdapter.Response): never {
 export type NestSignInDenial = {
   /** Machine-readable code such as `'AUTH_NOT_PERMITTED_ON_HOST'`. Free-form: your vocabulary, not the engine's. */
   code: string
-  /** HTTP status. Must be 4xx or 5xx; anything else is coerced to 403 (see {@link denialIntent}). */
+  /** HTTP status. Must be 4xx or 5xx; anything else is coerced to 403. */
   status: number
   detail?: string
 }
@@ -107,14 +104,19 @@ async function revokeIssuedSession(auth: AuthEngine, outcome: Flows.SignInOutcom
 export function nestSignIn(auth: AuthEngine, opts: NestSignInOptions = {}): NestAdapter.Handler {
   return async (req, reply) => {
     try {
-      await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method })
+      const headers = toFetchHeaders(req.headers)
+      await csrfGuard(auth, { headers, method: req.method })
       const parsed = parseSignInBody(req.body)
       if (!parsed) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), reply)
       }
       // The flow, the store and the columns all take these and the adapter was dropping
       // them, so every session row recorded a device it could not name.
-      const outcome = await auth.flows.signIn({ ...parsed, ...nestCaller(req) })
+      const outcome = await auth.flows.signIn({
+        ...parsed,
+        ...nestCaller(req),
+        previousSid: auth.transport.extract({ headers }) ?? undefined,
+      })
       if (!opts.onAuthenticated) return forward(executeIntents(outcome.intents), reply)
 
       let denial: NestSignInDenial | undefined
@@ -162,8 +164,8 @@ export function nestSession(auth: AuthEngine): NestAdapter.Handler {
       // `csrfHash` is server-side state: the browser holds the plaintext in its cookie and never needs the hash.
       const { csrfHash: _csrfHash, ...session } = resolved?.session ?? { csrfHash: null }
       reply.status(200)
-      if (reply.setHeader) reply.setHeader('cache-control', 'no-store')
-      if (reply.setHeader) reply.setHeader('content-type', 'application/json; charset=utf-8')
+      reply.setHeader('cache-control', 'no-store')
+      reply.setHeader('content-type', 'application/json; charset=utf-8')
       return reply.send(
         JSON.stringify(resolved ? { session, identity: resolved.identity } : { session: null, identity: null }),
       )
@@ -177,7 +179,8 @@ export function nestSession(auth: AuthEngine): NestAdapter.Handler {
 export function nestProviderBegin(auth: AuthEngine): NestAdapter.Handler {
   return async (req, reply) => {
     try {
-      await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method })
+      const headers = toFetchHeaders(req.headers)
+      await csrfGuard(auth, { headers, method: req.method })
       const id = req.params?.id
       if (!isValidProviderId(id)) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }]), reply)
@@ -186,8 +189,19 @@ export function nestProviderBegin(auth: AuthEngine): NestAdapter.Handler {
       if (body === null) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), reply)
       }
-      const intents = await auth.flows.beginProvider(id, body)
-      return forward(executeIntents(intents), reply)
+      return forward(executeIntents(redirectForScript(await auth.flows.beginProvider(id, body), headers)), reply)
+    } catch (err) {
+      return handleError(err, reply)
+    }
+  }
+}
+
+/** GET and POST provider-callback, where the IdP returns the browser. See {@link oauthCallback}. */
+export function nestProviderCallback(auth: AuthEngine): NestAdapter.Handler {
+  return async (req, reply) => {
+    try {
+      const request = { body: req.body, cookie: req.headers.cookie, method: req.method, url: req.url ?? '' }
+      return forward(executeIntents(await oauthCallback(auth, req.params?.id, request, nestCaller(req))), reply)
     } catch (err) {
       return handleError(err, reply)
     }
@@ -204,12 +218,12 @@ export function makeGuard(
   const csrf = opts.csrf ?? true
   return {
     async canActivate(ctx) {
-      const req = ctx.switchToHttp().getRequest<NestAdapter.Request>()
-      // What `nestActorContext` already resolved, when it ran first. Nest runs middleware before
-      // guards, so resolving again is the session store read twice for one request.
-      const resolved = req.session
-        ? { identity: req.identity ?? null, session: req.session }
+      const req = ctx.switchToHttp().getRequest()
+      // Nest runs middleware before guards, so `nestActorContext` has usually resolved it already.
+      const resolved = resolvedByRequest.has(req)
+        ? (resolvedByRequest.get(req) ?? null)
         : await auth.resolveSession({ headers: toFetchHeaders(req.headers) }).orNull()
+      resolvedByRequest.set(req, resolved)
       if (csrf) {
         // Reuse the session just resolved rather than paying a second
         // resolveSession inside csrfGuard.
@@ -226,9 +240,7 @@ export function makeGuard(
         }
         return true
       }
-      req.session = resolved.session
-      // Adapter is profile-agnostic; store the resolved identity opaquely.
-      req.identity = resolved.identity as NestAdapter.Request['identity']
+      req.identity = resolved.identity
       return true
     },
   }
@@ -241,56 +253,38 @@ export function nestCaller(req: NestAdapter.Request): CallerFingerprint {
   return callerContext({ ip: req.ip, userAgent: req.headers?.['user-agent'] })
 }
 
+/** {@link ActorOptions} over Nest's request. */
 export type NestActorOptions = ActorOptions<NestAdapter.Request>
 
 /** Bind the request's actor scope for everything downstream:
- *  `consumer.apply(nestActorContext(auth)).forRoutes('*')`. Middleware rather than a guard or an
- *  interceptor, since it is the one Nest hook that wraps handler execution. Reuses the session
- *  `makeGuard` already resolved, so the pair costs one `resolveSession`. */
+ *  `consumer.apply(nestActorContext(auth)).forRoutes('*')`. Middleware, since it runs ahead of the guards,
+ *  which an interceptor would leave unbound. `makeGuard` reuses what it resolved, so the pair costs one
+ *  `resolveSession`. */
 export function nestActorContext(
   auth: AuthEngine,
   opts: NestActorOptions = {},
-): {
-  use(req: NestAdapter.Request, res: unknown, next: (err?: unknown) => void): Promise<void>
-} {
-  return {
-    async use(req, _res, next) {
-      const bound = async (): Promise<void> => {
-        next()
-      }
+): (req: NestAdapter.Request, res: unknown, next: (err?: unknown) => void) => Promise<void> {
+  return async (req, _res, next) => {
+    // SECURITY: all of it inside the try. Mounted with `app.use` on Nest 10, whose Express 4 forwards no
+    // rejected middleware, a refusal or a store outage would hold the request open instead of answering it.
+    try {
       const security = requestSecurity(auth, {
         caller: opts.getCaller?.(req),
         onAnomaly: opts.onAnomaly,
         onHijack: opts.onHijack,
       })
-      // Resolved here rather than by `withRequestActor`, which keeps the session and drops the identity:
-      // both are stashed on the request so `makeGuard` reuses them. The verdict is not, since a later
-      // middleware reusing `req.session` never ran the detectors.
-      let anomaly: Anomaly.Result | undefined
-      // SECURITY: the resolve is inside the try. Nest's HTTP layer is Express, where a rejected async
-      // middleware goes nowhere, so a refusal or a store outage hung the request instead of answering it.
-      try {
-        if (!req.session) {
-          const resolved = await auth
-            .resolveSession(
-              { headers: toFetchHeaders(req.headers) },
-              security.requestSnapshot ? { requestSnapshot: security.requestSnapshot } : undefined,
-            )
-            // `.orNull()`, not `.catch(() => null)`: that recorded a store outage as an anonymous request.
-            .orNull()
-          if (resolved) {
-            req.session = resolved.session
-            req.identity = resolved.identity as NestAdapter.Request['identity']
-            anomaly = resolved.anomaly
-          }
-        }
-        // `next()` is synchronous, so the downstream chain starts inside the scope.
-        if (req.session) await withResolvedActor(req.session, bound, security, anomaly)
-        else await bound()
-      } catch (err) {
-        next(err)
-      }
-    },
+      // Resolved here rather than by `withRequestActor`, which drops the identity the guard reuses.
+      const resolved = await auth
+        .resolveSession({ headers: toFetchHeaders(req.headers) }, { requestSnapshot: security.requestSnapshot })
+        // `.orNull()` answers null for "no session" alone, so a store outage still throws.
+        .orNull()
+      resolvedByRequest.set(req, resolved)
+      if (resolved) req.identity = resolved.identity
+      // `next()` is synchronous, so the downstream chain starts inside the scope.
+      await withResolvedActor(resolved?.session ?? null, async () => next(), security, resolved?.anomaly)
+    } catch (err) {
+      next(err)
+    }
   }
 }
 
@@ -298,7 +292,7 @@ export function nestActorContext(
 export function makeCsrfGuard(auth: AuthEngine, opts: Csrf.GuardOptions = {}): NestAdapter.Guard {
   return {
     async canActivate(ctx) {
-      const req = ctx.switchToHttp().getRequest<NestAdapter.Request>()
+      const req = ctx.switchToHttp().getRequest()
       await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method }, opts)
       return true
     },
@@ -311,23 +305,28 @@ export const DUCK_AUTH_TOKEN = 'DUCK_AUTH'
 /** Turns an `AuthError` into the Nest response its status and code describe. */
 @Catch(AuthError)
 export class NestExceptionFilter implements ExceptionFilter {
-  /** Writes the error's status and JSON body onto the Nest response. */
+  /** Writes the error's status and JSON body onto the Nest response, unless a duck-auth handler already answered
+   *  it: a second write throws ERR_HTTP_HEADERS_SENT, which Nest then logs in place of this error. */
   catch(err: AuthError, host: ArgumentsHost): void {
-    const res = host.switchToHttp().getResponse<{ status(code: number): { json(body: unknown): void } }>()
-    res.status(err.status).json(err.toJSON())
+    const res = host
+      .switchToHttp()
+      .getResponse<{ headersSent: boolean; status(code: number): { json(body: unknown): void } }>()
+    if (res.headersSent) return
+    const { status, body } = errorToHttp(err)
+    res.status(status).json(body)
   }
 }
 
-/** Parameter decorator supplying the resolved session. */
+/** Parameter decorator supplying the session `makeGuard` or `nestActorContext` resolved. */
 export const CurrentSession = createParamDecorator(
   (_: unknown, ctx: ExecutionContext): Sessions.Me | undefined =>
-    ctx.switchToHttp().getRequest<{ session?: Sessions.Me }>().session,
+    resolvedByRequest.get(ctx.switchToHttp().getRequest<object>())?.session,
 )
 
-/** Parameter decorator supplying the resolved identity. */
+/** Parameter decorator supplying the identity `makeGuard` or `nestActorContext` resolved. */
 export const CurrentIdentity = createParamDecorator(
   (_: unknown, ctx: ExecutionContext): Identities.Me | null | undefined =>
-    ctx.switchToHttp().getRequest<{ identity?: Identities.Me | null }>().identity,
+    resolvedByRequest.get(ctx.switchToHttp().getRequest<object>())?.identity,
 )
 
 export type { NestAdapter } from './nestjs.types'

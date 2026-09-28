@@ -6,6 +6,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passkey } from '~/providers/passkey'
 import { passwords } from '~/providers/passwords'
+import { postRequest, streamedMiB } from '~/test/adapter-fakes'
 import { mountNext, nextSession, nextSignIn, nextSignOut, withNextCsrf } from '../index'
 
 type MyProfile = {
@@ -169,5 +170,36 @@ describe('withNextCsrf', () => {
 
   it('lets an ordinary same-origin mutation through', async () => {
     expect((await run('POST', { 'sec-fetch-site': 'same-origin' })).reached).toBe(true)
+  })
+
+  it("hands the route's `{ params }` on to the handler", async () => {
+    const { auth } = buildAuth()
+    const wrapped = withNextCsrf(auth, async (_req: Request, ctx: { params: Promise<{ id: string }> }) =>
+      Response.json(await ctx.params),
+    )
+    const res = await wrapped(new Request('https://x/orders/7'), { params: Promise.resolve({ id: '7' }) })
+    expect(await res.json()).toEqual({ id: '7' })
+  })
+})
+
+describe('the body cap on every route that reads one', () => {
+  it.each(['/api/auth/signin', '/api/auth/providers/password/begin', '/api/auth/providers/oauth%3Astub/callback'])(
+    'POST %s stops reading a body past 100 KiB',
+    async (path) => {
+      const { auth } = buildAuth()
+      auth.providers.register({ begin: async () => [], complete: async () => [], id: 'oauth:stub', kind: 'oauth' })
+      const { body, pulled } = streamedMiB()
+      await mountNext(auth).POST(postRequest(`https://x${path}`, body))
+      expect(pulled()).toBeLessThanOrEqual(7)
+    },
+  )
+
+  it('signs in with a body padded to just under the cap', async () => {
+    const { auth, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    const body = JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } })
+    const res = await nextSignIn(auth)(postRequest('https://x/api/auth/signin', body.padEnd(100 * 1024)))
+    expect(res.status).toBe(200)
   })
 })

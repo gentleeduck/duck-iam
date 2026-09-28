@@ -1,6 +1,5 @@
-/** gRPC server adapter: interceptors that pull a bearer token off the `authorization` metadata, resolve the
- *  session, and attach it and its identity to the call context. `@grpc/grpc-js` is never imported, only
- *  structurally typed, so only the interceptor and handler factories ship here. */
+/** gRPC server adapter: {@link withGrpc} resolves a unary call's session from its metadata and attaches it,
+ *  with its identity, to the call. `@grpc/grpc-js` is never imported, only structurally typed. */
 
 import { withResolvedActor } from '~/core/actor'
 import type { AuthEngine } from '~/core/engine'
@@ -61,46 +60,34 @@ export function withGrpc<Req, Res>(
     void (async () => {
       try {
         const headers = metadataToHeaders(call.metadata, headerName)
-        // The same opt-in the seven HTTP adapters take: no `getCaller` means no fingerprint, so nothing is
-        // compared and a deployment that did not ask keeps the behaviour it had.
         const security = requestSecurity(auth, {
           caller: opts.getCaller?.(call),
           onAnomaly: opts.onAnomaly,
           onHijack: opts.onHijack,
         })
-        const resolved = await auth
-          .resolveSession(
-            { headers },
-            security.requestSnapshot ? { requestSnapshot: security.requestSnapshot } : undefined,
-          )
-          .orNull()
-        if (!resolved) {
-          if (required) {
-            callback({
-              code: GRPC_STATUS.UNAUTHENTICATED,
-              message: 'AUTH_UNAUTHENTICATED',
-            })
-            return
-          }
-          handler(call, callback)
+        const resolved = await auth.resolveSession({ headers }, { requestSnapshot: security.requestSnapshot }).orNull()
+        if (!resolved && required) {
+          callback({
+            code: GRPC_STATUS.UNAUTHENTICATED,
+            message: 'AUTH_UNAUTHENTICATED',
+          })
           return
         }
-        call.session = resolved.session
-        // Adapter is profile-agnostic; store the resolved identity opaquely.
-        call.identity = resolved.identity as GrpcAdapter.UnaryCall['identity']
-        // Bound here rather than in a separate wrapper: the session is already
-        // resolved, and a write the handler drives records a `null` actor
-        // without it. The handler starts synchronously inside the scope, so its
-        // async continuations inherit the binding.
+        if (resolved) {
+          call.session = resolved.session
+          call.identity = resolved.identity
+        }
+        // The handler starts synchronously inside the scope, so its async continuations inherit the binding.
         await withResolvedActor(
-          resolved.session,
+          resolved?.session ?? null,
           async () => {
             handler(call, callback)
           },
-          security.onSession ? { onSession: security.onSession } : {},
-          resolved.anomaly,
+          security,
+          resolved?.anomaly,
         )
       } catch (err) {
+        if (!(err instanceof AuthError) || err.status >= 500) console.error('[@gentleduck/auth] request failed:', err)
         if (err instanceof AuthError) {
           callback({
             code: httpStatusToGrpc(err.status),
@@ -108,7 +95,8 @@ export function withGrpc<Req, Res>(
           })
           return
         }
-        callback({ code: GRPC_STATUS.INTERNAL, message: 'AUTH_MISCONFIGURED' })
+        // Not auth's to label: answered as grpc-js answers a handler that throws.
+        callback({ code: GRPC_STATUS.UNKNOWN, message: 'Unknown error' })
       }
     })()
   }

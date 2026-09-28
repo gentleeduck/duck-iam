@@ -55,6 +55,7 @@ function nodeRes() {
   const res = {
     append: () => res,
     end: () => res,
+    header: () => res,
     json: () => res,
     redirect: () => res,
     send: () => res,
@@ -69,7 +70,7 @@ describe('adapters hand the caller to signIn', () => {
     const seen = await sessionAfter((auth) =>
       expressSignIn(auth)(
         { body: BODY, headers: { 'user-agent': UA }, ip: IP, method: 'POST', url: '/auth/signin' },
-        nodeRes() as never,
+        nodeRes(),
       ),
     )
 
@@ -78,11 +79,10 @@ describe('adapters hand the caller to signIn', () => {
 
   it('fastify does the same', async () => {
     const seen = await sessionAfter((auth) =>
-      fastifySignIn(auth)({ body: BODY, headers: { 'user-agent': UA }, ip: IP, method: 'POST', url: '/auth/signin' }, {
-        header: () => undefined,
-        send: () => undefined,
-        status: () => ({ header: () => undefined, send: () => undefined }),
-      } as never),
+      fastifySignIn(auth)(
+        { body: BODY, headers: { 'user-agent': UA }, ip: IP, method: 'POST', url: '/auth/signin' },
+        nodeRes(),
+      ),
     )
 
     expect(seen).toEqual({ ip: IP, userAgent: UA })
@@ -95,7 +95,7 @@ describe('adapters hand the caller to signIn', () => {
       set: () => undefined,
       status: 200,
     }
-    const seen = await sessionAfter((auth) => koaSignIn(auth)(ctx as never))
+    const seen = await sessionAfter((auth) => koaSignIn(auth)(ctx))
 
     expect(seen).toEqual({ ip: IP, userAgent: UA })
   })
@@ -109,9 +109,8 @@ describe('adapters hand the caller to signIn', () => {
           identity: null,
           ip: IP,
           method: 'POST',
-          session: null,
         },
-        nodeRes() as never,
+        nodeRes(),
       ),
     )
 
@@ -123,13 +122,12 @@ describe('adapters hand the caller to signIn', () => {
       honoSignIn(auth)({
         req: {
           header: (n?: string) => (n?.toLowerCase() === 'user-agent' ? UA : undefined),
-          json: async () => BODY,
           method: 'POST',
           param: () => undefined,
-          raw: new Request('http://localhost/auth/signin'),
+          raw: new Request('http://localhost/auth/signin', { body: JSON.stringify(BODY), method: 'POST' }),
           url: 'http://localhost/auth/signin',
         },
-      } as never),
+      }),
     )
 
     expect(seen).toEqual({ ip: null, userAgent: UA })
@@ -141,13 +139,12 @@ describe('adapters hand the caller to signIn', () => {
         ip: IP,
         req: {
           header: (n?: string) => (n?.toLowerCase() === 'user-agent' ? UA : undefined),
-          json: async () => BODY,
           method: 'POST',
           param: () => undefined,
-          raw: new Request('http://localhost/auth/signin'),
+          raw: new Request('http://localhost/auth/signin', { body: JSON.stringify(BODY), method: 'POST' }),
           url: 'http://localhost/auth/signin',
         },
-      } as never),
+      }),
     )
 
     expect(seen).toEqual({ ip: IP, userAgent: UA })
@@ -158,7 +155,7 @@ describe('adapters hand the caller to signIn', () => {
       elysiaSignIn(auth)({
         body: BODY,
         request: new Request('http://localhost/auth/signin', { headers: { 'user-agent': UA }, method: 'POST' }),
-      } as never),
+      }),
     )
 
     expect(seen).toEqual({ ip: null, userAgent: UA })
@@ -171,7 +168,7 @@ describe('adapters hand the caller to signIn', () => {
           body: JSON.stringify(BODY),
           headers: { 'content-type': 'application/json', 'user-agent': UA, 'x-forwarded-for': '198.51.100.1' },
           method: 'POST',
-        }) as never,
+        }),
       ),
     )
 

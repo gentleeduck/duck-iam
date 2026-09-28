@@ -1,32 +1,37 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { AuthError } from '~/core/errors'
 import type { Provider } from '~/core/provider/provider.types'
+import { postRequest, streamedMiB } from '~/test/adapter-fakes'
 import {
+  errorToHttp,
   executeIntents,
-  extractSetCookies,
   isSafeRedirectUrl,
   isValidProviderId,
   parseBodyStringField,
   parseProviderBeginBody,
   parseSignInBody,
+  readBodyJson,
+  readBodyText,
   serializeCookie,
 } from '../index'
 
 describe('isValidProviderId', () => {
-  it('accepts standard slugs', () => {
+  it('accepts the ids providers register under, namespaced oauth ids included', () => {
     expect(isValidProviderId('password')).toBe(true)
     expect(isValidProviderId('magic-link')).toBe(true)
-    expect(isValidProviderId('api_key')).toBe(true)
+    expect(isValidProviderId('oauth:google')).toBe(true)
     expect(isValidProviderId('Google-OAuth2')).toBe(true)
   })
   it('rejects empty and over-length', () => {
     expect(isValidProviderId('')).toBe(false)
-    expect(isValidProviderId('a'.repeat(65))).toBe(false)
+    expect(isValidProviderId('a'.repeat(128))).toBe(true)
+    expect(isValidProviderId('a'.repeat(129))).toBe(false)
   })
   it('rejects path traversal / separator chars', () => {
     expect(isValidProviderId('..')).toBe(false)
     expect(isValidProviderId('a/b')).toBe(false)
-    expect(isValidProviderId('a.b')).toBe(false)
     expect(isValidProviderId('a b')).toBe(false)
+    expect(isValidProviderId('oauth%3Agoogle')).toBe(false)
   })
   it('rejects control / unicode / null-byte / CRLF injection', () => {
     expect(isValidProviderId('a\u0000b')).toBe(false)
@@ -87,15 +92,15 @@ describe('parseSignInBody', () => {
   })
 
   it('rejects an oversized providerId (reflection-DoS defense via AUTH_PROVIDER_FAILED echo)', () => {
-    expect(parseSignInBody({ providerId: 'a'.repeat(65), input: {} })).toBeNull()
-    expect(parseSignInBody({ providerId: 'a'.repeat(64), input: {} })).toEqual({
-      providerId: 'a'.repeat(64),
+    expect(parseSignInBody({ providerId: 'a'.repeat(129), input: {} })).toBeNull()
+    expect(parseSignInBody({ providerId: 'a'.repeat(128), input: {} })).toEqual({
+      providerId: 'a'.repeat(128),
       input: {},
     })
   })
 
   it('rejects a providerId with CTL chars / path separators', () => {
-    expect(parseSignInBody({ providerId: 'pa..ssword', input: {} })).toBeNull()
+    expect(parseSignInBody({ providerId: '..', input: {} })).toBeNull()
     expect(parseSignInBody({ providerId: 'a/b', input: {} })).toBeNull()
     expect(parseSignInBody({ providerId: 'a\nb', input: {} })).toBeNull()
   })
@@ -170,7 +175,7 @@ describe('parseBodyStringField', () => {
     expect(parseBodyStringField({ code: true }, 'code')).toBeNull()
   })
 
-  it('rejects empty string (downstream authSha256 over empty would still be wasted work)', () => {
+  it('rejects empty string (downstream sha256 over empty would still be wasted work)', () => {
     expect(parseBodyStringField({ code: '' }, 'code')).toBeNull()
   })
 
@@ -290,39 +295,17 @@ describe('serializeCookie - header injection guards', () => {
   })
 })
 
-describe('extractSetCookies', () => {
-  it('preserves multiplicity when getSetCookie() is available', () => {
-    const headers = new Headers()
-    headers.append('set-cookie', 'a=1; Path=/')
-    headers.append('set-cookie', 'b=2; Path=/')
-    const response = new Response(null, { headers })
-    expect(extractSetCookies(response)).toEqual(['a=1; Path=/', 'b=2; Path=/'])
-  })
-
-  it('returns [] when no set-cookie present', () => {
-    const response = new Response(null, { headers: new Headers({ 'content-type': 'text/plain' }) })
-    expect(extractSetCookies(response)).toEqual([])
-  })
-
-  it('returns [] on runtimes without getSetCookie (graceful degradation)', () => {
-    // Simulate an older runtime by handing in a header-bag shape that
-    // lacks getSetCookie. The helper must not throw.
-    const fake: Response = {
-      headers: { forEach() {} },
-      // ...other Response fields not used by extractSetCookies.
-    } as unknown as Response
-    expect(extractSetCookies(fake)).toEqual([])
-  })
-})
-
 describe('executeIntents refusing an unsafe redirect', () => {
   const unsafe: Provider.Intent = { type: 'redirect', url: 'javascript:alert(1)' }
 
-  it('answers AUTH_MISCONFIGURED and sets no location', async () => {
+  it('answers AUTH_MISCONFIGURED in the error envelope and sets no location', async () => {
     const res = executeIntents([unsafe])
     expect(res.status).toBe(500)
     expect(res.headers.get('location')).toBeNull()
-    expect(await res.json()).toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    expect(await res.json()).toEqual({
+      error: { code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected', status: 500 },
+      ok: false,
+    })
   })
 
   it('stays refused when another intent follows, rather than being overwritten by it', async () => {
@@ -332,12 +315,83 @@ describe('executeIntents refusing an unsafe redirect', () => {
     // here, so the two disagreed on the same intent list.
     const res = executeIntents([unsafe, { body: { ok: true }, status: 200, type: 'json' }])
     expect(res.status).toBe(500)
-    expect(await res.json()).toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    expect(await res.json()).toMatchObject({ error: { code: 'AUTH_MISCONFIGURED' }, ok: false })
   })
 
   it('does not let a safe redirect later in the list carry the response', async () => {
     const res = executeIntents([unsafe, { type: 'redirect', url: 'https://example.com/after' }])
     expect(res.status).toBe(500)
     expect(res.headers.get('location')).toBeNull()
+  })
+
+  it('answers a safe redirect with its location, and a json intent with its body', async () => {
+    const redirect = executeIntents([{ type: 'redirect', url: 'https://example.com/after' }])
+    expect(redirect.status).toBe(302)
+    expect(redirect.headers.get('location')).toBe('https://example.com/after')
+    const json = executeIntents([{ body: { ok: true }, status: 201, type: 'json' }])
+    expect(json.status).toBe(201)
+    expect(await json.json()).toEqual({ ok: true })
+  })
+})
+
+describe('readBodyText', () => {
+  const post = (body: BodyInit, headers?: HeadersInit) => postRequest('http://x/', body, headers)
+
+  it('reads a body of exactly 100 KiB, and refuses one byte more', async () => {
+    const cap = 100 * 1024
+    expect(await readBodyText(post('a'.repeat(cap)))).toHaveLength(cap)
+    expect(await readBodyText(post('a'.repeat(cap + 1)))).toBeNull()
+  })
+
+  it('stops pulling a streamed body once it passes the cap, and cancels the rest', async () => {
+    const { body, cancelled, pulled } = streamedMiB()
+    expect(await readBodyText(post(body))).toBeNull()
+    expect(pulled()).toBeLessThanOrEqual(7)
+    expect(cancelled()).toBe(true)
+  })
+
+  it('refuses a declared length past the cap without reading', async () => {
+    const { body, pulled } = streamedMiB()
+    expect(await readBodyText(post(body, { 'content-length': String(1024 * 1024) }))).toBeNull()
+    expect(pulled()).toBe(0)
+  })
+
+  it('decodes a character split across two chunks', async () => {
+    const [a, b] = [new Uint8Array([0xc3]), new Uint8Array([0xa9])]
+    const body = new ReadableStream<Uint8Array>({
+      start: (c) => {
+        c.enqueue(a)
+        c.enqueue(b)
+        c.close()
+      },
+    })
+    expect(await readBodyText(post(body))).toBe('\u00e9')
+  })
+
+  it('parses JSON, and answers null for a body that is not', async () => {
+    expect(await readBodyJson(post('{"a":1}'))).toEqual({ a: 1 })
+    expect(await readBodyJson(post('{"a":'))).toBeNull()
+  })
+})
+
+describe('errorToHttp', () => {
+  it('logs the cause of a 5xx, which the body withholds, and nothing for a refusal', () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const crash = new Error('relation "auth_identities" does not exist')
+      const misconfigured = new AuthError('AUTH_MISCONFIGURED', { detail: 'the database is missing the auth schema' })
+      const unavailable = new AuthError('AUTH_ADAPTER_UNAVAILABLE')
+      expect(errorToHttp(crash).status).toBe(500)
+      expect(errorToHttp(misconfigured).status).toBe(500)
+      expect(errorToHttp(unavailable).status).toBe(503)
+      expect(errorToHttp(new AuthError('AUTH_UNAUTHENTICATED')).status).toBe(401)
+      expect(logged.mock.calls).toEqual([
+        ['[@gentleduck/auth] request failed:', crash],
+        ['[@gentleduck/auth] request failed:', misconfigured],
+        ['[@gentleduck/auth] request failed:', unavailable],
+      ])
+    } finally {
+      logged.mockRestore()
+    }
   })
 })
