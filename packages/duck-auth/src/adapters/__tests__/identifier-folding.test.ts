@@ -8,35 +8,22 @@
  * enough for a row to be written that the index could not see was a duplicate and that `find` — which
  * lowercases in JS before it asks — could not match.
  */
+import Database from 'better-sqlite3'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { DrizzleSqliteAdapter } from '~/adapters/drizzle/sqlite'
 import { MemoryAdapter } from '~/adapters/memory'
+import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import { SQLITE_DDL as DDL } from '~/test/sqlite-schema'
 
 type Profile = { username: string; email: string }
 type Store = Identities.Store<Profile>
 
-const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
-
-/** Both runtimes, as the compliance matrix does: bun:sqlite under bun, better-sqlite3 under node. */
-async function sqliteStore(): Promise<Store> {
-  if (IS_BUN) {
-    const { Database } = (await import('bun:sqlite' as string)) as {
-      Database: new (path: string) => { exec(sql: string): void }
-    }
-    const { drizzle } = await import('drizzle-orm/bun-sqlite')
-    const db = new Database(':memory:')
-    db.exec(DDL)
-    // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database is structurally the drizzle client.
-    return new DrizzleSqliteAdapter<Profile>(drizzle(db as any)).identities
-  }
-  const { default: Database } = await import('better-sqlite3')
-  const { drizzle } = await import('drizzle-orm/better-sqlite3')
+function sqliteStore(): Store {
   const db = new Database(':memory:')
   db.exec(DDL)
-  // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
-  return new DrizzleSqliteAdapter<Profile>(drizzle(db as any)).identities
+  return new DrizzleSqliteAdapter<Profile>(drizzle(db)).identities
 }
 
 const create = (store: Store, email: string, username: string) =>
@@ -46,20 +33,20 @@ const create = (store: Store, email: string, username: string) =>
 const outcome = async (fn: () => Promise<unknown>): Promise<string> =>
   fn()
     .then(() => 'ACCEPTED')
-    .catch((err) => String((err as { code?: string }).code ?? err))
+    .catch((err) => (err instanceof AuthError ? err.code : String(err)))
 
 describe.each([
   ['drizzle-sqlite', sqliteStore],
-  ['memory', async (): Promise<Store> => new MemoryAdapter<Profile>().identities],
+  ['memory', (): Store => new MemoryAdapter<Profile>().identities],
 ])('%s folds an address the same way it looks one up', (_label, make) => {
   let store: Store
-  beforeAll(async () => {
-    store = await make()
+  beforeAll(() => {
+    store = make()
   })
 
   it('stores the address in the spelling a lookup asks by', async () => {
     const row = await create(store, '  JOSÉ@x.test ', 'jose-stored')
-    expect((row.profile as Profile).email).toBe('josé@x.test')
+    expect(row.profile.email).toBe('josé@x.test')
   })
 
   it('finds the row by the address as it was typed, and by its folded spelling', async () => {

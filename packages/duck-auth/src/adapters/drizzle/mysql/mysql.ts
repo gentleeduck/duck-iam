@@ -35,7 +35,7 @@ const { emailNorm: _emailNorm, usernameNorm: _usernameNorm, ...identityColumns }
 const { passwordKey: _passwordKey, ...credentialColumns } = getTableColumns(authCredentials)
 const sessionColumns = getTableColumns(authSessions)
 
-/** One class: the four facets share the handle, the `STORE_RAISES` mapper and the `run` boundary that names
+/** One class: the three stores share the handle, the `STORE_RAISES` mapper and the `run` boundary that names
  *  what threw. Each is declared as its slot in `Adapter.Me`, so the contract states what it answers. */
 export class DrizzleMysqlAdapter<
     TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -77,6 +77,28 @@ export class DrizzleMysqlAdapter<
       if (going.length > 0) await tx.delete(authCredentials).where(reach)
 
       return going
+    })
+  }
+
+  /** Every live row in `reach`, revoked by the current actor and answered as they now stand. No `RETURNING`, so
+   *  the ids are read under their own lock and the rows re-read after the write. */
+  private _revoke(reach: SQL | undefined) {
+    return this._db.transaction(async (tx) => {
+      const live = and(reach, isNull(authCredentials.revokedAt))
+      const ids = (await tx.select({ id: authCredentials.id }).from(authCredentials).where(live).for('update')).map(
+        (row) => row.id,
+      )
+      if (ids.length === 0) return []
+
+      // The DB's own clock, not the app's: `created_at` is `nowMs`-stamped by MySQL, and an app-clock
+      // `revokedAt` can land behind it on a fast create-then-revoke, tripping
+      // chk_auth_credentials_revoked_after_created on a perfectly legitimate write.
+      await tx
+        .update(authCredentials)
+        .set({ revokedAt: nowMs, updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
+        .where(inArray(authCredentials.id, ids))
+
+      return tx.select(credentialColumns).from(authCredentials).where(inArray(authCredentials.id, ids))
     })
   }
 
@@ -515,31 +537,25 @@ export class DrizzleMysqlAdapter<
 
     revoke: (id, { tenantId }) =>
       this.run(async () => {
-        // The DB's own clock, not the app's: `created_at` is `nowMs`-stamped by MySQL, and an app-clock
-        // `revokedAt` can land behind it on a fast create-then-revoke, tripping
-        // chk_auth_credentials_revoked_after_created on a perfectly legitimate write.
-        const row = await this._write({ expectedVersion: null, id, tenantId }, { revokedAt: nowMs })
+        const [moved] = await this._revoke(
+          and(eq(authCredentials.id, id), inTenant(authCredentials.tenantId, tenantId)),
+        )
+        const row = moved ?? (await this._credential([eq(authCredentials.id, id)], tenantId))
         if (!row) throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
         return row
       }),
 
-    /** The familyId is read out of `metadata`, which is where every oauth row carries it. */
-    revokeFamily: (familyId, { tenantId }) =>
-      this.run(async () => {
-        const reach = and(
-          eq(authCredentials.kind, 'oauth'),
-          isNull(authCredentials.revokedAt),
-          sql`${authCredentials.metadata} ->> '$.familyId' = ${familyId}`,
-          inTenant(authCredentials.tenantId, tenantId),
-        )
-        const [written] = await this._db
-          .update(authCredentials)
-          .set({ revokedAt: nowMs, updatedBy: actorId(), version: sql`${authCredentials.version} + 1` })
-          .where(reach)
-
-        return written.affectedRows
-      }),
+    revokeByKind: (identityId, kind, { tenantId }) =>
+      this.run(() =>
+        this._revoke(
+          and(
+            eq(authCredentials.identityId, identityId),
+            eq(authCredentials.kind, kind),
+            inTenant(authCredentials.tenantId, tenantId),
+          ),
+        ),
+      ),
 
     /** NOTE: a rotation is a use, so it stamps lastUsedAt. */
     rotate: (id, secret, expectedVersion, { tenantId }) =>
@@ -678,7 +694,7 @@ export class DrizzleMysqlAdapter<
       }),
   }
 
-  /** Rebinds all four stores onto a transaction handle, so one unit of work shares it. */
+  /** Rebinds all three stores onto a transaction handle, so one unit of work shares it. */
   withClient(client: unknown): DrizzleMysqlAdapter<TSchema, Profile> {
     // A handle is `db` or the `tx` a transaction hands its callback, and both answer all three.
     const isHandle = (c: unknown): c is MySql2Database<TSchema> =>

@@ -2,9 +2,11 @@ import type { authCredentials, authIdentities, authSessions } from './sqlite.sch
 
 /** Row types inferred from the SQLite schema, and the adapter's own options. */
 export namespace Sqlite {
+  /** An identity row. */
   export type IdentityRow = typeof authIdentities.$inferSelect
-  /** What a store answers: the table minus the columns the projections in the adapter drop. */
+  /** A credential row. */
   export type CredentialRow = typeof authCredentials.$inferSelect
+  /** A session row. */
   export type SessionRow = typeof authSessions.$inferSelect
 
   /** Structural shape of a better-sqlite3 `Database`, enough to detect it at runtime. */

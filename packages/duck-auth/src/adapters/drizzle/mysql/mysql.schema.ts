@@ -108,7 +108,7 @@ export const authIdentityProviders = mysqlTable(
     id: asciiKey('id', { length: 64 }).primaryKey().$defaultFn(authUuidV7),
     identityId: asciiKey('identity_id', { length: 64 }).notNull(),
     /** Which party issued the login, namespaced so two of them cannot collide on a shared sub: this is
-     *  ours, such as 'oauth:authGoogle' or 'saml:acme', where the sub below is theirs. */
+     *  ours, such as 'oauth:google' or 'saml:acme', where the sub below is theirs. */
     providerId: binKey('provider_id', { length: 191 }).notNull(),
     /**
      * The issuing party's own stable subject id for the account. NOT NULL: a row without one answers no
@@ -210,9 +210,10 @@ export const authSessions = mysqlTable(
     aal: int('aal').notNull().$type<Sessions.AAL>(),
     factors: factorsColumn('factors').notNull().default([]),
     csrfHash: asciiKey('csrf_hash', { length: 128 }),
-    ip: varchar('ip', { length: 45 }),
+    // As wide as `SESSION_COLUMN_CAPS`: narrower, and strict mode refuses the sign-in that carries one longer.
+    ip: varchar('ip', { length: 64 }),
     userAgent: text('user_agent'),
-    fingerprint: varchar('fingerprint', { length: 128 }),
+    fingerprint: varchar('fingerprint', { length: 256 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
     updatedAt: datetime('updated_at', { fsp: 3 })
       .notNull()

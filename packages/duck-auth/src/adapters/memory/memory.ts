@@ -31,9 +31,13 @@ function put<T>(map: Map<string, T>, key: string, row: T): T {
 
 /** The version moves with it: a revocation that leaves it alone loses to a `rotate` already holding the old
  *  number, which is the race RFC 6749 section 10.4 is about. Every dialect bumps it through its own writer. */
-function revoked<T extends { revokedAt: Date | null; updatedAt: Date; version: number }>(row: T): T {
+function revoked<T extends { revokedAt: Date | null; updatedAt: Date; updatedBy: string | null; version: number }>(
+  row: T,
+): T {
   const now = new Date()
-  return row.revokedAt ? row : { ...row, revokedAt: now, updatedAt: now, version: row.version + 1 }
+  return row.revokedAt
+    ? row
+    : { ...row, revokedAt: now, updatedAt: now, updatedBy: actorId(), version: row.version + 1 }
 }
 
 /** Every dialect matches on `lower(profile->>'email')`, so a case-sensitive compare here would let memory
@@ -521,11 +525,8 @@ export class MemoryAdapter<
           })
         }
 
-        // No implicit `rotatedAt` stamp: moving it on every patch would mask an expired gate. `id` is
-        // pinned because the key is the sid hash the cookie carries.
-        // `updatedAt` is stamped here rather than taken from the patch, as `$onUpdate` does in SQL, and is
-        // strictly increasing: it is the token `expectedUpdatedAt` compares, and `Date` resolves to the
-        // millisecond, so two writes inside one would stamp equal and the second land on top of the first.
+        // No implicit `rotatedAt` stamp, and `id` stays pinned to the sid hash. `updatedAt` is stamped here and
+        // strictly increasing, since it is the token `expectedUpdatedAt` compares.
         const next: Sessions.Me = {
           ...cur,
           ...stripUndefined(patch),
@@ -654,15 +655,12 @@ export class MemoryAdapter<
         return put(this._credentials, id, revoked(cur))
       }),
 
-    /** Memory walks every row, where a dialect indexes the familyId out of the metadata column. */
-    revokeFamily: (familyId, ctx) =>
+    revokeByKind: (identityId, kind, ctx) =>
       this.run(async () => {
-        let moved = 0
+        const moved: Credential.Me[] = []
         for (const row of this._credentials.values()) {
-          if (row.kind !== 'oauth' || row.revokedAt || !this._inTenant(row, ctx)) continue
-          if (row.metadata?.familyId !== familyId) continue
-          this._credentials.set(row.id, copy({ ...revoked(row), updatedBy: actorId() }))
-          moved += 1
+          if (row.identityId !== identityId || row.kind !== kind || row.revokedAt || !this._inTenant(row, ctx)) continue
+          moved.push(put(this._credentials, row.id, revoked(row)))
         }
 
         return moved
@@ -721,11 +719,7 @@ export class MemoryAdapter<
 
     addMember: (m, ctx) =>
       this.run(async () => {
-        // The row carries its own tenant and the context names one, so the two can disagree. The facet
-        // stamps it from the context and cannot, but the store is called directly for bulk admin work -
-        // which is the path `orgs-toctou-add-member.test.ts` exists for - and there the write would land
-        // in whichever tenant the row named.
-        // Written out rather than through `_inTenant`, so `asked` narrows to a string without a cast.
+        // A direct store call can name a row tenant other than the context's.
         if (ctx.tenantId !== undefined && m.tenantId !== ctx.tenantId) {
           throw new AuthError('AUTH_TENANT_SCOPE_VIOLATION', { asked: ctx.tenantId, got: m.tenantId })
         }

@@ -79,7 +79,7 @@ export const authIdentityProviders = sqliteTable(
     id: text('id').primaryKey().$defaultFn(authUuidV7),
     identityId: text('identity_id').notNull(),
     /** Which party issued the login, namespaced so two of them cannot collide on a shared sub: this is
-     *  ours, such as 'oauth:authGoogle' or 'saml:acme', where the sub below is theirs. */
+     *  ours, such as 'oauth:google' or 'saml:acme', where the sub below is theirs. */
     providerId: text('provider_id').notNull(),
     /** The issuing party's own stable subject id for the account. NOT NULL: a row without one answers no
      *  login, and a credential kept here is a `credentials` row, never one of these. */
