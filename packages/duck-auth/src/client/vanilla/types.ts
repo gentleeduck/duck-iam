@@ -1,8 +1,16 @@
 /** Vanilla client types: config plus the public `VanillaClient` namespace. */
 
-import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
+
+/**
+ * What every client method answers with. The failure arm is `AuthError.toJSON()` as the server wrote
+ * it - the code, the status, and whatever meta that code carries - plus `cause`, which the client
+ * fills in for a failure that never reached the server.
+ */
+export type Envelope<T, C extends string = string> =
+  | { ok: true; code: C; data: T }
+  | { ok: false; error: { code: C; status?: number; cause?: unknown } & Record<string, unknown> }
 
 /** Client configuration and the wire shapes the server answers with. */
 export namespace VanillaClient {
@@ -23,8 +31,11 @@ export namespace VanillaClient {
     csrfHeaderName?: string
   }
 
+  /** What `signIn` posts. */
   export type SignInOptions = {
+    /** The provider to sign in with. */
     providerId: string
+    /** What that provider's `complete` takes. */
     input: unknown
     /** Override the route path under baseUrl. Default `/signin`. */
     path?: string
@@ -51,15 +62,21 @@ export namespace VanillaClient {
 
   /** What `GET /session` puts on the wire; {@link SessionResult} is what a caller gets after revival. */
   export type SerializedSessionResult<Profile extends Identities.ProfileMetadataBase> = {
+    /** The session, dates as ISO strings. */
     session: Serialized<Sessions.Public> | null
+    /** Who it belongs to, dates as ISO strings. */
     identity: SerializedIdentity<Profile> | null
   }
 
+  /** The session and identity `/session` answers; both null for a guest. */
   export type SessionResult<Profile extends Identities.ProfileMetadataBase> = {
+    /** The session, without its `csrfHash`. */
     session: Sessions.Public | null
+    /** Who it belongs to. */
     identity: Identities.Me<Profile> | null
   }
 
+  /** What `signUp` posts. */
   export type SignUpOptions = {
     /** The route to post to, under baseUrl. Registration is yours to define, so no adapter mounts one
      *  and the `/signup` default is a placeholder: point this at your own route. */
@@ -84,7 +101,8 @@ export namespace VanillaClient {
     signOut(): Promise<Envelope<unknown, string>>
     /** GET /auth/session */
     getSession(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
-    /** POST /auth/providers/:id/begin */
+    /** POST /auth/providers/:id/begin. A redirect flow (OAuth, SAML) answers `{ url }`, and in a browser
+     *  the page is sent there; the others answer their own body, such as a passkey's options. */
     beginProvider(id: string, input?: unknown): Promise<Envelope<unknown, string>>
     /** Observe session changes. Returned function unsubscribes. */
     onChange(handler: (state: VanillaClient.SessionResult<Profile>) => void): () => void

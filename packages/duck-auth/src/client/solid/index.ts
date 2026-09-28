@@ -1,9 +1,8 @@
 /** Context and signals over the vanilla client; `solid-js` is an optional peerDep. Types live in `./types`. */
-import { createContext, createMemo, createSignal, type JSX, onCleanup, onMount, useContext } from 'solid-js'
+import { createContext, createSignal, type JSX, onCleanup, onMount, useContext } from 'solid-js'
 import { AuthError } from '~/core/errors'
-import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
-import { createAuthClient, type VanillaClient } from '../vanilla'
+import { createAuthClient, type Envelope, type VanillaClient } from '../vanilla'
 import type { SolidClient } from './types'
 
 export type { SolidClient } from './types'
@@ -39,7 +38,13 @@ export function Provider<Profile extends Identities.ProfileMetadataBase = Identi
     status,
   }
 
-  return AuthContext.Provider({ children: props.children, value: ctxVal })
+  return AuthContext.Provider({
+    // A getter, so the children are built inside the context rather than before it exists.
+    get children() {
+      return props.children
+    },
+    value: ctxVal,
+  })
 }
 
 function useAuthCtx<
@@ -64,7 +69,7 @@ export function authUseSession<
 
 function useMutation<I, O>(fn: (input: I) => Promise<O>): SolidClient.MutationResult<I, O> {
   const [loading, setLoading] = createSignal(false)
-  const [error, setError] = createSignal<unknown | null>(null)
+  const [error, setError] = createSignal<unknown>(null)
   const mutate = async (input: I) => {
     setLoading(true)
     setError(null)
@@ -77,11 +82,7 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): SolidClient.MutationRe
       setLoading(false)
     }
   }
-  return {
-    error: createMemo(() => error()),
-    loading: createMemo(() => loading()),
-    mutate,
-  }
+  return { error, loading, mutate }
 }
 
 /** Signs in through a provider. */

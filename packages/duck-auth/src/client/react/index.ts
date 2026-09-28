@@ -17,11 +17,10 @@
  * }
  * ```
  */
-import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, createElement, useContext, useEffect, useMemo, useState } from 'react'
 import { AuthError } from '~/core/errors'
-import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
-import { createAuthClient, type VanillaClient } from '../vanilla'
+import { createAuthClient, type Envelope, type VanillaClient } from '../vanilla'
 import type { ReactClient } from './types'
 
 export type { ReactClient } from './types'
@@ -37,11 +36,8 @@ export function Provider<Profile extends Identities.ProfileMetadataBase = Identi
   const client = useMemo(() => externalClient ?? createAuthClient<Profile>(cfg), [externalClient, cfg.baseUrl])
   const [state, setState] = useState<VanillaClient.SessionResult<Profile>>({ session: null, identity: null })
   const [status, setStatus] = useState<'loading' | 'authed' | 'guest'>(noInitialFetch ? 'guest' : 'loading')
-  const subscribed = useRef(false)
 
   useEffect(() => {
-    if (subscribed.current) return
-    subscribed.current = true
     const off = client.onChange((s) => {
       setState(s)
       setStatus(s.identity ? 'authed' : 'guest')
@@ -49,10 +45,7 @@ export function Provider<Profile extends Identities.ProfileMetadataBase = Identi
     if (!noInitialFetch) {
       client.refresh().catch(() => setStatus('guest'))
     }
-    return () => {
-      subscribed.current = false
-      off()
-    }
+    return off
   }, [client, noInitialFetch])
 
   const value: ReactClient.ContextValue<Profile> = useMemo(
@@ -82,22 +75,19 @@ function useAuthCtx<
 
 function useMutation<I, O>(fn: (input: I) => Promise<O>): ReactClient.MutationResult<I, O> {
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<unknown | null>(null)
-  const mutate = useCallback(
-    async (input: I) => {
-      setLoading(true)
-      setError(null)
-      try {
-        return await fn(input)
-      } catch (err) {
-        setError(err)
-        throw err
-      } finally {
-        setLoading(false)
-      }
-    },
-    [fn],
-  )
+  const [error, setError] = useState<unknown>(null)
+  const mutate = async (input: I) => {
+    setLoading(true)
+    setError(null)
+    try {
+      return await fn(input)
+    } catch (err) {
+      setError(err)
+      throw err
+    } finally {
+      setLoading(false)
+    }
+  }
   return { mutate, loading, error }
 }
 
@@ -118,14 +108,14 @@ export function useSignIn<
 }
 
 /**
- * `useSignUp`. Registration is app-shaped, so `Input` is caller-typed and the
+ * `useSignUp`. Registration is app-shaped, so `Input` is caller-typed, `path` names the app's own route, and the
  * result echoes the response `data`. Does not create a session.
  */
-export function useSignUp<
-  Input extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
->(): ReactClient.MutationResult<Input, Envelope<unknown, string>> {
+export function useSignUp<Input = unknown>(
+  opts?: ReactClient.SignUpOptions,
+): ReactClient.MutationResult<Input, Envelope<unknown, string>> {
   const { client } = useAuthCtx()
-  return useMutation((input: Input) => client.signUp(input))
+  return useMutation((input: Input) => client.signUp(input, opts))
 }
 
 /** Signs the current session out. */

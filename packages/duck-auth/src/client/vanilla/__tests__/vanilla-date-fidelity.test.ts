@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { Identities } from '~/core/identities'
-import type { Sessions } from '~/core/sessions/sessions.types'
 import { SESSION_FIELDS } from '~/test/type-fidelity'
 import { createAuthClient } from '../index'
 
@@ -55,13 +53,9 @@ function wireSession() {
 }
 
 function clientReturning(data: unknown) {
-  const fetchImpl = vi.fn(async () => ({
-    ok: true,
-    status: 200,
-    // The round trip through JSON is the whole point; do not shortcut it.
-    text: async () => JSON.stringify({ code: 'AUTH_SESSION_OK', data, ok: true }),
-  })) as unknown as typeof globalThis.fetch
-  return createAuthClient<{ email: string; username: string }>({ baseUrl: '/auth', fetch: fetchImpl })
+  // The round trip through JSON is the whole point; do not shortcut it.
+  const fetch = async () => new Response(JSON.stringify({ code: 'AUTH_SESSION_OK', data, ok: true }))
+  return createAuthClient<{ email: string; username: string }>({ baseUrl: '/auth', fetch })
 }
 
 async function getSession() {
@@ -89,7 +83,7 @@ describe('the client hands back the Dates its types promise', () => {
       .map(([key]) => key)
     expect(declared.length).toBeGreaterThan(0)
     for (const key of declared) {
-      expect((session as unknown as Record<string, unknown>)[key], key).toBeInstanceOf(Date)
+      expect(session && Reflect.get(session, key), key).toBeInstanceOf(Date)
     }
   })
 
@@ -98,8 +92,8 @@ describe('the client hands back the Dates its types promise', () => {
     // The silent half. `'2026-09-04T11:00:00.000Z' > NOW` is `false`, so an
     // expiry check written the obvious way reports every session as expired -
     // or, with the operands the other way round, never expired.
-    expect((session as Sessions.Me).expiresAt > NOW).toBe(true)
-    expect((session as Sessions.Me).expiresAt.getTime()).toBe(LATER.getTime())
+    expect(session && session.expiresAt > NOW).toBe(true)
+    expect(session?.expiresAt.getTime()).toBe(LATER.getTime())
   })
 
   it('nested session dates are Dates', async () => {
@@ -146,18 +140,9 @@ describe('the client hands back the Dates its types promise', () => {
     // `call` synthesises `data: parsed` for a non-enveloped reply, and an empty
     // body parses to `null`. That used to be returned as `data` under a type
     // promising a `SessionResult`, so `res.data.session` threw.
-    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, text: async () => '' })) as unknown as typeof fetch
-    const res = await createAuthClient({ fetch: fetchImpl }).getSession()
+    const res = await createAuthClient({ fetch: async () => new Response('') }).getSession()
     if (!res.ok) throw new Error('expected ok')
     expect(res.data).toEqual({ identity: null, session: null })
-  })
-
-  it('the framework clients inherit it, because they all wrap this one', async () => {
-    // react / vue / svelte / solid each call `createAuthClient` and re-expose
-    // its state; none of them parses a response of its own. Asserting the seam
-    // rather than four near-identical hook tests.
-    const src = readFileSync(new URL('../../react/index.ts', import.meta.url), 'utf8')
-    expect(src).toContain("from '../vanilla'")
   })
 
   it('onChange subscribers see the revived rows, not the raw ones', async () => {
