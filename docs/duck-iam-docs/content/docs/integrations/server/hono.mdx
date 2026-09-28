@@ -1,6 +1,6 @@
 ---
 title: Hono
-description: The Hono middleware, per-route guard, and admin router: edge-safe, with cf-connecting-ip handling and normalised forwarded IPs
+description: The Hono middleware, per-route guard, and admin router, edge-safe, with cf-connecting-ip handling and normalised forwarded IPs
 section: Integrations
 ---
 `@gentleduck/iam/server/hono` exposes the same two request gates as the Express wrapper plus a function that binds admin routes onto a router you already own. It imports no Node built-ins and no Hono types, so it runs wherever Hono runs: Node, Bun, Deno, Cloudflare Workers, and Vercel Edge. The shared extraction and audit behaviour lives in [generic helpers](/duck-iam/integrations/server/generic); this page documents only what Hono adds.
