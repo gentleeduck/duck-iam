@@ -1,0 +1,3 @@
+@import "tailwindcss";
+@import "@examples/duck-auth-ui/theme.css";
+@source "../../../../node_modules/@gentleduck/registry-ui/src";
