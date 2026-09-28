@@ -1,11 +1,35 @@
-import { describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
+import { flushSync } from 'react-dom'
+import { createRoot } from 'react-dom/client'
+import { describe, expect, it, vi } from 'vitest'
+import { useSession } from '../../index'
 import { authCreateMockClient, authWithStorybook, type Storybook } from '../index'
+
+type Profile = { email: string; username: string }
+
+function identity(id: string) {
+  return { createdAt: new Date(0), id, providers: [], updatedAt: new Date(0), version: 1 }
+}
+
+/** The identity id a story reads through `useSession` under the decorator, once its Provider has subscribed. */
+async function storyIdentity(defaults: Storybook.State<Profile>, auth?: Partial<Storybook.State<Profile>>) {
+  let id: string | undefined
+  function Story() {
+    id = useSession<Profile>().data.identity?.id
+    return null
+  }
+  flushSync(() =>
+    createRoot(document.createElement('div')).render(authWithStorybook(defaults)(Story, { parameters: { auth } })),
+  )
+  await vi.waitFor(() => expect(id).toBeDefined())
+  return id
+}
 
 describe('storybook authWithStorybook decorator', () => {
   it('authCreateMockClient resolves getSession with the configured state', async () => {
     const client = authCreateMockClient({
       status: 'authed',
-      identity: { id: 'u1', providers: [], version: 1, createdAt: new Date(0), updatedAt: new Date(0) },
+      identity: identity('u1'),
     })
     const result = await client.getSession()
     if (!result.ok) throw new Error('expected ok')
@@ -22,7 +46,7 @@ describe('storybook authWithStorybook decorator', () => {
 
   it('onChange fires once synchronously on subscribe', () => {
     const client = authCreateMockClient({
-      identity: { id: 'u2', providers: [], version: 1, createdAt: new Date(0), updatedAt: new Date(0) },
+      identity: identity('u2'),
     })
     let seen: unknown = 'NOT-CALLED'
     const off = client.onChange((s) => {
@@ -34,7 +58,7 @@ describe('storybook authWithStorybook decorator', () => {
 
   it('signIn returns ok=true with the configured state', async () => {
     const client = authCreateMockClient({
-      identity: { id: 'u3', providers: [], version: 1, createdAt: new Date(0), updatedAt: new Date(0) },
+      identity: identity('u3'),
     })
     const r = await client.signIn({ providerId: 'password', input: {} })
     expect(r.ok).toBe(true)
@@ -42,54 +66,13 @@ describe('storybook authWithStorybook decorator', () => {
     expect(r.data.identity?.id).toBe('u3')
   })
 
-  it('authWithStorybook() returns a vnode wrapping Provider', () => {
-    const decorator = authWithStorybook({ status: 'guest' })
-    const result = decorator(() => null) as { type: unknown; props: { client: unknown } }
-    expect(result).toBeDefined()
-    expect(result.type).toBeDefined()
-    expect(result.props.client).toBeDefined()
+  it('renders the story under a Provider holding the configured identity', async () => {
+    expect(await storyIdentity({ identity: identity('from-defaults') })).toBe('from-defaults')
   })
 
-  it('story-level parameters.auth merges over decorator defaults', async () => {
-    const decorator = authWithStorybook<{ username: string; email: string }>({ status: 'guest' })
-    const result = decorator(() => null, {
-      parameters: {
-        auth: {
-          status: 'authed',
-          identity: {
-            id: 'override',
-            profile: { username: 'a@b.test', email: 'a@b.test' },
-            providers: [],
-            version: 1,
-            createdAt: new Date(0),
-            updatedAt: new Date(0),
-          },
-        },
-      },
-    }) as {
-      props: {
-        client: { getSession: () => Promise<{ ok: true; data: { identity: { id: string } | null } } | { ok: false }> }
-      }
-    }
-    const sess = await result.props.client.getSession()
-    expect((sess.ok ? sess.data : null)?.identity?.id).toBe('override')
-  })
-
-  it('defaults flow through when no story-level parameters provided', async () => {
-    const decorator = authWithStorybook({
-      identity: { id: 'from-defaults', providers: [], version: 1, createdAt: new Date(0), updatedAt: new Date(0) },
-    })
-    const result = decorator(() => null) as {
-      props: {
-        client: { getSession: () => Promise<{ ok: true; data: { identity: { id: string } | null } } | { ok: false }> }
-      }
-    }
-    const sess = await result.props.client.getSession()
-    expect((sess.ok ? sess.data : null)?.identity?.id).toBe('from-defaults')
-  })
-
-  it('Storybook.State type is exported', () => {
-    const _check: Storybook.State = {}
-    expect(_check).toEqual({})
+  it("lets a story's `parameters.auth` override the decorator's defaults", async () => {
+    expect(await storyIdentity({ identity: identity('from-defaults') }, { identity: identity('override') })).toBe(
+      'override',
+    )
   })
 })

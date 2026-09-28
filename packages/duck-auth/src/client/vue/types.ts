@@ -1,30 +1,18 @@
 /** Vue client types — the public `VueClient` namespace. */
 
-import type { Envelope } from '~/core/errors/errors.types'
+import type { App, Ref } from 'vue'
 import type { Identities } from '~/core/identities'
-import type { VanillaClient } from '../vanilla'
+import type { Envelope, VanillaClient } from '../vanilla'
 
 /** Vue plugin options, composable results and the vanilla types a consumer needs. */
 export namespace VueClient {
-  /** Minimal `Ref<T>` surface compatible with Vue 3 `vue.ref`. */
-  export type Ref<T> = {
-    value: T
-  }
-
-  export type VueModule = {
-    ref<T>(value: T): VueClient.Ref<T>
-    inject(key: symbol): unknown
-    provide(key: symbol, value: any): void
-  }
-
-  export type App = {
-    provide(key: symbol, value: unknown): VueClient.App
-  }
-
+  /** The Vue plugin `createAuthVuePlugin` answers. */
   export type Plugin = {
-    install(app: VueClient.App): void
+    /** Provides the client and session state to `app`. */
+    install(app: App): void
   }
 
+  /** What `createAuthVuePlugin` takes: the vanilla client's options, or a client of your own. */
   export interface Cfg<Profile extends Identities.ProfileMetadataBase> extends VanillaClient.Cfg {
     /** Pre-built client; overrides config. */
     client?: VanillaClient.Client<Profile>
@@ -32,24 +20,35 @@ export namespace VueClient {
     noInitialFetch?: boolean
   }
 
+  /** What the plugin provides. */
   export type Injected<Profile extends Identities.ProfileMetadataBase> = {
+    /** The client every composable calls through. */
     client: VanillaClient.Client<Profile>
-    state: VueClient.Ref<VanillaClient.SessionResult<Profile>>
+    /** The last session read; both fields are `null` for a guest. */
+    state: Ref<VanillaClient.SessionResult<Profile>>
     /** `loading` until the first resolve settles, then `authed` or `guest`. */
-    status: VueClient.Ref<'loading' | 'authed' | 'guest'>
+    status: Ref<'loading' | 'authed' | 'guest'>
+    /** Re-reads the session from the server. */
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }
 
+  /** What `useAuthSession` answers. */
   export type UseSessionResult<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
-    data: VueClient.Ref<VanillaClient.SessionResult<Profile>>
+    /** The session and identity; both are `null` for a guest. */
+    data: Ref<VanillaClient.SessionResult<Profile>>
     /** `loading` until the first resolve settles, then `authed` or `guest`. */
-    status: VueClient.Ref<'loading' | 'authed' | 'guest'>
+    status: Ref<'loading' | 'authed' | 'guest'>
+    /** Re-reads the session from the server. */
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }
 
+  /** What a mutation composable answers: the call, and its loading and error refs. */
   export type MutationResult<I, O> = {
+    /** Runs the mutation. */
     mutate(input: I): Promise<O>
-    loading: VueClient.Ref<boolean>
-    error: VueClient.Ref<unknown | null>
+    /** Whether a call is in flight. */
+    loading: Ref<boolean>
+    /** What the last call threw, cleared when the next starts. A refusal is an envelope, not a throw. */
+    error: Ref<unknown>
   }
 }

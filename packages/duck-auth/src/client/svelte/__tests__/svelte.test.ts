@@ -1,58 +1,45 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { browserOverEngine, type Profile } from '~/test/browser-over-engine'
 import { createAuthStore } from '../index'
+import type { SvelteClient } from '../types'
 
-function mockFetch(handler: (path: string) => { status: number; body: unknown }) {
-  return vi.fn(async (url: string) => {
-    const path = new URL(url, 'http://x').pathname
-    const { status, body } = handler(path)
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      text: async () => (body === null || body === undefined ? '' : JSON.stringify(body)),
-    } as unknown as Response
-  })
-}
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
-describe('createAuthStore (Svelte)', () => {
-  it('subscribes synchronously with the initial state, then updates on signIn', async () => {
-    const fetchImpl = mockFetch((path) => {
-      if (path === '/auth/signin') return { body: { ok: true }, status: 200 }
-      if (path === '/auth/session') return { body: { identity: { id: 'i1' }, session: { id: 's1' } }, status: 200 }
-      return { body: null, status: 404 }
-    })
-    const store = createAuthStore({ baseUrl: '/auth', fetch: fetchImpl as never, noInitialFetch: true })
-    const seen: string[] = []
-    const unsub = store.state.subscribe((s) => seen.push(s.status))
-    expect(seen[0]).toBe('guest')
-    await store.signIn({ input: { email: 'a@x', password: 'x' }, providerId: 'password' })
-    expect(seen[seen.length - 1]).toBe('authed')
-    unsub()
+const credentials = { input: { email: 'a@x.com', password: 'correct-pw' }, providerId: 'password' }
+
+describe('the Svelte store', () => {
+  it('signs in and out through a real engine, and the store follows', async () => {
+    const { adapter, fetch, id } = await browserOverEngine()
+    const store = createAuthStore<Profile>({ csrfCookieName: 'duck-csrf', fetch })
+    const seen: SvelteClient.State<Profile>[] = []
+    store.state.subscribe((state) => seen.push(state))
+    await vi.waitFor(() => expect(seen.at(-1)?.status).toBe('guest'))
+
+    expect((await store.signIn(credentials)).ok).toBe(true)
+    expect(seen.at(-1)?.identity?.id).toBe(id)
+    expect(seen.at(-1)?.identity?.createdAt).toBeInstanceOf(Date)
+
+    expect((await store.signOut()).ok).toBe(true)
+    expect(await adapter.sessions.listByIdentity(id)).toEqual([])
+    expect(seen.map((state) => state.status)).toEqual(['loading', 'guest', 'authed', 'guest'])
   })
 
-  it('refresh() pulls /session and notifies subscribers', async () => {
-    const fetchImpl = mockFetch((path) =>
-      path === '/auth/session'
-        ? { body: { identity: { id: 'i2' }, session: { id: 's2' } }, status: 200 }
-        : { body: null, status: 404 },
-    )
-    const store = createAuthStore({ baseUrl: '/auth', fetch: fetchImpl as never, noInitialFetch: true })
-    await store.refresh()
-    let observed: string = ''
-    store.state.subscribe((s) => {
-      observed = s.status
+  it('hands a late subscriber the current state, and stops calling one that unsubscribed', async () => {
+    const { fetch } = await browserOverEngine()
+    const store = createAuthStore<Profile>({ csrfCookieName: 'duck-csrf', fetch, noInitialFetch: true })
+    let calls = 0
+    store.state.subscribe(() => {
+      calls++
     })()
-    expect(observed).toBe('authed')
-  })
 
-  it('unsubscribe stops notifications', async () => {
-    const fetchImpl = mockFetch(() => ({ body: { identity: null, session: null }, status: 200 }))
-    const store = createAuthStore({ baseUrl: '/auth', fetch: fetchImpl as never, noInitialFetch: true })
-    let count = 0
-    const off = store.state.subscribe(() => {
-      count++
-    })
-    off()
-    await store.refresh()
-    expect(count).toBe(1)
+    await store.signIn(credentials)
+    expect(calls).toBe(1)
+    let late = ''
+    store.state.subscribe((state) => {
+      late = state.status
+    })()
+    expect(late).toBe('authed')
   })
 })

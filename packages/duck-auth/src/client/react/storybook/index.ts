@@ -65,7 +65,7 @@ export function authCreateMockClient<Profile extends Identities.ProfileMetadataB
 }
 
 /** Wraps the story in `<Provider>` over a mock client built from `defaults`. `live: true`, top-level or through
- *  `parameters.auth.live`, swaps in `authCreateClient({ baseUrl })` and hits a real backend with credentials. */
+ *  `parameters.auth.live`, swaps in `createAuthClient({ baseUrl })` and hits a real backend with credentials. */
 export function authWithStorybook<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   defaults: Storybook.State<Profile> = {},
 ) {
@@ -79,23 +79,8 @@ export function authWithStorybook<Profile extends Identities.ProfileMetadataBase
     }
     const live = state.live === true
     const baseUrl = state.baseUrl ?? AUTH_DEFAULT_LIVE_BASE_URL
-    const client = live
-      ? createAuthClient<Profile>({
-          baseUrl,
-          // Always include the session cookie + CSRF cookie on cross-origin
-          // requests so Storybook at :6006 can speak to the backend at :8787.
-          fetch: (input: any, init: any) => fetch(input, { ...init, credentials: 'include' }),
-        })
-      : authCreateMockClient<Profile>(state)
-    return createElement(
-      Provider,
-      {
-        baseUrl: live ? baseUrl : 'storybook://mock',
-        client: client,
-        noInitialFetch: !live,
-      },
-      createElement(Story),
-    )
+    const client = live ? createAuthClient<Profile>({ baseUrl }) : authCreateMockClient<Profile>(state)
+    return createElement(Provider, { client, noInitialFetch: !live }, createElement(Story))
   }
 }
 
@@ -107,8 +92,11 @@ export namespace Storybook {
    * ignored for a real `VanillaClient` against `baseUrl`, which defaults to the bundled demo server.
    */
   export type State<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
+    /** What the story says the status is. */
     status?: 'loading' | 'authed' | 'guest'
+    /** Who is signed in, `null` for a guest. */
     identity?: Partial<Identities.Me<Profile>> | null
+    /** Their session, `null` for a guest. */
     session?: Partial<Sessions.Public> | null
     /** Use a real client pointed at `baseUrl` instead of the mock. */
     live?: boolean
