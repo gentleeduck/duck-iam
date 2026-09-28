@@ -5,7 +5,7 @@ description: "Evaluates one flat condition against the request. SECURITY: throws
 
 > **iamEvalCondition**(`req`: [`IAccessRequest`](../duck-iam/namespaces/IamRequest/interfaces/IAccessRequest), `cond`: [`ICondition`](../duck-iam/namespaces/AccessControl/interfaces/ICondition), `caches?`: \{ `path?`: `Map`\<`string`, `string`[] \| `null`\>; `regex?`: `Map`\<`string`, `RegExp`\>; \}): `boolean`
 
-Defined in: [packages/duck-iam/src/core/conditions/conditions.libs.ts:573](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/conditions/conditions.libs.ts#L573)
+Defined in: [packages/duck-iam/src/core/conditions/conditions.libs.ts:573](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/conditions/conditions.libs.ts#L573)
 
 Evaluates one flat condition against the request.
 SECURITY: throws instead of returning `false` when the condition cannot be answered (Indeterminate).

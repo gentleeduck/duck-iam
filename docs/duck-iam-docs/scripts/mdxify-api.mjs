@@ -32,8 +32,9 @@ function toPlainText(line) {
     .trim()
 }
 
+// Drops the type parameter list: `Class: Foo<T extends ...>` reads as `Class: Foo`, inside the site's 99-char title cap.
 function unescapeTitle(line) {
-  return toPlainText(line.replace(/^#\s+/, ''))
+  return toPlainText(line.replace(/^#\s+/, '')).replace(/<.*>$/, '')
 }
 
 function yamlString(value) {

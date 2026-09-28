@@ -1,9 +1,9 @@
 ---
-title: "Class: RoleBuilder<TAction *extends* string = string, TResource *extends* string = string, TRole *extends* string = string, TScope *extends* string = string, TContext *extends* object = IDefaultContext>"
+title: "Class: RoleBuilder"
 description: "Chainable builder for an AccessControl.IRole: permissions plus optional parent roles. rolesToPolicy() turns roles into ABAC rules, so RBAC and ABAC share one engine."
 ---
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:40](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L40)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L40)
 
 Chainable builder for an [AccessControl.IRole](../duck-iam/namespaces/AccessControl/interfaces/IRole): permissions plus optional parent roles.
 `rolesToPolicy()` turns roles into ABAC rules, so RBAC and ABAC share one engine.
@@ -62,7 +62,7 @@ Shape of the full evaluation context for typed dot-paths
 
 > **new RoleBuilder**\<`TAction` *extends* `string` = `string`, `TResource` *extends* `string` = `string`, `TRole` *extends* `string` = `string`, `TScope` *extends* `string` = `string`, `TContext` *extends* `object` = [`IDefaultContext`](../duck-iam/namespaces/DotPath/interfaces/IDefaultContext)\>(`id`: `TRole`): `RoleBuilder`\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`\>
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:55](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L55)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:55](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L55)
 
 #### Parameters
 
@@ -80,7 +80,7 @@ Defined in: [packages/duck-iam/src/core/builder/role.ts:55](https://github.com/g
 
 > **build**(): [`IRole`](../duck-iam/namespaces/AccessControl/interfaces/IRole)\<`TAction`, `TResource`, `TRole`, `TScope`\>
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:232](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L232)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:232](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L232)
 
 Returns the plain [AccessControl.IRole](../duck-iam/namespaces/AccessControl/interfaces/IRole), ready for `engine.admin.saveRole()` or an adapter's `saveRole()`.
 
@@ -98,7 +98,7 @@ If the role fails validation
 
 > **desc**(`d`: `string`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:67](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L67)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:67](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L67)
 
 Attaches a description; not used in evaluation.
 
@@ -118,7 +118,7 @@ Attaches a description; not used in evaluation.
 
 > **grant**(`action`: `"*"` \| `TAction`, `resource`: `"*"` \| `TResource`, `scope?`: `TScope`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:115](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L115)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:115](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L115)
 
 Grants an unconditional permission (`'*'` matches all); global unless `scope` is given.
 
@@ -154,7 +154,7 @@ defineRole('hybrid')
 
 > **grantAll**(`resource`: `"*"` \| `TResource`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:172](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L172)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:172](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L172)
 
 Grants every action (`'*'`) on `resource`. For only the four CRUD verbs, see [RoleBuilder.grantCRUD](#grantcrud).
 
@@ -181,7 +181,7 @@ defineRole('post-admin').grantAll('post') // all actions on posts only
 
 > **grantCRUD**(`resource`: `"create"` \| `"read"` \| `"update"` \| `"delete"` *extends* `TAction` ? `"*"` \| `TResource` : `never`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:204](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L204)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:204](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L204)
 
 Grants `create`, `read`, `update` and `delete` on `resource`; unlike [RoleBuilder.grantAll](#grantall), no custom actions.
 NOTE: only callable when `TAction` includes all four; see [RoleBuilder.grantRead](#grantread).
@@ -210,7 +210,7 @@ defineRole('content-manager')
 
 > **grantRead**(...`resources`: `"read"` *extends* `TAction` ? `"*"` \| `TResource` : `never`[]): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:186](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L186)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:186](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L186)
 
 Grants `read` on each resource.
 NOTE: only callable when `TAction` includes `'read'`, so a grant no request could match fails to compile.
@@ -238,7 +238,7 @@ defineRole('auditor')
 
 > **grantScoped**(`scope`: `TScope`, `action`: `"*"` \| `TAction`, `resource`: `"*"` \| `TResource`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:132](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L132)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:132](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L132)
 
 Grants a permission in one scope, so a role can mix global and scoped permissions (unlike [RoleBuilder.scope](#scope)).
 
@@ -275,7 +275,7 @@ defineRole('hybrid')
 
 > **grantWhen**\<`R` *extends* `string`\>(`action`: `"*"` \| `TAction`, `resource`: `R`, `fn`: [`WhenGroupFn`](../type-aliases/WhenGroupFn)\<`TAction`, `TResource`, `TRole`, `TScope`, `TContext`, `R`\>): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:153](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L153)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:153](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L153)
 
 Grants a permission that applies only when every condition built in `fn` holds.
 
@@ -323,7 +323,7 @@ defineRole('team-lead')
 
 > **inherits**(...`roleIds`: (`TRole` \| `string` & \{ \})[]): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:82](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L82)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:82](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L82)
 
 Declares parent roles to inherit permissions from, recursively. To grant less than a parent, use a deny policy.
 WARN: replaces earlier parents rather than appending like `grant*`; a bare `.inherits()` clears them.
@@ -351,7 +351,7 @@ defineRole('moderator').inherits('viewer', 'commenter')
 
 > **meta**(`m`: [`Attributes`](../duck-iam/namespaces/IamPrimitives/type-aliases/Attributes)): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:222](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L222)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:222](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L222)
 
 Attaches metadata for app bookkeeping (dashboards, audit logs, UI labels); never used in evaluation.
 
@@ -379,7 +379,7 @@ defineRole('beta-tester')
 
 > **name**(`n`: `string`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:61](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L61)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:61](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L61)
 
 Sets the display name; defaults to the role ID.
 
@@ -399,7 +399,7 @@ Sets the display name; defaults to the role ID.
 
 > **scope**(`s`: `TScope`): `this`
 
-Defined in: [packages/duck-iam/src/core/builder/role.ts:100](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/builder/role.ts#L100)
+Defined in: [packages/duck-iam/src/core/builder/role.ts:100](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/builder/role.ts#L100)
 
 Scopes every permission in the role; under `scopeMode: 'hierarchical'`, `'org-1'` also covers `'org-1.team-a'`.
 To scope a single permission, use [RoleBuilder.grantScoped](#grantscoped).

@@ -1,9 +1,9 @@
 ---
-title: "Interface: IAccessRequest<TAction *extends* string = string, TResource *extends* string = string, TScope *extends* string = string>"
+title: "Interface: IAccessRequest"
 description: "Complete authorization request the engine evaluates."
 ---
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:77](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L77)
+Defined in: [packages/duck-iam/src/core/types/request.ts:77](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L77)
 
 Complete authorization request the engine evaluates.
 
@@ -33,7 +33,7 @@ Union of valid scope strings.
 
 > `readonly` **action**: `TAction`
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:84](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L84)
+Defined in: [packages/duck-iam/src/core/types/request.ts:84](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L84)
 
 Action being performed (e.g. `'read'`, `'update'`, `'delete'`).
 
@@ -43,7 +43,7 @@ Action being performed (e.g. `'read'`, `'update'`, `'delete'`).
 
 > `readonly` `optional` **environment?**: [`IEnvironment`](IEnvironment)
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:88](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L88)
+Defined in: [packages/duck-iam/src/core/types/request.ts:88](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L88)
 
 ***
 
@@ -51,7 +51,7 @@ Defined in: [packages/duck-iam/src/core/types/request.ts:88](https://github.com/
 
 > `readonly` **resource**: [`IResource`](IResource)\<`TResource`\>
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:85](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L85)
+Defined in: [packages/duck-iam/src/core/types/request.ts:85](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L85)
 
 ***
 
@@ -59,7 +59,7 @@ Defined in: [packages/duck-iam/src/core/types/request.ts:85](https://github.com/
 
 > `readonly` `optional` **scope?**: `TScope`
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:87](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L87)
+Defined in: [packages/duck-iam/src/core/types/request.ts:87](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L87)
 
 Multi-tenant scope (e.g. `'org-acme'`).
 
@@ -69,5 +69,5 @@ Multi-tenant scope (e.g. `'org-acme'`).
 
 > `readonly` **subject**: [`ISubject`](ISubject)
 
-Defined in: [packages/duck-iam/src/core/types/request.ts:82](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/request.ts#L82)
+Defined in: [packages/duck-iam/src/core/types/request.ts:82](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/request.ts#L82)
 

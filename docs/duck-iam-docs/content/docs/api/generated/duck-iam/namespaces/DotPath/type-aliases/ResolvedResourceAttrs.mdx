@@ -1,11 +1,11 @@
 ---
-title: "Type Alias: ResolvedResourceAttrs<TContext, TResource *extends* string>"
+title: "Type Alias: ResolvedResourceAttrs"
 description: "Resource attribute shape narrowed to TResource; falls back to merged union for '*' / unknown."
 ---
 
 > **ResolvedResourceAttrs**\<`TContext`, `TResource` *extends* `string`\> = [`ResourceAttrMap`](ResourceAttrMap)\<`TContext`\> *extends* `never` ? [`ResourceAttrShape`](ResourceAttrShape)\<`TContext`\> : `TResource` *extends* keyof [`ResourceAttrMap`](ResourceAttrMap)\<`TContext`\> ? [`ResourceAttrMap`](ResourceAttrMap)\<`TContext`\>\[`TResource`\] : `MergedResourceAttrs`\<[`ResourceAttrMap`](ResourceAttrMap)\<`TContext`\>\>
 
-Defined in: [packages/duck-iam/src/core/types/dot-path.ts:187](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/dot-path.ts#L187)
+Defined in: [packages/duck-iam/src/core/types/dot-path.ts:187](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/dot-path.ts#L187)
 
 Resource attribute shape narrowed to `TResource`; falls back to merged union for `'*'` / unknown.
 

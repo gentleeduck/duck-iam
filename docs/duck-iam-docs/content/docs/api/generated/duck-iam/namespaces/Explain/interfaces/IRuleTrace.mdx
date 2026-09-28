@@ -3,7 +3,7 @@ title: "Interface: IRuleTrace"
 description: "Trace of a single rule: action / resource / condition match status, plus the conditions tree."
 ---
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:83](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L83)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:83](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L83)
 
 Trace of a single rule: action / resource / condition match status, plus the conditions tree.
 
@@ -28,7 +28,7 @@ const rule: Explain.IRuleTrace = {
 
 > `readonly` **actionMatch**: `boolean`
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:88](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L88)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:88](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L88)
 
 ***
 
@@ -36,7 +36,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:88](https://git
 
 > `readonly` `optional` **conditionError?**: `string`
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:97](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L97)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:97](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L97)
 
 Set when tracing this rule's conditions threw; absent on every rule that evaluated normally.
 NOTE: that is Indeterminate, not a non-match, so the rule reads `matched: false` while the policy result votes.
@@ -47,7 +47,7 @@ NOTE: that is Indeterminate, not a non-match, so the rule reads `matched: false`
 
 > `readonly` **conditions**: [`IGroupTrace`](IGroupTrace)
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:91](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L91)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:91](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L91)
 
 ***
 
@@ -55,7 +55,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:91](https://git
 
 > `readonly` **conditionsMet**: `boolean`
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:90](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L90)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:90](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L90)
 
 ***
 
@@ -63,7 +63,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:90](https://git
 
 > `readonly` `optional` **description?**: `string`
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:85](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L85)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:85](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L85)
 
 ***
 
@@ -71,7 +71,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:85](https://git
 
 > `readonly` **effect**: [`Effect`](../../AccessControl/type-aliases/Effect)
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:86](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L86)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:86](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L86)
 
 ***
 
@@ -79,7 +79,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:86](https://git
 
 > `readonly` **matched**: `boolean`
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:92](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L92)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:92](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L92)
 
 ***
 
@@ -87,7 +87,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:92](https://git
 
 > `readonly` **priority**: `number`
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L87)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:87](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L87)
 
 ***
 
@@ -95,7 +95,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:87](https://git
 
 > `readonly` **resourceMatch**: `boolean`
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:89](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L89)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:89](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L89)
 
 ***
 
@@ -103,5 +103,5 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:89](https://git
 
 > `readonly` **ruleId**: `string`
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:84](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L84)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:84](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L84)
 

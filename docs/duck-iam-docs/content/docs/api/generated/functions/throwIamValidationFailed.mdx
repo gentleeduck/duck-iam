@@ -5,7 +5,7 @@ description: "Throws IAM_VALIDATION_FAILED for every error-level issue in issues
 
 > **throwIamValidationFailed**(`kind`: `"policy"` \| `"role"` \| `"rule"` \| `"request"`, `issues`: readonly [`IIssue`](../duck-iam/namespaces/IamValidate/interfaces/IIssue)[]): `never`
 
-Defined in: [packages/duck-iam/src/core/errors/errors.validation.ts:9](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/errors/errors.validation.ts#L9)
+Defined in: [packages/duck-iam/src/core/errors/errors.validation.ts:9](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/errors/errors.validation.ts#L9)
 
 Throws `IAM_VALIDATION_FAILED` for every error-level issue in `issues`. The one path every validator-rejection
 site shares: `engine.libs.ts`'s write-time guard and the three builder `.build()` methods used to each format

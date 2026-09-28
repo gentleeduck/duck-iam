@@ -3,7 +3,7 @@ title: "Interface: IDecision"
 description: "Result of an authorization evaluation: the verdict plus which rule and policy produced it."
 ---
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:219](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L219)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:219](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L219)
 
 Result of an authorization evaluation: the verdict plus which rule and policy produced it.
 
@@ -13,7 +13,7 @@ Result of an authorization evaluation: the verdict plus which rule and policy pr
 
 > `readonly` **allowed**: `boolean`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:220](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L220)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:220](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L220)
 
 ***
 
@@ -21,7 +21,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:220](https://git
 
 > `readonly` `optional` **applicable?**: `boolean`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:231](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L231)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:231](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L231)
 
 `false` when the policy's targets missed (NotApplicable); omitted or `true` when applicable.
 
@@ -31,7 +31,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:231](https://git
 
 > `readonly` **duration**: `number`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:227](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L227)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:227](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L227)
 
 Time in milliseconds the evaluation took.
 
@@ -41,7 +41,7 @@ Time in milliseconds the evaluation took.
 
 > `readonly` **effect**: [`Effect`](../type-aliases/Effect)
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:221](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L221)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:221](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L221)
 
 ***
 
@@ -49,7 +49,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:221](https://git
 
 > `readonly` `optional` **failure?**: `"input"` \| `"resolution"` \| `"evaluation"`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:237](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L237)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:237](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L237)
 
 Set when the deny came from the engine failing, not a policy saying no, so callers can tell a 503 from a 403.
 `'input'`: malformed request; `'resolution'`: subject not resolved (adapter outage); `'evaluation'`: threw.
@@ -61,7 +61,7 @@ INFO: production mode returns a bare boolean and cannot carry this; use the engi
 
 > `readonly` `optional` **policy?**: `string`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:224](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L224)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:224](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L224)
 
 ID of the policy that produced this decision (if any).
 
@@ -71,7 +71,7 @@ ID of the policy that produced this decision (if any).
 
 > `readonly` **reason**: `string`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:225](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L225)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:225](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L225)
 
 ***
 
@@ -79,7 +79,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:225](https://git
 
 > `readonly` `optional` **rule?**: [`IRule`](IRule)\<`string`, `string`\>
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:222](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L222)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:222](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L222)
 
 ***
 
@@ -87,7 +87,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:222](https://git
 
 > `readonly` **timestamp**: `number`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:229](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L229)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:229](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L229)
 
 Unix timestamp (ms) when the decision was made.
 

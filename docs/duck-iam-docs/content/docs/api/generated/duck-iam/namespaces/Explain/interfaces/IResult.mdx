@@ -3,7 +3,7 @@ title: "Interface: IResult"
 description: "Complete trace returned by engine.explain()."
 ---
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:141](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L141)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:141](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L141)
 
 Complete trace returned by `engine.explain()`.
 
@@ -24,7 +24,7 @@ trace.policies.forEach((p) => console.log(p.policyId, p.result, p.reason))
 
 > `readonly` **decision**: [`IDecision`](../../AccessControl/interfaces/IDecision)
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:142](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L142)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:142](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L142)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:142](https://gi
 
 > `readonly` **policies**: readonly [`IPolicyTrace`](IPolicyTrace)[]
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:155](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L155)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:155](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L155)
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:155](https://gi
 
 > `readonly` **request**: \{ `action`: `string`; `resourceId?`: `string`; `resourceType`: `string`; `scope?`: `string`; \}
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:143](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L143)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:143](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L143)
 
 #### action
 
@@ -64,7 +64,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:143](https://gi
 
 > `readonly` **subject**: \{ `attributes`: `Readonly`\<`Record`\<`string`, [`AttributeValue`](../../IamPrimitives/type-aliases/AttributeValue)\>\>; `id`: `string`; `roles`: readonly `string`[]; `scopedRolesApplied`: readonly `string`[]; \}
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:149](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L149)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:149](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L149)
 
 #### attributes
 
@@ -88,7 +88,7 @@ Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:149](https://gi
 
 > `readonly` **summary**: `string`
 
-Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:161](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/explain/explain.types.ts#L161)
+Defined in: [packages/duck-iam/src/core/explain/explain.types.ts:161](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/explain/explain.types.ts#L161)
 
 Plain-text human-readable summary.
 SECURITY: carries policy, subject and role ids verbatim, some attacker-influenced. The pipeline never escapes

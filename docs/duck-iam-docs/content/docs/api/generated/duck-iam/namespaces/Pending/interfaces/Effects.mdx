@@ -1,9 +1,9 @@
 ---
-title: "Interface: Effects<TRole *extends* string = string, TScope *extends* string = string>"
-description: "Generated API reference for @gentleduck/iam — Interface: Effects<TRole *extends* string = string, TScope *extends* string = string>."
+title: "Interface: Effects"
+description: "Generated API reference for @gentleduck/iam — Interface: Effects."
 ---
 
-Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/pending/pending.types.ts#L25)
+Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:25](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/pending/pending.types.ts#L25)
 
 ## Type Parameters
 
@@ -21,7 +21,7 @@ Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:25](https://git
 
 > `readonly` **mutationSize**: `number`
 
-Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:29](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/pending/pending.types.ts#L29)
+Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:29](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/pending/pending.types.ts#L29)
 
 Number of buffered mutation events; not de-duplicated, since each is a distinct history entry.
 
@@ -31,7 +31,7 @@ Number of buffered mutation events; not de-duplicated, since each is a distinct 
 
 > `readonly` **size**: `number`
 
-Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/pending/pending.types.ts#L27)
+Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:27](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/pending/pending.types.ts#L27)
 
 Number of distinct buffered invalidations. Mutation events are counted by [Pending.Effects.mutationSize](#mutationsize).
 
@@ -41,7 +41,7 @@ Number of distinct buffered invalidations. Mutation events are counted by [Pendi
 
 > **discard**(): `void`
 
-Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/pending/pending.types.ts#L36)
+Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:36](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/pending/pending.types.ts#L36)
 
 Drops everything buffered - invalidations and mutation events - for an explicit rollback path.
 
@@ -55,7 +55,7 @@ Drops everything buffered - invalidations and mutation events - for an explicit 
 
 > **flush**(): `Promise`\<`void`\>
 
-Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:34](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/pending/pending.types.ts#L34)
+Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:34](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/pending/pending.types.ts#L34)
 
 Applies buffered invalidations in record order, then emits buffered mutation events; a no-op when empty.
 Failed invalidations stay buffered behind an `AggregateError` for retry; a throwing `onMutation` is only logged.
@@ -70,7 +70,7 @@ Failed invalidations stay buffered behind an `AggregateError` for retry; a throw
 
 > **peek**(): readonly [`Invalidation`](../type-aliases/Invalidation)\<`TRole`\>[]
 
-Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/pending/pending.types.ts#L38)
+Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:38](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/pending/pending.types.ts#L38)
 
 Inspects the invalidation buffer without draining it.
 
@@ -84,7 +84,7 @@ readonly [`Invalidation`](../type-aliases/Invalidation)\<`TRole`\>[]
 
 > **peekMutations**(): readonly [`IMutationEvent`](../../IamEngineTypes/type-aliases/IMutationEvent)\<`TRole`, `TScope`\>[]
 
-Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/pending/pending.types.ts#L40)
+Defined in: [packages/duck-iam/src/core/pending/pending.types.ts:40](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/pending/pending.types.ts#L40)
 
 Inspects the mutation-event buffer without draining it.
 

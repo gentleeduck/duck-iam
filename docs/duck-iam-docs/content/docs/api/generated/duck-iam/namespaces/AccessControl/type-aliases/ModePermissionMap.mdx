@@ -1,11 +1,11 @@
 ---
-title: "Type Alias: ModePermissionMap<M *extends* Mode, TAction *extends* string = string, TResource *extends* string = string, TScope *extends* string = string>"
+title: "Type Alias: ModePermissionMap"
 description: "Permission map by mode: production -> Record<string, boolean>, development -> IamClient.PermissionMap."
 ---
 
 > **ModePermissionMap**\<`M` *extends* [`Mode`](Mode), `TAction` *extends* `string` = `string`, `TResource` *extends* `string` = `string`, `TScope` *extends* `string` = `string`\> = `M` *extends* `"production"` ? `Record`\<`string`, `boolean`\> : [`PermissionMap`](../../IamClient/type-aliases/PermissionMap)\<`TAction`, `TResource`, `TScope`\>
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:262](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L262)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:262](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L262)
 
 Permission map by mode: production -> `Record<string, boolean>`, development -> [IamClient.PermissionMap](../../IamClient/type-aliases/PermissionMap).
 

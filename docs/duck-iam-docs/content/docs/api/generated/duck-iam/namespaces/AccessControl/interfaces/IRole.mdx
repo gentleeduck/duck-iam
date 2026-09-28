@@ -1,9 +1,9 @@
 ---
-title: "Interface: IRole<TAction *extends* string = string, TResource *extends* string = string, TId *extends* string = string, TScope *extends* string = string>"
+title: "Interface: IRole"
 description: "An RBAC role: named IPermission entries with optional inheritance, evaluated as ABAC rules."
 ---
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:201](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L201)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:201](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L201)
 
 An RBAC role: named [IPermission](IPermission) entries with optional inheritance, evaluated as ABAC rules.
 
@@ -39,7 +39,7 @@ Union of valid scope strings.
 
 > `readonly` `optional` **description?**: `string`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:209](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L209)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:209](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L209)
 
 ***
 
@@ -47,7 +47,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:209](https://git
 
 > `readonly` **id**: `TId`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:207](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L207)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:207](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L207)
 
 ***
 
@@ -55,7 +55,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:207](https://git
 
 > `readonly` `optional` **inherits?**: readonly `string`[]
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:212](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L212)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:212](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L212)
 
 Parent role IDs to inherit permissions from (resolved recursively).
 
@@ -65,7 +65,7 @@ Parent role IDs to inherit permissions from (resolved recursively).
 
 > `readonly` `optional` **metadata?**: `Readonly`\<[`Attributes`](../../IamPrimitives/type-aliases/Attributes)\>
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:215](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L215)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:215](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L215)
 
 ***
 
@@ -73,7 +73,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:215](https://git
 
 > `readonly` **name**: `string`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:208](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L208)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:208](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L208)
 
 ***
 
@@ -81,7 +81,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:208](https://git
 
 > `readonly` **permissions**: readonly [`IPermission`](IPermission)\<`TAction`, `TResource`, `TScope`\>[]
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:210](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L210)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:210](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L210)
 
 ***
 
@@ -89,7 +89,7 @@ Defined in: [packages/duck-iam/src/core/types/access-control.ts:210](https://git
 
 > `readonly` `optional` **scope?**: `TScope`
 
-Defined in: [packages/duck-iam/src/core/types/access-control.ts:214](https://github.com/gentleeduck/duck-iam/blob/7473829ff0a699673ccc14cb16b69c82ac668263/packages/duck-iam/src/core/types/access-control.ts#L214)
+Defined in: [packages/duck-iam/src/core/types/access-control.ts:214](https://github.com/gentleeduck/duck-iam/blob/c55c8b5f940145dfa5045794816563fec354e516/packages/duck-iam/src/core/types/access-control.ts#L214)
 
 Default scope applied to all permissions in this role.
 
