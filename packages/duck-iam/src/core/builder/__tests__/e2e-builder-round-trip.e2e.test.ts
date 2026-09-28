@@ -262,7 +262,7 @@ suite('a builder-authored catalog, stored in Postgres and enforced from there', 
           .of('doc')
           .when((w) => w.roles())
           .build(),
-      ).toThrow(/roles/)
+      ).toThrow(expect.objectContaining({ code: 'IAM_BUILDER_WHEN_EMPTY_LIST' }))
       expect(await adapter.getPolicy('never')).toBeNull()
     })
   })

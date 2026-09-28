@@ -565,13 +565,13 @@ suite('IamPrismaAdapter against real SQL', () => {
       await reset()
       await pool.query(`INSERT INTO access_subject_attr (subject_id, data) VALUES ('u1','null'::jsonb)`)
       // SECURITY: `{}` here would retire every deny rule that tests an attribute.
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     })
 
     it('a data column holding a JSON array throws', async () => {
       await reset()
       await pool.query(`INSERT INTO access_subject_attr (subject_id, data) VALUES ('u1','[1,2]'::jsonb)`)
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     })
 
     it('a policy row whose rules column is JSON null is refused, not dropped', async () => {
@@ -597,7 +597,7 @@ suite('IamPrismaAdapter against real SQL', () => {
       )
       // SECURITY: assigning the key sets the prototype, and owning it hides the value a deny rule tests,
       // so the row is refused.
-      await expect(adapter.getSubjectAttributes('u1')).rejects.toThrow(/corrupted attributes/)
+      await expect(adapter.getSubjectAttributes('u1')).rejects.toMatchObject({ code: 'IAM_ATTRIBUTES_CORRUPT' })
     })
   })
 
