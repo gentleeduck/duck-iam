@@ -19,17 +19,20 @@ export function useIamListPanel<T extends IamListPanelEntity>(fetchList: () => P
   const [filter, setFilter] = React.useState('')
   const [loading, setLoading] = React.useState(true)
 
+  // Callers pass an inline arrow, so keying `reload` on it would refetch on every render.
+  const fetchRef = React.useRef(fetchList)
+  fetchRef.current = fetchList
   const reload = React.useCallback(async () => {
     try {
       setError(null)
       setLoading(true)
-      setItems(await fetchList())
+      setItems(await fetchRef.current())
     } catch (err) {
       setError(toErrorMessage(err))
     } finally {
       setLoading(false)
     }
-  }, [fetchList])
+  }, [])
 
   React.useEffect(() => {
     void reload()
