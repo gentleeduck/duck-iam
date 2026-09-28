@@ -102,7 +102,7 @@ Plus `m2m` (`client_credentials` OAuth2 grant), `compliance` (GDPR / HIPAA / SOC
 
 | Path | What |
 |---|---|
-| `@gentleduck/auth/providers/password` | Email + password |
+| `@gentleduck/auth/providers/passwords` | Email + password |
 | `@gentleduck/auth/providers/magic-link` | Passwordless one-time link |
 | `@gentleduck/auth/providers/passkey` | WebAuthn passkey (lazy peerDep on `@simplewebauthn/server`) |
 | `@gentleduck/auth/providers/api-key` | Long-lived bearer keys via `ApiKeysFacet` |
