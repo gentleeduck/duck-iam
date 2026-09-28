@@ -72,6 +72,28 @@ describe('MfaImpl refuses a backup-code shape that is not a secret', () => {
   })
 })
 
+describe('MfaImpl draws every backup-code character with equal odds', () => {
+  // 31 characters do not divide 256, so `byte % 31` gave `a` to `h` 9/256 each: 28.1% of draws against 25.8%.
+  it('keeps the first eight characters near 8/31 over 65,536 draws', async () => {
+    const adapter = new MemoryAdapter()
+    const impl = new MfaImpl(adapter.credentials, bus, { backupCodeCount: 64, backupCodeLen: 64 })
+    const id = await identity(adapter)
+    let low = 0
+    let total = 0
+    for (let round = 0; round < 16; round++) {
+      for (const code of await impl.regenerateBackupCodes(id)) {
+        for (const ch of code.replace('-', '')) {
+          total++
+          if (ch >= 'a' && ch <= 'h') low++
+        }
+      }
+    }
+    expect(total).toBe(65_536)
+    // 27% sits about 7 standard deviations above an even draw and 6 below the biased one.
+    expect(low / total).toBeLessThan(0.27)
+  })
+})
+
 describe('RememberMeFacet mints a token that skips the factor for ninety days', () => {
   const facet = (cfg: Partial<RememberMeFacet.Cfg>) =>
     new RememberMeFacet(new MemoryAdapter().credentials, CRYPTO, { ...DEFAULT_REMEMBER_ME_CONFIG, ...cfg })
