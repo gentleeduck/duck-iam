@@ -3,15 +3,15 @@ import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { valkeyAdapter } from '~/adapters/valkey'
 import { orNull } from '~/core/answer'
 import { getCredentialPurpose } from '~/core/credentials/credentials'
+import { randomToken, sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
-import { redisIdempotency } from '~/core/idempotency'
-import { RedisIdempotency } from '~/core/idempotency/idempotency.redis'
+import { canonicalEmail } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { RedisLimiter } from '~/limiters/redis'
-import { mfaProvider } from '~/providers/mfa'
+import { mfaProvider, RememberMeFacet } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { authTestDeliver } from '~/test'
 import { applyPgSchema, databaseUrl, dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
@@ -39,7 +39,7 @@ suite('E2E token flows on real Postgres + Redis', () => {
   function tokenFrom(index = -1): string {
     const entry = channel.outbox.at(index)
     if (!entry) throw new Error('channel received nothing')
-    const url = (entry.vars as { url?: string }).url
+    const url = entry.vars.url
     if (!url) throw new Error(`no url on the message: ${JSON.stringify(entry.vars)}`)
     const token = new URL(url).searchParams.get('token')
     if (!token) throw new Error(`no token on the url: ${url}`)
@@ -68,29 +68,26 @@ suite('E2E token flows on real Postgres + Redis', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: PG_URL })
     await applyPgSchema(pool)
-    raw = new Redis(REDIS_URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
-    stores = new DrizzlePgAdapter(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL)
 
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       deliver: channel.deliver,
-      idempotency: redisIdempotency({ prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me) }),
       limiter: new RedisLimiter({
         max: 500,
         prefix,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
         windowMs: 60_000,
       }),
+      // The reset flow asks whether the account has MFA, so the provider is present though no test enrolls one.
+      providers: [mfaProvider()],
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
       transport: new CookieTransport({ name: 'duck-sid', secure: false }),
     })
     auth.providers.register(passwords<Profile>({ hasher: new ScryptHasher({ keylen: 32, N: 1 << 10 }) }))
-    // The reset flow asks whether the account has MFA before swapping a password,
-    // so the provider has to be present even when no test enrolls one.
-    const mfa = mfaProvider()
-    auth.providers.register(typeof mfa === 'function' ? mfa(auth as never) : mfa)
   }, 60_000)
 
   afterAll(async () => {
@@ -204,6 +201,28 @@ suite('E2E token flows on real Postgres + Redis', () => {
       expect(channel.outbox).toHaveLength(before)
     })
 
+    it('refuses a lifetime it cannot store the same way for a known address and an unknown one', async () => {
+      const user = await newUser('reset-ttl')
+      for (const email of [user.email, `nobody-${e2ePrefix()}@test.local`]) {
+        await expect(
+          auth.flows.requestPasswordReset({ findIdentityByEmail: findByEmail, input: { email, ttlMs: Number.NaN } }),
+        ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+      }
+      expect(await stores.credentials.listByIdentity(user.id, 'recovery', {})).toEqual([])
+    })
+
+    it('stores the lifetime it was given on a real row', async () => {
+      const user = await newUser('reset-ttl-ok')
+      const before = Date.now()
+      await auth.flows.requestPasswordReset({
+        findIdentityByEmail: findByEmail,
+        input: { email: user.email, ttlMs: 120_000 },
+      })
+      const [row] = await stores.credentials.listByIdentity(user.id, 'recovery', {})
+      expect(row?.expiresAt?.getTime()).toBeGreaterThanOrEqual(before + 120_000)
+      expect(row?.expiresAt?.getTime()).toBeLessThanOrEqual(Date.now() + 120_000)
+    })
+
     it('issues a distinct token each time it is asked', async () => {
       const user = await newUser('reset-distinct')
       const first = await requestReset(user.email)
@@ -269,6 +288,21 @@ suite('E2E token flows on real Postgres + Redis', () => {
       await expect(auth.flows.completeEmailVerification({ token })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_INVALID',
       })
+    })
+
+    it('a remembered device issued with a caller purpose stays one, and cannot reset the password', async () => {
+      const user = await newUser('device-crosskind')
+      const devices = new RememberMeFacet(stores.credentials, { authRandomToken: randomToken, authSha256: sha256 })
+      const { token } = await devices.issue(user.id, { metadata: { purpose: 'password-reset' } })
+
+      await expect(auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token })).rejects.toMatchObject({
+        code: 'AUTH_RECOVERY_TOKEN_INVALID',
+      })
+      await expect(devices.verify(token)).resolves.toMatchObject({ identityId: user.id })
+      const reset = await requestReset(user.email)
+      await expect(
+        auth.flows.completePasswordReset({ newPassword: NEW_PASSWORD, token: reset.token }),
+      ).resolves.toEqual(expect.objectContaining({ ok: true }))
     })
   })
 
@@ -421,13 +455,13 @@ suite('E2E token flows on real Postgres + Redis', () => {
       expect((await auth.passwords.verify(user.id, NEW_PASSWORD, stores.credentials)).ok).toBe(true)
     })
 
-    it('a reset row on a real table carries a purpose and no address', async () => {
+    it('a reset row on a real table carries its purpose and the address the link went to', async () => {
       const user = await newUser('reset-meta')
       await requestReset(user.email)
       const rows = await stores.credentials.listByIdentity(user.id, 'recovery', {})
       const reset = rows.filter((r) => getCredentialPurpose(r) === 'password-reset')
       expect(reset).toHaveLength(1)
-      expect(reset[0]?.metadata).toEqual({ purpose: 'password-reset' })
+      expect(reset[0]?.metadata).toEqual({ email: canonicalEmail(user.email), purpose: 'password-reset' })
     })
 
     it('advancing a signup patches the row in place, leaving one live token', async () => {

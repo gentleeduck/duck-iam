@@ -48,6 +48,18 @@ describe('RedisIdempotencyStore', () => {
     expect(await store.claim('k1', 60_000, ctx)).toBe(true)
   })
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1])('a ttl of %o is sent as a minute, never as is', async (ttl) => {
+    const sent: unknown[] = []
+    const realSet = redis.set.bind(redis)
+    redis.set = async (k: string, v: string, o: { ex?: number; nx?: boolean } = {}) => {
+      sent.push(o.ex)
+      return realSet(k, v, o)
+    }
+    await store.claim('k', ttl, ctx)
+    await store.put('k', { body: null, createdAt: new Date(), status: 200 }, ttl, ctx)
+    expect(sent).toEqual([60, 60])
+  })
+
   it('TTL is honored; expired claim is reclaimable', async () => {
     // Real Redis TTL granularity is seconds; FakeRedis honors EX seconds too.
     await store.claim('k1', 1000, ctx)

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeRedis } from '~/core/drivers/redis-like'
+import { makeIdentity, makeSession } from '~/test/store-inputs'
 import { InMemoryEvents } from '../events.memory'
 import { RedisEvents } from '../events.redis'
 
@@ -16,7 +17,7 @@ describe('RedisEvents', () => {
     const handler = vi.fn()
     bus.on('session.created', handler)
     await bus.emit('session.created', {
-      session: { id: 's1' } as never,
+      session: makeSession({ id: 's1' }),
       identity: null,
     })
     expect(handler).toHaveBeenCalledOnce()
@@ -29,7 +30,7 @@ describe('RedisEvents', () => {
     otherBus.on('signup.completed', remoteHandler)
     // Allow the lazy subscribe to register before the emit.
     await new Promise((r) => setTimeout(r, 10))
-    await bus.emit('signup.completed', { identity: { id: 'u1' } as never })
+    await bus.emit('signup.completed', { identity: makeIdentity({ id: 'u1' }) })
     await new Promise((r) => setTimeout(r, 10))
     expect(remoteHandler).toHaveBeenCalled()
   })
@@ -246,7 +247,7 @@ describe('RedisEvents reports a fan-out it could not perform', () => {
 
   it('names the event it could not publish', async () => {
     const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    await refusing().emit('session.created', { identity: null, session: { id: 's1' } as never })
+    await refusing().emit('session.created', { identity: null, session: makeSession({ id: 's1' }) })
     expect(stderr).toHaveBeenCalledOnce()
     expect(String(stderr.mock.calls[0]?.[0])).toContain('session.created')
     stderr.mockRestore()
@@ -258,7 +259,7 @@ describe('RedisEvents reports a fan-out it could not perform', () => {
     const handler = vi.fn()
     bus.on('session.created', handler)
     await expect(
-      bus.emit('session.created', { identity: null, session: { id: 's1' } as never }),
+      bus.emit('session.created', { identity: null, session: makeSession({ id: 's1' }) }),
     ).resolves.toBeUndefined()
     expect(handler).toHaveBeenCalledOnce()
     stderr.mockRestore()

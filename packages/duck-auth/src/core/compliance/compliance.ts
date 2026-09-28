@@ -158,7 +158,8 @@ export function readCompliancePreset(cfg: unknown): Compliance.Preset | Complian
         detail: `unknown compliance preset in brand: ${bad.map((b) => String(b)).join(', ')}`,
       })
     }
-    return value.length > 0 ? (value as Compliance.Preset[]) : null
+    const presets = value.filter(isPreset)
+    return presets.length > 0 ? presets : null
   }
   throw new AuthError('AUTH_MISCONFIGURED', {
     detail: `compliance brand is not a preset or a list of presets: ${String(value)}`,
@@ -186,7 +187,7 @@ const CHECK_DEMANDS: Record<Compliance.Check, string> = {
   dataAtRest: 'dataAtRest adapter required',
   exportAvailable: 'a subject-access export path must be reachable',
   fipsValidatedHasher: 'FIPS-validated hasher required (Argon2id with FIPS params)',
-  limiterRequired: 'a real limiter must be wired (AuthNoopLimiter does not count)',
+  limiterRequired: 'a limiter shared across instances must be wired (NoopLimiter and MemoryLimiter do not count)',
   lockoutListener: 'a `lockout` event handler must be subscribed',
   softDeleteEnabled: 'identity deletion must be soft, so erasure can be honoured and audited',
   webauthnAttestationDirect: 'webauthn registration must request direct attestation',

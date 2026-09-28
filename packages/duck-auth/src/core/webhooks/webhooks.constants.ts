@@ -17,7 +17,7 @@ export const TIMEOUT_DEFAULT_MS = 5_000
 export const PAYLOAD_MAX_BYTES = 1_048_576
 export const TOLERANCE_DEFAULT_MS = 5 * 60_000
 
-/** Keys whose value is a credential wherever it appears. Matched case-insensitively, as a substring. */
+/** The endpoint's origin and path, without the query string that may authorise it. */
 export function sanitiseEndpointUrl(rawUrl: string): string {
   try {
     const parsed = new URL(rawUrl)

@@ -10,7 +10,9 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import type { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
+import type { Provider } from '~/core/provider/provider.types'
 import { JwtTransport } from '~/core/transport/jwt.transport'
+import type { Transport } from '~/core/transport/transport.types'
 import { MemoryLimiter } from '~/limiters/memory'
 import { NoopLimiter } from '~/limiters/mock'
 import { apiKeyProvider } from '~/providers/api-key'
@@ -18,6 +20,13 @@ import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
 import { M2MImpl } from '../m2m'
 import type { M2m } from '../m2m.types'
+
+/** A transport whose `issue` answers `intents` and does nothing else. */
+const issuing = (...intents: Provider.Intent[]): Transport.ITransport => ({
+  extract: () => null,
+  issue: () => intents,
+  revoke: () => [],
+})
 
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
@@ -215,7 +224,7 @@ describe('m2m client_credentials', () => {
     })
 
     it('refuses a non-string scope from an untyped caller', async () => {
-      await expect(env.m2m.exchange({ clientId, clientSecret, scope: { a: 1 } as never })).rejects.toMatchObject({
+      await expect(env.m2m.exchange({ clientId, clientSecret, scope: JSON.parse('{"a":1}') })).rejects.toMatchObject({
         code: 'AUTH_INVALID_CREDENTIALS',
       })
     })
@@ -334,14 +343,9 @@ describe('m2m client_credentials', () => {
       // a ceiling the grant does not get to raise. What changed is that `expires_in` is read back
       // off the session rather than recomputed from the configured ttl, which overstated a lifetime
       // already cut short.
-      const silent = {
-        clear: () => [],
-        issue: () => [{ body: { access_token: 'tok' }, type: 'json' as const }],
-        read: async () => null,
-        verify: async () => null,
-      }
+      const silent = issuing({ body: { access_token: 'tok' }, status: 200, type: 'json' })
       const fortnight = 14 * 24 * 60 * 60 * 1000
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, silent as never, new NoopLimiter(), {
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, silent, new NoopLimiter(), {
         scopeMode: 'intersect',
         ttlMs: fortnight,
       })
@@ -359,39 +363,24 @@ describe('m2m client_credentials', () => {
 
   describe('the transport contract', () => {
     it('refuses a transport that emits no json intent', async () => {
-      const cookieish = {
-        clear: () => [],
-        issue: () => [{ name: 'sid', type: 'cookie' as const, value: 'x' }],
-        read: async () => null,
-        verify: async () => null,
-      }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never, new NoopLimiter())
+      const cookieish = issuing({ name: 'sid', options: {}, type: 'setCookie', value: 'x' })
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish, new NoopLimiter())
       await expect(facet.exchange({ clientId, clientSecret })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
     })
 
     it('refuses a transport whose json body carries no access token', async () => {
-      const empty = {
-        clear: () => [],
-        issue: () => [{ body: { ok: true }, type: 'json' as const }],
-        read: async () => null,
-        verify: async () => null,
-      }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, empty as never, new NoopLimiter())
+      const empty = issuing({ body: { ok: true }, status: 200, type: 'json' })
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, empty, new NoopLimiter())
       await expect(facet.exchange({ clientId, clientSecret })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
     })
 
     it('refuses a non-finite expires_in rather than passing NaN to the client', async () => {
-      const nan = {
-        clear: () => [],
-        issue: () => [{ body: { access_token: 'tok', expires_in: Number.NaN }, type: 'json' as const }],
-        read: async () => null,
-        verify: async () => null,
-      }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, nan as never, new NoopLimiter())
+      const nan = issuing({ body: { access_token: 'tok', expires_in: Number.NaN }, status: 200, type: 'json' })
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, nan, new NoopLimiter())
       await expect(facet.exchange({ clientId, clientSecret })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
@@ -400,25 +389,15 @@ describe('m2m client_credentials', () => {
     it('a transport may shorten the advertised lifetime but never extend it past the policy', async () => {
       // The envelope preferred whatever the transport put in the body, so the number the client was
       // told could disagree with both the operator's ttl and the token's own exp.
-      const lying = {
-        clear: () => [],
-        issue: () => [{ body: { access_token: 'tok', expires_in: 999_999 }, type: 'json' as const }],
-        read: async () => null,
-        verify: async () => null,
-      }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, lying as never, new NoopLimiter(), {
+      const lying = issuing({ body: { access_token: 'tok', expires_in: 999_999 }, status: 200, type: 'json' })
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, lying, new NoopLimiter(), {
         scopeMode: 'intersect',
         ttlMs: 60_000,
       })
       expect((await facet.exchange({ clientId, clientSecret })).expires_in).toBeLessThanOrEqual(60)
 
-      const brief = {
-        clear: () => [],
-        issue: () => [{ body: { access_token: 'tok', expires_in: 5 }, type: 'json' as const }],
-        read: async () => null,
-        verify: async () => null,
-      }
-      const short = new M2MImpl(env.auth.apiKeys, env.auth.sessions, brief as never, new NoopLimiter(), {
+      const brief = issuing({ body: { access_token: 'tok', expires_in: 5 }, status: 200, type: 'json' })
+      const short = new M2MImpl(env.auth.apiKeys, env.auth.sessions, brief, new NoopLimiter(), {
         scopeMode: 'intersect',
         ttlMs: 60_000,
       })
@@ -429,23 +408,13 @@ describe('m2m client_credentials', () => {
       // The AUTH_MISCONFIGURED throw is after `sessions.create`, because only issuing reveals the
       // transport is wrong. Every rejected exchange used to persist a session no token was ever
       // issued for, which a service retrying on the error turns into a row per attempt.
-      const cookieish = {
-        clear: () => [],
-        issue: () => [{ name: 'sid', type: 'cookie' as const, value: 'x' }],
-        read: async () => null,
-        verify: async () => null,
-      }
-      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish as never, new NoopLimiter())
+      const cookieish = issuing({ name: 'sid', options: {}, type: 'setCookie', value: 'x' })
+      const facet = new M2MImpl(env.auth.apiKeys, env.auth.sessions, cookieish, new NoopLimiter())
       await facet.exchange({ clientId, clientSecret }).catch(() => undefined)
       expect(await env.adapter.sessions.listByIdentity(identityId)).toHaveLength(0)
 
-      const bodyless = {
-        clear: () => [],
-        issue: () => [{ body: { ok: true }, type: 'json' as const }],
-        read: async () => null,
-        verify: async () => null,
-      }
-      const second = new M2MImpl(env.auth.apiKeys, env.auth.sessions, bodyless as never, new NoopLimiter())
+      const bodyless = issuing({ body: { ok: true }, status: 200, type: 'json' })
+      const second = new M2MImpl(env.auth.apiKeys, env.auth.sessions, bodyless, new NoopLimiter())
       await second.exchange({ clientId, clientSecret }).catch(() => undefined)
       expect(await env.adapter.sessions.listByIdentity(identityId)).toHaveLength(0)
     })

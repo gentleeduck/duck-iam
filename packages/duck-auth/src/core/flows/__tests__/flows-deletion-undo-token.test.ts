@@ -19,8 +19,6 @@ interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
-type CancelInput = Parameters<AuthEngine<MyProfile>['flows']['cancelAccountDeletion']>[0]
-
 describe('account deletion - the undo token', () => {
   let auth: AuthEngine<MyProfile>
   let adapter: MemoryAdapter<MyProfile>
@@ -30,7 +28,7 @@ describe('account deletion - the undo token', () => {
   /** request -> complete, returning what `completeAccountDeletion` answered. */
   async function deleteAccount(completeOpts: Record<string, unknown> = {}) {
     await auth.flows.requestAccountDeletion({ identityId })
-    const url = (channel.outbox.at(-1)!.vars as { url: string }).url
+    const url = channel.outbox.at(-1)!.vars.url
     const token = new URL(url).searchParams.get('token')!
     return auth.flows.completeAccountDeletion({ token, ...completeOpts })
   }
@@ -60,9 +58,7 @@ describe('account deletion - the undo token', () => {
     it('the token is stored hashed, never in plaintext', async () => {
       const { cancellationToken } = await deleteAccount()
       const rows = await adapter.credentials.listByIdentity(identityId, 'recovery', {})
-      const undo = rows.filter(
-        (r) => (r.metadata as { purpose?: string } | null)?.purpose === RECOVERY_PURPOSES.accountDeletionCancel,
-      )
+      const undo = rows.filter((r) => r.metadata?.purpose === RECOVERY_PURPOSES.accountDeletionCancel)
       expect(undo).toHaveLength(1)
       expect(undo[0]!.secret).not.toBe(cancellationToken)
     })
@@ -70,9 +66,7 @@ describe('account deletion - the undo token', () => {
     it('it expires exactly when the grace window does', async () => {
       const { restorableUntil } = await deleteAccount()
       const rows = await adapter.credentials.listByIdentity(identityId, 'recovery', {})
-      const undo = rows.find(
-        (r) => (r.metadata as { purpose?: string } | null)?.purpose === RECOVERY_PURPOSES.accountDeletionCancel,
-      )!
+      const undo = rows.find((r) => r.metadata?.purpose === RECOVERY_PURPOSES.accountDeletionCancel)!
       expect(undo.expiresAt?.getTime()).toBe(restorableUntil)
     })
 
@@ -93,14 +87,14 @@ describe('account deletion - the undo token', () => {
       const { cancellationToken } = await deleteAccount({ sendUndoLink: true })
       const last = channel.outbox.at(-1)!
       expect(last.kind).toBe('account-deletion-cancel')
-      const url = new URL((last.vars as { url: string }).url)
+      const url = new URL(last.vars.url)
       expect(url.pathname).toBe('/auth/cancel-deletion')
       expect(url.searchParams.get('token')).toBe(cancellationToken)
     })
 
     it('an unsafe callbackPath falls back to the default rather than being used', async () => {
       await deleteAccount({ callbackPath: 'https://evil.example/steal', sendUndoLink: true })
-      const url = new URL((channel.outbox.at(-1)!.vars as { url: string }).url)
+      const url = new URL(channel.outbox.at(-1)!.vars.url)
       expect(url.origin).toBe('https://app')
       expect(url.pathname).toBe('/auth/cancel-deletion')
     })
@@ -163,7 +157,7 @@ describe('account deletion - the undo token', () => {
       })
       const ident = await engine.identities.create({ profile: { email: 'c@x.com', username: 'c@x.com' } })
       await engine.flows.requestAccountDeletion({ identityId: ident.id })
-      const reqToken = new URL((ch.outbox.at(-1)!.vars as { url: string }).url).searchParams.get('token')!
+      const reqToken = new URL(ch.outbox.at(-1)!.vars.url).searchParams.get('token')!
       const { cancellationToken } = await engine.flows.completeAccountDeletion({ token: reqToken })
       const [undo] = await ad.credentials.listByIdentity(ident.id, 'recovery', {})
       gatedId = undo?.id ?? null
@@ -185,11 +179,7 @@ describe('account deletion - the undo token', () => {
       const { cancellationToken } = await deleteAccount()
       await auth.flows.cancelAccountDeletion({ token: cancellationToken })
       const rows = await adapter.credentials.listByIdentity(identityId, 'recovery', {})
-      expect(
-        rows.filter(
-          (r) => (r.metadata as { purpose?: string } | null)?.purpose === RECOVERY_PURPOSES.accountDeletionCancel,
-        ),
-      ).toEqual([])
+      expect(rows.filter((r) => r.metadata?.purpose === RECOVERY_PURPOSES.accountDeletionCancel)).toEqual([])
     })
 
     it('a bogus token is refused', async () => {
@@ -205,7 +195,7 @@ describe('account deletion - the undo token', () => {
     it('the deletion token is not an undo token', async () => {
       // Both are `kind: 'recovery'`; only `metadata.purpose` separates them.
       await auth.flows.requestAccountDeletion({ identityId })
-      const deletionToken = new URL((channel.outbox.at(-1)!.vars as { url: string }).url).searchParams.get('token')!
+      const deletionToken = new URL(channel.outbox.at(-1)!.vars.url).searchParams.get('token')!
       await auth.flows.completeAccountDeletion({ token: deletionToken })
 
       await expect(auth.flows.cancelAccountDeletion({ token: deletionToken })).rejects.toMatchObject({
@@ -259,11 +249,8 @@ describe('account deletion - the undo token', () => {
   describe('one gate or the other, never both', () => {
     it('passing a token and a callback is a wiring error', async () => {
       const { cancellationToken } = await deleteAccount()
-      const input = {
-        authorize: async () => true,
-        identityId,
-        token: cancellationToken,
-      } as unknown as CancelInput
+      const input = { authorize: async () => true, identityId, token: cancellationToken }
+      // @ts-expect-error a token and a callback together
       await expect(auth.flows.cancelAccountDeletion(input)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
       await expect(adapter.identities.find({ id: identityId })).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
@@ -272,7 +259,8 @@ describe('account deletion - the undo token', () => {
 
     it('a bad token does not fall through to a callback that would say yes', async () => {
       await deleteAccount()
-      const input = { authorize: async () => true, token: 'not-a-real-token' } as unknown as CancelInput
+      const input = { authorize: async () => true, token: 'not-a-real-token' }
+      // @ts-expect-error a token and a callback together
       await expect(auth.flows.cancelAccountDeletion(input)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
       await expect(adapter.identities.find({ id: identityId })).rejects.toMatchObject({
         code: 'AUTH_IDENTITY_NOT_FOUND',
@@ -281,7 +269,8 @@ describe('account deletion - the undo token', () => {
 
     it('neither gate is still a wiring error', async () => {
       await deleteAccount()
-      await expect(auth.flows.cancelAccountDeletion({} as unknown as CancelInput)).rejects.toMatchObject({
+      // @ts-expect-error neither gate
+      await expect(auth.flows.cancelAccountDeletion({})).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
     })
@@ -305,7 +294,8 @@ describe('account deletion - the undo token', () => {
       const { cancellationToken } = await deleteAccount()
       // `identityId` alongside a token is refused outright, so there is no
       // shape in which the caller's id can override the token's subject.
-      const input = { identityId: other.id, token: cancellationToken } as unknown as CancelInput
+      const input = { identityId: other.id, token: cancellationToken }
+      // @ts-expect-error an id beside the token
       await expect(auth.flows.cancelAccountDeletion(input)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
 
       const cancelled = await auth.flows.cancelAccountDeletion({ token: cancellationToken })

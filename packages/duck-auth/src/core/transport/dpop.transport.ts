@@ -1,10 +1,11 @@
 /** DPoP per RFC 9449: verifies the `DPoP` header on each request so a stolen bearer token is not enough
- *  on its own - provided the caller compares the returned `jkt` against the token's `cnf.jkt`, which
- *  see. The verifier surface only; minting proofs lives in `client/vanilla`. */
+ *  on its own - provided the caller compares the returned `jkt` against the token's `cnf.jkt` (see
+ *  `DPoPVerifier.Verified.jkt`). Verification only; the client mints its own proofs. */
 
 import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type KeyObject } from 'node:crypto'
 import { timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
+import { isFiniteNumber, isRecord } from '../predicates/predicates'
 import { MemoryDPoPNonceStore } from './dpop-nonce.memory'
 
 /** Each half of the window. Past an hour a proof is not "recently created" in any sense RFC 9449 means.
@@ -35,6 +36,7 @@ export namespace DPoPVerifier {
     recordSeen(jti: string, ttlMs: number): Promise<boolean>
   }
 
+  /** How strictly DPoP proofs are checked. */
   export interface Cfg {
     /** Tolerated clock skew between client and server, ms. Default 30s. */
     clockSkewMs?: number
@@ -49,10 +51,11 @@ export namespace DPoPVerifier {
     expectedNonce?: string | (() => Promise<string> | string)
   }
 
+  /** The claims a DPoP proof carries. */
   export interface Claims {
     /** Unique per proof, and what replay protection is keyed on. */
     jti: string
-    /** HTTP method, uppercased. */
+    /** HTTP method, as the client sent it; compared to the request's case-insensitively. */
     htm: string
     /** Absolute URL of the request, with no query or fragment. */
     htu: string
@@ -64,6 +67,7 @@ export namespace DPoPVerifier {
     nonce?: string
   }
 
+  /** A proof that passed: its key thumbprint and claims. */
   export interface Verified {
     /** RFC 7638 JWK thumbprint of the key that signed this proof.
      *
@@ -93,11 +97,7 @@ export class DPoPVerifier {
     this._nonceStore = cfg.nonceStore ?? new MemoryDPoPNonceStore()
     this._expectedNonce = cfg.expectedNonce
     this._acceptedAlgs = new Set(cfg.acceptedAlgs ?? ['ES256', 'EdDSA'])
-    // SECURITY: the freshness window is `Math.abs(now - iat) > clockSkew + freshness`, and `>` against a
-    // sum that is not a number is false, so the check never fires. Measured: a `clockSkewMs` of NaN
-    // accepted proofs dated a year old, ten years old, and a year in the future. The parser refuses a
-    // non-finite `iat` and says so above that comparison - the claim an attacker controls was bounded,
-    // the two numbers it is weighed against were not.
+    // SECURITY: `>` against a NaN window is false, so a non-finite knob turns the freshness check off.
     if (!Number.isFinite(this._clockSkewMs) || this._clockSkewMs < 0 || this._clockSkewMs > WINDOW_MAX_MS) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `DPoPVerifier: clockSkewMs must be a number between 0 and ${WINDOW_MAX_MS} (got ${this._clockSkewMs})`,
@@ -138,6 +138,17 @@ export class DPoPVerifier {
       publicKey = createPublicKey({ key: header.jwk, format: 'jwk' })
     } catch {
       throw new AuthError('AUTH_DPOP_INVALID', { reason: 'jwk is not a valid public key' })
+    }
+    // RFC 7518 3.3-3.4 and RFC 8037: `alg` names the key as well as the signature. Unchecked, `EdDSA` and
+    // `RS256` proofs verified under a P-256 key, `EdDSA` under a 1024-bit RSA key, `ES256` under secp256k1.
+    const type = publicKey.asymmetricKeyType
+    const details = publicKey.asymmetricKeyDetails
+    if (
+      (header.alg === 'ES256' && details?.namedCurve !== 'prime256v1') ||
+      (header.alg === 'EdDSA' && type !== 'ed25519' && type !== 'ed448') ||
+      ((header.alg === 'RS256' || header.alg === 'PS256') && (details?.modulusLength ?? 0) < 2048)
+    ) {
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: `jwk does not fit alg ${header.alg}` })
     }
 
     if (!verifyJws(header.alg, publicKey, `${headerB64}.${payloadB64}`, sig)) {
@@ -232,17 +243,13 @@ interface DpopHeaderShape {
   jwk: DPoPVerifier.JsonWebKey
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
 function isJsonWebKey(v: unknown): v is DPoPVerifier.JsonWebKey {
-  if (!isPlainObject(v)) return false
+  if (!isRecord(v)) return false
   return v.kty === 'EC' || v.kty === 'OKP' || v.kty === 'RSA'
 }
 
 function parseDpopHeader(raw: unknown, acceptedAlgs: ReadonlySet<string>): ParseResult<DpopHeaderShape> {
-  if (!isPlainObject(raw)) {
+  if (!isRecord(raw)) {
     return { ok: false, reason: 'bad typ; expected dpop+jwt' }
   }
   const { alg, typ, jwk } = raw
@@ -265,7 +272,7 @@ function parseDpopHeader(raw: unknown, acceptedAlgs: ReadonlySet<string>): Parse
  *  would bypass freshness through `NaN > N === false`, and a non-string `htm`/`htu` would crash the
  *  verifier outright. */
 function parseDpopClaims(raw: unknown): ParseResult<DPoPVerifier.Claims> {
-  if (!isPlainObject(raw)) {
+  if (!isRecord(raw)) {
     return { ok: false, reason: 'malformed payload' }
   }
   const { jti, htm, htu, iat, ath, nonce } = raw
@@ -278,7 +285,7 @@ function parseDpopClaims(raw: unknown): ParseResult<DPoPVerifier.Claims> {
   if (typeof htu !== 'string') {
     return { ok: false, reason: 'htu missing or not a string' }
   }
-  if (typeof iat !== 'number' || !Number.isFinite(iat)) {
+  if (!isFiniteNumber(iat)) {
     return { ok: false, reason: 'iat missing or not a finite number' }
   }
   if (ath !== undefined && typeof ath !== 'string') {

@@ -19,7 +19,7 @@ suite('OIDC OP stores on real MySQL', () => {
   beforeAll(async () => {
     const mysql = await import('mysql2/promise')
     // multipleStatements so the generated DDL can be applied in one go.
-    conn = await mysql.createConnection({ multipleStatements: true, uri: URL as string })
+    conn = await mysql.createConnection({ multipleStatements: true, uri: URL })
     await conn.query(readFileSync(join(process.cwd(), 'src/test/oidc-mysql-e2e-schema.sql'), 'utf8'))
     const { drizzle } = await import('drizzle-orm/mysql2')
     db = drizzle(conn) as never

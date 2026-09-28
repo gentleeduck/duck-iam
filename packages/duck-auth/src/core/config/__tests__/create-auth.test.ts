@@ -2,15 +2,11 @@
  * `createAuth` is the documented entry point, so anything its config type
  * accepts and its body does not forward is a setting an operator believes they
  * turned on. That failure is silent by construction: the key type-checks, the
- * engine builds, and nothing reports the drop. One instance of it has already
- * been fixed here (idempotency, which fell back to the memory store and made
- * strict refuse to boot). These cases enumerate the surface and check the rest.
+ * engine builds, and nothing reports the drop. These cases enumerate the surface.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
-import { idempotency } from '~/core/idempotency'
-import { MemoryIdempotency } from '~/core/idempotency/idempotency.memory'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { JwtTransport } from '~/core/transport/jwt.transport'
 import { MemoryLimiter } from '~/limiters/memory'
@@ -57,28 +53,62 @@ describe('every knob the config type accepts reaches the engine', () => {
     expect(seen).toHaveLength(1)
   })
 
-  it('forwards the idempotency store rather than falling back to the memory one', () => {
-    // The regression this pins: dropping the key here made strict() refuse to
-    // boot production, because the engine had quietly substituted the in-memory
-    // implementation that cannot dedupe across instances.
-    const store = idempotency(new MemoryIdempotency({ development: true }))
-    const auth = createAuth({ ...base(), idempotency: store })
-    expect(auth.idempotency).toBe(store)
-  })
-
-  it('forwards the session windows and the identity limits', () => {
+  it('forwards the session windows and the identity limits to the facets that enforce them', async () => {
     const auth = createAuth({
       ...base(),
       identities: { profileMaxBytes: 512 },
       session: { absoluteTtlMs: 120_000, freshnessMs: 1_000, ttlMs: 60_000 },
     })
-    expect(auth.cfg.session).toMatchObject({ ttlMs: 60_000 })
-    expect(auth.cfg.identities).toMatchObject({ profileMaxBytes: 512 })
+    const { session } = await auth.sessions.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+    expect(session.expiresAt.getTime() - session.createdAt.getTime()).toBe(60_000)
+    expect(session.absoluteExpiresAt.getTime() - session.createdAt.getTime()).toBe(120_000)
+    await expect(
+      auth.identities.create({ profile: { bio: 'x'.repeat(600), email: 'a@x.test', username: 'a' } }),
+    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+  })
+
+  it.each([
+    ['the engine', (auth: ReturnType<typeof createAuth>) => auth],
+    ['a transaction', (auth: ReturnType<typeof createAuth>) => auth.withTransaction({})],
+  ])('caps the sessions one identity holds, on %s', async (_, scope) => {
+    const mintThree = async (session: AuthDefine.Cfg['session']) => {
+      const s = stores()
+      const auth = createAuth({ ...base(), session, stores: { ...s, withClient: () => s } })
+      const ids: string[] = []
+      for (let i = 0; i < 3; i++) {
+        const minted = await scope(auth).sessions.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+        ids.push(minted.session.id)
+      }
+      const held = await auth.sessions.listForIdentity('user-1')
+      return { held: held.map((h) => h.id).sort(), ids }
+    }
+    const capped = await mintThree({ maxSessionsPerIdentity: 2 })
+    expect(capped.held).toEqual(capped.ids.slice(1).sort())
+    const uncapped = await mintThree(undefined)
+    expect(uncapped.held).toEqual([...uncapped.ids].sort())
+  })
+
+  it('refuses a window or a limit that a variable left unset turned into NaN', () => {
+    for (const cfg of [{ session: { ttlMs: Number.NaN } }, { identities: { profileMaxBytes: Number.NaN } }]) {
+      expect(() => createAuth({ ...base(), ...cfg }), Object.keys(cfg)[0]).toThrow(
+        expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
+      )
+    }
   })
 
   it('forwards the hijack policy', () => {
     const auth = createAuth({ ...base(), hijack: { onIpChange: 'revoke' } })
     expect(auth.cfg.hijack).toMatchObject({ onIpChange: 'revoke' })
+  })
+
+  it('applies a compliance preset: its session windows, and its checks at strict()', async () => {
+    const auth = createAuth({ ...base(), compliance: 'hipaa', strict: false })
+    const { session } = await auth.sessions.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+    expect(session.expiresAt.getTime() - session.createdAt.getTime()).toBe(60 * 60 * 1000)
+    expect(() => auth.strict({ env: 'test' })).toThrow(
+      expect.objectContaining({ meta: { detail: expect.stringContaining('mfa provider') } }),
+    )
+    expect(() => createAuth({ ...base(), strict: false }).strict({ env: 'test' })).not.toThrow()
   })
 
   it('registers providers, and skips the falsy entries', () => {
@@ -107,55 +137,30 @@ describe('every knob the config type accepts reaches the engine', () => {
     expect(seen[0]?.deliver).toBe(deliver)
   })
 
-  it('refuses a plugins array rather than accepting one it cannot install', () => {
-    // Installation is async and this factory is not, so the key used to be
-    // accepted and dropped: an engine with an empty registry and no error.
-    // It now names the call that does work.
-    let installed = false
-    expect(() =>
-      createAuth({
-        ...base(),
-        plugins: [
-          {
-            id: 'my-plugin',
-            install: async () => {
-              installed = true
-            },
-          } as never,
-        ],
-      }),
-    ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
-    expect(installed).toBe(false)
-  })
-
-  it('an empty or absent plugins array is not an error', () => {
-    expect(() => createAuth({ ...base(), plugins: [] })).not.toThrow()
-    expect(() => createAuth(base())).not.toThrow()
+  it.each([
+    ['plugins', '[]'],
+    ['plugins', '[{"id":"my-plugin"}]'],
+    ['oauth', '{}'],
+    ['oauth', '{"stateSigningSecret":"top-level-secret"}'],
+  ])('refuses %s: %s, which it has no way to apply', (key, value) => {
+    // Plugin installation is async and this factory is not, and each oauth provider takes its own
+    // state secret at construction. Both keys were typed as accepted and then refused or dropped.
+    expect(() => createAuth({ ...base(), [key]: JSON.parse(value) })).toThrow(
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED', meta: { detail: expect.stringContaining(`"${key}"`) } }),
+    )
   })
 
   it('a plugin installed through the engine does reach the registry', async () => {
     const auth = createAuth(base())
-    await auth.use({ id: 'my-plugin', install: async () => undefined } as never)
+    await auth.use({ id: 'my-plugin', install: async () => undefined })
     expect(auth.plugins.installed.has('my-plugin')).toBe(true)
-  })
-
-  it('refuses an oauth-wide state signing secret it has no way to apply', () => {
-    // Each oauth provider takes its own `stateSigningSecret` at construction, so
-    // a value set once at the top could never be applied. It used to be accepted
-    // and ignored, which left the operator believing state was signed.
-    expect(() => createAuth({ ...base(), oauth: { stateSigningSecret: 'top-level-secret' } })).toThrow(
-      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
-    )
-  })
-
-  it('an oauth block without the secret is not an error', () => {
-    expect(() => createAuth({ ...base(), oauth: {} })).not.toThrow()
   })
 
   it('names a key it does not know rather than accepting the typo', () => {
     // `sessions` for `session` is the one a caller is most likely to write, and accepting it left
     // them believing they had shortened the window it names.
-    expect(() => createAuth({ ...base(), sessions: { ttlMs: 1_000 } } as never)).toThrow(
+    // @ts-expect-error `sessions` is not a key of the config
+    expect(() => createAuth({ ...base(), sessions: { ttlMs: 1_000 } })).toThrow(
       expect.objectContaining({
         code: 'AUTH_MISCONFIGURED',
         meta: { detail: expect.stringContaining('"sessions"') },
@@ -168,7 +173,7 @@ describe('the defaults it picks when a knob is omitted', () => {
   it('defaults to a secure cookie transport', () => {
     const auth = createAuth(base())
     expect(auth.transport).toBeInstanceOf(CookieTransport)
-    expect((auth.transport as CookieTransport).secure).toBe(true)
+    expect(auth.transport).toHaveProperty('secure', true)
   })
 
   it('builds without a limiter, an events bus or any provider', () => {
@@ -199,18 +204,12 @@ describe('the strict flag', () => {
   })
 
   it('follows NODE_ENV when nothing is said, so a production deploy is checked without being asked', () => {
-    // The idempotency store is supplied because the engine's own fallback refuses to construct
-    // under production, and that error would pass this test without strict having run at all.
-    const cfg = (): AuthDefine.Cfg => ({
-      ...base(),
-      idempotency: idempotency(new MemoryIdempotency({ development: true })),
-    })
     vi.stubEnv('NODE_ENV', 'production')
     try {
-      expect(() => createAuth(cfg())).toThrow(
+      expect(() => createAuth(base())).toThrow(
         expect.objectContaining({ meta: { detail: expect.stringContaining('production strict() checks failed') } }),
       )
-      expect(() => createAuth({ ...cfg(), strict: false })).not.toThrow()
+      expect(() => createAuth({ ...base(), strict: false })).not.toThrow()
     } finally {
       vi.unstubAllEnvs()
     }
@@ -228,7 +227,8 @@ describe('the strict flag', () => {
   it('refuses an env it does not know rather than reading it as truthy', () => {
     // It used to be `if (config.strict)` and then handed straight to `strict({ env })`, so a
     // misspelled environment ran no checks at all under a flag that says it did.
-    expect(() => createAuth({ ...base(), strict: 'prod' as never })).toThrow(
+    // @ts-expect-error not an environment `strict` names
+    expect(() => createAuth({ ...base(), strict: 'prod' })).toThrow(
       expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
   })
@@ -236,12 +236,12 @@ describe('the strict flag', () => {
   it('refuses the string "false", which a flag threaded from an environment variable arrives as', () => {
     // `'false'` is a non-empty string, so the truthiness test it used to meet turned strict on.
     // `false` is the way to say no.
-    expect(() => createAuth({ ...base(), strict: 'false' as never })).toThrow(
+    // @ts-expect-error the string, not the boolean
+    expect(() => createAuth({ ...base(), strict: 'false' })).toThrow(
       expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
-    expect(() => createAuth({ ...base(), strict: '' as never })).toThrow(
-      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
-    )
+    // @ts-expect-error not an environment `strict` names
+    expect(() => createAuth({ ...base(), strict: '' })).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 })
 
@@ -254,13 +254,15 @@ describe('the store triple', () => {
   })
 
   it('names the stores a runtime-assembled config is missing, rather than dereferencing undefined', () => {
-    expect(() => createAuth({ baseUrl: 'https://app.test' } as never)).toThrow(
+    // @ts-expect-error no stores
+    expect(() => createAuth({ baseUrl: 'https://app.test' })).toThrow(
       expect.objectContaining({
         code: 'AUTH_MISCONFIGURED',
         meta: { detail: expect.stringContaining('missing: identities, sessions, credentials') },
       }),
     )
-    expect(() => createAuth({ ...base(), stores: { ...stores(), sessions: undefined } } as never)).toThrow(
+    // @ts-expect-error no session store
+    expect(() => createAuth({ ...base(), stores: { ...stores(), sessions: undefined } })).toThrow(
       expect.objectContaining({ meta: { detail: expect.stringContaining('missing: sessions') } }),
     )
   })

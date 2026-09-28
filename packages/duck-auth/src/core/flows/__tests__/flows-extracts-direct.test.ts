@@ -227,13 +227,13 @@ describe('flows/provider-link.ts - direct exports', () => {
     const out = await linkProvider(auth.flows.deps, {
       authorize: ALLOW_LINK,
       identityId: ident.id,
-      providerId: 'authGithub',
+      providerId: 'github',
       providerSub: 'gh-sub-1',
     })
     expect(out.identityId).toBe(ident.id)
-    expect(out.providerId).toBe('authGithub')
+    expect(out.providerId).toBe('github')
     const refreshed = await auth.identities.getById(ident.id)
-    expect(refreshed?.providers.some((p) => p.providerId === 'authGithub')).toBe(true)
+    expect(refreshed?.providers.some((p) => p.providerId === 'github')).toBe(true)
   })
 
   it('linkProvider rejects invalid providerId', async () => {
@@ -247,14 +247,14 @@ describe('flows/provider-link.ts - direct exports', () => {
     await linkProvider(auth.flows.deps, {
       authorize: ALLOW_LINK,
       identityId: ident.id,
-      providerId: 'authGithub',
+      providerId: 'github',
       providerSub: 'gh-1',
     })
-    await expect(
-      unlinkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub' }),
-    ).rejects.toMatchObject({
-      code: 'AUTH_PROVIDER_FAILED',
-    })
+    await expect(unlinkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'github' })).rejects.toMatchObject(
+      {
+        code: 'AUTH_PROVIDER_FAILED',
+      },
+    )
   })
 
   it('unlinkProvider allows lockout when allowLockout: true', async () => {
@@ -262,14 +262,14 @@ describe('flows/provider-link.ts - direct exports', () => {
     await linkProvider(auth.flows.deps, {
       authorize: ALLOW_LINK,
       identityId: ident.id,
-      providerId: 'authGithub',
+      providerId: 'github',
       providerSub: 'gh-2',
     })
     const out = await unlinkProvider(auth.flows.deps, {
       identityId: ident.id,
-      providerId: 'authGithub',
+      providerId: 'github',
       allowLockout: true,
     })
-    expect(out.providerId).toBe('authGithub')
+    expect(out.providerId).toBe('github')
   })
 })

@@ -7,7 +7,10 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
+import type { Engine } from '~/core/engine/engine.types'
+import { isRecord } from '~/core/predicates'
 import { CookieTransport } from '~/core/transport/cookie.transport'
+import type { Limiter } from '~/limiters'
 import { MemoryLimiter } from '~/limiters/memory'
 import { NoopLimiter } from '~/limiters/mock'
 import { mfaProvider } from '~/providers/mfa'
@@ -15,7 +18,7 @@ import { passkey } from '~/providers/passkey'
 import { applyCompliancePreset, assertComplianceStrict, readCompliancePreset, resolveCompliance } from '../compliance'
 import type { Compliance } from '../compliance.types'
 
-const baseCfg = () => {
+const baseCfg = (): { adapter: MemoryAdapter; cfg: Engine.Cfg } => {
   const adapter = new MemoryAdapter()
   return {
     adapter,
@@ -26,6 +29,17 @@ const baseCfg = () => {
       stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
       transport: new CookieTransport({ name: 'sid', secure: true }),
     },
+  }
+}
+
+/** The `detail` of the `AUTH_MISCONFIGURED` that `fn` throws, or `null` when it throws nothing. */
+function refusalDetail(fn: () => unknown): string | null {
+  try {
+    fn()
+    return null
+  } catch (e) {
+    expect(e).toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    return isRecord(e) && isRecord(e.meta) && typeof e.meta.detail === 'string' ? e.meta.detail : null
   }
 }
 
@@ -44,27 +58,20 @@ describe('what a preset declares against what is enforced', () => {
     // caller existed - so branding a config and calling strict() ran none of the compliance
     // assertions and said nothing about having skipped them.
     const { cfg } = baseCfg()
-    const branded = applyCompliancePreset(cfg as never, 'gdpr')
+    const branded = applyCompliancePreset(cfg, 'gdpr')
     expect(readCompliancePreset(branded)).toBe('gdpr')
 
     // Asserted in every environment, not only production: the preset is the operator declaring what
     // this deployment claims, unlike the production footguns `strict()` otherwise checks.
-    const engine = new AuthEngine(branded as never)
-    const err = (() => {
-      try {
-        engine.strict({ env: 'test' })
-        return null
-      } catch (e) {
-        return e as Error & { meta: { detail: string } }
-      }
-    })()
-    expect(err?.meta.detail).toContain('dataAtRest')
+    const engine = new AuthEngine(branded)
+    const detail = refusalDetail(() => engine.strict({ env: 'test' }))
+    expect(detail).toContain('dataAtRest')
   })
 
   it('a deployment that supplies the evidence passes', () => {
     const { cfg } = baseCfg()
-    const branded = applyCompliancePreset(cfg as never, 'gdpr')
-    const engine = new AuthEngine(branded as never)
+    const branded = applyCompliancePreset(cfg, 'gdpr')
+    const engine = new AuthEngine(branded)
     expect(() =>
       engine.strict({
         compliance: { dataAtRest: true, exportAvailable: true, mailerChannel: true, softDeleteEnabled: true },
@@ -81,16 +88,9 @@ describe('what a preset declares against what is enforced', () => {
     expect(resolveCompliance('fips').minAal).toBe(2)
 
     const { cfg } = baseCfg()
-    const engine = new AuthEngine(applyCompliancePreset(cfg as never, 'hipaa') as never)
-    const err = (() => {
-      try {
-        engine.strict({ env: 'production' })
-        return null
-      } catch (e) {
-        return e as Error & { meta: { detail: string } }
-      }
-    })()
-    expect(err?.meta.detail).toContain('minAal above 1 requires a registered mfa provider')
+    const engine = new AuthEngine(applyCompliancePreset(cfg, 'hipaa'))
+    const detail = refusalDetail(() => engine.strict({ env: 'production' }))
+    expect(detail).toContain('minAal above 1 requires a registered mfa provider')
   })
 
   it('every check a preset declares is one the assertion demands evidence for', () => {
@@ -112,29 +112,17 @@ describe('what a preset declares against what is enforced', () => {
   it('soc2 is not satisfied by an audit listener alone', () => {
     // Its other two requirements were among the unchecked names, so a deployment satisfying one of
     // three was told it satisfied soc2.
-    const err = (() => {
-      try {
-        assertComplianceStrict({ preset: 'soc2', wired: { auditLogRetained7y: true } })
-        return null
-      } catch (e) {
-        return e as Error & { meta: { detail: string } }
-      }
-    })()
-    expect(err?.meta.detail).toContain('limiterRequired')
-    expect(err?.meta.detail).toContain('lockoutListener')
+    const detail = refusalDetail(() => assertComplianceStrict({ preset: 'soc2', wired: { auditLogRetained7y: true } }))
+    expect(detail).toContain('limiterRequired')
+    expect(detail).toContain('lockoutListener')
   })
 
   it('gdpr demands export and soft delete, the two things it names', () => {
-    const err = (() => {
-      try {
-        assertComplianceStrict({ preset: 'gdpr', wired: { dataAtRest: true, mailerChannel: true } })
-        return null
-      } catch (e) {
-        return e as Error & { meta: { detail: string } }
-      }
-    })()
-    expect(err?.meta.detail).toContain('exportAvailable')
-    expect(err?.meta.detail).toContain('softDeleteEnabled')
+    const detail = refusalDetail(() =>
+      assertComplianceStrict({ preset: 'gdpr', wired: { dataAtRest: true, mailerChannel: true } }),
+    )
+    expect(detail).toContain('exportAvailable')
+    expect(detail).toContain('softDeleteEnabled')
 
     expect(() =>
       assertComplianceStrict({
@@ -151,16 +139,7 @@ describe('what a preset declares against what is enforced', () => {
   })
 
   it('reports every gap in one error', () => {
-    const err = (() => {
-      try {
-        assertComplianceStrict({ preset: 'hipaa', wired: {} })
-        return null
-      } catch (e) {
-        return e as Error
-      }
-    })()
-    expect(err?.message).toBe('AUTH_MISCONFIGURED')
-    const detail = (err as unknown as { meta: { detail: string } }).meta.detail
+    const detail = refusalDetail(() => assertComplianceStrict({ preset: 'hipaa', wired: {} }))
     expect(detail).toContain('dataAtRest')
     expect(detail).toContain('mailer/channel')
     expect(detail).toContain('audit-log listener')
@@ -225,14 +204,14 @@ describe('the resolved overrides are shared, mutable objects', () => {
   })
 
   it('refuses a preset name the union only enforced at compile time', () => {
-    expect(() => resolveCompliance('hippa' as Compliance.Preset)).toThrow(
+    expect(() => Reflect.apply(resolveCompliance, undefined, ['hippa'])).toThrow(
       expect.objectContaining({ code: 'AUTH_MISCONFIGURED', meta: { detail: 'unknown compliance preset: hippa' } }),
     )
   })
 
   // `PRESETS['constructor']` is a function off the prototype, and merging one is not a type error.
   it('refuses a prototype key as firmly as any other unknown name', () => {
-    expect(() => resolveCompliance('constructor' as Compliance.Preset)).toThrow(
+    expect(() => Reflect.apply(resolveCompliance, undefined, ['constructor'])).toThrow(
       expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
   })
@@ -242,7 +221,7 @@ describe('applying a preset to an engine config', () => {
   it('ratchets the session windows down and leaves the rest of the config alone', () => {
     const { cfg } = baseCfg()
     const out = applyCompliancePreset(
-      { ...cfg, session: { absoluteTtlMs: 999 * 60 * 60 * 1000, ttlMs: 999 * 60 * 60 * 1000 } } as never,
+      { ...cfg, session: { absoluteTtlMs: 999 * 60 * 60 * 1000, ttlMs: 999 * 60 * 60 * 1000 } },
       'hipaa',
     )
     expect(out.session?.ttlMs).toBe(60 * 60 * 1000)
@@ -252,14 +231,14 @@ describe('applying a preset to an engine config', () => {
 
   it('never lengthens a window the operator already set shorter', () => {
     const { cfg } = baseCfg()
-    const out = applyCompliancePreset({ ...cfg, session: { ttlMs: 60_000 } } as never, 'hipaa')
+    const out = applyCompliancePreset({ ...cfg, session: { ttlMs: 60_000 } }, 'hipaa')
     expect(out.session?.ttlMs).toBe(60_000)
   })
 
   it('does not mutate the config it was given', () => {
     const { cfg } = baseCfg()
     const input = { ...cfg, session: { ttlMs: 999_000_000 } }
-    applyCompliancePreset(input as never, 'hipaa')
+    applyCompliancePreset(input, 'hipaa')
     expect(input.session.ttlMs).toBe(999_000_000)
   })
 
@@ -270,7 +249,7 @@ describe('applying a preset to an engine config', () => {
     // engine and registers `passwords()` without repeating the preset gets the
     // eight-character default.
     const { cfg } = baseCfg()
-    const out = applyCompliancePreset(cfg as never, 'fips')
+    const out = applyCompliancePreset(cfg, 'fips')
     expect(resolveCompliance('fips').passwords.minLength).toBe(14)
     expect(out).not.toHaveProperty('passwords')
   })
@@ -279,7 +258,7 @@ describe('applying a preset to an engine config', () => {
     // Non-enumerable meant the most ordinary thing a caller does silently stripped the marker
     // saying which preset applied.
     const { cfg } = baseCfg()
-    const branded = applyCompliancePreset(cfg as never, 'hipaa')
+    const branded = applyCompliancePreset(cfg, 'hipaa')
     expect(readCompliancePreset(branded)).toBe('hipaa')
     expect(readCompliancePreset({ ...branded })).toBe('hipaa')
   })
@@ -289,8 +268,8 @@ describe('applying a preset to an engine config', () => {
     // twice, the obvious way to add a preset to an existing one, kept only the last while the
     // session windows stayed ratcheted from both, and config and brand described different policies.
     const { cfg } = baseCfg()
-    const once = applyCompliancePreset(cfg as never, 'fips')
-    const twice = applyCompliancePreset(once as never, 'gdpr')
+    const once = applyCompliancePreset(cfg, 'fips')
+    const twice = applyCompliancePreset(once, 'gdpr')
 
     expect(readCompliancePreset(twice)).toEqual(['fips', 'gdpr'])
     expect(twice.session?.ttlMs).toBe(4 * 60 * 60 * 1000)
@@ -298,13 +277,13 @@ describe('applying a preset to an engine config', () => {
 
   it('layering the same preset twice does not repeat it in the brand', () => {
     const { cfg } = baseCfg()
-    const twice = applyCompliancePreset(applyCompliancePreset(cfg as never, 'fips') as never, 'fips')
+    const twice = applyCompliancePreset(applyCompliancePreset(cfg, 'fips'), 'fips')
     expect(readCompliancePreset(twice)).toBe('fips')
   })
 
   it('the array form brands with the whole list', () => {
     const { cfg } = baseCfg()
-    const out = applyCompliancePreset(cfg as never, ['gdpr', 'hipaa'])
+    const out = applyCompliancePreset(cfg, ['gdpr', 'hipaa'])
     expect(readCompliancePreset(out)).toEqual(['gdpr', 'hipaa'])
   })
 
@@ -340,12 +319,10 @@ describe('applying a preset to an engine config', () => {
  */
 describe('webauthnAttestationDirect, against the provider that has to satisfy it', () => {
   /** `fips` branded, with an mfa provider so its `minAal: 2` is not what refuses first. */
-  const fipsEngine = (attestationType?: 'none' | 'direct' | 'indirect', limiter?: NoopLimiter) => {
+  const fipsEngine = (attestationType?: 'none' | 'direct' | 'enterprise', limiter?: NoopLimiter) => {
     const { cfg } = baseCfg()
-    const engine = new AuthEngine(
-      applyCompliancePreset({ ...cfg, ...(limiter && { limiter }) } as never, 'fips') as never,
-    )
-    engine.providers.register({ id: 'mfa', kind: 'mfa', begin: async () => [], complete: async () => [] } as never)
+    const engine = new AuthEngine(applyCompliancePreset({ ...cfg, ...(limiter && { limiter }) }, 'fips'))
+    engine.providers.register({ id: 'mfa', kind: 'mfa', begin: async () => [], complete: async () => [] })
     engine.providers.register(
       passkey({
         rpID: 'app.test',
@@ -353,25 +330,16 @@ describe('webauthnAttestationDirect, against the provider that has to satisfy it
         expectedOrigins: 'https://app.test',
         findIdentityByEmail: async () => null,
         ...(attestationType && { attestationType }),
-      }) as never,
+      }),
     )
     return engine
-  }
-
-  const detail = (fn: () => void) => {
-    try {
-      fn()
-      return null
-    } catch (e) {
-      return (e as Error & { meta: { detail: string } }).meta.detail
-    }
   }
 
   it('refuses a provider left at the default even when the operator attests the clause is met', () => {
     // The load-bearing case. Evidence is spread after the operator's attestation, so a claim cannot
     // overrule something the process just read off the provider it is holding.
     const engine = fipsEngine()
-    expect(detail(() => engine.strict({ compliance: satisfying('fips'), env: 'test' }))).toContain(
+    expect(refusalDetail(() => engine.strict({ compliance: satisfying('fips'), env: 'test' }))).toContain(
       'webauthnAttestationDirect',
     )
   })
@@ -379,18 +347,18 @@ describe('webauthnAttestationDirect, against the provider that has to satisfy it
   it('passes on the provider being configured for it, with no attestation from the operator', () => {
     const engine = fipsEngine('direct')
     const wired = { ...satisfying('fips'), webauthnAttestationDirect: false }
-    expect(detail(() => engine.strict({ compliance: wired, env: 'test' }))).toBeNull()
+    expect(refusalDetail(() => engine.strict({ compliance: wired, env: 'test' }))).toBeNull()
   })
 
   it('will not let a claimed limiter stand over the Noop one the engine can see', () => {
     // The same precedence, on the other key the engine evidences for itself. `soc2` is the preset that
     // names `limiterRequired`, and it sets no minAal, so nothing else refuses first.
     const { cfg } = baseCfg()
-    const engine = new AuthEngine(
-      applyCompliancePreset({ ...cfg, limiter: new NoopLimiter() } as never, 'soc2') as never,
-    )
+    const engine = new AuthEngine(applyCompliancePreset({ ...cfg, limiter: new NoopLimiter() }, 'soc2'))
     engine.events.on('lockout', () => {})
-    expect(detail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain('limiterRequired')
+    expect(refusalDetail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain(
+      'limiterRequired',
+    )
   })
 
   it('will not let a claimed limiter stand over the in-process one either', () => {
@@ -398,18 +366,32 @@ describe('webauthnAttestationDirect, against the provider that has to satisfy it
     // reported `limiterRequired` satisfied for a limiter whose buckets are per node and whose own
     // docstring reads "Dev/test only".
     const { cfg } = baseCfg()
-    const engine = new AuthEngine(
-      applyCompliancePreset({ ...cfg, limiter: new MemoryLimiter() } as never, 'soc2') as never,
+    const engine = new AuthEngine(applyCompliancePreset({ ...cfg, limiter: new MemoryLimiter() }, 'soc2'))
+    engine.events.on('lockout', () => {})
+    expect(refusalDetail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain(
+      'limiterRequired - a limiter shared across instances must be wired (NoopLimiter and MemoryLimiter do not count)',
+    )
+  })
+
+  it('reads the lockout listener off the bus, over the claim either way', () => {
+    const limiter: Limiter.Me = {
+      consume: async () => ({ ok: true, remaining: 1, resetAt: new Date(Date.now() + 60_000) }),
+      reset: async () => {},
+    }
+    const engine = new AuthEngine(applyCompliancePreset({ ...baseCfg().cfg, limiter }, 'soc2'))
+    expect(refusalDetail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain(
+      'lockoutListener',
     )
     engine.events.on('lockout', () => {})
-    expect(detail(() => engine.strict({ compliance: satisfying('soc2'), env: 'test' }))).toContain('limiterRequired')
+    const denied = { ...satisfying('soc2'), lockoutListener: false }
+    expect(refusalDetail(() => engine.strict({ compliance: denied, env: 'test' }))).toBeNull()
   })
 })
 
 describe('the mfa provider the AAL floor asks for', () => {
   const withMfa = (preset: Compliance.Preset) => {
     const { cfg } = baseCfg()
-    return new AuthEngine(applyCompliancePreset({ ...cfg, providers: [mfaProvider()] } as never, preset) as never)
+    return new AuthEngine(applyCompliancePreset({ ...cfg, providers: [mfaProvider()] }, preset))
   }
 
   // Both presets that set a floor above AAL 1, and the gate is the same one for each.
@@ -429,7 +411,7 @@ describe('the mfa provider the AAL floor asks for', () => {
 
   it('still refuses the floor when nothing named mfa is registered', () => {
     const { cfg } = baseCfg()
-    const auth = new AuthEngine(applyCompliancePreset(cfg as never, 'hipaa') as never)
+    const auth = new AuthEngine(applyCompliancePreset(cfg, 'hipaa'))
     expect(auth.providers.has('mfa')).toBe(false)
     expect(() => auth.strict({ compliance: satisfying('hipaa'), env: 'test' })).toThrow(
       expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),

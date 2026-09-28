@@ -82,13 +82,13 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
     // sha256; the real one made three. Same count now, and the only difference
     // is the write the foreign key makes impossible to mirror.
     expect(miss).toHaveLength(knownCalls.length)
-    // Both branches open with the one round trip that retires the older reset tokens, so the
-    // divergence is at index 1 and nowhere else.
-    expect(knownCalls[0]).toBe('credentials.deleteByKindAndPurpose')
-    expect(miss[0]).toBe('credentials.deleteByKindAndPurpose')
-    expect(knownCalls[1]).toBe('credentials.create')
-    expect(miss[1]).toBe('credentials.listByIdentity')
-    expect(miss.slice(2)).toEqual(knownCalls.slice(2))
+    // Both branches open with the identity read and the delete that retires the older reset tokens, so
+    // the divergence is at index 2 and nowhere else.
+    expect(knownCalls.slice(0, 2)).toEqual(['identities.find', 'credentials.deleteByKindAndPurpose'])
+    expect(miss.slice(0, 2)).toEqual(knownCalls.slice(0, 2))
+    expect(knownCalls[2]).toBe('credentials.create')
+    expect(miss[2]).toBe('credentials.listByIdentity')
+    expect(miss.slice(3)).toEqual(knownCalls.slice(3))
   })
 
   it('an unconfigured deliver fails the same way for a real address and a fictional one', async () => {
@@ -117,7 +117,7 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
     expect(rows).toHaveLength(1)
     expect(getCredentialPurpose(rows[0]!)).toBe('password-reset')
 
-    const url = (channel.outbox[0]!.vars as { url: string }).url
+    const url = channel.outbox[0]!.vars.url
     const token = new URL(url).searchParams.get('token')
     // No `currentSid`: the email-link path, which sweeps sessions rather than
     // rotating into a new one, so there is no bearer to hand back.
@@ -274,8 +274,8 @@ describe('what these fixes did NOT close', () => {
       findIdentityByEmail: async () => ({ id: ident.id }),
       input: { email: 'real@x.com' },
     })
-    // Index 1: both branches spend index 0 on the delete that retires the older tokens.
-    expect(calls[1]).toBe('credentials.create')
+    // Index 2: both branches spend 0 and 1 on the identity read and the delete that retires the older tokens.
+    expect(calls[2]).toBe('credentials.create')
   })
 
   it('serves a password reset with no mfa provider registered', async () => {

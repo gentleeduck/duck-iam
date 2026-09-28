@@ -1,14 +1,15 @@
 import type { Events } from '~/core/events'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Providers } from '~/core/provider'
-import type { MfaFacet } from '~/providers/mfa'
+import type { Mfa, MfaFacet } from '~/providers/mfa'
 import type { PasswordsImpl } from '~/providers/passwords'
 import { type Answer, answer } from '../answer'
 import { AuthError } from '../errors'
 import type { Identities, IdentitiesImpl } from '../identities'
+import { isRecord } from '../predicates/predicates'
 import type { Provider } from '../provider'
 import { canonicalProviderId, echoableProviderId } from '../provider/provider.constants'
-import type { Sessions, SessionsImpl } from '../sessions'
+import { isSessionFresh, type Sessions, type SessionsImpl } from '../sessions'
 import type { TenantContext } from '../tenant/tenant.types'
 import type { Transport } from '../transport'
 import {
@@ -36,6 +37,7 @@ import {
   getSignUpFlow as getSignUpFlowImpl,
 } from './signup.flow'
 
+/** The multi-step journeys: sign-in, sign-up, step-up, recovery, linking, impersonation and deletion. */
 export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
   private readonly _deps: Flows.Deps<Profile>
 
@@ -117,7 +119,7 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
       purpose: opts.previousSid ? 're-auth' : cfg.signInPurpose,
       ...(opts.previousSid !== undefined && { previousSid: opts.previousSid }),
       identityId: startIntent.identityId,
-      kind: 'user',
+      kind: startIntent.kind ?? 'user',
       aal: startIntent.aal,
       factors: startIntent.factors,
       // Already loaded above to gate the signin; save listeners a re-read.
@@ -127,6 +129,7 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
       ...(opts.userAgent !== undefined && { userAgent: opts.userAgent }),
     })
 
+    if (startIntent.endOtherSessions) await sessions.revokeAllExcept(startIntent.identityId, sid)
     const transportIntents = transport.issue(sid, session, { fresh: true, absolute: false, csrfToken })
     await events.emit('signin.success', { identity, factors: startIntent.factors })
     return {
@@ -177,18 +180,8 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
 
     // INVARIANT: never gate on `fresh` alone; a restored operator session is `fresh: true` at `aal: 1`.
     if (session.aal >= requiredAal && session.fresh) {
-      // Fail-closed: a non-finite rotatedAt would slip the freshness gate, and so would a future one -
-      // `now - rotatedAt` goes negative and no window is ever exceeded. Bounded both ways.
-      if (freshness !== undefined) {
-        const rotatedAtMs =
-          session.rotatedAt instanceof Date
-            ? session.rotatedAt.getTime()
-            : typeof session.rotatedAt === 'number' && Number.isFinite(session.rotatedAt)
-              ? session.rotatedAt
-              : Number.NaN
-        if (!Number.isFinite(rotatedAtMs) || Math.abs(Date.now() - rotatedAtMs) > freshness) {
-          return { satisfied: false, reason: 'fresh-required', methods }
-        }
+      if (freshness !== undefined && !isSessionFresh(session, Date.now(), freshness)) {
+        return { satisfied: false, reason: 'fresh-required', methods }
       }
       return { satisfied: true, session, sid: '', intents: [] }
     }
@@ -202,15 +195,25 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
    * Credentials are tenant-scoped and identities are not, so a second input would let a factor enrolled in
    * tenant B satisfy a step-up in tenant A.
    */
-  async completeStepUp(opts: {
-    currentSid: string
-    method: 'totp' | 'backup-code'
-    code: string
-  }): Promise<{ session: Sessions.Me; sid: string; intents: Provider.Intent[] }> {
-    if (opts.method !== 'totp' && opts.method !== 'backup-code') {
+  async completeStepUp(
+    opts: (
+      | { method: 'totp' | 'backup-code'; code: string }
+      | { method: 'webauthn'; webauthn: Mfa.WebauthnMfaVerifyOpts }
+    ) & {
+      currentSid: string
+      /** The request's, as `signIn` takes them: the browser that proved the factor becomes the one the hijack
+       *  policy compares against. Omitted, the session keeps its own, so a step-up that policy asked for on a
+       *  changed browser is asked for again. */
+      ip?: string
+      userAgent?: string
+    },
+  ): Promise<{ session: Sessions.Me; sid: string; intents: Provider.Intent[] }> {
+    if (opts.method === 'webauthn') {
+      if (!isRecord(opts.webauthn)) throw new AuthError('AUTH_INVALID_CREDENTIALS')
+    } else if (opts.method !== 'totp' && opts.method !== 'backup-code') {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
-    }
-    if (typeof opts.code !== 'string' || opts.code.length === 0 || opts.code.length > 64) {
+    } else if (typeof opts.code !== 'string' || opts.code.length === 0 || opts.code.length > 128) {
+      // Above the longest backup code, 65 characters; each verifier bounds its own factor.
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
     const { sessions, requireMfa, transport, ctxFactory } = this._deps
@@ -230,9 +233,11 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     const limited = await ctx.limiter.consume(`stepup:${resolved.identityId}`)
     if (!limited.ok) await refuseRateLimited(ctx.events, limited, resolved.identityId)
     const ok =
-      opts.method === 'totp'
-        ? await mfa.verifyTotp(resolved.identityId, opts.code, tenant)
-        : await mfa.verifyBackupCode(resolved.identityId, opts.code, tenant)
+      opts.method === 'webauthn'
+        ? await mfa.verifyWebauthnMfa(resolved.identityId, opts.webauthn, tenant)
+        : opts.method === 'totp'
+          ? await mfa.verifyTotp(resolved.identityId, opts.code, tenant)
+          : await mfa.verifyBackupCode(resolved.identityId, opts.code, tenant)
     if (!ok) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
@@ -242,14 +247,13 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
       identityId: resolved.identityId,
       kind: resolved.kind,
       aal: 2,
-      factors: [
-        ...resolved.factors,
-        { method: opts.method === 'totp' ? 'totp' : 'backup-code', completedAt: new Date() },
-      ],
+      factors: [...resolved.factors, { method: opts.method, completedAt: new Date() }],
       // Unconditional: `Sessions.Me.tenantId` is `string | null` and never `undefined`, so the guard this
       // replaces always fired while reading as though it sometimes did not. The rotated session stays in
       // the tenant it was in.
       tenantId: resolved.tenantId,
+      ...(opts.ip !== undefined && { ip: opts.ip }),
+      ...(opts.userAgent !== undefined && { userAgent: opts.userAgent }),
     })
     const intents = transport.issue(sid, session, { fresh: true, absolute: false, csrfToken })
     return { session, sid, intents }
@@ -347,7 +351,7 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return answer(getSignUpFlowImpl(this._deps, flowToken, tenantId))
   }
 
-  /** Carries a partial sign-up to its next stage, answering a fresh flow token. */
+  /** Records a completed stage and merges `profilePatch`; the flow token stays the same. */
   async advanceSignUp(opts: {
     flowToken: string
     stage: Flows.SignUpStage
@@ -396,10 +400,8 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return unlinkProviderImpl(this._deps, opts)
   }
 
-  /** Ends the impersonation and mints the operator a session of their own. `session` and `sid` are null
-   *  and empty only when the operator's identity is gone, and the bearer is cleared instead. */
-  /** `session` and `sid` are both null when the operator's own account went away mid-impersonation:
-   *  there is no session to return them to, so the window ends revoked with the bearer cleared. */
+  /** Ends the impersonation and mints the operator a session of their own. `session` and `sid` are both
+   *  null when the operator's own account went away mid-impersonation, and the bearer is cleared instead. */
   async releaseImpersonation(
     impersonationSid: string,
   ): Promise<{ session: Sessions.Me | null; sid: string | null; intents: Provider.Intent[] }> {

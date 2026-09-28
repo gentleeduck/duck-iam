@@ -118,7 +118,7 @@ describe('Plugin system', () => {
           throw new Error('install failed')
         },
         providers: [{ begin: async () => [], complete: async () => [], id: 'orphan', kind: 'test' }],
-      } as never),
+      }),
     ).rejects.toThrow('install failed')
 
     expect(auth.plugins.installed.has('boom-providers')).toBe(false)
@@ -131,7 +131,7 @@ describe('Plugin system', () => {
     const auth = buildAuth()
     const provider = (id: string) => ({ begin: async () => [], complete: async () => [], id, kind: 'test' })
     await expect(
-      auth.use({ id: 'half', providers: [provider('one'), provider('two'), provider('one')] } as never),
+      auth.use({ id: 'half', providers: [provider('one'), provider('two'), provider('one')] }),
     ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
 
     expect(auth.providers.has('one')).toBe(false)

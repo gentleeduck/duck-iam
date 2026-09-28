@@ -12,10 +12,6 @@ export const ORGS_NOT_CONFIGURED = 'this operation needs an org store; pass `sto
 export class OrgsImpl<OrgMeta = unknown> {
   constructor(
     private readonly _store: Org.Store<OrgMeta>,
-    /** WARN: nothing here emits. There is no `org.*` event in the bus's map, so membership and role
-     *  changes - `setRoles` grants privileges - leave no audit trail, unlike every comparable
-     *  operation (`mfa.enrolled`, `identity.linked`, `authz.revoked`). A host needing one wraps these
-     *  methods for now; adding the events is a change to the public event map, not an audit fix. */
     readonly _events: Events.IBus,
   ) {}
 
@@ -29,9 +25,9 @@ export class OrgsImpl<OrgMeta = unknown> {
     return (await this._store.listOrgsForIdentity(identityId, ctx)).map((org) => inScope(org, ctx))
   }
 
-  /** Every membership in this org. */
+  /** Every live membership in this org; a row the store answers marked `leftAt` is dropped. */
   async listMembers(orgId: string, ctx: TenantContext): Promise<Org.Membership[]> {
-    return (await this._store.listMembers(orgId, ctx)).map((m) => inScope(m, ctx))
+    return (await this._store.listMembers(orgId, ctx)).map((m) => inScope(m, ctx)).filter((m) => !m.leftAt)
   }
 
   /** Re-adding an identity whose previous membership is marked `leftAt` is allowed; a live one is a
@@ -40,29 +36,35 @@ export class OrgsImpl<OrgMeta = unknown> {
     input: { orgId: string; identityId: string; roles?: string[] },
     ctx: TenantContext,
   ): Promise<Org.Membership> {
-    const existing = (await this._store.listMembers(input.orgId, ctx)).map((m) => inScope(m, ctx))
-    const live = existing.find((m) => m.identityId === input.identityId && !m.leftAt)
-    if (live) {
+    if ((await this.listMembers(input.orgId, ctx)).some((m) => m.identityId === input.identityId)) {
       throw new AuthError('AUTH_ALREADY_EXISTS', { detail: 'identity already a member of this org' })
     }
-    const m = await this._store.addMember(
-      {
-        orgId: input.orgId,
-        identityId: input.identityId,
-        roles: sanitizeRoles(input.roles),
-        invitedAt: null,
-        leftAt: null,
-        tenantId: ctx.tenantId ?? null,
-      },
+    const m = inScope(
+      await this._store.addMember(
+        {
+          orgId: input.orgId,
+          identityId: input.identityId,
+          roles: sanitizeRoles(input.roles),
+          invitedAt: null,
+          leftAt: null,
+          tenantId: ctx.tenantId ?? null,
+        },
+        ctx,
+      ),
       ctx,
     )
-    return inScope(m, ctx)
+    await this._events.emit('org.member.added', { orgId: m.orgId, identityId: m.identityId, roles: m.roles })
+    return m
   }
 
   /** Marks `leftAt`, answering the membership as it stands left. An identity that was not a member
    *  rejects; `orNull()` is how an idempotent caller reads that as having done nothing. */
   removeMember(orgId: string, identityId: string, ctx: TenantContext): Answer.Me<Org.Membership> {
-    return answer(async () => inScope(await this._store.removeMember(orgId, identityId, ctx), ctx))
+    return answer(async () => {
+      const m = inScope(await this._store.removeMember(orgId, identityId, ctx), ctx)
+      await this._events.emit('org.member.removed', { orgId, identityId })
+      return m
+    })
   }
 
   /** Answers the membership carrying the sanitized set actually stored, not the one passed in.
@@ -70,14 +72,17 @@ export class OrgsImpl<OrgMeta = unknown> {
    *  shipped memory store allows it, and the write is unreadable - `listMembers` and
    *  `resolveMembership` skip left rows, and re-adding overwrites the roles wholesale. */
   setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext): Answer.Me<Org.Membership> {
-    return answer(async () => inScope(await this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx), ctx))
+    return answer(async () => {
+      const m = inScope(await this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx), ctx)
+      await this._events.emit('org.roles.set', { orgId, identityId, roles: m.roles })
+      return m
+    })
   }
 
   /** Rejects `AUTH_MEMBERSHIP_NOT_FOUND` when the identity is not a live member. */
   resolveMembership(orgId: string, identityId: string, ctx: TenantContext): Answer.Me<Org.Membership> {
     return answer(async () => {
-      const members = (await this._store.listMembers(orgId, ctx)).map((m) => inScope(m, ctx))
-      const live = members.find((m) => m.identityId === identityId && !m.leftAt)
+      const live = (await this.listMembers(orgId, ctx)).find((m) => m.identityId === identityId)
       if (!live) {
         throw new AuthError('AUTH_MEMBERSHIP_NOT_FOUND')
       }
@@ -96,8 +101,8 @@ function inScope<T extends { tenantId: string | null }>(row: T, ctx: TenantConte
   throw new AuthError('AUTH_TENANT_SCOPE_VIOLATION', { asked: ctx.tenantId, got: row.tenantId })
 }
 
+/** Bounds `roles` on `addMember` and `setRoles`, dropping each bad entry rather than throwing. */
 function sanitizeRoles(raw: unknown): string[] {
-  /** Bounds for `roles: string[]` on `addMember` + `setRoles`; silent per-entry filter, no throw. */
   const ROLES_MAX_COUNT = 64
   const ROLE_MAX_LENGTH = 128
 

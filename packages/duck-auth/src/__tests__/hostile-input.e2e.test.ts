@@ -3,7 +3,7 @@ import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { valkeyAdapter } from '~/adapters/valkey'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { RedisLimiter } from '~/limiters/redis'
@@ -39,9 +39,9 @@ suite('E2E hostile input on real Postgres + Redis', () => {
   const cookie = (sid: string) => ({ headers: new Headers({ cookie: `duck-sid=${sid}` }) })
 
   /** Create an identity, remembering it for cleanup. Returns null if the store refused. */
-  async function tryCreate(profile: Record<string, unknown>): Promise<{ id: string } | null> {
+  async function tryCreate(profile: Profile & Record<string, unknown>): Promise<{ id: string } | null> {
     try {
-      const identity = await auth.identities.create({ profile: profile as unknown as Profile })
+      const identity = await auth.identities.create({ profile })
       planted.push(identity.id)
       return identity
     } catch {
@@ -52,16 +52,16 @@ suite('E2E hostile input on real Postgres + Redis', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: PG_URL })
     await applyPgSchema(pool)
-    raw = new Redis(REDIS_URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
-    stores = new DrizzlePgAdapter(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       limiter: new RedisLimiter({
         max: 5000,
         prefix,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
         windowMs: 60_000,
       }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
@@ -86,8 +86,8 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       const created = await tryCreate({ email: `inj-${e2ePrefix()}@x.com`, username: NASTY.injection })
       expect(created).not.toBeNull()
 
-      const read = await stores.identities.find({ id: created?.id as string })
-      expect((read?.profile as Profile).username).toBe(NASTY.injection)
+      const read = await stores.identities.find({ id: String(created?.id) })
+      expect(read.profile).toMatchObject({ username: NASTY.injection })
       // If the payload had executed, this count would throw instead of answering.
       const { rows } = await pool.query('SELECT count(*)::int AS n FROM auth_identities')
       expect(rows[0].n).toBeGreaterThan(0)
@@ -101,8 +101,8 @@ suite('E2E hostile input on real Postgres + Redis', () => {
 
     it('survives a payload that tries to break out of the json literal', async () => {
       const created = await tryCreate({ email: `json-${e2ePrefix()}@x.com`, username: NASTY.jsonBreaker })
-      const read = await stores.identities.find({ id: created?.id as string })
-      expect((read?.profile as Profile).username).toBe(NASTY.jsonBreaker)
+      const read = await stores.identities.find({ id: String(created?.id) })
+      expect(read.profile).toMatchObject({ username: NASTY.jsonBreaker })
     })
 
     it('survives a payload in a session id lookup', async () => {
@@ -118,7 +118,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
         username: `proto-${e2ePrefix()}`,
       })
       expect(created).not.toBeNull()
-      expect(({} as { polluted?: boolean }).polluted).toBeUndefined()
+      expect(Reflect.get({}, 'polluted')).toBeUndefined()
     })
 
     it('a constructor key survives a round trip without becoming a constructor', async () => {
@@ -127,28 +127,28 @@ suite('E2E hostile input on real Postgres + Redis', () => {
         email: `ctor-${e2ePrefix()}@x.com`,
         username: `ctor-${e2ePrefix()}`,
       })
-      const read = await stores.identities.find({ id: created?.id as string })
-      expect(typeof read?.profile).toBe('object')
+      const read = await stores.identities.find({ id: String(created?.id) })
+      expect(typeof read.profile).toBe('object')
     })
   })
 
   describe('unicode the column may not like', () => {
     it('round-trips four-byte emoji', async () => {
       const created = await tryCreate({ email: `emoji-${e2ePrefix()}@x.com`, username: NASTY.emoji })
-      const read = await stores.identities.find({ id: created?.id as string })
-      expect((read?.profile as Profile).username).toBe(NASTY.emoji)
+      const read = await stores.identities.find({ id: String(created?.id) })
+      expect(read.profile).toMatchObject({ username: NASTY.emoji })
     })
 
     it('round-trips combining marks without mangling them', async () => {
       const created = await tryCreate({ email: `zalgo-${e2ePrefix()}@x.com`, username: NASTY.zalgo })
-      const read = await stores.identities.find({ id: created?.id as string })
-      expect((read?.profile as Profile).username).toBe(NASTY.zalgo)
+      const read = await stores.identities.find({ id: String(created?.id) })
+      expect(read.profile).toMatchObject({ username: NASTY.zalgo })
     })
 
     it('round-trips a right-to-left override, which display layers may render deceptively', async () => {
       const created = await tryCreate({ email: `rtl-${e2ePrefix()}@x.com`, username: NASTY.rtl })
-      const read = await stores.identities.find({ id: created?.id as string })
-      expect((read?.profile as Profile).username).toBe(NASTY.rtl)
+      const read = await stores.identities.find({ id: String(created?.id) })
+      expect(read.profile).toMatchObject({ username: NASTY.rtl })
     })
 
     it('a NUL byte in a username is refused as invalid input', async () => {
@@ -157,7 +157,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       // message: a username field that meets one now reads as a validation failure.
       await expect(
         auth.identities.create({
-          profile: { email: `nul-${e2ePrefix()}@x.com`, username: NASTY.nul } as unknown as Profile,
+          profile: { email: `nul-${e2ePrefix()}@x.com`, username: NASTY.nul },
         }),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
@@ -168,7 +168,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       // shape the size cap does not describe, this one never leaves the process.
       await expect(
         auth.identities.create({
-          profile: { email: `mb-${e2ePrefix()}@x.com`, username: 'x'.repeat(1_000_000) } as unknown as Profile,
+          profile: { email: `mb-${e2ePrefix()}@x.com`, username: 'x'.repeat(1_000_000) },
         }),
       ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
     })
@@ -179,7 +179,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       await expect(
         stores.identities.create({
           emailVerified: false,
-          profile: { email: `mb2-${e2ePrefix()}@x.com`, username: 'x'.repeat(1_000_000) } as unknown as Profile,
+          profile: { email: `mb2-${e2ePrefix()}@x.com`, username: 'x'.repeat(1_000_000) },
           providers: [],
         }),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
@@ -264,18 +264,20 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       ['an object email', { nested: true }],
     ])('refuses %s', async (label, email) => {
       await expect(
-        auth.identities.create({ profile: { email, username: `${label}-${e2ePrefix()}` } as unknown as Profile }),
+        // @ts-expect-error an email that is not a string
+        auth.identities.create({ profile: { email, username: `${label}-${e2ePrefix()}` } }),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('a missing email is refused by the profile shape check, as a typed error', async () => {
       await expect(
-        auth.identities.create({ profile: { username: `noemail-${e2ePrefix()}` } as unknown as Profile }),
+        // @ts-expect-error no email at all
+        auth.identities.create({ profile: { username: `noemail-${e2ePrefix()}` } }),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('deeply nested profile json survives a round trip', async () => {
-      const deep = JSON.parse(`${'{"a":'.repeat(200)}1${'}'.repeat(200)}`) as unknown
+      const deep: unknown = JSON.parse(`${'{"a":'.repeat(200)}1${'}'.repeat(200)}`)
       const created = await tryCreate({ deep, email: `deep-${e2ePrefix()}@x.com`, username: `deep-${e2ePrefix()}` })
       expect(created).not.toBeNull()
     })
@@ -283,19 +285,22 @@ suite('E2E hostile input on real Postgres + Redis', () => {
 
   describe('wrong types where a string was expected', () => {
     it('refuses a numeric sid', async () => {
-      await expect(auth.sessions.getBySid(12345 as unknown as string)).rejects.toMatchObject({
+      // @ts-expect-error not a string
+      await expect(auth.sessions.getBySid(12345)).rejects.toMatchObject({
         code: 'AUTH_INVALID_PARAMETERS',
       })
     })
 
     it('refuses an array sid', async () => {
-      await expect(auth.sessions.getBySid(['a', 'b'] as unknown as string)).rejects.toMatchObject({
+      // @ts-expect-error not a string
+      await expect(auth.sessions.getBySid(['a', 'b'])).rejects.toMatchObject({
         code: 'AUTH_INVALID_PARAMETERS',
       })
     })
 
     it('refuses a null sid', async () => {
-      await expect(auth.sessions.getBySid(null as unknown as string)).rejects.toMatchObject({
+      // @ts-expect-error not a string
+      await expect(auth.sessions.getBySid(null)).rejects.toMatchObject({
         code: 'AUTH_INVALID_PARAMETERS',
       })
     })
@@ -304,7 +309,8 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       await expect(
         auth.sessions.create({
           aal: 1,
-          factors: [{ nonsense: true } as unknown as { method: 'password'; completedAt: Date }],
+          // @ts-expect-error not a factor
+          factors: [{ nonsense: true }],
           identityId: null,
           kind: 'guest',
         }),
@@ -315,7 +321,8 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       await expect(
         auth.sessions.create({
           aal: 1,
-          factors: [{ completedAt: '2026-01-01' as unknown as Date, method: 'password' }],
+          // @ts-expect-error a string where the Date belongs
+          factors: [{ completedAt: '2026-01-01', method: 'password' }],
           identityId: null,
           kind: 'guest',
         }),
@@ -326,7 +333,8 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       await expect(
         auth.sessions.create({
           aal: 1,
-          factors: 'password' as unknown as [],
+          // @ts-expect-error not an array
+          factors: 'password',
           identityId: null,
           kind: 'guest',
         }),
@@ -344,7 +352,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
     it('refuses an empty password at sign-in', async () => {
       const tag = `blank-${e2ePrefix()}`
       const identity = await tryCreate({ email: `${tag}@x.com`, username: tag })
-      await auth.passwords.set(identity?.id as string, PASSWORD, stores.credentials)
+      await auth.passwords.set(String(identity?.id), PASSWORD, stores.credentials)
 
       await expect(
         auth.flows.signIn({ input: { email: `${tag}@x.com`, password: '' }, providerId: 'password' }),
@@ -361,7 +369,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       const limiter = new RedisLimiter({
         max: 7,
         prefix: `${prefix}:stampede`,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
         windowMs: 60_000,
       })
       const key = `hammer-${e2ePrefix()}`
@@ -373,7 +381,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       const limiter = new RedisLimiter({
         max: 1,
         prefix: `${prefix}:esc`,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
         windowMs: 60_000,
       })
       // A key containing the separator must not collide with another bucket.
@@ -386,7 +394,7 @@ suite('E2E hostile input on real Postgres + Redis', () => {
       const limiter = new RedisLimiter({
         max: 5,
         prefix: `${prefix}:big`,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
         windowMs: 60_000,
       })
       expect((await limiter.consume('k'.repeat(5000))).ok).toBe(false)

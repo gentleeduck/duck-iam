@@ -48,7 +48,7 @@ async function newIdentity(auth: AuthEngine<MyProfile>, email: string): Promise<
 }
 
 function tokenFrom(channel: ReturnType<typeof authTestDeliver>): string {
-  const url = (channel.outbox.at(-1)?.vars as { url: string }).url
+  const url = channel.outbox.at(-1)!.vars.url
   return new URL(url).searchParams.get('token') ?? ''
 }
 

@@ -1,6 +1,6 @@
 /** The channel must still be subscribed after a handler swap. `RedisEvents.on()` promises the valkey
  *  adapter "at most one live subscription per channel", and the adapter's unsubscribe is channel-global. */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ValkeySubscriberClient } from '~/core/drivers/valkey-like'
 import { valkeyEvents } from '~/core/events/events.valkey'
 import { FakeValkey } from '~/test/fake-valkey'
@@ -170,5 +170,79 @@ describe('RedisEvents: swapping the last handler must not leave the channel clos
     bus.on('lockout', () => {})
     await settle()
     expect(sub.channels.has(CHANNEL)).toBe(true)
+  })
+
+  it('hears a channel only through the listener that subscribed to it', async () => {
+    const { bus, sub } = wire()
+    const seen: string[] = []
+    bus.on('lockout', () => {
+      seen.push('lockout')
+    })
+    bus.on('session.revoked', () => {
+      seen.push('session.revoked')
+    })
+    await settle()
+
+    sub.deliver(CHANNEL, fromPeer())
+    await settle()
+    expect(seen).toEqual(['lockout'])
+  })
+
+  it('a failed subscribe leaves no listener behind, so the retry hears each message once', async () => {
+    const sub = new FakeSubscriber()
+    const original = sub.subscribe.bind(sub)
+    sub.subscribe = async () => {
+      sub.subscribe = original
+      throw new Error('connection refused')
+    }
+    const bus = valkeyEvents({ cmd: new FakeValkey(), prefix: 'test', sub })
+    const seen: string[] = []
+    bus.on('lockout', () => {
+      seen.push('first')
+    })
+    await settle()
+    bus.on('lockout', () => {
+      seen.push('second')
+    })
+    await settle()
+
+    sub.deliver(CHANNEL, fromPeer())
+    await settle()
+    expect(seen).toEqual(['first', 'second'])
+  })
+
+  it('logs an unsubscribe that failed, and the next on() still hears the fleet', async () => {
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { bus, sub } = wire()
+      sub.unsubscribe = async () => {
+        throw new Error('Connection is closed.')
+      }
+      const unsub = bus.on('lockout', () => {})
+      await settle()
+      unsub()
+      await settle()
+      expect(unhandled).toEqual([])
+      expect(logged.mock.calls.map(([line]) => line)).toEqual([
+        '[@gentleduck/auth] RedisEvents could not unsubscribe from "lockout":',
+      ])
+
+      const seen: unknown[] = []
+      bus.on('lockout', () => {
+        seen.push(1)
+      })
+      await settle()
+      sub.deliver(CHANNEL, fromPeer())
+      await settle()
+      expect(seen).toHaveLength(1)
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+      logged.mockRestore()
+    }
   })
 })

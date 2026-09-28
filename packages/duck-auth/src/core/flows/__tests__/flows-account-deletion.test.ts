@@ -58,7 +58,7 @@ describe('FlowsImpl - account deletion', () => {
     })
     expect(channel.outbox).toHaveLength(1)
     expect(channel.outbox[0]!.kind).toBe('account-deletion')
-    const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    const token = new URL(channel.outbox[0]!.vars.url).searchParams.get('token')!
 
     const result = await auth.flows.completeAccountDeletion({ token })
     expect(result.identityId).toBe(identityId)
@@ -80,7 +80,7 @@ describe('FlowsImpl - account deletion', () => {
     await auth.flows.requestAccountDeletion({
       identityId,
     })
-    const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    const token = new URL(channel.outbox[0]!.vars.url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
     await expect(adapter.identities.find({ id: identityId })).rejects.toMatchObject({ code: 'AUTH_IDENTITY_NOT_FOUND' })
 
@@ -95,7 +95,7 @@ describe('FlowsImpl - account deletion', () => {
     // plausible string and restored the account - anyone who could reach it
     // un-deleted any account by id.
     await auth.flows.requestAccountDeletion({ identityId })
-    const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    const token = new URL(channel.outbox[0]!.vars.url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
 
     await expect(auth.flows.cancelAccountDeletion({ authorize: async () => false, identityId })).rejects.toMatchObject({
@@ -106,7 +106,7 @@ describe('FlowsImpl - account deletion', () => {
 
   it('cancel asks authorize() about the identity it is being asked to restore', async () => {
     await auth.flows.requestAccountDeletion({ identityId })
-    const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    const token = new URL(channel.outbox[0]!.vars.url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
     const seen: string[] = []
 
@@ -125,7 +125,7 @@ describe('FlowsImpl - account deletion', () => {
     // A denial must not be observable as a restore-then-undo, and must not cost
     // a store round-trip an attacker can time.
     await auth.flows.requestAccountDeletion({ identityId })
-    const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    const token = new URL(channel.outbox[0]!.vars.url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
     const restore = vi.spyOn(adapter.identities, 'restore')
 
@@ -140,23 +140,20 @@ describe('FlowsImpl - account deletion', () => {
   it('a denied cancel is indistinguishable from an id that does not exist', async () => {
     // Same code both ways, so this cannot be used to ask which accounts are
     // sitting in the deletion grace window.
-    const denied = await auth.flows
-      .cancelAccountDeletion({ authorize: async () => false, identityId })
-      .catch((e: unknown) => e)
-    const unknown = await auth.flows
-      .cancelAccountDeletion({ authorize: async () => true, identityId: 'no-such-identity' })
-      .catch((e: unknown) => e)
-
-    expect((denied as { code: string }).code).toBe('AUTH_UNAUTHENTICATED')
-    expect((unknown as { code: string }).code).toBe('AUTH_UNAUTHENTICATED')
+    await expect(auth.flows.cancelAccountDeletion({ authorize: async () => false, identityId })).rejects.toMatchObject({
+      code: 'AUTH_UNAUTHENTICATED',
+    })
+    await expect(
+      auth.flows.cancelAccountDeletion({ authorize: async () => true, identityId: 'no-such-identity' }),
+    ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
   })
 
   it('cancel without an authorize callback is a wiring error, not a silent pass', async () => {
     // TypeScript refuses this call; a JS host, or an object built from parsed
     // input, reaches it anyway. Reported as AUTH_MISCONFIGURED rather than
     // treated as permission granted.
-    const input = { identityId } as unknown as Parameters<typeof auth.flows.cancelAccountDeletion>[0]
-    await expect(auth.flows.cancelAccountDeletion(input)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    // @ts-expect-error no authorize
+    await expect(auth.flows.cancelAccountDeletion({ identityId })).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('complete with bogus token throws RECOVERY_TOKEN_INVALID', async () => {
@@ -167,7 +164,7 @@ describe('FlowsImpl - account deletion', () => {
 
   it('complete is single-use: replay fails', async () => {
     await auth.flows.requestAccountDeletion({ identityId })
-    const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    const token = new URL(channel.outbox[0]!.vars.url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
     await expect(auth.flows.completeAccountDeletion({ token })).rejects.toMatchObject({
       code: 'AUTH_RECOVERY_TOKEN_INVALID',
@@ -201,7 +198,7 @@ describe('FlowsImpl - account deletion', () => {
     })
     const ident = await engine.identities.create({ profile: { username: 'b@x.com', email: 'b@x.com' } })
     await engine.flows.requestAccountDeletion({ identityId: ident.id })
-    const token = new URL((ch.outbox[0]?.vars as { url: string }).url).searchParams.get('token') as string
+    const token = new URL(ch.outbox[0]!.vars.url).searchParams.get('token')!
     const [row] = await ad.credentials.listByIdentity(ident.id, 'recovery', {})
     gatedId = row?.id ?? null
     const softDeletes = vi.spyOn(ad.identities, 'softDelete')
@@ -228,9 +225,9 @@ describe('FlowsImpl - account deletion', () => {
 
   it('resend wipes the prior token; only latest verifies', async () => {
     await auth.flows.requestAccountDeletion({ identityId })
-    const t1 = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
+    const t1 = new URL(channel.outbox[0]!.vars.url).searchParams.get('token')!
     await auth.flows.requestAccountDeletion({ identityId })
-    const t2 = new URL((channel.outbox[1]!.vars as { url: string }).url).searchParams.get('token')!
+    const t2 = new URL(channel.outbox[1]!.vars.url).searchParams.get('token')!
     expect(t1).not.toBe(t2)
     await expect(auth.flows.completeAccountDeletion({ token: t1 })).rejects.toMatchObject({
       code: 'AUTH_RECOVERY_TOKEN_INVALID',
@@ -276,7 +273,8 @@ describe('FlowsImpl - account deletion', () => {
     await expect(
       auth.flows.requestAccountDeletion({
         identityId,
-        reason: 42 as unknown as string,
+        // @ts-expect-error not a string
+        reason: 42,
       }),
     ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })

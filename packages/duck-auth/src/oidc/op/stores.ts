@@ -7,7 +7,7 @@
 import { AuthError } from '~/core/errors'
 import type { OidcOP } from './types'
 
-/** In-memory `AuthOidcOP.IClientStore`. Maps `client_id` → registered client. */
+/** In-memory `AuthOidcOP.ClientStore`. Maps `client_id` → registered client. */
 export class AuthMemoryClientStore implements OidcOP.ClientStore {
   private rows = new Map<string, OidcOP.Client>()
   async findById(client_id: string): Promise<OidcOP.Client | null> {
@@ -21,7 +21,7 @@ export class AuthMemoryClientStore implements OidcOP.ClientStore {
   }
 }
 
-/** In-memory `AuthOidcOP.ICodeStore`. Codes are single-use; `consume` deletes them. */
+/** In-memory `AuthOidcOP.CodeStore`. Codes are single-use; `consume` deletes them. */
 export class AuthMemoryCodeStore implements OidcOP.CodeStore {
   private rows = new Map<string, OidcOP.Code>()
   async insert(c: OidcOP.Code): Promise<void> {
@@ -36,7 +36,7 @@ export class AuthMemoryCodeStore implements OidcOP.CodeStore {
   }
 }
 
-/** In-memory `AuthOidcOP.IAccessTokenStore`. Keyed by `token_hash`; expired tokens evicted lazily on read. */
+/** In-memory `AuthOidcOP.AccessTokenStore`. Keyed by `token_hash`; expired tokens evicted lazily on read. */
 export class AuthMemoryAccessTokenStore implements OidcOP.AccessTokenStore {
   private rows = new Map<string, OidcOP.AccessToken>()
   async insert(t: OidcOP.AccessToken): Promise<void> {
@@ -56,7 +56,7 @@ export class AuthMemoryAccessTokenStore implements OidcOP.AccessTokenStore {
   }
 }
 
-/** In-memory `AuthOidcOP.IRefreshTokenStore`. Supports RTR family revocation via `revokeFamily`. */
+/** In-memory `AuthOidcOP.RefreshTokenStore`. Supports RTR family revocation via `revokeFamily`. */
 export class AuthMemoryRefreshTokenStore implements OidcOP.RefreshTokenStore {
   private rows = new Map<string, OidcOP.RefreshToken>()
   async insert(t: OidcOP.RefreshToken): Promise<void> {
@@ -90,7 +90,7 @@ export class AuthMemoryRefreshTokenStore implements OidcOP.RefreshTokenStore {
   }
 }
 
-/** In-memory `AuthOidcOP.IConsentStore`. Keyed by `identityId:clientId` pair. */
+/** In-memory `AuthOidcOP.ConsentStore`. Keyed by `identityId:clientId` pair. */
 export class AuthMemoryConsentStore implements OidcOP.ConsentStore {
   private rows = new Map<string, OidcOP.Consent>()
   private key(identity_id: string, client_id: string) {
@@ -104,28 +104,33 @@ export class AuthMemoryConsentStore implements OidcOP.ConsentStore {
   }
 }
 
+/** Constructs {@link AuthMemoryClientStore}. */
 export function authMemoryClientStore(
   ...args: ConstructorParameters<typeof AuthMemoryClientStore>
 ): AuthMemoryClientStore {
   return new AuthMemoryClientStore(...args)
 }
 
+/** Constructs {@link AuthMemoryCodeStore}. */
 export function authMemoryCodeStore(...args: ConstructorParameters<typeof AuthMemoryCodeStore>): AuthMemoryCodeStore {
   return new AuthMemoryCodeStore(...args)
 }
 
+/** Constructs {@link AuthMemoryAccessTokenStore}. */
 export function authMemoryAccessTokenStore(
   ...args: ConstructorParameters<typeof AuthMemoryAccessTokenStore>
 ): AuthMemoryAccessTokenStore {
   return new AuthMemoryAccessTokenStore(...args)
 }
 
+/** Constructs {@link AuthMemoryRefreshTokenStore}. */
 export function authMemoryRefreshTokenStore(
   ...args: ConstructorParameters<typeof AuthMemoryRefreshTokenStore>
 ): AuthMemoryRefreshTokenStore {
   return new AuthMemoryRefreshTokenStore(...args)
 }
 
+/** Constructs {@link AuthMemoryConsentStore}. */
 export function authMemoryConsentStore(
   ...args: ConstructorParameters<typeof AuthMemoryConsentStore>
 ): AuthMemoryConsentStore {

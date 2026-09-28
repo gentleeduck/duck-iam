@@ -30,6 +30,7 @@ export default createTsdownConfig({
     'providers/oauth/microsoft/index': 'src/providers/oauth/microsoft/index.ts',
     'providers/oauth/discord/index': 'src/providers/oauth/discord/index.ts',
     'providers/oauth/apple/index': 'src/providers/oauth/apple/index.ts',
+    'providers/oauth/core/index': 'src/providers/oauth/core/index.ts',
     'providers/passkey/index': 'src/providers/passkey/index.ts',
     'providers/api-key/index': 'src/providers/api-key/index.ts',
     'providers/saml/index': 'src/providers/saml/index.ts',

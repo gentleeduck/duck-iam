@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import type { DataAtRest, Kms } from '../dataAtRest/dataAtRest.types'
 import { AuthError } from '../errors'
+import { CIPHERTEXT_MAX_LENGTH, PLAINTEXT_MAX_LENGTH } from './dataAtRest.constants'
+import type { DataAtRest, Kms } from './dataAtRest.types'
 
 /**
  * Envelope encryption over any `Kms.Provider`: a per-record DEK and AES-256-GCM locally, with
@@ -17,11 +18,20 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
 
   /** Mints a per-record data key, encrypts locally under it, and stores it wrapped alongside. */
   async encrypt(plain: string, ctx: DataAtRest.Context): Promise<string> {
+    if (typeof plain !== 'string' || plain.length > PLAINTEXT_MAX_LENGTH) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: plaintext must be a <=1MiB string' })
+    }
     const dek = await this._kms.generateDataKey(this._aad(ctx))
     if (dek.plaintext.length !== 32) {
+      dek.plaintext.fill(0)
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `kms-envelope: KMS returned ${dek.plaintext.length}-byte DEK; expected 32`,
       })
+    }
+    // SECURITY: an empty wrapped DEK stores a value nothing can ever decrypt.
+    if (dek.ciphertext.length === 0) {
+      dek.plaintext.fill(0)
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'kms-envelope: KMS returned an empty wrapped DEK' })
     }
     const iv = randomBytes(12)
     const cipher = createCipheriv('aes-256-gcm', dek.plaintext, iv)
@@ -43,36 +53,43 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
 
   /** Unwraps the record's own data key through KMS, then decrypts locally. */
   async decrypt(cipherText: string, ctx: DataAtRest.Context): Promise<string> {
-    const parts = cipherText.split('$')
-    if (parts.length !== 7 || parts[0] !== 'kms-env' || parts[1] !== 'v1') {
-      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: malformed ciphertext' })
+    if (typeof cipherText !== 'string' || cipherText.length > CIPHERTEXT_MAX_LENGTH) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: ciphertext is not a string or oversize' })
     }
-    // No cast: the length check above leaves seven strings, and the guard below rejects a missing one.
-    const [wrappedB64, ivB64, tagB64, ctB64] = [parts[3], parts[4], parts[5], parts[6]]
-    if (wrappedB64 === undefined || ivB64 === undefined || tagB64 === undefined || ctB64 === undefined) {
+    const [prefix, version, , wrappedB64, ivB64, tagB64, ctB64, ...rest] = cipherText.split('$')
+    if (
+      prefix !== 'kms-env' ||
+      version !== 'v1' ||
+      wrappedB64 === undefined ||
+      ivB64 === undefined ||
+      tagB64 === undefined ||
+      ctB64 === undefined ||
+      rest.length > 0
+    ) {
       throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: malformed ciphertext' })
     }
     const wrapped = Buffer.from(wrappedB64, 'base64url')
+    const iv = Buffer.from(ivB64, 'base64url')
+    const tag = Buffer.from(tagB64, 'base64url')
+    const ct = Buffer.from(ctB64, 'base64url')
+    // SECURITY: standard GCM sizes, as the aes-gcm adapter checks. Node accepts a shorter tag - it only
+    // warns - and a 32-bit tag is a forgery target of 2^32 rather than 2^128, on a column whose whole
+    // purpose is to hold when someone can already write to it. Checked before the KMS round trip.
+    if (wrapped.length === 0) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: wrapped DEK is empty' })
+    }
+    if (iv.length !== 12) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: IV must be 12 bytes' })
+    }
+    if (tag.length !== 16) {
+      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: auth tag must be 16 bytes' })
+    }
     const dekPlain = await this._kms.decryptDataKey(wrapped, this._aad(ctx))
     if (dekPlain.length !== 32) {
       dekPlain.fill(0)
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `kms-envelope: KMS returned ${dekPlain.length}-byte DEK on decrypt; expected 32`,
       })
-    }
-    const iv = Buffer.from(ivB64, 'base64url')
-    const tag = Buffer.from(tagB64, 'base64url')
-    const ct = Buffer.from(ctB64, 'base64url')
-    // SECURITY: standard GCM sizes, as the aes-gcm adapter checks. Node accepts a shorter tag - it only
-    // warns - and a 32-bit tag is a forgery target of 2^32 rather than 2^128, on a column whose whole
-    // purpose is to hold when someone can already write to it.
-    if (iv.length !== 12) {
-      dekPlain.fill(0)
-      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: IV must be 12 bytes' })
-    }
-    if (tag.length !== 16) {
-      dekPlain.fill(0)
-      throw new AuthError('AUTH_INVALID_PARAMETERS', { detail: 'kms-envelope: auth tag must be 16 bytes' })
     }
     try {
       const decipher = createDecipheriv('aes-256-gcm', dekPlain, iv)
@@ -89,10 +106,8 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
     }
   }
 
-  /** Always false; KMS rotates server-side under the same key id. */
+  /** Always false: KMS rotates server-side under the same key id, and retiring a key is re-encrypted out of band. */
   needsReEncrypt(_cipherText: string): boolean {
-    // KMS rotates server-side under the same keyId, so an operator retiring a key triggers the
-    // re-encrypt out of band.
     return false
   }
 
@@ -108,7 +123,9 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
 
 /** Configuration for the envelope encryptor that wraps each data key with a KMS provider. */
 export namespace AuthKmsEnvelopeDataAtRest {
+  /** The KMS provider that wraps each data key. */
   export interface Cfg {
+    /** Mints each data key and unwraps it. */
     kms: Kms.Provider
   }
 }

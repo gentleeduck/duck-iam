@@ -4,16 +4,19 @@
  * through. Two things decide both: the id map and `resolve`'s instanceof scan.
  */
 import { describe, expect, it } from 'vitest'
+import { MemoryAdapter } from '~/adapters/memory'
+import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
+import { AuthError } from '~/core/errors'
+import { InMemoryEvents } from '~/core/events'
 import { Providers } from '../provider'
 import type { Provider } from '../provider.types'
 
 /** A capability with exactly the members the test names, and nothing else. */
-function cap(id: string, over: Partial<Provider.Capability> = {}): Provider.Capability {
-  return { id, kind: 'test', ...over } as Provider.Capability
+function cap(id: string, over: Pick<Provider.Capability, 'begin' | 'complete'> = {}): Provider.Capability {
+  return { id, kind: 'test', ...over }
 }
 
-const signIn = (id: string): Provider.Capability =>
-  cap(id, { begin: async () => [], complete: async () => [] } as never)
+const signIn = (id: string): Provider.Capability => cap(id, { begin: async () => [], complete: async () => [] })
 
 /** A capability that signs nobody in, shaped the way every shipped one is: a class instance. */
 class Facet {
@@ -21,10 +24,18 @@ class Facet {
   constructor(readonly id: string) {}
 }
 
-const facet = (id: string): Provider.Capability => new Facet(id) as Provider.Capability
+const facet = (id: string): Provider.Capability => new Facet(id)
 
 const misconfigured = expect.objectContaining({ code: 'AUTH_MISCONFIGURED' })
-const ctx = {} as Provider.Context
+const adapter = new MemoryAdapter()
+const ctx: Provider.Context = {
+  baseUrl: 'https://x',
+  crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
+  events: new InMemoryEvents(),
+  limiter: { consume: async () => ({ ok: true, remaining: 1, resetAt: new Date() }), reset: async () => undefined },
+  stores: { credentials: adapter.credentials, identities: adapter.identities, sessions: adapter.sessions },
+  tenant: {},
+}
 
 describe('what an id may be', () => {
   it('refuses a second capability claiming a taken id', () => {
@@ -67,14 +78,13 @@ describe('what an id may be', () => {
     // The id comes from the request, so what lands in `meta.providerId` and survives the wire-safe
     // envelope has to be an id that could have been registered, not whatever a client sent.
     const registry = new Providers()
-    const err = (() => {
-      try {
-        registry.get('<script>alert(1)</script>')
-      } catch (e) {
-        return e as { toJSON(): { error: Record<string, unknown> } }
-      }
-    })()
-    expect(err?.toJSON().error).toMatchObject({ providerId: 'invalid' })
+    let wire: unknown
+    try {
+      registry.get('<script>alert(1)</script>')
+    } catch (e) {
+      wire = e instanceof AuthError ? e.toJSON().error : e
+    }
+    expect(wire).toMatchObject({ providerId: 'invalid' })
   })
 
   it('registers a whole list or none of it', () => {
@@ -116,12 +126,12 @@ describe('what list advertises against what begin accepts', () => {
         return []
       }
     }
-    expect(() => new Providers([new HalfFacet() as never])).toThrow(misconfigured)
-    expect(() => new Providers([new OtherHalfFacet() as never])).toThrow(misconfigured)
+    expect(() => new Providers([new HalfFacet()])).toThrow(misconfigured)
+    expect(() => new Providers([new OtherHalfFacet()])).toThrow(misconfigured)
   })
 
   it('refuses a capability nothing can reach: no begin, no complete, and no prototype to resolve by', () => {
-    expect(() => new Providers([{ ...new Facet('copy') } as never])).toThrow(misconfigured)
+    expect(() => new Providers([{ ...new Facet('copy') }])).toThrow(misconfigured)
   })
 
   it('separates an unknown provider from one that signs nobody in', async () => {
@@ -148,7 +158,7 @@ describe('what list advertises against what begin accepts', () => {
         return []
       }
     }
-    const registry = new Providers([new Stateful() as never])
+    const registry = new Providers([new Stateful()])
     expect(await registry.begin('stateful', ctx, {})).toEqual([{ body: { marker: 'kept' }, status: 200, type: 'json' }])
   })
 
@@ -163,7 +173,7 @@ describe('what list advertises against what begin accepts', () => {
           return []
         },
         complete: async () => [],
-      } as never),
+      }),
     ])
     const hostile = { __proto__: { polluted: true }, toString: 1 }
     await registry.begin('echo', ctx, hostile)
@@ -173,16 +183,16 @@ describe('what list advertises against what begin accepts', () => {
 
 describe('resolving a facet by its class', () => {
   class Base {
-    readonly id = 'base'
+    readonly id: string = 'base'
     readonly kind = 'test'
   }
   class Subclass extends Base {
-    override readonly id = 'subclass' as never
+    override readonly id = 'subclass'
   }
 
   it('returns the entry that is an instance of the constructor', () => {
     const instance = new Base()
-    expect(new Providers([instance as never]).resolve(Base)).toBe(instance)
+    expect(new Providers([instance]).resolve(Base)).toBe(instance)
   })
 
   it('returns null when nothing matches', () => {
@@ -192,21 +202,21 @@ describe('resolving a facet by its class', () => {
   it('refuses a resolve a subclass and its base both answer, rather than letting registration order pick', () => {
     // A plugin that subclasses a shipped facet would otherwise decide what `auth.passwords`,
     // `auth.mfa` and `auth.apiKeys` return by registering first, without ever colliding on an id.
-    const registry = new Providers([new Subclass() as never, new Base() as never])
+    const registry = new Providers([new Subclass(), new Base()])
     expect(() => registry.resolve(Base)).toThrow(misconfigured)
   })
 
   it('refuses an ambiguous resolve rather than reporting the first match', () => {
-    const registry = new Providers([new Base() as never, Object.assign(new Base(), { id: 'base-2' }) as never])
+    const registry = new Providers([new Base(), Object.assign(new Base(), { id: 'base-2' })])
     expect(() => registry.resolve(Base)).toThrow(misconfigured)
   })
 
   it('a base instance does not answer a resolve for the subclass', () => {
-    expect(new Providers([new Base() as never]).resolve(Subclass)).toBeNull()
+    expect(new Providers([new Base()]).resolve(Subclass)).toBeNull()
   })
 
   it('still resolves the subclass on its own', () => {
     const only = new Subclass()
-    expect(new Providers([only as never]).resolve(Base)).toBe(only)
+    expect(new Providers([only]).resolve(Base)).toBe(only)
   })
 })

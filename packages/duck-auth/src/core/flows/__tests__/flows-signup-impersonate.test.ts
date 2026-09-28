@@ -215,9 +215,9 @@ describe('FlowsImpl - impersonation', () => {
     // `iamDecisionId` appeared once in the whole package: its own declaration, whose doc calls an
     // impersonation nobody can trace to an authorization "the one entry an audit log cannot afford to be
     // missing". No option carried it and the only emitter never set it.
-    const seen: Array<Record<string, unknown>> = []
+    const seen: unknown[] = []
     auth.events.on('identity.impersonated', (p) => {
-      seen.push(p as unknown as Record<string, unknown>)
+      seen.push(p)
     })
 
     await auth.flows.impersonate({
@@ -228,13 +228,13 @@ describe('FlowsImpl - impersonation', () => {
       targetIdentityId: targetId,
     })
 
-    expect(seen[0]?.iamDecisionId).toBe('decision-9f3')
+    expect(seen).toEqual([expect.objectContaining({ iamDecisionId: 'decision-9f3' })])
   })
 
   it('omits the key entirely when no decision is named, rather than publishing an undefined', async () => {
-    const seen: Array<Record<string, unknown>> = []
+    const seen: unknown[] = []
     auth.events.on('identity.impersonated', (p) => {
-      seen.push(p as unknown as Record<string, unknown>)
+      seen.push(p)
     })
 
     await auth.flows.impersonate({
@@ -244,7 +244,8 @@ describe('FlowsImpl - impersonation', () => {
       targetIdentityId: targetId,
     })
 
-    expect(seen[0] && 'iamDecisionId' in seen[0]).toBe(false)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).not.toHaveProperty('iamDecisionId')
   })
 
   it('refuses an empty or oversize iamDecisionId, as it does for reason', async () => {
@@ -311,7 +312,8 @@ describe('FlowsImpl - impersonation', () => {
       auth.flows.impersonate({
         realSid: adminSid,
         targetIdentityId: targetId,
-        reason: 42 as unknown as string,
+        // @ts-expect-error not a string
+        reason: 42,
         authorize: async () => true,
       }),
     ).rejects.toMatchObject({ code: 'AUTH_IMPERSONATE_FORBIDDEN' })
@@ -351,6 +353,18 @@ describe('FlowsImpl - impersonation', () => {
     })
     await auth.flows.releaseImpersonation(out.sid)
     await expect(auth.sessions.getBySid(out.sid)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+  })
+
+  it('after release the operator holds one session, the one release handed back', async () => {
+    const out = await auth.flows.impersonate({
+      realSid: adminSid,
+      targetIdentityId: targetId,
+      reason: 'x',
+      authorize: async () => true,
+    })
+    const released = await auth.flows.releaseImpersonation(out.sid)
+    const live = await auth.sessions.listForIdentity(adminId)
+    expect(live.map((s) => s.id)).toEqual([released.session?.id])
   })
 
   it('releaseImpersonation with non-impersonation SID surfaces AUTH_IMPERSONATE_EXPIRED', async () => {

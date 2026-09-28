@@ -97,6 +97,23 @@ describe('RedisEvents payload dates survive the fan-out', () => {
     expect(expired).toBe(true)
   })
 
+  it('leaves a date key that does not parse as the string it arrived as', async () => {
+    // An `Invalid Date` reads as a Date to every caller while comparing false against everything.
+    const redis = new FakeRedis()
+    const remote = new RedisEvents({ prefix: 'ev', redis })
+    let expiresAt: unknown
+    remote.on('session.created', async (p) => {
+      expiresAt = p.session.expiresAt
+    })
+    await settle()
+
+    const payload = { identity: null, session: { expiresAt: 'not-a-date' } }
+    await redis.publish('ev:session.created', JSON.stringify({ from: 'another-node', payload }))
+    await settle()
+
+    expect(expiresAt).toBe('not-a-date')
+  })
+
   it('leaves a free-text field holding a timestamp alone', async () => {
     // `reason` is not a date key, so it stays the string its type promises even
     // when a caller puts an ISO timestamp in it.

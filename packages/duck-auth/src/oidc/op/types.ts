@@ -2,10 +2,15 @@
 
 import type { Identities } from '~/core'
 
+/** The OP's rows, stores, config and wire shapes. */
 export namespace OidcOP {
+  /** A grant the OP issues tokens for. */
   export type GrantType = 'authorization_code' | 'refresh_token'
+  /** The one response type the OP serves. */
   export type ResponseType = 'code'
+  /** How a client authenticates at `/token`. */
   export type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none'
+  /** A PKCE challenge method. */
   export type CodeChallengeMethod = 'S256' | 'plain'
 
   /** A registered OIDC client. */
@@ -78,25 +83,37 @@ export namespace OidcOP {
     grantedAt: number
   }
 
+  /** Registered clients. */
   export type ClientStore = {
+    /** The client, or `null`. */
     findById(client_id: string): Promise<Client | null>
+    /** Registers a client; rejects a taken `client_id`. */
     insert(c: Client): Promise<void>
   }
 
+  /** Pending authorization codes. */
   export type CodeStore = {
+    /** Stores a code. */
     insert(c: Code): Promise<void>
     /** Consume = atomic find-and-delete. Returns null if missing or expired. */
     consume(code: string, now: number): Promise<Code | null>
   }
 
+  /** Issued access tokens, by hash. */
   export type AccessTokenStore = {
+    /** Stores a token. */
     insert(t: AccessToken): Promise<void>
+    /** The unexpired token with this hash, or `null`. */
     findByHash(hash: string, now: number): Promise<AccessToken | null>
+    /** Revokes the token with this hash. */
     revokeByHash(hash: string): Promise<void>
   }
 
+  /** Issued refresh tokens, by hash, in rotation families. */
   export type RefreshTokenStore = {
+    /** Stores a token. */
     insert(t: RefreshToken): Promise<void>
+    /** The unexpired token with this hash, consumed or not, or `null`. */
     findByHash(hash: string, now: number): Promise<RefreshToken | null>
     /** Mark as consumed. Returns the row or null if already consumed / missing. */
     consume(hash: string, now: number): Promise<RefreshToken | null>
@@ -104,12 +121,15 @@ export namespace OidcOP {
     revokeFamily(family_id: string): Promise<void>
   }
 
+  /** The scopes each subject granted each client. */
   export type ConsentStore = {
+    /** The consent, or `null`. */
     find(identity_id: string, client_id: string): Promise<Consent | null>
+    /** Records or replaces a consent. */
     upsert(c: Consent): Promise<void>
   }
 
-  /** Cfguration for the OP. */
+  /** Configuration for the OP. */
   export type Cfg = {
     /** Issuer URL. Must match the discovery doc. */
     issuer: string
@@ -144,6 +164,7 @@ export namespace OidcOP {
     | 'invalid_token'
     | 'insufficient_scope'
 
+  /** An RFC 6749 error body. */
   export type OauthError = {
     error: ErrorCode
     error_description?: string

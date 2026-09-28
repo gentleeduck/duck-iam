@@ -17,7 +17,7 @@ describe('AuthAesGcmDataAtRest', () => {
     const ct = await adapter.encrypt('hi', { field: 'f', identityId: 'i' })
     const parts = ct.split('$')
     expect(parts).toHaveLength(5)
-    expect(parts[0]).toBe('aes-256-gcm.v2')
+    expect(parts[0]).toBe('aes-256-gcm.v3')
     expect(parts[1]).toBe('k1')
   })
 
@@ -86,16 +86,18 @@ describe('AuthAesGcmDataAtRest', () => {
   })
 
   it('rotation - duplicate kid between current + previousKeys throws at construction', () => {
-    try {
-      new AuthAesGcmDataAtRest({
-        kid: 'k1',
-        masterKey: Buffer.alloc(32, 1),
-        previousKeys: [{ kid: 'k1', masterKey: Buffer.alloc(32, 9) }],
-      })
-      throw new Error('expected throw')
-    } catch (err) {
-      expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
-      expect((err as { meta: { detail: string } }).meta.detail).toMatch(/duplicate kid/)
-    }
+    expect(
+      () =>
+        new AuthAesGcmDataAtRest({
+          kid: 'k1',
+          masterKey: Buffer.alloc(32, 1),
+          previousKeys: [{ kid: 'k1', masterKey: Buffer.alloc(32, 9) }],
+        }),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'AUTH_MISCONFIGURED',
+        meta: { detail: expect.stringMatching(/duplicate kid/) },
+      }),
+    )
   })
 })

@@ -26,7 +26,7 @@ function fakeChannel(): Deliver & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
   return Object.assign(
     async (message: Parameters<Deliver>[0]): Promise<void> => {
-      const url = (message.vars as { url?: string }).url ?? ''
+      const url = message.vars.url
       const email = (message.identity.profile as { email?: string } | undefined)?.email ?? ''
       sent.push({ to: email, url })
     },

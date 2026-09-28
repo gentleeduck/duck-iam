@@ -102,21 +102,17 @@ const WORDS = [
   [/unique constraint failed/i, 'AUTH_ALREADY_EXISTS'],
 ] as const satisfies readonly (readonly [named: string | RegExp, is: Means])[]
 
-/** The code an entry names, which is the entry itself unless it carries meta. */
-type CodeOf<M> = M extends readonly [infer C extends AuthError.Code, object] ? C : M
-
 /** What a SQL store answers with: what its driver refused, and what it raised itself. Read off the map, so a store
  *  cannot declare a range its own mapper does not draw from. */
 export type SqlFault = RangeOf<typeof STORE_RAISES>
 
-function codeOf<M extends Means>(means: M): CodeOf<M> {
-  return (typeof means === 'string' ? means : means[0]) as CodeOf<M>
+/** The code an entry names, which is the entry itself unless it carries meta. */
+function codeOf<C extends AuthError.Code>(means: C | readonly [C, object]): C {
+  return typeof means === 'string' ? means : means[0]
 }
 
-/** Own keys only: `MEANS['constructor']` is a function off the prototype, and reading a code out of one is undefined. */
-function meansOf(key: string | number): (typeof MEANS)[keyof typeof MEANS] | undefined {
-  return Object.hasOwn(MEANS, key) ? MEANS[key as keyof typeof MEANS] : undefined
-}
+/** A Map, so `constructor` and the rest of the prototype name no token. */
+const BY_TOKEN = new Map(Object.entries(MEANS))
 
 // Longest first, so the most specific token wins however the table happens to be ordered. An errno never prefixes:
 // it is a whole token, and `1062` would otherwise claim every longer number starting with it.
@@ -130,8 +126,8 @@ export const sqlError = errorMap(
     const said = signalOf(err)
     const means =
       WORDS.find(([named]) => (typeof named === 'string' ? said.text.includes(named) : named.test(said.text)))?.[1] ??
-      meansOf(said.code) ??
-      meansOf(said.errno) ??
+      BY_TOKEN.get(said.code) ??
+      BY_TOKEN.get(String(said.errno)) ??
       PREFIXES.find(([prefix]) => said.code.startsWith(prefix))?.[1]
 
     if (means === undefined) return asAuthError(err, 'AUTH_ADAPTER_FAILED')

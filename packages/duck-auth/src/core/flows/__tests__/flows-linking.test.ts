@@ -57,34 +57,32 @@ describe('FlowsImpl - account linking', () => {
     const result = await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId: identityA,
-      providerId: 'authGoogle',
-      providerSub: 'authGoogle|111',
+      providerId: 'google',
+      providerSub: 'google|111',
     })
-    expect(result).toMatchObject({ identityId: identityA, providerId: 'authGoogle' })
+    expect(result).toMatchObject({ identityId: identityA, providerId: 'google' })
     // The identity comes back off the write itself, already carrying the link.
     expect(result.identity.id).toBe(identityA)
     expect(result.identity.providers).toContainEqual(
-      expect.objectContaining({ providerId: 'authGoogle', providerSub: 'authGoogle|111' }),
+      expect.objectContaining({ providerId: 'google', providerSub: 'google|111' }),
     )
     expect(handler).toHaveBeenCalledOnce()
     const ident = await adapter.identities.find({ id: identityA })
-    expect(ident?.providers).toEqual([
-      expect.objectContaining({ providerId: 'authGoogle', providerSub: 'authGoogle|111' }),
-    ])
+    expect(ident?.providers).toEqual([expect.objectContaining({ providerId: 'google', providerSub: 'google|111' })])
   })
 
   it('linkProvider is idempotent on the same (identityId, providerSub) pair', async () => {
     await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId: identityA,
-      providerId: 'authGoogle',
-      providerSub: 'authGoogle|111',
+      providerId: 'google',
+      providerSub: 'google|111',
     })
     await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId: identityA,
-      providerId: 'authGoogle',
-      providerSub: 'authGoogle|111',
+      providerId: 'google',
+      providerSub: 'google|111',
     })
     const ident = await adapter.identities.find({ id: identityA })
     expect(ident?.providers).toHaveLength(1)
@@ -94,15 +92,15 @@ describe('FlowsImpl - account linking', () => {
     await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId: identityA,
-      providerId: 'authGoogle',
-      providerSub: 'authGoogle|111',
+      providerId: 'google',
+      providerSub: 'google|111',
     })
     await expect(
       auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: identityB,
-        providerId: 'authGoogle',
-        providerSub: 'authGoogle|111',
+        providerId: 'google',
+        providerSub: 'google|111',
       }),
     ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
@@ -112,8 +110,8 @@ describe('FlowsImpl - account linking', () => {
       auth.flows.linkProvider({
         authorize: ALLOW_LINK,
         identityId: 'does-not-exist',
-        providerId: 'authGoogle',
-        providerSub: 'authGoogle|111',
+        providerId: 'google',
+        providerSub: 'google|111',
       }),
     ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
   })
@@ -122,15 +120,15 @@ describe('FlowsImpl - account linking', () => {
     await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId: identityA,
-      providerId: 'authGoogle',
-      providerSub: 'authGoogle|111',
+      providerId: 'google',
+      providerSub: 'google|111',
     })
     // Add a password credential so the lockout guard does not trip.
     await adapter.credentials.create(
       credentialInput({ identityId: identityA, kind: 'password', secret: 'hashedXYZ' }),
       {},
     )
-    await auth.flows.unlinkProvider({ identityId: identityA, providerId: 'authGoogle' })
+    await auth.flows.unlinkProvider({ identityId: identityA, providerId: 'google' })
     const ident = await adapter.identities.find({ id: identityA })
     expect(ident?.providers).toEqual([])
   })
@@ -139,10 +137,10 @@ describe('FlowsImpl - account linking', () => {
     await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId: identityA,
-      providerId: 'authGoogle',
-      providerSub: 'authGoogle|111',
+      providerId: 'google',
+      providerSub: 'google|111',
     })
-    await expect(auth.flows.unlinkProvider({ identityId: identityA, providerId: 'authGoogle' })).rejects.toMatchObject({
+    await expect(auth.flows.unlinkProvider({ identityId: identityA, providerId: 'google' })).rejects.toMatchObject({
       code: 'AUTH_PROVIDER_FAILED',
     })
   })
@@ -151,12 +149,12 @@ describe('FlowsImpl - account linking', () => {
     await auth.flows.linkProvider({
       authorize: ALLOW_LINK,
       identityId: identityA,
-      providerId: 'authGoogle',
-      providerSub: 'authGoogle|111',
+      providerId: 'google',
+      providerSub: 'google|111',
     })
     await auth.flows.unlinkProvider({
       identityId: identityA,
-      providerId: 'authGoogle',
+      providerId: 'google',
       allowLockout: true,
     })
     const ident = await adapter.identities.find({ id: identityA })
@@ -166,12 +164,12 @@ describe('FlowsImpl - account linking', () => {
   it('unlinkProvider is a no-op for a provider that was never linked', async () => {
     const result = await auth.flows.unlinkProvider({
       identityId: identityA,
-      providerId: 'authGithub',
+      providerId: 'github',
     })
-    expect(result).toMatchObject({ identityId: identityA, providerId: 'authGithub' })
+    expect(result).toMatchObject({ identityId: identityA, providerId: 'github' })
     // A no-op still answers with the identity, so a caller never has to branch
     // on "did anything change" to know what it now holds.
     expect(result.identity.id).toBe(identityA)
-    expect(result.identity.providers.some((p) => p.providerId === 'authGithub')).toBe(false)
+    expect(result.identity.providers.some((p) => p.providerId === 'github')).toBe(false)
   })
 })

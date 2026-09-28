@@ -13,7 +13,7 @@ suite('E2E valkeySessionImpl (real server)', () => {
   let prefix: string
 
   beforeAll(async () => {
-    raw = new Redis(URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
   })

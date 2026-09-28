@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
 import { OrgsImpl } from '../orgs'
+import type { Org } from '../orgs.types'
 
 const ORG = 'org-1'
 const OTHER_ORG = 'org-2'
@@ -61,6 +62,26 @@ describe('membership answers only for the org that was asked about', () => {
     await orgs.addMember({ identityId: 'u3', orgId: OTHER_ORG, roles: [] }, {})
 
     expect((await orgs.listMembers(ORG, {})).map((m) => m.identityId).sort()).toEqual(['u1', 'u2'])
+  })
+
+  it('lists no one who left, from a host store that answers every row, as resolveMembership refuses them', async () => {
+    const row = (identityId: string, leftAt: Date | null): Org.Membership => ({
+      identityId,
+      invitedAt: null,
+      joinedAt: new Date(),
+      leftAt,
+      orgId: ORG,
+      roles: ['owner'],
+      tenantId: null,
+    })
+    const everyRow: Org.Store = {
+      ...new MemoryAdapter().orgs,
+      listMembers: async () => [row('u1', null), row('u2', new Date())],
+    }
+    const orgs = new OrgsImpl(everyRow, new InMemoryEvents())
+
+    expect((await orgs.listMembers(ORG, {})).map((m) => m.identityId)).toEqual(['u1'])
+    await expect(orgs.resolveMembership(ORG, 'u2', {})).rejects.toMatchObject({ code: 'AUTH_MEMBERSHIP_NOT_FOUND' })
   })
 })
 
@@ -189,7 +210,7 @@ describe('leaving and rejoining', () => {
 describe('the role list is bounded, and what that does not include', () => {
   it('drops non-string entries', async () => {
     const orgs = makeOrgs()
-    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: ['ok', 42, null, {}, []] as never }, {})
+    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: JSON.parse('["ok", 42, null, {}, []]') }, {})
     expect((await orgs.resolveMembership(ORG, 'u1', {})).roles).toEqual(['ok'])
   })
 
@@ -221,7 +242,8 @@ describe('the role list is bounded, and what that does not include', () => {
 
   it('treats a non-array roles value as no roles', async () => {
     const orgs = makeOrgs()
-    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: 'owner' as never }, {})
+    // @ts-expect-error a string, not a list
+    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: 'owner' }, {})
     expect((await orgs.resolveMembership(ORG, 'u1', {})).roles).toEqual([])
   })
 

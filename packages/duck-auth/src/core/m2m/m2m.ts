@@ -6,6 +6,7 @@ import type { Limiter } from '~/limiters'
 import { type ApiKeysFacet, isScopeToken } from '~/providers/api-key'
 import { AuthError } from '../errors'
 import { refuseRateLimited } from '../events/events.lockout'
+import { isFiniteNumber, isRecord } from '../predicates/predicates'
 import type { Provider } from '../provider/provider.types'
 import type { SessionsImpl } from '../sessions/sessions'
 import type { Transport } from '../transport/transport.types'
@@ -169,17 +170,17 @@ export class M2MImpl {
 /** Validate the transport's emitted intent body, whose type is `unknown`. A non-finite `expires_in`
  *  would reach the client as `NaN`, and `Date.now() + NaN * 1000` is a token that never expires. */
 function parseM2MBody(raw: unknown): { access_token: string; expires_in?: number } | null {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
-  if (!('access_token' in raw)) return null
+  if (!isRecord(raw)) return null
   const accessToken = raw.access_token
   if (typeof accessToken !== 'string' || accessToken.length === 0) return null
-  const expiresInRaw = 'expires_in' in raw ? raw.expires_in : undefined
-  if (expiresInRaw !== undefined && (typeof expiresInRaw !== 'number' || !Number.isFinite(expiresInRaw))) return null
+  const expiresInRaw = raw.expires_in
+  if (expiresInRaw !== undefined && !isFiniteNumber(expiresInRaw)) return null
   const out: { access_token: string; expires_in?: number } = { access_token: accessToken }
   if (expiresInRaw !== undefined) out.expires_in = expiresInRaw
   return out
 }
 
+/** The m2m facet, which trades an api key for a short-lived access token. */
 export function m2m(
   apiKeys: ApiKeysFacet,
   sessions: SessionsImpl,

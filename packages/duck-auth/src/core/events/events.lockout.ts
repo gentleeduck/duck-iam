@@ -7,6 +7,7 @@ import type { Events } from './events.types'
  *  `emit(string, unknown)` that keeps the provider surface from importing the event map. Both satisfy this, and
  *  pinning the event name here still checks the payload against `EventMap['lockout']` at every call site. */
 type LockoutBus = {
+  /** Emits `lockout`. */
   emit(event: 'lockout', payload: Events.EventMap['lockout']): Promise<void>
 }
 

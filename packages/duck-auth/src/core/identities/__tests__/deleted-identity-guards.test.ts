@@ -23,7 +23,7 @@ function fakeChannel(): Deliver & { sent: Array<{ url: string }> } {
   const sent: Array<{ url: string }> = []
   return Object.assign(
     async (message: Parameters<Deliver>[0]): Promise<void> => {
-      sent.push({ url: (message.vars as { url?: string }).url ?? '' })
+      sent.push({ url: message.vars.url })
     },
     { sent },
   )

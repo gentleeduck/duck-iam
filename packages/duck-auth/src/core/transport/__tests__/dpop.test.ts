@@ -1,7 +1,7 @@
-import { createHash, createSign, generateKeyPairSync, type KeyObject } from 'node:crypto'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { constants, createHash, createSign, generateKeyPairSync, type KeyObject, randomUUID, sign } from 'node:crypto'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { bindPayloadToDPoP, computeJwkThumbprint, DPoPVerifier } from '../dpop.transport'
-import { MemoryDPoPNonceStore } from '../dpop-nonce.memory'
+import { MemoryDPoPNonceStore, memoryDPoPNonceStore } from '../dpop-nonce.memory'
 
 interface KeyPair {
   publicJwk: DPoPVerifier.JsonWebKey
@@ -10,10 +10,8 @@ interface KeyPair {
 
 function generateES256KeyPair(): KeyPair {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
-  return {
-    publicJwk: publicKey.export({ format: 'jwk' }) as DPoPVerifier.JsonWebKey,
-    privateKey,
-  }
+  const { crv, x, y } = publicKey.export({ format: 'jwk' })
+  return { publicJwk: { kty: 'EC', crv, x, y }, privateKey }
 }
 
 function base64url(input: Buffer | string): string {
@@ -329,7 +327,7 @@ describe('AuthDPoPVerifier', () => {
 
   it('rejects a proof whose payload is a JSON array (not an object)', async () => {
     // Mint a proof whose payload encodes to a JSON array. Without the
-    // `isPlainObject` parser guard, destructuring would yield all-undefined
+    // `isRecord` parser guard, destructuring would yield all-undefined
     // claims and the verifier path would surface obscure errors.
     const header = { alg: 'ES256', typ: 'dpop+jwt', jwk: kp.publicJwk }
     const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(['not', 'an', 'object']))}`
@@ -376,7 +374,10 @@ describe('authComputeJwkThumbprint', () => {
   })
 
   it('refuses unsupported kty', () => {
-    expect(() => computeJwkThumbprint({ kty: 'OCT' as unknown as 'EC' })).toThrow()
+    // @ts-expect-error not a kty
+    expect(() => computeJwkThumbprint({ kty: 'oct' })).toThrowError(
+      expect.objectContaining({ code: 'AUTH_DPOP_INVALID', meta: { reason: 'unsupported kty oct' } }),
+    )
   })
 })
 
@@ -388,7 +389,17 @@ describe('authBindPayloadToDPoP', () => {
   })
 })
 
-describe('AuthMemoryDPoPNonceStore', () => {
+describe('MemoryDPoPNonceStore', () => {
+  it('lets the factory carry `development` past the production refusal', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      expect(() => memoryDPoPNonceStore()).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+      expect(memoryDPoPNonceStore({ development: true })).toBeInstanceOf(MemoryDPoPNonceStore)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('recordSeen returns true once, false on replay', async () => {
     const store = new MemoryDPoPNonceStore()
     expect(await store.recordSeen('jti-1', 60_000)).toBe(true)
@@ -487,27 +498,21 @@ describe('the jkt is the binding, and the caller owns the comparison', () => {
  *  sum that is not a number is false. The parser that reads `iat` off the proof refuses a non-finite one
  *  and says so in a comment; the two numbers it is compared against were never checked. */
 describe('the freshness window is only as good as the two numbers it is made of', () => {
-  /** The `detail`, since `AuthError.message` is the bare code and never carries one. */
-  function refusal(cfg: DPoPVerifier.Cfg): string {
-    try {
-      new DPoPVerifier(cfg)
-    } catch (err) {
-      return err instanceof Error && 'meta' in err ? String((err.meta as { detail?: unknown }).detail) : String(err)
-    }
-    throw new Error('expected the verifier to refuse this config')
-  }
-
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 3_600_001])(
-    'refuses clockSkewMs %p',
+    'refuses clockSkewMs %o',
     (clockSkewMs) => {
-      expect(refusal({ clockSkewMs })).toContain('clockSkewMs')
+      expect(() => new DPoPVerifier({ clockSkewMs })).toThrowError(
+        expect.objectContaining({ meta: { detail: expect.stringContaining('clockSkewMs') } }),
+      )
     },
   )
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 3_600_001])(
-    'refuses freshnessMs %p',
+    'refuses freshnessMs %o',
     (freshnessMs) => {
-      expect(refusal({ freshnessMs })).toContain('freshnessMs')
+      expect(() => new DPoPVerifier({ freshnessMs })).toThrowError(
+        expect.objectContaining({ meta: { detail: expect.stringContaining('freshnessMs') } }),
+      )
     },
   )
 
@@ -614,5 +619,50 @@ describe('DPoP jti retention vs the freshness window', () => {
       code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'jti replay detected' },
     })
+  })
+})
+
+describe('alg names the key as well as the signature', () => {
+  const URL = 'https://api.test/x'
+  const verifier = new DPoPVerifier({ acceptedAlgs: ['ES256', 'EdDSA', 'RS256', 'PS256'] })
+  const p256 = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+  const rsa2048 = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const ieee = { dsaEncoding: 'ieee-p1363' }
+  const pss = { padding: constants.RSA_PKCS1_PSS_PADDING }
+
+  /** A proof over `pair`, validly signed under that key whatever `alg` claims. */
+  function mint(alg: string, pair: { publicKey: KeyObject; privateKey: KeyObject }, opts: object = {}): string {
+    const header = base64url(JSON.stringify({ alg, typ: 'dpop+jwt', jwk: pair.publicKey.export({ format: 'jwk' }) }))
+    const payload = base64url(
+      JSON.stringify({ jti: randomUUID(), htm: 'GET', htu: URL, iat: Math.floor(Date.now() / 1000) }),
+    )
+    const input = Buffer.from(`${header}.${payload}`)
+    const signature = sign(alg === 'EdDSA' ? null : 'sha256', input, { key: pair.privateKey, ...opts })
+    return `${header}.${payload}.${base64url(signature)}`
+  }
+
+  it.each([
+    ['EdDSA', 'a P-256 key', p256, {}],
+    ['EdDSA', 'an RSA key', rsa2048, {}],
+    ['ES256', 'a secp256k1 key', generateKeyPairSync('ec', { namedCurve: 'secp256k1' }), ieee],
+    ['RS256', 'a 1024-bit RSA key', generateKeyPairSync('rsa', { modulusLength: 1024 }), {}],
+    ['RS256', 'a P-256 key', p256, {}],
+    ['PS256', 'a 1024-bit RSA key', generateKeyPairSync('rsa', { modulusLength: 1024 }), pss],
+  ])('refuses %s over %s', async (alg, _, pair, opts) => {
+    await expect(verifier.verify(mint(alg, pair, opts), { method: 'GET', url: URL })).rejects.toMatchObject({
+      code: 'AUTH_DPOP_INVALID',
+      meta: { reason: `jwk does not fit alg ${alg}` },
+    })
+  })
+
+  it.each([
+    ['ES256', 'a P-256 key', p256, ieee],
+    ['EdDSA', 'an Ed25519 key', generateKeyPairSync('ed25519'), {}],
+    ['EdDSA', 'an Ed448 key', generateKeyPairSync('ed448'), {}],
+    ['RS256', 'a 2048-bit RSA key', rsa2048, {}],
+    ['PS256', 'a 2048-bit RSA key', rsa2048, pss],
+  ])('accepts %s over %s', async (alg, _, pair, opts) => {
+    const verified = await verifier.verify(mint(alg, pair, opts), { method: 'GET', url: URL })
+    expect(verified.claims.htu).toBe(URL)
   })
 })

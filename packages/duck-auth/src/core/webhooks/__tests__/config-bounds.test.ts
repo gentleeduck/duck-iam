@@ -58,7 +58,7 @@ describe('WebhookDeliverer refuses a config that would silently never deliver', 
     const deliverer = new WebhookDeliverer({
       backoffMs: 0,
       endpoints: [ENDPOINT],
-      fetch: fetchMock as unknown as typeof globalThis.fetch,
+      fetch: fetchMock,
       maxAttempts: 3,
       random: () => 0,
     })

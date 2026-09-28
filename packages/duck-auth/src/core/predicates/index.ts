@@ -5,4 +5,6 @@ export {
   isFiniteNumber,
   isProfileBooleanFalse,
   isProfileBooleanTrue,
+  isRecord,
+  storedDate,
 } from './predicates'

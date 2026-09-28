@@ -1,5 +1,5 @@
 /**
- * Stress + edge-case suite for `AuthJwtTransport.rotateSignKey` and the
+ * Stress + edge-case suite for `JwtTransport.rotateSignKey` and the
  * EdDSA codepath. Exercises:
  *   - many concurrent issue() calls during rotation
  *   - kid collisions in rotation
@@ -10,6 +10,7 @@
 
 import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { isRecord } from '~/core/predicates'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { JwtTransport } from '../jwt.transport'
 
@@ -45,11 +46,13 @@ function ed25519() {
 }
 
 function findAccessToken(intents: ReturnType<JwtTransport['issue']>): string {
-  const j = intents.find((i) => i.type === 'json') as Extract<(typeof intents)[number], { type: 'json' }>
-  return (j.body as { access_token: string }).access_token
+  const json = intents.find((i) => i.type === 'json')
+  const token = json?.type === 'json' && isRecord(json.body) ? json.body.access_token : undefined
+  if (typeof token !== 'string') return expect.unreachable('issue() emitted no access_token')
+  return token
 }
 
-describe('AuthJwtTransport - rotation under concurrent issue', () => {
+describe('JwtTransport - rotation under concurrent issue', () => {
   it('issues 50 tokens across two rotations; every one verifies', async () => {
     const a = ed25519()
     const b = ed25519()
@@ -81,10 +84,8 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
       expect((await t.verify(tok)).identityId).toBe('user-1')
     }
     // Tokens carry the right kid in the order minted.
-    const headerOf = (jwt: string): string => {
-      const h = JSON.parse(Buffer.from(jwt.split('.')[0]!, 'base64url').toString('utf8'))
-      return h.kid as string
-    }
+    const headerOf = (jwt: string): unknown =>
+      JSON.parse(Buffer.from(jwt.split('.')[0]!, 'base64url').toString('utf8')).kid
     expect(minted.slice(0, 20).every((j) => headerOf(j) === 'a')).toBe(true)
     expect(minted.slice(20, 40).every((j) => headerOf(j) === 'b')).toBe(true)
     expect(minted.slice(40, 50).every((j) => headerOf(j) === 'c')).toBe(true)
@@ -177,7 +178,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
 
     // JWKS doc excludes the HS256 entry
     const jwks = t.jwks()
-    const algs = (jwks.keys as Array<{ alg: string }>).map((k) => k.alg).sort()
+    const algs = jwks.keys.map((k) => k.alg).sort()
     expect(algs).toEqual(['ES256', 'EdDSA', 'RS256'])
   })
 

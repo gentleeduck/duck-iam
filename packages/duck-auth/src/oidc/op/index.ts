@@ -1,4 +1,4 @@
-/** Minimal OIDC OP. Implements: */
+/** A minimal OAuth 2 / OIDC provider over an `AuthEngine`. */
 
 import type { Identities } from '~/core'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
@@ -34,6 +34,7 @@ export {
   AuthMemoryRefreshTokenStore,
 }
 
+/** The engine and stores the OP runs on. */
 interface IDeps<Profile extends Identities.ProfileMetadataBase> {
   auth: AuthEngine<Profile>
   clients: OidcOP.ClientStore
@@ -64,7 +65,7 @@ function parseScopeString(raw: unknown): string[] | { error: string } {
   return tokens
 }
 
-/** The OP. Build it with `authCreateOidcOP({ auth, signIdToken, ... })` and route `authorize`, `token`,
+/** The OP. Build it with `createOidcOP({ auth, signIdToken, ... })` and route `authorize`, `token`,
  *  `userinfo`, `introspect` and `revoke` to it from your HTTP layer. */
 export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
   readonly issuer: string
@@ -133,7 +134,7 @@ export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identit
    * RFC 7591 dynamic client registration, wired on `POST /register` and returned as application/json. With
    * `dcrCfg.initialAccessToken` set the request must carry a matching `Authorization: Bearer <token>`, compared
    * in constant time, or this answers `{ error: 'unauthorized' }`. WARN: unset, registration is open and belongs
-   * behind a private network. Pass `registrationEndpoint` to `buildOidcDiscovery` for clients to find it.
+   * behind a private network. Pass `registrationEndpoint` to `authBuildOidcDiscovery` for clients to find it.
    */
   async register(
     req: OidcOP.DcrRequest,
@@ -860,6 +861,7 @@ function parseBasicAuth(header: string | null): { user: string; pass: string } |
   return { user: decoded.slice(0, idx), pass: decoded.slice(idx + 1) }
 }
 
+/** Constructs {@link OidcOpRoot} directly. */
 export function oidcOpRoot(...args: ConstructorParameters<typeof OidcOpRoot>): OidcOpRoot {
   return new OidcOpRoot(...args)
 }

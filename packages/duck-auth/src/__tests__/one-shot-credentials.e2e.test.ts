@@ -2,6 +2,7 @@
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
+import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { InMemoryEvents } from '~/core/events'
 import { TOTP_DEFAULTS, totpAt } from '~/providers/mfa/internal/totp'
 import { MfaImpl } from '~/providers/mfa/mfa'
@@ -43,7 +44,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL })
     await applyPgSchema(pool)
-    stores = new DrizzlePgAdapter(URL as string)
+    stores = new DrizzlePgAdapter(URL)
     mfa = new MfaImpl(stores.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
   }, 60_000)
 
@@ -82,7 +83,7 @@ suite('E2E one-shot credentials on real Postgres', () => {
 
       const rows = await stores.credentials.listByIdentity(id, 'totp', {})
       const row = rows.find((r) => r.revokedAt == null)
-      expect((row?.metadata as { lastTotpStep?: number } | undefined)?.lastTotpStep).toBe(confirmedStep + 1)
+      expect(row?.metadata).toMatchObject({ lastTotpStep: confirmedStep + 1 })
 
       // A second facet, reading the same rows fresh, must refuse the same code.
       const other = new MfaImpl(stores.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
@@ -93,6 +94,36 @@ suite('E2E one-shot credentials on real Postgres', () => {
       const id = await newIdentity('totp-forward')
       const { secret, confirmedStep } = await enrollTotp(id)
       expect(await mfa.verifyTotp(id, totpAt(secret, confirmedStep + 1))).toBe(true)
+    })
+
+    it('two confirms racing on one code enroll once and mint one set of backup codes', async () => {
+      const id = await newIdentity('totp-confirm-race')
+      const challenge = await mfa.beginTotpEnrollment(id, 'user@test.local')
+      const code = totpAt(challenge.secret, step())
+      // Each confirm waits at its write until both have read, so both write against the version they read.
+      let arrived = 0
+      let release = () => {}
+      const bothRead = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const racing = new Proxy(stores.credentials, {
+        get(target, prop, receiver) {
+          if (prop !== 'patchMetadata') return Reflect.get(target, prop, receiver)
+          return async (...args: Parameters<typeof target.patchMetadata>) => {
+            arrived += 1
+            if (arrived === 2) release()
+            await bothRead
+            return target.patchMetadata(...args)
+          }
+        },
+      })
+      const racer = new MfaImpl(racing, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
+
+      const results = await Promise.all([racer.confirmTotpEnrollment(id, code), racer.confirmTotpEnrollment(id, code)])
+      expect(results.filter((r) => r.ok)).toHaveLength(1)
+      expect(await stores.credentials.listByIdentity(id, 'recovery', {})).toHaveLength(
+        DEFAULT_MFA_CONFIG.backupCodeCount,
+      )
     })
 
     it('a removed enrollment stops verifying entirely', async () => {
@@ -109,10 +140,10 @@ suite('E2E one-shot credentials on real Postgres', () => {
       const challenge = await mfa.beginTotpEnrollment(id, 'user@test.local')
       const result = await mfa.confirmTotpEnrollment(id, totpAt(challenge.secret, step()))
       if (!result.ok) throw new Error('enrollment did not confirm')
-      const [first] = result.backupCodes
+      const [first = ''] = result.backupCodes
 
-      expect(await mfa.verifyBackupCode(id, first as string)).toBe(true)
-      expect(await mfa.verifyBackupCode(id, first as string)).toBe(false)
+      expect(await mfa.verifyBackupCode(id, first)).toBe(true)
+      expect(await mfa.verifyBackupCode(id, first)).toBe(false)
     })
 
     it('spending one code leaves the others usable', async () => {
@@ -120,10 +151,10 @@ suite('E2E one-shot credentials on real Postgres', () => {
       const challenge = await mfa.beginTotpEnrollment(id, 'user@test.local')
       const result = await mfa.confirmTotpEnrollment(id, totpAt(challenge.secret, step()))
       if (!result.ok) throw new Error('enrollment did not confirm')
-      const [first, second] = result.backupCodes
+      const [first = '', second = ''] = result.backupCodes
 
-      await mfa.verifyBackupCode(id, first as string)
-      expect(await mfa.verifyBackupCode(id, second as string)).toBe(true)
+      await mfa.verifyBackupCode(id, first)
+      expect(await mfa.verifyBackupCode(id, second)).toBe(true)
     })
 
     it('refuses a code belonging to a different identity', async () => {
@@ -135,7 +166,9 @@ suite('E2E one-shot credentials on real Postgres', () => {
       await mfa.confirmTotpEnrollment(theirs, totpAt(b.secret, step()))
       if (!ra.ok) throw new Error('enrollment did not confirm')
 
-      expect(await mfa.verifyBackupCode(theirs, ra.backupCodes[0] as string)).toBe(false)
+      const [mineCode = ''] = ra.backupCodes
+      expect(await mfa.verifyBackupCode(theirs, mineCode)).toBe(false)
+      expect(await mfa.verifyBackupCode(mine, mineCode)).toBe(true)
     })
 
     it('regenerating revokes every previous code', async () => {
@@ -144,9 +177,10 @@ suite('E2E one-shot credentials on real Postgres', () => {
       const first = await mfa.confirmTotpEnrollment(id, totpAt(challenge.secret, step()))
       if (!first.ok) throw new Error('enrollment did not confirm')
 
-      const regenerated = await mfa.regenerateBackupCodes(id)
-      expect(await mfa.verifyBackupCode(id, first.backupCodes[0] as string)).toBe(false)
-      expect(await mfa.verifyBackupCode(id, regenerated[0] as string)).toBe(true)
+      const [regenerated = ''] = await mfa.regenerateBackupCodes(id)
+      const [old = ''] = first.backupCodes
+      expect(await mfa.verifyBackupCode(id, old)).toBe(false)
+      expect(await mfa.verifyBackupCode(id, regenerated)).toBe(true)
     })
 
     it('admits exactly one of many concurrent uses of the same code', async () => {
@@ -156,12 +190,40 @@ suite('E2E one-shot credentials on real Postgres', () => {
       const challenge = await mfa.beginTotpEnrollment(id, 'user@test.local')
       const result = await mfa.confirmTotpEnrollment(id, totpAt(challenge.secret, step()))
       if (!result.ok) throw new Error('enrollment did not confirm')
-      const code = result.backupCodes[0] as string
+      const [code = ''] = result.backupCodes
 
       const outcomes = await Promise.all(Array.from({ length: 5 }, () => mfa.verifyBackupCode(id, code)))
-      expect(outcomes.filter(Boolean).length).toBeGreaterThanOrEqual(1)
-      // Whatever the race did, the code must be dead afterwards.
+      expect(outcomes.filter(Boolean)).toHaveLength(1)
       expect(await mfa.verifyBackupCode(id, code)).toBe(false)
+    })
+
+    it('spends a code typed bare and uppercased, and refuses it again typed with spaces', async () => {
+      const id = await newIdentity('backup-format')
+      const [code = ''] = await mfa.regenerateBackupCodes(id)
+      expect(await mfa.verifyBackupCode(id, code.replace('-', '').toUpperCase())).toBe(true)
+      expect(await mfa.verifyBackupCode(id, ` ${code.replace('-', ' ')} `)).toBe(false)
+    })
+
+    it('counts the live codes, and removes them without the reset token beside them', async () => {
+      const id = await newIdentity('backup-remove')
+      const reset = await stores.credentials.create(
+        credentialInput({
+          identityId: id,
+          kind: 'recovery',
+          metadata: { purpose: RECOVERY_PURPOSES.passwordReset },
+          secret: `reset-${e2ePrefix()}`,
+        }),
+        {},
+      )
+      const [code = ''] = await mfa.regenerateBackupCodes(id)
+      expect(await mfa.verifyBackupCode(id, code)).toBe(true)
+      expect(await mfa.remainingBackupCodes(id)).toBe(DEFAULT_MFA_CONFIG.backupCodeCount - 1)
+
+      expect(await mfa.removeBackupCodes(id)).toEqual({ removed: DEFAULT_MFA_CONFIG.backupCodeCount })
+
+      expect(await mfa.remainingBackupCodes(id)).toBe(0)
+      const left = await stores.credentials.listByIdentity(id, 'recovery', {})
+      expect(left.map((r) => r.id)).toEqual([reset.id])
     })
   })
 

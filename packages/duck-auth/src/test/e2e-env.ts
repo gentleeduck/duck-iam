@@ -1,9 +1,11 @@
 /** Shared setup for the end-to-end tests, which run against real infrastructure: `FakeRedis` and in-memory
  *  sqlite are necessary and not sufficient, and no in-process test can verify pub/sub fan-out between instances
- *  at all. Config comes from `.env.test`; an unset URL skips the matching suite. */
+ *  at all. Config comes from `.env.test`; an unset URL reads as `''`, which skips the matching suite. */
 import { readFileSync } from 'node:fs'
+import { createServer, type IncomingMessage } from 'node:http'
 import { join } from 'node:path'
 import { randomToken } from '~/core/crypto'
+import { AuthError } from '~/core/errors'
 
 let loaded = false
 
@@ -26,19 +28,19 @@ function loadEnvTest(): void {
   }
 }
 
-export function redisUrl(): string | undefined {
+export function redisUrl(): string {
   loadEnvTest()
-  return process.env.DUCKAUTH_E2E_REDIS_URL
+  return process.env.DUCKAUTH_E2E_REDIS_URL ?? ''
 }
 
-export function databaseUrl(): string | undefined {
+export function databaseUrl(): string {
   loadEnvTest()
-  return process.env.DUCKAUTH_E2E_DATABASE_URL
+  return process.env.DUCKAUTH_E2E_DATABASE_URL ?? ''
 }
 
-export function mysqlUrl(): string | undefined {
+export function mysqlUrl(): string {
   loadEnvTest()
-  return process.env.DUCKAUTH_E2E_MYSQL_URL
+  return process.env.DUCKAUTH_E2E_MYSQL_URL ?? ''
 }
 
 export function instanceCount(): number {
@@ -91,4 +93,32 @@ export async function isolatedDatabaseUrl(name: string): Promise<string | undefi
   }
   url.pathname = `/${dbName}`
   return url.toString()
+}
+
+/** Serve `handle` on a loopback port: its answer goes back as JSON, an `AuthError` as its own status and code,
+ *  anything else as a 500. `listen` runs in the caller's async scope, and every request handler inherits it. */
+export async function serve(
+  handle: (req: IncomingMessage, headers: Headers) => Promise<unknown>,
+): Promise<{ origin: string; close: () => Promise<void> }> {
+  const server = createServer((req, res) => {
+    const headers = new Headers()
+    for (const [name, value] of Object.entries(req.headers)) if (typeof value === 'string') headers.set(name, value)
+    const reply = (status: number, body: unknown) =>
+      res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body ?? null))
+    handle(req, headers).then(
+      (body) => reply(200, body),
+      (err: unknown) =>
+        err instanceof AuthError ? reply(err.status, { code: err.code }) : reply(500, { error: String(err) }),
+    )
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('the server is not on a port')
+  return {
+    close: () => {
+      server.closeAllConnections()
+      return new Promise((resolve) => server.close(() => resolve()))
+    },
+    origin: `http://127.0.0.1:${address.port}`,
+  }
 }

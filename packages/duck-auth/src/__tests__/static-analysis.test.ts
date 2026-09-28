@@ -97,6 +97,14 @@ describe('No bespoke timing-unsafe compares on secrets', () => {
   })
 })
 
+describe('No CommonJS require in the source', () => {
+  // The ESM build turns `require` into a shim that throws wherever Node exposes none, which is every ESM consumer.
+  it('reaches Node built-ins through import', () => {
+    const offenders = ALL_FILES.flatMap((f) => linesContaining(f, /\brequire\(/).map((l) => `${f.path}: ${l.trim()}`))
+    expect(offenders).toEqual([])
+  })
+})
+
 describe('No console.log in security paths', () => {
   it('debug logging must not leak from production code', () => {
     const offenders = filesMatching((f) => isSecurityPath(f.path)).flatMap((f) =>
@@ -161,11 +169,13 @@ describe('Length caps on user-supplied strings before they enter URLs / headers 
   // contain at least one `.length >` or `.length <=` check before flowing
   // strings into upstream IO.
   it('every provider main file has length caps somewhere', () => {
+    // The oauth vendor modules only map a userinfo response; `code` and `state` are read by the shared core.
     const providerEntries = filesMatching((f) =>
-      /providers\/(password\/password\.provider|magic-link|saml|passkey|oauth\/(authGoogle|authGithub|authMicrosoft|authDiscord|authLinkedin|authApple))\.ts$/.test(
+      /providers\/(passwords\/passwords|magic-link\/magic-link|saml\/saml|passkey\/passkey|oauth\/core\/provider)\.ts$/.test(
         f.path,
       ),
     )
+    expect(providerEntries).toHaveLength(5)
     for (const f of providerEntries) {
       const hasCap = /\.length\s*[><=]/.test(f.contents)
       expect(hasCap, `${f.path} has no length caps - audit user input handling`).toBe(true)
@@ -192,7 +202,7 @@ describe('Cookie defaults are HttpOnly + Secure + SameSite', () => {
 })
 
 describe('JWT alg pinning prevents alg-confusion (RFC 8725 §3.1)', () => {
-  it('AuthJwtTransport verify path checks alg against the verify key, not the header', () => {
+  it('JwtTransport verify path checks alg against the verify key, not the header', () => {
     const jwtFile = ALL_FILES.find((f) => f.path === 'core/transport/jwt.transport.ts')
     expect(jwtFile).toBeDefined()
     if (!jwtFile) return

@@ -7,7 +7,6 @@ import type { AuthDefine } from '../config/config.types'
 import type { Credential } from '../credentials/credentials.types'
 import type { Deliver } from '../flows/flows.delivery'
 import type { Hijack } from '../hijack/hijack.types'
-import type { IdempotencyInput } from '../idempotency'
 import type { Identities } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
 import type { Sessions } from '../sessions/sessions.types'
@@ -27,6 +26,7 @@ export namespace Engine {
     sessions: Sessions.Store
     credentials: Credential.Store
     orgs?: Org.Store<OrgMeta>
+    /** The same stores, rebound onto a transaction handle. */
     withClient?(client: unknown): Stores<Profile, OrgMeta>
   }
 
@@ -48,35 +48,29 @@ export namespace Engine {
     transport: Transport.ITransport
     /** The persistence contracts the engine reads and writes through. */
     stores: Stores<Profile, OrgMeta>
-    /** The budget the flows spend against; without one nothing is throttled. */
+    /** The budget the flows spend against. Default a `MemoryLimiter`, which `strict()` refuses in production. */
     limiter?: Limiter.Me
     /** Sign-in providers and attach-only facets, or thunks building one from the constructed engine and its
      *  `deliver`. The constructor resolves them, so `new AuthEngine` and `createAuth` behave alike. */
     providers?: AuthDefine.IProviderEntry<Profile, Tenant, OrgMeta>[]
-    /** A facet, or a bare store to wrap in one, mirroring `limiter`:
-     *  `idempotency: redisIdempotency({ prefix: 'auth:idem', redis })`. */
-    idempotency?: IdempotencyInput
     /**
      * Surfaced as `auth.captcha`, so a host has one place to reach for it. Turnstile, hCaptcha and reCAPTCHA
      * v3 ship in `core/captcha`. Omitted, every call answers
      * `{ success: false, errorCodes: ['captcha-not-configured'] }`, and `authNullCaptchaVerifier()` opts
      * into always-pass.
      *
-     * SECURITY: a missing secret must not read as a solved challenge.
+     * SECURITY: setting this protects nothing on its own. No flow, provider or route calls `verify`, and
+     * `Provider.Context` carries no verifier, so the challenge is checked where the host checks it.
+     * A missing secret must not read as a solved challenge either, which is what the default is for.
      */
     captcha?: AuthCaptcha.IVerifier
     /** How the host sends every outbound token. Forwarded to provider thunks, magic-link among them. */
     deliver?: Deliver
     /** Where lifecycle events are published; some `strict()` checks need a bus to be reachable. */
     events?: Events.IBus
-    session?: {
-      /** Sliding lifetime in ms. */
-      ttlMs?: number
-      /** Hard cap in ms, which no rotation or touch moves. */
-      absoluteTtlMs?: number
-      /** How long after a factor a session still counts as fresh, in ms. */
-      freshnessMs?: number
-    }
+    /** The session windows and the per-identity cap. See {@link Sessions.Cfg}. */
+    session?: Partial<Sessions.Cfg>
+    /** Identity lifecycle: soft-delete grace and the profile size cap. */
     identities?: {
       /** How long a soft-deleted identity stays recoverable before erasure, in ms. */
       softDeleteGracePeriodMs?: number
@@ -102,7 +96,10 @@ export namespace Engine {
     session: Sessions.Me
     identity: Identities.Me<Profile> | null
     /** The aggregate anomaly decision, present only when a detector is registered and
-     *  `opts.requestSnapshot` was supplied. Branch on `anomaly.decision`. */
+     *  `opts.requestSnapshot` was supplied. Branch on `anomaly.decision`, and call `anomaly.admit()` once
+     *  the request is served. */
     anomaly?: Anomaly.Result
+    /** The scopes a self-contained access token was granted, as `m2m` mints them; absent on any other session. */
+    scope?: string[]
   }
 }

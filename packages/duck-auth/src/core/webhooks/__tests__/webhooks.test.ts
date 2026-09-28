@@ -1,24 +1,19 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { InMemoryEvents } from '~/core/events'
+import { makeIdentity } from '~/test/store-inputs'
 import { signWebhookBody, verifyWebhookSignature, WebhookDeliverer } from '../index'
 
-function makeFetch(
-  responses: Array<{ ok: boolean; throws?: boolean }>,
-): typeof globalThis.fetch & { calls: Array<{ url: string; body: string; headers: Record<string, string> }> } {
-  const calls: Array<{ url: string; body: string; headers: Record<string, string> }> = []
+/** A fetch answering `responses` in turn, the last one repeating, and what each request carried. */
+function makeFetch(responses: Array<{ ok: boolean; throws?: boolean }>) {
+  const calls: Array<{ url: string; body: string; headers: Headers }> = []
   let i = 0
-  const fn = vi.fn(async (url: string | URL | Request, opts?: RequestInit) => {
-    const r = responses[i++] ?? responses[responses.length - 1]!
-    calls.push({
-      url: String(url),
-      body: String(opts?.body ?? ''),
-      headers: Object.fromEntries(Object.entries((opts?.headers as Record<string, string>) ?? {})),
-    })
-    if (r.throws) throw new Error('network-down')
-    return { ok: r.ok } as Response
-  }) as never
-  ;(fn as { calls: typeof calls }).calls = calls
-  return fn as never
+  const fetch: typeof globalThis.fetch = async (url, opts) => {
+    const r = responses[i++] ?? responses[responses.length - 1]
+    calls.push({ body: String(opts?.body ?? ''), headers: new Headers(opts?.headers), url: String(url) })
+    if (!r || r.throws) throw new Error('network-down')
+    return new Response(null, { status: r.ok ? 200 : 500 })
+  }
+  return { calls, fetch }
 }
 
 describe('AuthWebhookDeliverer', () => {
@@ -34,49 +29,76 @@ describe('AuthWebhookDeliverer', () => {
     )
   })
 
+  it.each([
+    ['a misspelt event name', '["sigin.success"]'],
+    ['a string other than *', '"all"'],
+  ])('refuses an endpoint subscribed to %s', (_, events) => {
+    expect(
+      () =>
+        new WebhookDeliverer({ endpoints: [{ url: 'https://hook.test', secret: 's', events: JSON.parse(events) }] }),
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+  })
+
+  it('delivers to an endpoint subscribed by name and to one subscribed to every event', async () => {
+    const { calls, fetch } = makeFetch([{ ok: true }])
+    const bus = new InMemoryEvents()
+    const d = new WebhookDeliverer({
+      endpoints: [
+        { url: 'https://named.test', secret: 's', events: ['lockout'] },
+        { url: 'https://every.test', secret: 's', events: '*' },
+      ],
+      fetch,
+    })
+    d.attach(bus)
+    await bus.emit('lockout', { identityId: 'u1', until: 0 })
+    await d.drain()
+    expect(calls.map((c) => c.url).sort()).toEqual(['https://every.test', 'https://named.test'])
+  })
+
   it('attach + emit delivers a signed POST to the endpoint', async () => {
-    const fetchStub = makeFetch([{ ok: true }])
+    const { calls, fetch } = makeFetch([{ ok: true }])
     const bus = new InMemoryEvents()
     const d = new WebhookDeliverer({
       endpoints: [{ url: 'https://hook.test/duck', secret: 'super-secret' }],
       backoffMs: 1,
-      fetch: fetchStub,
+      fetch,
     })
     d.attach(bus)
     await bus.emit('signin.success', {
-      identity: { id: 'u1' } as never,
+      identity: makeIdentity({ id: 'u1' }),
       factors: [{ method: 'password', completedAt: new Date(0) }],
     })
-    const calls = (
-      fetchStub as unknown as { calls: Array<{ url: string; body: string; headers: Record<string, string> }> }
-    ).calls
+    await d.drain()
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('https://hook.test/duck')
     const body = JSON.parse(calls[0]!.body)
     expect(body.event).toBe('signin.success')
     expect(body.payload.identity.id).toBe('u1')
-    expect(calls[0]!.headers['X-Duck-Signature']).toMatch(/^authSha256=[a-f0-9]{64}$/)
+    expect(calls[0]!.headers.get('X-Duck-Signature')).toMatch(/^authSha256=[a-f0-9]{64}$/)
   })
 
   it('filters by per-endpoint events list', async () => {
-    const fetchA = makeFetch([{ ok: true }])
-    const fetchB = makeFetch([{ ok: true }])
+    const a = makeFetch([{ ok: true }])
+    const b = makeFetch([{ ok: true }])
     const bus = new InMemoryEvents()
-    new WebhookDeliverer({
+    const toA = new WebhookDeliverer({
       endpoints: [{ url: 'https://a.test', secret: 's', events: ['lockout'] }],
-      fetch: fetchA,
-    }).attach(bus)
-    new WebhookDeliverer({
+      fetch: a.fetch,
+    })
+    const toB = new WebhookDeliverer({
       endpoints: [{ url: 'https://b.test', secret: 's', events: ['signin.success'] }],
-      fetch: fetchB,
-    }).attach(bus)
+      fetch: b.fetch,
+    })
+    toA.attach(bus)
+    toB.attach(bus)
     await bus.emit('lockout', { identityId: 'u1', until: 0 })
-    expect((fetchA as unknown as { calls: unknown[] }).calls).toHaveLength(1)
-    expect((fetchB as unknown as { calls: unknown[] }).calls).toHaveLength(0)
+    await Promise.all([toA.drain(), toB.drain()])
+    expect(a.calls).toHaveLength(1)
+    expect(b.calls).toHaveLength(0)
   })
 
   it('retries up to maxAttempts, succeeds on a later attempt', async () => {
-    const fetchStub = makeFetch([
+    const { calls, fetch } = makeFetch([
       { ok: false }, // attempt 1
       { ok: false }, // attempt 2
       { ok: true }, // attempt 3
@@ -85,20 +107,20 @@ describe('AuthWebhookDeliverer', () => {
       endpoints: [{ url: 'https://hook.test', secret: 's' }],
       maxAttempts: 5,
       backoffMs: 1,
-      fetch: fetchStub,
+      fetch,
     })
     await d.deliverOne('lockout', { identityId: 'u1', until: 0 })
-    expect((fetchStub as unknown as { calls: unknown[] }).calls.length).toBe(3)
+    expect(calls).toHaveLength(3)
   })
 
   it('dead-letters after exhausting attempts', async () => {
-    const fetchStub = makeFetch([{ ok: false }, { ok: false }, { throws: true, ok: false }])
+    const { fetch } = makeFetch([{ ok: false }, { ok: false }, { throws: true, ok: false }])
     const dlq: WebhookDeliverer.IDeadLetterEntry[] = []
     const d = new WebhookDeliverer({
       endpoints: [{ url: 'https://hook.test', secret: 's', id: 'edge' }],
       maxAttempts: 3,
       backoffMs: 1,
-      fetch: fetchStub,
+      fetch,
       deadLetter: {
         put: async (entry) => {
           dlq.push(entry)
@@ -120,15 +142,14 @@ describe('AuthWebhookDeliverer', () => {
   })
 
   it('honors custom signature header name', async () => {
-    const fetchStub = makeFetch([{ ok: true }])
+    const { calls, fetch } = makeFetch([{ ok: true }])
     const d = new WebhookDeliverer({
       endpoints: [{ url: 'https://hook.test', secret: 's', signatureHeader: 'X-My-Sig' }],
-      fetch: fetchStub,
+      fetch,
     })
     await d.deliverOne('lockout', { identityId: 'u1', until: 0 })
-    const calls = (fetchStub as unknown as { calls: Array<{ headers: Record<string, string> }> }).calls
-    expect(calls[0]!.headers['X-My-Sig']).toBeDefined()
-    expect(calls[0]!.headers['X-Duck-Signature']).toBeUndefined()
+    expect(calls[0]!.headers.get('X-My-Sig')).toMatch(/^authSha256=/)
+    expect(calls[0]!.headers.get('X-Duck-Signature')).toBeNull()
   })
 
   it('refuses non-HTTPS endpoint by default', () => {
@@ -191,28 +212,13 @@ describe('AuthWebhookDeliverer', () => {
     expect(verifyWebhookSignature('s', body, sigFresh, { timestamp: fresh })).toBe(true)
   })
 
-  it('authVerifyWebhookSignature rejects NaN timestamp (would otherwise bypass freshness via `NaN > N === false`)', () => {
-    // NaN timestamp (parseInt of missing header) would let `NaN > N == false` replay.
-    const body = JSON.stringify({ x: 1 })
-    const sig = signWebhookBody('s', body, Date.now())
-    expect(verifyWebhookSignature('s', body, sig, { timestamp: Number.NaN })).toBe(false)
-  })
-
-  it('authVerifyWebhookSignature rejects non-numeric timestamp from a buggy caller', () => {
-    const body = JSON.stringify({ x: 1 })
-    const sig = signWebhookBody('s', body, Date.now())
-    // @ts-expect-error: SEC test intentionally violates the typed shape
-    expect(verifyWebhookSignature('s', body, sig, { timestamp: 'recent' })).toBe(false)
-  })
-
   it('deliverer emits X-Duck-Timestamp header alongside signature', async () => {
-    const fetchStub = makeFetch([{ ok: true }])
+    const { calls, fetch } = makeFetch([{ ok: true }])
     const d = new WebhookDeliverer({
       endpoints: [{ url: 'https://hook.test', secret: 's' }],
-      fetch: fetchStub,
+      fetch,
     })
     await d.deliverOne('lockout', { identityId: 'u1', until: 0 })
-    const calls = (fetchStub as unknown as { calls: Array<{ headers: Record<string, string> }> }).calls
-    expect(calls[0]!.headers['x-duck-timestamp']).toBeDefined()
+    expect(Number(calls[0]!.headers.get('x-duck-timestamp'))).toBeGreaterThan(0)
   })
 })

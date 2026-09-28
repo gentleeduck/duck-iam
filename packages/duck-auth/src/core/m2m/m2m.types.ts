@@ -1,5 +1,6 @@
 /** Machine-to-machine grants: the client-credentials exchange and the scopes it may mint. */
 export namespace M2m {
+  /** The token exchange's lifetime and scope rule. */
   export type Cfg = {
     /** Lifetime of the issued access token, ms. Default 1 hour. */
     ttlMs: number
@@ -8,6 +9,7 @@ export namespace M2m {
     scopeMode: 'intersect' | 'strict'
   }
 
+  /** A client-credentials request. */
   export type ExchangeInput = {
     /** Plaintext client id; for duck-auth this is the api-key id surfaced at creation. */
     clientId: string
@@ -19,6 +21,7 @@ export namespace M2m {
     tenantId?: string
   }
 
+  /** The OAuth 2.0 token response the exchange answers. */
   export type TokenResponse = {
     access_token: string
     token_type: 'Bearer'

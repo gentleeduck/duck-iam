@@ -1,50 +1,44 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { BearerTransport } from '../bearer.transport'
 import { CompositeTransport } from '../composite.transport'
 import { JwtTransport } from '../jwt.transport'
 
 const SECRET = 'a-very-long-test-secret-that-is-32-bytes!'
 
-describe('AuthJwtTransport.verify - length cap', () => {
+describe('JwtTransport.verify - length cap', () => {
   const t = new JwtTransport({
     issuer: 'https://app.test',
     signKey: { kid: 'k1', key: SECRET },
     verifyKeys: [{ kid: 'k1', key: SECRET }],
   })
 
-  it('returns null on a multi-MB token without doing any base64 / JSON / crypto work', async () => {
-    const oversize = 'A'.repeat(10 * 1024 * 1024) // 10 MiB
-    const start = performance.now()
-    await expect(t.verify(oversize)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
-    const elapsed = performance.now() - start
-    // Without the cap: base64decode + JSON.parse + crypto on 10 MB
-    // would be hundreds of milliseconds. With the cap: O(1). Allow
-    // 25 ms for CI noise / GC; anything over indicates regression.
-    expect(elapsed).toBeLessThan(25)
+  const refused = (reason: string) => expect.objectContaining({ code: 'AUTH_JWT_INVALID', meta: { reason } })
+  const AT_THE_CAP = 'token is empty or over the 4096-character cap'
+
+  it('refuses a multi-MB token at the cap, before any base64, JSON or crypto work', async () => {
+    // Three parts, so without the cap it would reach the header decode.
+    const half = 'A'.repeat(5 * 1024 * 1024)
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      await expect(t.verify(`${half}.${half}.sig`)).rejects.toEqual(refused(AT_THE_CAP))
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
   })
 
-  it('returns null on a token exactly 4097 chars (just over the cap)', async () => {
-    await expect(t.verify('B'.repeat(4097))).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
+  it('refuses 4097 characters at the cap, and parses 4096', async () => {
+    await expect(t.verify('B'.repeat(4097))).rejects.toEqual(refused(AT_THE_CAP))
+    await expect(t.verify('C'.repeat(4096))).rejects.toEqual(refused('token is not a three-part JWS'))
   })
 
-  it('processes a 4096-char token through the normal parse path (cap boundary)', async () => {
-    // 4096 chars happens to be a valid-shape-but-bad-signature JWT
-    // length range. The cap MUST NOT reject it; the cap rejects only
-    // strings strictly longer than 4096.
-    const sized = 'C'.repeat(4096)
-    // Verify reaches the normal parse path and returns null on the
-    // signature mismatch - NOT on the cap.
-    await expect(t.verify(sized)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
+  it.each([null, undefined, 42])('refuses %o, which is not a token, without crashing', async (value) => {
+    // @ts-expect-error: off-contract on purpose.
+    await expect(t.verify(value)).rejects.toEqual(refused(AT_THE_CAP))
   })
 
-  it('rejects non-string input without crashing', async () => {
-    await expect(t.verify(null as unknown as string)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
-    await expect(t.verify(undefined as unknown as string)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
-    await expect(t.verify(42 as unknown as string)).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
-  })
-
-  it('rejects empty token', async () => {
-    await expect(t.verify('')).rejects.toMatchObject({ code: 'AUTH_JWT_INVALID' })
+  it('refuses an empty token', async () => {
+    await expect(t.verify('')).rejects.toEqual(refused(AT_THE_CAP))
   })
 })
 
@@ -56,16 +50,24 @@ describe('AuthCompositeTransport.verify - length cap', () => {
   })
   const composite = new CompositeTransport([new BearerTransport(), jwt])
 
-  it('returns null on a multi-MB token without walking any inner transport', async () => {
-    const oversize = 'A'.repeat(10 * 1024 * 1024)
-    const start = performance.now()
-    await expect(composite.verify(oversize)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
-    const elapsed = performance.now() - start
-    expect(elapsed).toBeLessThan(25)
+  it('refuses a multi-MB token without walking any inner transport', async () => {
+    const inner = vi.spyOn(jwt, 'verify')
+    await expect(composite.verify('A'.repeat(10 * 1024 * 1024))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    expect(inner).not.toHaveBeenCalled()
+    // A token under the cap is walked, so the spy can see a call.
+    await expect(composite.verify('A'.repeat(100))).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+    expect(inner).toHaveBeenCalledOnce()
+    inner.mockRestore()
   })
 
-  it('rejects non-string at the composite boundary (no inner walk)', async () => {
-    await expect(composite.verify(null as unknown as string)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
-    await expect(composite.verify(42 as unknown as string)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+  it.each([null, 42])('refuses %o at the composite boundary, walking no inner transport', async (value) => {
+    const inner = vi.spyOn(jwt, 'verify')
+    try {
+      // @ts-expect-error: off-contract on purpose.
+      await expect(composite.verify(value)).rejects.toMatchObject({ code: 'AUTH_SESSION_REVOKED' })
+      expect(inner).not.toHaveBeenCalled()
+    } finally {
+      inner.mockRestore()
+    }
   })
 })

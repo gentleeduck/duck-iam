@@ -5,7 +5,7 @@ import { AuthError } from '../errors'
 
 describe('CSRF', () => {
   describe('authIssueCsrfToken / authBuildCsrfCookieOptions', () => {
-    it('issues a base64url token and its authSha256 hash', () => {
+    it('issues a base64url token and its sha256 hash', () => {
       const { token, hash } = issueCsrfToken()
       expect(token).toMatch(/^[A-Za-z0-9_-]+$/)
       expect(hash).toBe(sha256(token))
@@ -58,7 +58,7 @@ describe('CSRF', () => {
       expect(() =>
         verifyCsrf({
           method: 'POST',
-          headers: new Headers({ 'sec-fetch-site': 'cross-origin' as never }),
+          headers: new Headers({ 'sec-fetch-site': 'cross-origin' }),
           sessionCsrfHash: sha256('x'),
         }),
       ).toThrow(/AUTH_CSRF/)

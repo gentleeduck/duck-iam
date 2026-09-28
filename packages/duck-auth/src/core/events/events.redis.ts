@@ -3,9 +3,10 @@ import type { RedisLike } from '~/core/drivers/redis-like'
 import type { Events } from '~/core/events/events.types'
 
 export namespace RedisEvents {
-  /** A `RedisLike.Client` extended with pub/sub, which both `ioredis` and `@upstash/redis` ship.
-   *  Optional, so a K/V-only app still satisfies the contract. */
+  /** A `RedisLike.Client` with pub/sub in the `@upstash/redis` shape; `valkeyPubSubAdapter` fits ioredis and
+   *  iovalkey to it. */
   export type Client = RedisLike.Client & {
+    /** Publishes `message` on `channel`; answers how many subscribers got it. */
     publish(channel: string, message: string): Promise<number>
     /** `onMessage` runs for every payload until the returned unsubscribe is invoked. */
     subscribe(
@@ -14,6 +15,7 @@ export namespace RedisEvents {
     ): Promise<() => Promise<void>>
   }
 
+  /** The Redis event bus's options. */
   export type Cfg = {
     /** Pub/sub-capable Redis client. */
     redis: Client
@@ -66,16 +68,19 @@ export class RedisEvents implements Events.IBus {
       if (!set || set.size > 0) return
       const pending = this._subscriptions.get(event)
       if (!pending) return
-      // The teardown stays in the map while it runs, and resubscribes if a handler arrived meanwhile.
-      // An adapter unsubscribes a channel, not a callback, so dropping the entry synchronously let an
-      // `on()` in the same tick open a second subscription for this teardown to then cancel - leaving
-      // the map holding a live-looking promise, `listenerCount` answering 1, and the node deaf to the
-      // fleet for good, since no later `on()` reaches the subscribe path either.
+      // The teardown stays in the map while it runs, and resubscribes if a handler arrived meanwhile: an
+      // adapter unsubscribes a channel, not a callback, so it would cancel an `on()` made in the same tick.
       this._subscriptions.set(
         event,
         pending.then(async (unsubscribe) => {
           // Through the promise, so unsubscribing before the subscribe resolves still closes it.
-          await unsubscribe?.()
+          try {
+            await unsubscribe?.()
+          } catch (err) {
+            // Closed all the same, since `onMessage` stops once unsubscribe is invoked. Rethrown, it rejected
+            // this entry with nothing awaiting it, and the event stayed deaf here for good.
+            console.error(`[@gentleduck/auth] RedisEvents could not unsubscribe from "${event}":`, err)
+          }
           if (set.size > 0) return this._subscribe(event)
           this._subscriptions.delete(event)
           return null

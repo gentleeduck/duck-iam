@@ -1,7 +1,7 @@
 import type { RedisLike } from '~/core/drivers/redis-like'
 import { AuthError } from '~/core/errors'
 import { stripUndefined } from '~/core/patch'
-import { isFiniteNumber } from '~/core/predicates'
+import { isFiniteNumber, isRecord, storedDate } from '~/core/predicates'
 import { assertSessionAllowed } from '~/core/sessions/sessions.constants'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { isFactorMethod, isSessionKind } from '~/core/sessions/sessions.types'
@@ -9,7 +9,9 @@ import type { TenantContext } from '~/core/tenant/tenant.types'
 
 /** Configuration for the Redis-backed session store. */
 export namespace RedisSession {
+  /** The Redis session store's options. */
   export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
+    /** An `@upstash/redis`-shaped client or `FakeRedis`; wrap ioredis and iovalkey with `valkeyAdapter`. */
     redis: TRedis
     /**
      * Default `auth`. Final keys:
@@ -129,8 +131,8 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
   /** Whichever deadline comes first: the key TTL tracks `absoluteExpiresAt` alone, so this is all the
    *  enforcement the sliding `expiresAt` gets here. */
   private _expScore(session: Pick<Sessions.Me, 'expiresAt' | 'absoluteExpiresAt'>): number {
-    const abs = parseStoredDate(session.absoluteExpiresAt)
-    const idle = parseStoredDate(session.expiresAt)
+    const abs = storedDate(session.absoluteExpiresAt)
+    const idle = storedDate(session.expiresAt)
     // A row nothing can date is scored as already due rather than never, so `gc` drops it. The same
     // fail-closed answer `parseStoredSession` gives a reader.
     if (!abs && !idle) return 0
@@ -140,7 +142,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
   private _ttlFor(session: Pick<Sessions.Me, 'absoluteExpiresAt'>): number {
     // WARN: the read path's parser, not a number cast. A serialised date would make every step below
     // `NaN`, and `{ ex: NaN }` is a key with no expiry on some clients.
-    const abs = parseStoredDate(session.absoluteExpiresAt)
+    const abs = storedDate(session.absoluteExpiresAt)
     // The cap bounds an unparseable value without destroying a live session the way a 1-second floor
     // would, and `resolveBySid` still refuses the row if it really is stale.
     if (!abs) return this._maxTtlSec
@@ -162,25 +164,21 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
   async create(s: Sessions.CreateInput): Promise<void> {
     if (!s.id) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: 'RedisSessionStore.create requires session.id to be set (sha-256 of sid)',
+        detail: 'RedisSessionImpl.create requires session.id to be set (sha-256 of sid)',
       })
     }
     // A custom id holding `:` would corrupt the expiry member's split, and `gc` would srem the wrong
     // identity's set.
     if (s.id.includes(':')) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `RedisSessionStore.create requires a session.id without ':' (got ${s.id})`,
+        detail: `RedisSessionImpl.create requires a session.id without ':' (got ${s.id})`,
       })
     }
     // Refused here rather than stored: `parseStoredSession` rejects these, so the row would be written
     // and then read back as a revoked session for the rest of its life.
     assertSessionAllowed(s)
-    // SECURITY: a session minted before this identity's last revoke does not survive it, whichever
-    // order the two writes land in - otherwise a sign-in already in flight when "sign out everywhere"
-    // ran came back alive on the other side of it.
-    // `AUTH_STALE_WRITE` and not `AUTH_SESSION_REVOKED`, which is in the reader's absent set and would
-    // be read back as "no session": this is a lost race, and whether the sign-in is worth attempting
-    // again is only the caller's to decide if the refusal reaches it.
+    // SECURITY: a session minted before the identity's last revoke does not survive it, whichever write lands
+    // first. `AUTH_STALE_WRITE`, not `AUTH_SESSION_REVOKED`, which readers take for "no session".
     if (s.identityId) {
       const mark = await this._redis.get(this._revokedAtKey(s.identityId))
       if (mark !== null) {
@@ -274,11 +272,8 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
       // which costs at worst one wasted sweep or one early retirement of a row the reader would have
       // taken - wrong in the safe direction, either way.
       await this._redis.zadd(this._expKey(), this._expScore(next), this._expMember(current.id, next.identityId))
-      // SECURITY: compare-and-swap on the exact bytes read. The guard above is a compare and a write with
-      // a gap between them, so two clients can both read the same row, both find their expectation
-      // intact and both write - and the first write is lost with nothing raised. The script makes the
-      // compare and the write one operation; without `eval` on the client it is the gap it always was,
-      // which the class doc says out loud.
+      // SECURITY: compare-and-swap on the exact bytes read, so two writers cannot both pass the guard above.
+      // Without `eval` the gap remains, as the class doc says.
       let swapped = true
       if (this._redis.eval) {
         const won = await this._redis.eval(CAS_SET, [this._sessKey(id)], [raw, JSON.stringify(next), String(ttl)])
@@ -332,13 +327,9 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
 
   /** Removes every session for this identity, and the index itself. */
   async deleteAllForIdentity(identityId: string, ctx?: TenantContext): Promise<void> {
-    // Written before the index is read, so a `create` landing after the sweep is refused by `create`'s
-    // own check rather than surviving. The TTL is the longest a session can live, past which nothing
-    // minted before the mark could still be valid.
-    // Set on the scoped path too. The mark is identity-wide, so a scoped revoke also refuses a racing
-    // create for the identity's other tenants; that costs the retry `AUTH_STALE_WRITE` asks for, where
-    // a key per tenant would refuse nothing extra but could not be told apart from an identity whose
-    // id happens to contain the separator.
+    // Written before the index is read, so a racing `create` is refused by its own check; the TTL is the
+    // longest a session can live. Identity-wide, so a scoped revoke also refuses the other tenants' racing
+    // creates, which costs them only the retry `AUTH_STALE_WRITE` asks for.
     await this._redis.set(this._revokedAtKey(identityId), String(Date.now()), { ex: this._maxTtlSec })
     const ids = await this._redis.smembers(this._idxKey(identityId))
     if (ids.length === 0) return
@@ -474,22 +465,8 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
 /** Bounds both the `zrangebyscore` reply and the fan-out under it. */
 const GC_PAGE = 250
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
 function isAal(v: unknown): v is Sessions.AAL {
   return v === 1 || v === 2 || v === 3
-}
-
-function parseStoredDate(v: unknown): Date | null {
-  if (v instanceof Date) return v
-  if (typeof v === 'string') {
-    const d = new Date(v)
-    return Number.isFinite(d.getTime()) ? d : null
-  }
-  if (typeof v === 'number' && Number.isFinite(v)) return new Date(v)
-  return null
 }
 
 /** `expectedId` is the key the row was read under. Every field below fails closed, and so does the
@@ -523,15 +500,15 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
   const aal = obj.aal
   if (!isAal(aal)) return null
 
-  const expiresAtDate = parseStoredDate(obj.expiresAt)
+  const expiresAtDate = storedDate(obj.expiresAt)
   if (!expiresAtDate) return null
-  const absoluteExpiresAtDate = parseStoredDate(obj.absoluteExpiresAt)
+  const absoluteExpiresAtDate = storedDate(obj.absoluteExpiresAt)
   if (!absoluteExpiresAtDate) return null
-  const createdAtDate = parseStoredDate(obj.createdAt)
+  const createdAtDate = storedDate(obj.createdAt)
   if (!createdAtDate) return null
   // SECURITY: rejected rather than defaulted. The freshness gate measures against `rotatedAt`, so a
   // row falling back to any later date would read as permanently fresh.
-  const rotatedAtDate = parseStoredDate(obj.rotatedAt)
+  const rotatedAtDate = storedDate(obj.rotatedAt)
   if (!rotatedAtDate) return null
 
   // WARN: the asymmetry is deliberate. A structurally broken entry rejects the whole row, since
@@ -546,7 +523,7 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
     if (!isRecord(entry)) return null
     if (typeof entry.method !== 'string') return null
     if (!isFactorMethod(entry.method)) continue
-    factors.push({ method: entry.method, completedAt: parseStoredDate(entry.completedAt) ?? createdAtDate })
+    factors.push({ method: entry.method, completedAt: storedDate(entry.completedAt) ?? createdAtDate })
   }
 
   // A present-but-broken envelope fails closed like every field above. Degrading it to `null` reads as
@@ -556,8 +533,8 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
     const envelope = obj.actingAs
     if (!isRecord(envelope)) return null
     if (typeof envelope.realIdentityId !== 'string' || typeof envelope.reason !== 'string') return null
-    const startedAt = parseStoredDate(envelope.startedAt)
-    const actingExpiresAt = parseStoredDate(envelope.expiresAt)
+    const startedAt = storedDate(envelope.startedAt)
+    const actingExpiresAt = storedDate(envelope.expiresAt)
     if (!startedAt || !actingExpiresAt) return null
     actingAs = {
       realIdentityId: envelope.realIdentityId,
@@ -582,7 +559,7 @@ function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null
     createdAt: createdAtDate,
     // Falls back rather than refusing: a row written before `updatedAt` existed is a live session, and
     // rejecting it here would sign every one of them out on deploy.
-    updatedAt: parseStoredDate(obj.updatedAt) ?? createdAtDate,
+    updatedAt: storedDate(obj.updatedAt) ?? createdAtDate,
     rotatedAt: rotatedAtDate,
     expiresAt: expiresAtDate,
     absoluteExpiresAt: absoluteExpiresAtDate,

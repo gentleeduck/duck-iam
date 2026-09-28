@@ -40,12 +40,12 @@ suite('E2E multi-instance revocation fan-out (real Redis, real processes)', () =
   }
 
   beforeAll(async () => {
-    redis = new Redis(URL as string)
+    redis = new Redis(URL)
     runId = e2ePrefix()
 
     for (let i = 0; i < N; i++) {
       workers.push(
-        spawn('bun', ['run', WORKER, URL as string, runId, `w${i}`], {
+        spawn('bun', ['run', WORKER, URL, runId, `w${i}`], {
           cwd: process.cwd(),
           stdio: ['ignore', 'ignore', 'pipe'],
         }),
@@ -123,7 +123,7 @@ suite('E2E multi-instance revocation fan-out (real Redis, real processes)', () =
     await new Promise((r) => setTimeout(r, 500))
 
     const lateId = 'late'
-    const late = spawn('bun', ['run', WORKER, URL as string, runId, lateId], {
+    const late = spawn('bun', ['run', WORKER, URL, runId, lateId], {
       cwd: process.cwd(),
       stdio: ['ignore', 'ignore', 'pipe'],
     })

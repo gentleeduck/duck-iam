@@ -68,6 +68,11 @@ export class Providers<Profile extends Identities.ProfileMetadataBase = Identiti
     return [...this._byId.values()].filter(isSignInCapability).map((c) => ({ id: c.id, kind: c.kind }))
   }
 
+  /** How many capabilities are registered, sign-in providers and attach-only facets alike. */
+  get size(): number {
+    return this._byId.size
+  }
+
   /** Whether a provider is registered under this id, canonicalised. */
   has(id: string): boolean {
     const canonical = canonicalProviderId(id)

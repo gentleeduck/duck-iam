@@ -20,16 +20,14 @@ export class AuthMemoryDeviceFingerprintStore implements AuthDeviceFingerprint.I
   private readonly _maxPerIdentity: number
   private readonly _ttlMs: number
 
-  /** Bounded both ways *per identity*: entries expire, and the least recently seen is evicted past
-   *  `maxPerIdentity`.
-   *  NOTE: the outer map grows one entry per identity ever seen and is never swept. Its key is an
-   *  authenticated `identity.id`, so it is bounded by the user base rather than by traffic. */
+  /** At most `maxPerIdentity` devices per identity, each known for `ttlMs` after its last recorded sighting.
+   *  NOTE: the outer map holds one entry per identity ever seen and is never swept - bounded by the user
+   *  base, not by traffic. */
   constructor(cfg: { maxPerIdentity?: number; ttlMs?: number } = {}) {
     this._maxPerIdentity = cfg.maxPerIdentity ?? FINGERPRINT_MAX_PER_IDENTITY
     this._ttlMs = cfg.ttlMs ?? FINGERPRINT_TTL_DEFAULT_MS
-    // SECURITY: both bounds are applied as a bare `>`, and every comparison against NaN is false, so a
-    // non-finite value does not widen the bound, it removes it. Zero and below fail the other way,
-    // remembering nothing, so every request is a first sighting.
+    // SECURITY: both are compared with a bare `>`, so NaN removes the bound rather than widening it; zero
+    // or below remembers nothing, and every request is a first sighting.
     if (!Number.isFinite(this._maxPerIdentity) || this._maxPerIdentity <= 0) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `AuthMemoryDeviceFingerprintStore: maxPerIdentity must be a finite positive number (got ${cfg.maxPerIdentity})`,
@@ -42,32 +40,29 @@ export class AuthMemoryDeviceFingerprintStore implements AuthDeviceFingerprint.I
     }
   }
 
-  /** Atomic check-and-insert: `true` when the fingerprint was already known, `false` on first sight. */
-  async checkAndRemember(identityId: string, fingerprint: string): Promise<boolean> {
-    const now = Date.now()
+  /** Whether the fingerprint is known and inside the TTL. */
+  async has(identityId: string, fingerprint: string): Promise<boolean> {
+    const at = this._known.get(identityId)?.get(fingerprint)
+    return at !== undefined && Date.now() - at <= this._ttlMs
+  }
+
+  /** Remember a sighting as the most recent, evicting the least recently seen past the cap. */
+  async remember(identityId: string, fingerprint: string): Promise<void> {
     let seen = this._known.get(identityId)
     if (!seen) {
       seen = new Map()
       this._known.set(identityId, seen)
     }
-    for (const [fp, at] of seen) {
-      if (now - at > this._ttlMs) seen.delete(fp)
-    }
-    // Deleted before the re-set on both paths: `Map.set` refreshes the value of an existing key but not
-    // its position, so a device used daily kept the slot it was first inserted in and was evicted ahead
-    // of one seen once and never again - a `new-device` signal for the identity's usual device.
-    const known = seen.delete(fingerprint)
-    seen.set(fingerprint, now)
-    if (known) return true
-    while (seen.size > this._maxPerIdentity) {
-      const oldest = seen.keys().next().value
-      if (oldest === undefined) break
+    // Deleted, then set: `Map.set` on an existing key keeps its old position, and eviction is by position.
+    seen.delete(fingerprint)
+    seen.set(fingerprint, Date.now())
+    for (const oldest of seen.keys()) {
+      if (seen.size <= this._maxPerIdentity) break
       seen.delete(oldest)
     }
-    return false
   }
 
-  /** For sign-out-of-all flows, and after a forced credential reset. */
+  /** See {@link AuthDeviceFingerprint.IStore.forgetAll}. */
   async forgetAll(identityId: string): Promise<void> {
     this._known.delete(identityId)
   }
@@ -78,55 +73,28 @@ export class AuthMemoryDeviceFingerprintStore implements AuthDeviceFingerprint.I
   }
 }
 
-/** authSha256(`${ua}|${ipSubnet}`); /24 IPv4, /48 IPv6. Roaming-tolerant, ISP-sensitive. */
+/** `sha256(ua | ipSubnet)`, /24 for IPv4 and /48 for IPv6: roaming-tolerant, ISP-sensitive.
+ *  NOTE: the output is stored, so changing its format makes every remembered device new again. */
 function defaultCompose(req: Anomaly.RequestSnapshot, authSha256: (s: string) => string): string {
-  return authSha256(`${uaKey(req.userAgent?.trim())}|${ipKey(req.ip?.trim())}`)
-}
-
-/** The default composer, bound to the hash it needs.
- *  SECURITY: refused at construction, because a composer with nothing to hash with answered `null` for
- *  every request and the detector skipped every one of them. Registered, listed, and silent - and a
- *  detector that is switched off reads exactly like one that finds nothing wrong. */
-function defaultComposerFor(authSha256: ((s: string) => string) | undefined): (req: Anomaly.RequestSnapshot) => string {
-  if (!authSha256) {
-    throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: 'deviceFingerprintDetector: pass authSha256 to use the default composer, or a compose of your own',
-    })
-  }
-  return (req) => defaultCompose(req, authSha256)
-}
-
-/** The User-Agent half of the fingerprint, bounded. */
-function uaKey(ua: string | undefined): string {
-  if (!ua) return FINGERPRINT_ABSENT
-  return ua.length > FINGERPRINT_UA_MAX_LENGTH ? ua.slice(0, FINGERPRINT_UA_MAX_LENGTH) : ua
-}
-
-/** The address half, as a subnet. */
-function ipKey(ip: string | undefined): string {
-  if (!ip) return FINGERPRINT_ABSENT
-  if (ip.length > FINGERPRINT_IP_MAX_LENGTH) return FINGERPRINT_UNPARSED
-  return ipSubnet(ip)
+  const ua = req.userAgent?.trim().slice(0, FINGERPRINT_UA_MAX_LENGTH) || FINGERPRINT_ABSENT
+  return authSha256(`${ua}|${ipSubnet(req.ip?.trim())}`)
 }
 
 /** A decimal 0-255, the only thing a /24 can be built out of. */
-function isOctet(part: string | undefined): boolean {
-  return part !== undefined && /^\d{1,3}$/.test(part) && Number(part) <= 255
+function isOctet(part: string): boolean {
+  return /^\d{1,3}$/.test(part) && Number(part) <= 255
 }
 
 /** The address reduced to the network it came from: /24 for IPv4, /48 for IPv6. */
-function ipSubnet(ip: string): string {
-  // IPv4 -> first 3 octets (/24).
+function ipSubnet(ip: string | undefined): string {
+  if (!ip) return FINGERPRINT_ABSENT
+  if (ip.length > FINGERPRINT_IP_MAX_LENGTH) return FINGERPRINT_UNPARSED
   if (ip.includes('.')) {
-    const octets = ip.split('.')
-    // A dual-stack socket reports an IPv4 client as `::ffff:192.0.2.1`, so the first field may carry
-    // a v6 prefix. Only the octet after the last colon has to be a number for the /24 to mean
-    // anything; the shape is otherwise left exactly as it was, so stored fingerprints still match.
-    const head = octets[0]?.slice((octets[0]?.lastIndexOf(':') ?? -1) + 1)
-    if (octets.length !== 4 || !isOctet(head) || !octets.slice(1).every(isOctet)) return FINGERPRINT_UNPARSED
-    // Normalised numerically, or `203.000.113.009` and `203.0.113.9` hash differently and a proxy
-    // that zero-pads where the origin does not re-flags a device the identity already used.
-    return `${[head, octets[1], octets[2]].map(Number).join('.')}.0`
+    // A dual-stack socket reports IPv4 as `::ffff:192.0.2.1`: the address is what follows the last colon.
+    const octets = ip.slice(ip.lastIndexOf(':', ip.indexOf('.')) + 1).split('.')
+    if (octets.length !== 4 || !octets.every(isOctet)) return FINGERPRINT_UNPARSED
+    // Numeric, so a zero-padded `203.000.113.009` is the same network as `203.0.113.9`.
+    return `${octets.slice(0, 3).map(Number).join('.')}.0`
   }
   // IPv6 /48; expand `::` first or distinct prefixes collapse to one key.
   const expanded = expandIpv6(ip)
@@ -136,21 +104,13 @@ function ipSubnet(ip: string): string {
 
 /** Expand a compressed IPv6 (`::1`) to its 8-hextet padded form; null when it is not one. */
 function expandIpv6(addr: string): string | null {
-  const idx = addr.indexOf('::')
-  const parts =
-    idx === -1
-      ? addr.split(':')
-      : (() => {
-          const head = addr.slice(0, idx)
-          const tail = addr.slice(idx + 2)
-          const headParts = head ? head.split(':') : []
-          const tailParts = tail ? tail.split(':') : []
-          const missing = 8 - headParts.length - tailParts.length
-          if (missing < 0) return addr.split(':')
-          return [...headParts, ...new Array(missing).fill('0'), ...tailParts]
-        })()
-  if (parts.length !== 8) return null
-  if (!parts.every((h) => /^[0-9a-f]{1,4}$/i.test(h))) return null
+  const [head, tail, ...more] = addr.split('::')
+  const groups = (part: string | undefined): string[] => (part ? part.split(':') : [])
+  // `::` appears at most once, and stands for as many zero groups as bring the address to eight.
+  const zeros = tail === undefined ? 0 : 8 - groups(head).length - groups(tail).length
+  if (more.length > 0 || zeros < 0) return null
+  const parts = [...groups(head), ...Array<string>(zeros).fill('0'), ...groups(tail)]
+  if (parts.length !== 8 || !parts.every((h) => /^[0-9a-f]{1,4}$/i.test(h))) return null
   return parts.map((h) => h.padStart(4, '0').toLowerCase()).join(':')
 }
 
@@ -163,24 +123,42 @@ export function deviceFingerprintDetector(cfg: AuthDeviceFingerprint.Cfg): Anoma
       detail: `deviceFingerprintDetector: score must be a finite number in [0, 1] (got ${score})`,
     })
   }
-  const compose = cfg.compose ?? defaultComposerFor(cfg.authSha256)
+  if (typeof cfg.store?.has !== 'function' || typeof cfg.store.remember !== 'function') {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: 'deviceFingerprintDetector: store must implement AuthDeviceFingerprint.IStore',
+    })
+  }
+  const { authSha256 } = cfg
+  const compose = cfg.compose ?? (authSha256 && ((req: Anomaly.RequestSnapshot) => defaultCompose(req, authSha256)))
+  // SECURITY: refused - a detector with nothing to fingerprint would skip every request, silently.
+  if (!compose) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: 'deviceFingerprintDetector: pass authSha256 to use the default composer, or a compose of your own',
+    })
+  }
 
   return {
     id: 'new-device',
     async evaluate({ identity, req }): Promise<Anomaly.Signal[]> {
       const fp = compose(req)
-      if (!fp) return []
-      const known = await cfg.store.checkAndRemember(identity.id, fp)
-      if (known) return []
-      // The raw ip and user agent are deliberately not here. The `suspicious` event is persisted
-      // wherever the bus is, and the fingerprint already identifies the device: carrying the
-      // address and the header verbatim only spreads them to every sink that reads the event.
+      if (typeof fp !== 'string' || fp.length === 0) return []
+      if (await cfg.store.has(identity.id, fp)) return []
+      // Not the ip or the user agent: evidence reaches every `suspicious` sink.
       return [{ evidence: { fingerprint: fp }, kind: 'new-device', score }]
+    },
+    // SECURITY: after the verdict, not while scoring - remembered then, a denied device was a known one
+    // on the retry, and on a request racing the first.
+    async record({ identity, req }, decision): Promise<void> {
+      if (decision === 'deny') return
+      const fp = compose(req)
+      if (typeof fp === 'string' && fp.length > 0) await cfg.store.remember(identity.id, fp)
     },
   }
 }
 
-/** {@link AuthMemoryDeviceFingerprintStore} on its defaults: 50 devices per identity, 90-day TTL. */
-export function authMemoryDeviceFingerprintStore(): AuthMemoryDeviceFingerprintStore {
-  return new AuthMemoryDeviceFingerprintStore()
+/** {@link AuthMemoryDeviceFingerprintStore}, by default 50 devices per identity and a 90-day TTL. */
+export function authMemoryDeviceFingerprintStore(
+  ...args: ConstructorParameters<typeof AuthMemoryDeviceFingerprintStore>
+): AuthMemoryDeviceFingerprintStore {
+  return new AuthMemoryDeviceFingerprintStore(...args)
 }

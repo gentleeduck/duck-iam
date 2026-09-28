@@ -12,18 +12,31 @@ describe('OrgsFacet', () => {
     adapter = new MemoryAdapter()
     events = new InMemoryEvents()
     facet = new OrgsImpl(adapter.orgs, events)
-    // Seed two orgs via the underlying adapter (no orgs.create() in the facet
-    // since orgs are typically pre-provisioned via the app's own admin flow).
-    ;(adapter as unknown as { _orgs: Map<string, unknown> })._orgs.set('org-1', {
-      id: 'org-1',
-      name: 'Acme',
-      createdAt: Date.now(),
-    })
-    ;(adapter as unknown as { _orgs: Map<string, unknown> })._orgs.set('org-2', {
+    // No orgs.create() in the facet: orgs are the app's own rows, provisioned by its admin flow.
+    adapter.seedOrg({ createdAt: new Date(), domain: null, id: 'org-1', metadata: null, name: 'Acme', tenantId: null })
+    adapter.seedOrg({
+      createdAt: new Date(),
+      domain: null,
       id: 'org-2',
+      metadata: null,
       name: 'Globex',
-      createdAt: Date.now(),
+      tenantId: null,
     })
+  })
+
+  it('every membership and role change reaches the bus', async () => {
+    const seen: unknown[] = []
+    events.on('org.member.added', (p) => void seen.push(['added', p]))
+    events.on('org.roles.set', (p) => void seen.push(['roles', p]))
+    events.on('org.member.removed', (p) => void seen.push(['removed', p]))
+    await facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['viewer'] }, {})
+    await facet.setRoles('org-1', 'u', ['admin', 'admin'], {})
+    await facet.removeMember('org-1', 'u', {})
+    expect(seen).toEqual([
+      ['added', expect.objectContaining({ orgId: 'org-1', identityId: 'u', roles: ['viewer'] })],
+      ['roles', expect.objectContaining({ orgId: 'org-1', identityId: 'u', roles: ['admin'] })],
+      ['removed', expect.objectContaining({ orgId: 'org-1', identityId: 'u' })],
+    ])
   })
 
   describe('addMember', () => {

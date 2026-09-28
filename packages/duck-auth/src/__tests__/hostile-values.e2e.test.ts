@@ -6,7 +6,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DrizzlePgAdapter } from '~/adapters/drizzle/pg'
 import { MemoryAdapter } from '~/adapters/memory'
-import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
+import { valkeyAdapter } from '~/adapters/valkey'
 import { AuthEngine } from '~/core/engine'
 import { RedisIdempotency } from '~/core/idempotency/idempotency.redis'
 import { CookieTransport } from '~/core/transport/cookie.transport'
@@ -48,10 +48,10 @@ suite('E2E hostile values on real Postgres + Redis', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: PG_URL })
     await applyPgSchema(pool)
-    raw = new Redis(REDIS_URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
+    raw = new Redis(REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
-    stores = new DrizzlePgAdapter(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
@@ -162,25 +162,29 @@ suite('E2E hostile values on real Postgres + Redis', () => {
       // column CHECK catches it, and the adapter now names the refusal instead of
       // handing the caller a 500 with SQL in the message.
       await expect(
-        auth.sessions.create({ aal: 9 as never, factors: [], identityId: null, kind: 'guest' }),
+        // @ts-expect-error not an AAL
+        auth.sessions.create({ aal: 9, factors: [], identityId: null, kind: 'guest' }),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('aal zero is refused the same way', async () => {
       await expect(
-        auth.sessions.create({ aal: 0 as never, factors: [], identityId: null, kind: 'guest' }),
+        // @ts-expect-error not an AAL
+        auth.sessions.create({ aal: 0, factors: [], identityId: null, kind: 'guest' }),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('a NaN aal is refused the same way', async () => {
       await expect(
-        auth.sessions.create({ aal: Number.NaN as never, factors: [], identityId: null, kind: 'guest' }),
+        // @ts-expect-error not an AAL
+        auth.sessions.create({ aal: Number.NaN, factors: [], identityId: null, kind: 'guest' }),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
     it('an unrecognised session kind is refused the same way', async () => {
       await expect(
-        auth.sessions.create({ aal: 1, factors: [], identityId: null, kind: 'browser' as never }),
+        // @ts-expect-error not a session kind
+        auth.sessions.create({ aal: 1, factors: [], identityId: null, kind: 'browser' }),
       ).rejects.toMatchObject({ code: 'AUTH_INVALID_PARAMETERS' })
     })
 
@@ -214,7 +218,7 @@ suite('E2E hostile values on real Postgres + Redis', () => {
       new RedisLimiter({
         max: 5,
         prefix: `${prefix}:w-${e2ePrefix()}`,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
         windowMs: 60_000,
       })
 
@@ -244,7 +248,7 @@ suite('E2E hostile values on real Postgres + Redis', () => {
       // was gone: `consume(key, 1_000_000)` sent a million sequential commands and blew a five
       // second timeout against real Redis. Counted at a small scale so the case stays fast.
       let calls = 0
-      const counting = valkeyAdapter(raw as unknown as ValkeyClient.Me)
+      const counting = valkeyAdapter(raw)
       const wrapped = {
         ...counting,
         incr: async (k: string) => {
@@ -254,6 +258,10 @@ suite('E2E hostile values on real Postgres + Redis', () => {
         incrby: async (k: string, by: number) => {
           calls += 1
           return counting.incrby?.(k, by) ?? counting.incr(k)
+        },
+        eval: async (script: string, keys: string[], args: (string | number)[]) => {
+          calls += 1
+          return counting.eval?.(script, keys, args)
         },
       }
       const l = new RedisLimiter({
@@ -279,7 +287,7 @@ suite('E2E hostile values on real Postgres + Redis', () => {
     const store = () =>
       new RedisIdempotency({
         prefix: `${prefix}:i-${e2ePrefix()}`,
-        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        redis: valkeyAdapter(raw),
       })
 
     it('a negative ttl falls back to a sane window rather than an immortal key', async () => {
@@ -299,11 +307,12 @@ suite('E2E hostile values on real Postgres + Redis', () => {
       expect(await s.claim(key, Number.NaN, {})).toBe(false)
     })
 
-    it('an absurd ttl is capped rather than passed through', async () => {
-      const s = store()
-      const key = `big-${e2ePrefix()}`
-      expect(await s.claim(key, Number.MAX_SAFE_INTEGER, {})).toBe(true)
-      expect(await s.claim(key, Number.MAX_SAFE_INTEGER, {})).toBe(false)
+    it('a ttl past a day is kept whole, not cut to one', async () => {
+      // It was cut to 24 hours, so a retry on the second day of a 48-hour window ran the operation again.
+      const storePrefix = `${prefix}:i-${e2ePrefix()}`
+      const s = new RedisIdempotency({ prefix: storePrefix, redis: valkeyAdapter(raw) })
+      expect(await s.claim('long', 48 * 3_600_000, {})).toBe(true)
+      expect(await raw.ttl(`${storePrefix}::long`)).toBeGreaterThan(47 * 3_600)
     })
   })
 
