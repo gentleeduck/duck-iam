@@ -8,7 +8,7 @@ function makeClient(options?: Record<string, unknown>): Saml.Client {
     getAuthorizeUrlAsync: vi.fn(async () => 'https://idp.example/sso?SAMLRequest=AAA'),
     validatePostResponseAsync: vi.fn(async () => ({
       loggedOut: false,
-      profile: { email: 'user@x.com', nameID: 'user@x.com' } as Saml.Profile,
+      profile: { email: 'user@x.com', nameID: 'user@x.com' },
     })),
   }
   if (options) Object.assign(client, { options })

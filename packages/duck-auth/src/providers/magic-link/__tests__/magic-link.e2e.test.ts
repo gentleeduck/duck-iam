@@ -20,7 +20,7 @@ function capturingChannel(): Deliver & { links: string[] } {
   const links: string[] = []
   return Object.assign(
     async (message: Parameters<Deliver>[0]): Promise<void> => {
-      links.push((message.vars as { url?: string }).url ?? '')
+      links.push(message.vars.url)
     },
     { links },
   )
@@ -47,7 +47,9 @@ suite('E2E magic links on real Postgres', () => {
     await auth.flows.beginProvider('magic-link', { email })
     const url = channel.links[before]
     if (!url) throw new Error('no link was sent')
-    return new URL(url).searchParams.get('token') as string
+    const token = new URL(url).searchParams.get('token')
+    if (!token) throw new Error('the link carried no token')
+    return token
   }
 
   const redeem = (token: string) => auth.flows.signIn({ input: { token }, providerId: 'magic-link' })
@@ -55,7 +57,7 @@ suite('E2E magic links on real Postgres', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: PG_URL })
     await applyPgSchema(pool)
-    stores = new DrizzlePgAdapter(PG_URL as string)
+    stores = new DrizzlePgAdapter(PG_URL)
     channel = capturingChannel()
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
@@ -136,7 +138,8 @@ suite('E2E magic links on real Postgres', () => {
     })
 
     it('refuses a non-string token', async () => {
-      await expect(redeem(12345 as unknown as string)).rejects.toMatchObject({
+      // @ts-expect-error not a string
+      await expect(redeem(12345)).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_INVALID',
       })
     })
@@ -182,15 +185,13 @@ suite('E2E magic links on real Postgres', () => {
       expect(secondRows.some((r) => r.revokedAt == null)).toBe(true)
     })
 
-    it('two live links for one identity are independent', async () => {
+    it('a second link retires the first, as a password reset does', async () => {
       const user = await newUser('ml-two-links')
       const a = await requestToken(user.email)
       const b = await requestToken(user.email)
       expect(a).not.toBe(b)
 
-      await redeem(a)
-      // FINDING-adjacent: the second link still works, so requesting a new one
-      // does not retire the previous, the same shape as password reset tokens.
+      await expect(redeem(a)).rejects.toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
       await expect(redeem(b)).resolves.toBeDefined()
     })
   })
@@ -213,7 +214,7 @@ suite('E2E magic links on real Postgres', () => {
     })
 
     it('refuses a non-string address', async () => {
-      await expect(auth.flows.beginProvider('magic-link', { email: 42 as unknown as string })).rejects.toMatchObject({
+      await expect(auth.flows.beginProvider('magic-link', { email: 42 })).rejects.toMatchObject({
         code: 'AUTH_INVALID_PARAMETERS',
       })
     })
@@ -223,7 +224,7 @@ suite('E2E magic links on real Postgres', () => {
     it('points at the configured base url', async () => {
       const user = await newUser('ml-url')
       await requestToken(user.email)
-      const url = new URL(channel.links.at(-1) as string)
+      const url = new URL(channel.links.at(-1) ?? '')
       expect(url.origin).toBe('https://app.test')
       expect(url.searchParams.get('token')).toBeTruthy()
     })

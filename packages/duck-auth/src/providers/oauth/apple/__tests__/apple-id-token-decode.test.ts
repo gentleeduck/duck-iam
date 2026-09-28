@@ -7,10 +7,10 @@ function jwt(payload: unknown): string {
   return `${header}.${body}.signature`
 }
 
-describe('authApple authDecodeIdToken - claim-shape validation', () => {
+describe('apple authDecodeIdToken - claim-shape validation', () => {
   it('accepts well-formed claims', () => {
-    const r = decodeIdToken(jwt({ sub: 'authApple-user-1', email: 'a@x.com', email_verified: true }))
-    expect(r).toEqual({ sub: 'authApple-user-1', email: 'a@x.com', email_verified: true })
+    const r = decodeIdToken(jwt({ sub: 'apple-user-1', email: 'a@x.com', email_verified: true }))
+    expect(r).toEqual({ sub: 'apple-user-1', email: 'a@x.com', email_verified: true })
   })
 
   it('accepts string-encoded email_verified (Apple quirk)', () => {

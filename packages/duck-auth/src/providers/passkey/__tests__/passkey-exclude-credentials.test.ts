@@ -9,10 +9,10 @@ import type { Passkey } from '../passkey.types'
 interface ProfileShape extends Identities.ProfileMetadataBase {}
 
 /** Only `generateRegistrationOptions` matters here; it records what it was handed. */
-function makeMockWebAuthn() {
+function makeMockWebAuthn(): Passkey.SimpleWebAuthnServerModule {
   return {
     generateAuthenticationOptions: vi.fn(),
-    generateRegistrationOptions: vi.fn(async (input) => ({
+    generateRegistrationOptions: vi.fn(async (input: Passkey.RegistrationOptionsInput) => ({
       challenge: 'reg-challenge',
       pubKeyCredParams: [{ alg: -7, type: 'public-key' as const }],
       rp: { id: input.rpID, name: input.rpName },
@@ -20,7 +20,7 @@ function makeMockWebAuthn() {
     })),
     verifyAuthenticationResponse: vi.fn(),
     verifyRegistrationResponse: vi.fn(),
-  } as unknown as Passkey.SimpleWebAuthnServerModule
+  }
 }
 
 /**
@@ -81,6 +81,11 @@ describe('beginPasskeyRegistration excludes the keys the identity already holds'
   it('names an existing key by its credential id and transports', async () => {
     await addPasskey('cred-1', { counter: 0, publicKey: 'pk', transports: ['internal', 'hybrid'] })
     expect(await begin()).toEqual([{ id: 'cred-1', transports: ['internal', 'hybrid'], type: 'public-key' }])
+  })
+
+  it('names only the transports the library knows, once each, whatever the row holds', async () => {
+    await addPasskey('cred-1', { counter: 0, publicKey: 'pk', transports: ['hybrid', 'bogus', 7, 'hybrid'] })
+    expect(await begin()).toEqual([{ id: 'cred-1', transports: ['hybrid'], type: 'public-key' }])
   })
 
   it('omits transports rather than guessing when the authenticator reported none', async () => {
@@ -144,7 +149,7 @@ describe('beginPasskeyRegistration asks for the attestation it was configured fo
     expect(await asked('direct')).toBe('direct')
   })
 
-  it('asks for indirect when configured, rather than collapsing anything non-default to none', async () => {
-    expect(await asked('indirect')).toBe('indirect')
+  it('asks for enterprise when configured, rather than collapsing anything non-default to none', async () => {
+    expect(await asked('enterprise')).toBe('enterprise')
   })
 })

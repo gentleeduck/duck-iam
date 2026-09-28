@@ -14,19 +14,10 @@ describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
     facet = new MfaImpl(adapter.credentials, new InMemoryEvents())
   })
 
-  async function plant(metadata: unknown, secret = 'JBSWY3DPEHPK3PXP'): Promise<void> {
-    const row = await adapter.credentials.create(
-      credentialInput({
-        identityId,
-        kind: 'totp',
-        secret: 'JBSWY3DPEHPK3PXP',
-        metadata: metadata as Record<string, unknown>,
-      }),
-      {},
-    )
-    // A non-string secret is a corrupt row, not a write: every dialect's column refuses it and so does
-    // memory, so it is planted past the write path rather than through it.
-    adapter.raw.credentials.set(row.id, { ...row, secret })
+  async function plant(metadata: unknown, secret: unknown = 'JBSWY3DPEHPK3PXP'): Promise<void> {
+    const row = await adapter.credentials.create(credentialInput({ identityId, kind: 'totp', secret: 'x' }), {})
+    // Off-contract values are a corrupt row, not a write, so they are planted past the write path.
+    adapter.raw.credentials.set(row.id, Object.assign({ ...row }, { metadata, secret }))
   }
 
   it('hasTotp returns false for a row with confirmed: "yes" (string, not boolean)', async () => {
@@ -55,10 +46,8 @@ describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
   })
 
   it('verifyTotp returns false for non-string row.secret (corrupt adapter row)', async () => {
-    // Plant a confirmed:true row but with a non-string secret (typo:
-    // 12345 instead of 'JBSWY...'). The TOTP module would crash on
-    // decodeBase32; the early-out keeps the request safe.
-    await plant({ confirmed: true }, 12345 as unknown as string)
+    // The TOTP module would throw decoding a number; the early-out keeps the request safe.
+    await plant({ confirmed: true }, 12345)
     expect(await facet.verifyTotp(identityId, '123456')).toBe(false)
   })
 })

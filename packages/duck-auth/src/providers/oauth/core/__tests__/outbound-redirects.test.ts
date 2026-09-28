@@ -8,7 +8,7 @@
  *  - a redirect to `http://` puts that secret, or the bearer token on the userinfo call, on the wire in
  *    plaintext, and `isHttpUrl` accepts `http:` so the check never spoke to this.
  *
- * `WebhookDispatcher._dispatch` already sets `redirect: 'error'`, with a comment giving the same reason:
+ * `WebhookDeliverer._dispatch` already sets `redirect: 'error'`, with a comment giving the same reason:
  * "a remote could otherwise 30x-redirect to an internal IP nothing approved". Every outbound request in
  * the library now takes that posture.
  */

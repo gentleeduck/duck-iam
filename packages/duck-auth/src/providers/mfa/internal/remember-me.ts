@@ -1,6 +1,7 @@
-/** Trusted-device tokens: a long-lived random value the framework adapter keeps in an `__Host-duck-device`
- *  cookie and presents on later sign-ins to skip MFA, granting aal=2 on that device. Stored hashed under
- *  `Credential.kind='recovery'` with `metadata.purpose='trusted-device'`. */
+/** Trusted-device tokens for a host's "remember this device": a long-lived random value, stored hashed
+ *  under `Credential.kind='recovery'` with `metadata.purpose='trusted-device'`. Nothing in the package
+ *  issues or reads one; the host decides what a verified device skips. A password reset and removing TOTP
+ *  or WebAuthn MFA revoke every one the identity holds. */
 
 import { type Answer, answer, orNull } from '~/core/answer'
 import {
@@ -15,6 +16,7 @@ import { AuthError } from '~/core/errors'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 
 export namespace RememberMeFacet {
+  /** How long a remembered device stays trusted. */
   export type Cfg = {
     /** Cookie / token TTL in ms. Default 90 days. */
     ttlMs: number
@@ -22,8 +24,9 @@ export namespace RememberMeFacet {
     byteLength: number
   }
 
+  /** A new device token, answered once. */
   export type Issued = {
-    /** Plaintext token to drop into `__Host-duck-device` cookie. */
+    /** The plaintext, answered once, for the host to keep on the device. */
     token: string
     /** Credential row id; useful for client-side device listings. */
     credentialId: string
@@ -31,6 +34,7 @@ export namespace RememberMeFacet {
     expiresAt: number
   }
 
+  /** A device token that checked out, and whose it is. */
   export type Verified = {
     identityId: string
     credentialId: string
@@ -45,7 +49,7 @@ export const DEFAULT_REMEMBER_ME_CONFIG: RememberMeFacet.Cfg = {
   byteLength: 32,
 }
 
-/** Wired beside the rest of the MFA facets. It does not auto-mount, because not every app wants this path. */
+/** Built by the host over its credential store; the engine does not mount it. */
 export class RememberMeFacet {
   constructor(
     private readonly _credentials: Credential.Store,
@@ -55,11 +59,7 @@ export class RememberMeFacet {
     },
     private readonly _cfg: RememberMeFacet.Cfg = DEFAULT_REMEMBER_ME_CONFIG,
   ) {
-    // The third site of the shape the two backup-code classes carry: `authRandomToken(0)` answers `''`,
-    // and this one mints a token that skips the second factor for ninety days. `verify` refuses an empty
-    // string, so the issued token is unusable rather than universal - a device that can never be trusted
-    // instead of one anybody can be. 16 bytes matches `APIKEY_MIN_RANDOM_BYTES`; 128 stays inside the
-    // 256-character cap `verify` puts on what it will hash.
+    // SECURITY: `authRandomToken(0)` answers `''`; 128 bytes is 171 characters, inside `verify`'s cap.
     if (!Number.isInteger(this._cfg.byteLength) || this._cfg.byteLength < 16 || this._cfg.byteLength > 128) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `rememberMe: byteLength must be a whole number between 16 and 128, got ${String(this._cfg.byteLength)}`,
@@ -72,8 +72,8 @@ export class RememberMeFacet {
     }
   }
 
-  /** Mints and persists a token, handing back the plaintext exactly once. `metadata` is opaque here,
-   *  usually `{ label, userAgent, ip }` for the user-facing devices list to render. */
+  /** Mints and persists a token, handing back the plaintext exactly once. `metadata` is the caller's,
+   *  usually `{ label, userAgent, ip }` for a devices list, except `purpose`, which is always this one. */
   async issue(
     identityId: string,
     opts: { metadata?: Record<string, unknown> } = {},
@@ -88,7 +88,8 @@ export class RememberMeFacet {
         identityId,
         kind: 'recovery',
         secret: hash,
-        metadata: { purpose: RECOVERY_PURPOSES.trustedDevice, ...(opts.metadata ?? {}) },
+        // Last, so a caller's key cannot make the row another purpose's token.
+        metadata: { ...opts.metadata, purpose: RECOVERY_PURPOSES.trustedDevice },
         expiresAt: new Date(expiresAt),
       }),
       ctx,
@@ -96,15 +97,12 @@ export class RememberMeFacet {
     return { token, credentialId: cred.id, expiresAt }
   }
 
-  /** Rejects `AUTH_CREDENTIAL_NOT_FOUND` on a miss, an elapsed TTL or a wrong-purpose row, which
-   *  `orNull()` reads back as null, and `AUTH_RECOVERY_TOKEN_INVALID` only for structurally bogus input —
-   *  that one is an argument the caller holds, so it stays loud either way. A success does not consume the
-   *  token, unlike a backup code or a magic link, since the cookie is reused across every sign-in inside
-   *  the TTL window. */
+  /** Rejects `AUTH_CREDENTIAL_NOT_FOUND` on a miss, an elapsed TTL or another purpose's row, which
+   *  `orNull()` reads as null, and `AUTH_RECOVERY_TOKEN_INVALID` on malformed input, which it does not.
+   *  A success does not consume the token, which is presented on every sign-in inside the TTL. */
   verify(token: string, ctx: TenantContext = {}): Answer.Me<RememberMeFacet.Verified> {
     return answer(async () => {
-      // Capped at 256 chars to bound the sha256 cost; a trusted-device token is 32 random bytes, about 43
-      // base64url chars.
+      // Capped before sha256.
       if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
         throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
       }
@@ -165,14 +163,10 @@ export class RememberMeFacet {
     await this._credentials.delete(credentialId, ctx)
   }
 
-  /** Wipe every trusted device for an identity, an elapsed TTL included: `list` answers what is live,
-   *  which is not the same set, and going through it left the expired rows behind for good. */
+  /** Wipe every trusted device for an identity in one write, an elapsed TTL included: `list` answers what
+   *  is live, which is not the same set, and going through it left the expired rows behind for good. */
   async revokeAll(identityId: string, ctx: TenantContext = {}): Promise<void> {
-    const rows = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
-    for (const row of rows) {
-      if (getCredentialPurpose(row) !== RECOVERY_PURPOSES.trustedDevice) continue
-      await this._credentials.delete(row.id, ctx)
-    }
+    await this._credentials.deleteByKindAndPurpose(identityId, 'recovery', RECOVERY_PURPOSES.trustedDevice, ctx)
   }
 }
 

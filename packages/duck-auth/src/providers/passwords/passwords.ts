@@ -43,6 +43,14 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
       rejectCommon: _cfg?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
       hasher: _cfg?.hasher ?? DEFAULT_PASSWORDS_CONFIG.hasher,
     }
+    // SECURITY: compared bare, and `Math.max` answers NaN for a NaN, so `Number()` of an unset variable
+    // dropped the minimum, compliance floor and all, or the maximum that keeps hashing from being a DoS.
+    const { maxLength, minLength } = this.cfg
+    if (!Number.isInteger(minLength) || !Number.isInteger(maxLength) || minLength < 1 || maxLength < minLength) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `passwords: minLength and maxLength must be whole numbers, 1 <= minLength <= maxLength (got ${minLength} and ${maxLength})`,
+      })
+    }
     const brand: unknown = Reflect.get(this.cfg.hasher, '__fipsParams')
     this.__fipsValidatedHasher = typeof brand === 'boolean' ? brand : undefined
     const weak: unknown = Reflect.get(this.cfg.hasher, '__weakHasherParams')
@@ -58,8 +66,8 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
   }
 
   /** Throws `AUTH_INVALID_CREDENTIALS` for a weak password, never naming the rule it broke. */
-  private _validateStrength(plaintext: string): void {
-    if (plaintext.length < this.cfg.minLength) {
+  assertStrength(plaintext: string): void {
+    if (typeof plaintext !== 'string' || plaintext.length < this.cfg.minLength) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
     // An upper bound against a CPU and memory DoS through argon2 or scrypt: 1024 chars is well above any
@@ -101,7 +109,7 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     if (typeof identityId !== 'string' || identityId.length === 0 || identityId.length > 256) {
       throw new AuthError('AUTH_UNAUTHENTICATED')
     }
-    this._validateStrength(plaintext)
+    this.assertStrength(plaintext)
     const secret = await this.cfg.hasher.hash(plaintext)
     // Delete the previous row, then create: two operations, because the adapter contract has no
     // single-call "replace by kind". The window is short, and `SessionsImpl.rotateOrCreate` covers it.

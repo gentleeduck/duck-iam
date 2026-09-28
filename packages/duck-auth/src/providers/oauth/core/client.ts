@@ -1,6 +1,8 @@
 import { AuthError } from '~/core/errors'
+import { isFiniteNumber, isRecord } from '~/core/predicates'
 import type { OAuth } from './oauth.types'
 
+/** The OAuth 2.0 client the providers share: authorize URLs, code exchange, refresh, revoke and userinfo. */
 export class OAuthClient {
   private _endpoints: OAuth.Endpoints | null = null
 
@@ -96,7 +98,7 @@ export class OAuthClient {
         detail: `token endpoint returned ${res.status}: ${text.slice(0, 200)}`,
       })
     }
-    // Strict parse: a non-numeric `expires_in` would propagate NaN past every expiry check.
+    // Strict parse: the host dates the access token from `expires_in`, and a NaN or Infinity never expires.
     const tokens = parseTokenResponse(await readJsonSafe(res))
     if (!tokens) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -203,7 +205,7 @@ export class OAuthClient {
     }
     // The body is IdP-controlled, so its shape is checked before any caller-supplied `fetchProfile` sees it.
     const json = await readJsonSafe(res)
-    if (!isPlainObject(json)) {
+    if (!isRecord(json)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: 'oauth',
         detail: 'userinfo returned non-object body',
@@ -241,10 +243,6 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false
   }
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
 async function readJsonSafe(res: Response): Promise<unknown> {
@@ -285,11 +283,11 @@ async function readJsonSafe(res: Response): Promise<unknown> {
 
 /** Validates an oauth2 token-endpoint response against RFC 6749 section 5.1. */
 function parseTokenResponse(raw: unknown): OAuth.TokenResponse | null {
-  if (!isPlainObject(raw)) return null
+  if (!isRecord(raw)) return null
   const { access_token, token_type, expires_in, refresh_token, id_token, scope } = raw
   if (typeof access_token !== 'string' || access_token.length === 0) return null
   if (typeof token_type !== 'string' || token_type.length === 0) return null
-  if (expires_in !== undefined && (typeof expires_in !== 'number' || !Number.isFinite(expires_in))) return null
+  if (expires_in !== undefined && !isFiniteNumber(expires_in)) return null
   if (refresh_token !== undefined && typeof refresh_token !== 'string') return null
   if (id_token !== undefined && typeof id_token !== 'string') return null
   if (scope !== undefined && typeof scope !== 'string') return null

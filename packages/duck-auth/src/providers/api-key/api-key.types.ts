@@ -8,6 +8,7 @@ export namespace ApiKeys {
    *  cannot grow into a second way to read identities. `find` filters soft-deleted rows, so `null` means
    *  deleted or erased. */
   export type IdentityProbe = {
+    /** The identity row, or rejects when there is none. */
     find(by: { id: string }): Promise<unknown>
   }
 
@@ -22,6 +23,7 @@ export namespace ApiKeys {
   /** Every field optional: `toApiKeysCfg` coalesces each to its default, so the facet never sees an
    *  `undefined`. */
   export type CfgInput = {
+    /** Namespaces keys by environment. Default 'ak_live_'. */
     prefix?: string
     /** Entropy per key, in bytes. */
     randomBytes?: number
@@ -29,6 +31,7 @@ export namespace ApiKeys {
     compliance?: Compliance.Preset | Compliance.Preset[]
   }
 
+  /** An api key as stored, without its secret. */
   export type ApiKey = {
     id: string
     identityId: string
@@ -48,6 +51,7 @@ export namespace ApiKeys {
     revokedAt?: Date
   }
 
+  /** A new key: its record, and the plaintext shown this once. */
   export type CreatedApiKey = {
     /** The record, with no plaintext. */
     key: ApiKey
@@ -71,6 +75,7 @@ export namespace ApiKeys {
     hint?: never
   }
 
+  /** What signing in with an api key takes. */
   export interface CompleteInput {
     /** The plaintext key, `ak_live_...`. */
     token: string

@@ -8,6 +8,7 @@ import type { Deliver } from '~/core/flows/flows.delivery'
 import { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { credentialInput } from '~/test/store-inputs'
 import { magicLink } from '../index'
 
 interface MyProfile extends Identities.ProfileMetadataBase {}
@@ -16,7 +17,7 @@ function fakeChannel(): Deliver & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
   return Object.assign(
     async (message: Parameters<Deliver>[0]): Promise<void> => {
-      const url = (message.vars as { url?: string }).url ?? ''
+      const url = message.vars.url
       const email = (message.identity.profile as { email?: string } | undefined)?.email ?? ''
       sent.push({ to: email, url })
     },
@@ -208,6 +209,24 @@ describe('magic-link provider', () => {
     })
   })
 
+  describe('the link lifetime', () => {
+    it.each([Number.NaN, 0, -1, Number.POSITIVE_INFINITY])('refuses ttlMs %o at construction', (ttlMs) => {
+      expect(() =>
+        magicLink<MyProfile>({ deliver: fakeChannel(), findIdentityByEmail: async () => null, ttlMs }),
+      ).toThrow(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
+    })
+
+    it('stamps the link with the lifetime it was given', async () => {
+      const { auth, adapter } = buildAuth()
+      const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
+      const before = Date.now()
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      const [row] = await adapter.credentials.listByIdentity(identity.id, 'magic-link', {})
+      expect(row?.expiresAt?.getTime()).toBeGreaterThanOrEqual(before + 1_000)
+      expect(row?.expiresAt?.getTime()).toBeLessThanOrEqual(Date.now() + 1_000)
+    })
+  })
+
   describe('complete (full e2e sign-in via flows)', () => {
     it('valid token issues a session via auth.flows.signIn', async () => {
       const { auth, channel } = buildAuth({ autoCreate: true })
@@ -294,6 +313,88 @@ describe('magic-link provider', () => {
       await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
       })
+    })
+
+    it('a link sent to an address the account has since moved off is refused', async () => {
+      const { auth, channel } = buildAuth()
+      const identity = await auth.identities.create({ profile: { email: 'old@x.com', username: 'a' } })
+      await auth.flows.beginProvider('magic-link', { email: 'old@x.com' })
+      await auth.identities.updateProfile(identity.id, { email: 'OLD@x.com' }, identity.version)
+      const kept = await auth.flows.signIn({
+        providerId: 'magic-link',
+        input: { token: extractToken(channel.sent[0]?.url ?? '') },
+      })
+      expect(kept.session?.identityId).toBe(identity.id)
+
+      await auth.flows.beginProvider('magic-link', { email: 'old@x.com' })
+      const moved = await auth.identities.getById(identity.id)
+      await auth.identities.updateProfile(identity.id, { email: 'new@x.com' }, moved.version)
+      await expect(
+        auth.flows.signIn({ providerId: 'magic-link', input: { token: extractToken(channel.sent[1]?.url ?? '') } }),
+      ).rejects.toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
+    })
+
+    it('a redeemed link proves the address, so sign-up cannot reclaim the account as abandoned', async () => {
+      const { auth, channel } = buildAuth({ autoCreate: true })
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      const signedIn = await auth.flows.signIn({
+        providerId: 'magic-link',
+        input: { token: extractToken(channel.sent[0]?.url ?? '') },
+      })
+      expect((await auth.identities.getById(signedIn.session?.identityId ?? '')).emailVerified).toBe(true)
+      await expect(auth.flows.beginSignUp({ email: 'a@x.com' })).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+    })
+
+    it("a sign-up someone else began on the row cannot complete once the owner's link proves the address", async () => {
+      const { auth, channel } = buildAuth()
+      const squat = await auth.flows.beginSignUp({ email: 'a@x.com', required: ['terms-accepted'] })
+      await auth.flows.advanceSignUp({ flowToken: squat.flowToken, stage: 'terms-accepted' })
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      await auth.flows.signIn({ providerId: 'magic-link', input: { token: extractToken(channel.sent[0]?.url ?? '') } })
+      await expect(auth.flows.completeSignUp({ flowToken: squat.flowToken })).rejects.toMatchObject({
+        code: 'AUTH_SIGNUP_TOKEN_INVALID',
+      })
+    })
+
+    it("a sign-up someone else finished on the row loses its session, password and links to the owner's first link", async () => {
+      const { auth, adapter, channel } = buildAuth()
+      const squat = await auth.flows.beginSignUp({ email: 'a@x.com', required: [] })
+      const id = squat.flow.identityId
+      const squatter = await auth.flows.completeSignUp({ flowToken: squat.flowToken })
+      await adapter.credentials.create(credentialInput({ identityId: id, kind: 'password', secret: 'squatter' }), {})
+      await adapter.identities.link(id, { providerId: 'oauth:github', providerSub: 'squatter' })
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      const owner = await auth.flows.signIn({
+        providerId: 'magic-link',
+        input: { token: extractToken(channel.sent[0]?.url ?? '') },
+      })
+      const live = await adapter.sessions.listByIdentity(id)
+      expect(live.map((s) => s.id)).toEqual([owner.session?.id])
+      expect(squatter.session).not.toBeNull()
+      const passwords = await adapter.credentials.listByIdentity(id, 'password', {})
+      expect(passwords.map((c) => c.revokedAt)).toEqual([expect.any(Date)])
+      expect((await adapter.identities.find({ id })).providers).toEqual([])
+    })
+
+    it('a second link retires the first, as a password reset does', async () => {
+      const { auth, channel } = buildAuth({ autoCreate: true })
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      const [first, second] = channel.sent.map((m) => extractToken(m.url))
+      await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token: first } })).rejects.toMatchObject({
+        code: 'AUTH_RECOVERY_TOKEN_INVALID',
+      })
+      await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token: second } })).resolves.toBeDefined()
+    })
+
+    it("a later link leaves the owner's other sessions alone", async () => {
+      const { auth, adapter, channel } = buildAuth()
+      const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      await auth.flows.signIn({ providerId: 'magic-link', input: { token: extractToken(channel.sent[0]?.url ?? '') } })
+      await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
+      await auth.flows.signIn({ providerId: 'magic-link', input: { token: extractToken(channel.sent[1]?.url ?? '') } })
+      expect(await adapter.sessions.listByIdentity(identity.id)).toHaveLength(2)
     })
 
     it('bogus token surfaces AUTH_RECOVERY_TOKEN_INVALID', async () => {

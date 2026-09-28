@@ -3,6 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { Identities } from '~/core/identities'
+import { isRecord } from '~/core/predicates/predicates'
 import { MemoryLimiter } from '~/limiters/memory'
 import { credentialInput, identityInput } from '~/test/store-inputs'
 import { AuthMemoryPasskeyChallengeStore, passkey } from '../index'
@@ -63,14 +64,14 @@ function makeWebauthn(newCounter = 5): Passkey.SimpleWebAuthnServerModule {
 async function plantCredential(
   adapter: MemoryAdapter<ProfileShape>,
   identityId: string,
-  metadata: unknown,
+  metadata: Record<string, unknown>,
 ): Promise<void> {
   await adapter.credentials.create(
     credentialInput({
       identityId,
       kind: 'passkey',
       secret: 'webauthn-cred-1',
-      metadata: metadata as Record<string, unknown>,
+      metadata,
     }),
     {},
   )
@@ -101,9 +102,9 @@ describe('passkey complete() - metadata parser', () => {
       challengeStore,
     }
     const provider = passkey<ProfileShape>(opts)
-    const intents = await provider.begin(ctxFor(adapter), { sessionId: 's1' })
-    // Stored challenge under auth:s1
-    return (intents[0] && intents[0].type === 'json' && (intents[0].body as { challenge?: string }).challenge) || ''
+    const [intent] = await provider.begin(ctxFor(adapter), { sessionId: 's1' })
+    const body = intent?.type === 'json' ? intent.body : null
+    return isRecord(body) && typeof body.challenge === 'string' ? body.challenge : ''
   }
 
   it('rejects credential with no publicKey field (AUTH_PASSKEY_MISMATCH)', async () => {
@@ -158,6 +159,7 @@ describe('passkey complete() - metadata parser', () => {
 
   it('rejects credential where metadata is not a plain object', async () => {
     await begin()
+    // @ts-expect-error metadata that is not an object, as a foreign writer could leave it
     await plantCredential(adapter, identityId, 'not-an-object')
     const provider = passkey<ProfileShape>(opts)
     await expect(

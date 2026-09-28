@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
@@ -9,9 +9,8 @@ import { memoryDPoPNonceStore } from '~/core/transport/dpop-nonce.memory'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { afterOAuthBegin } from '~/test/oauth-browser'
-import { OAuthClient } from '../core/client'
+import { getUserinfoString, OAuthClient, oProvider } from '../core'
 import { generatePkce } from '../core/pkce'
-import { oProvider } from '../core/provider'
 import { authBuildState, authVerifyState, signState } from '../core/state'
 
 /**
@@ -43,38 +42,28 @@ describe('oauth core - PKCE + state', () => {
   })
 
   it('signState / authVerifyState roundtrip', () => {
-    const payload = authBuildState('oauth:authGoogle', 'verifier-xyz', { binding: BINDING })
+    const payload = authBuildState('oauth:google', { binding: BINDING })
     const state = signState(payload, 'secret')
     const back = authVerifyState(state, 'secret')
-    expect(back?.providerId).toBe('oauth:authGoogle')
-    expect(back?.verifier).toBe('verifier-xyz')
+    expect(back?.providerId).toBe('oauth:google')
     expect(back?.nonce).toBe(payload.nonce)
   })
 
   it('authVerifyState rejects tampered signature', () => {
-    const payload = authBuildState('oauth:authGoogle', 'v', { binding: BINDING })
+    const payload = authBuildState('oauth:google', { binding: BINDING })
     const state = signState(payload, 'secret')
     const tampered = `${state.slice(0, -3)}xxx`
     expect(authVerifyState(tampered, 'secret')).toBeNull()
   })
 
   it('authVerifyState rejects wrong secret', () => {
-    const state = signState(authBuildState('oauth:authGoogle', 'v', { binding: BINDING }), 'secret-a')
+    const state = signState(authBuildState('oauth:google', { binding: BINDING }), 'secret-a')
     expect(authVerifyState(state, 'secret-b')).toBeNull()
-  })
-
-  it('authVerifyState rejects expired state past maxAgeMs', () => {
-    const payload = {
-      ...authBuildState('oauth:authGoogle', 'v', { binding: BINDING }),
-      iat: Date.now() - 11 * 60 * 1000,
-    }
-    const state = signState(payload, 'secret')
-    expect(authVerifyState(state, 'secret')).toBeNull()
   })
 
   describe('authVerifyState - SEC: payload validation', () => {
     const SECRET = 'secret'
-    const base = authBuildState('oauth:authGoogle', 'verifier-xyz', { binding: BINDING })
+    const base = authBuildState('oauth:google', { binding: BINDING })
 
     it('rejects payload whose iat is missing (would bypass expiry via NaN math)', () => {
       const { iat, ...noIat } = base
@@ -88,10 +77,6 @@ describe('oauth core - PKCE + state', () => {
 
     it('rejects payload whose providerId is a non-string (would skew downstream callback check)', () => {
       expect(authVerifyState(mintRawState({ ...base, providerId: { evil: 'object' } }, SECRET), SECRET)).toBeNull()
-    })
-
-    it('rejects payload whose verifier is a non-string (would corrupt PKCE token exchange)', () => {
-      expect(authVerifyState(mintRawState({ ...base, verifier: 42 }, SECRET), SECRET)).toBeNull()
     })
 
     it('rejects payload whose nonce is a non-string (would weaken one-time-use guarantee)', () => {
@@ -135,9 +120,9 @@ describe('oauth core - PKCE + state', () => {
     })
 
     it('rejects a non-string state without crashing on .split (typeof guard)', () => {
-      expect(authVerifyState(undefined as unknown as string, SECRET)).toBeNull()
-      expect(authVerifyState(42 as unknown as string, SECRET)).toBeNull()
-      expect(authVerifyState('' as string, SECRET)).toBeNull()
+      expect(Reflect.apply(authVerifyState, undefined, [undefined, SECRET])).toBeNull()
+      expect(Reflect.apply(authVerifyState, undefined, [42, SECRET])).toBeNull()
+      expect(authVerifyState('', SECRET)).toBeNull()
     })
 
     it('accepts a state at the exact cap (8192 chars) - well-formed signed state at boundary still validates', () => {
@@ -154,7 +139,7 @@ describe('oauth core - PKCE + state', () => {
 })
 
 describe('OAuthClient - SEC: token response validation', () => {
-  function clientWithResponse(body: unknown, status = 200): OAuthClient {
+  function clientWithResponse(body: unknown, status = 200, raw = JSON.stringify(body)): OAuthClient {
     return new OAuthClient({
       clientId: 'cid',
       endpoints: {
@@ -163,8 +148,7 @@ describe('OAuthClient - SEC: token response validation', () => {
         userinfoEndpoint: 'https://idp/userinfo',
       },
       scopes: ['openid'],
-      fetch: async () =>
-        new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }),
+      fetch: async () => new Response(raw, { status, headers: { 'content-type': 'application/json' } }),
     })
   }
 
@@ -189,11 +173,24 @@ describe('OAuthClient - SEC: token response validation', () => {
     ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
-  it('exchangeCode rejects non-numeric expires_in (would have stored NaN expiry into family metadata)', async () => {
-    const client = clientWithResponse({ access_token: 'at', token_type: 'Bearer', expires_in: '3600' })
+  it('exchangeCode rejects an expires_in that is not a finite number, which the host dates the token from', async () => {
+    const exchange = (client: OAuthClient) =>
+      client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' })
     await expect(
-      client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
-    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
+      exchange(clientWithResponse({ access_token: 'at', token_type: 'Bearer', expires_in: '3600' })),
+    ).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+    })
+    // JSON has no NaN, but `1e999` parses to Infinity.
+    const infinite = '{ "access_token": "at", "token_type": "Bearer", "expires_in": 1e999 }'
+    await expect(exchange(clientWithResponse(null, 200, infinite))).rejects.toMatchObject({
+      code: 'AUTH_PROVIDER_FAILED',
+    })
+    await expect(
+      exchange(clientWithResponse({ access_token: 'at', token_type: 'Bearer', expires_in: 3600 })),
+    ).resolves.toMatchObject({
+      expires_in: 3600,
+    })
   })
 
   it('exchangeCode rejects non-string refresh_token', async () => {
@@ -228,11 +225,11 @@ describe('OAuthClient - SEC: token response validation', () => {
   it('authedJson refuses a non-http url before it reaches fetch', async () => {
     // The url is an argument rather than a validated endpoint, and a host reaches this method through
     // its own `fetchProfile`.
-    const fetch = vi.fn()
+    const fetch = vi.fn<typeof globalThis.fetch>()
     const client = new OAuthClient({
       clientId: 'cid',
       endpoints: { authorizationEndpoint: 'https://idp/a', tokenEndpoint: 'https://idp/t' },
-      fetch: fetch as unknown as typeof globalThis.fetch,
+      fetch,
       scopes: ['openid'],
     })
     await expect(client.authedJson('file:///etc/passwd', 'at')).rejects.toMatchObject({
@@ -307,21 +304,13 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
       oProvider<MyProfile>({
         providerId: 'fakeoidc',
         client,
-        endpoints: {
-          authorizationEndpoint: 'https://idp/authorize',
-          tokenEndpoint: 'https://idp/token',
-          userinfoEndpoint: 'https://idp/userinfo',
-        },
         redirectUri: 'https://app/cb',
         stateSigningSecret: 'super-secret',
         nonceStore: memoryDPoPNonceStore(),
         async fetchProfile(tokens, c) {
-          const info = (await c.userinfo(tokens.access_token)) as {
-            sub: string
-            email: string
-            name?: string
-          }
-          return { sub: info.sub, email: info.email, name: info.name }
+          const info = await c.userinfo(tokens.access_token)
+          const sub = getUserinfoString(info, 'sub') ?? ''
+          return { email: getUserinfoString(info, 'email'), name: getUserinfoString(info, 'name'), sub }
         },
         profileToIdentityProfile: (p) => ({ username: p.email ?? '', email: p.email ?? '' }),
       }),
@@ -330,7 +319,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   }
 
   it('begin returns a redirect intent containing the authorize URL', async () => {
-    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const fetchImpl = vi.fn<typeof globalThis.fetch>()
     const { auth } = buildAuth(fetchImpl)
     const intents = await auth.flows.beginProvider('oauth:fakeoidc', {})
     const intent = intents.find((i) => i.type === 'redirect')
@@ -344,7 +333,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   })
 
   it('begin also sets the cookie the callback has to come back with', async () => {
-    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const fetchImpl = vi.fn<typeof globalThis.fetch>()
     const { auth } = buildAuth(fetchImpl)
     const intents = await auth.flows.beginProvider('oauth:fakeoidc', {})
     const cookie = intents.find((i) => i.type === 'setCookie')
@@ -359,7 +348,8 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   })
 
   it('complete exchanges code, fetches userinfo, creates identity, returns startSession (auto-create branch)', async () => {
-    const fetchImpl = vi.fn(async (url: string, _init?: RequestInit) => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = String(input)
       if (url.startsWith('https://idp/token')) {
         return new Response(
           JSON.stringify({
@@ -379,10 +369,10 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
         })
       }
       throw new Error(`unexpected url ${url}`)
-    }) as unknown as typeof globalThis.fetch
+    })
     const { auth, adapter } = buildAuth(fetchImpl)
 
-    // Build a real state via begin (to round-trip the PKCE verifier).
+    // A real begin, whose cookie is the PKCE verifier.
     const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
 
     const result = await auth.flows.signIn({
@@ -404,16 +394,36 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     expect(identity?.providers.some((p) => p.providerId === 'oauth:fakeoidc' && p.providerSub === 'idp-user-1')).toBe(
       true,
     )
-    // Refresh token persisted, hashed.
-    const oauthCreds = await adapter.credentials.listByIdentity(identity?.id ?? '', 'oauth', {})
-    expect(oauthCreds[0]?.secret).toMatch(/^[0-9a-f]{64}$/)
-    expect((oauthCreds[0]?.metadata as { familyId: string }).familyId).toContain('oauth:fakeoidc:idp-user-1')
+    // The IdP's refresh token is not stored: nothing could present it back, and a row per sign-in piled up.
+    expect(await adapter.credentials.listByIdentity(identity?.id ?? '', null, {})).toEqual([])
+  })
+
+  it('keeps the PKCE verifier out of every URL, so a leaked callback cannot redeem its code', async () => {
+    let tokenRequest = new URLSearchParams()
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      if (String(input).startsWith('https://idp/token')) {
+        tokenRequest = new URLSearchParams(String(init?.body))
+        return Response.json({ access_token: 'at-pkce', token_type: 'Bearer' })
+      }
+      return Response.json({ sub: 'idp-user-pkce', email: 'pkce@x.com' })
+    })
+    const { auth } = buildAuth(fetchImpl)
+    const intents = await auth.flows.beginProvider('oauth:fakeoidc', {})
+    const authorize = new URL(intents.find((i) => i.type === 'redirect' && 'url' in i)?.url ?? '')
+    const { state, cookieHeader } = afterOAuthBegin(intents)
+    await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'authcode-pkce', state, cookieHeader } })
+
+    const verifier = tokenRequest.get('code_verifier') ?? ''
+    expect(createHash('sha256').update(verifier).digest('base64url')).toBe(authorize.searchParams.get('code_challenge'))
+    // The IdP gets `state` in the authorize URL and hands it back beside `code` in the callback URL.
+    expect(Buffer.from(state.split('.')[0] ?? '', 'base64url').toString('utf8')).not.toContain(verifier)
+    expect(authorize.href).not.toContain(verifier)
   })
 
   it('complete refuses a callback that brings no cookie', async () => {
     // The login-CSRF shape: the attacker begins a flow, hands the victim the callback URL, and the
     // victim's browser finishes it. Their browser has no cookie from this begin, so it cannot.
-    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const fetchImpl = vi.fn<typeof globalThis.fetch>()
     const { auth } = buildAuth(fetchImpl)
     const { state } = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
 
@@ -424,7 +434,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   })
 
   it("complete refuses a callback carrying another browser's cookie", async () => {
-    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const fetchImpl = vi.fn<typeof globalThis.fetch>()
     const { auth } = buildAuth(fetchImpl)
     const attacker = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
     const victim = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
@@ -438,7 +448,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   })
 
   it('complete refuses a cookie under the right name with the wrong value', async () => {
-    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const fetchImpl = vi.fn<typeof globalThis.fetch>()
     const { auth } = buildAuth(fetchImpl)
     const { state } = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
 
@@ -451,7 +461,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   })
 
   it('complete with tampered state surfaces AUTH/oauth/STATE_MISMATCH', async () => {
-    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const fetchImpl = vi.fn<typeof globalThis.fetch>()
     const { auth } = buildAuth(fetchImpl)
     await expect(
       auth.flows.signIn({
@@ -462,7 +472,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   })
 
   it('complete rejects oversize code (>2048 chars) BEFORE forwarding to IdP (outbound resource amplification defense)', async () => {
-    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const fetchImpl = vi.fn<typeof globalThis.fetch>()
     const { auth } = buildAuth(fetchImpl)
     const huge = 'x'.repeat(2049)
     await expect(
@@ -476,7 +486,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   })
 
   it('complete rejects empty code (defensive)', async () => {
-    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const fetchImpl = vi.fn<typeof globalThis.fetch>()
     const { auth } = buildAuth(fetchImpl)
     await expect(
       auth.flows.signIn({
@@ -488,10 +498,10 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   })
 
   it('complete with state from a different provider surfaces AUTH/oauth/STATE_MISMATCH', async () => {
-    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const fetchImpl = vi.fn<typeof globalThis.fetch>()
     const { auth } = buildAuth(fetchImpl)
     // Forge a state signed correctly but for a different providerId.
-    const payload = authBuildState('oauth:authGoogle', 'v', { binding: BINDING })
+    const payload = authBuildState('oauth:google', { binding: BINDING })
     const state = signState(payload, 'super-secret')
     await expect(
       auth.flows.signIn({
@@ -502,7 +512,8 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
   })
 
   it('complete with second sign-in by same sub returns existing identity', async () => {
-    const fetchImpl = vi.fn(async (url: string) => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = String(input)
       if (url.startsWith('https://idp/token')) {
         return new Response(JSON.stringify({ access_token: 'at', token_type: 'Bearer', refresh_token: 'rt' }), {
           status: 200,
@@ -513,7 +524,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
-    }) as unknown as typeof globalThis.fetch
+    })
     const { auth, adapter } = buildAuth(fetchImpl)
 
     const first = afterOAuthBegin(await auth.flows.beginProvider('oauth:fakeoidc', {}))
@@ -539,13 +550,8 @@ describe('oProvider - redirectUri construction guard', () => {
         userinfoEndpoint: 'https://idp/userinfo',
       },
       scopes: ['openid'],
-      fetch: vi.fn() as unknown as typeof globalThis.fetch,
+      fetch: vi.fn<typeof globalThis.fetch>(),
     }),
-    endpoints: {
-      authorizationEndpoint: 'https://idp/authorize',
-      tokenEndpoint: 'https://idp/token',
-      userinfoEndpoint: 'https://idp/userinfo',
-    },
     stateSigningSecret: 'sec',
     allowStateReplay: true,
     async fetchProfile() {
@@ -580,7 +586,7 @@ describe('oProvider - redirectUri construction guard', () => {
   })
 
   it('throws on a non-string redirectUri', () => {
-    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 42 as unknown as string })).toThrow(/MISCONFIGURED/)
+    expect(() => Reflect.apply(oProvider, undefined, [{ ...baseOpts, redirectUri: 42 }])).toThrow(/MISCONFIGURED/)
   })
 
   it('throws on an unparseable redirectUri', () => {

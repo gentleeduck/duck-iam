@@ -12,6 +12,7 @@ import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import type { Identities } from '~/core/identities'
 import { MemoryLimiter } from '~/limiters/memory'
+import { type SoftAuthenticator, softAuthenticator } from '~/test/soft-authenticator'
 import { identityInput } from '~/test/store-inputs'
 import { AuthMemoryPasskeyChallengeStore, passkey } from '../index'
 import type { Passkey } from '../passkey.types'
@@ -78,12 +79,12 @@ describe('passkey signature counter', () => {
 
   /** Put the stored counter at a chosen value, as a prior assertion would have. */
   async function setStoredCounter(counter: unknown): Promise<void> {
-    await adapter.credentials.patchMetadata(credentialId, { counter } as never, {})
+    await adapter.credentials.patchMetadata(credentialId, { counter }, {})
   }
 
   const storedCounter = async (): Promise<unknown> => {
     const row = await adapter.credentials.findById(credentialId, {})
-    return (row?.metadata as { counter?: unknown } | undefined)?.counter
+    return row?.metadata?.counter
   }
 
   const seedCredential = (metadata: Record<string, unknown>) =>
@@ -106,8 +107,8 @@ describe('passkey signature counter', () => {
   async function authenticate(counter: number): Promise<unknown> {
     reportedCounter = counter
     const sessionId = `login-${(attempt += 1)}`
-    await provider.begin(ctx, { sessionId } as never)
-    return provider.complete(ctx, { response: { id: 'webauthn-cred-1' }, sessionId } as never)
+    await provider.begin(ctx, { sessionId })
+    return provider.complete(ctx, { response: { id: 'webauthn-cred-1' }, sessionId })
   }
 
   beforeEach(async () => {
@@ -146,9 +147,9 @@ describe('passkey signature counter', () => {
     })
 
     it('emits a suspicious signal naming the rollback, so an operator can see it', async () => {
-      const seen: Array<Record<string, unknown>> = []
+      const seen: unknown[] = []
       events.on('suspicious', (payload) => {
-        seen.push(payload as unknown as Record<string, unknown>)
+        seen.push(payload)
       })
       await authenticate(4).catch(() => undefined)
 
@@ -213,9 +214,9 @@ describe('passkey signature counter', () => {
     })
 
     it('reports it as a rollback, so an operator sees the clone', async () => {
-      const seen: Array<Record<string, unknown>> = []
+      const seen: unknown[] = []
       events.on('suspicious', (payload) => {
-        seen.push(payload as unknown as Record<string, unknown>)
+        seen.push(payload)
       })
       await authenticate(0).catch(() => undefined)
 
@@ -336,25 +337,107 @@ describe('passkey signature counter', () => {
     })
 
     it('turns a raw throw into the refusal every other failure on this path answers with', async () => {
-      // The bundled verifier runs its own counter check and throws a plain Error, and nothing between
-      // here and the consumer's handler catches it: it left as a 500 carrying the stored count.
+      // The verifier refuses a wrong origin, challenge or rpID by throwing a plain Error, and nothing
+      // between here and the consumer's handler catches it: it left as a 500.
       webauthnMod.verifyAuthenticationResponse = vi.fn(async () => {
-        throw new Error('Response counter value 0 was lower than expected 5')
+        throw new Error('Unexpected authentication response origin "https://evil.test"')
       })
 
-      await expect(authenticate(0)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+      await expect(authenticate(6)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
     })
 
     it("does not carry the verifier's wording out to the caller", async () => {
       webauthnMod.verifyAuthenticationResponse = vi.fn(async () => {
-        throw new Error('Response counter value 0 was lower than expected 5')
+        throw new Error('Unexpected authentication response origin "https://evil.test"')
       })
 
       // `message` and not `JSON.stringify`: an Error carries no enumerable properties, so stringifying
       // one is `{}` and an assertion over that is green whatever the wording was.
-      const err = await authenticate(0).catch((e: unknown) => e)
-      expect((err as Error).message).not.toContain('lower than expected')
-      expect((err as Error).message).toBe('AUTH_PASSKEY_MISMATCH')
+      await expect(authenticate(6)).rejects.toMatchObject({ message: 'AUTH_PASSKEY_MISMATCH' })
     })
+  })
+})
+
+describe('passkey signature counter, with the real verifier', () => {
+  let authenticator: SoftAuthenticator
+  let ctx: ReturnType<typeof makeContext>
+  let identityId: string
+  let provider: ReturnType<typeof passkey>
+  let seen: unknown[]
+  let challenge = ''
+  let attempt = 0
+
+  beforeEach(async () => {
+    const adapter = new MemoryAdapter<ProfileShape>()
+    const events = new InMemoryEvents()
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
+    )
+    identityId = identity.id
+    authenticator = softAuthenticator('app.test', 'https://app.test')
+    await adapter.credentials.create(
+      {
+        expiresAt: null,
+        identityId,
+        kind: 'passkey',
+        lastUsedAt: null,
+        metadata: { counter: 5, publicKey: authenticator.publicKey },
+        revokedAt: null,
+        secret: authenticator.id,
+        tenantId: null,
+      },
+      {},
+    )
+    const store = new AuthMemoryPasskeyChallengeStore()
+    provider = passkey({
+      challengeStore: {
+        put: (key, value, ttlMs) => {
+          challenge = value
+          return store.put(key, value, ttlMs)
+        },
+        take: (key) => store.take(key),
+      },
+      expectedOrigins: 'https://app.test',
+      findIdentityByEmail: async () => ({ id: identityId }),
+      rpID: 'app.test',
+      rpName: 'Test App',
+    })
+    ctx = makeContext(adapter, events)
+    seen = []
+    events.on('suspicious', (payload) => {
+      seen.push(payload)
+    })
+  })
+
+  const present = async (count: number, forged = false): Promise<unknown> => {
+    const sessionId = `real-${(attempt += 1)}`
+    await provider.begin(ctx, { sessionId })
+    return provider.complete(ctx, { response: authenticator.assert(challenge, count, { forged }), sessionId })
+  }
+
+  it('reports a signed count that went backwards, which the verifier refused unreported', async () => {
+    await expect(present(3)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    await expect(present(0)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    expect(seen).toEqual([
+      expect.objectContaining({
+        identityId,
+        meta: expect.objectContaining({ newCounter: 3, oldCounter: 5 }),
+        signal: 'passkey-counter-rollback',
+      }),
+      expect.objectContaining({
+        identityId,
+        meta: expect.objectContaining({ newCounter: 0, oldCounter: 5 }),
+        signal: 'passkey-counter-rollback',
+      }),
+    ])
+    await expect(present(6)).resolves.toEqual([expect.objectContaining({ identityId, type: 'startSession' })])
+  })
+
+  it('refuses a forged signature at any count, and neither reports nor records it', async () => {
+    await expect(present(3, true)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    await expect(present(9, true)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    expect(seen).toEqual([])
+    // Had the forged 9 been recorded, the genuine 6 would be a rollback.
+    await expect(present(6)).resolves.toEqual([expect.objectContaining({ identityId, type: 'startSession' })])
   })
 })

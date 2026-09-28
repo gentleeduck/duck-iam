@@ -1,9 +1,10 @@
-import { scrypt as nodeScrypt, randomBytes, timingSafeEqual } from 'node:crypto'
+import { scrypt as nodeScrypt, randomBytes, type ScryptOptions, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import { AuthError } from '~/core/errors'
 import type { Hasher } from './hashers.types'
 
 export namespace ScryptHasher {
+  /** scrypt cost parameters. */
   export type Params = {
     /** CPU and memory cost, and it must be a power of two. Default 2^17, 131072. */
     N: number
@@ -18,12 +19,7 @@ export namespace ScryptHasher {
   }
 }
 
-const scryptAsync = promisify(nodeScrypt) as (
-  password: string,
-  salt: Buffer,
-  keylen: number,
-  options: { N: number; r: number; p: number; maxmem?: number },
-) => Promise<Buffer>
+const scryptAsync = promisify<string, Buffer, number, ScryptOptions, Buffer>(nodeScrypt)
 
 /** The ceiling `hash` and `verify` both pass to Node. scrypt needs about `128 * N * r` bytes, so this is
  *  what bounds the two together; 256 MB keeps headroom over the default N of 2^17 at r 8. */
@@ -70,18 +66,15 @@ export class ScryptHasher implements Hasher.Me {
   /** Never, whatever the parameters: the `fipsValidatedHasher` check names Argon2id. Published rather
    *  than left off so the answer is "no" and not "no opinion". */
   readonly __fipsParams = false
-  /** Below the floor `SCRYPT_DEFAULTS` sets. Refused by `AuthEngine.strict()` in production only, since a
+  /** Below N = 2^14, r = 8 or a 32-byte key. Refused by `AuthEngine.strict()` in production only, since a
    *  cheap KDF is what a test suite wants and what a production deployment cannot have. */
   readonly __weakHasherParams: boolean
   private readonly _params: ScryptHasher.Params
 
   constructor(params: Partial<ScryptHasher.Params> = {}) {
     this._params = { ...SCRYPT_DEFAULTS, ...params }
-    // SECURITY: `parse` refuses an empty salt or key because such a row verified every password offered
-    // to it - and `hash` was the thing writing them. Measured: `keylen: 0` and `saltLen: 0` each encoded a
-    // row with that field blank, so `verify` answered `false` to the correct password for ever after, and
-    // nothing said so at any point. `r` and `p` of 0 were accepted by Node and by `parse`, and an `N` that
-    // is not a power of two or is NaN threw a raw Node error on the first sign-up rather than here.
+    // SECURITY: a `keylen` or `saltLen` of 0 wrote rows that never verify, and a bad `N`, `r` or `p` threw
+    // a raw Node error on the first sign-up.
     if (!Number.isInteger(this._params.N) || this._params.N < 2 || (this._params.N & (this._params.N - 1)) !== 0) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `scrypt: N must be a power of two of at least 2, got ${String(this._params.N)}`,

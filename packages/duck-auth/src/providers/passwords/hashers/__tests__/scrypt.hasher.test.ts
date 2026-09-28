@@ -44,6 +44,10 @@ describe('AuthScryptHasher', () => {
 
   it('needsRehash returns true for malformed input (forces re-hash on read)', async () => {
     expect(fast.needsRehash('garbage')).toBe(true)
+    // A parameter that is not a number compares false against every floor, so it would read as strong enough.
+    const key = 'A'.repeat(43)
+    expect(fast.needsRehash(`scrypt$1024$8$1$YWJj$${key}`)).toBe(false)
+    for (const n of ['NaN', 'Infinity']) expect(fast.needsRehash(`scrypt$${n}$8$1$YWJj$${key}`)).toBe(true)
   })
 
   it('rejects non-power-of-two N during parse (defensive against tampering)', async () => {

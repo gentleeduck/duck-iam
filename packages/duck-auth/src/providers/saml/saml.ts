@@ -1,5 +1,5 @@
 /**
- * A wrapper over `@node-saml/node-saml`, a lazy peerDep, covering SP-initiated sign-in over the
+ * A wrapper over a `@node-saml/node-saml` client the host builds, covering SP-initiated sign-in over the
  * HTTP-POST binding and IdP-initiated SSO through an unsolicited SAMLResponse.
  */
 
@@ -32,7 +32,7 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
   private readonly _mfaAuthnContexts: ReadonlySet<string>
   readonly kind = 'oauth' as const
 
-  constructor(private readonly cfg: Saml.Options<Profile>) {
+  constructor(private readonly cfg: Saml.Options) {
     if (!cfg.client) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'samlProvider requires a pre-built `client` (@node-saml/node-saml SAML instance)',
@@ -146,7 +146,22 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
     if (validated.loggedOut || !validated.profile) {
       throw await this._refusal(ctx, 'IdP returned a logout response, not a sign-in')
     }
-    const profile = validated.profile
+    // The declared fields only, each read off the assertion: node-saml also copies every attribute onto the
+    // profile's top level, where `allowedAttributes` never reached and an attribute stood in for any field the
+    // assertion left unset, `nameIDFormat` included.
+    const raw = validated.profile
+    const fromAssertion = raw.getAssertion !== undefined
+    const profile: Saml.Profile = {
+      attributes: raw.attributes,
+      authnContext: fromAssertion
+        ? assertionText(raw, 'AuthnStatement', 0, 'AuthnContext', 0, 'AuthnContextClassRef', 0, '_')
+        : raw.authnContext,
+      email: raw.email,
+      ID: fromAssertion ? assertionText(raw, '$', 'ID') : raw.ID,
+      nameID: (fromAssertion ? assertionText(raw, 'Subject', 0, 'NameID', 0, '_') : raw.nameID) ?? '',
+      nameIDFormat: fromAssertion ? assertionText(raw, 'Subject', 0, 'NameID', 0, '$', 'Format') : raw.nameIDFormat,
+      sessionIndex: fromAssertion ? assertionText(raw, 'AuthnStatement', 0, '$', 'SessionIndex') : raw.sessionIndex,
+    }
     await this._assertUsableProfile(ctx, profile)
 
     // Consumed after the signature is verified, so an unsigned body cannot burn a real assertion id.
@@ -164,12 +179,6 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
     }
 
     const scoped = this._withAllowedAttributes(profile)
-    try {
-      this.cfg.profileToIdentityProfile?.(scoped)
-    } catch (err) {
-      throw await this._refusal(ctx, `profileToIdentityProfile rejected the profile: ${String(err)}`)
-    }
-
     let identityId: string
     try {
       // Consumer code, called after every other guard has passed. Unwrapped, a store outage
@@ -233,12 +242,12 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
     if (profile.nameIDFormat !== undefined && !this._allowedNameIdFormats.includes(profile.nameIDFormat)) {
       throw await this._refusal(ctx, `nameID format ${profile.nameIDFormat} is not one this SP accepts`)
     }
-    // Provisioning that looks the account up by email keys on a field no guard covered, so two
-    // nameIDs asserting one address resolved to one account.
-    // Against the format this assertion arrived with, where it states one. Keyed on the allow-list alone,
-    // an SP that accepts `persistent` beside `emailAddress` refused every persistent login, since an
-    // opaque nameID never equals an email - the same assertion passed or failed on a setting it knows
-    // nothing about. An unstated format still falls back to the allow-list, which fails closed.
+    // node-saml fills `email` from an attribute, which is an array when the IdP sends it more than once.
+    if (profile.email !== undefined && typeof profile.email !== 'string') {
+      throw await this._refusal(ctx, 'asserted email is not a single value')
+    }
+    // Under an email nameID the asserted email must be that nameID, or two nameIDs asserting one address
+    // resolve to one account. The format is the assertion's own; an unstated one falls back to the allow-list.
     const emailNameId =
       profile.nameIDFormat !== undefined
         ? profile.nameIDFormat === DEFAULT_SAML_CONFIG.nameIdFormat
@@ -269,6 +278,15 @@ export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identitie
   }
 }
 
+/** Text at `path` under the `<Assertion>` node-saml parsed, an xml2js tree where every child is an array. */
+function assertionText(profile: Saml.Profile, ...path: (string | number)[]): string | undefined {
+  let node: unknown = profile.getAssertion?.()
+  for (const key of ['Assertion', ...path]) {
+    node = typeof node === 'object' && node !== null ? Reflect.get(node, key) : undefined
+  }
+  return typeof node === 'string' ? node : undefined
+}
+
 /** node-saml keeps its resolved config on `.options`; a client that exposes none reads as `undefined`
  *  throughout and is left to its own defaults. */
 function clientOption(client: Saml.Client, key: string): unknown {
@@ -278,7 +296,7 @@ function clientOption(client: Saml.Client, key: string): unknown {
 
 /** The SAML provider, ready to hand to `providers`. */
 export function saml<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
-  opts: Saml.Options<Profile>,
+  opts: Saml.Options,
 ): Provider.Me<Saml.BeginInput, Saml.CompleteInput, Profile> {
   return new SamlImpl(opts)
 }

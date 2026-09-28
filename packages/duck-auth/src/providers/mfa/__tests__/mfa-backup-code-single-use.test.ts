@@ -33,7 +33,7 @@ async function enrolled(): Promise<{ auth: AuthEngine<MyProfile>; identityId: st
 describe('a backup code is spent once, as the docstring says', () => {
   it('two verifications of one code in the same tick do not both succeed', async () => {
     const { auth, codes, identityId } = await enrolled()
-    const code = codes[0] as string
+    const [code = ''] = codes
 
     const both = await Promise.all([
       auth.mfa.verifyBackupCode(identityId, code),
@@ -45,7 +45,7 @@ describe('a backup code is spent once, as the docstring says', () => {
 
   it('the sequential replay stays refused', async () => {
     const { auth, codes, identityId } = await enrolled()
-    const code = codes[0] as string
+    const [code = ''] = codes
 
     expect(await auth.mfa.verifyBackupCode(identityId, code)).toBe(true)
     expect(await auth.mfa.verifyBackupCode(identityId, code)).toBe(false)
@@ -53,10 +53,11 @@ describe('a backup code is spent once, as the docstring says', () => {
 
   it('spending one code leaves the rest of the set usable', async () => {
     const { auth, codes, identityId } = await enrolled()
+    const [a = '', b = '', c = ''] = codes
 
-    await auth.mfa.verifyBackupCode(identityId, codes[0] as string)
+    await auth.mfa.verifyBackupCode(identityId, a)
 
-    expect(await auth.mfa.verifyBackupCode(identityId, codes[1] as string)).toBe(true)
-    expect(await auth.mfa.verifyBackupCode(identityId, codes[2] as string)).toBe(true)
+    expect(await auth.mfa.verifyBackupCode(identityId, b)).toBe(true)
+    expect(await auth.mfa.verifyBackupCode(identityId, c)).toBe(true)
   })
 })

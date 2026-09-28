@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto'
-import { orNull } from '~/core/answer'
-import { isCredentialExpired, isRevoked, toCredentialCreate } from '~/core/credentials/credentials'
+import { type Answer, answer, orNull } from '~/core/answer'
+import { isCredentialExpired, isRevoked, toCredentialCreate, toPublicCredential } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
 import { canonicalEmail } from '~/core/identities'
 import type { Identities } from '~/core/identities/identities.types'
-import { isFiniteNumber } from '~/core/predicates/predicates'
+import { isFiniteNumber, isRecord } from '~/core/predicates/predicates'
 import type { Provider } from '~/core/provider/provider.types'
+import type { TenantContext } from '~/core/tenant'
 import { MemoryPasskeyChallengeStore } from './internal/challenge-store'
 import { DEFAULT_PASSKEY_CONFIG } from './passkey.constants'
 import type { Passkey } from './passkey.types'
@@ -17,20 +18,18 @@ import type { Passkey } from './passkey.types'
  *  look, so the documented in-memory default could not complete a registration at all. */
 const DEFAULT_CHALLENGE_STORE = new MemoryPasskeyChallengeStore()
 
-let _webauthnModule: Passkey.SimpleWebAuthnServerModule | null = null
-async function loadWebAuthn(
+/** Lazy, so an app that never uses WebAuthn pays no peerDep cost. WebAuthn MFA loads it here too. */
+export async function loadWebAuthn(
   override?: Passkey.SimpleWebAuthnServerModule,
 ): Promise<Passkey.SimpleWebAuthnServerModule> {
   if (override) return override
-  if (_webauthnModule) return _webauthnModule
   try {
-    const mod = (await import('@simplewebauthn/server' as string)) as unknown as Passkey.SimpleWebAuthnServerModule
-    _webauthnModule = mod
+    const mod: Passkey.SimpleWebAuthnServerModule = await import('@simplewebauthn/server')
     return mod
   } catch {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail:
-        'AuthPasskeyProvider requires the @simplewebauthn/server peerDep. ' +
+        'WebAuthn requires the @simplewebauthn/server peerDep. ' +
         'Install via `bun add @simplewebauthn/server` (or `npm install @simplewebauthn/server`).',
     })
   }
@@ -38,7 +37,7 @@ async function loadWebAuthn(
 
 /** sha-256 of the identity id, a stable 32-byte WebAuthn `user.id`. The spec allows 1-64 bytes, and a
  *  long id would otherwise be truncated into a collision. */
-function userIdBytes(identityId: string): Uint8Array {
+function userIdBytes(identityId: string): Uint8Array<ArrayBuffer> {
   return new Uint8Array(createHash('sha256').update(identityId, 'utf8').digest())
 }
 
@@ -75,6 +74,11 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
   constructor(private readonly opts: Passkey.Options) {
     this.challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
     this.challengeTtlMs = opts.challengeTtlMs ?? DEFAULT_PASSKEY_CONFIG.challengeTtlMs
+    if (!Number.isFinite(this.challengeTtlMs) || this.challengeTtlMs <= 0) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `passkey: challengeTtlMs must be a finite positive number (got ${this.challengeTtlMs})`,
+      })
+    }
     this.uv = opts.userVerification ?? DEFAULT_PASSKEY_CONFIG.userVerification
     this.prefix = opts.limiterKeyPrefix ?? DEFAULT_PASSKEY_CONFIG.limiterKeyPrefix
     this.__requestsDirectAttestation = (opts.attestationType ?? DEFAULT_PASSKEY_CONFIG.attestationType) === 'direct'
@@ -144,11 +148,16 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
     }
     const webauthn = await loadWebAuthn(this.opts.webauthnModule)
 
-    const responseObj = input.response as { id?: string }
-    const credentialId = responseObj.id
-    // A WebAuthn credential id is base64url random bytes, under 255 raw bytes by spec and so ~340 chars
-    // at most; 1024 is generous and still refuses a multi-MB id.
-    if (typeof credentialId !== 'string' || credentialId.length === 0 || credentialId.length > 1024) {
+    // A response that is not an object is refused, not left to throw a TypeError.
+    if (!isRecord(input.response)) {
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
+    }
+    const credentialId = input.response.id
+    if (
+      typeof credentialId !== 'string' ||
+      credentialId.length === 0 ||
+      credentialId.length > DEFAULT_PASSKEY_CONFIG.maxCredentialIdChars
+    ) {
       throw new AuthError('AUTH_PASSKEY_MISMATCH')
     }
     const cred = await orNull(ctx.stores.credentials.findByHashedSecret(credentialId, 'passkey', ctx.tenant))
@@ -169,7 +178,8 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
     }
 
     // `credential.identityId` is bound to `response.userHandle` when one is present.
-    const userHandle: unknown = (input.response as { response?: { userHandle?: unknown } }).response?.userHandle
+    const assertion = input.response.response
+    const userHandle = isRecord(assertion) ? assertion.userHandle : undefined
     // SECURITY: a handle that is not a string is refused, not waved through. `Buffer.from` throws on a
     // number or an object, the decoder answered `null` for the throw, and this read `null` as "no handle
     // was sent" - so `userHandle: 1` switched the binding off from the request itself.
@@ -196,26 +206,27 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
           // two behave identically at runtime and the wrong one went unnoticed.
           id: cred.secret,
           publicKey: base64UrlDecode(meta.publicKey),
-          counter: meta.counter,
+          // 0 turns off the verifier's own count check, which throws before the signature is checked and so
+          // cannot report; the check below runs on a verified signature and reports the rollback.
+          counter: 0,
           ...(meta.transports !== undefined && { transports: meta.transports }),
         },
         requireUserVerification: this.uv === 'required',
       })
       .catch(() => {
-        // The verifier signals every failure of its own by throwing a plain Error, and the counter one
-        // names the stored count. Nothing between here and the consumer's handler catches it, so it left
-        // as an unmapped 500; every other refusal on this path is AUTH_PASSKEY_MISMATCH and so is this.
+        // The verifier signals every failure of its own by throwing a plain Error, which left as an
+        // unmapped 500; every other refusal on this path is AUTH_PASSKEY_MISMATCH and so is this.
         throw new AuthError('AUTH_PASSKEY_MISMATCH')
       })
     if (!verification.verified) {
       throw new AuthError('AUTH_PASSKEY_MISMATCH')
     }
 
-    // Counter-rollback detection, WebAuthn L2 section 6.1.3. `Number.isFinite` gates the NaN and Infinity
-    // that would short-circuit both `!== 0` and `<= oldCounter`.
+    // Counter-rollback detection, WebAuthn L2 section 6.1.3. `parsePasskeyMetadata` already refused a stored
+    // count that is not finite; a reported NaN or Infinity would short-circuit both `!== 0` and `<= oldCounter`.
     const newCounter = verification.authenticationInfo.newCounter
     const oldCounter = meta.counter
-    if (!Number.isFinite(newCounter) || !Number.isFinite(oldCounter)) {
+    if (!Number.isFinite(newCounter)) {
       throw new AuthError('AUTH_PASSKEY_MISMATCH')
     }
     // SECURITY: the pair, as section 6.1.3 puts it - "if either ... is nonzero".
@@ -246,9 +257,43 @@ export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identi
         type: 'startSession',
         identityId: cred.identityId,
         factors: [{ method: 'passkey', completedAt: new Date() }],
-        aal: 2,
+        // SECURITY: two factors only when the authenticator verified the user. Presence alone, which
+        // `userVerification: 'preferred'` accepts from a security key with no PIN, is possession.
+        aal: verification.authenticationInfo.userVerified ? 2 : 1,
       },
     ]
+  }
+
+  /** The identity's passkeys that are not revoked. */
+  async list(identityId: string, credentials: Credential.Store, ctx: TenantContext = {}): Promise<Credential.Public[]> {
+    const rows = await credentials.listByIdentity(identityId, 'passkey', ctx)
+    return rows.filter((r) => !isRevoked(r)).map(toPublicCredential)
+  }
+
+  /** Revoke one passkey, answering it as it stands revoked. A row that is not a passkey this identity
+   *  holds rejects as absent, so an id read off another account revokes nothing. */
+  revoke(
+    identityId: string,
+    credentialId: string,
+    credentials: Credential.Store,
+    ctx: TenantContext = {},
+  ): Answer.Me<Credential.Public> {
+    return answer(async () => {
+      const existing = await credentials.findById(credentialId, ctx)
+      if (existing.kind !== 'passkey' || existing.identityId !== identityId) {
+        throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+      }
+      return toPublicCredential(await credentials.revoke(credentialId, ctx))
+    })
+  }
+
+  /** Revoke every live passkey the identity holds in one write, answering them as they stand revoked. */
+  async revokeAll(
+    identityId: string,
+    credentials: Credential.Store,
+    ctx: TenantContext = {},
+  ): Promise<Credential.Public[]> {
+    return (await credentials.revokeByKind(identityId, 'passkey', ctx)).map(toPublicCredential)
   }
 }
 
@@ -273,6 +318,11 @@ export async function beginPasskeyRegistration(
 ): Promise<Passkey.RegistrationOptions> {
   const challengeStore = opts.challengeStore ?? DEFAULT_CHALLENGE_STORE
   const challengeTtlMs = opts.challengeTtlMs ?? DEFAULT_PASSKEY_CONFIG.challengeTtlMs
+  if (!Number.isFinite(challengeTtlMs) || challengeTtlMs <= 0) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
+      detail: `passkey: challengeTtlMs must be a finite positive number (got ${challengeTtlMs})`,
+    })
+  }
   const webauthn = await loadWebAuthn(opts.webauthnModule)
   // A revoked passkey is one the user asked to be rid of, so it is not excluded: re-enrolling the same
   // authenticator is the documented way back.
@@ -285,6 +335,7 @@ export async function beginPasskeyRegistration(
     userName: input.userName,
     userDisplayName: input.userDisplayName,
     attestationType: opts.attestationType ?? DEFAULT_PASSKEY_CONFIG.attestationType,
+    supportedAlgorithmIDs: DEFAULT_PASSKEY_CONFIG.supportedAlgorithmIDs,
     excludeCredentials,
     authenticatorSelection: {
       residentKey: 'preferred',
@@ -295,8 +346,8 @@ export async function beginPasskeyRegistration(
   return options
 }
 
-/** Verifies the response from `navigator.credentials.create()` and persists the new public key as an
- *  `authPasskey` credential. */
+/** Verifies the response from `navigator.credentials.create()`, stores it as a `passkey` credential and
+ *  answers the row's id. */
 export async function completePasskeyRegistration(
   opts: Passkey.Options,
   input: {
@@ -320,6 +371,9 @@ export async function completePasskeyRegistration(
       expectedOrigin: opts.expectedOrigins,
       expectedRPID: opts.rpID,
       requireUserVerification: (opts.userVerification ?? DEFAULT_PASSKEY_CONFIG.userVerification) === 'required',
+      // SECURITY: WebAuthn 7.1 takes only a key algorithm registration offered. Left out, the verifier took
+      // any it knows, SHA-1 RSA among them.
+      supportedAlgorithmIDs: DEFAULT_PASSKEY_CONFIG.supportedAlgorithmIDs,
     })
     .catch(() => {
       // As on the authentication side: a throw from the verifier is a refusal, not a server fault.
@@ -329,6 +383,16 @@ export async function completePasskeyRegistration(
     throw new AuthError('AUTH_PASSKEY_MISMATCH')
   }
   const info: Passkey.RegistrationInfo = verification.registrationInfo
+  // WebAuthn 7.1 fails an id past the cap, which sign-in could never present.
+  if (info.credential.id.length > DEFAULT_PASSKEY_CONFIG.maxCredentialIdChars) {
+    throw new AuthError('AUTH_PASSKEY_MISMATCH')
+  }
+  // SECURITY: the credential id is the authenticator's to choose, and sign-in answers the newest row that
+  // carries it, so an account registering an id read off another's `allowCredentials` locked that owner
+  // out. WebAuthn 7.1 refuses a credential id already registered.
+  if (await orNull(input.credentialStore.findByHashedSecret(info.credential.id, 'passkey', input.tenant))) {
+    throw new AuthError('AUTH_PASSKEY_MISMATCH')
+  }
   const persisted = await input.credentialStore.create(
     toCredentialCreate({
       identityId: input.identityId,
@@ -337,7 +401,7 @@ export async function completePasskeyRegistration(
       metadata: {
         publicKey: base64UrlEncode(info.credential.publicKey),
         counter: info.credential.counter,
-        transports: info.credential.transports ?? [],
+        transports: knownTransports(info.credential.transports),
         aaguid: info.aaguid,
         deviceType: info.credentialDeviceType,
         backedUp: info.credentialBackedUp,
@@ -353,7 +417,11 @@ export async function completePasskeyRegistration(
  * verbatim; transports come from the metadata when the authenticator reported
  * them, and are omitted rather than guessed when it did not.
  */
-function toExcludedCredential(row: Credential.Me): { id: string; type: 'public-key'; transports?: string[] } {
+function toExcludedCredential(row: Credential.Me): {
+  id: string
+  type: 'public-key'
+  transports?: Passkey.Transport[]
+} {
   const transports = parsePasskeyMetadata(row.metadata)?.transports
   return { id: row.secret, type: 'public-key', ...(transports?.length && { transports }) }
 }
@@ -362,28 +430,31 @@ function base64UrlEncode(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64url')
 }
 
-function base64UrlDecode(s: string): Uint8Array {
+function base64UrlDecode(s: string): Uint8Array<ArrayBuffer> {
   return new Uint8Array(Buffer.from(s, 'base64url'))
 }
 
-/** `null` when `publicKey` is missing or the counter will not parse. */
-function parsePasskeyMetadata(meta: Credential.Me['metadata']): Passkey.CredentialMetadata | null {
+const TRANSPORTS: readonly Passkey.Transport[] = ['ble', 'cable', 'hybrid', 'internal', 'nfc', 'smart-card', 'usb']
+
+/** The known transports in `raw`, once each and in the order sent. The library passes on whatever JSON the
+ *  registering client sent. */
+export function knownTransports(raw: unknown): Passkey.Transport[] {
+  if (!Array.isArray(raw)) return []
+  return [...new Set(raw.flatMap((sent) => TRANSPORTS.filter((known) => known === sent)))]
+}
+
+/** `null` when `publicKey` is missing or the counter will not parse. Read by WebAuthn MFA too, whose rows
+ *  carry the same three fields. */
+export function parsePasskeyMetadata(meta: Credential.Me['metadata']): Passkey.CredentialMetadata | null {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return null
   const publicKey = Reflect.get(meta, 'publicKey')
   if (typeof publicKey !== 'string' || publicKey.length === 0) return null
   const counterRaw: unknown = Reflect.get(meta, 'counter')
   const counter = counterRaw === undefined ? 0 : isFiniteNumber(counterRaw) ? counterRaw : null
   if (counter === null) return null
-  const transportsRaw: unknown = Reflect.get(meta, 'transports')
-  let transports: string[] | undefined
-  if (Array.isArray(transportsRaw)) {
-    transports = []
-    for (const t of transportsRaw) {
-      if (typeof t === 'string') transports.push(t)
-    }
-  }
+  const transports: unknown = Reflect.get(meta, 'transports')
   const out: Passkey.CredentialMetadata = { publicKey, counter }
-  if (transports !== undefined) out.transports = transports
+  if (Array.isArray(transports)) out.transports = knownTransports(transports)
   return out
 }
 

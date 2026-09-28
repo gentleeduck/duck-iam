@@ -7,12 +7,11 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { toCredentialCreate } from '~/core/credentials/credentials'
+import { getCredentialPurpose, toCredentialCreate } from '~/core/credentials/credentials'
 import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { identityInput } from '~/test/store-inputs'
-import { BackupCodesFacet } from '../internal/backup-codes'
 import { RememberMeFacet } from '../internal/remember-me'
 import { MfaImpl } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
@@ -27,15 +26,15 @@ const OTHER_PURPOSES = [
 
 describe('recovery-kind overload', () => {
   let adapter: MemoryAdapter
-  let facet: BackupCodesFacet
   let mfa: MfaImpl
   let identityId: string
 
-  /** One live `recovery` row per non-backup-code purpose, plus its plaintext. */
+  /** One live `recovery` row per non-backup-code purpose, plus its plaintext. Each is in the form
+   *  `verifyBackupCode` hashes, so only the purpose filter can refuse it. */
   async function plantOtherPurposes(): Promise<Map<string, string>> {
     const tokens = new Map<string, string>()
-    for (const purpose of OTHER_PURPOSES) {
-      const token = randomToken(32)
+    for (const [i, purpose] of OTHER_PURPOSES.entries()) {
+      const token = `other-purpose${i}`
       tokens.set(purpose, token)
       await adapter.credentials.create(
         toCredentialCreate({
@@ -52,12 +51,11 @@ describe('recovery-kind overload', () => {
 
   const livePurposes = async (): Promise<string[]> => {
     const rows = await adapter.credentials.listByIdentity(identityId, 'recovery', {})
-    return rows.map((r) => (r.metadata as { purpose?: string } | null)?.purpose ?? '<none>').sort()
+    return rows.map((r) => getCredentialPurpose(r) ?? '<none>').sort()
   }
 
   beforeEach(async () => {
     adapter = new MemoryAdapter()
-    facet = new BackupCodesFacet(adapter.credentials, { authRandomToken: randomToken, authSha256: sha256 })
     mfa = new MfaImpl(adapter.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
@@ -65,49 +63,28 @@ describe('recovery-kind overload', () => {
     identityId = ident.id
   })
 
-  describe('the rows a backup-code set writes', () => {
-    it('BackupCodesFacet.generate stamps every row with the backup-code purpose', async () => {
-      await facet.generate(identityId)
-      expect(await livePurposes()).toEqual(Array(10).fill(RECOVERY_PURPOSES.mfaBackupCode))
-    })
-
-    it('MfaImpl.regenerateBackupCodes stamps every row with the backup-code purpose', async () => {
-      await mfa.regenerateBackupCodes(identityId)
-      const purposes = await livePurposes()
-      expect(purposes).toHaveLength(DEFAULT_MFA_CONFIG.backupCodeCount)
-      expect(new Set(purposes)).toEqual(new Set([RECOVERY_PURPOSES.mfaBackupCode]))
-    })
-  })
-
-  describe('minting codes does not cancel the other five', () => {
-    it('BackupCodesFacet.generate leaves every other purpose alone', async () => {
+  describe('minting and removing codes does not touch the other five', () => {
+    it('regenerating stamps every code with the backup-code purpose and leaves the rest alone', async () => {
       await plantOtherPurposes()
-      await facet.generate(identityId)
+      await mfa.regenerateBackupCodes(identityId)
       expect(await livePurposes()).toEqual(
-        [...OTHER_PURPOSES, ...Array(10).fill(RECOVERY_PURPOSES.mfaBackupCode)].sort(),
+        [...OTHER_PURPOSES, ...Array(DEFAULT_MFA_CONFIG.backupCodeCount).fill(RECOVERY_PURPOSES.mfaBackupCode)].sort(),
       )
-    })
-
-    it('MfaImpl.regenerateBackupCodes leaves every other purpose alone', async () => {
-      await plantOtherPurposes()
-      await mfa.regenerateBackupCodes(identityId)
-      const purposes = await livePurposes()
-      for (const purpose of OTHER_PURPOSES) expect(purposes).toContain(purpose)
     })
 
     it('regenerating replaces only the previous code set', async () => {
       await plantOtherPurposes()
-      const first = await facet.generate(identityId)
-      const second = await facet.generate(identityId)
-      expect(await facet.verify(identityId, first.codes[0]!)).toBe(false)
-      expect(await facet.verify(identityId, second.codes[0]!)).toBe(true)
+      const [first = ''] = await mfa.regenerateBackupCodes(identityId)
+      const [second = ''] = await mfa.regenerateBackupCodes(identityId)
+      expect(await mfa.verifyBackupCode(identityId, first)).toBe(false)
+      expect(await mfa.verifyBackupCode(identityId, second)).toBe(true)
       expect(await livePurposes()).toContain(RECOVERY_PURPOSES.passwordReset)
     })
 
-    it('revokeAll wipes the codes and nothing else', async () => {
+    it('removeBackupCodes wipes the codes and nothing else', async () => {
       await plantOtherPurposes()
-      await facet.generate(identityId)
-      await facet.revokeAll(identityId)
+      await mfa.regenerateBackupCodes(identityId)
+      await mfa.removeBackupCodes(identityId)
       expect(await livePurposes()).toEqual([...OTHER_PURPOSES].sort())
     })
 
@@ -117,23 +94,13 @@ describe('recovery-kind overload', () => {
         authSha256: sha256,
       })
       const { token } = await remember.issue(identityId)
-      await facet.generate(identityId)
+      await mfa.regenerateBackupCodes(identityId)
       expect(await remember.verify(token)).toMatchObject({ identityId })
     })
   })
 
   describe('the other five are not second factors', () => {
-    it('BackupCodesFacet.verify refuses a token of another purpose', async () => {
-      const tokens = await plantOtherPurposes()
-      await facet.generate(identityId)
-      for (const [, token] of tokens) {
-        // The stored hash is sha256 of the raw token; hand `verify` exactly the
-        // string that produced it, so only the purpose filter can refuse it.
-        expect(await facet.verify(identityId, token)).toBe(false)
-      }
-    })
-
-    it('MfaImpl.verifyBackupCode refuses a token of another purpose', async () => {
+    it('verifyBackupCode refuses a token of another purpose', async () => {
       const tokens = await plantOtherPurposes()
       await mfa.regenerateBackupCodes(identityId)
       for (const [, token] of tokens) {
@@ -141,45 +108,36 @@ describe('recovery-kind overload', () => {
       }
     })
 
-    it('a token of another purpose whose hash was stored the way verify computes it is still refused', async () => {
-      // Belt and braces: the case-folding in both verifiers means a random
-      // base64url token can never collide by accident. Plant one that would.
-      const token = 'not-a-backup-code'
+    const CANONICAL = 'abcde-fghjk'
+
+    it('a purposeless recovery row is not a backup code either', async () => {
+      await adapter.credentials.create(
+        toCredentialCreate({ identityId, kind: 'recovery', secret: sha256(CANONICAL) }),
+        {},
+      )
+      expect(await mfa.verifyBackupCode(identityId, CANONICAL)).toBe(false)
+    })
+
+    it('the same row under the backup-code purpose is spent', async () => {
       await adapter.credentials.create(
         toCredentialCreate({
           identityId,
           kind: 'recovery',
-          secret: sha256(token.trim().toLowerCase()),
-          metadata: { purpose: RECOVERY_PURPOSES.passwordReset },
+          secret: sha256(CANONICAL),
+          metadata: { purpose: RECOVERY_PURPOSES.mfaBackupCode },
         }),
         {},
       )
-      expect(await mfa.verifyBackupCode(identityId, token)).toBe(false)
-    })
-
-    it('a purposeless recovery row is not a backup code either', async () => {
-      const token = 'legacy-row'
-      await adapter.credentials.create(
-        toCredentialCreate({ identityId, kind: 'recovery', secret: sha256(token.trim().toLowerCase()) }),
-        {},
-      )
-      expect(await mfa.verifyBackupCode(identityId, token)).toBe(false)
+      expect(await mfa.verifyBackupCode(identityId, CANONICAL)).toBe(true)
     })
   })
 
-  describe('remaining() counts backup codes, not recovery rows', () => {
+  describe('remainingBackupCodes counts backup codes, not recovery rows', () => {
     it('the other five purposes do not inflate the count', async () => {
       await plantOtherPurposes()
-      expect(await facet.remaining(identityId)).toBe(0)
-      await facet.generate(identityId)
-      expect(await facet.remaining(identityId)).toBe(10)
-    })
-
-    it('consuming a code decrements the count by one', async () => {
-      await plantOtherPurposes()
-      const { codes } = await facet.generate(identityId)
-      expect(await facet.verify(identityId, codes[0]!)).toBe(true)
-      expect(await facet.remaining(identityId)).toBe(9)
+      expect(await mfa.remainingBackupCodes(identityId)).toBe(0)
+      await mfa.regenerateBackupCodes(identityId)
+      expect(await mfa.remainingBackupCodes(identityId)).toBe(DEFAULT_MFA_CONFIG.backupCodeCount)
     })
   })
 })

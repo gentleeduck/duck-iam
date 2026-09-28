@@ -29,7 +29,7 @@ function makeClient(overrides: Partial<Saml.Client> = {}): Saml.Client {
     validatePostResponseAsync: vi.fn(async () => ({
       // The default nameIDFormat is emailAddress, so an email that disagrees with the nameID is a
       // refusal, not a fixture.
-      profile: { nameID: 'user@x.com', email: 'user@x.com' } as Saml.Profile,
+      profile: { nameID: 'user@x.com', email: 'user@x.com' },
       loggedOut: false,
     })),
     ...overrides,
@@ -39,7 +39,8 @@ function makeClient(overrides: Partial<Saml.Client> = {}): Saml.Client {
 describe('samlProvider - construction guards', () => {
   it('refuses without client', () => {
     expect(() =>
-      saml({ callbackUrl: 'https://app/acs', onSignIn: async () => ({ identityId: 'x' }) } as never),
+      // @ts-expect-error no client
+      saml({ callbackUrl: 'https://app/acs', onSignIn: async () => ({ identityId: 'x' }) }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
@@ -55,10 +56,11 @@ describe('samlProvider - construction guards', () => {
 
   it('refuses without onSignIn', () => {
     expect(() =>
+      // @ts-expect-error no onSignIn
       saml({
         client: makeClient(),
         callbackUrl: 'https://app/acs',
-      } as never),
+      }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 })
@@ -111,7 +113,7 @@ describe('samlProvider - complete', () => {
           profile: {
             authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken',
             nameID: 'user@x.com',
-          } as Saml.Profile,
+          },
         }),
       }),
       callbackUrl: 'https://app/acs',

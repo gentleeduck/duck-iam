@@ -143,6 +143,20 @@ describe('ApiKeysFacet', () => {
     it('rotate on missing key surfaces AUTH_APIKEY_INVALID', async () => {
       await expect(facet.rotate('does-not-exist')).rejects.toMatchObject({ code: 'AUTH_APIKEY_INVALID' })
     })
+
+    it('refuses a revoked or expired key rather than issuing it a working replacement', async () => {
+      const revoked = await facet.create('user-1', { name: 'r', scopes: ['read'] })
+      await facet.revoke(revoked.key.id)
+      await expect(facet.rotate(revoked.key.id)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
+
+      const expired = await facet.create('user-1', { name: 'e', scopes: ['read'] })
+      const row = adapter.raw.credentials.get(expired.key.id)
+      if (!row) throw new Error('row missing')
+      adapter.raw.credentials.set(row.id, { ...row, expiresAt: new Date(Date.now() - 1000) })
+      await expect(facet.rotate(row.id)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
+
+      expect((await facet.list('user-1')).map((k) => k.name)).toEqual(['e'])
+    })
   })
 
   describe('list + requireScopes', () => {
@@ -181,6 +195,33 @@ describe('ApiKeysFacet', () => {
     it('answers the key it revoked, so a caller can name it', async () => {
       const { key } = await facet.create('user-1', { name: 'CI deploy', scopes: ['deploy.write'] })
       await expect(facet.revoke(key.id)).resolves.toMatchObject({ name: 'CI deploy' })
+    })
+  })
+
+  describe('revokeAll', () => {
+    it("revokes every key the identity holds and no one else's, answering them revoked", async () => {
+      const ci = await facet.create('user-1', { name: 'CI', scopes: [] })
+      const cron = await facet.create('user-1', { name: 'cron', scopes: [] })
+      const theirs = await facet.create('user-2', { name: 'theirs', scopes: [] })
+
+      const revoked = await facet.revokeAll('user-1')
+      expect(revoked.map((k) => k.name).sort()).toEqual(['CI', 'cron'])
+      expect(revoked.every((k) => k.revokedAt instanceof Date)).toBe(true)
+      await expect(facet.verify(ci.plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
+      await expect(facet.verify(cron.plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
+      await expect(facet.verify(theirs.plaintext)).resolves.toMatchObject({ identityId: 'user-2' })
+      expect(await facet.list('user-1')).toEqual([])
+    })
+
+    it("leaves the identity's other credentials alone", async () => {
+      const recovery = await adapter.credentials.create(
+        credentialInput({ identityId: 'user-1', kind: 'recovery', secret: sha256('x') }),
+        {},
+      )
+      await facet.create('user-1', { name: 'CI', scopes: [] })
+
+      expect(await facet.revokeAll('user-1')).toHaveLength(1)
+      await expect(adapter.credentials.findById(recovery.id, {})).resolves.toMatchObject({ revokedAt: null })
     })
   })
 })

@@ -27,9 +27,8 @@ export function discord<Profile extends Identities.ProfileMetadataBase = Identit
     fetch: opts.fetch,
   })
   return oProvider<Profile>({
-    providerId: 'authDiscord',
+    providerId: 'discord',
     client,
-    endpoints: DISCORD_ENDPOINTS,
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     nonceStore: opts.nonceStore,
@@ -44,7 +43,7 @@ export function discord<Profile extends Identities.ProfileMetadataBase = Identit
       const sub = getUserinfoString(info, 'id')
       if (sub === undefined) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
-          providerId: 'authDiscord',
+          providerId: 'discord',
           detail: 'Discord userinfo missing id',
         })
       }
