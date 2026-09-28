@@ -1,9 +1,9 @@
-/** Vue 3 plugin + composables; `vue` is an OPTIONAL peerDep resolved lazily. Types live in `./types`. */
+/** Vue 3 plugin + composables over the vanilla client. Types live in `./types`. */
 
+import { type App, type InjectionKey, inject, shallowRef } from 'vue'
 import { AuthError } from '~/core/errors'
-import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
-import { createAuthClient, type VanillaClient } from '../vanilla'
+import { createAuthClient, type Envelope, type VanillaClient } from '../vanilla'
 import type { VueClient } from './types'
 
 export type { VueClient } from './types'
@@ -18,10 +18,9 @@ export function createAuthVuePlugin<Profile extends Identities.ProfileMetadataBa
 ): VueClient.Plugin {
   const client = cfg.client ?? createAuthClient<Profile>(cfg)
   return {
-    install(app: VueClient.App): void {
-      const vue = loadVueSync()
-      const state = vue.ref<VanillaClient.SessionResult<Profile>>({ identity: null, session: null })
-      const status = vue.ref<'loading' | 'authed' | 'guest'>(cfg.noInitialFetch ? 'guest' : 'loading')
+    install(app: App): void {
+      const state = shallowRef<VanillaClient.SessionResult<Profile>>({ identity: null, session: null })
+      const status = shallowRef<'loading' | 'authed' | 'guest'>(cfg.noInitialFetch ? 'guest' : 'loading')
       client.onChange((s) => {
         state.value = s
         status.value = s.identity ? 'authed' : 'guest'
@@ -38,16 +37,16 @@ export function createAuthVuePlugin<Profile extends Identities.ProfileMetadataBa
 }
 
 /** Shared Symbol key used by `app.provide` / `inject`. */
-export const AUTH_VUE_KEY = Symbol.for('@gentleduck/auth/client/vue')
+export const AUTH_VUE_KEY: InjectionKey<VueClient.Injected<Identities.ProfileMetadataBase>> =
+  Symbol.for('@gentleduck/auth/client/vue')
 
 function useAuthCtx<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VueClient.Injected<Profile> {
-  const vue = loadVueSync()
-  const ctx = vue.inject(AUTH_VUE_KEY) as VueClient.Injected<Profile> | undefined
+  const ctx = inject(AUTH_VUE_KEY) as VueClient.Injected<Profile> | undefined
   if (!ctx) {
     throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: '[@gentleduck/auth/client/vue] use* composables require app.use(authCreateVuePlugin(...))',
+      detail: '[@gentleduck/auth/client/vue] use* composables require app.use(createAuthVuePlugin(...))',
     })
   }
   return ctx
@@ -62,9 +61,8 @@ export function useAuthSession<
 }
 
 function useMutation<I, O>(fn: (input: I) => Promise<O>): VueClient.MutationResult<I, O> {
-  const vue = loadVueSync()
-  const loading = vue.ref(false)
-  const error = vue.ref<unknown | null>(null)
+  const loading = shallowRef(false)
+  const error = shallowRef<unknown>(null)
   const mutate = async (input: I) => {
     loading.value = true
     error.value = null
@@ -99,21 +97,4 @@ export function useAuthClient<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VanillaClient.Client<Profile> {
   return useAuthCtx<Profile>().client
-}
-
-let _vueModule: VueClient.VueModule | null = null
-function loadVueSync(): VueClient.VueModule {
-  if (_vueModule) return _vueModule
-  // CJS-style require keeps this synchronous: composables MUST run
-  // inside Vue's reactive scope, so a Promise here would break the
-  // `setup()` contract.
-  try {
-    const req = new Function('return require')()
-    _vueModule = req('vue') as VueClient.VueModule
-    return _vueModule
-  } catch {
-    throw new AuthError('AUTH_MISCONFIGURED', {
-      detail: '[@gentleduck/auth/client/vue] `vue` is not installed. Add it: `bun add vue` (^3).',
-    })
-  }
 }
