@@ -1,0 +1,35 @@
+---
+title: Transports
+description: How a session travels between client and server, and how to choose between the cookie, bearer, JWT and composite transports
+section: Core
+---
+A transport decides how the session id reaches the client and comes back. It reads the credential off a request (`extract`), writes it onto a response (`issue`, as intents), and clears it (`revoke`). The engine holds one, `createAuth({ transport })`, and defaults to a cookie.
+
+| Transport | Carries | Revocation | Use it for |
+| --- | --- | --- | --- |
+| [Cookie](/duck-auth/core/transports/cookie) | The sid in an HttpOnly cookie, plus a CSRF cookie | Immediate | Browser apps on your own domain. The default. |
+| [Bearer](/duck-auth/core/transports/bearer) | The sid in `Authorization: Bearer` | Immediate | Native and mobile apps, CLIs, scripts. |
+| [JWT](/duck-auth/core/transports/jwt) | A signed token the server verifies without a store read | When the token expires | Services that must not hit the session store per request. |
+| [Composite](/duck-auth/core/transports/composite) | Several of the above at once | Per member | One backend serving a browser and a native app. |
+
+[DPoP](/duck-auth/core/transports/dpop) is not a transport: it verifies proof-of-possession headers for a resource server that binds its tokens to a client key.
+
+## How a request resolves
+
+`auth.resolveSession({ headers })` asks the transport for the credential. When the transport can verify it on its own, as JWT does, that answer is used; otherwise the sid is hashed and looked up in the session store. A request without a credential reads as no session.
+
+## Writing your own
+
+A transport is any object with `extract`, `issue` and `revoke`, and optionally `verify` for self-contained tokens:
+
+```ts
+import type { Transport } from '@gentleduck/auth/core/transport'
+
+const headerTransport: Transport.ITransport = {
+  extract: (req) => req.headers.get('x-session-id'),
+  issue: (sid, session) => [{ type: 'json', status: 200, body: { sid, expiresAt: session.expiresAt } }],
+  revoke: () => [{ type: 'json', status: 200, body: { revoked: true } }],
+}
+```
+
+`issue` answers intents rather than touching a response, so the same transport works under every [server adapter](/duck-auth/server).

@@ -1,0 +1,38 @@
+---
+title: FAQ
+description: Short answers to the questions asked before adopting duck-auth, each pointing at the page that covers it
+section: Getting Started
+---
+## Where does it run?
+
+In your own process, against your own database, on Node 22 or newer or Bun; see [requirements](/duck-auth/installation#requirements). [Comparison](/duck-auth/comparison) sets it beside hosted services and other libraries.
+
+## What should a production deploy do?
+
+- Call `auth.strict({ env: 'production' })` at boot. It throws `AUTH_MISCONFIGURED` listing every setting that is unsafe in production.
+- Apply the [compliance preset](/duck-auth/core/compliance) your scope needs.
+- Read [Security](/duck-auth/advanced/security).
+
+## Can I bring users from another system?
+
+`auth.identities.bulkCreate` imports the people, matching existing ones by email; see [Identities](/duck-auth/core/identities#bulk-and-export). Password hashes come across as they are: a hasher that verifies both formats moves each one to yours at its owner's next sign-in; see [Passwords](/duck-auth/providers/password#bringing-hashes-from-another-system).
+
+## Can several apps share users?
+
+Engines built over the same stores share identities, credentials and sessions. To share one sign-in across subdomains, give the [cookie transport](/duck-auth/core/transports/cookie) a `domain`.
+
+## Can I write my own provider or store?
+
+Yes: see [providers](/duck-auth/providers#writing-your-own) and [adapters](/duck-auth/adapters#writing-your-own).
+
+## Does it decide what a user may do?
+
+No. duck-auth answers who the caller is; [duck-iam](/duck-iam/introduction) decides what they may do, and [Bridging to duck-iam](/duck-auth/guides/iam-bridge) wires the two together.
+
+## Does it support machine-to-machine auth?
+
+Yes: API keys, and an OAuth2 client-credentials exchange on top of them. See [API keys](/duck-auth/providers/api-key#client-credentials).
+
+## How do I report a security issue?
+
+Email `security@gentleduck.org`, not a public issue. The policy is in [SECURITY.md](https://github.com/gentleeduck/duck-iam/blob/main/packages/duck-auth/SECURITY.md).

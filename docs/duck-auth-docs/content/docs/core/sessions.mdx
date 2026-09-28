@@ -1,0 +1,134 @@
+---
+title: Sessions
+description: What a session row holds, its idle and absolute deadlines, rotation on every privilege change, guests, revocation, and hijack detection
+section: Core
+---
+`auth.sessions` owns every session: flows, providers and step-up all mint and rotate through it. Most apps never call it to sign someone in (`flows.signIn` does that) and use it to list and revoke.
+
+## The row
+
+A session is stored under the sha-256 of its id; the plaintext `sid` only ever travels to the client.
+
+| Field | Meaning |
+| --- | --- |
+| `id` | The hashed sid, the row key. |
+| `identityId` | Who it belongs to; `null` for a guest. |
+| `kind` | `'user'`, `'guest'`, or `'apikey'` for a machine signed in with an API key. |
+| `aal` | Assurance level: 1 after one factor, 2 after a second. |
+| `factors` | Every factor presented, each `{ method, completedAt }`. |
+| `fresh` | Whether a factor was presented recently enough for a privileged operation. |
+| `ip`, `userAgent`, `fingerprint` | Captured at creation and never refreshed; hijack detection compares against them. |
+| `expiresAt`, `absoluteExpiresAt` | The idle deadline, and the hard cap set at creation. |
+| `actingAs` | The operator and reason while an impersonation is open, else `null`. |
+| `tenantId` | The tenant it was issued under; `null` is global. |
+
+## Deadlines
+
+```ts
+createAuth({
+  // ...
+  session: {
+    ttlMs: 7 * 24 * 60 * 60 * 1000, // idle deadline, the default
+    absoluteTtlMs: 30 * 24 * 60 * 60 * 1000, // hard cap, the default
+    freshnessMs: 5 * 60 * 1000, // how long a factor counts as fresh, the default
+    maxSessionsPerIdentity: 10, // unset means unlimited
+  },
+})
+```
+
+- `resolveSession` slides `expiresAt` forward once less than half the idle window is left, never past `absoluteExpiresAt`.
+- Nothing moves `absoluteExpiresAt`. Once it passes, the user signs in again.
+- Over `maxSessionsPerIdentity`, a new sign-in revokes that identity's oldest session. Guests are not counted.
+
+An expired session reads as `AUTH_SESSION_EXPIRED`, which `orNull()` answers as `null`. The row stays until a sweep removes it; schedule `auth.sessions.gc()` yourself.
+
+## Rotation
+
+Every change to who a session is, or how strongly it was proven, mints a new row and a new sid through `rotateOrCreate`. That makes session fixation impossible to forget: a sid planted before sign-in never becomes an authenticated one.
+
+| Purpose | Raised by | The previous session |
+| --- | --- | --- |
+| `signin`, `re-auth`, `sign-up` | `flows.signIn`, `flows.completeSignUp` | revoked |
+| `step-up` | `flows.completeStepUp` | kept, marked not fresh |
+| `step-down`, `drift` | your code, the hijack `'rotate'` reaction | revoked |
+| `credential-change` | a password reset or change | every session of the identity revoked |
+| `guest-promotion` | `sessions.promoteGuest` | revoked |
+| `impersonate-start`, `impersonate-release` | `flows.impersonate`, `flows.releaseImpersonation` | revoked |
+
+A step-up keeps the old row so a second tab holding it still works, at its old level and never fresh.
+
+## Reading and revoking
+
+```ts
+const devices = await auth.sessions.listForIdentity(identity.id) // live rows, no csrfHash
+await auth.sessions.revoke(sid) // by plaintext sid; answers the row it removed
+await auth.sessions.revokeByHash(session.id) // by row id, for a device list
+await auth.sessions.revokeAllExcept(identity.id, currentSid) // "sign out other devices"
+await auth.sessions.revokeAllForIdentity(identity.id) // everywhere
+```
+
+`revoke` and `revokeByHash` throw `AUTH_SESSION_REVOKED` for a session already gone; `.orNull()` reads a repeat as a no-op. `revokeAllExcept` revokes everything when `currentSid` matches nothing, rather than keep a session you did not mean to.
+
+In a multi-tenant deployment pass the tenant (`{ tenantId }`) to `listForIdentity`, `revokeAllExcept` and `revokeAllForIdentity`; without it they reach every tenant's sessions.
+
+## Minting by hand
+
+`create` answers the row, the plaintext `sid` and the CSRF token; the transport turns them into response intents:
+
+```ts
+const { session, sid, csrfToken } = await auth.sessions.create({
+  identityId: identity.id,
+  kind: 'user',
+  aal: 1,
+  factors: [{ method: 'password', completedAt: new Date() }],
+})
+const intents = auth.transport.issue(sid, session, { fresh: true, absolute: false, csrfToken })
+```
+
+Prefer `flows.signIn`, which runs the provider's checks, records the caller's IP and User-Agent, revokes the sid the request came in on, and emits `signin.success`.
+
+## Guests
+
+A guest session names nobody, for a cart or a draft before sign-in:
+
+```ts
+const guest = await auth.sessions.createGuest({ ip, userAgent })
+
+// later, once they sign in:
+const promoted = await auth.sessions.promoteGuest({
+  guestSid: guest.sid,
+  identityId: identity.id,
+  aal: 1,
+  factors: [{ method: 'password', completedAt: new Date() }],
+})
+```
+
+Promotion rotates the sid, so anything the guest owned must move by identity, not by session. `promoteGuest` refuses a sid that is not a guest's.
+
+## Hijack detection
+
+Each session records the IP and User-Agent it was issued to. When a later request arrives from somewhere else, `auth.hijack.evaluate(session, { ip, userAgent })` answers `{ ok: false, reaction, signal, from, to }`, or `{ ok: true }` when nothing drifted or the drift is ignored, and `auth.hijack.applyReaction(reaction, session)` carries it out:
+
+| Reaction | Default for | Effect |
+| --- | --- | --- |
+| `'rotate'` | IP change | Yours to perform: re-issue with `rotateOrCreate({ purpose: 'drift' })`. |
+| `'mfa'` | User-Agent change | Refuses with `AUTH_STEP_UP_REQUIRED`. |
+| `'revoke'` | | Ends the session and refuses with `AUTH_SESSION_REVOKED`. |
+| `'ignore'` | | Records the drift only. |
+
+```ts
+createAuth({
+  // ...
+  hijack: { onIpChange: 'rotate', onUserAgentChange: 'revoke', onMissingSignal: 'strict' },
+})
+```
+
+Every drift emits `suspicious`, whatever the reaction. By default a request that omits a value the session recorded is softened to `'rotate'`, so a proxy stripping a header cannot revoke every session behind it; `onMissingSignal: 'strict'` applies the configured reaction in full.
+
+The server adapters' actor wrappers run the check for you once you pass `getCaller`:
+
+```ts
+app.use(expressActorContext(auth, { getCaller: expressCaller }))
+```
+
+Without `getCaller` the baseline is recorded at sign-in and never compared.

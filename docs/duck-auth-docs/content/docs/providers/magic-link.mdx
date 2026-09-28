@@ -1,0 +1,59 @@
+---
+title: Magic link
+description: Passwordless sign-in by a single-use link mailed through your own deliver function
+section: Providers
+---
+```ts
+import { orNull } from '@gentleduck/auth/core'
+import { magicLink } from '@gentleduck/auth/providers/magic-link'
+
+const auth = createAuth({
+  // ...
+  deliver,
+  providers: [
+    (_engine, send) =>
+      magicLink({ deliver: send, findIdentityByEmail: (email) => orNull(stores.identities.find({ email })) }),
+  ],
+})
+```
+
+Registered as a thunk, the provider receives the `deliver` you passed to `createAuth`. See [Delivery](/duck-auth/core/delivery) for writing one.
+
+## Sending the link
+
+```ts
+await auth.flows.beginProvider('magic-link', { email: 'ada@example.com' })
+```
+
+From the browser, `client.beginProvider('magic-link', { email })` posts the same thing to your begin route.
+
+- The answer is `{ ok: true }` whether or not the address belongs to anyone, and both cases do the same store work, so neither the body nor the timing tells them apart. An unknown address sends nothing.
+- The email is trimmed and case-folded, and each request spends one from the limiter under `magic-link:request:<email>`.
+- `deliver` receives `kind: 'magic-link'` with `vars.url`, `https://app.example.com/auth/magic-link/callback?token=...`, and `vars.ttlMin`. The request does not wait for it.
+- A newer link replaces the older one, which stops working.
+
+## Redeeming it
+
+```ts
+const token = new URL(location.href).searchParams.get('token') ?? ''
+await client.signIn({ providerId: 'magic-link', input: { token } })
+```
+
+Make `callbackPath` a page that signs in when the person clicks a button, not on load: mail scanners open links to check them, and would spend the token first.
+
+- A link works once, and throws `AUTH_RECOVERY_TOKEN_INVALID` after that, or `AUTH_RECOVERY_TOKEN_EXPIRED` past its lifetime.
+- It is refused if the account's email has changed since it was sent.
+- The session is AAL 1 with a `magic-link` factor.
+- Redeeming it proves the address, so the identity is marked `emailVerified`. If it was not before, whatever else was attached to the account is removed first: its linked providers, its credentials, its other sessions. Until then, anyone could have signed up with that address.
+
+## Options
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `deliver` | none | Sends the link. Without it, `begin` throws `AUTH_MISCONFIGURED`, and `strict()` refuses the provider in production. |
+| `findIdentityByEmail` | required | Finds the account for an address. Answer `null` for none. |
+| `autoCreateIdentity` | `false` | Creates an account for an unknown address, so the link doubles as sign-up. |
+| `autoCreateProfile` | none | The profile for that account. Required for `autoCreateIdentity` to create anything. |
+| `ttlMs` | 10 minutes | How long a link lives. |
+| `callbackPath` | `/auth/magic-link/callback` | Where the link lands, on `baseUrl`. Must be a same-origin path. |
+| `limiterKeyPrefix` | `'magic-link:request:'` | The limiter bucket prefix. |

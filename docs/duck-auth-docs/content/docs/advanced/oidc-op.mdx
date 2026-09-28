@@ -1,0 +1,71 @@
+---
+title: OIDC provider
+description: Running an OAuth 2 and OpenID provider on the engine, with S256 PKCE, rotating refresh tokens, userinfo, introspection, revocation and dynamic registration
+section: Advanced
+---
+`@gentleduck/auth/oidc/op` lets other apps sign in through your engine. It mounts no routes: each method takes the parsed request and answers what to send.
+
+It supports the authorization code flow with S256 PKCE, refresh tokens, ID tokens, userinfo, introspection (RFC 7662), revocation (RFC 7009) and dynamic client registration (RFC 7591). The code flow is the only one.
+
+```ts
+import { createOidcOP } from '@gentleduck/auth/oidc/op'
+
+const op = createOidcOP({
+  auth,
+  config: { issuer: 'https://auth.example.com', supportedScopes: ['openid', 'profile', 'email', 'offline_access'] },
+  signIdToken: (claims) => signJwt(claims),
+})
+
+const { client_secret } = await op.registerClient({
+  client_id: 'web-app',
+  redirect_uris: ['https://app.example.com/callback'],
+  token_endpoint_auth_method: 'client_secret_basic',
+})
+```
+
+`client_secret` is generated when you pass none, and returned only here; it is stored hashed. A client registered without a secret or an auth method is public, and must use PKCE.
+
+## Routes
+
+| Route | Call | Answers |
+| --- | --- | --- |
+| `GET /authorize` | `op.authorize(query, { headers })` | `redirect`, `login_required`, `consent_required` or `error`, by `kind` |
+| Your consent form | `op.completeConsent({ client_id, identity, redirect_uri, scope, sid, tenant_id, ... })` | The same, usually `redirect` with the code |
+| `POST /token` | `op.token(body, headers)` | The tokens, or `{ error }` |
+| `GET /userinfo` | `op.userinfo(headers)` | The claims, or `{ error }` |
+| `POST /introspect` | `op.introspect(body, headers)` | `{ active, ... }` |
+| `POST /revoke` | `op.revoke(body, headers)` | Nothing |
+| `POST /register` | `op.register(body, headers)` | `{ status, body }` |
+
+`headers` is a Fetch `Headers`. `authorize` finds the signed-in person through the engine's transport, so `login_required` means sending them to your sign-in page and back.
+
+A code lives 10 minutes and works once. Access and ID tokens live an hour and refresh tokens 30 days; `config` changes each. A refresh token rotates on every use, and presenting a spent one revokes its whole family. Tokens are stored as SHA-256 hashes.
+
+## Stores
+
+The defaults are in memory. For production, pass the Drizzle stores for your dialect, from `oidc/op/drizzle/pg`, `mysql` or `sqlite`:
+
+```ts
+import { authCreateDrizzlePgOidcOpStores, authGcDrizzlePgOidcOp } from '@gentleduck/auth/oidc/op/drizzle/pg'
+
+const op = createOidcOP({ auth, config, signIdToken, stores: authCreateDrizzlePgOidcOpStores(db) })
+
+await authGcDrizzlePgOidcOp(db) // on a schedule; removes expired codes and tokens
+```
+
+## Dynamic registration
+
+Off by default. Turn it on with a token that `POST /register` must carry as `Authorization: Bearer`:
+
+```ts
+const op = createOidcOP({
+  auth,
+  config,
+  signIdToken,
+  dcr: { enabled: true, initialAccessToken: process.env.OIDC_DCR_TOKEN, maxRedirectUris: 20 },
+})
+```
+
+Without `initialAccessToken` anyone can register a client, so keep that behind a private network. Advertise the endpoint with `registrationEndpoint` in the [discovery document](/duck-auth/advanced/oidc).
+
+A working provider with a consent page is in [`examples/oidc-op`](https://github.com/gentleeduck/duck-iam/tree/main/examples/oidc-op).

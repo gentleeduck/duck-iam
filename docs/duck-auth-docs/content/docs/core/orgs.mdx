@@ -1,0 +1,48 @@
+---
+title: Organizations
+description: Org memberships and org-scoped roles through auth.orgs, over an org store you implement on your own tables
+section: Core
+---
+`auth.orgs` tracks which identities belong to which organizations, and the roles each holds there. The orgs themselves are yours: duck-auth reads them, and never creates, renames or deletes one.
+
+## The store
+
+Pass an `orgs` store next to the others: `stores: { ...drizzlePgAdapter(db), orgs: orgStore }`. `MemoryAdapter` ships one for tests, with `seedOrg(row)` to plant an org. In production you implement `Org.Store` from `@gentleduck/auth/core` over your own tables:
+
+| Method | Must |
+| --- | --- |
+| `getOrg(id, ctx)` | Answer the org, or throw `AUTH_ORG_NOT_FOUND`. |
+| `listOrgsForIdentity(identityId, ctx)` | Answer the orgs the identity is a live member of. |
+| `listMembers(orgId, ctx)` | Answer the org's memberships. |
+| `addMember(membership, ctx)` | Insert it, stamping `joinedAt`. |
+| `removeMember(orgId, identityId, ctx)` | Set `leftAt`, or throw `AUTH_MEMBERSHIP_NOT_FOUND`. |
+| `setRoles(orgId, identityId, roles, ctx)` | Replace the roles, or throw `AUTH_MEMBERSHIP_NOT_FOUND`. |
+
+Every row carries a `tenantId` (`null` when global), and the facet refuses a row from a tenant other than the one asked for with `AUTH_TENANT_SCOPE_VIOLATION`. Without an `orgs` store, `auth.orgs` throws `AUTH_PROVIDER_NOT_REGISTERED`.
+
+## Memberships
+
+```ts
+await auth.orgs.addMember({ orgId: 'acme', identityId: ada.id, roles: ['admin'] }, {})
+
+const membership = await auth.orgs.resolveMembership('acme', ada.id, {}).orNull()
+membership?.roles // ['admin']
+
+await auth.orgs.setRoles('acme', ada.id, ['member'], {})
+await auth.orgs.removeMember('acme', ada.id, {})
+
+await auth.orgs.listForIdentity(ada.id, {}) // the orgs ada belongs to
+await auth.orgs.listMembers('acme', {}) // live memberships only
+```
+
+- The last argument is the tenant context: `{}` for a single-tenant app, `{ tenantId }` otherwise.
+- `addMember` refuses a live member with `AUTH_ALREADY_EXISTS`. Someone who left can be added again.
+- `removeMember` marks the membership `leftAt` rather than deleting it; a left member stops appearing everywhere.
+- Roles are deduplicated, empty or overlong entries are dropped, and at most 64 are kept.
+- `resolveMembership`, `removeMember` and `setRoles` throw `AUTH_MEMBERSHIP_NOT_FOUND` for a non-member, which `.orNull()` reads as `null`.
+
+Each write emits `org.member.added`, `org.member.removed` or `org.roles.set`.
+
+## Roles and authorization
+
+Org roles are labels duck-auth stores; it never decides what they allow. To enforce them, hand the membership to your authorization layer. With duck-iam, see the [IAM bridge](/duck-auth/guides/iam-bridge).

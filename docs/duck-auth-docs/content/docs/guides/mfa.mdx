@@ -1,0 +1,128 @@
+---
+title: Adding MFA
+description: Enrolling TOTP with backup codes, asking for the second factor before a sensitive action, WebAuthn as a factor, and remembered devices
+section: Guides
+---
+Register the MFA provider beside the others:
+
+```ts
+import { mfaProvider } from '@gentleduck/auth/providers/mfa'
+
+const auth = createAuth({
+  // ...
+  providers: [passwords(), mfaProvider({ issuer: 'Example' })],
+})
+```
+
+`issuer` is the name an authenticator app lists the account under. `backupCodeCount` and `backupCodeLen` default to 10.
+
+A second factor does not change sign-in: the password still answers a session at AAL 1. What changes is that your sensitive routes can ask for more, and step the session up to AAL 2 when the factor checks out.
+
+## Enrolling TOTP
+
+```ts
+const { uri } = await auth.mfa.beginTotpEnrollment(identity.id, identity.profile.email)
+// Render uri as a QR code; the person scans it and types the first code back.
+
+const confirmed = await auth.mfa.confirmTotpEnrollment(identity.id, code)
+if (confirmed.ok) showOnce(confirmed.backupCodes)
+```
+
+- A wrong first code answers `{ ok: false }` and leaves the enrollment pending, so the person can try again.
+- Confirming emits `mfa.enrolled` and mints the backup codes. They are hashed at rest, so this is the only time they can be shown.
+- Enrolling again while a confirmed factor exists is refused with `AUTH_MFA_REQUIRED`. Replacing one means removing it first, behind a step-up.
+
+These calls act on whatever identity they are given; your route decides who may make them. On Hono, `mountHono` mounts them for the signed-in identity; see [Hono](/duck-auth/server/hono).
+
+## Asking for the second factor
+
+```ts
+import { applyIntents, expressCaller, expressCsrf, toHeaders } from '@gentleduck/auth/server/express'
+import { errorToHttp } from '@gentleduck/auth/server/generic'
+
+app.use('/api', expressCsrf(auth), express.json())
+
+app.post('/api/account/delete', async (req, res) => {
+  const resolved = await auth.resolveSession({ headers: toHeaders(req.headers) }).orNull()
+  if (!resolved) return res.status(401).end()
+
+  const need = await auth.flows.checkStepUp(resolved.session, { methods: ['totp', 'backup-code'], freshness: 5 * 60_000 })
+  if (!need.satisfied) return res.status(403).json({ code: 'AUTH_STEP_UP_REQUIRED', methods: need.methods })
+
+  await deleteAccount(resolved.session.identityId)
+  res.status(204).end()
+})
+
+app.post('/api/step-up', async (req, res) => {
+  const sid = auth.transport.extract({ headers: toHeaders(req.headers) })
+  if (!sid) return res.status(401).end()
+  try {
+    const { intents } = await auth.flows.completeStepUp({ currentSid: sid, method: req.body.method, code: req.body.code, ...expressCaller(req) })
+    applyIntents(intents, res)
+  } catch (err) {
+    const { status, body } = errorToHttp(err)
+    res.status(status).json(body)
+  }
+})
+```
+
+- `checkStepUp` asks for AAL 2 by default. `freshness` also asks that the last factor be recent; `need.reason` is `mfa-required` or `fresh-required`.
+- `completeStepUp` checks the code against the session's own tenant, is rate limited per identity, and rotates to an AAL 2 session. `applyIntents` sets its cookie; the client then retries the action.
+- A wrong code throws `AUTH_INVALID_CREDENTIALS`. Every code works once: the one that confirmed enrollment, or passed a step-up, is refused along with any older one, so the person waits for the next. A backup code is spent by the step-up it passes; `auth.mfa.remainingBackupCodes(id)` says how many are left.
+
+[Compliance presets](/duck-auth/core/compliance) that require MFA refuse an engine without the provider, but sign-in still answers AAL 1: requiring the factor is this check.
+
+## Removing a factor
+
+```ts
+await auth.mfa.removeTotp(identityId)
+const codes = await auth.mfa.regenerateBackupCodes(identityId)
+```
+
+`removeTotp` also revokes every remembered device and emits `mfa.removed`. `regenerateBackupCodes` revokes the old codes. Put both behind `checkStepUp`, or someone holding only the password can remove the factor that was meant to stop them.
+
+## WebAuthn as a factor
+
+A security key or platform authenticator can be the second factor instead of TOTP. It takes the same relying-party settings as [passkeys](/duck-auth/providers/passkey), and a challenge store shared by each ceremony's two calls:
+
+```ts
+import { redisPasskeyChallengeStore } from '@gentleduck/auth/providers/passkey'
+
+const webauthn = {
+  rpID: 'example.com',
+  expectedOrigins: 'https://example.com',
+  challengeStore: redisPasskeyChallengeStore({ redis }),
+  challengeKey: session.id,
+}
+
+// Enrolling
+const creation = await auth.mfa.beginWebauthnMfaEnrollment(identityId, { ...webauthn, rpName: 'Example', userName: email })
+await auth.mfa.confirmWebauthnMfaEnrollment(identityId, { ...webauthn, response: registrationResponse })
+
+// Stepping up
+const request = await auth.mfa.beginWebauthnMfaVerify(identityId, webauthn)
+await auth.flows.completeStepUp({ currentSid: sid, method: 'webauthn', webauthn: { ...webauthn, response: authenticationResponse } })
+```
+
+The browser side is `startRegistration` and `startAuthentication` from `@simplewebauthn/browser`, given the options each `begin` answers.
+
+TOTP enrollment is refused while a WebAuthn factor exists, but a WebAuthn enrollment adds a key beside whatever the account has, which is how a backup key is added. Once the account has any factor, put this enrollment behind `checkStepUp`, or a password alone can add a key and step up with it.
+
+## Remembered devices
+
+`rememberMeFacet` issues a long-lived token for a "trust this device" checkbox. Nothing in the engine reads it: your sign-in decides what a remembered device skips.
+
+```ts
+import { createHash, randomBytes } from 'node:crypto'
+import { rememberMeFacet } from '@gentleduck/auth/core'
+
+const devices = rememberMeFacet(auth.cfg.stores.credentials, {
+  authRandomToken: (bytes) => randomBytes(bytes).toString('base64url'),
+  authSha256: (value) => createHash('sha256').update(value).digest('hex'),
+})
+
+const { token } = await devices.issue(identityId, { metadata: { label: 'MacBook' } })
+const trusted = await devices.verify(token).orNull()
+```
+
+A token lasts 90 days and is stored hashed. `list`, `revoke` and `revokeAll` manage them; a password reset and removing a factor revoke them all.

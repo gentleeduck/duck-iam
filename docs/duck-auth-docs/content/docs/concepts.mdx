@@ -1,0 +1,44 @@
+---
+title: Concepts
+description: The terms the rest of the docs use, from identity and session to AAL, step-up and tenant, each with the page that covers it
+section: Getting Started
+---
+## The pieces
+
+| Term | What it is |
+| --- | --- |
+| Engine | The `AuthEngine` that `createAuth()` builds once at boot. Everything else hangs off it. See [Core](/duck-auth/core). |
+| Facet | One concern of the engine: `auth.sessions`, `auth.identities`, `auth.flows`, `auth.mfa` and so on. See [facets](/duck-auth/core#facets). |
+| Identity | A person: a `profile` holding at least `username` and `email`, the providers linked to it, and whether the address was proven. See [Identities](/duck-auth/core/identities). |
+| Session | One signed-in caller: who, which tenant, its `kind` (`guest`, `user` or `apikey`), its AAL, the factors presented and when, and an idle and an absolute deadline. The store keeps a hash of the sid, never the sid. See [Sessions](/duck-auth/core/sessions). |
+| Credential | What proves a factor: a password hash, a passkey's public key, a TOTP secret, an API key hash, a one-time token. |
+| Provider | A way to sign in: passwords, magic links, OAuth, passkeys, API keys, SAML. See [Providers](/duck-auth/providers). |
+| Transport | How the sid travels: a cookie, a bearer header, a JWT, or several at once. See [Transports](/duck-auth/core/transports). |
+| Store | Where identities, sessions and credentials live. An adapter supplies all three. See [Adapters](/duck-auth/adapters). |
+| Flow | An operation spanning several facets: sign-in, step-up, password reset, sign-up. See [Flows](/duck-auth/core/flows). |
+| Event | What the engine emits as things happen, such as `signin.success` or `lockout`. See [Events](/duck-auth/core/events). |
+| Delivery | Your mailer: the `deliver` function the engine hands a link or code to send. See [Delivery](/duck-auth/core/delivery). |
+
+## Assurance
+
+| Term | What it is |
+| --- | --- |
+| AAL | `session.aal`. 1 after one factor; 2 after a second one, or a passkey that verified the user, or a SAML assertion naming an MFA context. Nothing mints 3. |
+| Fresh | `session.fresh`: a factor was presented within `session.freshnessMs`, 5 minutes by default. |
+| Step-up | Asking a signed-in person for another factor before a sensitive action, which rotates the session to AAL 2. See [Adding MFA](/duck-auth/guides/mfa). |
+| Hijack | A request whose IP or user agent differs from the session's. Each can be ignored, rotate the session, ask for a step-up, or revoke it. See [hijack detection](/duck-auth/core/sessions#hijack-detection). |
+| Anomaly | Detectors scoring a sign-in or request, such as impossible travel. See [Anomaly detection](/duck-auth/core/anomaly). |
+
+## Tenancy
+
+| Term | What it is |
+| --- | --- |
+| Tenant | A string on credentials and sessions. Identities have none: one person can hold credentials in several tenants. See [Multi-tenancy](/duck-auth/advanced/multi-tenancy). |
+| Org | An organisation with members and roles, inside a tenant. See [Orgs](/duck-auth/core/orgs). |
+
+## Errors
+
+| Term | What it is |
+| --- | --- |
+| `AuthError` | What the engine throws: a `code` such as `AUTH_INVALID_CREDENTIALS`, an HTTP `status`, and `meta`. See [Errors](/duck-auth/core/errors). |
+| Answer | What a lookup returns: `.orNull()` turns "not found" into `null` and still throws anything else. See [answers](/duck-auth/core/errors#answers). |

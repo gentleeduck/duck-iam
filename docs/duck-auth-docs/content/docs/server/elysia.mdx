@@ -1,0 +1,46 @@
+---
+title: Elysia
+description: Mounting the auth routes on Elysia, giving sessions the client IP, and guarding your own routes
+section: Server
+---
+```ts
+import {
+  elysiaProviderBegin,
+  elysiaProviderCallback,
+  elysiaSession,
+  elysiaSignIn,
+  elysiaSignOut,
+} from '@gentleduck/auth/server/elysia'
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .derive(({ server, request }) => ({ ip: server?.requestIP(request)?.address }))
+  .post('/auth/signin', elysiaSignIn(auth))
+  .post('/auth/signout', elysiaSignOut(auth))
+  .get('/auth/session', elysiaSession(auth))
+  .post('/auth/providers/:id/begin', elysiaProviderBegin(auth))
+  .get('/auth/providers/:id/callback', elysiaProviderCallback(auth))
+  .post('/auth/providers/:id/callback', elysiaProviderCallback(auth))
+```
+
+- Elysia resolves no client IP. The `derive` gives the handlers the socket's address, which the session records; behind a proxy, derive it from the header your proxy sets instead.
+- The callback answers the session cookies and an empty 200. To land the browser on a page, write the callback yourself, as on the [OAuth page](/duck-auth/providers/oauth#the-routes).
+
+## Your own routes
+
+```ts
+import { elysiaCsrf, elysiaWithActor } from '@gentleduck/auth/server/elysia'
+
+app.group('/api', (api) =>
+  api.onBeforeHandle(elysiaCsrf(auth)).get(
+    '/me',
+    elysiaWithActor(auth, async ({ request }) => {
+      const resolved = await auth.resolveSession(request).orNull()
+      if (!resolved) return Response.json({ error: 'unauthenticated' }, { status: 401 })
+      return Response.json(resolved.identity)
+    }),
+  ),
+)
+```
+
+Elysia composes no `next`, so the actor scope wraps each handler. `elysiaCaller(ctx)` is the IP and User-Agent to pass to a flow you call yourself.

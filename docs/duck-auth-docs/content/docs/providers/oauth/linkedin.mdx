@@ -1,0 +1,27 @@
+---
+title: LinkedIn
+description: Sign in with LinkedIn over OpenID Connect
+section: Providers
+---
+1. Create an app in the [LinkedIn Developer Portal](https://www.linkedin.com/developers/apps) and add the **Sign In with LinkedIn using OpenID Connect** product.
+2. Under **Auth**, add `https://app.example.com/auth/providers/oauth:linkedin/callback` as an authorized redirect URL.
+3. Copy the client id and secret.
+
+```ts
+import { linkedin } from '@gentleduck/auth/providers/oauth/linkedin'
+
+linkedin({
+  clientId: process.env.LINKEDIN_CLIENT_ID ?? '',
+  clientSecret: process.env.LINKEDIN_CLIENT_SECRET ?? '',
+  redirectUri: 'https://app.example.com/auth/providers/oauth:linkedin/callback',
+  stateSigningSecret: process.env.OAUTH_STATE_SECRET ?? '',
+  nonceStore,
+  profileToIdentityProfile: (p) => (p.email ? { email: p.email, username: `linkedin:${p.sub}`, name: p.name } : null),
+})
+```
+
+The provider id is `oauth:linkedin`, and the default scopes are `openid profile email`.
+
+The profile comes from LinkedIn's userinfo endpoint: `sub`, `email`, `name` and `picture`. `emailVerified` is set only when LinkedIn answers `email_verified: true`.
+
+The routes, the options every provider shares and account linking are on the [OAuth](/duck-auth/providers/oauth) page.

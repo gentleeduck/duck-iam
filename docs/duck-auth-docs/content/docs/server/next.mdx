@@ -1,0 +1,56 @@
+---
+title: Next.js
+description: Mounting the auth routes as one App Router catch-all, reading the session in server components and route handlers, and guarding your own routes
+section: Server
+---
+```ts title="app/auth/[...auth]/route.ts"
+import { mountNext } from '@gentleduck/auth/server/next'
+import { auth } from '@/lib/auth'
+
+export const { GET, POST } = mountNext(auth)
+```
+
+`mountNext` routes on the path's last segments, so the catch-all can live anywhere. Mounted at `app/api/auth/[...auth]`, give the client `baseUrl: '/api/auth'`. Turn a route off with `mountNext(auth, { providerCallback: false })`; the keys are `signin`, `signout`, `session`, `providerBegin` and `providerCallback`.
+
+- A route handler sees no client IP, so sessions record only the User-Agent.
+- The callback answers the session cookies and an empty 200. To land the browser on a page, turn `providerCallback` off and write the callback yourself, as on the [OAuth page](/duck-auth/providers/oauth#the-routes).
+
+## Reading the session
+
+In a server component:
+
+```tsx title="app/account/page.tsx"
+import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { auth } from '@/lib/auth'
+
+export default async function AccountPage() {
+  const resolved = await auth.resolveSession({ headers: await headers() }).orNull()
+  if (!resolved) redirect('/sign-in')
+  return <h1>Hello, {resolved.identity?.profile.email}</h1>
+}
+```
+
+In a route handler, pass the request itself: `auth.resolveSession(req)`.
+
+## Your own routes
+
+A route handler composes no middleware, so the CSRF guard and the actor scope wrap each one:
+
+```ts title="app/api/profile/route.ts"
+import { nextWithActor, withNextCsrf } from '@gentleduck/auth/server/next'
+import { auth } from '@/lib/auth'
+
+export const POST = withNextCsrf(
+  auth,
+  nextWithActor(auth, async (req: Request) => {
+    const resolved = await auth.resolveSession(req).orNull()
+    if (!resolved) return Response.json({ error: 'unauthenticated' }, { status: 401 })
+    return Response.json(await updateProfile(resolved.identity, await req.json()))
+  }),
+)
+```
+
+Both pass every argument on, the route's `{ params }` included. `nextWithActor` answers a refusal itself, since Next turns any throw from a route into a 500. `nextCaller(req)` is the User-Agent to pass to a flow you call yourself.
+
+For a layout the catch-all does not fit, `nextSignIn`, `nextSignOut` and `nextSession` take the engine, and `nextProviderBegin` and `nextProviderCallback` take the provider id as well.

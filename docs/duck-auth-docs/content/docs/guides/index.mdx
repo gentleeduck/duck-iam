@@ -1,0 +1,173 @@
+---
+title: Quick start
+description: Password and magic-link sign-in behind Express, stored in Postgres through Drizzle, from install to sign-out
+section: Guides
+---
+This guide builds a small Express backend: sign-up, password and magic-link sign-in, the session endpoint and sign-out, stored in Postgres. Every file is shown whole.
+
+<Steps>
+
+<Step>Install</Step>
+
+```bash
+bun add @gentleduck/auth drizzle-orm pg express
+bun add -D drizzle-kit @types/pg @types/express
+```
+
+<Step>Create the tables</Step>
+
+duck-auth ships its Drizzle tables. Re-export them from your schema so `drizzle-kit` sees them next to your own.
+
+```ts title="src/db/schema.ts"
+export {
+  authCredentials,
+  authIdentities,
+  authIdentityProviders,
+  authSessions,
+} from '@gentleduck/auth/adapters/drizzle/pg'
+```
+
+```ts title="drizzle.config.ts"
+import { defineConfig } from 'drizzle-kit'
+
+export default defineConfig({
+  dialect: 'postgresql',
+  schema: './src/db/schema.ts',
+  out: './drizzle',
+  dbCredentials: { url: process.env.DATABASE_URL ?? '' },
+})
+```
+
+```bash
+bunx drizzle-kit push
+```
+
+`push` suits a first run; switch to `drizzle-kit generate` and a migrator once the schema is shared.
+
+<Step>Build the engine</Step>
+
+`drizzlePgAdapter(db)` provides the identities, sessions and credentials stores. The magic-link provider is passed as a thunk so it receives the engine's `deliver`; here `deliver` prints the link instead of mailing it.
+
+```ts title="src/auth.ts"
+import { drizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
+import { createAuth, type Deliver, orNull } from '@gentleduck/auth/core'
+import { cookieTransport } from '@gentleduck/auth/core/transport'
+import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
+import { magicLink } from '@gentleduck/auth/providers/magic-link'
+import { passwords } from '@gentleduck/auth/providers/passwords'
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { Pool } from 'pg'
+import * as schema from './db/schema'
+
+const db = drizzle(new Pool({ connectionString: process.env.DATABASE_URL }), { schema })
+const stores = drizzlePgAdapter(db)
+
+const deliver: Deliver = async ({ identity, kind, vars }) => {
+  console.log(`[${kind}] ${identity.profile.email}: ${vars.url}`)
+}
+
+export const auth = createAuth({
+  baseUrl: 'http://localhost:3000',
+  deliver,
+  limiter: new MemoryLimiter(),
+  stores,
+  transport: cookieTransport({ name: 'sid', secure: false }),
+  providers: [
+    passwords(),
+    (_engine, send) =>
+      magicLink({
+        callbackPath: '/magic-link',
+        deliver: send,
+        findIdentityByEmail: (email) => orNull(stores.identities.find({ email })),
+      }),
+  ],
+})
+```
+
+<Step>Mount the routes</Step>
+
+`server/express` provides handlers for duck-auth's own endpoints. Sign-up is yours to write, since what an account needs (a name, terms accepted, an invite) is your app's call.
+
+```ts title="src/server.ts"
+import { errorToHttp } from '@gentleduck/auth/server/generic'
+import { expressCsrf, mountProviderBegin, mountSession, mountSignIn, mountSignOut } from '@gentleduck/auth/server/express'
+import express, { type ErrorRequestHandler } from 'express'
+import { auth } from './auth'
+
+const app = express()
+app.use(express.json())
+
+app.post('/auth/signin', mountSignIn(auth))
+app.post('/auth/signout', mountSignOut(auth))
+app.get('/auth/session', mountSession(auth))
+app.post('/auth/providers/:id/begin', mountProviderBegin(auth))
+
+// Your own routes take the CSRF guard; duck-auth's handlers run it themselves.
+app.use(expressCsrf(auth))
+
+app.post('/auth/signup', async (req, res) => {
+  const { email, name, password } = req.body
+  auth.passwords.assertStrength(password)
+  const identity = await auth.identities.create({ profile: { email, name, username: email } })
+  await auth.passwords.set(identity.id, password, auth.cfg.stores.credentials)
+  res.status(201).json({ identityId: identity.id })
+})
+
+const onError: ErrorRequestHandler = (err, _req, res, _next) => {
+  const { status, body } = errorToHttp(err)
+  res.status(status).json(body)
+}
+app.use(onError)
+
+app.listen(3000)
+```
+
+`errorToHttp` maps an `AuthError` to its status and an `{ ok: false, error: { code, status } }` body, and anything else to a 500 that says nothing about the cause. `assertStrength` refuses a weak password as `AUTH_INVALID_CREDENTIALS` without naming the rule it broke.
+
+<Step>Try it</Step>
+
+```bash
+DATABASE_URL=postgres://localhost/app bun src/server.ts
+```
+
+Sign up, then sign in; `-c` and `-b` keep the cookies between calls.
+
+```bash
+curl -s localhost:3000/auth/signup -H 'content-type: application/json' \
+  -d '{"email":"ada@example.com","name":"Ada","password":"correct-horse-battery"}'
+
+curl -s -c jar localhost:3000/auth/signin -H 'content-type: application/json' \
+  -d '{"providerId":"password","input":{"email":"ada@example.com","password":"correct-horse-battery"}}'
+
+curl -s -b jar localhost:3000/auth/session
+```
+
+The sign-in answers 200 with the two cookies, the session call answers `{ session, identity }`, and a wrong password answers 401 `AUTH_INVALID_CREDENTIALS`. Signing out needs the CSRF token, which the sign-in set in the `duck-csrf` cookie:
+
+```bash
+curl -s -b jar localhost:3000/auth/signout -X POST \
+  -H "x-csrf-token: $(awk '$6 == "duck-csrf" { print $7 }' jar)"
+```
+
+For a magic link, begin the provider with its input as the body; the server prints the link:
+
+```bash
+curl -s localhost:3000/auth/providers/magic-link/begin -H 'content-type: application/json' \
+  -d '{"email":"ada@example.com"}'
+```
+
+The link opens `/magic-link?token=...` on `baseUrl`. That page posts the token back to sign in:
+
+```bash
+curl -s -c jar localhost:3000/auth/signin -H 'content-type: application/json' \
+  -d '{"providerId":"magic-link","input":{"token":"<token from the link>"}}'
+```
+
+</Steps>
+
+## Next steps
+
+- [Delivery](/duck-auth/core/delivery): replace the `console.log` with a mailer.
+- [React client](/duck-auth/client/react): call these endpoints from a browser.
+- [Adding MFA](/duck-auth/guides/mfa): TOTP and backup codes as a second step.
+- [Production hardening](/duck-auth/advanced/security): what `strict()` checks once `NODE_ENV=production`.

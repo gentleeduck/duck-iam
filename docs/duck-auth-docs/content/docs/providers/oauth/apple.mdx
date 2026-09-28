@@ -1,0 +1,32 @@
+---
+title: Apple
+description: Sign in with Apple, its per-request client secret, the form-posted callback, and the name Apple sends once
+section: Providers
+---
+1. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list), create a **Services ID** with **Sign in with Apple** enabled. Its identifier is your client id.
+2. Configure it with your domain and the return URL `https://app.example.com/auth/providers/oauth:apple/callback`.
+3. Under **Keys**, create a key with **Sign in with Apple** enabled and download the `AuthKey_<keyId>.p8`. Note the key id and your team id.
+
+```ts
+import { apple } from '@gentleduck/auth/providers/oauth/apple'
+
+apple({
+  clientId: 'com.example.app.web',
+  teamId: process.env.APPLE_TEAM_ID ?? '',
+  keyId: process.env.APPLE_KEY_ID ?? '',
+  privateKey: process.env.APPLE_PRIVATE_KEY ?? '', // the .p8 contents
+  redirectUri: 'https://app.example.com/auth/providers/oauth:apple/callback',
+  stateSigningSecret: process.env.OAUTH_STATE_SECRET ?? '',
+  nonceStore,
+  profileToIdentityProfile: (p) => (p.email ? { email: p.email, username: `apple:${p.sub}`, name: p.name } : null),
+})
+```
+
+The provider id is `oauth:apple`, and the default scopes are `name email`.
+
+- There is no `clientSecret`. Each token exchange signs a fresh ES256 client secret from the key, valid for 30 minutes. `generateClientSecret` is exported if you need one elsewhere.
+- Apple posts the callback as a form, so it needs the POST callback route on the [OAuth](/duck-auth/providers/oauth#the-routes) page, and a `secure` state cookie: the cookie goes out `SameSite=None`, and a non-secure one throws `AUTH_MISCONFIGURED`. Test over https.
+- The profile is read from the id_token. `emailVerified` is set when it says `email_verified` is `true` or `"true"`. A user who hides their address signs in with an `@privaterelay.appleid.com` one.
+- Apple sends the name only on the first authorization. Store it from `profileToIdentityProfile`, since no later sign-in carries it.
+
+The options every provider shares and account linking are on the [OAuth](/duck-auth/providers/oauth) page.

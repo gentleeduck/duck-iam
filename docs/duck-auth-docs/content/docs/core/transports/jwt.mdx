@@ -1,0 +1,68 @@
+---
+title: JwtTransport
+description: A signed access token verified without a store read, with an optional refresh cookie, key rotation and a JWKS document
+section: Core
+---
+The session is signed into a JWT. Requests carry it as `Authorization: Bearer <jwt>`, and `resolveSession` verifies it with no session-store read.
+
+```ts
+import { jwtTransport } from '@gentleduck/auth/core/transport'
+
+const secret = process.env.JWT_SECRET ?? '' // an empty key throws at construction
+
+const jwt = jwtTransport({
+  signKey: { kid: '2026-09', key: secret },
+  verifyKeys: [{ kid: '2026-09', key: secret }],
+  issuer: 'https://app.example.com',
+  refresh: {},
+})
+
+createAuth({ /* ... */ transport: jwt })
+```
+
+A sign-in answers `{ access_token, expires_in, token_type: 'Bearer' }`, and with `refresh` set, a refresh cookie.
+
+## Revocation
+
+The token is checked by signature alone, so **revoking the session does not revoke a token already issued**: it keeps working until `exp`. Keep `ttlMs` short (15 minutes by default) and put the long-lived state in the refresh cookie, which a revoke does end. Use the [cookie](/duck-auth/core/transports/cookie) or [bearer](/duck-auth/core/transports/bearer) transport where sign-out must be immediate.
+
+## Options
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `signKey` | required | `{ kid, alg?, key }`. `key` is the secret for HS256, a PEM private key otherwise. |
+| `verifyKeys` | required | Every key a token may be signed with, `signKey` included, each `{ kid, alg?, key, notAfter? }`. |
+| `issuer` | required | Written as `iss` and required on verify. |
+| `audience` | none | Written as `aud` and required on verify when set. |
+| `ttlMs` | 15 minutes | Never past the session's own deadlines. |
+| `freshnessMs` | 5 minutes | How long after sign-in the rebuilt session counts as fresh. |
+| `clockSkewSec` | 0 | Leeway on `exp` for servers whose clocks disagree. |
+| `refresh` | off | `{ cookieName?, ttlMs?, sameSite? }`; cookie `__Host-duck-refresh`, 7 days, `'strict'`. |
+
+`alg` is `HS256` (the default), `ES256`, `RS256` or `EdDSA`, and a token is refused unless its header names the alg pinned to its `kid`. `strict()` refuses an HS256 secret under 32 bytes in production.
+
+The token carries the session's `ip` and `userAgent` for hijack detection. Anyone holding it can read them.
+
+## Refreshing
+
+The refresh cookie holds the plaintext session id. Your refresh route reads it, checks the session is still live, and mints a new access token without rotating:
+
+```ts
+import { JwtTransport, parseCookie } from '@gentleduck/auth/core/transport'
+
+const sid = parseCookie(request.headers.get('cookie') ?? '', '__Host-duck-refresh')
+if (!sid) throw new AuthError('AUTH_UNAUTHENTICATED')
+const session = await auth.sessions.getBySid(sid).orNull()
+if (!session) throw new AuthError('AUTH_UNAUTHENTICATED')
+const intents = JwtTransport.mintFresh(jwt, sid, session)
+```
+
+## Rotating keys
+
+```ts
+jwt.rotateSignKey({ signKey: { kid: '2026-10', key: next } })
+// once every token signed with the old key has expired:
+jwt.retireVerifyKey('2026-09')
+```
+
+Tokens signed with the old key keep verifying until it is retired. For ES256, RS256 and EdDSA pass the public half as `verifyKey`, and serve `jwt.jwks()` at `/.well-known/jwks.json` so other services can verify; HS256 secrets never appear in it.
