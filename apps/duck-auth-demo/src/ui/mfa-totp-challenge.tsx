@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { Button } from '@gentleduck/registry-ui/button'
@@ -14,7 +14,7 @@ import { useState } from 'react'
  * callback so the caller decides whether to invoke
  * `FlowsFacet.completeStepUp` / `authVerifyTotp` server-side.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function MfaTotpChallenge(props: MfaTotpChallenge.IProps): React.JSX.Element {
   const {
@@ -68,7 +68,7 @@ export function MfaTotpChallenge(props: MfaTotpChallenge.IProps): React.JSX.Elem
 /**
  * Namespace merge for MfaTotpChallenge.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace MfaTotpChallenge {
   export interface IProps {

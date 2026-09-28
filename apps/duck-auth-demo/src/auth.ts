@@ -10,7 +10,7 @@
 import { drizzlePgAdapter } from '@gentleduck/auth/adapters/drizzle/pg'
 import type { Deliver } from '@gentleduck/auth/core'
 import { createAuth } from '@gentleduck/auth/core'
-import { CookieTransport } from '@gentleduck/auth/core/transport'
+import { CookieTransport, memoryDPoPNonceStore } from '@gentleduck/auth/core/transport'
 import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { magicLink } from '@gentleduck/auth/providers/magic-link'
 import { github } from '@gentleduck/auth/providers/oauth/github'
@@ -29,6 +29,13 @@ export interface DemoProfile {
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8787'
 const STATE = process.env.OAUTH_STATE_SECRET ?? 'demo-state-signing-secret-change-me-32-chars'
 
+/** Both oauth providers burn each state at its callback, and name a state cookie an http host keeps. */
+const OAUTH = {
+  nonceStore: memoryDPoPNonceStore(),
+  stateCookie: { name: 'duck-oauth', secure: false },
+  stateSigningSecret: STATE,
+}
+
 export const adapter = drizzlePgAdapter<Record<string, unknown>, DemoProfile>(
   process.env.DATABASE_URL ?? 'postgres://duck:duck_dev_pw@localhost:5433/duck_auth_demo',
 )
@@ -36,8 +43,7 @@ export const adapter = drizzlePgAdapter<Record<string, unknown>, DemoProfile>(
 /** Stands in for the mailer a real deployment would reach for. Throwing here is how a failure is
  *  reported: the flow answers the caller the same either way and emits `signin.failed`. */
 const deliver: Deliver = async ({ identity, kind, vars }) => {
-  const to = (identity.profile as DemoProfile).email
-  console.log(`[${kind}] -> ${to}`, vars.url ?? vars)
+  console.log(`[${kind}] -> ${identity.profile.email}`, vars.url)
 }
 
 export const auth = createAuth<DemoProfile>({
@@ -57,17 +63,17 @@ export const auth = createAuth<DemoProfile>({
       }),
     process.env.GOOGLE_CLIENT_ID &&
       google<DemoProfile>({
+        ...OAUTH,
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
-        redirectUri: `${BASE_URL}/auth/providers/google/callback`,
-        stateSigningSecret: STATE,
+        redirectUri: `${BASE_URL}/auth/providers/oauth:google/callback`,
       }),
     process.env.GITHUB_CLIENT_ID &&
       github<DemoProfile>({
+        ...OAUTH,
         clientId: process.env.GITHUB_CLIENT_ID,
         clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
-        redirectUri: `${BASE_URL}/auth/providers/github/callback`,
-        stateSigningSecret: STATE,
+        redirectUri: `${BASE_URL}/auth/providers/oauth:github/callback`,
       }),
     () =>
       passkey<DemoProfile>({

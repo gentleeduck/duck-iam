@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { useSignOut } from '@gentleduck/auth/client/react'
@@ -12,7 +12,7 @@ import type { ComponentProps } from 'react'
  * registry-ui Button variant API (`variant`, `size`, etc.) by
  * forwarding any ComponentProps<Button>.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function SignOutButton(props: SignOutButton.IProps): React.JSX.Element {
   const { onSignedOut, ...buttonProps } = props
@@ -34,7 +34,7 @@ export function SignOutButton(props: SignOutButton.IProps): React.JSX.Element {
 /**
  * Namespace merge for SignOutButton.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace SignOutButton {
   export interface IProps extends Omit<ComponentProps<typeof Button>, 'onClick'> {
