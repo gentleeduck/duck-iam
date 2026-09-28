@@ -5,6 +5,7 @@ import type { Hasher } from './hashers.types'
 
 /** The namespace merge that puts `Argon2idHasher.Params` alongside the class. */
 export namespace Argon2idHasher {
+  /** Argon2id cost parameters. */
   export type Params = {
     /** Memory cost in KiB. Default 19_456, 19 MiB; the FIPS preset uses 65_536. */
     memoryCost: number
@@ -58,7 +59,7 @@ let _argon2Module: NodeRsArgon2Module | null = null
 async function loadArgon2(): Promise<NodeRsArgon2Module> {
   if (_argon2Module) return _argon2Module
   try {
-    const mod = (await import('@node-rs/argon2' as string)) as NodeRsArgon2Module
+    const mod: NodeRsArgon2Module = await import('@node-rs/argon2')
     _argon2Module = mod
     return mod
   } catch {
@@ -86,11 +87,8 @@ export class Argon2idHasher implements Hasher.Me {
 
   constructor(params: Partial<Argon2idHasher.Params> = {}) {
     this._params = { ...ARGON2ID_DEFAULTS, ...params }
-    // SECURITY: the work factor is the whole of a stored password's strength and arrived unchecked.
-    // Measured: `{ memoryCost: 8, timeCost: 1 }` hashed and verified happily at 8 KiB and one pass, and
-    // `needsRehash` - which compares a row against these very numbers - called the result current, so the
-    // rehash-on-sign-in upgrade can never fire on a deployment that got them wrong. A non-integer threw
-    // inside the native module on the first sign-up instead of here.
+    // SECURITY: the work factor is a stored password's whole strength, and `needsRehash` compares rows
+    // against these same numbers, so a weak setting could never be upgraded away.
     for (const [name, value] of Object.entries(this._params)) {
       if (!Number.isInteger(value) || value < 1) {
         throw new AuthError('AUTH_MISCONFIGURED', {

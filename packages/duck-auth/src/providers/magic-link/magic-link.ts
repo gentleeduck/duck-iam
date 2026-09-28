@@ -1,7 +1,8 @@
 import { orNull } from '~/core/answer'
-import { burnCredential, isCredentialExpired, toCredentialCreate } from '~/core/credentials/credentials'
+import { burnCredential, isCredentialExpired, isRevoked, toCredentialCreate } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import { refuseRateLimited } from '~/core/events/events.lockout'
+import { deliver } from '~/core/flows/flows.delivery'
 import { canonicalEmail, type Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { isSafeCallbackPath } from '~/core/url-validators'
@@ -9,18 +10,28 @@ import { NO_IDENTITY_SENTINEL } from '~/providers/passwords/passwords.constants'
 import { DEFAULT_MAGIC_LINK_CONFIG } from './magic-link.constants'
 import type { MagicLink } from './magic-link.types'
 
-/** Passwordless, in two phases: */
+/** Passwordless sign-in by a single-use link sent to the address. */
 export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<MagicLink.BeginInput, MagicLink.CompleteInput, Profile>
 {
   readonly id = 'magic-link'
   readonly kind = 'magic-link' as const
+  /** Read by `strict()`, which holds the provider and not its options: with no `deliver`, `begin` refuses
+   *  every link request. */
+  readonly __noDeliver: boolean
   private readonly ttlMs: number
   private readonly prefix: string
   private readonly callbackPath: string
 
   constructor(private readonly opts: MagicLink.Options<Profile>) {
     this.ttlMs = opts.ttlMs ?? DEFAULT_MAGIC_LINK_CONFIG.ttlMs
+    // SQL stores refuse the `Invalid Date` a NaN makes, and `begin` writes only for a known address, so
+    // the link endpoint would answer 500 for an account that exists and 200 for one that does not.
+    if (!Number.isFinite(this.ttlMs) || this.ttlMs <= 0) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: `magic-link: ttlMs must be a finite positive number (got ${this.ttlMs})`,
+      })
+    }
     this.prefix = opts.limiterKeyPrefix ?? DEFAULT_MAGIC_LINK_CONFIG.limiterKeyPrefix
     // Refused at construction, so a typo like `//evil.com` cannot turn the magic-link URL into a
     // cross-origin redirect that exfiltrates the token: a browser resolves `https://app//evil.com?...`
@@ -31,6 +42,7 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
       })
     }
     this.callbackPath = opts.callbackPath ?? DEFAULT_MAGIC_LINK_CONFIG.callbackPath
+    this.__noDeliver = !opts.deliver
   }
 
   /** Mints a single-use link and hands it to the host's `deliver`. */
@@ -76,6 +88,8 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
     const token = ctx.crypto.authRandomToken(32)
     const tokenHash = ctx.crypto.authSha256(token)
     const subjectId = identityId ?? NO_IDENTITY_SENTINEL
+    // One live link per account, as a reset has one: an older mail stops working once a newer one is sent.
+    await ctx.stores.credentials.deleteByKind(subjectId, 'magic-link', ctx.tenant)
     if (identityId) {
       await ctx.stores.credentials.create(
         toCredentialCreate({
@@ -95,8 +109,6 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
 
     const url = `${ctx.baseUrl}${this.callbackPath}?token=${encodeURIComponent(token)}`
     const identityRow = await orNull(ctx.stores.identities.find({ id: subjectId }))
-    // Dispatched without awaiting, so the response shape and latency match between the known- and
-    // unknown-identity branches.
     if (!identityId || !identityRow) {
       if (identityId) {
         // A race; acking silently avoids leaking whether the identity exists.
@@ -107,16 +119,13 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
       }
       return [{ type: 'json', status: 200, body: { ok: true } }]
     }
-    void send({
-      identity: identityRow,
+    // Dispatched without awaiting, so the response shape and latency match between the known- and
+    // unknown-identity branches.
+    void deliver(ctx.events, send, {
       kind: 'magic-link',
+      identity: identityRow,
       tenant: ctx.tenant,
       vars: { ttlMin: Math.round(this.ttlMs / 60_000), url },
-    }).catch(async () => {
-      // The thrown error's text is not forwarded, and this is the flow where it matters most: `vars.url`
-      // is the sign-in link itself, so a mailer that throws quoting what it tried to send would put a live
-      // token into the audit log.
-      await ctx.events.emit('signin.failed', { providerId: 'magic-link', reason: 'deliver threw' })
     })
     return [{ type: 'json', status: 200, body: { ok: true } }]
   }
@@ -139,14 +148,32 @@ export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Iden
       void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
       throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
     }
+    // The link proves the address it was sent to, which proves nothing once the account has moved off it.
+    // A deleted account is left to the guard in `flows.signIn`.
+    const identity = await orNull(ctx.stores.identities.find({ id: row.identityId }))
+    if (identity && canonicalEmail(identity.profile.email) !== row.metadata?.email) {
+      throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
+    }
     await burnCredential(ctx, row)
     await ctx.stores.credentials.revoke(row.id, ctx.tenant)
+    // Redeeming the link proves the address. Left unproven, a row whose only credentials are spent links
+    // reads to `beginSignUp` as an abandoned sign-up, which anyone may reclaim. And until now anyone could
+    // have held the row: whatever they signed it up with, linked or enrolled on it, and their sessions, go.
+    const unproven = identity !== null && !identity.emailVerified
+    if (unproven) {
+      await ctx.stores.identities.update(identity.id, { emailVerified: true }, identity.version)
+      for (const p of identity.providers) await ctx.stores.identities.unlink(identity.id, p.providerId)
+      for (const c of await ctx.stores.credentials.listByIdentity(identity.id, null, {})) {
+        if (!isRevoked(c)) await ctx.stores.credentials.revoke(c.id, {})
+      }
+    }
     return [
       {
         type: 'startSession',
         identityId: row.identityId,
         factors: [{ method: 'magic-link', completedAt: new Date() }],
         aal: 1,
+        endOtherSessions: unproven,
       },
     ]
   }

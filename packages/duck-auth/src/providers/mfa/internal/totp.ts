@@ -3,6 +3,7 @@ import { AuthError } from '~/core/errors'
 
 /** TOTP parameters, per RFC 6238. */
 export namespace Totp {
+  /** The code length, step and hash every authenticator app assumes. */
   export type Params = {
     digits: 6
     /** Pinned at 30s, which is what every authenticator app assumes. */

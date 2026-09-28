@@ -1,13 +1,14 @@
+import { createHash, randomBytes } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import { InMemoryEvents } from '~/core/events'
 import type { Passkey } from '~/providers/passkey/passkey.types'
+import { type SoftAuthenticator, softAuthenticator } from '~/test/soft-authenticator'
 import { totpAt } from '../internal/totp'
 import { MfaImpl } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
-import type { Mfa } from '../mfa.types'
 
 describe('MfaFacet - TOTP', () => {
   let adapter: MemoryAdapter
@@ -27,7 +28,7 @@ describe('MfaFacet - TOTP', () => {
       expect(challenge.uri).toMatch(/^otpauth:\/\/totp\/.*alice%40x\.com/)
       const rows = await adapter.credentials.listByIdentity('user-1', 'totp', {})
       expect(rows).toHaveLength(1)
-      expect((rows[0]?.metadata as { confirmed?: boolean }).confirmed).toBe(false)
+      expect(rows[0]?.metadata).toMatchObject({ confirmed: false })
     })
 
     it('hasTotp returns false for unconfirmed enrollment', async () => {
@@ -49,6 +50,33 @@ describe('MfaFacet - TOTP', () => {
       }
       expect(handler).toHaveBeenCalledOnce()
       expect(await facet.hasTotp('user-1')).toBe(true)
+    })
+
+    it('two confirms racing on one code enroll once and mint one set of backup codes', async () => {
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
+      const handler = vi.fn()
+      events.on('mfa.enrolled', handler)
+
+      const results = await Promise.all([
+        facet.confirmTotpEnrollment('user-1', code),
+        facet.confirmTotpEnrollment('user-1', code),
+      ])
+      expect(results.filter((r) => r.ok)).toHaveLength(1)
+      expect(await adapter.credentials.listByIdentity('user-1', 'recovery', {})).toHaveLength(
+        DEFAULT_MFA_CONFIG.backupCodeCount,
+      )
+      expect(handler).toHaveBeenCalledOnce()
+    })
+
+    it('confirmTotpEnrollment refuses an enrollment revoked before it was confirmed, and mints no codes', async () => {
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      await adapter.credentials.revokeByKind('user-1', 'totp', {})
+      const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
+
+      await expect(facet.confirmTotpEnrollment('user-1', code)).rejects.toMatchObject({ code: 'AUTH_MFA_REQUIRED' })
+      expect(await adapter.credentials.listByIdentity('user-1', 'recovery', {})).toEqual([])
+      expect(await facet.hasTotp('user-1')).toBe(false)
     })
 
     it('confirmTotpEnrollment with wrong code returns ok:false', async () => {
@@ -270,7 +298,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   let facet: MfaImpl
   let identityId: string
 
-  function makeMockWebauthn(): Mfa.WebauthnLibrary {
+  function makeMockWebauthn(): Passkey.SimpleWebAuthnServerModule {
     return {
       generateRegistrationOptions: vi.fn(async () => ({
         challenge: 'reg-challenge',
@@ -318,6 +346,49 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     identityId = 'user-wa-mfa-1'
   })
 
+  const enroll = async (webauthn: Passkey.SimpleWebAuthnServerModule): Promise<Passkey.ChallengeStore> => {
+    const challengeStore = makeStore()
+    await facet.beginWebauthnMfaEnrollment(identityId, {
+      challengeKey: 'enroll',
+      challengeStore,
+      expectedOrigins: 'https://app.test',
+      rpID: 'app.test',
+      rpName: 'app',
+      userName: 'a@x.com',
+      webauthnModule: webauthn,
+    })
+    await facet.confirmWebauthnMfaEnrollment(identityId, {
+      challengeKey: 'enroll',
+      challengeStore,
+      expectedOrigins: 'https://app.test',
+      response: { id: 'wa-mfa-1' },
+      rpID: 'app.test',
+      webauthnModule: webauthn,
+    })
+    return challengeStore
+  }
+
+  const assertOnce = async (
+    webauthn: Passkey.SimpleWebAuthnServerModule,
+    challengeStore: Passkey.ChallengeStore,
+    mfa: MfaImpl = facet,
+  ): Promise<boolean> => {
+    await mfa.beginWebauthnMfaVerify(identityId, {
+      challengeKey: 'verify',
+      challengeStore,
+      rpID: 'app.test',
+      webauthnModule: webauthn,
+    })
+    return mfa.verifyWebauthnMfa(identityId, {
+      challengeKey: 'verify',
+      challengeStore,
+      expectedOrigins: 'https://app.test',
+      response: { id: 'wa-mfa-1' },
+      rpID: 'app.test',
+      webauthnModule: webauthn,
+    })
+  }
+
   it('beginWebauthnMfaEnrollment + confirmWebauthnMfaEnrollment persists a webauthn-mfa credential', async () => {
     const challengeStore = makeStore()
     const webauthn = makeMockWebauthn()
@@ -340,150 +411,145 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     })
     expect(r.credentialId).toBeDefined()
     expect(await facet.hasWebauthnMfa(identityId)).toBe(true)
+    expect(webauthn.generateRegistrationOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ userID: new Uint8Array(createHash('sha256').update(identityId).digest()) }),
+    )
+  })
+
+  it('a registration the verifier throws on is AUTH_PASSKEY_MISMATCH and stores nothing', async () => {
+    const webauthn = makeMockWebauthn()
+    vi.mocked(webauthn.verifyRegistrationResponse).mockRejectedValueOnce(
+      new Error('Unexpected registration response origin "https://evil.test"'),
+    )
+    await expect(enroll(webauthn)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+    expect(await facet.hasWebauthnMfa(identityId)).toBe(false)
+    await enroll(webauthn)
+    expect(await facet.hasWebauthnMfa(identityId)).toBe(true)
   })
 
   it('verifyWebauthnMfa returns true on a valid assertion and false on rollback', async () => {
-    const challengeStore = makeStore()
     const webauthn = makeMockWebauthn()
-    await facet.beginWebauthnMfaEnrollment(identityId, {
-      rpID: 'app.test',
-      rpName: 'app',
-      userName: 'a@x.com',
-      expectedOrigins: 'https://app.test',
-      challengeStore,
-      challengeKey: 'sess-2',
-      webauthnModule: webauthn,
-    })
-    await facet.confirmWebauthnMfaEnrollment(identityId, {
-      rpID: 'app.test',
-      expectedOrigins: 'https://app.test',
-      challengeStore,
-      challengeKey: 'sess-2',
-      response: { id: 'wa-mfa-1' },
-      webauthnModule: webauthn,
-    })
+    const challengeStore = await enroll(webauthn)
+    expect(await assertOnce(webauthn, challengeStore)).toBe(true)
+    // The id the browser holds, not the row's own.
+    expect(webauthn.verifyAuthenticationResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ credential: expect.objectContaining({ id: 'wa-mfa-1' }) }),
+    )
 
-    // Happy path
-    await facet.beginWebauthnMfaVerify(identityId, {
-      rpID: 'app.test',
-      challengeStore,
-      challengeKey: 'verify-1',
-      webauthnModule: webauthn,
-    })
-    const ok = await facet.verifyWebauthnMfa(identityId, {
-      rpID: 'app.test',
-      expectedOrigins: 'https://app.test',
-      challengeStore,
-      challengeKey: 'verify-1',
-      response: { id: 'wa-mfa-1' },
-      webauthnModule: webauthn,
-    })
-    expect(ok).toBe(true)
-
-    // Counter rollback (stored counter advanced to 1; reply newCounter=0)
-    await facet.beginWebauthnMfaVerify(identityId, {
-      rpID: 'app.test',
-      challengeStore,
-      challengeKey: 'verify-2',
-      webauthnModule: webauthn,
-    })
-    // Patch the cred row's counter to 5; then the next assertion returning newCounter=0 should be rejected.
-    const creds = await adapter.credentials.listByIdentity(identityId, 'webauthn-mfa', {})
-    const cred = creds[0]
+    // The stored count moves to 5, above the 1 the next assertion reports.
+    const [cred] = await adapter.credentials.listByIdentity(identityId, 'webauthn-mfa', {})
     if (!cred) throw new Error('expected credential')
     await adapter.credentials.patchMetadata(cred.id, { counter: 5 }, {})
-    const verifyAuth = webauthn.verifyAuthenticationResponse as ReturnType<typeof vi.fn>
-    verifyAuth.mockResolvedValueOnce({
+    expect(await assertOnce(webauthn, challengeStore)).toBe(false)
+  })
+
+  it('refuses a stored count that is not a number, where a number verifies', async () => {
+    const webauthn = makeMockWebauthn()
+    const challengeStore = await enroll(webauthn)
+    const [cred] = await adapter.credentials.listByIdentity(identityId, 'webauthn-mfa', {})
+    if (!cred) throw new Error('expected credential')
+    // Read as 0, `'5'` let every count above 0 through, a clone's included.
+    await adapter.credentials.patchMetadata(cred.id, { counter: '5' }, {})
+    expect(await assertOnce(webauthn, challengeStore)).toBe(false)
+    await adapter.credentials.patchMetadata(cred.id, { counter: 0 }, {})
+    expect(await assertOnce(webauthn, challengeStore)).toBe(true)
+  })
+
+  it('stores the transports the library names, once each, whatever the client sent', async () => {
+    const webauthn = makeMockWebauthn()
+    vi.mocked(webauthn.verifyRegistrationResponse).mockResolvedValueOnce({
+      registrationInfo: {
+        credential: {
+          counter: 0,
+          id: 'wa-mfa-1',
+          publicKey: new Uint8Array([1, 2, 3]),
+          transports: JSON.parse('["usb", {"x": 1}, "usb", "nfc", 7]'),
+        },
+      },
       verified: true,
-      authenticationInfo: { newCounter: 1, credentialID: 'wa-mfa-1', userVerified: true },
     })
-    const ok2 = await facet.verifyWebauthnMfa(identityId, {
-      rpID: 'app.test',
-      expectedOrigins: 'https://app.test',
-      challengeStore,
-      challengeKey: 'verify-2',
-      response: { id: 'wa-mfa-1' },
-      webauthnModule: webauthn,
+    await enroll(webauthn)
+    const [cred] = await adapter.credentials.listByIdentity(identityId, 'webauthn-mfa', {})
+    expect(cred?.metadata).toMatchObject({ transports: ['usb', 'nfc'] })
+  })
+
+  it('reports a count that falls back to zero as a rollback', async () => {
+    const webauthn = makeMockWebauthn()
+    const challengeStore = await enroll(webauthn)
+    const seen: unknown[] = []
+    events.on('suspicious', (payload) => {
+      seen.push(payload)
     })
-    expect(ok2).toBe(false)
+    expect(await assertOnce(webauthn, challengeStore)).toBe(true)
+    vi.mocked(webauthn.verifyAuthenticationResponse).mockResolvedValueOnce({
+      authenticationInfo: { credentialID: 'wa-mfa-1', newCounter: 0, userVerified: true },
+      verified: true,
+    })
+    expect(await assertOnce(webauthn, challengeStore)).toBe(false)
+    expect(seen).toEqual([
+      expect.objectContaining({
+        identityId,
+        meta: expect.objectContaining({ newCounter: 0, oldCounter: 1 }),
+        signal: 'webauthn-mfa-counter-rollback',
+      }),
+    ])
+  })
+
+  it('an authenticator that never counts stays usable', async () => {
+    const webauthn = makeMockWebauthn()
+    vi.mocked(webauthn.verifyAuthenticationResponse).mockResolvedValue({
+      authenticationInfo: { credentialID: 'wa-mfa-1', newCounter: 0, userVerified: true },
+      verified: true,
+    })
+    const challengeStore = await enroll(webauthn)
+    expect(await assertOnce(webauthn, challengeStore)).toBe(true)
+    expect(await assertOnce(webauthn, challengeStore)).toBe(true)
+  })
+
+  it('a count the verifier reports as NaN is refused, since NaN compares false against every stored count', async () => {
+    const webauthn = makeMockWebauthn()
+    const challengeStore = await enroll(webauthn)
+    vi.mocked(webauthn.verifyAuthenticationResponse).mockResolvedValueOnce({
+      authenticationInfo: { credentialID: 'wa-mfa-1', newCounter: Number.NaN, userVerified: true },
+      verified: true,
+    })
+    expect(await assertOnce(webauthn, challengeStore)).toBe(false)
+    expect(await assertOnce(webauthn, challengeStore)).toBe(true)
+  })
+
+  it('an assertion the verifier throws on is a refusal, not a 500', async () => {
+    const webauthn = makeMockWebauthn()
+    const challengeStore = await enroll(webauthn)
+    vi.mocked(webauthn.verifyAuthenticationResponse).mockRejectedValueOnce(
+      new Error('Unexpected authentication response origin "https://evil.test"'),
+    )
+    expect(await assertOnce(webauthn, challengeStore)).toBe(false)
+    expect(await assertOnce(webauthn, challengeStore)).toBe(true)
   })
 
   it('a second assertion reusing an accepted count is refused, which needs the first one recorded', async () => {
-    const challengeStore = makeStore()
     const webauthn = makeMockWebauthn()
-    await facet.beginWebauthnMfaEnrollment(identityId, {
-      challengeKey: 'sess-clone',
-      challengeStore,
-      expectedOrigins: 'https://app.test',
-      rpID: 'app.test',
-      rpName: 'app',
-      userName: 'a@x.com',
-      webauthnModule: webauthn,
-    })
-    await facet.confirmWebauthnMfaEnrollment(identityId, {
-      challengeKey: 'sess-clone',
-      challengeStore,
-      expectedOrigins: 'https://app.test',
-      response: { id: 'wa-mfa-1' },
-      rpID: 'app.test',
-      webauthnModule: webauthn,
-    })
+    const challengeStore = await enroll(webauthn)
 
     // An authenticator at count 9 and a clone of it at the same count. The second is the rollback
     // WebAuthn L2 6.1.3 exists to catch, and it is only catchable if the first one's count was written
     // down: left at its enrollment value, every later assertion is measured against a baseline the
     // authenticator passed long ago.
-    const verifyAuth = webauthn.verifyAuthenticationResponse as ReturnType<typeof vi.fn>
-    verifyAuth.mockResolvedValue({
+    vi.mocked(webauthn.verifyAuthenticationResponse).mockResolvedValue({
       authenticationInfo: { credentialID: 'wa-mfa-1', newCounter: 9, userVerified: true },
       verified: true,
     })
-    const assertOnce = async (key: string): Promise<boolean> => {
-      await facet.beginWebauthnMfaVerify(identityId, {
-        challengeKey: key,
-        challengeStore,
-        rpID: 'app.test',
-        webauthnModule: webauthn,
-      })
-      return facet.verifyWebauthnMfa(identityId, {
-        challengeKey: key,
-        challengeStore,
-        expectedOrigins: 'https://app.test',
-        response: { id: 'wa-mfa-1' },
-        rpID: 'app.test',
-        webauthnModule: webauthn,
-      })
-    }
-
-    expect(await assertOnce('clone-1')).toBe(true)
-    expect(await assertOnce('clone-2')).toBe(false)
+    expect(await assertOnce(webauthn, challengeStore)).toBe(true)
+    expect(await assertOnce(webauthn, challengeStore)).toBe(false)
 
     const rows = await adapter.credentials.listByIdentity(identityId, 'webauthn-mfa', {})
     expect(rows[0]?.metadata).toMatchObject({ counter: 9 })
   })
 
   it('two assertions racing on the same stored count do not both get in', async () => {
-    const challengeStore = makeStore()
     const webauthn = makeMockWebauthn()
-    await facet.beginWebauthnMfaEnrollment(identityId, {
-      challengeKey: 'sess-race',
-      challengeStore,
-      expectedOrigins: 'https://app.test',
-      rpID: 'app.test',
-      rpName: 'app',
-      userName: 'a@x.com',
-      webauthnModule: webauthn,
-    })
-    await facet.confirmWebauthnMfaEnrollment(identityId, {
-      challengeKey: 'sess-race',
-      challengeStore,
-      expectedOrigins: 'https://app.test',
-      response: { id: 'wa-mfa-1' },
-      rpID: 'app.test',
-      webauthnModule: webauthn,
-    })
-    const verifyAuth = webauthn.verifyAuthenticationResponse as ReturnType<typeof vi.fn>
-    verifyAuth.mockResolvedValue({
+    const challengeStore = await enroll(webauthn)
+    vi.mocked(webauthn.verifyAuthenticationResponse).mockResolvedValue({
       authenticationInfo: { credentialID: 'wa-mfa-1', newCounter: 9, userVerified: true },
       verified: true,
     })
@@ -509,28 +575,12 @@ describe('MfaFacet - WebAuthn-MFA', () => {
       events,
       DEFAULT_MFA_CONFIG,
     )
-    const assertOnce = async (key: string): Promise<boolean> => {
-      await raced.beginWebauthnMfaVerify(identityId, {
-        challengeKey: key,
-        challengeStore,
-        rpID: 'app.test',
-        webauthnModule: webauthn,
-      })
-      return raced.verifyWebauthnMfa(identityId, {
-        challengeKey: key,
-        challengeStore,
-        expectedOrigins: 'https://app.test',
-        response: { id: 'wa-mfa-1' },
-        rpID: 'app.test',
-        webauthnModule: webauthn,
-      })
-    }
 
-    const held = assertOnce('race-1')
+    const held = assertOnce(webauthn, challengeStore, raced)
     await vi.waitFor(() => {
       if (calls === 0) throw new Error('the first assertion has not reached its write yet')
     })
-    const second = await assertOnce('race-2')
+    const second = await assertOnce(webauthn, challengeStore, raced)
     release?.()
     const first = await held
 
@@ -540,28 +590,190 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   })
 
   it('removeWebauthnMfa wipes the credential', async () => {
-    const challengeStore = makeStore()
-    const webauthn = makeMockWebauthn()
-    await facet.beginWebauthnMfaEnrollment(identityId, {
-      rpID: 'app.test',
-      rpName: 'app',
-      userName: 'a@x.com',
-      expectedOrigins: 'https://app.test',
-      challengeStore,
-      challengeKey: 'sess-3',
-      webauthnModule: webauthn,
-    })
-    await facet.confirmWebauthnMfaEnrollment(identityId, {
-      rpID: 'app.test',
-      expectedOrigins: 'https://app.test',
-      challengeStore,
-      challengeKey: 'sess-3',
-      response: { id: 'wa-mfa-1' },
-      webauthnModule: webauthn,
-    })
+    await enroll(makeMockWebauthn())
     expect(await facet.hasWebauthnMfa(identityId)).toBe(true)
     expect(await facet.removeWebauthnMfa(identityId)).toEqual({ removed: 1 })
     expect(await facet.hasWebauthnMfa(identityId)).toBe(false)
     expect(await facet.removeWebauthnMfa(identityId)).toEqual({ removed: 0 })
+  })
+
+  describe('with the real verifier', () => {
+    let authenticator: SoftAuthenticator
+    let challengeStore: Passkey.ChallengeStore
+    let seen: unknown[]
+
+    const beginEnrollment = (who: string, supportedAlgorithmIDs?: number[]): Promise<Passkey.RegistrationOptions> =>
+      facet.beginWebauthnMfaEnrollment(who, {
+        challengeKey: who,
+        challengeStore,
+        expectedOrigins: 'https://app.test',
+        rpID: 'app.test',
+        rpName: 'app',
+        supportedAlgorithmIDs,
+        userName: who,
+      })
+    const enrollAs = async (
+      who: string,
+      key: SoftAuthenticator,
+      supportedAlgorithmIDs?: number[],
+    ): Promise<{ credentialId: string }> => {
+      const options = await beginEnrollment(who, supportedAlgorithmIDs)
+      return facet.confirmWebauthnMfaEnrollment(who, {
+        challengeKey: who,
+        challengeStore,
+        expectedOrigins: 'https://app.test',
+        response: key.register(options.challenge),
+        rpID: 'app.test',
+        supportedAlgorithmIDs,
+      })
+    }
+
+    beforeEach(async () => {
+      authenticator = softAuthenticator('app.test', 'https://app.test')
+      challengeStore = makeStore()
+      await enrollAs(identityId, authenticator)
+      seen = []
+      events.on('suspicious', (payload) => {
+        seen.push(payload)
+      })
+    })
+
+    const verifyAs = async (who: string, key: SoftAuthenticator, count: number, forged = false): Promise<boolean> => {
+      const options = await facet.beginWebauthnMfaVerify(who, {
+        challengeKey: 'verify',
+        challengeStore,
+        rpID: 'app.test',
+      })
+      return facet.verifyWebauthnMfa(who, {
+        challengeKey: 'verify',
+        challengeStore,
+        expectedOrigins: 'https://app.test',
+        response: key.assert(options.challenge, count, { forged }),
+        rpID: 'app.test',
+      })
+    }
+    const present = (count: number, forged = false): Promise<boolean> =>
+      verifyAs(identityId, authenticator, count, forged)
+
+    it('reports a signed count that went backwards, which the verifier refused unreported', async () => {
+      expect(await present(5)).toBe(true)
+      expect(await present(3)).toBe(false)
+      expect(await present(0)).toBe(false)
+      expect(seen).toEqual([
+        expect.objectContaining({
+          meta: expect.objectContaining({ newCounter: 3, oldCounter: 5 }),
+          signal: 'webauthn-mfa-counter-rollback',
+        }),
+        expect.objectContaining({
+          meta: expect.objectContaining({ newCounter: 0, oldCounter: 5 }),
+          signal: 'webauthn-mfa-counter-rollback',
+        }),
+      ])
+      expect(await present(6)).toBe(true)
+    })
+
+    it('refuses a forged signature at any count, and neither reports nor records it', async () => {
+      expect(await present(5)).toBe(true)
+      expect(await present(3, true)).toBe(false)
+      expect(await present(9, true)).toBe(false)
+      expect(seen).toEqual([])
+      // Had the forged 9 been recorded, the genuine 6 would be a rollback.
+      expect(await present(6)).toBe(true)
+    })
+
+    it('accepts an authenticator that never counts, every time', async () => {
+      expect(await present(0)).toBe(true)
+      expect(await present(0)).toBe(true)
+      expect(seen).toEqual([])
+    })
+
+    it('answers AUTH_PASSKEY_MISMATCH for a registration made for another origin', async () => {
+      await expect(enrollAs('someone-else', softAuthenticator('app.test', 'https://evil.test'))).rejects.toMatchObject({
+        code: 'AUTH_PASSKEY_MISMATCH',
+      })
+    })
+
+    it('refuses a credential id another identity enrolled, so its owner keeps the factor', async () => {
+      const claimed = softAuthenticator('app.test', 'https://app.test', { id: authenticator.id })
+      await expect(enrollAs('someone-else', claimed)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+      await expect(enrollAs('someone-else', softAuthenticator('app.test', 'https://app.test'))).resolves.toBeDefined()
+      expect(await present(1)).toBe(true)
+    })
+
+    it('asks the browser not to enroll the same authenticator twice', async () => {
+      expect((await beginEnrollment(identityId)).excludeCredentials).toEqual([
+        expect.objectContaining({ id: authenticator.id, type: 'public-key' }),
+      ])
+      expect((await beginEnrollment('someone-else')).excludeCredentials).toEqual([])
+    })
+
+    it('refuses a key under an algorithm enrollment did not offer, and takes one it did', async () => {
+      const es256 = softAuthenticator('app.test', 'https://app.test')
+      const es512 = softAuthenticator('app.test', 'https://app.test', { curve: 'P-521' })
+      await expect(enrollAs('restricted', es256, [-36])).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+      await expect(enrollAs('by-default', es512)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+      await enrollAs('restricted', es512, [-36])
+      expect(await verifyAs('restricted', es512, 1)).toBe(true)
+    })
+
+    it('enrolls a credential id of 1023 bytes, which then verifies, and refuses one of 1024', async () => {
+      const over = softAuthenticator('app.test', 'https://app.test', { id: randomBytes(1024).toString('base64url') })
+      await expect(enrollAs('longest', over)).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
+      const longest = softAuthenticator('app.test', 'https://app.test', { id: randomBytes(1023).toString('base64url') })
+      await enrollAs('longest', longest)
+      expect(await verifyAs('longest', longest, 1)).toBe(true)
+    })
+  })
+
+  describe('the challenge lifetime', () => {
+    function recordingStore(): Passkey.ChallengeStore & { ttls: number[] } {
+      const ttls: number[] = []
+      return {
+        ttls,
+        async put(_key, _challenge, ttlMs) {
+          ttls.push(ttlMs)
+        },
+        async take() {
+          throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
+        },
+      }
+    }
+
+    const enroll = (challengeStore: Passkey.ChallengeStore, challengeTtlMs: number) =>
+      facet.beginWebauthnMfaEnrollment(identityId, {
+        challengeKey: 's1',
+        challengeStore,
+        challengeTtlMs,
+        expectedOrigins: 'https://app.test',
+        rpID: 'app.test',
+        rpName: 'app',
+        userName: 'a@x.com',
+        webauthnModule: makeMockWebauthn(),
+      })
+    const verify = (challengeStore: Passkey.ChallengeStore, challengeTtlMs: number) =>
+      facet.beginWebauthnMfaVerify(identityId, {
+        challengeKey: 's1',
+        challengeStore,
+        challengeTtlMs,
+        rpID: 'app.test',
+        webauthnModule: makeMockWebauthn(),
+      })
+
+    it.each([Number.NaN, 0, -1, Number.POSITIVE_INFINITY])(
+      'refuses challengeTtlMs %o before storing a challenge',
+      async (challengeTtlMs) => {
+        const store = recordingStore()
+        await expect(enroll(store, challengeTtlMs)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+        await expect(verify(store, challengeTtlMs)).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+        expect(store.ttls).toEqual([])
+      },
+    )
+
+    it('stores both ceremonies for the lifetime it was given', async () => {
+      const store = recordingStore()
+      await enroll(store, 60_000)
+      await verify(store, 60_000)
+      expect(store.ttls).toEqual([60_000, 60_000])
+    })
   })
 })

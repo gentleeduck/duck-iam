@@ -1,7 +1,7 @@
 /** Passkey options, the WebAuthn surface it needs, and the challenge store contract. */
 export namespace Passkey {
-  /** The subset of `@simplewebauthn/server` this depends on, kept narrow so the lazy import surface stays
-   *  small. */
+  /** The subset of `@simplewebauthn/server` this depends on, checked against the library where
+   *  `loadWebAuthn` imports it. */
   export type SimpleWebAuthnServerModule = {
     generateRegistrationOptions: (opts: RegistrationOptionsInput) => Promise<RegistrationOptions>
     verifyRegistrationResponse: (
@@ -13,14 +13,18 @@ export namespace Passkey {
     ) => Promise<{ verified: boolean; authenticationInfo: AuthenticationInfo }>
   }
 
+  /** A transport as the library names one. */
+  export type Transport = 'ble' | 'cable' | 'hybrid' | 'internal' | 'nfc' | 'smart-card' | 'usb'
+
+  /** `generateRegistrationOptions` input, as the library types it. */
   export type RegistrationOptionsInput = {
     rpName: string
     rpID: string
-    userID: Uint8Array
+    userID: Uint8Array<ArrayBuffer>
     userName: string
     userDisplayName?: string
-    attestationType?: 'none' | 'direct' | 'indirect'
-    excludeCredentials?: Array<{ id: string; type: 'public-key'; transports?: string[] }>
+    attestationType?: 'none' | 'direct' | 'enterprise'
+    excludeCredentials?: Array<{ id: string; type: 'public-key'; transports?: Transport[] }>
     authenticatorSelection?: {
       residentKey?: 'discouraged' | 'preferred' | 'required'
       userVerification?: 'discouraged' | 'preferred' | 'required'
@@ -29,9 +33,10 @@ export namespace Passkey {
     timeout?: number
   }
 
+  /** `generateRegistrationOptions` output, as the library types it. */
   export type RegistrationOptions = {
     challenge: string
-    rp: { id: string; name: string }
+    rp: { id?: string; name: string }
     user: { id: string; name: string; displayName?: string }
     pubKeyCredParams: Array<{ alg: number; type: 'public-key' }>
     timeout?: number
@@ -40,14 +45,18 @@ export namespace Passkey {
     attestation?: string
   }
 
+  /** `verifyRegistrationResponse` input, as the library types it. */
   export type VerifyRegistrationInput = {
-    response: unknown
+    /** The client's JSON, unparsed: the library validates the shape its type assumes. */
+    response: any
     expectedChallenge: string | ((challenge: string) => boolean | Promise<boolean>)
     expectedOrigin: string | string[]
     expectedRPID: string | string[]
     requireUserVerification?: boolean
+    supportedAlgorithmIDs?: number[]
   }
 
+  /** A verified registration, as the library types it. */
   export type RegistrationInfo = {
     credential: {
       id: string
@@ -61,35 +70,40 @@ export namespace Passkey {
     credentialBackedUp?: boolean
   }
 
+  /** `generateAuthenticationOptions` input, as the library types it. */
   export type AuthenticationOptionsInput = {
     rpID: string
-    allowCredentials?: Array<{ id: string; type: 'public-key'; transports?: string[] }>
+    allowCredentials?: Array<{ id: string; type: 'public-key'; transports?: Transport[] }>
     userVerification?: 'discouraged' | 'preferred' | 'required'
     timeout?: number
   }
 
+  /** `generateAuthenticationOptions` output, as the library types it. */
   export type AuthenticationOptions = {
     challenge: string
-    rpId: string
+    rpId?: string
     allowCredentials?: Array<{ id: string; type: 'public-key'; transports?: string[] }>
     userVerification?: 'discouraged' | 'preferred' | 'required'
     timeout?: number
   }
 
+  /** `verifyAuthenticationResponse` input, as the library types it. */
   export type VerifyAuthenticationInput = {
-    response: unknown
+    /** The client's JSON, unparsed: the library validates the shape its type assumes. */
+    response: any
     expectedChallenge: string | ((challenge: string) => boolean | Promise<boolean>)
     expectedOrigin: string | string[]
     expectedRPID: string | string[]
     credential: {
       id: string
-      publicKey: Uint8Array
+      publicKey: Uint8Array<ArrayBuffer>
       counter: number
-      transports?: string[]
+      transports?: Transport[]
     }
     requireUserVerification?: boolean
   }
 
+  /** A verified authentication, as the library types it. */
   export type AuthenticationInfo = {
     newCounter: number
     credentialID: string
@@ -99,6 +113,7 @@ export namespace Passkey {
   /** Short-lived challenge persistence. Both begin paths store a fresh challenge, keyed by `userId` for
    *  registration and `sessionId` for authentication, and complete consumes it. */
   export type ChallengeStore = {
+    /** Stores `challenge` under `key` for `ttlMs`. */
     put(key: string, challenge: string, ttlMs: number): Promise<void>
     /** Reads and deletes in one step. Rejects `AUTH_CREDENTIAL_NOT_FOUND` for a key never put, an elapsed
      *  TTL and a challenge already consumed; all three are a replay as far as the caller is concerned, and
@@ -106,6 +121,7 @@ export namespace Passkey {
     take(key: string): Promise<string>
   }
 
+  /** The relying party, and where challenges are kept. */
   export type Options = {
     /** Shown in the OS picker. */
     rpName: string
@@ -120,17 +136,19 @@ export namespace Passkey {
     challengeStore?: Passkey.ChallengeStore
     /** Default 5 minutes. */
     challengeTtlMs?: number
-    /** Default `'preferred'`. */
+    /** Default `'preferred'`. A sign-in the authenticator did not verify the user for opens an AAL 1 session;
+     *  `'required'` refuses it instead. */
     userVerification?: 'discouraged' | 'preferred' | 'required'
     /** How much attestation registration asks the authenticator for. Default `'none'`; the `fips`
      *  compliance preset requires `'direct'`. */
-    attestationType?: 'none' | 'direct' | 'indirect'
+    attestationType?: Passkey.RegistrationOptionsInput['attestationType']
     /** Default `passkey:begin:`. */
     limiterKeyPrefix?: string
     /** Where a test injects a mock WebAuthn module. */
     webauthnModule?: Passkey.SimpleWebAuthnServerModule
   }
 
+  /** What starting a passkey sign-in takes. */
   export type BeginInput = {
     /** Narrows `allowCredentials` to that user. */
     email?: string
@@ -138,8 +156,9 @@ export namespace Passkey {
     sessionId: string
   }
 
+  /** What finishing a passkey sign-in takes. */
   export type CompleteInput = {
-    /** A JSON-encoded WebAuthn `AuthenticatorAssertionResponse`. */
+    /** The browser's `AuthenticationResponseJSON` from `navigator.credentials.get`. */
     response: unknown
     /** The one the begin call answered. */
     sessionId: string
@@ -151,7 +170,7 @@ export namespace Passkey {
   export type CredentialMetadata = {
     publicKey: string
     counter: number
-    transports?: string[]
+    transports?: Transport[]
     aaguid?: string
     deviceType?: string
     backedUp?: boolean

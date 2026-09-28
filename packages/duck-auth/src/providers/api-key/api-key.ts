@@ -8,12 +8,13 @@ import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Events } from '~/core/events/events.types'
 import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
-import { DEFAULT_APIKEYS_CONFIG, isScopeToken, toApiKeysCfg } from './api-key.constants'
+import { APIKEY_MAX_LENGTH, isScopeToken, toApiKeysCfg } from './api-key.constants'
 import type { ApiKeys } from './api-key.types'
 
 /** Project a credential row onto the public `ApiKey` shape: no secret, and the optional timestamps
- *  only when the row carries them. Shared by `list` and `revoke` so the two cannot drift. */
+ *  only when the row carries them. Shared by `list` and the revokes so they cannot drift. */
 function toApiKey(row: Credential.Me): ApiKeys.ApiKey {
   const meta = parseApiKeyMetadata(row.metadata)
   const key: ApiKeys.ApiKey = {
@@ -33,12 +34,12 @@ function toApiKey(row: Credential.Me): ApiKeys.ApiKey {
   return key
 }
 
-/** Long-lived bearer tokens for service-to-service callers that cannot do mTLS. Namespaced by prefix
- *  (`ak_live_` / `ak_test_`), scope-controlled via iam policies and hashed at rest; the plaintext is
- *  answered exactly once, at create, and never persisted. */
+/** Long-lived bearer keys for scripts and services, scoped and hashed at rest; the plaintext is answered
+ *  exactly once, at create, and never persisted. */
 export class ApiKeysFacet {
   readonly id = 'api-keys'
   readonly kind = 'api-key' as const
+  private readonly _cfg: ApiKeys.Cfg
 
   constructor(
     private readonly _credentials: Credential.Store,
@@ -47,18 +48,23 @@ export class ApiKeysFacet {
       randomToken(bytes: number): string
       sha256(s: string): string
     },
-    private readonly _cfg: ApiKeys.Cfg = DEFAULT_APIKEYS_CONFIG,
+    cfg?: ApiKeys.CfgInput,
     /** Optional so a direct `new ApiKeysFacet(...)` keeps working, though `apiKeyProvider()` always
      *  supplies it, and without it `verify` answers for a soft-deleted identity. Structural rather than
      *  `Identities.Store`, so the facet stays non-generic and names the one call it makes. */
     private readonly _identities?: ApiKeys.IdentityProbe,
-  ) {}
+    /** Where the sessions a key signed in live, so revoking the key ends them. */
+    private readonly _sessions?: Sessions.Store,
+  ) {
+    // Resolved here, so a facet built by hand is checked as `apiKeyProvider` builds it.
+    this._cfg = toApiKeysCfg(cfg)
+  }
 
   /** Re-bind to a caller's transaction. Inside the class because `_credentials`, `_crypto` and `_cfg`
    *  are private. The probe comes off the same bound bag, so a key verified inside the transaction
    *  sees its deletions too. */
   withClient(stores: Provider.Stores, events: Events.IBus): ApiKeysFacet {
-    return new ApiKeysFacet(stores.credentials, events, this._crypto, this._cfg, stores.identities)
+    return new ApiKeysFacet(stores.credentials, events, this._crypto, this._cfg, stores.identities, stores.sessions)
   }
 
   /** The plaintext comes back exactly once. */
@@ -128,8 +134,17 @@ export class ApiKeysFacet {
       const existing = await this._credentials.findById(keyId, ctx)
       if (existing.kind !== 'api-key') throw new AuthError('AUTH_CREDENTIAL_NOT_FOUND')
 
-      return toApiKey(await this._credentials.revoke(keyId, ctx))
+      const revoked = toApiKey(await this._credentials.revoke(keyId, ctx))
+      await this._endKeySessions(existing.identityId)
+      return revoked
     })
+  }
+
+  /** Revoke every live api key the identity holds in one write, answering them as they stand revoked. */
+  async revokeAll(identityId: string, ctx: TenantContext = {}): Promise<ApiKeys.ApiKey[]> {
+    const revoked = (await this._credentials.revokeByKind(identityId, 'api-key', ctx)).map(toApiKey)
+    await this._endKeySessions(identityId)
+    return revoked
   }
 
   /** Issues a new plaintext, exactly once, and marks the old row revoked; telling consumers to swap is
@@ -139,8 +154,13 @@ export class ApiKeysFacet {
     if (existing?.kind !== 'api-key') {
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
+    // Refused as `verify` refuses it, or rotating a revoked key hands back a working one.
+    if (existing.revokedAt != null || isCredentialExpired(existing)) {
+      throw new AuthError('AUTH_APIKEY_REVOKED')
+    }
     const meta = parseApiKeyMetadata(existing.metadata)
     await this._credentials.revoke(keyId, ctx)
+    await this._endKeySessions(existing.identityId)
     return this.create(
       existing.identityId,
       {
@@ -152,13 +172,24 @@ export class ApiKeysFacet {
     )
   }
 
+  /** Ends every session a key signed the identity in with, in any tenant: a session does not record which key
+   *  opened it. */
+  private async _endKeySessions(identityId: string): Promise<void> {
+    if (!this._sessions) return
+    const opened = (await this._sessions.listByIdentity(identityId)).filter((s) => s.kind === 'apikey')
+    if (opened.length === 0) return
+    for (const s of await this._sessions.deleteMany(opened.map((s) => s.id))) {
+      await this._events.emit('session.revoked', { sessionId: s.id, identityId: s.identityId })
+    }
+  }
+
   /** Answers the identity and its scopes, or throws `AUTH_APIKEY_INVALID` or `AUTH_APIKEY_REVOKED`. */
   async verify(
     plaintext: string,
     ctx: TenantContext = {},
   ): Promise<{ identityId: string; keyId: string; scopes: string[]; tenantId?: string }> {
-    // Capped at 512 chars before sha256, against a multi-MB hashing DoS.
-    if (typeof plaintext !== 'string' || plaintext.length > 512) {
+    // Capped before sha256, against a multi-MB hashing DoS.
+    if (typeof plaintext !== 'string' || plaintext.length > APIKEY_MAX_LENGTH) {
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
     if (!plaintext.startsWith(this._cfg.prefix)) {
@@ -223,7 +254,7 @@ function parseApiKeyMetadata(meta: unknown): { name: string; scopes: string[] } 
 
 /** Bearer-style sign-in for service-to-service callers: verifies the plaintext token via
  *  `ApiKeysFacet`, applies the per-key rate limit and emits a `startSession` intent at
- *  `kind: 'api-key'`, `aal: 1`. */
+ *  `kind: 'apikey'`, `aal: 1`. */
 export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<ApiKeys.BeginInput, ApiKeys.CompleteInput, Profile>
 {
@@ -250,7 +281,7 @@ export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Ide
   async complete(ctx: Provider.Context<Profile>, input: ApiKeys.CompleteInput): Promise<Provider.InternalIntent[]> {
     // Guarded, or `sha256` on a non-string throws TypeError before the rate limiter can fire: the caller
     // sees a 500 rather than a 401, and the call skips the per-token brute-force quota.
-    if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 512) {
+    if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > APIKEY_MAX_LENGTH) {
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
     const keyHash = ctx.crypto.authSha256(input.token).slice(0, 16)
@@ -275,6 +306,7 @@ export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Ide
         identityId: verified.identityId,
         factors: [{ method: 'api-key', completedAt: new Date() }],
         aal: 1,
+        kind: 'apikey',
       },
     ]
   }
@@ -299,17 +331,13 @@ export function apiKeyProvider<
       auth.cfg.stores.credentials,
       auth.events,
       { randomToken, sha256 },
-      toApiKeysCfg(cfg),
+      cfg,
       auth.cfg.stores.identities,
+      auth.cfg.stores.sessions,
     )
 }
 
 /** Constructs an {@link ApiKeysFacet}. */
 export function apiKeysFacet(...args: ConstructorParameters<typeof ApiKeysFacet>): ApiKeysFacet {
   return new ApiKeysFacet(...args)
-}
-
-/** Constructs {@link AuthApiKeyImpl} directly, for a caller wiring the facet by hand. */
-export function authApiKeyImpl(...args: ConstructorParameters<typeof AuthApiKeyImpl>): AuthApiKeyImpl {
-  return new AuthApiKeyImpl(...args)
 }

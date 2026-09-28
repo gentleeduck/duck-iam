@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities'
@@ -17,7 +17,8 @@ const EMAIL = 'taken@x.com'
 
 /** A Google that answers with one fixed userinfo payload and never leaves the process. */
 function fakeGoogle(userinfo: Record<string, unknown>): typeof globalThis.fetch {
-  return vi.fn(async (url: string) => {
+  return async (input) => {
+    const url = String(input)
     if (url.startsWith('https://oauth2.googleapis.com/token')) {
       return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600, token_type: 'Bearer' }), {
         headers: { 'content-type': 'application/json' },
@@ -31,7 +32,7 @@ function fakeGoogle(userinfo: Record<string, unknown>): typeof globalThis.fetch 
       })
     }
     throw new Error(`unexpected url ${url}`)
-  }) as unknown as typeof globalThis.fetch
+  }
 }
 
 /**
@@ -42,6 +43,7 @@ function fakeGoogle(userinfo: Record<string, unknown>): typeof globalThis.fetch 
 async function buildAuth(
   userinfo: Record<string, unknown>,
   onFederationConflict?: OAuth.FederationPolicy,
+  existingEmailVerified = true,
 ): Promise<{ auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyProfile>; existingId: string }> {
   const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
@@ -62,7 +64,7 @@ async function buildAuth(
     transport: new CookieTransport({ name: 'duck-sid', secure: false }),
   })
   const existing = await adapter.identities.create({
-    emailVerified: true,
+    emailVerified: existingEmailVerified,
     profile: { email: EMAIL, username: EMAIL },
     providers: [],
   })
@@ -71,18 +73,18 @@ async function buildAuth(
 
 /** Round-trip a real `state` and its pre-auth cookie through `begin`, the way a browser does. */
 async function signInThroughGoogle(auth: AuthEngine<MyProfile>) {
-  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:authGoogle', {}))
-  return auth.flows.signIn({ input: { code: 'authcode', state, cookieHeader }, providerId: 'oauth:authGoogle' })
+  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:google', {}))
+  return auth.flows.signIn({ input: { code: 'authcode', state, cookieHeader }, providerId: 'oauth:google' })
 }
 
 const VERIFIED = { email: EMAIL, email_verified: true, sub: 'g-1' }
 const UNVERIFIED = { email: EMAIL, email_verified: false, sub: 'g-1' }
 
 /**
- * `onFederationConflict` lived on `OAuth.Options` but not on `OptionsBase`, and
- * `oProvider` is not exported from any entrypoint - so no consumer of the six
- * shipped providers could reach any policy but the `'reject'` default. These
- * drive the policy through `google()`, the way a consumer would.
+ * `onFederationConflict` lived on `OAuth.Options` but not on `OptionsBase`, so
+ * no consumer of the six shipped providers could reach any policy but the
+ * `'reject'` default. These drive the policy through `google()`, the way a
+ * consumer would.
  */
 describe('federation conflict policy, through a shipped provider', () => {
   it('rejects by default, leaving the existing identity unlinked', async () => {
@@ -109,18 +111,32 @@ describe('federation conflict policy, through a shipped provider', () => {
     expect(row?.providers).toEqual([])
   })
 
+  it("still rejects under 'link-if-verified' when the existing account never verified the address", async () => {
+    // Pre-account takeover: a squatter signs up with the victim's address and never verifies it, then the
+    // victim's Google sign-in would land in the squatter's account, password and all.
+    const { auth, adapter, existingId } = await buildAuth(VERIFIED, 'link-if-verified', false)
+    await expect(signInThroughGoogle(auth)).rejects.toThrow(/PROVIDER_FAILED/)
+    const row = await adapter.identities.find({ id: existingId })
+    expect(row?.providers).toEqual([])
+  })
+
   it('hands a callback the conflict and honours its verdict', async () => {
     const seen: unknown[] = []
-    const { auth, adapter, existingId } = await buildAuth(UNVERIFIED, async (ctx) => {
-      seen.push(ctx)
-      return 'link'
-    })
+    const { auth, adapter, existingId } = await buildAuth(
+      UNVERIFIED,
+      async (ctx) => {
+        seen.push(ctx)
+        return 'link'
+      },
+      false,
+    )
     await signInThroughGoogle(auth)
     expect(seen).toEqual([
       {
+        existingEmailVerified: false,
         existingIdentityId: existingId,
         profile: expect.objectContaining({ sub: 'g-1' }),
-        providerId: 'oauth:authGoogle',
+        providerId: 'oauth:google',
       },
     ])
     const row = await adapter.identities.find({ id: existingId })
@@ -137,7 +153,8 @@ describe('federation conflict policy, through a shipped provider', () => {
 
 /** A Microsoft that answers with one fixed userinfo payload and never leaves the process. */
 function fakeMicrosoft(userinfo: Record<string, unknown>): typeof globalThis.fetch {
-  return vi.fn(async (url: string) => {
+  return async (input) => {
+    const url = String(input)
     if (url.startsWith('https://login.microsoftonline.com/')) {
       return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600, token_type: 'Bearer' }), {
         headers: { 'content-type': 'application/json' },
@@ -151,7 +168,7 @@ function fakeMicrosoft(userinfo: Record<string, unknown>): typeof globalThis.fet
       })
     }
     throw new Error(`unexpected url ${url}`)
-  }) as unknown as typeof globalThis.fetch
+  }
 }
 
 async function buildMicrosoftAuth(
@@ -185,8 +202,8 @@ async function buildMicrosoftAuth(
 }
 
 async function signInThroughMicrosoft(auth: AuthEngine<MyProfile>) {
-  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:authMicrosoft', {}))
-  return auth.flows.signIn({ input: { code: 'authcode', state, cookieHeader }, providerId: 'oauth:authMicrosoft' })
+  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:microsoft', {}))
+  return auth.flows.signIn({ input: { code: 'authcode', state, cookieHeader }, providerId: 'oauth:microsoft' })
 }
 
 /**
@@ -220,7 +237,8 @@ function appleIdToken(claims: Record<string, unknown>): string {
 }
 
 function fakeApple(claims: Record<string, unknown>): typeof globalThis.fetch {
-  return vi.fn(async (url: string) => {
+  return async (input) => {
+    const url = String(input)
     if (url.startsWith('https://appleid.apple.com/auth/token')) {
       return new Response(
         JSON.stringify({ access_token: 'at', expires_in: 3600, id_token: appleIdToken(claims), token_type: 'Bearer' }),
@@ -228,7 +246,7 @@ function fakeApple(claims: Record<string, unknown>): typeof globalThis.fetch {
       )
     }
     throw new Error(`unexpected url ${url}`)
-  }) as unknown as typeof globalThis.fetch
+  }
 }
 
 async function buildAppleAuth(
@@ -265,8 +283,8 @@ async function buildAppleAuth(
 }
 
 async function signInThroughApple(auth: AuthEngine<MyProfile>) {
-  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:authApple', {}))
-  return auth.flows.signIn({ input: { code: 'authcode', state, cookieHeader }, providerId: 'oauth:authApple' })
+  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:apple', {}))
+  return auth.flows.signIn({ input: { code: 'authcode', state, cookieHeader }, providerId: 'oauth:apple' })
 }
 
 describe('Apple does not read an absent email_verified as verified', () => {

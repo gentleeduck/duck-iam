@@ -1,9 +1,10 @@
 /** SAML options, the node-saml surface it needs, and the replay store contract. */
 export namespace Saml {
-  /** The subset of `@node-saml/node-saml` this depends on, satisfied by both v4 and v5. Without the
-   *  peerDep the first call throws AUTH_MISCONFIGURED. */
+  /** The subset of `@node-saml/node-saml` this depends on, which its `SAML` instance satisfies. */
   export interface Client {
+    /** The IdP URL an AuthnRequest redirects to. */
     getAuthorizeUrlAsync(relayState: string, host: string, opts: Record<string, unknown>): Promise<string>
+    /** Validates a POSTed SAMLResponse and answers its profile. */
     validatePostResponseAsync(body: { SAMLResponse: string }): Promise<{
       profile: Profile | null
       loggedOut: boolean
@@ -19,8 +20,13 @@ export namespace Saml {
     ): Promise<{ profile: Profile | null; loggedOut: boolean }>
     /** Validates an IdP-sent LogoutRequest over HTTP-POST, which is rare. */
     validatePostRequestAsync?(body: { SAMLRequest: string }): Promise<{ profile: Profile | null; loggedOut: boolean }>
-    /** Builds a LogoutResponse URL for an IdP-initiated logout. */
-    getLogoutResponseUrl?(user: LogoutUser, relayState: string, opts: Record<string, unknown>, isError: boolean): string
+    /** Builds the LogoutResponse URL answering an IdP-initiated logout, `InResponseTo` the request's `ID`. */
+    getLogoutResponseUrlAsync?(
+      request: Profile,
+      relayState: string,
+      opts: Record<string, unknown>,
+      success: boolean,
+    ): Promise<string>
   }
 
   /** The part of node-saml's logout-user shape this uses; `sub` is the SAML nameID. */
@@ -30,8 +36,7 @@ export namespace Saml {
     sessionIndex?: string
   }
 
-  /** The subset of node-saml's profile extracted here, projecting its 30-odd attributes onto the oauth-style
-   *  `{ sub, email?, name? }` the rest of the library expects. */
+  /** The fields of node-saml's profile this reads, and all the hooks receive. */
   export interface Profile {
     nameID: string
     nameIDFormat?: string
@@ -39,12 +44,17 @@ export namespace Saml {
     attributes?: Record<string, string | string[]>
     /** What the IdP says it did to authenticate. Decides the session's aal; see `mfaAuthnContexts`. */
     authnContext?: string
-    /** When the client surfaces one. `replayStore` consumes it once. */
+    /** The assertion's ID, which `replayStore` consumes once. */
     ID?: string
     sessionIndex?: string
+    /** node-saml's parsed assertion. node-saml sets neither `ID` nor `authnContext` on a sign-in profile, and
+     *  copies every attribute onto the profile's top level, so every field above but `email` and `attributes`
+     *  is read from here when it is present. */
+    getAssertion?(): unknown
   }
 
-  export interface Options<AppProfile = unknown> {
+  /** The SAML client, and how an assertion maps to an identity. */
+  export interface Options {
     /** Reported back to consumers, such as `'okta'` or `'azure-saml'`. Default `'saml'`. */
     providerId?: string
     /** A built `@node-saml/node-saml` instance: SAML config is too varied to express declaratively
@@ -54,9 +64,6 @@ export namespace Saml {
      *  Checked against the client's own `callbackUrl` at construction, since the client is what validates
      *  `Destination` and `Recipient`, and the two disagreeing leaves this a presence test and nothing more. */
     callbackUrl: string
-    /** Translate the SAML profile into the app's `Profile` shape, or throw to refuse the sign-in. Runs before
-     *  `onSignIn`, so a projection written to sanitise IdP attributes actually gets to. */
-    profileToIdentityProfile?: (profile: Profile) => AppProfile
     /** Check the relay state the IdP echoed back against the one `begin` issued and the tenant consuming it.
      *  SECURITY: without it, an assertion the attacker obtained for their own account and POSTed into a victim's
      *  browser is indistinguishable from one the victim asked for, under any tenant the instance serves. */
@@ -80,7 +87,7 @@ export namespace Saml {
     allowedNameIdFormats?: readonly string[]
     /** AuthnContextClassRefs that earn aal 2. Defaults to `SAML_MFA_AUTHN_CONTEXTS`. */
     mfaAuthnContexts?: readonly string[]
-    /** Passed through to the hooks; absent means every attribute the IdP sent. */
+    /** The attributes `onSignIn` sees; absent means every attribute the IdP sent. */
     allowedAttributes?: readonly string[]
     /** For both phases. One budget per tenant by default: coarse, but bounded. */
     limiterKey?: (ctx: { tenantId?: string }, phase: 'begin' | 'complete') => string
@@ -89,6 +96,7 @@ export namespace Saml {
     onSignIn: (input: { profile: Profile; tenantId?: string }) => Promise<{ identityId: string }>
   }
 
+  /** What starting a SAML sign-in takes. */
   export interface BeginInput {
     /** The CSRF guard, echoed back by the IdP. */
     relayState: string
@@ -108,35 +116,45 @@ export namespace Saml {
     relayState?: string
   }
 
+  /** What an SP-initiated logout takes. */
   export interface SloBeginSpInput {
     /** The nameID of the user being logged out. */
     nameID: string
+    /** The nameID's format, as the assertion gave it. */
     nameIDFormat?: string
+    /** The IdP session to end, from the assertion. */
     sessionIndex?: string
+    /** Echoed back on the LogoutResponse. */
     relayState: string
   }
 
+  /** The IdP's LogoutResponse, as it arrived. */
   export interface SloCompleteSpInput {
-    /** The IdP's answer to the LogoutRequest, as Redirect-binding query params. */
-    query: Record<string, string>
-    /** Captured when the LogoutRequest went out, for the signature check. */
+    /** The raw query string the IdP's LogoutResponse arrived with, undecoded and without the `?`: the
+     *  signature covers it as sent. */
     originalQuery: string
   }
 
+  /** An IdP's LogoutRequest, as it arrived. */
   export interface SloCompleteIdpInput {
-    /** Off the IdP-initiated logout, by Redirect or POST. */
-    query?: Record<string, string>
+    /** The raw query string of a Redirect-binding LogoutRequest, undecoded and without the `?`. Its
+     *  `RelayState` is echoed back. */
     originalQuery?: string
+    /** A POST-binding LogoutRequest. */
     SAMLRequest?: string
+    /** The POST body's RelayState, echoed back as the SAML bindings require. */
+    RelayState?: string
   }
 
+  /** Who to log out, and the LogoutResponse URL to redirect to. */
   export interface SloCompleteIdpResult {
     /** The nameID of the user being logged out; the host kills the matching session. */
-    nameID: string | null
+    nameID: string
     /** Send the user here, and the IdP gets its LogoutResponse. */
     redirectUrl: string
   }
 
+  /** What the SP metadata XML is built from. */
   export interface MetadataOptions {
     /** Must match the AudienceRestriction set at the IdP. */
     entityId: string

@@ -26,9 +26,8 @@ export function linkedin<Profile extends Identities.ProfileMetadataBase = Identi
     fetch: opts.fetch,
   })
   return oProvider<Profile>({
-    providerId: 'authLinkedin',
+    providerId: 'linkedin',
     client,
-    endpoints: LINKEDIN_ENDPOINTS,
     redirectUri: opts.redirectUri,
     stateSigningSecret: opts.stateSigningSecret,
     nonceStore: opts.nonceStore,
@@ -42,7 +41,7 @@ export function linkedin<Profile extends Identities.ProfileMetadataBase = Identi
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
-          providerId: 'authLinkedin',
+          providerId: 'linkedin',
           detail: 'LinkedIn userinfo missing sub',
         })
       }

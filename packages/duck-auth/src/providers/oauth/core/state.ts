@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { randomToken } from '~/core/crypto'
+import { isFiniteNumber, isRecord } from '~/core/predicates'
 import type { OAuth } from './oauth.types'
 
 /** How long a signed state stays verifiable, and so how long a burned nonce has to stay burned. */
@@ -14,12 +15,7 @@ export function signState(payload: OAuth.StatePayload, secret: string): string {
 }
 
 /** Null on signature mismatch or expiry, the payload otherwise. */
-export function authVerifyState(
-  state: string,
-  secret: string,
-  opts: { maxAgeMs?: number } = {},
-): OAuth.StatePayload | null {
-  const maxAgeMs = opts.maxAgeMs ?? OAUTH_STATE_MAX_AGE_MS
+export function authVerifyState(state: string, secret: string): OAuth.StatePayload | null {
   // Capped at 8KB so a multi-MB base64/JSON parse cannot be forced. The typeof holds because the caller
   // types this `string` while the wire surface is really unknown.
   if (typeof state !== 'string' || state.length === 0 || state.length > 8192) return null
@@ -37,15 +33,11 @@ export function authVerifyState(
   }
   const payload = parseStatePayload(raw)
   if (!payload) return null
-  // Both ends: `now - iat > maxAgeMs` alone lets a future stamp yield a negative age and pass
-  // forever, so a clock that jumps backwards makes every state minted before the jump immortal.
+  // Both ends: an upper bound alone reads a future stamp as a negative age and passes it forever, so a
+  // clock that jumps backwards makes every state minted before the jump immortal.
   const age = Date.now() - payload.iat
-  if (age > maxAgeMs || age < -maxAgeMs) return null
+  if (age > OAUTH_STATE_MAX_AGE_MS || age < -OAUTH_STATE_MAX_AGE_MS) return null
   return payload
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
 /** SECURITY: the state is HMAC-signed and carried in the provider's URL through the redirect dance, so an
@@ -55,34 +47,28 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 const RETURN_TO_MAX = 2048
 
 function parseStatePayload(raw: unknown): OAuth.StatePayload | null {
-  if (!isPlainObject(raw)) return null
-  const { nonce, verifier, providerId, binding, returnTo, iat } = raw
+  if (!isRecord(raw)) return null
+  const { nonce, providerId, binding, returnTo, iat } = raw
   if (typeof nonce !== 'string' || nonce.length === 0) return null
-  if (typeof verifier !== 'string' || verifier.length === 0) return null
   if (typeof providerId !== 'string' || providerId.length === 0) return null
   // Required, not optional: a state minted before the binding existed would otherwise complete from
   // any browser, which is the thing the binding is for.
   if (typeof binding !== 'string' || binding.length === 0) return null
-  if (typeof iat !== 'number' || !Number.isFinite(iat)) return null
+  if (!isFiniteNumber(iat)) return null
   if (returnTo !== undefined) {
     if (typeof returnTo !== 'string') return null
     if (returnTo.length > RETURN_TO_MAX) return null
   }
-  const payload: OAuth.StatePayload = { nonce, verifier, providerId, binding, iat }
+  const payload: OAuth.StatePayload = { nonce, providerId, binding, iat }
   if (returnTo !== undefined) payload.returnTo = returnTo
   return payload
 }
 
-/** Builds a payload carrying a fresh nonce, the verifier, the providerId, and the digest of the cookie that
- *  binds it to one browser. */
-export function authBuildState(
-  providerId: string,
-  verifier: string,
-  opts: { binding: string; returnTo?: string },
-): OAuth.StatePayload {
+/** Builds a payload carrying a fresh nonce, the providerId, and the digest of the cookie that binds it to one
+ *  browser. */
+export function authBuildState(providerId: string, opts: { binding: string; returnTo?: string }): OAuth.StatePayload {
   const p: OAuth.StatePayload = {
     nonce: randomToken(16),
-    verifier,
     providerId,
     binding: opts.binding,
     iat: Date.now(),

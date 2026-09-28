@@ -1,11 +1,14 @@
 import { AuthError } from '~/core/errors'
-import { DEFAULT_SAML_CONFIG, SAML_RELAY_STATE_MAX, SAML_RESPONSE_MAX } from '../saml.constants'
+import { DEFAULT_SAML_CONFIG, SAML_NAME_ID_MAX, SAML_RELAY_STATE_MAX, SAML_RESPONSE_MAX } from '../saml.constants'
 import type { Saml } from '../saml.types'
 
-/** Three methods for the three message flows: */
+/** One method per logout message: the SP's LogoutRequest out, the IdP's LogoutResponse back, and an IdP's LogoutRequest in. */
 export function samlSloController(opts: { providerId?: string; client: Saml.Client }): {
+  /** The IdP URL an SP-initiated logout redirects to. */
   beginSp(input: Saml.SloBeginSpInput): Promise<{ redirectUrl: string }>
-  completeSp(input: Saml.SloCompleteSpInput): Promise<{ nameID: string | null }>
+  /** Checks the IdP's LogoutResponse. */
+  completeSp(input: Saml.SloCompleteSpInput): Promise<void>
+  /** Checks an IdP's LogoutRequest; answers who to log out and where to respond. */
   completeIdp(input: Saml.SloCompleteIdpInput): Promise<Saml.SloCompleteIdpResult>
 } {
   if (!opts.client) {
@@ -24,13 +27,12 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
       if (
         typeof input.nameID !== 'string' ||
         input.nameID.length === 0 ||
-        input.nameID.length > 512 ||
+        input.nameID.length > SAML_NAME_ID_MAX ||
         input.nameID.includes('\r') ||
         input.nameID.includes('\n')
       ) {
-        throw new AuthError('AUTH_PROVIDER_FAILED', {
-          providerId,
-          detail: 'invalid nameID',
+        throw new AuthError('AUTH_INVALID_PARAMETERS', {
+          detail: `slo.beginSp requires nameID (1-${SAML_NAME_ID_MAX} chars, no CR/LF)`,
         })
       }
       if (
@@ -40,7 +42,7 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
         input.relayState.includes('\r') ||
         input.relayState.includes('\n')
       ) {
-        throw new AuthError('AUTH_MISCONFIGURED', {
+        throw new AuthError('AUTH_INVALID_PARAMETERS', {
           detail: 'slo.beginSp requires relayState (1-256 chars, no CR/LF)',
         })
       }
@@ -59,11 +61,8 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
           detail: 'samlSloController.completeSp: client does not implement validateRedirectAsync',
         })
       }
-      if (
-        typeof input.originalQuery !== 'string' ||
-        input.originalQuery.length === 0 ||
-        input.originalQuery.length > SAML_RESPONSE_MAX
-      ) {
+      const signed = redirectParams(input.originalQuery, 'SAMLResponse')
+      if (!signed) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'invalid LogoutResponse query',
@@ -71,7 +70,7 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
       }
       let validated: { profile: Saml.Profile | null; loggedOut: boolean }
       try {
-        validated = await opts.client.validateRedirectAsync(input.query, input.originalQuery)
+        validated = await opts.client.validateRedirectAsync(signed.query, signed.originalQuery)
       } catch {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
@@ -84,16 +83,16 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
           detail: 'expected LogoutResponse; got sign-in assertion',
         })
       }
-      return { nameID: validated.profile?.nameID ?? null }
     },
 
     async completeIdp(input) {
-      if (!opts.client.getLogoutResponseUrl) {
+      if (!opts.client.getLogoutResponseUrlAsync) {
         throw new AuthError('AUTH_MISCONFIGURED', {
-          detail: 'samlSloController.completeIdp: client does not implement getLogoutResponseUrl',
+          detail: 'samlSloController.completeIdp: client does not implement getLogoutResponseUrlAsync',
         })
       }
       let validated: { profile: Saml.Profile | null; loggedOut: boolean }
+      let relayState = ''
       if (input.SAMLRequest) {
         if (!opts.client.validatePostRequestAsync) {
           throw new AuthError('AUTH_MISCONFIGURED', {
@@ -106,6 +105,7 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
             detail: 'invalid SAMLRequest',
           })
         }
+        relayState = input.RelayState ?? ''
         try {
           validated = await opts.client.validatePostRequestAsync({ SAMLRequest: input.SAMLRequest })
         } catch {
@@ -114,20 +114,22 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
             detail: 'LogoutRequest validation failed',
           })
         }
-      } else if (input.query && input.originalQuery) {
+      } else if (input.originalQuery !== undefined) {
         if (!opts.client.validateRedirectAsync) {
           throw new AuthError('AUTH_MISCONFIGURED', {
             detail: 'samlSloController.completeIdp: client does not implement validateRedirectAsync',
           })
         }
-        if (input.originalQuery.length === 0 || input.originalQuery.length > SAML_RESPONSE_MAX) {
+        const signed = redirectParams(input.originalQuery, 'SAMLRequest')
+        if (!signed) {
           throw new AuthError('AUTH_PROVIDER_FAILED', {
             providerId,
             detail: 'invalid LogoutRequest query',
           })
         }
+        relayState = signed.query.RelayState ?? ''
         try {
-          validated = await opts.client.validateRedirectAsync(input.query, input.originalQuery)
+          validated = await opts.client.validateRedirectAsync(signed.query, signed.originalQuery)
         } catch {
           throw new AuthError('AUTH_PROVIDER_FAILED', {
             providerId,
@@ -135,20 +137,47 @@ export function samlSloController(opts: { providerId?: string; client: Saml.Clie
           })
         }
       } else {
-        throw new AuthError('AUTH_MISCONFIGURED', {
-          detail: 'slo.completeIdp requires either { SAMLRequest } or { query, originalQuery }',
+        throw new AuthError('AUTH_INVALID_PARAMETERS', {
+          detail: 'slo.completeIdp requires either { SAMLRequest } or { originalQuery }',
         })
       }
-      if (!validated.loggedOut) {
+      const request = validated.profile
+      if (!validated.loggedOut || !request) {
         throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'expected LogoutRequest; got sign-in assertion',
         })
       }
-      const nameID = validated.profile?.nameID ?? null
-      const responseUser: Saml.LogoutUser = nameID === null ? { nameID: '' } : { nameID }
-      const redirectUrl = opts.client.getLogoutResponseUrl(responseUser, '', {}, false)
-      return { nameID, redirectUrl }
+      // The request itself, for its `ID`: the response names it in `InResponseTo`. Success, since the host
+      // kills the session before it sends the user on.
+      const redirectUrl = await opts.client.getLogoutResponseUrlAsync(request, relayState, {}, true)
+      return { nameID: request.nameID, redirectUrl }
     },
   }
+}
+
+/**
+ * The Redirect binding's parameters, read off the raw query the signature covers. node-saml verifies a
+ * signature only when one is present, and over the first token of the raw query naming each parameter,
+ * while it decodes the message from a parsed copy; so each parameter is required once, the signature is
+ * required, and both copies are built here from the same tokens.
+ */
+function redirectParams(
+  raw: unknown,
+  message: 'SAMLRequest' | 'SAMLResponse',
+): { query: Record<string, string>; originalQuery: string } | null {
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > SAML_RESPONSE_MAX) return null
+  const query: Record<string, string> = {}
+  const tokens: string[] = []
+  for (const token of raw.split('&')) {
+    const [entry] = new URLSearchParams(token)
+    if (!entry) continue
+    const [key, value] = entry
+    if (key !== message && key !== 'RelayState' && key !== 'SigAlg' && key !== 'Signature') continue
+    if (Object.hasOwn(query, key)) return null
+    query[key] = value
+    tokens.push(token)
+  }
+  if (!query[message] || !query.SigAlg || !query.Signature) return null
+  return { originalQuery: tokens.join('&'), query }
 }

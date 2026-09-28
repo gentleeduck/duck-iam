@@ -56,7 +56,8 @@ describe('backup codes do not depend on a global this package never needed', () 
     } finally {
       vi.unstubAllGlobals()
     }
-    expect(await auth.mfa.verifyBackupCode(identityId, codes[0] as string)).toBe(true)
+    const [first = ''] = codes
+    expect(await auth.mfa.verifyBackupCode(identityId, first)).toBe(true)
   })
 
   it('two calls do not repeat a code, webcrypto present or not', async () => {

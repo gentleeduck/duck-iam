@@ -11,14 +11,18 @@ export namespace OAuth {
     revocationEndpoint?: string
   }
 
+  /** The client credentials and endpoints an `OAuthClient` talks to. */
   export type ClientOptions = {
+    /** The client id the provider issued. */
     clientId: string
+    /** Absent for a PKCE public client. */
     clientSecret?: string
     /** Per-request `client_secret`, called on every exchange and refresh. For Sign in with Apple. Wins over
      *  `clientSecret`. */
     dynamicClientSecret?: () => string | Promise<string>
     /** Can be promised, for discovery at boot. */
     endpoints: Endpoints | (() => Promise<Endpoints>)
+    /** Requested at authorize time. */
     scopes: string[]
     /** Override the fetch impl (test stubs). */
     fetch?: typeof globalThis.fetch
@@ -79,6 +83,7 @@ export namespace OAuth {
    *  `memoryDPoPNonceStore()` and `redisDPoPNonceStore()` satisfy this; give the Redis one its own
    *  `prefix` so oauth nonces and DPoP jtis do not share a keyspace. */
   export interface NonceStore {
+    /** Records `nonce`; false when it was already seen inside `ttlMs`. */
     recordSeen(nonce: string, ttlMs: number): Promise<boolean>
   }
 
@@ -94,8 +99,9 @@ export namespace OAuth {
   export interface Options<AppProfile = unknown> {
     /** Stable id, which the library prefixes with `oauth:`. */
     providerId: string
+    /** The client that talks to the provider. */
     client: OAuthClient
-    endpoints: Endpoints | (() => Promise<Endpoints>)
+    /** The callback URL registered with the provider. */
     redirectUri: string
     /** Secret used to sign the oauth `state` parameter. */
     stateSigningSecret: string
@@ -117,10 +123,14 @@ export namespace OAuth {
      * `SameSite=None` to survive a cross-site POST. Set by the provider module, not by the host.
      */
     responseMode?: 'query' | 'form_post'
-    /** Extract a canonical profile from the token response + userinfo. */
-    fetchProfile: (tokens: { access_token: string; id_token?: string }, client: OAuthClient) => Promise<Profile>
-    /** Map Profile -> consumer Profile shape on first sign-in. */
-    profileToIdentityProfile?: (p: Profile) => AppProfile
+    /** Extract a canonical profile from the token response, the userinfo endpoint or the callback itself. */
+    fetchProfile: (
+      tokens: { access_token: string; id_token?: string },
+      client: OAuthClient,
+      input: CompleteInput,
+    ) => Promise<Profile>
+    /** Map Profile -> consumer Profile shape on first sign-in; `null` refuses it. Unset refuses every first sign-in. */
+    profileToIdentityProfile?: (p: Profile) => AppProfile | null
     /** Identity-resolution override; null return refuses sign-in. */
     onSignIn?: (ctx: {
       profile: Profile
@@ -136,12 +146,23 @@ export namespace OAuth {
     onFederationConflict?: FederationPolicy
   }
 
-  /** Policy + hook shape for the federation conflict workflow. */
+  /** An identity owning the profile's email with no link to this provider. `existingEmailVerified` is whether
+   *  that identity proved the address; an unproven one may be a squatter's. */
+  export interface FederationConflict {
+    existingEmailVerified: boolean
+    existingIdentityId: string
+    profile: Profile
+    providerId: string
+  }
+
+  /** Policy + hook shape for the federation conflict workflow. `'link-if-verified'` links only when both the
+   *  provider and the existing identity have verified the address. */
   export type FederationPolicy =
     | 'reject'
     | 'link-if-verified'
-    | ((ctx: { existingIdentityId: string; profile: Profile; providerId: string }) => Promise<'link' | 'reject'>)
+    | ((ctx: FederationConflict) => Promise<'link' | 'reject'>)
 
+  /** What starting an OAuth sign-in takes. */
   export interface BeginInput {
     /**
      * Carried through the signed state and handed back to nothing: `complete` answers with
@@ -156,6 +177,7 @@ export namespace OAuth {
     returnTo?: string
   }
 
+  /** What the callback hands back to finish the sign-in. */
   export interface CompleteInput {
     /** Authorisation code returned by the provider. */
     code: string
@@ -165,48 +187,26 @@ export namespace OAuth {
      *  SECURITY: without it the signed state verifies from any browser, so an attacker completes their own
      *  flow, hands over the callback URL, and the victim signs in as the attacker. */
     cookieHeader?: string
-  }
-
-  /** Shape stored in `Credential.metadata` for oauth credentials. */
-  export interface CredentialMetadata {
-    provider: string
-    sub: string
-    familyId: string
-    generation: number
+    /** Apple's form_post `user` field, verbatim. It carries the name, and Apple sends it on the first
+     *  authorization only, so a callback that drops it loses the name for good. */
+    user?: string
   }
 
   /** Signed `state` payload, `<payload-base64url>.<sig-base64url>` under HMAC-SHA256 with the engine's signing
-   *  secret. Carries the PKCE verifier and the digest of the cookie `begin` left in the browser, so one
-   *  authorisation code cannot be stitched to another flow. */
+   *  secret. Signed, not secret: the IdP round-trips it in URLs. */
   export interface StatePayload {
     /** Random per flow, and what `Options.nonceStore` burns so one state completes once. */
     nonce: string
-    /** PKCE verifier. Secret; never leaves the server. */
-    verifier: string
     /** Provider id; library refuses if it doesn't match the callback. */
     providerId: string
-    /** Digest of the value `begin` set as a cookie. The state is signed but not secret, travelling through the
-     *  IdP in a URL, so the cookie is what proves the callback reached the browser that started the flow. */
+    /** Digest of the cookie `begin` set, which is also the PKCE verifier. Presenting the cookie proves the
+     *  callback reached the browser that started the flow. */
     binding: string
     /** Optional return-to path on the app, as `begin` minted it. Round-tripped and length-capped, never
      *  read after that - see `BeginInput.returnTo`. */
     returnTo?: string
-    /** Issued-at; signer rejects after `maxAgeMs`. Default 10 minutes. */
+    /** Issued-at, in epoch ms. A state stamped more than ten minutes either side of now is refused. */
     iat: number
-  }
-
-  /** Refresh-token family metadata, kept on the `kind: 'oauth'` credential and rotated atomically by
-   *  `authRefreshoauthToken`. Reusing an old refresh token throws `AUTH_OAUTH_REUSE_DETECTED` and revokes
-   *  the whole family. */
-  export interface FamilyMetadata {
-    provider: string
-    sub: string
-    familyId: string
-    generation: number
-    /** When set, family revoked; every member rejects on lookup. */
-    revokedAt?: number
-    /** Index signature for Credential.metadata assignment. */
-    [k: string]: unknown
   }
 
   /** Google-specific options. Default scopes `['openid', 'email', 'profile']`. */
@@ -238,8 +238,7 @@ export namespace OAuth {
     scopes?: string[]
   }
 
-  /** Apple-specific options. `clientSecret` from {@link OAuth.OptionsBase} is ignored: the secret is minted per
-   *  request from the team, key and private-key triple. */
+  /** Apple-specific options. No `clientSecret`: one is minted per request from the team, key and private key. */
   export interface AppleOptions<AppProfile = unknown> extends Omit<OptionsBase<AppProfile>, 'clientSecret'> {
     /** Apple Developer Team ID (10-char alphanumeric). */
     teamId: string

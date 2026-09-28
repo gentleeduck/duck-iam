@@ -47,7 +47,7 @@ function fakeGithub(user: Record<string, unknown>, emails: EmailRow[] | null): t
 function build(
   user: Record<string, unknown>,
   emails: EmailRow[] | null,
-  opts: { onFederationConflict?: OAuth.FederationPolicy } = {},
+  opts: { onFederationConflict?: OAuth.FederationPolicy; refuseProfile?: boolean } = {},
 ): { auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyProfile>; seen: OAuth.Profile[] } {
   const seen: OAuth.Profile[] = []
   const adapter = new MemoryAdapter<MyProfile>()
@@ -60,6 +60,7 @@ function build(
         fetch: fakeGithub(user, emails),
         profileToIdentityProfile: (p) => {
           seen.push(p)
+          if (opts.refuseProfile) return null
           // GitHub's own convention for an account with no public address. A blank one is refused by
           // the store, as it is by every dialect.
           return { email: p.email ?? `${p.sub}@users.noreply.github.com`, username: p.email ?? 'gh' }
@@ -77,8 +78,8 @@ function build(
 }
 
 async function signIn(auth: AuthEngine<MyProfile>) {
-  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:authGithub', {}))
-  return auth.flows.signIn({ input: { code: 'authcode', cookieHeader, state }, providerId: 'oauth:authGithub' })
+  const { state, cookieHeader } = afterOAuthBegin(await auth.flows.beginProvider('oauth:github', {}))
+  return auth.flows.signIn({ input: { code: 'authcode', cookieHeader, state }, providerId: 'oauth:github' })
 }
 
 describe('github provider - profile resolution', () => {
@@ -109,6 +110,14 @@ describe('github provider - profile resolution', () => {
     await signIn(auth)
     expect(seen[0]?.email).toBeUndefined()
     expect(seen[0]?.emailVerified).toBeUndefined()
+  })
+
+  it('refuses a first sign-in the projection answers null for, and creates nobody', async () => {
+    const { auth, adapter } = build({ id: 42, login: 'octocat', email: null }, [], { refuseProfile: true })
+    await expect(signIn(auth)).rejects.toThrow(/PROVIDER_FAILED/)
+    await expect(adapter.identities.find({ providerId: 'oauth:github', providerSub: '42' })).rejects.toMatchObject({
+      code: 'AUTH_IDENTITY_NOT_FOUND',
+    })
   })
 
   it('refuses a userinfo with no numeric id, rather than collapsing every bad one onto one sub', async () => {

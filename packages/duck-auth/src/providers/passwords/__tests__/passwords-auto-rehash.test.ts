@@ -61,9 +61,10 @@ describe('autoRehash rolls a parameter upgrade out on sign-in', () => {
   beforeEach(async () => {
     adapter = new MemoryAdapter<ProfileShape>()
     const identity = await adapter.identities.create({
+      emailVerified: false,
       profile: { email: 'alice@x.com', username: 'alice' },
       providers: [],
-    } as never)
+    })
     identityId = identity.id
     await adapter.credentials.create(
       {
@@ -99,7 +100,7 @@ describe('autoRehash rolls a parameter upgrade out on sign-in', () => {
 
   it('replaces the stored hash after a sign-in that reported needsRehash', async () => {
     const provider = passwordsImpl({ hasher: upgradedHasher })
-    await provider.complete(ctx as never, { email: 'alice@x.com', password: 'correct-horse-battery' })
+    await provider.complete(ctx, { email: 'alice@x.com', password: 'correct-horse-battery' })
 
     await vi.waitFor(
       async () => {
@@ -127,7 +128,7 @@ describe('autoRehash rolls a parameter upgrade out on sign-in', () => {
       },
       {},
     )
-    await provider.complete(ctx as never, { email: 'alice@x.com', password: 'correct-horse-battery' })
+    await provider.complete(ctx, { email: 'alice@x.com', password: 'correct-horse-battery' })
     await new Promise((resolve) => setTimeout(resolve, 60))
 
     expect(await storedSecret()).toBe('v2:correct-horse-battery')
@@ -135,7 +136,7 @@ describe('autoRehash rolls a parameter upgrade out on sign-in', () => {
 
   it('does not rehash when the option is off', async () => {
     const provider = passwordsImpl({ autoRehash: false, hasher: upgradedHasher })
-    await provider.complete(ctx as never, { email: 'alice@x.com', password: 'correct-horse-battery' })
+    await provider.complete(ctx, { email: 'alice@x.com', password: 'correct-horse-battery' })
     await new Promise((resolve) => setTimeout(resolve, 60))
 
     expect(await storedSecret()).toBe('v1:correct-horse-battery')
