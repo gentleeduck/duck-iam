@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { orNull } from '~/core/answer'
 import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
@@ -68,12 +68,17 @@ describe('RememberMeFacet list and revokeAll agree about what a device is', () =
     identityId = ident.id
   })
 
-  // A real elapsed TTL, not a negative one: the memory adapter refuses to create a row that is already
-  // past its expiry, so the window has to open after the write.
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // The clock holds still for the write, since the memory adapter refuses a row already past its expiry,
+  // then moves past the TTL; a real 5ms TTL expired mid-write on a slow runner.
   const elapsed = async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
     const facet = new RememberMeFacet(adapter.credentials, CRYPTO, { ...DEFAULT_REMEMBER_ME_CONFIG, ttlMs: 5 })
     const issued = await facet.issue(identityId)
-    await new Promise((r) => setTimeout(r, 30))
+    vi.setSystemTime(Date.now() + 30)
     return { facet, issued }
   }
 

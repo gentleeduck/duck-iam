@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { RECOVERY_PURPOSES } from '~/core/credentials/credentials.constants'
 import { randomToken, sha256 } from '~/core/crypto'
@@ -20,6 +20,10 @@ describe('RememberMeFacet', () => {
       identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }),
     )
     identityId = ident.id
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('issue + verify round-trip returns the same identity', async () => {
@@ -102,13 +106,15 @@ describe('RememberMeFacet', () => {
   })
 
   it('verify rejects a token past its ttl', async () => {
+    // A frozen clock, or a slow write lands the 5ms row already expired and the adapter refuses it.
+    vi.useFakeTimers({ toFake: ['Date'] })
     const tiny = new RememberMeFacet(
       adapter.credentials,
       { authRandomToken: randomToken, authSha256: sha256 },
       { ttlMs: 5, byteLength: 32 },
     )
     const { token } = await tiny.issue(identityId)
-    await new Promise((r) => setTimeout(r, 20))
+    vi.setSystemTime(Date.now() + 20)
     await expect(tiny.verify(token)).rejects.toMatchObject({ code: 'AUTH_CREDENTIAL_NOT_FOUND' })
   })
 })
