@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package duckauth;
+
+// Password sign-in over a bearer token, the transport a native or service caller holds.
+service Auth {
+  rpc SignIn (SignInRequest) returns (Token);
+  // The second factor, once TOTP is enrolled: swaps the token for one at AAL 2.
+  rpc VerifyMfa (VerifyMfaRequest) returns (Token);
+  rpc Me (Empty) returns (Account);
+  rpc SignOut (Empty) returns (Empty);
+}
+
+message Empty {}
+
+message SignInRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message VerifyMfaRequest {
+  string code = 1;
+}
+
+message Token {
+  string token = 1;
+  string expires_at = 2;
+}
+
+message Account {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  bool email_verified = 4;
+  int32 aal = 5;
+}
