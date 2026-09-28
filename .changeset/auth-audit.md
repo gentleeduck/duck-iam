@@ -359,6 +359,12 @@ ceremony, while `passkey.begin` is unauthenticated, takes a caller-chosen
 bucket with nothing bounding the number of ids. `put` now drops expired entries
 first, which bounds the map by what is live within the TTL instead of by uptime.
 
+**`@simplewebauthn/server` 14 is supported.** The peer range is now `^13.3.1 || ^14.0.0`;
+14.0.2 fixes two moderate advisories in attestation certificate revocation, and 14 needs
+Node 22. Passkeys keep the algorithms duck-auth offers, so 14's new ML-DSA-44 default does not
+apply. `Passkey.RegistrationOptions` and `Passkey.AuthenticationOptions` type a credential
+descriptor's `type` as `string`, which is what 14 returns.
+
 **A compliance preset could not be applied.** `applyCompliancePreset` was
 exported from no entrypoint, and `createAuth` refused the brand it sets as an
 unknown key, so the preset session windows and the compliance checks in `strict()`

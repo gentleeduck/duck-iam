@@ -40,7 +40,7 @@ export namespace Passkey {
     user: { id: string; name: string; displayName?: string }
     pubKeyCredParams: Array<{ alg: number; type: 'public-key' }>
     timeout?: number
-    excludeCredentials?: Array<{ id: string; type: 'public-key'; transports?: string[] }>
+    excludeCredentials?: Array<{ id: string; type: string; transports?: string[] }>
     authenticatorSelection?: RegistrationOptionsInput['authenticatorSelection']
     attestation?: string
   }
@@ -82,7 +82,7 @@ export namespace Passkey {
   export type AuthenticationOptions = {
     challenge: string
     rpId?: string
-    allowCredentials?: Array<{ id: string; type: 'public-key'; transports?: string[] }>
+    allowCredentials?: Array<{ id: string; type: string; transports?: string[] }>
     userVerification?: 'discouraged' | 'preferred' | 'required'
     timeout?: number
   }
