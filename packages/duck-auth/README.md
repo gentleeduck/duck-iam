@@ -25,7 +25,7 @@
 
 Every TypeScript auth library makes you choose framework lock-in (NextAuth, Auth.js), a hosted control plane (Clerk, WorkOS, Stytch), or DIY-on-Lucia + passport + your own glue. `@gentleduck/auth` is the third option, but unified: framework-agnostic core, batteries-included adapters, no hosted plane. Wire it into Express, Hono, Next.js, Fastify, Koa, NestJS, Elysia, gRPC, or your own router with one adapter import.
 
-Zero hosted dependencies. Tree-shakeable subpath exports. Lazy peer deps for the heavy bits (argon2, simplewebauthn, ioredis, nodemailer).
+Zero hosted dependencies. Tree-shakeable subpath exports. Lazy peer deps for the heavy bits (argon2, simplewebauthn, the AWS KMS client, the database drivers).
 
 ## Install
 
@@ -35,16 +35,18 @@ npm install @gentleduck/auth
 bun add @gentleduck/auth
 ```
 
-Optional peer dependencies (install only what you wire):
+Install only what you wire:
 
-| Peer | When you need it |
+| Package | When you need it |
 |---|---|
 | `@node-rs/argon2` | Argon2id password hashing (FIPS / HIPAA presets) |
 | `@simplewebauthn/server` | Passkey / WebAuthn-MFA |
+| `@aws-sdk/client-kms` | AWS KMS envelope encryption at rest |
+| `drizzle-orm` + `pg`, `mysql2` or `better-sqlite3` | Drizzle adapter (pg / mysql / sqlite) |
 | `ioredis` or `@upstash/redis` | Redis-backed session / idempotency / limiter / events / DPoP-nonce stores |
-| `drizzle-orm` + driver | Drizzle adapter (pg / mysql / sqlite) |
-| `@prisma/client` | Prisma adapter |
-| `node-saml` | SAML 2.0 SP |
+| `@node-saml/node-saml` | SAML 2.0 SP |
+| `@nestjs/common` | NestJS adapter |
+| `react`, `vue` or `solid-js` | The matching client binding |
 
 ## Quick start
 
@@ -58,13 +60,13 @@ const storage = new MemoryAdapter()
 
 export const auth = createAuth({
   baseUrl: 'http://localhost:3000',
-  storage,
+  stores: storage,
   limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
   providers: [passwords({ hasher: new Argon2idHasher() })],
 })
 
-const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
-await auth.passwords.set(identity.id, 'correct-horse-battery')
+const identity = await auth.identities.create({ profile: { username: 'a', email: 'a@x.com' } })
+await auth.passwords.set(identity.id, 'correct-horse-battery', auth.cfg.stores.credentials)
 
 const result = await auth.flows.signIn({
   providerId: 'password',
@@ -73,11 +75,11 @@ const result = await auth.flows.signIn({
 // result.session, result.sid, result.intents[]
 ```
 
-`createAuth` is the factory that wires the 14 facets, picks sane defaults (CookieTransport, AuthScryptHasher, AuthInMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
+`createAuth` is the factory that wires the facets, picks sane defaults (CookieTransport, AuthScryptHasher, AuthInMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
 
 ## Architecture
 
-`AuthEngine` is the 14-facet root: every state-changing operation lives behind one named facet so adapters, transports, and providers compose without back-channel coupling.
+`AuthEngine` is the root: every state-changing operation lives behind one named facet so adapters, transports, and providers compose without back-channel coupling.
 
 | Facet | Owns |
 |---|---|
@@ -85,11 +87,11 @@ const result = await auth.flows.signIn({
 | `sessions` | rotateOrCreate (single privilege-changing API), getBySid, revoke, revokeAllForIdentity, gc |
 | `credentials` | password / api-key / oauth / passkey / recovery / totp / webauthn-mfa rows; CAS rotation |
 | `passwords` | strength + cap validation, constant-time verify, needsRehash + auto-rehash, common-list reject |
-| `mfa` | TOTP enrollment + verify, backup-code mint/verify, WebAuthn-MFA, AAL3 detection |
-| `apiKeys` | mint / list / rotate / revoke / verify + scope checks, tenant-bound issuance |
+| `passkeys` | list / revoke / revokeAll, scoped to the identity that holds them |
+| `mfa` | TOTP enrollment + verify, backup-code mint/verify, WebAuthn-MFA |
+| `apiKeys` | mint / list / rotate / revoke / revokeAll / verify + scope checks, tenant-bound issuance |
 | `flows` | signIn / signOut / signUp (multi-stage) / password-reset / email-verification / account-deletion / linkProvider / unlinkProvider / impersonate / step-up / step-down |
 | `csrf` | double-submit + origin-only + sec-fetch-site gates, `__Host-` cookie |
-| `idempotency` | per-(identity, key) tombstone + poll, NaN-bypass defense on TTL |
 | `webhooks` | HMAC + timestamp + tolerance, retry w/ backoff, dead-letter, SSRF-guarded URLs |
 | `events` | typed bus, lockout / signin.success / signin.failed / suspicious / session.revoked / mfa.removed |
 | `hijack` | IP / UA drift detection + step-up / rotate / revoke reaction policy |
@@ -102,7 +104,7 @@ Plus `m2m` (`client_credentials` OAuth2 grant), `compliance` (GDPR / HIPAA / SOC
 
 | Path | What |
 |---|---|
-| `@gentleduck/auth/providers/password` | Email + password |
+| `@gentleduck/auth/providers/passwords` | Email + password |
 | `@gentleduck/auth/providers/magic-link` | Passwordless one-time link |
 | `@gentleduck/auth/providers/passkey` | WebAuthn passkey (lazy peerDep on `@simplewebauthn/server`) |
 | `@gentleduck/auth/providers/api-key` | Long-lived bearer keys via `ApiKeysFacet` |
@@ -112,8 +114,8 @@ Plus `m2m` (`client_credentials` OAuth2 grant), `compliance` (GDPR / HIPAA / SOC
 | `@gentleduck/auth/providers/oauth/discord` | Discord OAuth |
 | `@gentleduck/auth/providers/oauth/linkedin` | LinkedIn OAuth |
 | `@gentleduck/auth/providers/oauth/apple` | Sign in with Apple |
-| `@gentleduck/auth/providers/oauth/core` | Generic OAuth2 / OIDC client base. Build your own per-IdP wrapper |
-| `@gentleduck/auth/providers/saml` | Wrapper over `@node-saml/node-saml` (lazy peerDep): SP-initiated + IdP-initiated SSO, SP metadata XML generation, Single Logout (SP- and IdP-initiated) |
+| `@gentleduck/auth/providers/oauth/core` | Any other OAuth 2.0 / OIDC IdP: `oProvider` over an `OAuthClient` |
+| `@gentleduck/auth/providers/saml` | Wrapper over a `@node-saml/node-saml` client you build: SP-initiated + IdP-initiated SSO, SP metadata XML generation, Single Logout (SP- and IdP-initiated) |
 
 ## Transports
 
@@ -150,8 +152,8 @@ import { FakeRedis } from '@gentleduck/auth/test' // in-tree, for tests
 
 // One class per dialect, implementing the three store contracts. The constructor takes a
 // connection string, a driver pool, or a drizzle handle you already have.
-const storage = new DrizzlePgAdapter(process.env.DATABASE_URL)
-const { identities, credentials, sessions } = new DrizzlePgAdapter(db)
+const storage = new DrizzlePgAdapter('postgres://localhost/app')
+const { identities, credentials, sessions } = storage
 ```
 
 ### What a call costs
@@ -186,13 +188,12 @@ returns a view of the engine bound to your transaction handle; the handle is opa
 duck-auth and is handed straight back to your adapter.
 
 ```typescript
-let pending
-await db.transaction(async (tx) => {
+const pending = await db.transaction(async (tx) => {
   const auth = engine.withTransaction(tx)
   await auth.identities.softDelete(identityId)
   await auth.sessions.revokeAllForIdentity(identityId)
   await tx.delete(users).where(eq(users.id, identityId))
-  pending = auth.pending
+  return auth.pending
 })
 await pending.flush()   // publish the events only once the commit landed
 ```
@@ -219,12 +220,11 @@ draining it.
 | events | buffered in `pending` | never published |
 | `deliver` calls (verification / reset mail) | **no - sent immediately** | mail already delivered |
 | `limiter` counters | **no** | token stays consumed |
-| `idempotency` records | **no** | record stands |
 | `hijack` / `anomaly` scoring | **no** | scores stand |
 
-The last four are guards: they decide *whether* to do the work, they write nothing to SQL,
+The last two rows are guards: they decide *whether* to do the work, they write nothing to SQL,
 and they are not reachable on the bound view at all - use `engine.limiter`,
-`engine.idempotency` and friends outside the transaction. A flow that sends mail should be
+`engine.hijack` and `engine.anomaly` outside the transaction. A flow that sends mail should be
 called outside a transaction, or split so the send happens after the commit; no rollback
 can retract a delivered email.
 
@@ -243,73 +243,77 @@ rather than silently leaving those writes outside your transaction.
 
 A write that returns `void` cannot be told apart from one that matched nothing, and forces a
 second read for something the statement already had. Every mutating call returns the row,
-the rows, or the count it touched - `null` / `[]` / `0` when nothing matched. Where the
+the rows, or the count it touched. A single-row call that matched nothing rejects, and `.orNull()`
+reads that as `null`; a bulk one answers `[]` or `0`. Where the
 dialect has `RETURNING` this is the same round trip.
 
 ```typescript
 const identity = await auth.identities.softDelete(id)
 // `deletedAt` is when the grace window CLOSES, so the deadline you show the user
 // comes off the write itself rather than a second reading of the clock.
-identity?.deletedAt        // Date | null
-identity?.emailVerified    // false - the address is free to be claimed meanwhile
+identity.deletedAt        // Date | null
+identity.emailVerified    // false - the address is free to be claimed meanwhile
 
 const erased = await auth.identities.erase(id, { reason: 'gdpr' })
 // The row as it was: after the delete there is nothing left to read.
 
 const ended = await auth.sessions.revokeAllForIdentity(id)
-`Signed out of ${ended.length} devices`   // no second query; already read to emit events
+const notice = `Signed out of ${ended.length} devices`   // no second query; already read to emit events
 ```
 
 | Surface | Calls | Answers with |
 |---|---|---|
-| `identities` | `softDelete`, `restore`, `erase`, `link`, `unlink`, `merge` | the row, `null` when nothing matched |
-| `sessions` | `revoke`, `revokeByHash` | the session ended, `null` when the sid matched nothing |
+| `identities` | `softDelete`, `restore`, `erase`, `link`, `unlink` | the row |
+| `sessions` | `revoke`, `revokeByHash` | the session ended |
 | `sessions` | `revokeAllForIdentity` | the sessions ended |
-| `stores.credentials` | `revoke`, `delete` / `deleteByKind` | the row / the rows |
-| `apiKeys` | `revoke` | the key revoked |
-| `mfa` | `removeTotp`, `removeWebauthnMfa` | `{ removed }` - the count, not the rows, which carry the secret |
+| `cfg.stores.credentials` | `revoke` / `revokeByKind`, `delete` / `deleteByKind` | the row / the rows |
+| `apiKeys` | `revoke` / `revokeAll` | the key / the keys revoked |
+| `passkeys` | `revoke` / `revokeAll` | the passkey / the passkeys revoked, without the secret |
+| `mfa` | `removeTotp`, `removeWebauthnMfa`, `removeBackupCodes` | `{ removed }` - the count, not the rows, which carry the secret |
 | `orgs` | `removeMember`, `setRoles` | the membership, with the **sanitized** role set actually stored |
 | `flows` | `completeAccountDeletion`, `cancelAccountDeletion`, `completeEmailVerification`, `linkProvider`, `unlinkProvider` | `identity`, alongside the fields they already returned |
 | `webhooks` | `deliverOne` | one `Delivery` per eligible endpoint |
 | `pending` | `flush`, `discard` | `{ published }` / `{ discarded }` |
 | `anomaly` | `unregister` | whether it removed anything |
 
-Assertions (`apiKeys.requireScopes`, `hijack.applyReaction`), registrations (`anomaly.register`, `providers.register`) and
+Assertions (`apiKeys.requireScopes`), `hijack.applyReaction`, registrations (`anomaly.register`, `providers.register`) and
 `plugins.dispose` stay `void`: they throw or they do not, and a return value would be noise.
 
 ### Batch writes
 
-Batch forms take a list and report per-row outcomes instead of collapsing to `void`:
+Batch forms take a list and answer the rows they wrote:
 
 ```typescript
-const result = await auth.identities.updateProfileMany([
+const written = await auth.identities.updateProfileMany([
   { id: a, patch: { displayName: 'A' }, expectedVersion: 3 },
   { id: b, patch: { displayName: 'B' }, expectedVersion: 7 },
 ])
-result.outcomes  // [{ id: a, ok: true, value: … }, { id: b, ok: false, reason: 'stale-write' }]
-result.applied   // 1
+written.map((row) => row.id)  // [a] when b lost its version race
 ```
 
 Available on `identities` (`softDeleteMany`, `restoreMany`, `eraseMany`, `updateProfileMany`,
-`linkMany`, `unlinkMany`), `sessions` (`revokeAllForIdentities`, `revokeByHashes`) and the
-credential store (`auth.stores.credentials.deleteByIdentities`). Each collapses to one
+`linkMany`, `unlinkMany`) and `sessions` (`revokeAllForIdentities`, `revokeByHashes`). Each collapses to one
 statement per table where the adapter can express it and loops otherwise, so every adapter
 supports every batch form.
 
 A **hard** failure - a constraint violation - throws and aborts your transaction, so one
 bad row rolls the whole batch back. A **soft** failure - a lost optimistic-lock race, a
-missing row - is reported per row and does not throw.
+missing row - leaves that row out of the answer and does not throw.
 
 ## Server adapters
 
 ```typescript
 // Express
-import { mountSignIn, mountSignOut, mountProviderBegin } from '@gentleduck/auth/server/express'
+import { mountSignIn, mountSignOut, mountProviderBegin, mountProviderCallback } from '@gentleduck/auth/server/express'
 app.post('/auth/signin', mountSignIn(auth))
+// Where the IdP returns the browser: a redirect, or Apple's form post
+app.get('/auth/providers/:id/callback', mountProviderCallback(auth))
+app.post('/auth/providers/:id/callback', express.urlencoded({ extended: false }), mountProviderCallback(auth))
 
-// Hono
+// Hono resolves no caller address; pass one for the session row and the hijack checks
 import { mountHono } from '@gentleduck/auth/server/hono'
-mountHono(app, auth, { prefix: '/auth' })
+import { getConnInfo } from 'hono/bun'
+mountHono<Context>(app, auth, { prefix: '/auth', ip: (c) => getConnInfo(c).remote.address })
 
 // Next.js App Router
 import { nextSignIn, nextSignOut } from '@gentleduck/auth/server/next'
@@ -331,7 +335,8 @@ import { executeIntents, parseSignInBody } from '@gentleduck/auth/server/generic
 Every outbound token - magic link, email verification, password reset, account deletion and its undo
 link - goes to one `deliver` callback on the engine config. The library signs the URL and hands over the
 recipient's identity, the template vars and the tenant; the host picks the transport and writes the
-template. Throw from it to report a failure: the flow answers the caller the same either way and reports
+template. Every message's `vars` has the signed `url` and its lifetime `ttlMin`; switching on `kind` narrows
+them further (`requiresMfa` on a password reset, `restorableUntil` on the undo link). Throw from it to report a failure: the flow answers the caller the same either way and reports
 the refusal as a `signin.failed` event, never the thrown text.
 
 ```typescript
@@ -385,10 +390,9 @@ import {
 - **`AuthEngine.strict({ env: 'production' })`** - boot-time validation: rejects `secure: false` cookie transport, `NoopLimiter`, memory stores, missing `lockout` listener, non-HTTPS `baseUrl`
 - **`JwtTransport.rotateSignKey()` + `retireVerifyKey(kid)`** - zero-downtime JWKS rotation with overlap window
 - **`applyCompliancePreset(cfg, 'gdpr' | 'hipaa' | 'soc2' | 'fips')`** - a free function over the config, not an engine method: it ratchets the three session TTLs down to the named floor. The password, MFA and api-key floors are provider-level - pass the same preset to `passwords({ compliance })` and its siblings - and `strict()` enforces the rest, including data-at-rest
-- **`auth.webhooks`** - HMAC body + timestamp + freshness tolerance, exponential backoff, dead-letter sink, SSRF guard on endpoint URLs, `redirect: 'error'` on dispatch
+- **`WebhookDeliverer`** - HMAC body + timestamp + freshness tolerance, exponential backoff, dead-letter sink, SSRF guard on endpoint URLs, `redirect: 'error'` on dispatch
 - **`auth.hijack` + `auth.anomaly`** - drift detection, decision ladder (allow / step-up / deny), pluggable signals
-- **`auth.idempotency`** - per-(identity, key) tombstone + poll for replay-safe mutating routes
-- **Refresh-token reuse detection** (RFC 6749 §10.4) on OAuth refresh families
+- **`redisIdempotency` / `valkeyIdempotency`** - per-(identity, key) tombstone + poll for the host's replay-safe mutating routes; the host holds it, the engine does not
 - **DPoP** (RFC 9449) - proof-of-possession on bearer tokens with `ath` binding and server nonce
 - **Tenant boundary**: every adapter respects `ctx.tenantId`; M2M + api-key providers refuse cross-tenant identification
 
